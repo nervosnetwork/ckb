@@ -54,11 +54,12 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         }
         // resolve txs
         // early release the chain_state lock because tx verification is slow
-        let (resolved_txs, cached_txs, unresolvable_txs, consensus, tip_number) = {
+        let (resolved_txs, cached_txs, unresolvable_txs, consensus, tip_number, epoch_number) = {
             let chain_state = self.shared.lock_chain_state();
             let txs_verify_cache = self.shared.lock_txs_verify_cache();
             let consensus = chain_state.consensus();
             let tip_number = chain_state.tip_number();
+            let epoch_number = chain_state.current_epoch_ext().number();
             let mut resolved_txs = Vec::with_capacity(txs.len());
             let mut unresolvable_txs = Vec::with_capacity(txs.len());
             let mut cached_txs = Vec::with_capacity(txs.len());
@@ -81,6 +82,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 unresolvable_txs,
                 consensus,
                 tip_number,
+                epoch_number,
             )
         };
 
@@ -105,6 +107,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                     Arc::clone(&store),
                     &block_median_time_context,
                     tip_number,
+                    epoch_number,
                     consensus.cellbase_maturity(),
                     self.shared.script_config(),
                 )

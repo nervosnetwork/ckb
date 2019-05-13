@@ -10,7 +10,7 @@ pub struct CellSetDiff {
     pub old_inputs: FnvHashSet<OutPoint>,
     pub old_outputs: FnvHashSet<H256>,
     pub new_inputs: FnvHashSet<OutPoint>,
-    pub new_outputs: FnvHashMap<H256, (u64, bool, usize)>,
+    pub new_outputs: FnvHashMap<H256, (u64, u64, bool, usize)>,
 }
 
 impl CellSetDiff {
@@ -22,7 +22,12 @@ impl CellSetDiff {
             self.new_inputs.extend(input_iter.cloned());
             self.new_outputs.insert(
                 tx_hash.to_owned(),
-                (block.header().number(), tx.is_cellbase(), output_len),
+                (
+                    block.header().number(),
+                    block.header().epoch(),
+                    tx.is_cellbase(),
+                    output_len,
+                ),
             );
         }
     }
@@ -77,12 +82,12 @@ impl CellSet {
             }
         }
 
-        for (hash, (number, cellbase, len)) in diff.new_outputs.clone() {
+        for (hash, (number, epoch, cellbase, len)) in diff.new_outputs.clone() {
             removed.remove(&hash);
             if cellbase {
-                new.insert(hash, TransactionMeta::new_cellbase(number, len));
+                new.insert(hash, TransactionMeta::new_cellbase(number, epoch, len));
             } else {
-                new.insert(hash, TransactionMeta::new(number, len));
+                new.insert(hash, TransactionMeta::new(number, epoch, len));
             }
         }
 
@@ -119,13 +124,22 @@ impl CellSet {
         self.inner.get(h)
     }
 
-    pub fn insert(&mut self, tx_hash: H256, number: u64, cellbase: bool, outputs_len: usize) {
+    pub fn insert(
+        &mut self,
+        tx_hash: H256,
+        number: u64,
+        epoch: u64,
+        cellbase: bool,
+        outputs_len: usize,
+    ) {
         if cellbase {
-            self.inner
-                .insert(tx_hash, TransactionMeta::new_cellbase(number, outputs_len));
+            self.inner.insert(
+                tx_hash,
+                TransactionMeta::new_cellbase(number, epoch, outputs_len),
+            );
         } else {
             self.inner
-                .insert(tx_hash, TransactionMeta::new(number, outputs_len));
+                .insert(tx_hash, TransactionMeta::new(number, epoch, outputs_len));
         }
     }
 
@@ -167,8 +181,8 @@ impl CellSet {
 
         new_outputs
             .into_iter()
-            .for_each(|(hash, (number, cellbase, len))| {
-                self.insert(hash, number, cellbase, len);
+            .for_each(|(hash, (number, epoch, cellbase, len))| {
+                self.insert(hash, number, epoch, cellbase, len);
             });
 
         new_inputs.iter().for_each(|o| {

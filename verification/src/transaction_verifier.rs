@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 pub struct ContextualTransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
-    pub valid_since: ValidSinceVerifier<'a, M>,
+    pub since: SinceVerifier<'a, M>,
 }
 impl<'a, M> ContextualTransactionVerifier<'a, M>
 where
@@ -24,17 +24,18 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         tip_number: BlockNumber,
+        tip_epoch_number: BlockNumber,
         cellbase_maturity: BlockNumber,
     ) -> Self {
         ContextualTransactionVerifier {
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
-            valid_since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
+            since: SinceVerifier::new(rtx, median_time_context, tip_number, tip_epoch_number),
         }
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         self.maturity.verify()?;
-        self.valid_since.verify()?;
+        self.since.verify()?;
         Ok(())
     }
 }
@@ -46,7 +47,7 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub capacity: CapacityVerifier<'a>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
     pub script: ScriptVerifier<'a, CS>,
-    pub since: ValidSinceVerifier<'a, M>,
+    pub since: SinceVerifier<'a, M>,
 }
 
 impl<'a, M, CS: ChainStore> TransactionVerifier<'a, M, CS>
@@ -58,6 +59,7 @@ where
         store: Arc<CS>,
         median_time_context: &'a M,
         tip_number: BlockNumber,
+        tip_epoch_number: BlockNumber,
         cellbase_maturity: BlockNumber,
         script_config: &'a ScriptConfig,
     ) -> Self {
@@ -68,7 +70,7 @@ where
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, Arc::clone(&store), script_config),
             capacity: CapacityVerifier::new(rtx),
-            since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
+            since: SinceVerifier::new(rtx, median_time_context, tip_number, tip_epoch_number),
         }
     }
 
@@ -173,8 +175,10 @@ impl<'a> MaturityVerifier<'a> {
             meta.is_cellbase()
                 && self.tip_number
                     < meta
-                        .block_number
+                        .block_info
+                        .as_ref()
                         .expect("cell meta should have block number when transaction verify")
+                        .number
                         + self.cellbase_maturity
         };
 
@@ -284,9 +288,9 @@ impl<'a> CapacityVerifier<'a> {
 }
 
 const LOCK_TYPE_FLAG: u64 = 1 << 63;
-const TIME_TYPE_FLAG: u64 = 1 << 62;
-const VALUE_MUSK: u64 = 0x00ff_ffff_ffff_ffff;
-const REMAIN_FLAGS_BITS: u64 = 0x3f00_0000_0000_0000;
+const METRIC_TYPE_FLAG_MASK: u64 = 0x6000_0000_0000_0000;
+const VALUE_MASK: u64 = 0x00ff_ffff_ffff_ffff;
+const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
 /// RFC 0017
 #[derive(Copy, Clone, Debug)]
@@ -302,22 +306,26 @@ impl ValidSince {
         !self.is_absolute()
     }
 
-    pub fn remain_flags_is_empty(self) -> bool {
-        self.0 & REMAIN_FLAGS_BITS == 0
+    pub fn flags_is_valid(self) -> bool {
+        (self.0 & REMAIN_FLAGS_BITS == 0)
+            && ((self.0 & METRIC_TYPE_FLAG_MASK) != (0b0110_0000 << 56))
     }
 
     fn metric_type_is_number(self) -> bool {
-        self.0 & TIME_TYPE_FLAG == 0
+        (self.0 & METRIC_TYPE_FLAG_MASK) == (0b0000_0000 << 56)
     }
 
-    #[inline]
+    fn metric_type_is_epoch_number(self) -> bool {
+        (self.0 & METRIC_TYPE_FLAG_MASK) == (0b0010_0000 << 56)
+    }
+
     fn metric_type_is_timestamp(self) -> bool {
-        !self.metric_type_is_number()
+        (self.0 & METRIC_TYPE_FLAG_MASK) == (0b0100_0000 << 56)
     }
 
     pub fn block_timestamp(self) -> Option<u64> {
         if self.metric_type_is_timestamp() {
-            Some((self.0 & VALUE_MUSK) * 1000)
+            Some((self.0 & VALUE_MASK) * 1000)
         } else {
             None
         }
@@ -325,7 +333,15 @@ impl ValidSince {
 
     pub fn block_number(self) -> Option<u64> {
         if self.metric_type_is_number() {
-            Some(self.0 & VALUE_MUSK)
+            Some(self.0 & VALUE_MASK)
+        } else {
+            None
+        }
+    }
+
+    pub fn epoch_number(self) -> Option<u64> {
+        if self.metric_type_is_epoch_number() {
+            Some(self.0 & VALUE_MASK)
         } else {
             None
         }
@@ -333,14 +349,15 @@ impl ValidSince {
 }
 
 /// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md#detailed-specification
-pub struct ValidSinceVerifier<'a, M> {
+pub struct SinceVerifier<'a, M> {
     rtx: &'a ResolvedTransaction<'a>,
     block_median_time_context: &'a M,
     tip_number: BlockNumber,
+    tip_epoch_number: BlockNumber,
     median_timestamps_cache: RefCell<LruCache<BlockNumber, Option<u64>>>,
 }
 
-impl<'a, M> ValidSinceVerifier<'a, M>
+impl<'a, M> SinceVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
 {
@@ -348,12 +365,14 @@ where
         rtx: &'a ResolvedTransaction,
         block_median_time_context: &'a M,
         tip_number: BlockNumber,
+        tip_epoch_number: BlockNumber,
     ) -> Self {
         let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
-        ValidSinceVerifier {
+        SinceVerifier {
             rtx,
             block_median_time_context,
             tip_number,
+            tip_epoch_number,
             median_timestamps_cache,
         }
     }
@@ -380,6 +399,12 @@ where
                 }
             }
 
+            if let Some(epoch_number) = since.epoch_number() {
+                if self.tip_epoch_number < epoch_number {
+                    return Err(TransactionError::Immature);
+                }
+            }
+
             if let Some(block_timestamp) = since.block_timestamp() {
                 let tip_timestamp = self
                     .block_median_time(self.tip_number.saturating_sub(1))
@@ -399,12 +424,18 @@ where
     ) -> Result<(), TransactionError> {
         if since.is_relative() {
             // cell still in tx_pool
-            let cell_block_number = match cell_meta.block_number {
-                Some(number) => number,
+            let (cell_block_number, cell_epoch_number) = match cell_meta.block_info {
+                Some(ref block_info) => (block_info.number, block_info.epoch),
                 None => return Err(TransactionError::Immature),
             };
             if let Some(block_number) = since.block_number() {
                 if self.tip_number < cell_block_number + block_number {
+                    return Err(TransactionError::Immature);
+                }
+            }
+
+            if let Some(epoch_number) = since.epoch_number() {
+                if self.tip_epoch_number < cell_epoch_number + epoch_number {
                     return Err(TransactionError::Immature);
                 }
             }
@@ -441,7 +472,7 @@ where
             }
             let since = ValidSince(input.since);
             // check remain flags
-            if !since.remain_flags_is_empty() {
+            if !since.flags_is_valid() {
                 return Err(TransactionError::InvalidValidSince);
             }
 

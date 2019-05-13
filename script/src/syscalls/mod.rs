@@ -131,7 +131,7 @@ mod tests {
                 tx_hash: Default::default(),
                 index: 0,
             },
-            block_number: None,
+            block_info: None,
             cellbase: false,
             cell_output: Some(output),
         }

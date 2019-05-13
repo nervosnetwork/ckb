@@ -6,7 +6,7 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellMeta, CellProvider, CellStatus, HeaderProvider, HeaderStatus,
+    resolve_transaction, CellMetaBuilder, CellProvider, CellStatus, HeaderProvider, HeaderStatus,
     OverlayCellProvider, ResolvedTransaction, UnresolvableError,
 };
 use ckb_core::extras::EpochExt;
@@ -146,6 +146,8 @@ impl<CS: ChainStore> ChainState<CS> {
 
         for n in 0..=number {
             let hash = store.get_block_hash(n).unwrap();
+            let epoch_hash = store.get_block_epoch_index(&hash).unwrap();
+            let epoch_ext = store.get_epoch_ext(&epoch_hash).unwrap();
             for tx in store.get_block_body(&hash).unwrap() {
                 let inputs = tx.input_pts_iter();
                 let output_len = tx.outputs().len();
@@ -154,7 +156,13 @@ impl<CS: ChainStore> ChainState<CS> {
                     cell_set.mark_dead(o);
                 }
 
-                cell_set.insert(tx.hash().to_owned(), n, tx.is_cellbase(), output_len);
+                cell_set.insert(
+                    tx.hash().to_owned(),
+                    n,
+                    epoch_ext.number(),
+                    tx.is_cellbase(),
+                    output_len,
+                );
             }
         }
 
@@ -287,6 +295,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     &rtx,
                     &self,
                     self.tip_number(),
+                    self.current_epoch_ext().number(),
                     self.consensus().cellbase_maturity,
                 )
                 .verify()
@@ -300,6 +309,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     Arc::clone(self.store()),
                     &self,
                     self.tip_number(),
+                    self.current_epoch_ext().number(),
                     self.consensus().cellbase_maturity,
                     &self.script_config,
                 )
@@ -573,14 +583,12 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                             .get(&cell_out_point.tx_hash)
                             .map(|outputs| {
                                 let output = &outputs[cell_out_point.index as usize];
-                                CellMeta {
-                                    cell_output: Some(output.clone()),
-                                    out_point: cell_out_point.to_owned(),
-                                    block_number: Some(tx_meta.block_number()),
-                                    cellbase: tx_meta.is_cellbase(),
-                                    capacity: output.capacity,
-                                    data_hash: None,
-                                }
+                                CellMetaBuilder::from_cell_output(output.to_owned())
+                                    .out_point(cell_out_point.to_owned())
+                                    .block_number(tx_meta.block_number())
+                                    .epoch_number(tx_meta.epoch_number())
+                                    .cellbase(tx_meta.is_cellbase())
+                                    .build()
                             })
                             .or_else(|| {
                                 self.store

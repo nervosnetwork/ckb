@@ -8,7 +8,7 @@ use ckb_core::header::Header;
 use ckb_core::transaction::Capacity;
 use ckb_core::transaction::Transaction;
 use ckb_core::Cycle;
-use ckb_core::{block::Block, BlockNumber};
+use ckb_core::{block::Block, BlockNumber, EpochNumber};
 use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
@@ -179,6 +179,7 @@ struct BlockTxsVerifier<'a, M, CS> {
     max_cycles: Cycle,
     block_median_time_context: &'a M,
     number: BlockNumber,
+    epoch: EpochNumber,
     store: &'a Arc<CS>,
     resolved: &'a [ResolvedTransaction<'a>],
 }
@@ -194,6 +195,7 @@ where
         max_cycles: Cycle,
         block_median_time_context: &'a M,
         number: BlockNumber,
+        epoch: EpochNumber,
         store: &'a Arc<CS>,
         resolved: &'a [ResolvedTransaction<'a>],
     ) -> BlockTxsVerifier<'a, M, CS> {
@@ -203,6 +205,7 @@ where
             max_cycles,
             block_median_time_context,
             number,
+            epoch,
             store,
             resolved,
         }
@@ -221,6 +224,7 @@ where
                         &tx,
                         self.block_median_time_context,
                         self.number,
+                        self.epoch,
                         self.cellbase_maturity,
                     )
                     .verify()
@@ -232,6 +236,7 @@ where
                         Arc::clone(self.store),
                         self.block_median_time_context,
                         self.number,
+                        self.epoch,
                         self.cellbase_maturity,
                         self.script_config,
                     )
@@ -317,6 +322,7 @@ where
             consensus.max_block_cycles(),
             &block_median_time_context,
             block.header().number(),
+            block.header().epoch(),
             self.provider.store(),
             resolved,
         )

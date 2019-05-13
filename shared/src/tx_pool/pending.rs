@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::tx_pool::types::PendingEntry;
-use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
+use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_util::{LinkedFnvHashMap, LinkedFnvHashMapEntries};
@@ -64,14 +64,11 @@ impl CellProvider for PendingQueue {
                 .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
             {
                 match x.transaction.get_output(cell_out_point.index as usize) {
-                    Some(output) => CellStatus::live_cell(CellMeta {
-                        cell_output: Some(output.clone()),
-                        cellbase: false,
-                        block_number: None,
-                        out_point: cell_out_point.to_owned(),
-                        capacity: output.capacity,
-                        data_hash: None,
-                    }),
+                    Some(output) => CellStatus::live_cell(
+                        CellMetaBuilder::from_cell_output(output.to_owned())
+                            .out_point(cell_out_point.to_owned())
+                            .build(),
+                    ),
                     None => CellStatus::Unknown,
                 }
             } else {

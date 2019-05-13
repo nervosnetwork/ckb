@@ -67,7 +67,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                         tx_hash: tx_hash.to_owned(),
                         index: index as u32,
                     },
-                    block_number: None,
+                    block_info: None,
                     cellbase: false,
                     capacity: output.capacity,
                     data_hash: None,
@@ -454,7 +454,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
 mod tests {
     use super::*;
     use byteorder::{LittleEndian, WriteBytesExt};
-    use ckb_core::cell::CellMeta;
+    use ckb_core::cell::CellMetaBuilder;
     use ckb_core::extras::DaoStats;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::script::Script;
@@ -493,18 +493,16 @@ mod tests {
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
 
-        let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
-            capacity: output.capacity,
-            cell_output: Some(output),
-            block_number: Some(1),
-            ..Default::default()
-        });
-        let always_success_cell = ResolvedOutPoint::cell_only(CellMeta {
-            capacity: always_success_cell.capacity,
-            cell_output: Some(always_success_cell),
-            block_number: Some(1),
-            ..Default::default()
-        });
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_number(1)
+                .build(),
+        );
+        let always_success_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(always_success_cell)
+                .block_number(1)
+                .build(),
+        );
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
@@ -562,14 +560,13 @@ mod tests {
             Script::default(),
             None,
         );
-        let dep_cell = ResolvedOutPoint::cell_only(CellMeta {
-            block_number: Some(1),
-            cellbase: false,
-            capacity: output.capacity,
-            data_hash: Some(code_hash.clone()),
-            out_point: dep_out_point.cell.as_ref().unwrap().clone(),
-            cell_output: Some(output),
-        });
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_number(1)
+                .data_hash(code_hash.to_owned())
+                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .build(),
+        );
 
         let script = Script::new(args, code_hash);
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
@@ -581,12 +578,11 @@ mod tests {
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
-        let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            capacity: output.capacity,
-            ..Default::default()
-        });
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_number(1)
+                .build(),
+        );
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
@@ -643,14 +639,13 @@ mod tests {
             Script::default(),
             None,
         );
-        let dep_cell = ResolvedOutPoint::cell_only(CellMeta {
-            block_number: Some(1),
-            cellbase: false,
-            capacity: output.capacity,
-            data_hash: Some(code_hash.clone()),
-            out_point: dep_out_point.cell.clone().unwrap(),
-            cell_output: Some(output),
-        });
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_number(1)
+                .data_hash(code_hash.to_owned())
+                .out_point(dep_out_point.cell.clone().unwrap())
+                .build(),
+        );
 
         let script = Script::new(args, code_hash);
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
@@ -662,12 +657,11 @@ mod tests {
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
-        let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            capacity: output.capacity,
-            ..Default::default()
-        });
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output.to_owned())
+                .block_number(1)
+                .build(),
+        );
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
@@ -724,14 +718,13 @@ mod tests {
             Script::default(),
             None,
         );
-        let dep_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            cellbase: false,
-            data_hash: Some(code_hash.clone()),
-            capacity: output.capacity,
-            out_point: dep_out_point.cell.as_ref().unwrap().clone(),
-        });
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output.to_owned())
+                .block_number(1)
+                .data_hash(code_hash.to_owned())
+                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .build(),
+        );
 
         let script = Script::new(args, code_hash);
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
@@ -743,12 +736,11 @@ mod tests {
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
-        let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            capacity: output.capacity,
-            ..Default::default()
-        });
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output.to_owned())
+                .block_number(1)
+                .build(),
+        );
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
@@ -808,13 +800,12 @@ mod tests {
             Script::default(),
             None,
         );
-        let dep_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            data_hash: Some(code_hash.clone()),
-            capacity: output.capacity,
-            ..Default::default()
-        });
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output.to_owned())
+                .block_number(1)
+                .data_hash(code_hash.to_owned())
+                .build(),
+        );
 
         let script = Script::new(args, code_hash);
         let input = CellInput::new(OutPoint::null(), 0, vec![]);
@@ -826,12 +817,11 @@ mod tests {
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
-        let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            capacity: output.capacity,
-            ..Default::default()
-        });
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output.to_owned())
+                .block_number(1)
+                .build(),
+        );
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
@@ -892,12 +882,11 @@ mod tests {
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
-        let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            capacity: output.capacity,
-            ..Default::default()
-        });
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_number(1)
+                .build(),
+        );
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
@@ -953,18 +942,16 @@ mod tests {
             always_success_script,
             None,
         );
-        let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            capacity: output.capacity,
-            ..Default::default()
-        });
-        let always_success_cell = ResolvedOutPoint::cell_only(CellMeta {
-            capacity: always_success_cell.capacity,
-            cell_output: Some(always_success_cell),
-            block_number: Some(1),
-            ..Default::default()
-        });
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output.to_owned())
+                .block_number(1)
+                .build(),
+        );
+        let always_success_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(always_success_cell)
+                .block_number(1)
+                .build(),
+        );
 
         let script = Script::new(args, (&blake2b_256(&buffer)).into());
         let output = CellOutput::new(
@@ -982,14 +969,12 @@ mod tests {
                 Script::default(),
                 None,
             );
-            ResolvedOutPoint::cell_only(CellMeta {
-                cell_output: Some(output.clone()),
-                block_number: Some(1),
-                cellbase: false,
-                capacity: output.capacity,
-                data_hash: None,
-                out_point: dep_out_point.cell.as_ref().unwrap().clone(),
-            })
+            ResolvedOutPoint::cell_only(
+                CellMetaBuilder::from_cell_output(output.to_owned())
+                    .block_number(1)
+                    .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                    .build(),
+            )
         };
 
         let transaction = TransactionBuilder::default()
@@ -1054,18 +1039,16 @@ mod tests {
             always_success_script,
             None,
         );
-        let dummy_cell = ResolvedOutPoint::cell_only(CellMeta {
-            cell_output: Some(output.clone()),
-            block_number: Some(1),
-            capacity: output.capacity,
-            ..Default::default()
-        });
-        let always_success_cell = ResolvedOutPoint::cell_only(CellMeta {
-            capacity: always_success_cell.capacity,
-            cell_output: Some(always_success_cell),
-            block_number: Some(1),
-            ..Default::default()
-        });
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output.to_owned())
+                .block_number(1)
+                .build(),
+        );
+        let always_success_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(always_success_cell.to_owned())
+                .block_number(1)
+                .build(),
+        );
 
         let script = Script::new(args, (&blake2b_256(&buffer)).into());
         let output = CellOutput::new(
@@ -1083,12 +1066,11 @@ mod tests {
                 Script::default(),
                 None,
             );
-            ResolvedOutPoint::cell_only(CellMeta {
-                cell_output: Some(output.clone()),
-                capacity: output.capacity,
-                block_number: Some(1),
-                ..Default::default()
-            })
+            ResolvedOutPoint::cell_only(
+                CellMetaBuilder::from_cell_output(output)
+                    .block_number(1)
+                    .build(),
+            )
         };
 
         let transaction = TransactionBuilder::default()
