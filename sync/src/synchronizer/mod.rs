@@ -606,6 +606,7 @@ mod tests {
     use faketime;
     use flatbuffers::{get_root, FlatBufferBuilder};
     use fnv::{FnvHashMap, FnvHashSet};
+    use futures::future::Future;
     use numext_fixed_uint::U256;
     use std::ops::Deref;
     use std::time::Duration;
@@ -973,6 +974,15 @@ mod tests {
         // Interact with underlying p2p service
         fn set_notify(&self, _interval: Duration, _token: u64) {
             unimplemented!();
+        }
+
+        fn future_task(
+            &self,
+            task: Box<
+                (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
+            >,
+        ) {
+            task.wait().expect("resolve future task error")
         }
 
         fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {

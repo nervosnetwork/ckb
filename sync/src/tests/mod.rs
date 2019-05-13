@@ -3,6 +3,7 @@ use ckb_network::{
     Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId, TargetSession,
 };
 use ckb_util::RwLock;
+use futures::future::Future;
 use std::collections::HashMap;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
@@ -159,6 +160,15 @@ impl CKBProtocolContext for TestNetworkContext {
                 let _ = sender.send(());
             });
         }
+    }
+
+    fn future_task(
+        &self,
+        task: Box<
+            (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
+        >,
+    ) {
+        task.wait().expect("resolve future task error")
     }
 
     fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {

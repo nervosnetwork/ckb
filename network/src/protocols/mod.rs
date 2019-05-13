@@ -3,6 +3,7 @@ pub(crate) mod feeler;
 pub(crate) mod identify;
 pub(crate) mod ping;
 
+use futures::Future;
 use log::{error, trace};
 use p2p::{
     builder::MetaBuilder,
@@ -26,6 +27,8 @@ pub trait CKBProtocolContext: Send {
     fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes);
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes);
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes);
+    // spawn a future task
+    fn future_task(&self, task: Box<Future<Item = (), Error = ()> + 'static + Send>);
     fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes);
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes);
     // TODO allow broadcast to target ProtocolId
@@ -249,6 +252,11 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .quick_filter_broadcast(target, self.proto_id, data)
         {
             error!(target: "network", "send message to p2p service error: {:?}", err);
+        }
+    }
+    fn future_task(&self, task: Box<Future<Item = (), Error = ()> + 'static + Send>) {
+        if let Err(err) = self.p2p_control.future_task(task) {
+            error!(target: "network", "failed to spawn future task: {:?}", err);
         }
     }
     fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
