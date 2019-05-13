@@ -12,7 +12,7 @@ use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_traits::ChainProvider;
-use ckb_util::Mutex;
+use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
@@ -67,8 +67,8 @@ impl<CS: ChainStore> Shared<CS> {
         })
     }
 
-    pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
-        &self.chain_state
+    pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
+        lock_or_panic(&self.chain_state)
     }
 
     pub fn script_config(&self) -> &ScriptConfig {

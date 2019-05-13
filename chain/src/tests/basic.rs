@@ -68,8 +68,7 @@ fn test_genesis_transaction_spend() {
 
     assert_eq!(
         shared
-            .chain_state()
-            .lock()
+            .lock_chain_state()
             .cell(&OutPoint::new_cell(genesis_tx_hash, 0)),
         CellStatus::Dead
     );
@@ -106,8 +105,7 @@ fn test_transaction_spend_in_same_block() {
     for hash in [&last_cell_base_hash, &tx1_hash, &tx2_hash].iter() {
         assert_eq!(
             shared
-                .chain_state()
-                .lock()
+                .lock_chain_state()
                 .cell(&OutPoint::new_cell(hash.to_owned().to_owned(), 0)),
             CellStatus::Unknown
         );
@@ -159,8 +157,7 @@ fn test_transaction_spend_in_same_block() {
     for hash in [&last_cell_base_hash, &tx1_hash].iter() {
         assert_eq!(
             shared
-                .chain_state()
-                .lock()
+                .lock_chain_state()
                 .cell(&OutPoint::new_cell(hash.to_owned().to_owned(), 0)),
             CellStatus::Dead
         );
@@ -168,8 +165,7 @@ fn test_transaction_spend_in_same_block() {
 
     assert_eq!(
         shared
-            .chain_state()
-            .lock()
+            .lock_chain_state()
             .cell(&OutPoint::new_cell(tx2_hash.to_owned(), 0)),
         CellStatus::live_cell(CellMeta {
             cell_output: None,
@@ -558,7 +554,7 @@ fn test_genesis_transaction_fetch() {
     let (_chain_controller, shared) = start_chain(Some(consensus));
 
     let out_point = OutPoint::new_cell(root_hash, 0);
-    let state = shared.chain_state().lock().cell(&out_point);
+    let state = shared.lock_chain_state().cell(&out_point);
     assert!(state.is_live());
 }
 
@@ -800,7 +796,7 @@ fn test_next_epoch_ext() {
         last_epoch = epoch;
     }
     {
-        let chain_state = shared.chain_state().lock();
+        let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
         let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 25);
@@ -868,7 +864,7 @@ fn test_next_epoch_ext() {
     }
 
     {
-        let chain_state = shared.chain_state().lock();
+        let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
         let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 10);
@@ -908,7 +904,7 @@ fn test_next_epoch_ext() {
     }
 
     {
-        let chain_state = shared.chain_state().lock();
+        let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
         let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
         assert_eq!(total_uncles_count, 150);

@@ -81,7 +81,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         );
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
         let header_verify_ret = {
-            let chain_state = self.shared.chain_state().lock();
+            let chain_state = self.shared.lock_chain_state();
             let header_verifier = HeaderVerifier::new(
                 &*chain_state,
                 Arc::clone(&self.shared.consensus().pow_engine()),

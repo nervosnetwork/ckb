@@ -63,7 +63,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
     }
 
     fn tx_pool_info(&self) -> Result<TxPoolInfo> {
-        let chain_state = self.shared.chain_state().lock();
+        let chain_state = self.shared.lock_chain_state();
         let tx_pool = chain_state.tx_pool();
         Ok(TxPoolInfo {
             pending: Unsigned(u64::from(tx_pool.pending_size())),

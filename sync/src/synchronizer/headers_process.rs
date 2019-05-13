@@ -241,7 +241,7 @@ where
         }
 
         if log_enabled!(target: "sync", log::Level::Debug) {
-            let chain_state = self.synchronizer.shared.chain_state().lock();
+            let chain_state = self.synchronizer.shared.lock_chain_state();
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
                 target: "sync",

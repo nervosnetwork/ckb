@@ -44,8 +44,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
         } else if self
             .relayer
             .shared
-            .chain_state()
-            .lock()
+            .lock_chain_state()
             .tx_pool()
             .get_tx_with_cycles(&short_id)
             .is_some()

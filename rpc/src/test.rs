@@ -273,7 +273,7 @@ fn test_rpc() {
         //// It is just a convenient way to get the json of `send_transaction`
         // if print_mode {
         //     let tip_header = {
-        //         let chain_state = shared.chain_state().lock();
+        //         let chain_state = shared.lock_chain_state();
         //         chain_state.tip_header().clone()
         //     };
         //     let cellbase = new_cellbase(tip_header.number());

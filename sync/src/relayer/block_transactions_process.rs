@@ -44,7 +44,7 @@ impl<'a, CS: ChainStore + 'static> BlockTransactionsProcess<'a, CS> {
                     .collect::<Result<_, FailureError>>()?;
 
             let ret = {
-                let chain_state = self.relayer.shared.chain_state().lock();
+                let chain_state = self.relayer.shared.lock_chain_state();
                 self.relayer
                     .reconstruct_block(&chain_state, &compact_block, transactions)
             };

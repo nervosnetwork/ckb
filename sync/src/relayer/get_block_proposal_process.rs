@@ -35,7 +35,7 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
         let proposals = cast!(self.message.proposals())?;
 
         let transactions = {
-            let chain_state = self.relayer.shared.chain_state().lock();
+            let chain_state = self.relayer.shared.lock_chain_state();
             let tx_pool = chain_state.tx_pool();
 
             let proposals: Vec<ProposalShortId> = proposals

@@ -27,7 +27,7 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
     fn get_blockchain_info(&self) -> Result<ChainInfo> {
         let chain = self.synchronizer.shared.consensus().id.clone();
         let (tip_header, median_time) = {
-            let chain_state = self.shared.chain_state().lock();
+            let chain_state = self.shared.lock_chain_state();
             let tip_header = chain_state.tip_header().clone();
             let median_time = (&*chain_state)
                 .block_median_time(tip_header.number())

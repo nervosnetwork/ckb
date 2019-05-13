@@ -261,7 +261,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst);
-        let chain_state = self.shared.chain_state().lock();
+        let chain_state = self.shared.lock_chain_state();
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
 
         let header = chain_state.tip_header().to_owned();
@@ -608,7 +608,7 @@ mod tests {
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
         let header_verify_result = {
-            let chain_state = shared.chain_state().lock();
+            let chain_state = shared.lock_chain_state();
             let header_verifier =
                 HeaderVerifier::new(&*chain_state, Pow::Dummy(Default::default()).engine());
             header_verifier.verify(&resolver)

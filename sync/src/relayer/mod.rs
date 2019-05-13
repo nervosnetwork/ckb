@@ -325,7 +325,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         let mut peer_txs = FnvHashMap::default();
         let mut remove_ids = Vec::new();
         {
-            let chain_state = self.shared.chain_state().lock();
+            let chain_state = self.shared.lock_chain_state();
             let tx_pool = chain_state.tx_pool();
             for (id, peer_indexs) in pending_proposals_request.iter() {
                 if let Some(tx) = tx_pool.get_tx(id) {
