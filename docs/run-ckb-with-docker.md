@@ -7,7 +7,7 @@ docker run -it nervos/ckb:latest run
 ```
 
 See other
-[tags](https://cloud.docker.com/u/nervos/repository/docker/nervos/ckb/tags)
+[tags](https://hub.docker.com/r/nervos/ckb/tags)
 listed in DockerHub.
 
 - Tag `latest` is always the latest release, which is built from the latest
