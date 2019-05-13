@@ -1,4 +1,4 @@
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
@@ -40,7 +40,7 @@ fn bench(c: &mut Criterion) {
                 |(chain, blocks, _dir)| {
                     blocks.into_iter().skip(1).for_each(|block| {
                         chain
-                            .process_block(Arc::new(block))
+                            .process_block(Arc::new(block), true)
                             .expect("process block OK")
                     });
                 },
@@ -75,7 +75,7 @@ fn bench(c: &mut Criterion) {
                         .take(5)
                         .for_each(|block| {
                             chain
-                                .process_block(Arc::new(block))
+                                .process_block(Arc::new(block), true)
                                 .expect("process block OK")
                         });
                     (chain, blocks, dir)
@@ -83,7 +83,7 @@ fn bench(c: &mut Criterion) {
                 |(chain, blocks, _dir)| {
                     blocks.into_iter().skip(6).for_each(|block| {
                         chain
-                            .process_block(Arc::new(block))
+                            .process_block(Arc::new(block), true)
                             .expect("process block OK")
                     });
                 },
@@ -118,7 +118,7 @@ fn bench(c: &mut Criterion) {
                         .take(7)
                         .for_each(|block| {
                             chain
-                                .process_block(Arc::new(block))
+                                .process_block(Arc::new(block), true)
                                 .expect("process block OK")
                         });
                     (chain, blocks, dir)
@@ -126,7 +126,7 @@ fn bench(c: &mut Criterion) {
                 |(chain, blocks, _dir)| {
                     blocks.into_iter().skip(8).for_each(|block| {
                         chain
-                            .process_block(Arc::new(block))
+                            .process_block(Arc::new(block), true)
                             .expect("process block OK")
                     });
                 },
@@ -201,7 +201,7 @@ fn new_chain(
         .build()
         .unwrap();
     let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainBuilder::new(shared.clone(), notify).build();
+    let chain_service = ChainService::new(shared.clone(), notify).new();
     (
         chain_service.start::<&str>(None),
         shared,

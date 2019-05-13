@@ -1,6 +1,6 @@
 use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
 use crate::{Relayer, SyncSharedState};
-use ckb_chain::chain::ChainBuilder;
+use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
@@ -94,9 +94,7 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
     };
     let chain_controller = {
         let notify_controller = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainBuilder::new(shared.clone(), notify_controller)
-            .verification(false)
-            .build();
+        let chain_service = ChainService::new(shared.clone(), notify_controller);
         chain_service.start::<&str>(None)
     };
 
@@ -119,7 +117,7 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
             .transaction(cellbase)
             .build();
         chain_controller
-            .process_block(Arc::new(block))
+            .process_block(Arc::new(block), false)
             .expect("processing block should be ok");
     }
 

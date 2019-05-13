@@ -485,8 +485,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 #[cfg(test)]
 mod tests {
     use crate::{block_assembler::BlockAssembler, config::BlockAssemblerConfig};
-    use ckb_chain::chain::ChainBuilder;
     use ckb_chain::chain::ChainController;
+    use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::Block;
     use ckb_core::block::BlockBuilder;
@@ -525,9 +525,7 @@ mod tests {
         let shared = builder.build().unwrap();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
-        let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
-            .verification(false)
-            .build();
+        let chain_service = ChainService::new(shared.clone(), notify.clone());
         let chain_controller = chain_service.start::<&str>(None);
         (chain_controller, shared, notify)
     }
@@ -682,13 +680,13 @@ mod tests {
         let block1_1 = gen_block(block0_1.header(), 10, &epoch);
 
         chain_controller
-            .process_block(Arc::new(block0_1.clone()))
+            .process_block(Arc::new(block0_1.clone()), false)
             .unwrap();
         chain_controller
-            .process_block(Arc::new(block0_0.clone()))
+            .process_block(Arc::new(block0_0.clone()), false)
             .unwrap();
         chain_controller
-            .process_block(Arc::new(block1_1.clone()))
+            .process_block(Arc::new(block1_1.clone()), false)
             .unwrap();
 
         // block number 3, epoch 0
@@ -705,7 +703,7 @@ mod tests {
 
         let block2_1 = gen_block(block1_1.header(), 10, &epoch);
         chain_controller
-            .process_block(Arc::new(block2_1.clone()))
+            .process_block(Arc::new(block2_1.clone()), false)
             .unwrap();
 
         let block_template = block_assembler_controller

@@ -3,7 +3,7 @@ use crate::module::{
     PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::RpcServer;
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
@@ -90,9 +90,7 @@ fn setup_node(
         .unwrap();
     let chain_service = {
         let notify = NotifyService::default().start::<&str>(None);
-        ChainBuilder::new(shared.clone(), notify)
-            .verification(false)
-            .build()
+        ChainService::new(shared.clone(), notify)
     };
     let chain_controller = chain_service.start::<&str>(None);
     let mut parent = {
@@ -123,7 +121,7 @@ fn setup_node(
             )
             .build();
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .expect("processing new block should be ok");
         parent = block;
     }

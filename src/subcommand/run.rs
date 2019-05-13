@@ -1,11 +1,11 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
 use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::ChainService;
 use ckb_db::{CacheDB, RocksDB};
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
-use ckb_notify::{NotifyController, NotifyService};
+use ckb_notify::NotifyService;
 use ckb_rpc::RpcServer;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
@@ -33,8 +33,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     verify_genesis(&shared)?;
 
     let notify = NotifyService::default().start(Some("notify"));
-
-    let chain_controller = setup_chain(shared.clone(), notify.clone());
+    let chain_service = ChainService::new(shared.clone(), notify.clone());
+    let chain_controller = chain_service.start(Some("ChainService"));
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
 
     let block_assembler = BlockAssembler::new(shared.clone(), args.config.block_assembler);
@@ -101,14 +101,6 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");
     Ok(())
-}
-
-fn setup_chain<CS: ChainStore + 'static>(
-    shared: Shared<CS>,
-    notify: NotifyController,
-) -> ChainController {
-    let chain_service = ChainBuilder::new(shared, notify).build();
-    chain_service.start(Some("ChainService"))
 }
 
 fn verify_genesis<CS: ChainStore + 'static>(shared: &Shared<CS>) -> Result<(), ExitCode> {

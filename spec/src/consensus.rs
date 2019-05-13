@@ -157,6 +157,11 @@ impl Consensus {
         self
     }
 
+    pub fn set_tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
+        self.tx_proposal_window = proposal_window;
+        self
+    }
+
     pub fn set_pow(mut self, pow: Pow) -> Self {
         self.pow = pow;
         self

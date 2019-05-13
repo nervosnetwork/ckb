@@ -46,7 +46,7 @@ impl Import {
             let block: Arc<Block> = Arc::new(serde_json::from_str(&s)?);
             if !block.is_genesis() {
                 self.chain
-                    .process_block(block)
+                    .process_block(block, true)
                     .expect("import occur malformation data");
             }
         }
@@ -69,7 +69,7 @@ impl Import {
             let block: Arc<Block> = Arc::new(serde_json::from_str(&s)?);
             if !block.is_genesis() {
                 self.chain
-                    .process_block(block)
+                    .process_block(block, true)
                     .expect("import occur malformation data");
             }
             progress_bar.inc(s.as_bytes().len() as u64);

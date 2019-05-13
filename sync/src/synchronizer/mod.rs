@@ -236,7 +236,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
-        self.chain.process_block(Arc::clone(&block))?;
+        self.chain.process_block(Arc::clone(&block), true)?;
         self.shared.remove_header_view(block.header().hash());
         self.mark_block_stored(block.header().hash().to_owned());
         self.peers.set_last_common_header(peer, &block.header());
@@ -581,7 +581,7 @@ mod tests {
     use self::headers_process::HeadersProcess;
     use super::*;
     use crate::{SyncSharedState, MAX_TIP_AGE};
-    use ckb_chain::chain::ChainBuilder;
+    use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
     use ckb_core::extras::EpochExt;
@@ -589,7 +589,7 @@ mod tests {
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-    use ckb_core::{Bytes, Capacity};
+    use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
@@ -625,9 +625,7 @@ mod tests {
         let shared = builder.build().unwrap();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
-        let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
-            .verification(false)
-            .build();
+        let chain_service = ChainService::new(shared.clone(), notify.clone());
         let chain_controller = chain_service.start::<&str>(None);
 
         (chain_controller, shared, notify)
@@ -653,7 +651,7 @@ mod tests {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
-                Capacity::zero(),
+                capacity_bytes!(500),
                 Bytes::default(),
                 Script::default(),
                 None,
@@ -696,7 +694,7 @@ mod tests {
         let block = gen_block(&parent, &epoch, nonce);
 
         chain_controller
-            .process_block(Arc::new(block))
+            .process_block(Arc::new(block), true)
             .expect("process block ok");
     }
 
@@ -792,10 +790,10 @@ mod tests {
             blocks.push(new_block.clone());
 
             chain_controller1
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
             chain_controller2
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }
@@ -810,7 +808,7 @@ mod tests {
             let new_block = gen_block(&parent, &epoch, i + 100);
 
             chain_controller2
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }
@@ -893,7 +891,7 @@ mod tests {
             let new_block = gen_block(&parent, &epoch, i + 100);
 
             chain_controller1
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
             blocks.push(new_block);
@@ -926,7 +924,7 @@ mod tests {
             blocks.push(new_block.clone());
 
             chain_controller
-                .process_block(Arc::new(new_block.clone()))
+                .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
             parent = new_block.header().to_owned();
         }

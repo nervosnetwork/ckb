@@ -1,6 +1,6 @@
 use super::super::block_verifier::CommitVerifier;
 use super::super::error::{CommitError, Error};
-use ckb_chain::chain::{ChainBuilder, ChainController};
+use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
@@ -80,9 +80,7 @@ fn start_chain(
     let shared = builder.build().unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
-        .build();
+    let chain_service = ChainService::new(shared.clone(), notify);
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
@@ -163,7 +161,7 @@ fn test_proposal() {
     let proposal_ids: Vec<_> = txs20.iter().map(Transaction::proposal_short_id).collect();
     let block: Block = gen_block(&parent, vec![], proposal_ids, vec![]);
     chain_controller
-        .process_block(Arc::new(block.clone()))
+        .process_block(Arc::new(block.clone()), false)
         .unwrap();
     parent = block.header().to_owned();
 
@@ -179,7 +177,7 @@ fn test_proposal() {
         //test chain forward
         let new_block: Block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .unwrap();
         parent = new_block.header().to_owned();
     }
@@ -193,7 +191,7 @@ fn test_proposal() {
         //test chain forward
         let new_block: Block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .unwrap();
         parent = new_block.header().to_owned();
     }
@@ -235,7 +233,7 @@ fn test_uncle_proposal() {
     let uncle: Block = gen_block(&parent, vec![], proposal_ids, vec![]);
     let block: Block = gen_block(&parent, vec![], vec![], vec![uncle.into()]);
     chain_controller
-        .process_block(Arc::new(block.clone()))
+        .process_block(Arc::new(block.clone()), false)
         .unwrap();
     parent = block.header().to_owned();
 
@@ -251,7 +249,7 @@ fn test_uncle_proposal() {
         //test chain forward
         let new_block: Block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .unwrap();
         parent = new_block.header().to_owned();
     }
@@ -265,7 +263,7 @@ fn test_uncle_proposal() {
         //test chain forward
         let new_block: Block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
-            .process_block(Arc::new(new_block.clone()))
+            .process_block(Arc::new(new_block.clone()), false)
             .unwrap();
         parent = new_block.header().to_owned();
     }

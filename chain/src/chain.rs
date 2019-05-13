@@ -32,7 +32,7 @@ use stop_handler::{SignalSender, StopHandler};
 
 #[derive(Clone)]
 pub struct ChainController {
-    process_block_sender: Sender<Request<Arc<Block>, Result<(), FailureError>>>,
+    process_block_sender: Sender<Request<(Arc<Block>, bool), Result<(), FailureError>>>,
     stop: StopHandler<()>,
 }
 
@@ -43,13 +43,14 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    pub fn process_block(&self, block: Arc<Block>) -> Result<(), FailureError> {
-        Request::call(&self.process_block_sender, block).expect("process_block() failed")
+    pub fn process_block(&self, block: Arc<Block>, need_verify: bool) -> Result<(), FailureError> {
+        Request::call(&self.process_block_sender, (block, need_verify))
+            .expect("process_block() failed")
     }
 }
 
 struct ChainReceivers {
-    process_block_receiver: Receiver<Request<Arc<Block>, Result<(), FailureError>>>,
+    process_block_receiver: Receiver<Request<(Arc<Block>, bool), Result<(), FailureError>>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -139,20 +140,11 @@ impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
 pub struct ChainService<CS> {
     shared: Shared<CS>,
     notify: NotifyController,
-    verification: bool,
 }
 
 impl<CS: ChainStore + 'static> ChainService<CS> {
-    pub fn new(
-        shared: Shared<CS>,
-        notify: NotifyController,
-        verification: bool,
-    ) -> ChainService<CS> {
-        ChainService {
-            shared,
-            notify,
-            verification,
-        }
+    pub fn new(shared: Shared<CS>, notify: NotifyController) -> ChainService<CS> {
+        ChainService { shared, notify }
     }
 
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
@@ -177,8 +169,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         break;
                     },
                     recv(receivers.process_block_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: block }) => {
-                            let _ = responder.send(self.process_block(block));
+                        Ok(Request { responder, arguments: (block, verify) }) => {
+                            let _ = responder.send(self.process_block(block, verify));
                         },
                         _ => {
                             error!(target: "chain", "process_block_receiver closed");
@@ -198,24 +190,29 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
     // process_block will do block verify
     // but invoker should guarantee block header be verified
-    pub(crate) fn process_block(&mut self, block: Arc<Block>) -> Result<(), FailureError> {
+    pub(crate) fn process_block(
+        &mut self,
+        block: Arc<Block>,
+        need_verify: bool,
+    ) -> Result<(), FailureError> {
         debug!(target: "chain", "begin processing block: {:x}", block.header().hash());
         if block.header().number() < 1 {
             warn!(target: "chain", "receive 0 number block: {}-{:x}", block.header().number(), block.header().hash());
         }
-        if self.verification {
+        self.insert_block(block, need_verify)?;
+        debug!(target: "chain", "finish processing block");
+        Ok(())
+    }
+
+    fn insert_block(&self, block: Arc<Block>, need_verify: bool) -> Result<(), FailureError> {
+        if need_verify {
             let block_verifier = BlockVerifier::new(self.shared.clone());
             block_verifier.verify(&block).map_err(|e| {
                 debug!(target: "chain", "[process_block] verification error {:?}", e);
                 e
             })?
         }
-        self.insert_block(block)?;
-        debug!(target: "chain", "finish processing block");
-        Ok(())
-    }
 
-    pub(crate) fn insert_block(&self, block: Arc<Block>) -> Result<(), FailureError> {
         let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
 
@@ -306,6 +303,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 &mut fork,
                 &mut chain_state,
                 &mut txs_verify_cache,
+                need_verify,
             )?;
             self.update_proposal_ids(&mut chain_state, &fork);
             batch.insert_tip_header(&block.header())?;
@@ -505,6 +503,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         fork: &mut ForkChanges,
         chain_state: &mut ChainState<CS>,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
+        need_verify: bool,
     ) -> Result<CellSetDiff, FailureError> {
         let mut cell_set_diff = CellSetDiff::default();
         let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
@@ -544,7 +543,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let mut found_error = None;
         // verify transaction
         for (ext, b) in dirty_exts.iter_mut().zip(fork.attached_blocks.iter()).rev() {
-            if self.verification {
+            if need_verify {
                 if found_error.is_none() {
                     let mut seen_inputs = FnvHashSet::default();
                     let cell_set_overlay =
@@ -680,35 +679,5 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         debug!(target: "chain", "}}");
-    }
-}
-
-pub struct ChainBuilder<CS> {
-    shared: Shared<CS>,
-    notify: NotifyController,
-    verification: bool,
-}
-
-impl<CS: ChainStore + 'static> ChainBuilder<CS> {
-    pub fn new(shared: Shared<CS>, notify: NotifyController) -> ChainBuilder<CS> {
-        ChainBuilder {
-            shared,
-            notify,
-            verification: true,
-        }
-    }
-
-    pub fn notify(mut self, value: NotifyController) -> Self {
-        self.notify = value;
-        self
-    }
-
-    pub fn verification(mut self, verification: bool) -> Self {
-        self.verification = verification;
-        self
-    }
-
-    pub fn build(self) -> ChainService<CS> {
-        ChainService::new(self.shared, self.notify, self.verification)
     }
 }

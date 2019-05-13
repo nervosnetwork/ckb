@@ -89,7 +89,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
             header_verifier.verify(&resolver)
         };
         if header_verify_ret.is_ok() {
-            let ret = self.chain.process_block(Arc::clone(&block));
+            let ret = self.chain.process_block(Arc::clone(&block), true);
             if ret.is_ok() {
                 debug!(target: "rpc", "[block_relay] announce new block {:x} {}", block.header().hash(), unix_time_as_millis());
                 // announce new block

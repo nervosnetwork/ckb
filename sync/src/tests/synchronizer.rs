@@ -1,11 +1,12 @@
 use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
 use crate::tests::TestNode;
 use crate::{Config, NetworkProtocol, SyncSharedState, Synchronizer};
-use ckb_chain::chain::ChainBuilder;
+use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::{CellInput, CellOutput, TransactionBuilder};
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
@@ -19,6 +20,7 @@ use numext_fixed_uint::U256;
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
+use test_chain_utils::create_always_success_cell;
 
 const DEFAULT_CHANNEL: usize = 128;
 
@@ -69,24 +71,31 @@ fn setup_node(
     thread_name: &str,
     height: u64,
 ) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
+    let (always_success_cell, always_success_script) = create_always_success_cell();
+    let always_success_tx = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .output(always_success_cell)
+        .build();
+
     let mut block = BlockBuilder::default()
         .header_builder(
             HeaderBuilder::default()
                 .timestamp(unix_time_as_millis())
                 .difficulty(U256::from(1000u64)),
         )
+        .transaction(always_success_tx)
         .build();
 
-    let consensus = Consensus::default().set_genesis_block(block.clone());
+    let consensus = Consensus::default()
+        .set_genesis_block(block.clone())
+        .set_cellbase_maturity(0);
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
         .build()
         .unwrap();
     let notify = NotifyService::default().start(Some(thread_name));
 
-    let chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
-        .build();
+    let chain_service = ChainService::new(shared.clone(), notify);
     let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {
@@ -100,7 +109,12 @@ fn setup_node(
 
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::default())
+            .output(CellOutput::new(
+                capacity_bytes!(500),
+                Bytes::default(),
+                always_success_script.to_owned(),
+                None,
+            ))
             .build();
 
         let header_builder = HeaderBuilder::default()
@@ -116,7 +130,7 @@ fn setup_node(
             .build();
 
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), false)
             .expect("process block should be OK");
     }
 

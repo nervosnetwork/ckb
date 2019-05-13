@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 #[test]
 fn test_dead_cell_in_same_block() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let final_number = 20;
     let switch_fork_number = 10;
 
@@ -85,13 +85,13 @@ fn test_dead_cell_in_same_block() {
 
     for block in &chain1 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
     for block in chain2.iter().take(switch_fork_number + 1) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
@@ -100,7 +100,7 @@ fn test_dead_cell_in_same_block() {
             tx1_hash, 0
         ))),
         chain_controller
-            .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
+            .process_block(Arc::new(chain2[switch_fork_number + 1].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -109,7 +109,7 @@ fn test_dead_cell_in_same_block() {
 
 #[test]
 fn test_dead_cell_in_different_block() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let final_number = 20;
     let switch_fork_number = 10;
 
@@ -190,13 +190,13 @@ fn test_dead_cell_in_different_block() {
 
     for block in &chain1 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
     for block in chain2.iter().take(switch_fork_number + 2) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
@@ -206,7 +206,7 @@ fn test_dead_cell_in_different_block() {
             0
         ))),
         chain_controller
-            .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
+            .process_block(Arc::new(chain2[switch_fork_number + 2].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -215,7 +215,7 @@ fn test_dead_cell_in_different_block() {
 
 #[test]
 fn test_invalid_out_point_index_in_same_block() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let final_number = 20;
     let switch_fork_number = 10;
 
@@ -290,13 +290,13 @@ fn test_invalid_out_point_index_in_same_block() {
 
     for block in &chain1 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
     for block in chain2.iter().take(switch_fork_number + 1) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
@@ -305,7 +305,7 @@ fn test_invalid_out_point_index_in_same_block() {
             tx1_hash, 1,
         )])),
         chain_controller
-            .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
+            .process_block(Arc::new(chain2[switch_fork_number + 1].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -314,7 +314,7 @@ fn test_invalid_out_point_index_in_same_block() {
 
 #[test]
 fn test_invalid_out_point_index_in_different_blocks() {
-    let (chain_controller, shared) = start_chain(None, true);
+    let (chain_controller, shared) = start_chain(None);
     let final_number = 20;
     let switch_fork_number = 10;
 
@@ -396,13 +396,13 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     for block in &chain1 {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
     for block in chain2.iter().take(switch_fork_number + 2) {
         chain_controller
-            .process_block(Arc::new(block.clone()))
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
     }
 
@@ -412,7 +412,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
             1,
         )])),
         chain_controller
-            .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
+            .process_block(Arc::new(chain2[switch_fork_number + 2].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
