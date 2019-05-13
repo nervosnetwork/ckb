@@ -54,8 +54,12 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                 let message = RelayMessage::build_transaction(fbb, &tx, cycles);
                 fbb.finish(message, None);
                 let data = fbb.finished_data().into();
-                self.network_controller
-                    .broadcast(NetworkProtocol::RELAY.into(), data);
+                if let Err(err) = self
+                    .network_controller
+                    .broadcast(NetworkProtocol::RELAY.into(), data)
+                {
+                    log::error!(target: "rpc", "Broadcast transaction failed: {:?}", err);
+                }
                 Ok(tx.hash().to_owned())
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
