@@ -9,7 +9,7 @@ use std::sync::Arc;
 //      - If the data can be migrated manually: update "x.y1.z" to "x.y2.0".
 //      - If the data can not be migrated: update "x1.y.z" to "x2.0.0".
 pub(crate) const VERSION_KEY: &str = "db-version";
-pub(crate) const VERSION_VALUE: &str = "0.5.0";
+pub(crate) const VERSION_VALUE: &str = "0.6.0";
 
 pub struct RocksDB {
     inner: Arc<DB>,
