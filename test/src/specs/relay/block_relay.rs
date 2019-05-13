@@ -10,6 +10,11 @@ impl Spec for BlockRelayBasic {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
+        // generate 1 block to exit IBD mode.
+        let block = node0.new_block(None, None, None);
+        node0.submit_block(&block);
+        node1.submit_block(&block);
+        node2.submit_block(&block);
 
         info!("Generate new block on node1");
         let hash = node1.generate_block();

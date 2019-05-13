@@ -41,6 +41,15 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
     pub fn execute(self) -> Result<(), FailureError> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash().to_owned();
+
+        if self.relayer.state.already_known_compact_block(&block_hash) {
+            debug!(target: "relay", "discarding already known compact block {:x}", block_hash);
+            return Ok(());
+        }
+        self.relayer
+            .state
+            .mark_as_known_compact_block(block_hash.clone());
+
         if let Some(parent_header_view) = self
             .relayer
             .shared
@@ -59,9 +68,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 );
                 return Ok(());
             }
-        } else if self.relayer.shared.is_initial_block_download() {
-            // If self is in the IBD state, do nothing
-            return Ok(());
         } else {
             debug!(target: "relay", "UnknownParent: {:x}, send_getheaders_to_peer({})", block_hash, self.peer);
             self.relayer.shared.send_getheaders_to_peer(
