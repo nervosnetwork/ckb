@@ -41,7 +41,7 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::{debug, info};
+use log::{debug, info, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
@@ -391,8 +391,8 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
 impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
-        nc.set_notify(Duration::from_millis(1000), TX_PROPOSAL_TOKEN);
-        nc.set_notify(Duration::from_millis(1000), ASK_FOR_TXS_TOKEN);
+        nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
+        nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN);
     }
 
     fn received(
@@ -416,7 +416,15 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
         };
 
         debug!(target: "relay", "received msg {:?} from {}", msg.payload_type(), peer_index);
+        let start_time = Instant::now();
         self.process(nc, peer_index, msg);
+        trace!(
+            target: "relay",
+            "process message={:?}, peer={}, cost={:?}",
+            msg.payload_type(),
+            peer_index,
+            start_time.elapsed(),
+        );
     }
 
     fn connected(
@@ -439,11 +447,15 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
         if self.shared.is_initial_block_download() {
             return;
         }
+
+        let start_time = Instant::now();
+        trace!(target: "relay", "start notify token={}", token);
         match token {
             TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             _ => unreachable!(),
         }
+        trace!(target: "relay", "finished notify token={} cost={:?}", token, start_time.elapsed());
     }
 }
 
