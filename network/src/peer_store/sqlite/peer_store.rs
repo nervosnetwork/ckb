@@ -234,6 +234,16 @@ impl PeerStore for SqlitePeerStore {
         inserted > 0
     }
 
+    fn delete_peer(&mut self, peer_id: &PeerId) {
+        let info = db::PeerInfo::get_by_peer_id(&self.conn, peer_id)
+            .expect("get peer info failed")
+            .expect("get peer info failed opt");
+        let tx = self.conn.transaction().expect("db tx");
+        db::PeerInfo::delete(&tx, info.id).expect("delete peer error");
+        db::PeerAddr::delete_by_peer_id(&tx, info.id).expect("delete peer by peer_id error");
+        tx.commit().expect("delete peer error");
+    }
+
     fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult {
         if self.is_banned(peer_id) {
             return ReportResult::Banned;
