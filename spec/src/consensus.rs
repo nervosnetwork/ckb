@@ -28,7 +28,7 @@ pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTER
 pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 240
 pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
-pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 2_000;
+pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
 pub(crate) const BLOCK_VERSION: u32 = 0;
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
