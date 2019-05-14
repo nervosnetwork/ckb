@@ -187,8 +187,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             txs_verified: Some(true),
             dao_stats: DaoStats {
                 accumulated_rate: DEFAULT_ACCUMULATED_RATE,
-                accumulated_capacity: genesis
-                    .transactions()[0]
+                accumulated_capacity: genesis.transactions()[0]
                     .outputs()
                     .iter()
                     .skip(1)
