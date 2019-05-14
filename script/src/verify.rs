@@ -454,7 +454,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
 mod tests {
     use super::*;
     use byteorder::{LittleEndian, WriteBytesExt};
-    use ckb_core::cell::CellMetaBuilder;
+    use ckb_core::cell::{BlockInfo, CellMetaBuilder};
     use ckb_core::extras::DaoStats;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::script::Script;
@@ -495,12 +495,12 @@ mod tests {
 
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output)
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(always_success_cell)
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
 
@@ -562,7 +562,7 @@ mod tests {
         );
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output)
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .data_hash(code_hash.to_owned())
                 .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                 .build(),
@@ -580,7 +580,7 @@ mod tests {
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output)
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
 
@@ -641,7 +641,7 @@ mod tests {
         );
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output)
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .data_hash(code_hash.to_owned())
                 .out_point(dep_out_point.cell.clone().unwrap())
                 .build(),
@@ -659,7 +659,7 @@ mod tests {
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned())
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
 
@@ -720,7 +720,7 @@ mod tests {
         );
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned())
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .data_hash(code_hash.to_owned())
                 .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                 .build(),
@@ -738,7 +738,7 @@ mod tests {
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned())
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
 
@@ -802,7 +802,7 @@ mod tests {
         );
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned())
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .data_hash(code_hash.to_owned())
                 .build(),
         );
@@ -819,7 +819,7 @@ mod tests {
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned())
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
 
@@ -884,7 +884,7 @@ mod tests {
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output)
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
 
@@ -944,12 +944,12 @@ mod tests {
         );
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned())
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(always_success_cell)
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
 
@@ -971,7 +971,7 @@ mod tests {
             );
             ResolvedOutPoint::cell_only(
                 CellMetaBuilder::from_cell_output(output.to_owned())
-                    .block_number(1)
+                    .block_info(BlockInfo::new(1, 0))
                     .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                     .build(),
             )
@@ -1041,12 +1041,12 @@ mod tests {
         );
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned())
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(always_success_cell.to_owned())
-                .block_number(1)
+                .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
 
@@ -1068,7 +1068,7 @@ mod tests {
             );
             ResolvedOutPoint::cell_only(
                 CellMetaBuilder::from_cell_output(output)
-                    .block_number(1)
+                    .block_info(BlockInfo::new(1, 0))
                     .build(),
             )
         };

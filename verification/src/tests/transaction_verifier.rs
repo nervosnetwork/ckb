@@ -2,7 +2,7 @@ use super::super::transaction_verifier::{
     CapacityVerifier, DuplicateDepsVerifier, EmptyVerifier, MaturityVerifier, SinceVerifier,
 };
 use crate::error::TransactionError;
-use ckb_core::cell::{CellMeta, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
+use ckb_core::cell::{BlockInfo, CellMeta, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
@@ -86,7 +86,7 @@ pub fn test_cellbase_maturity() {
                 Script::default(),
                 None,
             ))
-            .block_number(30)
+            .block_info(BlockInfo::new(30, 0))
             .cellbase(true)
             .build(),
         )],
@@ -206,7 +206,7 @@ pub fn test_since() {
                 Script::default(),
                 None,
             ))
-            .block_number(1)
+            .block_info(BlockInfo::new(1, 0))
             .build(),
         )],
     };
@@ -239,7 +239,7 @@ pub fn test_since() {
                 Script::default(),
                 None,
             ))
-            .block_number(1)
+            .block_info(BlockInfo::new(1, 0))
             .build(),
         )],
     };
@@ -272,7 +272,7 @@ pub fn test_since() {
                 Script::default(),
                 None,
             ))
-            .block_number(1)
+            .block_info(BlockInfo::new(1, 0))
             .build(),
         )],
     };
@@ -313,7 +313,7 @@ pub fn test_since() {
                 Script::default(),
                 None,
             ))
-            .block_number(1)
+            .block_info(BlockInfo::new(1, 0))
             .build(),
         )],
     };
@@ -349,8 +349,7 @@ pub fn test_since() {
                 Script::default(),
                 None,
             ))
-            .block_number(1)
-            .epoch_number(1)
+            .block_info(BlockInfo::new(1, 1))
             .build(),
         )],
     };
@@ -379,8 +378,7 @@ pub fn test_since() {
                 Script::default(),
                 None,
             ))
-            .block_number(1)
-            .epoch_number(1)
+            .block_info(BlockInfo::new(1, 1))
             .build(),
         )],
     };

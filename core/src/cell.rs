@@ -15,6 +15,12 @@ pub struct BlockInfo {
     pub epoch: EpochNumber,
 }
 
+impl BlockInfo {
+    pub fn new(number: BlockNumber, epoch: EpochNumber) -> Self {
+        BlockInfo { number, epoch }
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct CellMeta {
     #[serde(skip)]
@@ -74,30 +80,6 @@ impl CellMetaBuilder {
 
     pub fn block_info(mut self, block_info: BlockInfo) -> Self {
         self.block_info = Some(block_info);
-        self
-    }
-
-    pub fn block_number(mut self, block_number: BlockNumber) -> Self {
-        if let Some(ref mut block_info) = self.block_info {
-            block_info.number = block_number;
-        } else {
-            self.block_info = Some(BlockInfo {
-                number: block_number,
-                epoch: 0,
-            });
-        }
-        self
-    }
-
-    pub fn epoch_number(mut self, epoch_number: EpochNumber) -> Self {
-        if let Some(ref mut block_info) = self.block_info {
-            block_info.epoch = epoch_number;
-        } else {
-            self.block_info = Some(BlockInfo {
-                number: 0,
-                epoch: epoch_number,
-            });
-        }
         self
     }
 

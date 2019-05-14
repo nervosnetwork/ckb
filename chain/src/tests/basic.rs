@@ -4,7 +4,7 @@ use crate::tests::util::{
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
-use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus, UnresolvableError};
+use ckb_core::cell::{BlockInfo, CellMetaBuilder, CellProvider, CellStatus, UnresolvableError};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, TransactionBuilder};
@@ -175,7 +175,7 @@ fn test_transaction_spend_in_same_block() {
                 })
                 .data_hash(tx2_output.data_hash())
                 .capacity(tx2_output.capacity)
-                .block_number(4)
+                .block_info(BlockInfo::new(4, 0))
                 .build()
         )
     );
