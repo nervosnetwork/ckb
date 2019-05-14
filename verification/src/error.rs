@@ -156,8 +156,8 @@ pub enum TransactionError {
     Version,
     /// Tx not satisfied since condition
     Immature,
-    /// Invalid ValidSince flags
-    InvalidValidSince,
+    /// Invalid Since flags
+    InvalidSince,
     CellbaseImmaturity,
 }
 
@@ -176,7 +176,7 @@ impl TransactionError {
         use TransactionError::*;
         match self {
             CapacityOverflow | DuplicateDeps | Empty | OutputsSumOverflow | InvalidScript
-            | ScriptFailure(_) | InvalidSignature | InvalidValidSince => true,
+            | ScriptFailure(_) | InvalidSignature | InvalidSince => true,
             _ => false,
         }
     }

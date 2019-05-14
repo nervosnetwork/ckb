@@ -2,30 +2,125 @@ use crate::block::Block;
 use crate::header::Header;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
 use crate::Capacity;
+use crate::{BlockNumber, EpochNumber};
 use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
+#[derive(Clone, Debug, Eq, PartialEq, Default, Deserialize, Serialize)]
+pub struct BlockInfo {
+    pub number: BlockNumber,
+    pub epoch: EpochNumber,
+}
+
+impl BlockInfo {
+    pub fn new(number: BlockNumber, epoch: EpochNumber) -> Self {
+        BlockInfo { number, epoch }
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct CellMeta {
     #[serde(skip)]
     pub cell_output: Option<CellOutput>,
     pub out_point: CellOutPoint,
-    pub block_number: Option<u64>,
+    pub block_info: Option<BlockInfo>,
     pub cellbase: bool,
     pub capacity: Capacity,
     pub data_hash: Option<H256>,
 }
 
+#[derive(Default)]
+pub struct CellMetaBuilder {
+    cell_output: Option<CellOutput>,
+    out_point: CellOutPoint,
+    block_info: Option<BlockInfo>,
+    cellbase: bool,
+    capacity: Capacity,
+    data_hash: Option<H256>,
+}
+
+impl CellMetaBuilder {
+    pub fn from_cell_meta(cell_meta: CellMeta) -> Self {
+        let CellMeta {
+            cell_output,
+            out_point,
+            block_info,
+            cellbase,
+            capacity,
+            data_hash,
+        } = cell_meta;
+        Self {
+            cell_output,
+            out_point,
+            block_info,
+            cellbase,
+            capacity,
+            data_hash,
+        }
+    }
+
+    pub fn from_cell_output(cell_output: CellOutput) -> Self {
+        CellMetaBuilder::default()
+            .capacity(cell_output.capacity)
+            .cell_output(cell_output)
+    }
+
+    pub fn cell_output(mut self, cell_output: CellOutput) -> Self {
+        self.cell_output = Some(cell_output);
+        self
+    }
+
+    pub fn out_point(mut self, out_point: CellOutPoint) -> Self {
+        self.out_point = out_point;
+        self
+    }
+
+    pub fn block_info(mut self, block_info: BlockInfo) -> Self {
+        self.block_info = Some(block_info);
+        self
+    }
+
+    pub fn cellbase(mut self, cellbase: bool) -> Self {
+        self.cellbase = cellbase;
+        self
+    }
+
+    pub fn capacity(mut self, capacity: Capacity) -> Self {
+        self.capacity = capacity;
+        self
+    }
+
+    pub fn data_hash(mut self, data_hash: H256) -> Self {
+        self.data_hash = Some(data_hash);
+        self
+    }
+
+    pub fn build(self) -> CellMeta {
+        let Self {
+            cell_output,
+            out_point,
+            block_info,
+            cellbase,
+            capacity,
+            data_hash,
+        } = self;
+        CellMeta {
+            cell_output,
+            out_point,
+            block_info,
+            cellbase,
+            capacity,
+            data_hash,
+        }
+    }
+}
+
 impl From<&CellOutput> for CellMeta {
     fn from(output: &CellOutput) -> Self {
-        CellMeta {
-            cell_output: Some(output.clone()),
-            capacity: output.capacity,
-            ..Default::default()
-        }
+        CellMetaBuilder::from_cell_output(output.to_owned()).build()
     }
 }
 
@@ -34,7 +129,7 @@ impl fmt::Debug for CellMeta {
         f.debug_struct("CellMeta")
             .field("cell_output", &self.cell_output)
             .field("out_point", &self.out_point)
-            .field("block_number", &self.block_number)
+            .field("block_info", &self.block_info)
             .field("cellbase", &self.cellbase)
             .field("capacity", &self.capacity)
             .field(
@@ -304,7 +399,10 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                             out_point: out_point.to_owned(),
                             data_hash: None,
                             capacity: output.capacity,
-                            block_number: Some(self.block.header().number()),
+                            block_info: Some(BlockInfo {
+                                number: self.block.header().number(),
+                                epoch: self.block.header().epoch(),
+                            }),
                             cellbase: *i == 0,
                         })
                     })
@@ -620,7 +718,10 @@ mod tests {
             type_: None,
         };
         CellMeta {
-            block_number: Some(1),
+            block_info: Some(BlockInfo {
+                number: 1,
+                epoch: 1,
+            }),
             capacity: cell_output.capacity,
             data_hash: Some(cell_output.data_hash()),
             cell_output: Some(cell_output),

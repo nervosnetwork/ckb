@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::tx_pool::types::ProposedEntry;
-use ckb_core::cell::{CellMeta, CellProvider, CellStatus};
+use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::{Capacity, Cycle};
 use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
@@ -107,14 +107,11 @@ impl CellProvider for ProposedPool {
                 CellStatus::Dead
             } else {
                 let output = self.get_output(o).expect("output");
-                CellStatus::live_cell(CellMeta {
-                    cell_output: Some(output.clone()),
-                    out_point: o.cell.as_ref().unwrap().to_owned(),
-                    block_number: None,
-                    cellbase: false,
-                    capacity: output.capacity,
-                    data_hash: None,
-                })
+                CellStatus::live_cell(
+                    CellMetaBuilder::from_cell_output(output.to_owned())
+                        .out_point(o.cell.as_ref().unwrap().to_owned())
+                        .build(),
+                )
             }
         } else if self.edges.get_outer(o).is_some() {
             CellStatus::Dead

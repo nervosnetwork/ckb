@@ -21,6 +21,7 @@ impl From<BitVecSerde> for BitVec {
 #[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct TransactionMeta {
     block_number: u64,
+    epoch_number: u64,
     /// first bit indicate if transaction is a cellbase transaction
     /// next bits indicate if transaction has dead cells
     #[serde(with = "BitVecSerde")]
@@ -28,16 +29,17 @@ pub struct TransactionMeta {
 }
 
 impl TransactionMeta {
-    pub fn new(block_number: u64, outputs_count: usize) -> TransactionMeta {
+    pub fn new(block_number: u64, epoch_number: u64, outputs_count: usize) -> TransactionMeta {
         TransactionMeta {
             block_number,
+            epoch_number,
             dead_cell: BitVec::from_elem(outputs_count + 1, false),
         }
     }
 
     /// New cellbase transaction
-    pub fn new_cellbase(block_number: u64, outputs: usize) -> Self {
-        let mut result = Self::new(block_number, outputs);
+    pub fn new_cellbase(block_number: u64, epoch_number: u64, outputs: usize) -> Self {
+        let mut result = Self::new(block_number, epoch_number, outputs);
         result.dead_cell.set(0, true);
         result
     }
@@ -54,6 +56,10 @@ impl TransactionMeta {
 
     pub fn block_number(&self) -> u64 {
         self.block_number
+    }
+
+    pub fn epoch_number(&self) -> u64 {
+        self.epoch_number
     }
 
     pub fn is_empty(&self) -> bool {
@@ -92,7 +98,7 @@ mod tests {
 
     #[test]
     fn transaction_meta_serde() {
-        let mut original = TransactionMeta::new(0, 4);
+        let mut original = TransactionMeta::new(0, 0, 4);
         original.set_dead(1);
         original.set_dead(3);
 
@@ -108,7 +114,7 @@ mod tests {
 
     #[test]
     fn set_unset_dead_out_of_bounds() {
-        let mut meta = TransactionMeta::new(0, 4);
+        let mut meta = TransactionMeta::new(0, 0, 4);
         meta.set_dead(3);
         assert!(meta.is_dead(3) == Some(true));
         meta.unset_dead(3);

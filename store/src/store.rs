@@ -10,7 +10,7 @@ use crate::{
 use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::cell::CellMeta;
+use ckb_core::cell::{BlockInfo, CellMeta};
 use ckb_core::extras::{
     BlockExt, DaoStats, EpochExt, TransactionAddress, DEFAULT_ACCUMULATED_RATE,
 };
@@ -393,7 +393,10 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                 let cell_meta = CellMeta {
                     cell_output: None,
                     out_point,
-                    block_number: Some(block.header().number()),
+                    block_info: Some(BlockInfo {
+                        number: block.header().number(),
+                        epoch: block.header().epoch(),
+                    }),
                     cellbase,
                     capacity: output.capacity,
                     data_hash: Some(output.data_hash()),
