@@ -75,6 +75,7 @@ if [ "$RUN_TEST" = true ]; then
   fi
   if [ "$CHECK" = true ]; then
     fold license make cargo-license
+    fold check-dirty-doc make check-dirty-doc
     fold check make check
     fold clippy make clippy
     fold security-audit make security-audit
