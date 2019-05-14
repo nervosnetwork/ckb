@@ -45,7 +45,6 @@ impl UncleBlock {
 
     pub fn serialized_size(&self, proof_size: usize) -> usize {
         Header::serialized_size(proof_size)
-            + ProposalShortId::serialized_size() * self.proposals.len()
     }
 }
 
@@ -54,5 +53,22 @@ pub fn uncles_hash(uncles: &[UncleBlock]) -> H256 {
         H256::zero()
     } else {
         blake2b_256(serialize(uncles).expect("Uncle serialize should not fail")).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::BlockBuilder;
+
+    #[test]
+    fn block_size_should_not_include_uncles_proposal_zones() {
+        let uncle1: UncleBlock = BlockBuilder::default()
+            .proposal(ProposalShortId::zero())
+            .build()
+            .into();
+        let uncle2: UncleBlock = BlockBuilder::default().build().into();
+
+        assert_eq!(uncle1.serialized_size(0), uncle2.serialized_size(0));
     }
 }
