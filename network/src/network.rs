@@ -621,7 +621,6 @@ impl ServiceHandle for EventHandler {
                     }
                 }
             }
-            _ => {}
         }
     }
 }
