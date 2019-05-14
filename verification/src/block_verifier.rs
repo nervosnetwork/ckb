@@ -207,6 +207,10 @@ impl BlockBytesVerifier {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        // Skip bytes limit on genesis block
+        if block.is_genesis() {
+            return Ok(());
+        }
         let block_bytes = block.serialized_size(self.proof_size) as u64;
         if block_bytes <= self.block_bytes_limit {
             Ok(())

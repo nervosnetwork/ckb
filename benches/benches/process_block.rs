@@ -152,7 +152,7 @@ fn new_chain(
     H256,
     H256,
 ) {
-    let always_success = include_bytes!("../../resource/specs/cells/always_success");
+    let always_success = include_bytes!("../../script/testdata/always_success");
     let mut cell_output = CellOutput::default();
     cell_output.data = Bytes::from(always_success.to_vec());
     cell_output.capacity = cell_output.occupied_capacity().unwrap();

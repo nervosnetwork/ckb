@@ -12,7 +12,7 @@ pub use tx_pool::*;
 
 use crate::Net;
 use ckb_app_config::CKBAppConfig;
-use ckb_chain_spec::ChainSpecConfig;
+use ckb_chain_spec::ChainSpec;
 use ckb_network::{ProtocolId, ProtocolVersion};
 use ckb_sync::NetworkProtocol;
 
@@ -31,7 +31,7 @@ pub trait Spec {
         vec![]
     }
 
-    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpecConfig) -> ()> {
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|_| ())
     }
 

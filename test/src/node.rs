@@ -1,20 +1,22 @@
 use crate::rpc::RpcClient;
 use crate::utils::wait_until;
 use ckb_app_config::{CKBAppConfig, MinerAppConfig};
-use ckb_chain_spec::ChainSpecConfig;
+use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_resource::Resource;
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate, Unsigned, Version};
 use log::info;
-use numext_fixed_hash::{h256, H256};
+use numext_fixed_hash::H256;
 use rand;
 use std::convert::TryInto;
 use std::fs;
 use std::io::Error;
+use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
 
 pub struct Node {
@@ -23,6 +25,8 @@ pub struct Node {
     pub p2p_port: u16,
     pub rpc_port: u16,
     pub node_id: Option<String>,
+    pub genesis_cellbase_hash: H256,
+    pub always_success_code_hash: H256,
     guard: Option<ProcessGuard>,
 }
 
@@ -46,12 +50,14 @@ impl Node {
             rpc_port,
             node_id: None,
             guard: None,
+            genesis_cellbase_hash: Default::default(),
+            always_success_code_hash: Default::default(),
         }
     }
 
     pub fn start(
         &mut self,
-        modify_chain_spec: Box<dyn Fn(&mut ChainSpecConfig) -> ()>,
+        modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
         modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
     ) {
         self.init_config_file(modify_chain_spec, modify_ckb_config)
@@ -335,22 +341,15 @@ impl Node {
     }
 
     pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> Transaction {
-        // OutPoint and Script reference hash values are from spec#always_success_type_hash test
-        let out_point = OutPoint::new_cell(
-            h256!("0xf8532f2ed92aad146878dca1d5ad9840e9c803ab85d1361652500eaee09c9038"),
-            0,
-        );
-        let script = Script::new(
-            vec![],
-            h256!("0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"),
-        );
+        let always_success_out_point = OutPoint::new_cell(self.genesis_cellbase_hash.clone(), 1);
+        let always_success_script = Script::new(vec![], self.always_success_code_hash.clone());
 
         TransactionBuilder::default()
-            .dep(out_point)
+            .dep(always_success_out_point)
             .output(CellOutput::new(
                 capacity_bytes!(50_000),
                 Bytes::new(),
-                script,
+                always_success_script,
                 None,
             ))
             .input(CellInput::new(OutPoint::new_cell(hash, 0), since, vec![]))
@@ -358,26 +357,32 @@ impl Node {
     }
 
     fn prepare_chain_spec(
-        &self,
+        &mut self,
         config_path: &str,
-        modify_chain_spec: Box<dyn Fn(&mut ChainSpecConfig) -> ()>,
+        modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
-        let always_success_cell = include_bytes!("../../resource/specs/cells/always_success");
+        let always_success_cell = include_bytes!("../../script/testdata/always_success");
+        let always_success_path = Path::new(&self.dir).join("specs/cells/always_success");
         fs::create_dir_all(format!("{}/specs", self.dir))?;
         fs::create_dir_all(format!("{}/specs/cells", self.dir))?;
-        fs::write(
-            format!("{}/specs/cells/always_success", self.dir),
-            &always_success_cell[..],
-        )?;
+        fs::write(&always_success_path, &always_success_cell[..])?;
 
-        let mut spec_config: ChainSpecConfig =
+        let mut spec: ChainSpec =
             toml::from_slice(&integration_spec[..]).expect("chain spec config");
-        modify_chain_spec(&mut spec_config);
+        spec.genesis.system_cells.resources = vec![Resource::FileSystem(always_success_path)];
+        modify_chain_spec(&mut spec);
+
+        let consensus = spec.build_consensus().expect("build consensus");
+        self.genesis_cellbase_hash
+            .clone_from(consensus.genesis_block().transactions()[0].hash());
+        self.always_success_code_hash =
+            consensus.genesis_block().transactions()[0].outputs()[1].data_hash();
+
         // write to dir
         fs::write(
             &config_path,
-            toml::to_string(&spec_config).expect("chain spec serialize"),
+            toml::to_string(&spec).expect("chain spec serialize"),
         )
     }
 
@@ -391,6 +396,11 @@ impl Node {
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
         ckb_config.chain.spec = config_path.into();
+        ckb_config
+            .block_assembler
+            .code_hash
+            .clone_from(&self.always_success_code_hash);
+        ckb_config.block_assembler.args.clear();
         modify_ckb_config(&mut ckb_config);
         fs::write(
             &ckb_config_path,
@@ -408,8 +418,8 @@ impl Node {
     }
 
     fn init_config_file(
-        &self,
-        modify_chain_spec: Box<dyn Fn(&mut ChainSpecConfig) -> ()>,
+        &mut self,
+        modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
         modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
     ) -> Result<(), Error> {
         let rpc_port = format!("{}", self.rpc_port).to_string();
