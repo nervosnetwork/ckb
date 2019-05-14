@@ -294,8 +294,9 @@ pub mod test {
     use std::collections::HashMap;
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    struct SystemCellHashes {
+    struct SystemCell {
         pub path: String,
+        pub index: usize,
         pub code_hash: H256,
         pub script_hash: H256,
     }
@@ -304,7 +305,7 @@ pub mod test {
     struct SpecHashes {
         pub genesis: H256,
         pub cellbase: H256,
-        pub system_cells: Vec<SystemCellHashes>,
+        pub system_cells: Vec<SystemCell>,
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
@@ -345,16 +346,18 @@ pub mod test {
 
             assert_eq!(&spec_hashes.cellbase, cellbase.hash());
 
-            for (output, cell_hashes) in cellbase
+            for (index_minus_one, (output, cell)) in cellbase
                 .outputs()
                 .iter()
                 .skip(1)
                 .zip(spec_hashes.system_cells.iter())
+                .enumerate()
             {
                 let code_hash = output.data_hash();
                 let script_hash = Script::new(vec![], code_hash.clone()).hash();
-                assert_eq!(cell_hashes.code_hash, code_hash, "{}", bundled_spec_err);
-                assert_eq!(cell_hashes.script_hash, script_hash, "{}", bundled_spec_err);
+                assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
+                assert_eq!(cell.code_hash, code_hash, "{}", bundled_spec_err);
+                assert_eq!(cell.script_hash, script_hash, "{}", bundled_spec_err);
             }
         }
     }

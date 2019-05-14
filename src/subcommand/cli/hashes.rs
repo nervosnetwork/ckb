@@ -10,8 +10,9 @@ use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct SystemCellHashes {
+struct SystemCell {
     pub path: String,
+    pub index: usize,
     pub code_hash: H256,
     pub script_hash: H256,
 }
@@ -20,7 +21,7 @@ struct SystemCellHashes {
 struct SpecHashes {
     pub genesis: H256,
     pub cellbase: H256,
-    pub system_cells: Vec<SystemCellHashes>,
+    pub system_cells: Vec<SystemCell>,
 }
 
 impl TryFrom<ChainSpec> for SpecHashes {
@@ -50,11 +51,13 @@ impl TryFrom<ChainSpec> for SpecHashes {
             .resources
             .iter()
             .zip(cellbase.outputs().iter().skip(1))
-            .map(|(resource, output)| {
+            .enumerate()
+            .map(|(index_minus_one, (resource, output))| {
                 let code_hash = output.data_hash();
                 let script_hash = Script::new(vec![], code_hash.to_owned()).hash();
-                SystemCellHashes {
+                SystemCell {
                     path: resource.to_string(),
+                    index: index_minus_one + 1,
                     code_hash,
                     script_hash,
                 }

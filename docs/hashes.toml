@@ -5,6 +5,7 @@ cellbase = "0x8515fadcc5d649cb1167636dd166975b8da5fe355b1e72cd672af9ea1d0418ea"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/always_success)"
+index = 1
 code_hash = "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
 script_hash = "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
 
@@ -14,5 +15,6 @@ cellbase = "0x8074b8d770b14fc7be28fb9ef5361654ff497417f7f0909dbc8b7ce9abdba349"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
+index = 1
 code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
 script_hash = "0xf7b950dde1e3c07f17b1609f5a06d92af81a514eabcb096a4dcecce627823ba4"
