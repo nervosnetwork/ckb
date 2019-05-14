@@ -33,6 +33,7 @@ use hashbrown::HashMap;
 use log::{debug, info, trace};
 use numext_fixed_hash::H256;
 use std::cmp::min;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -473,12 +474,17 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .collect();
 
         trace!(target: "sync", "poll find_blocks_to_fetch select peers");
-        for peer in peers {
-            if let Some(v_fetch) = self.get_blocks_to_fetch(peer) {
-                if !v_fetch.is_empty() {
-                    self.send_getblocks(&v_fetch, nc, peer);
-                }
-            }
+
+        let blocks_to_fetch: Vec<(PeerIndex, Vec<H256>)> = peers
+            .into_iter()
+            .filter_map(|peer| {
+                self.get_blocks_to_fetch(peer)
+                    .map(|v_fetch| (peer, v_fetch))
+            })
+            .collect();
+
+        for (peer, v_fetch) in rebalance_workloads(&blocks_to_fetch) {
+            self.send_getblocks(&v_fetch, nc, peer);
         }
     }
 
@@ -489,6 +495,35 @@ impl<CS: ChainStore> Synchronizer<CS> {
         nc.send_message_to(peer, fbb.finished_data().into());
         debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
     }
+}
+
+/// remove duplicate work and rebalance work to workers
+pub(crate) fn rebalance_workloads<W: Ord + Clone, L: Ord + Clone>(
+    workloads: &[(W, Vec<L>)],
+) -> Vec<(W, Vec<L>)> {
+    let mut works: BTreeMap<&L, BTreeSet<&W>> = BTreeMap::new();
+    let mut result: BTreeMap<&W, BTreeSet<&L>> = BTreeMap::new();
+
+    for (worker, workload) in workloads {
+        for work in workload {
+            works.entry(&work).or_default().insert(&worker);
+        }
+    }
+
+    for (work, workers) in works {
+        if let Some((_, worker)) = workers
+            .iter()
+            .map(|worker| (result.entry(worker).or_default().len(), worker))
+            .min()
+        {
+            result.entry(&worker).or_default().insert(&work);
+        }
+    }
+
+    result
+        .into_iter()
+        .map(|(worker, works)| (worker.clone(), works.into_iter().cloned().collect()))
+        .collect()
 }
 
 impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
@@ -1314,5 +1349,35 @@ mod tests {
                 &FnvHashSet::from_iter(vec![3, 4].into_iter().map(Into::into))
             )
         }
+    }
+
+    #[test]
+    fn test_rebalance_workloads() {
+        let workloads = vec![('A', vec![1, 2]), ('B', vec![1, 2])];
+        let result = rebalance_workloads(&workloads);
+        assert_eq!(vec!(('A', vec!(1)), ('B', vec!(2))), result);
+
+        let workloads = vec![('A', vec![1, 2]), ('B', vec![3])];
+        let result = rebalance_workloads(&workloads);
+        assert_eq!(vec!(('A', vec!(1, 2)), ('B', vec!(3))), result);
+
+        let workloads = vec![('A', vec![1, 3]), ('B', vec![2]), ('C', vec![2, 3])];
+        let result = rebalance_workloads(&workloads);
+        assert_eq!(vec!(('A', vec!(1)), ('B', vec!(2)), ('C', vec!(3))), result);
+
+        let workloads = vec![
+            ('B', vec![1, 5, 7, 8]),
+            ('A', vec![1, 3, 6, 5, 7, 8]),
+            ('C', vec![1, 2, 6, 9]),
+        ];
+        let result = rebalance_workloads(&workloads);
+        assert_eq!(
+            vec!(
+                ('A', vec!(1, 3, 8)),
+                ('B', vec!(5, 7)),
+                ('C', vec!(2, 6, 9))
+            ),
+            result
+        );
     }
 }
