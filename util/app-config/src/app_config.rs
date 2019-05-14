@@ -379,7 +379,6 @@ mod tests {
                 ckb_config.network.listen_addresses,
                 vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
             );
-            assert_eq!(ckb_config.network.connect_outbound_interval_secs, 1);
             assert_eq!(ckb_config.rpc.listen_address, "0.0.0.0:7000");
         }
         {

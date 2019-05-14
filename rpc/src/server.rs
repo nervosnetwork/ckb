@@ -53,7 +53,7 @@ impl RpcServer {
                 MinerRpcImpl {
                     shared: shared.clone(),
                     block_assembler,
-                    chain,
+                    chain: chain.clone(),
                     network_controller: network_controller.clone(),
                 }
                 .to_delegate(),
@@ -93,6 +93,7 @@ impl RpcServer {
                 IntegrationTestRpcImpl {
                     network_controller,
                     shared,
+                    chain,
                 }
                 .to_delegate(),
             );

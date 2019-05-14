@@ -1,5 +1,5 @@
 use crate::rpc::RpcClient;
-use crate::sleep;
+use crate::utils::wait_until;
 use ckb_app_config::{CKBAppConfig, MinerAppConfig};
 use ckb_chain_spec::ChainSpecConfig;
 use ckb_core::block::{Block, BlockBuilder};
@@ -23,7 +23,6 @@ pub struct Node {
     pub p2p_port: u16,
     pub rpc_port: u16,
     pub node_id: Option<String>,
-    pub cellbase_maturity: Option<BlockNumber>,
     guard: Option<ProcessGuard>,
 }
 
@@ -39,13 +38,7 @@ impl Drop for ProcessGuard {
 }
 
 impl Node {
-    pub fn new(
-        binary: &str,
-        dir: &str,
-        p2p_port: u16,
-        rpc_port: u16,
-        cellbase_maturity: Option<BlockNumber>,
-    ) -> Self {
+    pub fn new(binary: &str, dir: &str, p2p_port: u16, rpc_port: u16) -> Self {
         Self {
             binary: binary.to_string(),
             dir: dir.to_string(),
@@ -53,12 +46,16 @@ impl Node {
             rpc_port,
             node_id: None,
             guard: None,
-            cellbase_maturity,
         }
     }
 
-    pub fn start(&mut self) {
-        self.init_config_file().expect("failed to init config file");
+    pub fn start(
+        &mut self,
+        modify_chain_spec: Box<dyn Fn(&mut ChainSpecConfig) -> ()>,
+        modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
+    ) {
+        self.init_config_file(modify_chain_spec, modify_ckb_config)
+            .expect("failed to init config file");
 
         let child_process = Command::new(self.binary.to_owned())
             .env("RUST_BACKTRACE", "full")
@@ -85,7 +82,7 @@ impl Node {
                         process::exit(exit.code().unwrap());
                     }
                     Ok(None) => {
-                        sleep(1);
+                        std::thread::sleep(std::time::Duration::from_secs(1));
                     }
                     Err(error) => {
                         eprintln!("Error: node crashed with reason: {}", error);
@@ -104,7 +101,8 @@ impl Node {
             .expect("rpc call local_node_info failed");
 
         let node_id = node_info.node_id;
-        self.rpc_client()
+        let mut rpc_client = self.rpc_client();
+        rpc_client
             .add_node(
                 node_id.clone(),
                 format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port),
@@ -112,19 +110,71 @@ impl Node {
             .call()
             .expect("rpc call add_node failed");
 
-        for _ in 0..5 {
-            sleep(1);
-            let peers = self
-                .rpc_client()
+        let result = wait_until(5, || {
+            let peers = rpc_client
                 .get_peers()
                 .call()
                 .expect("rpc call get_peers failed");
-            if peers.iter().any(|peer| peer.node_id == node_id) {
-                return;
-            }
-        }
+            peers.iter().any(|peer| peer.node_id == node_id)
+        });
 
-        panic!("Connect timeout, node {}", node_id);
+        if !result {
+            panic!("Connect timeout, node {}", node_id);
+        }
+    }
+
+    pub fn disconnect(&self, node: &Node) {
+        let node_info = node
+            .rpc_client()
+            .local_node_info()
+            .call()
+            .expect("rpc call local_node_info failed");
+
+        let node_id = node_info.node_id;
+        let mut rpc_client = self.rpc_client();
+        rpc_client
+            .remove_node(node_id.clone())
+            .call()
+            .expect("rpc call add_node failed");
+
+        let result = wait_until(5, || {
+            let peers = rpc_client
+                .get_peers()
+                .call()
+                .expect("rpc call get_peers failed");
+            peers.iter().all(|peer| peer.node_id != node_id)
+        });
+
+        if !result {
+            panic!("Disconnect timeout, node {}", node_id);
+        }
+    }
+
+    pub fn waiting_for_sync(&self, node: &Node, target: BlockNumber, timeout: u64) {
+        let mut self_rpc_client = self.rpc_client();
+        let mut node_rpc_client = node.rpc_client();
+        let (mut self_tip_number, mut node_tip_number) = (0, 0);
+
+        let result = wait_until(timeout, || {
+            self_tip_number = self_rpc_client
+                .get_tip_block_number()
+                .call()
+                .expect("rpc call get_tip_block_number failed")
+                .0;
+            node_tip_number = node_rpc_client
+                .get_tip_block_number()
+                .call()
+                .expect("rpc call get_tip_block_number failed")
+                .0;
+            self_tip_number == node_tip_number && target == self_tip_number
+        });
+
+        if !result {
+            panic!(
+                "Waiting for sync timeout, self_tip_number: {}, node_tip_number: {}",
+                self_tip_number, node_tip_number
+            );
+        }
     }
 
     pub fn rpc_client(&self) -> RpcClient<HttpHandle> {
@@ -144,6 +194,19 @@ impl Node {
         result.expect("submit_block result none")
     }
 
+    pub fn process_block_without_verify(&self, block: &Block) -> H256 {
+        let result = self
+            .rpc_client()
+            .process_block_without_verify(block.into())
+            .call()
+            .expect("rpc call process_block_without_verify failed");
+        result.expect("process_block_without_verify result none")
+    }
+
+    pub fn generate_blocks(&self, blocks_num: usize) -> Vec<H256> {
+        (0..blocks_num).map(|_| self.generate_block()).collect()
+    }
+
     // generate a new block and submit it through rpc.
     pub fn generate_block(&self) -> H256 {
         self.submit_block(&self.new_block(None, None, None))
@@ -151,13 +214,22 @@ impl Node {
 
     // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
     pub fn generate_transaction(&self) -> H256 {
+        self.submit_transaction(&self.new_transaction_spend_tip_cellbase())
+    }
+
+    // generate a transaction which spend tip block's cellbase
+    pub fn new_transaction_spend_tip_cellbase(&self) -> Transaction {
         let block = self.get_tip_block();
         let cellbase: Transaction = block.transactions()[0]
             .clone()
             .try_into()
             .expect("parse cellbase transaction failed");
-        let mut rpc = self.rpc_client();
-        rpc.send_transaction((&self.new_transaction(cellbase.hash().to_owned())).into())
+        self.new_transaction(cellbase.hash().to_owned())
+    }
+
+    pub fn submit_transaction(&self, transaction: &Transaction) -> H256 {
+        self.rpc_client()
+            .send_transaction(transaction.into())
             .call()
             .expect("rpc call send_transaction failed")
     }
@@ -285,7 +357,11 @@ impl Node {
             .build()
     }
 
-    fn prepare_chain_spec(&self, config_path: &str) -> Result<(), Error> {
+    fn prepare_chain_spec(
+        &self,
+        config_path: &str,
+        modify_chain_spec: Box<dyn Fn(&mut ChainSpecConfig) -> ()>,
+    ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
         let always_success_cell = include_bytes!("../../resource/specs/cells/always_success");
         fs::create_dir_all(format!("{}/specs", self.dir))?;
@@ -297,10 +373,7 @@ impl Node {
 
         let mut spec_config: ChainSpecConfig =
             toml::from_slice(&integration_spec[..]).expect("chain spec config");
-        // modify chain spec
-        if let Some(cellbase_maturity) = self.cellbase_maturity {
-            spec_config.params.cellbase_maturity = cellbase_maturity;
-        }
+        modify_chain_spec(&mut spec_config);
         // write to dir
         fs::write(
             &config_path,
@@ -308,12 +381,17 @@ impl Node {
         )
     }
 
-    fn rewrite_spec(&self, config_path: &str) -> Result<(), Error> {
+    fn rewrite_spec(
+        &self,
+        config_path: &str,
+        modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
+    ) -> Result<(), Error> {
         // rewrite ckb.toml
         let ckb_config_path = format!("{}/ckb.toml", self.dir);
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
         ckb_config.chain.spec = config_path.into();
+        modify_ckb_config(&mut ckb_config);
         fs::write(
             &ckb_config_path,
             toml::to_string(&ckb_config).expect("ckb config serialize"),
@@ -329,7 +407,11 @@ impl Node {
         )
     }
 
-    fn init_config_file(&self) -> Result<(), Error> {
+    fn init_config_file(
+        &self,
+        modify_chain_spec: Box<dyn Fn(&mut ChainSpecConfig) -> ()>,
+        modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
+    ) -> Result<(), Error> {
         let rpc_port = format!("{}", self.rpc_port).to_string();
         let p2p_port = format!("{}", self.p2p_port).to_string();
 
@@ -349,8 +431,8 @@ impl Node {
             .map(|_| ())?;
 
         let spec_config_path = format!("{}/specs/integration.toml", self.dir);
-        self.prepare_chain_spec(&spec_config_path)?;
-        self.rewrite_spec(&spec_config_path)?;
+        self.prepare_chain_spec(&spec_config_path, modify_chain_spec)?;
+        self.rewrite_spec(&spec_config_path, modify_ckb_config)?;
         Ok(())
     }
 

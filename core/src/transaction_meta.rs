@@ -47,8 +47,9 @@ impl TransactionMeta {
         self.dead_cell.get(0).expect("One bit should always exists")
     }
 
+    /// Returns transaction outputs count
     pub fn len(&self) -> usize {
-        self.dead_cell.len()
+        self.dead_cell.len() - 1
     }
 
     pub fn block_number(&self) -> u64 {
@@ -72,11 +73,15 @@ impl TransactionMeta {
     }
 
     pub fn set_dead(&mut self, index: usize) {
-        self.dead_cell.set(index + 1, true);
+        if index < self.len() {
+            self.dead_cell.set(index + 1, true);
+        }
     }
 
     pub fn unset_dead(&mut self, index: usize) {
-        self.dead_cell.set(index + 1, false);
+        if index < self.len() {
+            self.dead_cell.set(index + 1, false);
+        }
     }
 }
 
@@ -99,5 +104,19 @@ mod tests {
         assert!(decoded.is_dead(2) == Some(false));
         assert!(decoded.is_dead(3) == Some(true));
         assert!(decoded.is_dead(4) == None);
+    }
+
+    #[test]
+    fn set_unset_dead_out_of_bounds() {
+        let mut meta = TransactionMeta::new(0, 4);
+        meta.set_dead(3);
+        assert!(meta.is_dead(3) == Some(true));
+        meta.unset_dead(3);
+        assert!(meta.is_dead(3) == Some(false));
+        // none-op
+        meta.set_dead(4);
+        assert!(meta.is_dead(4) == None);
+        meta.unset_dead(4);
+        assert!(meta.is_dead(4) == None);
     }
 }

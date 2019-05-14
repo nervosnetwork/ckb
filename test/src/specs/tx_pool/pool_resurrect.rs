@@ -28,9 +28,7 @@ impl Spec for PoolResurrect {
         });
 
         info!("Generate 3 more blocks on node0");
-        node0.generate_block();
-        node0.generate_block();
-        node0.generate_block();
+        node0.generate_blocks(3);
 
         info!("Pool should be empty");
         let tx_pool_info = node0
@@ -41,20 +39,17 @@ impl Spec for PoolResurrect {
         assert!(tx_pool_info.pending.0 == 0);
 
         info!("Generate 5 blocks on node1");
-        (0..5).for_each(|_| {
-            node1.generate_block();
-        });
+        node1.generate_blocks(5);
 
         info!("Connect node0 to node1, waiting for sync");
         node0.connect(node1);
-        net.waiting_for_sync(10);
+        net.waiting_for_sync(5, 10);
 
         info!("6 txs should be returned to node0 pending pool");
         node0.assert_tx_pool_size(txs_hash.len() as u64, 0);
 
         info!("Generate 2 blocks on node0, 6 txs should be added to proposed pool");
-        node0.generate_block();
-        node0.generate_block();
+        node0.generate_blocks(2);
         node0.assert_tx_pool_size(0, txs_hash.len() as u64);
 
         info!("Generate 1 block on node0, 6 txs should be included in this block");

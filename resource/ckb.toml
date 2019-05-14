@@ -50,9 +50,7 @@ max_outbound_peers = 8
 ping_interval_secs = 120
 # 20 minutes
 ping_timeout_secs = 1200
-connect_outbound_interval_secs = 15 # {{
-# integration => connect_outbound_interval_secs = 1
-# }}
+connect_outbound_interval_secs = 15
 
 [rpc]
 listen_address = "0.0.0.0:8114" # {{

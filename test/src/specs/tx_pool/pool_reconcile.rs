@@ -16,9 +16,7 @@ impl Spec for PoolReconcile {
         let hash = node0.generate_transaction();
 
         info!("Generate 3 more blocks on node0");
-        node0.generate_block();
-        node0.generate_block();
-        node0.generate_block();
+        node0.generate_blocks(3);
 
         info!("Pool should be empty");
         assert!(node0
@@ -32,14 +30,12 @@ impl Spec for PoolReconcile {
             .is_some());
 
         info!("Generate 5 blocks on node1");
-        (0..5).for_each(|_| {
-            node1.generate_block();
-        });
+        node1.generate_blocks(5);
 
         info!("Connect node0 to node1");
         node0.connect(node1);
 
-        net.waiting_for_sync(10);
+        net.waiting_for_sync(5, 10);
 
         info!("Tx should be re-added to node0's pool");
         assert!(node0
