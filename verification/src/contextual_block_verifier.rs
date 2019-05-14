@@ -189,6 +189,7 @@ where
     M: BlockMedianTimeContext + Sync,
     CS: ChainStore,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cellbase_maturity: BlockNumber,
         script_config: &'a ScriptConfig,
