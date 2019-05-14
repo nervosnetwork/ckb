@@ -172,7 +172,7 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         self.consensus.next_epoch_ext(
             last_epoch,
             header,
-            |hash, start| self.get_ancestor(hash, start),
+            |hash| self.block_header(hash),
             |hash| self.block_ext(hash).map(|ext| ext.total_uncles_count),
         )
     }

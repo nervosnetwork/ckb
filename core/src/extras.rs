@@ -60,6 +60,10 @@ impl EpochExt {
         }
     }
 
+    pub fn is_genesis(&self) -> bool {
+        0 == self.number
+    }
+
     pub fn start_number(&self) -> BlockNumber {
         self.start_number
     }
