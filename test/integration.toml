@@ -16,7 +16,7 @@ proof = [0]
 message = ""
 
 [genesis.genesis_cell.lock]
-code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
 
 # An array list paths to system cell files, which is absolute or relative to
@@ -27,7 +27,7 @@ files = [
 ]
 
 [genesis.system_cells.lock]
-code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
 
 [params]
