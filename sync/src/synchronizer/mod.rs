@@ -568,6 +568,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
                 TIMEOUT_EVICTION_TOKEN => {
                     self.eviction(nc.as_ref());
                 }
+                // Here is just for NO_PEER_CHECK_TOKEN token, only handle it when there is no peer.
                 _ => {}
             }
 
