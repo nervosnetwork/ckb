@@ -74,6 +74,7 @@ fn test_uncle_verifier() {
     faketime::enable(&faketime_file);
 
     let mut consensus = Consensus::default();
+    consensus.max_block_proposals_limit = 3;
     consensus.genesis_epoch_ext.set_length(10);
 
     let (chain_controller, shared) = start_chain(Some(consensus));
@@ -397,6 +398,33 @@ from_block(chain1.get(block_number).cloned().unwrap())          // epoch 1
                 max: max_uncles_num as u32,
                 actual: max_uncles_num as u32 + 1
             }))
+        );
+    }
+
+    {
+        let parent_epoch = shared.get_block_epoch(&chain1[7].header().hash()).unwrap();
+        let epoch = shared
+            .next_epoch_ext(&parent_epoch, chain1[7].header())
+            .unwrap_or(parent_epoch);
+        let verifier = UnclesVerifier::new(shared.clone(), &epoch);
+
+        let uncle = BlockBuilder::from_block(chain2.get(6).cloned().unwrap())
+            .proposals(vec![
+                ProposalShortId::from_slice(&[1; 10]).unwrap(),
+                ProposalShortId::from_slice(&[2; 10]).unwrap(),
+                ProposalShortId::from_slice(&[3; 10]).unwrap(),
+                ProposalShortId::from_slice(&[4; 10]).unwrap(),
+            ])
+            .header_builder(HeaderBuilder::from_header(chain2[6].header().to_owned()))
+            .build();
+
+        let block = BlockBuilder::from_block(chain1.get(8).cloned().unwrap())
+            .uncle(uncle.into())
+            .header_builder(HeaderBuilder::from_header(chain1[8].header().to_owned()))
+            .build();
+        assert_eq!(
+            verifier.verify(&block),
+            Err(Error::Uncles(UnclesError::ExceededMaximumProposalsLimit))
         );
     }
 
