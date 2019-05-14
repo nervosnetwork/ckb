@@ -227,12 +227,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             .next_epoch_ext(&parent_header_epoch, &parent_header);
         let new_epoch = next_epoch_ext.is_some();
 
-        let epoch = next_epoch_ext.unwrap_or(parent_header_epoch);
+        let epoch = next_epoch_ext.unwrap_or_else(|| parent_header_epoch.to_owned());
 
         let (ar, c) = calculate_dao_data(
-            block.header().number(),
+            parent_header.number(),
+            &parent_header_epoch,
             &parent_ext.dao_stats,
-            &epoch,
             self.shared.consensus().secondary_epoch_reward(),
         )?;
 
