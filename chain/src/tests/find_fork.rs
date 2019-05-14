@@ -20,7 +20,7 @@ use std::sync::Arc;
 #[test]
 fn test_find_fork_case1() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder.consensus(Consensus::default()).build();
+    let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
@@ -35,14 +35,14 @@ fn test_find_fork_case1() {
     for _ in 0..4 {
         let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
         fork1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     let mut parent = genesis.clone();
     for _ in 0..3 {
         let new_block = gen_block(&parent, U256::from(90u64), vec![], vec![], vec![]);
         fork2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     // fork1 total_difficulty 400
@@ -92,7 +92,7 @@ fn test_find_fork_case1() {
 #[test]
 fn test_find_fork_case2() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder.consensus(Consensus::default()).build();
+    let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
@@ -107,14 +107,14 @@ fn test_find_fork_case2() {
     for _ in 0..4 {
         let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
         fork1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
-    let mut parent = fork1[0].header().clone();
+    let mut parent = fork1[0].header().to_owned();
     for _ in 0..2 {
         let new_block = gen_block(&parent, U256::from(90u64), vec![], vec![], vec![]);
         fork2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     // fork2 total_difficulty 400
@@ -129,7 +129,7 @@ fn test_find_fork_case2() {
 
     let tip_number = { shared.chain_state().lock().tip_number() };
 
-    let difficulty = parent.difficulty().clone();
+    let difficulty = parent.difficulty().to_owned();
     let new_block = gen_block(
         &parent,
         difficulty + U256::from(200u64),
@@ -170,7 +170,7 @@ fn test_find_fork_case2() {
 #[test]
 fn test_find_fork_case3() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder.consensus(Consensus::default()).build();
+    let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
@@ -185,14 +185,14 @@ fn test_find_fork_case3() {
     for _ in 0..3 {
         let new_block = gen_block(&parent, U256::from(80u64), vec![], vec![], vec![]);
         fork1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     let mut parent = genesis.clone();
     for _ in 0..5 {
         let new_block = gen_block(&parent, U256::from(40u64), vec![], vec![], vec![]);
         fork2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     // fork2 total_difficulty 240
@@ -242,7 +242,7 @@ fn test_find_fork_case3() {
 #[test]
 fn test_find_fork_case4() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder.consensus(Consensus::default()).build();
+    let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainBuilder::new(shared.clone(), notify)
         .verification(false)
@@ -257,14 +257,14 @@ fn test_find_fork_case4() {
     for _ in 0..5 {
         let new_block = gen_block(&parent, U256::from(40u64), vec![], vec![], vec![]);
         fork1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     let mut parent = genesis.clone();
     for _ in 0..2 {
         let new_block = gen_block(&parent, U256::from(80u64), vec![], vec![], vec![]);
         fork2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     // fork2 total_difficulty 200

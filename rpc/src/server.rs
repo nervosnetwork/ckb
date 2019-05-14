@@ -7,7 +7,7 @@ use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -74,14 +74,20 @@ impl RpcServer {
             io.extend_with(
                 TraceRpcImpl {
                     network_controller: network_controller.clone(),
-                    shared,
+                    shared: shared.clone(),
                 }
                 .to_delegate(),
             );
         }
 
         if config.integration_test_enable() {
-            io.extend_with(IntegrationTestRpcImpl { network_controller }.to_delegate());
+            io.extend_with(
+                IntegrationTestRpcImpl {
+                    network_controller,
+                    shared,
+                }
+                .to_delegate(),
+            );
         }
 
         let server = ServerBuilder::new(io)

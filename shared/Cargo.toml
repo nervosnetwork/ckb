@@ -1,18 +1,18 @@
 [package]
 name = "ckb-shared"
-version = "0.10.0"
+version = "0.11.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
 serde = "1.0"
 serde_derive = "1.0"
-bincode = "1.1"
 ckb-core = { path = "../core" }
 ckb-chain-spec = { path = "../spec" }
 ckb-util = { path = "../util" }
-jsonrpc-types = { path = "../util/jsonrpc-types" }
+ckb-store = { path = "../store" }
 ckb-db = { path = "../db" }
+jsonrpc-types = { path = "../util/jsonrpc-types" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
@@ -22,7 +22,6 @@ log = "0.4"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }
-occupied-capacity = { path = "../util/occupied-capacity" }
 linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
 
 [dev-dependencies]

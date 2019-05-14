@@ -4,21 +4,23 @@ use crate::script::Script;
 pub use crate::Capacity;
 use crate::{BlockNumber, Version};
 use bincode::{deserialize, serialize};
+use bytes::Bytes;
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
-use occupied_capacity::OccupiedCapacity;
+use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::mem;
 use std::ops::{Deref, DerefMut};
 
 pub const TX_VERSION: Version = 0;
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
 pub struct OutPoint {
     // Hash of Transaction
-    pub hash: H256,
+    pub tx_hash: H256,
     // Index of output
     pub index: u32,
 }
@@ -26,7 +28,7 @@ pub struct OutPoint {
 impl fmt::Debug for OutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("OutPoint")
-            .field("hash", &format_args!("{:#x}", self.hash))
+            .field("tx_hash", &format_args!("{:#x}", self.tx_hash))
             .field("index", &self.index)
             .finish()
     }
@@ -35,15 +37,15 @@ impl fmt::Debug for OutPoint {
 impl Default for OutPoint {
     fn default() -> Self {
         OutPoint {
-            hash: H256::zero(),
+            tx_hash: H256::zero(),
             index: u32::max_value(),
         }
     }
 }
 
 impl OutPoint {
-    pub fn new(hash: H256, index: u32) -> Self {
-        OutPoint { hash, index }
+    pub fn new(tx_hash: H256, index: u32) -> Self {
+        OutPoint { tx_hash, index }
     }
 
     pub fn null() -> Self {
@@ -51,29 +53,35 @@ impl OutPoint {
     }
 
     pub fn is_null(&self) -> bool {
-        self.hash.is_zero() && self.index == u32::max_value()
+        self.tx_hash.is_zero() && self.index == u32::max_value()
+    }
+
+    pub const fn serialized_size() -> usize {
+        H256::size_of() + mem::size_of::<u32>()
     }
 
     pub fn destruct(self) -> (H256, u32) {
-        let OutPoint { hash, index } = self;
-        (hash, index)
+        let OutPoint { tx_hash, index } = self;
+        (tx_hash, index)
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, OccupiedCapacity)]
+#[derive(
+    Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, HasOccupiedCapacity,
+)]
 pub struct CellInput {
     pub previous_output: OutPoint,
-    pub valid_since: u64,
+    pub since: u64,
     // Depends on whether the operation is Transform or Destroy, this is the proof to transform
     // lock or destroy lock.
-    pub args: Vec<Vec<u8>>,
+    pub args: Vec<Bytes>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, valid_since: u64, args: Vec<Vec<u8>>) -> Self {
+    pub fn new(previous_output: OutPoint, since: u64, args: Vec<Bytes>) -> Self {
         CellInput {
             previous_output,
-            valid_since,
+            since,
             args,
         }
     }
@@ -81,26 +89,31 @@ impl CellInput {
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            valid_since: 0,
-            args: vec![block_number.to_le_bytes().to_vec()],
+            since: 0,
+            args: vec![Bytes::from(block_number.to_le_bytes().to_vec())],
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, u64, Vec<Vec<u8>>) {
+    pub fn destruct(self) -> (OutPoint, u64, Vec<Bytes>) {
         let CellInput {
             previous_output,
-            valid_since,
+            since,
             args,
         } = self;
-        (previous_output, valid_since, args)
+        (previous_output, since, args)
+    }
+
+    pub fn serialized_size(&self) -> usize {
+        OutPoint::serialized_size()
+            + mem::size_of::<u64>()
+            + self.args.iter().map(Bytes::len).sum::<usize>()
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, OccupiedCapacity)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
 pub struct CellOutput {
     pub capacity: Capacity,
-    #[serde(with = "serde_bytes")]
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
@@ -121,7 +134,7 @@ impl fmt::Debug for CellOutput {
 }
 
 impl CellOutput {
-    pub fn new(capacity: Capacity, data: Vec<u8>, lock: Script, type_: Option<Script>) -> Self {
+    pub fn new(capacity: Capacity, data: Bytes, lock: Script, type_: Option<Script>) -> Self {
         CellOutput {
             capacity,
             data,
@@ -134,7 +147,18 @@ impl CellOutput {
         blake2b_256(&self.data).into()
     }
 
-    pub fn destruct(self) -> (Capacity, Vec<u8>, Script, Option<Script>) {
+    pub fn serialized_size(&self) -> usize {
+        mem::size_of::<u64>()
+            + self.data.len()
+            + self.lock.serialized_size()
+            + self
+                .type_
+                .as_ref()
+                .map(Script::serialized_size)
+                .unwrap_or(0)
+    }
+
+    pub fn destruct(self) -> (Capacity, Bytes, Script, Option<Script>) {
         let CellOutput {
             capacity,
             data,
@@ -143,11 +167,18 @@ impl CellOutput {
         } = self;
         (capacity, data, lock, type_)
     }
+
+    pub fn is_occupied_capacity_overflow(&self) -> bool {
+        if let Ok(cap) = self.occupied_capacity() {
+            return cap > self.capacity;
+        }
+        true
+    }
 }
 
 pub type Witness = Vec<Vec<u8>>;
 
-#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, OccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, HasOccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
@@ -199,7 +230,9 @@ impl Transaction {
     }
 
     pub fn is_cellbase(&self) -> bool {
-        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
+        self.inputs.len() == 1
+            && self.inputs[0].previous_output.is_null()
+            && self.inputs[0].since == 0
     }
 
     pub fn hash(&self) -> H256 {
@@ -255,8 +288,27 @@ impl Transaction {
         self.outputs.get(i).cloned()
     }
 
-    pub fn outputs_capacity(&self) -> Capacity {
-        self.outputs.iter().map(|output| output.capacity).sum()
+    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+        self.outputs
+            .iter()
+            .map(|output| output.capacity)
+            .try_fold(Capacity::zero(), Capacity::safe_add)
+    }
+
+    pub fn serialized_size(&self) -> usize {
+        mem::size_of::<Version>()
+            + self.deps.len() * OutPoint::serialized_size()
+            + self
+                .inputs
+                .iter()
+                .map(CellInput::serialized_size)
+                .sum::<usize>()
+            + self
+                .outputs
+                .iter()
+                .map(CellOutput::serialized_size)
+                .sum::<usize>()
+            + self.witnesses.iter().map(Vec::len).sum::<usize>()
     }
 }
 
@@ -413,18 +465,23 @@ impl ProposalShortId {
     pub fn into_inner(self) -> [u8; 10] {
         self.0
     }
+
+    pub const fn serialized_size() -> usize {
+        mem::size_of::<[u8; 10]>()
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{capacity_bytes, Bytes, Capacity};
 
     #[test]
     fn test_tx_hash() {
         let tx = TransactionBuilder::default()
             .output(CellOutput::new(
-                5000,
-                vec![1, 2, 3],
+                capacity_bytes!(5000),
+                Bytes::from(vec![1, 2, 3]),
                 Script::default(),
                 None,
             ))
@@ -434,11 +491,11 @@ mod test {
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "a896bfe8c8439305f099e1f07b47844ba0a5a27ec1e26ec25b236fa7e4831115"
+            "a2cfcbc6b5f4d153ea90b6e203b14f7ab1ead6eab61450f88203e414a7e68c2c"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "3f08580e373cad9a828173efe614ce3a8310957351c77f2859a18fc49d4cd227"
+            "4bb6ed9e544f5609749cfaa91f315adc7facecbe18b0d507330ed070fb2a4247"
         );
     }
 }

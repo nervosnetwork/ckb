@@ -4,7 +4,8 @@ use ckb_core::Cycle;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
-use ckb_shared::{shared::Shared, store::ChainStore};
+use ckb_shared::shared::Shared;
+use ckb_store::ChainStore;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
@@ -27,10 +28,11 @@ pub trait MinerRpc {
         &self,
         cycles_limit: Option<String>,
         bytes_limit: Option<String>,
+        proposals_limit: Option<String>,
         max_version: Option<u32>,
     ) -> Result<BlockTemplate>;
 
-    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "commit_transactions":[], "proposal_transactions":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
+    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"submit_block","params": [{"header":{}, "uncles":[], "transactions":[], "proposals":[]}]}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "submit_block")]
     fn submit_block(&self, _work_id: String, _data: Block) -> Result<Option<H256>>;
 }
@@ -47,6 +49,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         &self,
         cycles_limit: Option<String>,
         bytes_limit: Option<String>,
+        proposals_limit: Option<String>,
         max_version: Option<u32>,
     ) -> Result<BlockTemplate> {
         let cycles_limit = match cycles_limit {
@@ -57,12 +60,25 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
             Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
             None => None,
         };
+
+        let proposals_limit = match proposals_limit {
+            Some(b) => Some(b.parse::<u64>().map_err(|_| Error::parse_error())?),
+            None => None,
+        };
+
         self.block_assembler
-            .get_block_template(cycles_limit, bytes_limit, max_version)
+            .get_block_template(cycles_limit, bytes_limit, proposals_limit, max_version)
             .map_err(|_| Error::internal_error())
     }
 
-    fn submit_block(&self, _work_id: String, data: Block) -> Result<Option<H256>> {
+    fn submit_block(&self, work_id: String, data: Block) -> Result<Option<H256>> {
+        // TODO: this API is intended to be used in a trusted environment, thus it should pass the
+        // verifier. We use sentry to capture errors found here to discovery issues early, which
+        // should be removed later.
+        let _scope_guard = sentry::Hub::current().push_scope();
+        sentry::configure_scope(|scope| scope.set_extra("work_id", work_id.clone().into()));
+
+        debug!(target: "rpc", "[{}] submit block", work_id);
         let block: Arc<CoreBlock> = Arc::new(data.try_into().map_err(|_| Error::parse_error())?);
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
         let header_verify_ret = {
@@ -82,18 +98,21 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                let data = fbb.finished_data().to_vec();
+                let data = fbb.finished_data().into();
                 self.network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data);
-                Ok(Some(block.header().hash().clone()))
+                Ok(Some(block.header().hash()))
             } else {
-                let chain_state = self.shared.chain_state().lock();
-                error!(target: "rpc", "submit_block process_block {:?}", ret);
-                error!(target: "rpc", "proposal table {}", serde_json::to_string(chain_state.proposal_ids().all()).unwrap());
+                error!(target: "rpc", "[{}] submit_block process_block {:?}", work_id, ret);
+                sentry::capture_event(sentry::protocol::Event {
+                    message: Some(format!("submit_block process_block {:?}", ret)),
+                    level: sentry::Level::Error,
+                    ..Default::default()
+                });
                 Ok(None)
             }
         } else {
-            debug!(target: "rpc", "submit_block header verifier {:?}", header_verify_ret);
+            debug!(target: "rpc", "[{}] submit_block header verifier {:?}", work_id, header_verify_ret);
             Ok(None)
         }
     }

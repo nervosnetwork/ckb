@@ -47,8 +47,8 @@ curl -H 'content-type:application/json' \
             "proof": "0x131c00009227000084330000e54700002d4e0000cd4f000023510000b2560000715a0000156300006d6700007a740000"
         },
         "timestamp": "1555509433451",
-        "txs_commit": "0x6eb5de3f5ed394c3eae59b52996bb62ee6ea92e1b0159cd0866a98a6d6864599",
-        "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "transactions_root": "0x6eb5de3f5ed394c3eae59b52996bb62ee6ea92e1b0159cd0866a98a6d6864599",
+        "proposals_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "uncles_count": 2,
         "uncles_hash": "0x8290616424ad001046d5c3f7c232ffc512dcd57d3420b1e968c3460a69524045",
         "version": 0,
@@ -102,7 +102,7 @@ curl -H 'content-type:application/json' \
 {
     "jsonrpc": "2.0",
     "result": {
-        "commit_transactions": [
+        "transactions": [
             {
                 "deps": [],
                 "hash": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
@@ -112,10 +112,10 @@ curl -H 'content-type:application/json' \
                             "0x0100000000000000"
                         ],
                         "previous_output": {
-                            "hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                             "index": 4294967295
                         },
-                        "valid_since": "0"
+                        "since": "0"
                     }
                 ],
                 "outputs": [
@@ -124,7 +124,7 @@ curl -H 'content-type:application/json' \
                         "data": "0x",
                         "lock": {
                             "args": [],
-                            "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
                         },
                         "type": null
                     }
@@ -143,14 +143,89 @@ curl -H 'content-type:application/json' \
                 "proof": "0xa00600005a0a00001c21000009230000db240000fb350000523600005f4b0000bb4b00000a4d00001b56000070700000"
             },
             "timestamp": "1555422499746",
-            "txs_commit": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
-            "txs_proposal": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "transactions_root": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
+            "proposals_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "uncles_count": 0,
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "version": 0,
             "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
         },
-        "proposal_transactions": [],
+        "proposals": [],
+        "uncles": []
+    },
+    "id": 2
+}
+```
+
+### get_block_by_number
+
+Returns the information about a block by block number (height).
+
+#### Parameters
+
+    number - Number of a block.
+
+#### Examples
+
+```bash
+curl -H 'content-type:application/json' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_block_by_number", "params": ["1"]}' \
+    http://localhost:8114
+```
+
+```json
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "transactions": [
+            {
+                "deps": [],
+                "hash": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
+                "inputs": [
+                    {
+                        "args": [
+                            "0x0100000000000000"
+                        ],
+                        "previous_output": {
+                            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                            "index": 4294967295
+                        },
+                        "since": "0"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "capacity": "50000",
+                        "data": "0x",
+                        "lock": {
+                            "args": [],
+                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                        },
+                        "type": null
+                    }
+                ],
+                "version": 0,
+                "witnesses": []
+            }
+        ],
+        "header": {
+            "difficulty": "0x100",
+            "hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71",
+            "number": "1",
+            "parent_hash": "0xf17b8bfe49aaa018610d20a19aa6a0639882a774c47bcb7623a085a59ee13d42",
+            "seal": {
+                "nonce": "14785007515249450415",
+                "proof": "0xa00600005a0a00001c21000009230000db240000fb350000523600005f4b0000bb4b00000a4d00001b56000070700000"
+            },
+            "timestamp": "1555422499746",
+            "transactions_root": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
+            "proposals_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "uncles_count": 0,
+            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "version": 0,
+            "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "proposals": [],
         "uncles": []
     },
     "id": 2
@@ -177,35 +252,66 @@ curl -H 'content-type:application/json' \
 {
     "jsonrpc": "2.0",
     "result": {
-        "deps": [],
-        "hash": "0xa093b2e820f3f2202a6802314ece2eee3f863b177b3abe11bf16b1588152d31b",
-        "inputs": [
-            {
-                "args": [],
-                "previous_output": {
-                    "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
-                    "index": 2996
-                },
-                "valid_since": "0"
-            }
-        ],
-        "outputs": [
-            {
-                "capacity": "1000",
-                "data": "0x",
-                "lock": {
-                    "args": [
-                        "0x79616e676279"
-                    ],
-                    "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-                },
-                "type": null
-            }
-        ],
-        "version": 0,
-        "witnesses": []
+        "transaction" : {
+            "deps": [],
+            "hash": "0xa093b2e820f3f2202a6802314ece2eee3f863b177b3abe11bf16b1588152d31b",
+            "inputs": [
+                {
+                    "args": [],
+                    "previous_output": {
+                        "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
+                        "index": 2996
+                    },
+                    "since": "0"
+                }
+            ],
+            "outputs": [
+                {
+                    "capacity": "1000",
+                    "data": "0x",
+                    "lock": {
+                        "args": [
+                            "0x79616e676279"
+                        ],
+                        "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                    },
+                    "type": null
+                }
+            ],
+            "version": 0,
+            "witnesses": []
+        },
+        "tx_status": {
+            "status": "committed",
+            "block_hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71"
+        }
     },
     "id": 2
+}
+```
+
+#### `tx_status` Possible Values
+
+```
+{
+    "tx_status": {
+        "status": "pending",
+        "block_hash": null
+    }
+}
+
+{
+    "tx_status": {
+        "status": "proposed",
+        "block_hash": null
+    }
+}
+
+{
+    "tx_status": {
+        "status": "committed",
+        "block_hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71"
+    }
 }
 ```
 
@@ -235,10 +341,10 @@ curl -H 'content-type:application/json' \
             "capacity": 50000,
             "lock": {
                 "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
-                "hash": "0xc15274f7aaec78b74ea2b87a2aefd5dc3e003b367eab326a29a73900fd9b91ff",
+                "tx_hash": "0xc15274f7aaec78b74ea2b87a2aefd5dc3e003b367eab326a29a73900fd9b91ff",
                 "index": 0
             }
         },
@@ -246,10 +352,10 @@ curl -H 'content-type:application/json' \
             "capacity": 50000,
             "lock": {
                 "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
-                "hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae",
+                "tx_hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae",
                 "index": 0
             }
         },
@@ -257,10 +363,10 @@ curl -H 'content-type:application/json' \
             "capacity": 50000,
             "lock": {
                 "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "out_point": {
-                "hash": "0x9289e12f0a9b2cfce51cd4a64d733c0a3ca9a52093669863c485ea6dfae81a3e",
+                "tx_hash": "0x9289e12f0a9b2cfce51cd4a64d733c0a3ca9a52093669863c485ea6dfae81a3e",
                 "index": 0
             }
         }
@@ -275,13 +381,13 @@ Returns the information about a cell by out_point.
 
 #### Parameters
 
-    out_point - OutPoint object {"hash": <hash>, "index": <index>}.
+    out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
 
 #### Examples
 
 ```bash
 curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method":"get_live_cell","params": [{"hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae", "index": 0}]}' \
+    -d '{"id": 2, "jsonrpc": "2.0", "method":"get_live_cell","params": [{"tx_hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae", "index": 0}]}' \
     http://localhost:8114
 ```
 
@@ -294,7 +400,7 @@ curl -H 'content-type:application/json' \
             "data": "0x",
             "lock": {
                 "args": [],
-                "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
             },
             "type": null
         },
@@ -415,10 +521,10 @@ echo '{
                 "inputs": [
                     {
                         "previous_output": {
-                            "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
+                            "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                             "index": 2995
                         },
-                        "valid_since": "0",
+                        "since": "0",
                         "args": []
                     }
                 ],
@@ -430,7 +536,7 @@ echo '{
                             "args": [
                                 "0x79616e676279"
                             ],
-                            "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
                         },
                         "type": null
                     }
@@ -453,58 +559,31 @@ echo '{
 }
 ```
 
-### get_pool_transaction
+### tx_pool_info
 
-Returns the information about a transaction in the transaction pool requested by transaction hash.
+Return the transaction pool information
 
-#### Parameters
+#### Examples
 
-    hash - Hash of a transaction.
-
-#### Example
-
-```bash
+``` bash
 curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_pool_transaction", "params": ["0xced4b0ccaf0e09d5d38ab717fc60f96a6097182f4c1ae2522d0689618306a229"]}' \
-    http://localhost:8114'
+    -d '{"params": [], "method": "tx_pool_info", "jsonrpc": "2.0", "id": 2}' \
+    http://localhost:8114
 ```
 
-
-```json
+``` json
 {
     "jsonrpc": "2.0",
+    "id": 2,
     "result": {
-        "deps": [],
-        "hash": "0xced4b0ccaf0e09d5d38ab717fc60f96a6097182f4c1ae2522d0689618306a229",
-        "inputs": [
-            {
-                "args": [],
-                "previous_output": {
-                    "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
-                    "index": 2994
-                },
-                "valid_since": "0"
-            }
-        ],
-        "outputs": [
-            {
-                "capacity": "1000",
-                "data": "0x",
-                "lock": {
-                    "args": [
-                        "0x79616e676279"
-                    ],
-                    "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-                },
-                "type": null
-            }
-        ],
-        "version": 0,
-        "witnesses": []
-    },
-    "id": 2
+        "pending": 34,
+        "staging": 22,
+        "orphan": 33,
+        "last_txs_updated_at": "1555507787683"
+    }
 }
 ```
+
 
 ## Trace
 
@@ -536,10 +615,10 @@ echo '{
                 "inputs": [
                     {
                         "previous_output": {
-                            "hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
+                            "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
                             "index": 2996
                         },
-                        "valid_since": "0",
+                        "since": "0",
                         "args": []
                     }
                 ],
@@ -551,7 +630,7 @@ echo '{
                             "args": [
                                 "0x79616e676279"
                             ],
-                            "binary_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
                         },
                         "type": null
                     }

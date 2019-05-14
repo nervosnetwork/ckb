@@ -1,8 +1,6 @@
 use crate::chain_state::ChainState;
-use crate::store::ChainKVStore;
-use crate::store::ChainStore;
+use crate::error::SharedError;
 use crate::tx_pool::TxPoolConfig;
-use crate::{COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
@@ -10,6 +8,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_store::{ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use numext_fixed_hash::H256;
@@ -35,20 +34,24 @@ impl<CS: ChainStore> ::std::clone::Clone for Shared<CS> {
 }
 
 impl<CS: ChainStore> Shared<CS> {
-    pub fn new(store: CS, consensus: Consensus, tx_pool_config: TxPoolConfig) -> Self {
+    pub fn init(
+        store: CS,
+        consensus: Consensus,
+        tx_pool_config: TxPoolConfig,
+    ) -> Result<Self, SharedError> {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
-        let chain_state = Arc::new(Mutex::new(ChainState::new(
+        let chain_state = Arc::new(Mutex::new(ChainState::init(
             &store,
             Arc::clone(&consensus),
             tx_pool_config,
-        )));
+        )?));
 
-        Shared {
+        Ok(Shared {
             store,
             chain_state,
             consensus,
-        }
+        })
     }
 
     pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
@@ -93,11 +96,11 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         self.store.get_block_number(hash)
     }
 
-    fn genesis_hash(&self) -> H256 {
-        self.consensus.genesis_block().header().hash()
+    fn genesis_hash(&self) -> &H256 {
+        self.consensus.genesis_hash()
     }
 
-    fn get_transaction(&self, hash: &H256) -> Option<Transaction> {
+    fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)> {
         self.store.get_transaction(hash)
     }
 
@@ -246,10 +249,10 @@ impl<DB: KeyValueDB> SharedBuilder<DB> {
         self
     }
 
-    pub fn build(self) -> Shared<ChainKVStore<DB>> {
+    pub fn build(self) -> Result<Shared<ChainKVStore<DB>>, SharedError> {
         let store = ChainKVStore::new(self.db.unwrap());
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        Shared::new(store, consensus, tx_pool_config)
+        Shared::init(store, consensus, tx_pool_config)
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-miner"
-version = "0.10.0"
+version = "0.11.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -11,6 +11,7 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
+ckb-store = { path = "../store" }
 ckb-pow = { path = "../pow" }
 ckb-util = { path = "../util" }
 ckb-notify = { path = "../notify" }
@@ -28,6 +29,7 @@ lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
 stop-handler = { path = "../util/stop-handler" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
+sentry = "^0.15.4"
 
 [dev-dependencies]
 proptest = "0.9"

@@ -9,11 +9,11 @@ use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::BlockNumber;
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
+use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -21,8 +21,8 @@ use std::sync::Arc;
 
 fn gen_block(
     parent_header: &Header,
-    commit_transactions: Vec<Transaction>,
-    proposal_transactions: Vec<ProposalShortId>,
+    transactions: Vec<Transaction>,
+    proposals: Vec<ProposalShortId>,
     uncles: Vec<UncleBlock>,
 ) -> Block {
     let now = 1 + parent_header.timestamp();
@@ -31,25 +31,25 @@ fn gen_block(
     let difficulty = parent_header.difficulty() + U256::from(1u64);
     let cellbase = create_cellbase(number);
     let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash().clone())
+        .parent_hash(parent_header.hash())
         .timestamp(now)
         .number(number)
         .difficulty(difficulty)
         .nonce(nonce);
 
     BlockBuilder::default()
-        .commit_transaction(cellbase)
-        .commit_transactions(commit_transactions)
-        .proposal_transactions(proposal_transactions)
+        .transaction(cellbase)
+        .transactions(transactions)
+        .proposals(proposals)
         .uncles(uncles)
         .with_header_builder(header_builder)
 }
 
 fn create_transaction(parent: &H256) -> Transaction {
-    let capacity = 100_000_000 / 100 as u64;
+    let capacity = 100_000_000 / 100 as usize;
     let output = CellOutput::new(
-        capacity,
-        Vec::new(),
+        Capacity::bytes(capacity).unwrap(),
+        Bytes::default(),
         Script::always_success(),
         Some(Script::always_success()),
     );
@@ -70,7 +70,7 @@ fn start_chain(
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }
-    let shared = builder.build();
+    let shared = builder.build().unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainBuilder::new(shared.clone(), notify)
@@ -83,7 +83,12 @@ fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .outputs(vec![CellOutput::new(0, vec![], Script::default(), None)])
+        .outputs(vec![CellOutput::new(
+            Capacity::zero(),
+            Bytes::default(),
+            Script::default(),
+            None,
+        )])
         .build()
 }
 
@@ -96,8 +101,8 @@ fn setup_env() -> (
         .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
-                1_000_000,
-                Vec::new(),
+                capacity_bytes!(1_000_000),
+                Bytes::default(),
                 Script::always_success(),
                 Some(Script::always_success()),
             );
@@ -105,7 +110,7 @@ fn setup_env() -> (
         ])
         .build();
     let tx_hash = tx.hash();
-    let genesis_block = BlockBuilder::default().commit_transaction(tx).build();
+    let genesis_block = BlockBuilder::default().transaction(tx).build();
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared) = start_chain(Some(consensus));
     (chain_controller, shared, tx_hash)
@@ -119,7 +124,7 @@ fn test_proposal() {
     for _ in 0..20 {
         let tx = create_transaction(&prev_tx_hash);
         txs20.push(tx.clone());
-        prev_tx_hash = tx.hash().clone();
+        prev_tx_hash = tx.hash();
     }
 
     let proposal_window = shared.consensus().tx_proposal_window();
@@ -133,7 +138,7 @@ fn test_proposal() {
     chain_controller
         .process_block(Arc::new(block.clone()))
         .unwrap();
-    parent = block.header().clone();
+    parent = block.header().to_owned();
 
     //commit in proposal gap is invalid
     for _ in (proposed + 1)..(proposed + proposal_window.end()) {
@@ -149,7 +154,7 @@ fn test_proposal() {
         chain_controller
             .process_block(Arc::new(new_block.clone()))
             .unwrap();
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     //commit in proposal window
@@ -163,7 +168,7 @@ fn test_proposal() {
         chain_controller
             .process_block(Arc::new(new_block.clone()))
             .unwrap();
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     //proposal expired
@@ -180,7 +185,7 @@ fn test_uncle_proposal() {
     for _ in 0..20 {
         let tx = create_transaction(&prev_tx_hash);
         txs20.push(tx.clone());
-        prev_tx_hash = tx.hash().clone();
+        prev_tx_hash = tx.hash();
     }
 
     let proposal_window = shared.consensus().tx_proposal_window();
@@ -195,7 +200,7 @@ fn test_uncle_proposal() {
     chain_controller
         .process_block(Arc::new(block.clone()))
         .unwrap();
-    parent = block.header().clone();
+    parent = block.header().to_owned();
 
     //commit in proposal gap is invalid
     for _ in (proposed + 1)..(proposed + proposal_window.end()) {
@@ -211,7 +216,7 @@ fn test_uncle_proposal() {
         chain_controller
             .process_block(Arc::new(new_block.clone()))
             .unwrap();
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     //commit in proposal window
@@ -225,7 +230,7 @@ fn test_uncle_proposal() {
         chain_controller
             .process_block(Arc::new(new_block.clone()))
             .unwrap();
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     //proposal expired

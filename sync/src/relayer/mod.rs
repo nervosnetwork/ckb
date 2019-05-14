@@ -4,6 +4,8 @@ pub mod compact_block;
 mod compact_block_process;
 mod get_block_proposal_process;
 mod get_block_transactions_process;
+mod get_transaction_process;
+mod transaction_hash_process;
 mod transaction_process;
 
 use self::block_proposal_process::BlockProposalProcess;
@@ -12,41 +14,45 @@ use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
+use self::get_transaction_process::GetTransactionProcess;
+use self::transaction_hash_process::TransactionHashProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
-use crate::types::Peers;
+use crate::types::{Peers, SyncSharedState};
+use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_network::{Behaviour, CKBProtocolContext, CKBProtocolHandler, PeerIndex};
+use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
 use ckb_shared::chain_state::ChainState;
-use ckb_shared::shared::Shared;
-use ckb_shared::store::ChainStore;
-use ckb_traits::ChainProvider;
+use ckb_store::ChainStore;
 use ckb_util::Mutex;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::{debug, info};
+use log::{debug, info, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
+pub const ASK_FOR_TXS_TOKEN: u64 = 1;
+
 pub const MAX_RELAY_PEERS: usize = 128;
-pub const TX_FILTER_SIZE: usize = 1000;
+pub const TX_FILTER_SIZE: usize = 50000;
+pub const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 
 pub struct Relayer<CS> {
     chain: ChainController,
-    pub(crate) shared: Shared<CS>,
-    state: Arc<RelayState>,
+    pub(crate) shared: Arc<SyncSharedState<CS>>,
+    pub(crate) state: Arc<RelayState>,
     // TODO refactor shared Peers struct with Synchronizer
     peers: Arc<Peers>,
 }
@@ -55,7 +61,7 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
     fn clone(&self) -> Self {
         Relayer {
             chain: self.chain.clone(),
-            shared: self.shared.clone(),
+            shared: Arc::clone(&self.shared),
             state: Arc::clone(&self.state),
             peers: Arc::clone(&self.peers),
         }
@@ -63,7 +69,11 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
 }
 
 impl<CS: ChainStore> Relayer<CS> {
-    pub fn new(chain: ChainController, shared: Shared<CS>, peers: Arc<Peers>) -> Self {
+    pub fn new(
+        chain: ChainController,
+        shared: Arc<SyncSharedState<CS>>,
+        peers: Arc<Peers>,
+    ) -> Self {
         Relayer {
             chain,
             shared,
@@ -88,9 +98,27 @@ impl<CS: ChainStore> Relayer<CS> {
                 )
                 .execute()?;
             }
-            RelayPayload::ValidTransaction => {
+            RelayPayload::RelayTransaction => {
                 TransactionProcess::new(
-                    &cast!(message.payload_as_valid_transaction())?,
+                    &cast!(message.payload_as_relay_transaction())?,
+                    self,
+                    nc,
+                    peer,
+                )
+                .execute()?;
+            }
+            RelayPayload::RelayTransactionHash => {
+                TransactionHashProcess::new(
+                    &cast!(message.payload_as_relay_transaction_hash())?,
+                    self,
+                    nc,
+                    peer,
+                )
+                .execute()?;
+            }
+            RelayPayload::GetRelayTransaction => {
+                GetTransactionProcess::new(
+                    &cast!(message.payload_as_get_relay_transaction())?,
                     self,
                     nc,
                     peer,
@@ -137,7 +165,7 @@ impl<CS: ChainStore> Relayer<CS> {
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: RelayMessage) {
         if self.try_process(nc, peer, message).is_err() {
-            nc.report_peer(peer, Behaviour::UnexpectedMessage);
+            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
 
@@ -150,14 +178,9 @@ impl<CS: ChainStore> Relayer<CS> {
     ) {
         let mut inflight = self.state.inflight_proposals.lock();
         let unknown_ids = block
-            .proposal_transactions
+            .proposals
             .iter()
-            .chain(
-                block
-                    .uncles
-                    .iter()
-                    .flat_map(UncleBlock::proposal_transactions),
-            )
+            .chain(block.uncles.iter().flat_map(UncleBlock::proposals))
             .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
             .cloned()
             .collect::<Vec<_>>();
@@ -168,7 +191,7 @@ impl<CS: ChainStore> Relayer<CS> {
                 RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
             fbb.finish(message, None);
 
-            nc.send_message_to(peer, fbb.finished_data().to_vec());
+            nc.send_message_to(peer, fbb.finished_data().into());
         }
     }
 
@@ -178,6 +201,7 @@ impl<CS: ChainStore> Relayer<CS> {
         if ret.is_ok() {
             debug!(target: "relay", "[block_relay] relayer accept_block {} {}", block.header().hash(), unix_time_as_millis());
             let block_hash = block.header().hash();
+            self.shared.remove_header_view(&block_hash);
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
             fbb.finish(message, None);
@@ -192,8 +216,9 @@ impl<CS: ChainStore> Relayer<CS> {
                 .take(MAX_RELAY_PEERS)
                 .collect();
 
+            // TODO: use filter broadcast
             for target_peer in selected_peers {
-                nc.send_message_to(target_peer, fbb.finished_data().to_vec());
+                nc.send_message_to(target_peer, fbb.finished_data().into());
             }
         } else {
             debug!(target: "relay", "accept_block verify error {:?}", ret);
@@ -258,8 +283,8 @@ impl<CS: ChainStore> Relayer<CS> {
             let block = BlockBuilder::default()
                 .header(compact_block.header.clone())
                 .uncles(compact_block.uncles.clone())
-                .commit_transactions(txs)
-                .proposal_transactions(compact_block.proposal_transactions.clone())
+                .transactions(txs)
+                .proposals(compact_block.proposals.clone())
                 .build();
 
             Ok(block)
@@ -300,12 +325,46 @@ impl<CS: ChainStore> Relayer<CS> {
             let message =
                 RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
             fbb.finish(message, None);
-            nc.send_message_to(peer_index, fbb.finished_data().to_vec());
+            nc.send_message_to(peer_index, fbb.finished_data().into());
         }
     }
 
-    pub fn get_block(&self, hash: &H256) -> Option<Block> {
-        self.shared.block(hash)
+    // Ask for relay transaction by hash from all peers
+    pub fn ask_for_txs(&self, nc: &CKBProtocolContext) {
+        if self.shared.is_initial_block_download() {
+            trace!(target: "relay", "Do not ask for transactions when initial block download");
+            return;
+        }
+
+        for (peer, peer_state) in self.peers.state.write().iter_mut() {
+            let tx_hashes = peer_state
+                .pop_ask_for_txs()
+                .into_iter()
+                .filter(|tx_hash| {
+                    let already_known = self.state.already_known(&tx_hash);
+                    if already_known {
+                        // Remove tx_hash from `tx_ask_for_set`
+                        peer_state.remove_ask_for_tx(&tx_hash);
+                    }
+                    !already_known
+                })
+                .collect::<Vec<_>>();
+            if !tx_hashes.is_empty() {
+                debug!(
+                    target: "relay",
+                    "Send get transaction ({} hashes) to {}",
+                    tx_hashes.len(),
+                    peer,
+                );
+            }
+            for tx_hash in tx_hashes {
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = RelayMessage::build_get_transaction(fbb, &tx_hash);
+                fbb.finish(message, None);
+                let data = fbb.finished_data().into();
+                nc.send_message_to(*peer, data);
+            }
+        }
     }
 
     pub fn peers(&self) -> Arc<Peers> {
@@ -316,6 +375,7 @@ impl<CS: ChainStore> Relayer<CS> {
 impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
     fn init(&mut self, nc: Box<dyn CKBProtocolContext>) {
         nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
+        nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN);
     }
 
     fn received(
@@ -327,13 +387,13 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
         let msg = match get_root::<RelayMessage>(&data) {
             Ok(msg) => msg,
             _ => {
-                info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
-                nc.report_peer(peer_index, Behaviour::UnexpectedMessage);
+                info!(target: "relay", "Peer {} sends us a malformed message", peer_index);
+                nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
 
-        debug!(target: "relay", "msg {:?}", msg.payload_type());
+        debug!(target: "relay", "received msg {:?} from {}", msg.payload_type(), peer_index);
         self.process(nc.as_ref(), peer_index, msg);
     }
 
@@ -355,6 +415,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Relayer<CS> {
     fn notify(&mut self, nc: Box<dyn CKBProtocolContext>, token: u64) {
         match token {
             TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
+            ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             _ => unreachable!(),
         }
     }
@@ -365,6 +426,7 @@ pub struct RelayState {
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
     pub tx_filter: Mutex<LruCache<H256, ()>>,
+    pub tx_already_asked: Mutex<LruCache<H256, Instant>>,
 }
 
 impl Default for RelayState {
@@ -374,6 +436,18 @@ impl Default for RelayState {
             inflight_proposals: Mutex::new(FnvHashSet::default()),
             pending_proposals_request: Mutex::new(FnvHashMap::default()),
             tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+            tx_already_asked: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
         }
+    }
+}
+
+impl RelayState {
+    fn insert_tx(&self, hash: H256) {
+        self.tx_already_asked.lock().remove(&hash);
+        self.tx_filter.lock().insert(hash, ());
+    }
+
+    fn already_known(&self, hash: &H256) -> bool {
+        self.tx_filter.lock().contains_key(hash)
     }
 }

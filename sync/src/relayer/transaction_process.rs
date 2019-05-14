@@ -1,23 +1,19 @@
 use crate::relayer::Relayer;
 use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
-use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{RelayMessage, ValidTransaction as FbsValidTransaction};
-use ckb_shared::store::ChainStore;
-use ckb_shared::tx_pool::types::PoolError;
-use ckb_traits::chain_provider::ChainProvider;
-use ckb_verification::TransactionError;
+use ckb_network::{CKBProtocolContext, PeerIndex, TargetSession};
+use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
+use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;
-use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::time::Duration;
 
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
 pub struct TransactionProcess<'a, CS> {
-    message: &'a FbsValidTransaction<'a>,
+    message: &'a FbsRelayTransaction<'a>,
     relayer: &'a Relayer<CS>,
     nc: &'a CKBProtocolContext,
     peer: PeerIndex,
@@ -25,7 +21,7 @@ pub struct TransactionProcess<'a, CS> {
 
 impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
     pub fn new(
-        message: &'a FbsValidTransaction,
+        message: &'a FbsRelayTransaction,
         relayer: &'a Relayer<CS>,
         nc: &'a CKBProtocolContext,
         peer: PeerIndex,
@@ -42,24 +38,26 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
         let (tx, relay_cycles): (Transaction, Cycle) = (*self.message).try_into()?;
         let tx_hash = tx.hash();
 
-        if self.already_known(tx_hash.clone()) {
+        if self.relayer.state.already_known(&tx_hash) {
             debug!(target: "relay", "discarding already known transaction {:#x}", tx_hash);
             return Ok(());
         }
 
+        // Insert tx_hash into `already_known`
+        // Remove tx_hash from `tx_already_asked`
+        self.relayer.state.insert_tx(tx_hash.clone());
+        // Remove tx_hash from `tx_ask_for_set`
+        if let Some(peer_state) = self.relayer.peers.state.write().get_mut(&self.peer) {
+            peer_state.remove_ask_for_tx(&tx_hash);
+        }
+
         let tx_result = {
             let chain_state = self.relayer.shared.chain_state().lock();
-            let max_block_cycles = self.relayer.shared.consensus().max_block_cycles();
-            chain_state.add_tx_to_pool(tx.clone(), max_block_cycles)
+            chain_state.add_tx_to_pool(tx.clone())
         };
         // disconnect peer if cycles mismatch
         match tx_result {
             Ok(cycles) if cycles == relay_cycles => {
-                // broadcast tx
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
-                fbb.finish(message, None);
-
                 let mut known_txs = self.relayer.peers.known_txs.lock();
                 let selected_peers: Vec<PeerIndex> = self
                     .nc
@@ -72,18 +70,12 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                     .take(MAX_RELAY_PEERS)
                     .collect();
 
-                for target_peer in selected_peers {
-                    self.nc
-                        .send_message_to(target_peer, fbb.finished_data().to_vec());
-                }
-            }
-            Err(PoolError::InvalidTx(TransactionError::Unknown))
-            | Err(PoolError::InvalidTx(TransactionError::Conflict))
-            | Err(PoolError::InvalidTx(TransactionError::Immature))
-            | Err(PoolError::InvalidTx(TransactionError::CellbaseImmaturity)) => {
-                // this error may occured when peer's tip is different with us,
-                // we can't proof peer is bad so just ignore this
-                debug!(target: "relay", "peer {} relay a conflict or unknown input / dep tx: {:?}", self.peer, tx);
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = RelayMessage::build_transaction_hash(fbb, &tx_hash);
+                fbb.finish(message, None);
+                let data = fbb.finished_data().into();
+                self.nc
+                    .filter_broadcast(TargetSession::Multi(selected_peers), data);
             }
             Ok(cycles) => {
                 debug!(
@@ -91,21 +83,25 @@ impl<'a, CS: ChainStore> TransactionProcess<'a, CS> {
                     "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",
                     self.peer, tx, cycles, relay_cycles,
                 );
-                // TODO use report score interface
                 self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
             }
             Err(err) => {
-                debug!(target: "relay", "peer {} relay a invalid tx: {:?}, error: {:?}", self.peer, tx, err);
-                // TODO use report score interface
-                self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
+                if err.is_bad_tx() {
+                    debug!(target: "relay", "peer {} relay a invalid tx: {:?}, error: {:?}", self.peer, tx_hash, err);
+                    sentry::capture_message(
+                        &format!(
+                            "ban peer {} {:?}, reason: relay invalid tx: {:?}, error: {:?}",
+                            self.peer, DEFAULT_BAN_TIME, tx, err
+                        ),
+                        sentry::Level::Info,
+                    );
+                    self.nc.ban_peer(self.peer, DEFAULT_BAN_TIME);
+                } else {
+                    debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:?}, error: {:?}", self.peer, tx_hash, err);
+                }
             }
         }
 
         Ok(())
-    }
-
-    fn already_known(&self, hash: H256) -> bool {
-        let mut tx_filter = self.relayer.state.tx_filter.lock();
-        tx_filter.insert(hash, ()).is_some()
     }
 }

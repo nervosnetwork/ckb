@@ -6,8 +6,7 @@ use crate::{
 };
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
-use ckb_shared::store::ChainStore;
-use ckb_traits::ChainProvider;
+use ckb_store::ChainStore;
 use ckb_util::try_option;
 use faketime::unix_time_as_millis;
 use log::{debug, trace};
@@ -30,8 +29,8 @@ where
         let (tip_header, total_difficulty) = {
             let chain_state = synchronizer.shared.chain_state().lock();
             (
-                chain_state.tip_header().clone(),
-                chain_state.total_difficulty().clone(),
+                chain_state.tip_header().to_owned(),
+                chain_state.total_difficulty().to_owned(),
             )
         };
         BlockFetcher {
@@ -53,12 +52,7 @@ where
         }
 
         // current peer block blocks_inflight reach limit
-        if MAX_BLOCKS_IN_TRANSIT_PER_PEER.saturating_sub(inflight.len()) == 0 {
-            debug!(target: "sync", "[block downloader] inflight count reach limit");
-            true
-        } else {
-            false
-        }
+        inflight.len() >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
@@ -88,6 +82,7 @@ where
 
         let fixed_last_common_header = self
             .synchronizer
+            .shared
             .last_common_ancestor(&last_common_header, &best.inner())?;
 
         if fixed_last_common_header != last_common_header {
@@ -104,12 +99,13 @@ where
 
     // this peer's tip is wherethe the ancestor of global_best_known_header
     pub fn is_known_best(&self, header: &HeaderView) -> bool {
-        let global_best_known_header = { self.synchronizer.best_known_header.read().clone() };
+        let global_best_known_header = self.synchronizer.shared.best_known_header();
         if let Some(ancestor) = self
             .synchronizer
+            .shared
             .get_ancestor(&global_best_known_header.hash(), header.number())
         {
-            if ancestor != header.inner().clone() {
+            if &ancestor != header.inner() {
                 debug!(
                     target: "sync",
                     "[block downloader] peer best_known_header is not ancestor of global_best_known_header"
@@ -157,7 +153,7 @@ where
         // of its current best_known_header. Go back enough to fix that.
         let fixed_last_common_header = try_option!(self.last_common_header(&best_known_header));
 
-        if fixed_last_common_header == best_known_header.inner().clone() {
+        if &fixed_last_common_header == best_known_header.inner() {
             debug!(target: "sync", "[block downloader] fixed_last_common_header == best_known_header");
             return None;
         }
@@ -183,21 +179,21 @@ where
 
             while n_height < max_height && v_fetch.len() < PER_FETCH_BLOCK_LIMIT {
                 n_height += 1;
-                let to_fetch = try_option!(self
+                let to_fetch = self
                     .synchronizer
-                    .get_ancestor(&best_known_header.hash(), n_height));
+                    .shared
+                    .get_ancestor(&best_known_header.hash(), n_height)?;
                 let to_fetch_hash = to_fetch.hash();
 
                 let block_status = self.synchronizer.get_block_status(&to_fetch_hash);
-                if block_status == BlockStatus::VALID_MASK
-                    && inflight.insert(to_fetch_hash.clone().clone())
+                if block_status == BlockStatus::VALID_MASK && inflight.insert(to_fetch_hash.clone())
                 {
                     trace!(
                         target: "sync", "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),
                         to_fetch_hash
                     );
-                    v_fetch.push(to_fetch_hash.clone());
+                    v_fetch.push(to_fetch_hash);
                 }
             }
         }

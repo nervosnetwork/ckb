@@ -1,27 +1,27 @@
 use crate::Score;
 
+/// Peers behaviours
+/// we maintain a score to each peer
+/// report peer bahaviour will affects peer's score
+///
+/// Currently this feature is disabled, maybe someday we will add it back or totally remove it.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Behaviour {
-    Connect,
-    Ping,
-    FailedToPing,
-    Timeout,
-    SyncUseless,
-    UnexpectedMessage,
-    UnexpectedDisconnect,
+    #[cfg(test)]
+    TestGood,
+    #[cfg(test)]
+    TestBad,
 }
 
 impl Behaviour {
     pub fn score(self) -> Score {
-        use Behaviour::*;
+        #[allow(unreachable_patterns)]
         match self {
-            Connect => 10,
-            Ping => 10,
-            FailedToPing => -20,
-            Timeout => -20,
-            SyncUseless => -50,
-            UnexpectedMessage => -50,
-            UnexpectedDisconnect => -10,
+            #[cfg(test)]
+            Behaviour::TestGood => 10,
+            #[cfg(test)]
+            Behaviour::TestBad => -10,
+            _ => 0,
         }
     }
 }

@@ -1,8 +1,8 @@
 use ckb_core::BlockNumber;
 use ckb_script::ScriptError;
-use failure::Fail;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::error::Error as StdError;
 use std::fmt;
 
 /// Block verification error
@@ -11,7 +11,7 @@ use std::fmt;
 /// Those error kind carry some data that provide additional information,
 /// ErrorKind pattern should only carry stateless data. And, our ErrorKind can not be `Eq`.
 /// If the Rust community has better patterns in the future, then look back here
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     /// PoW proof is corrupt or does not meet the difficulty target.
     Pow(PowError),
@@ -49,9 +49,17 @@ pub enum Error {
     /// Cycles consumed by all scripts in all commit transactions of the block exceed
     /// the maximum allowed cycles in consensus rules
     ExceededMaximumCycles,
+    /// Number of proposals exceeded the limit.
+    ExceededMaximumProposalsLimit,
+    /// The size of the block exceeded the limit.
+    ExceededMaximumBlockBytes,
     /// The field version in block header is not allowed.
     Version,
+    /// Overflow when do computation for capacity.
+    CapacityOverflow,
 }
+
+impl StdError for Error {}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -79,8 +87,8 @@ pub enum CellbaseError {
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum UnclesError {
     OverCount {
-        max: usize,
-        actual: usize,
+        max: u32,
+        actual: u32,
     },
     MissMatchCount {
         expected: u32,
@@ -131,23 +139,48 @@ pub enum DifficultyError {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum TransactionError {
-    NullInput,
-    NullDep,
     /// Occur output's bytes_len exceed capacity
     CapacityOverflow,
-    DuplicateInputs,
+    DuplicateDeps,
     Empty,
     /// Sum of all outputs capacity exceed sum of all inputs in the transaction
     OutputsSumOverflow,
     InvalidScript,
     ScriptFailure(ScriptError),
     InvalidSignature,
-    Conflict,
-    Unknown,
     Version,
-    /// Tx not satisfied valid_since condition
+    /// Tx not satisfied since condition
     Immature,
     /// Invalid ValidSince flags
     InvalidValidSince,
     CellbaseImmaturity,
+}
+
+impl TransactionError {
+    /// Transaction error may be caused by different tip between peers if this method return false,
+    /// Otherwise we consider the Bad Tx is constructed intendedly.
+    pub fn is_bad_tx(self) -> bool {
+        use TransactionError::*;
+        match self {
+            CapacityOverflow | Empty | OutputsSumOverflow | InvalidScript | ScriptFailure(_)
+            | InvalidSignature | InvalidValidSince => true,
+            _ => false,
+        }
+    }
+}
+
+impl From<occupied_capacity::Error> for TransactionError {
+    fn from(error: occupied_capacity::Error) -> Self {
+        match error {
+            occupied_capacity::Error::Overflow => TransactionError::CapacityOverflow,
+        }
+    }
+}
+
+impl From<occupied_capacity::Error> for Error {
+    fn from(error: occupied_capacity::Error) -> Self {
+        match error {
+            occupied_capacity::Error::Overflow => Error::CapacityOverflow,
+        }
+    }
 }

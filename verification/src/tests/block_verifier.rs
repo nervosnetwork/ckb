@@ -1,11 +1,15 @@
-use super::super::block_verifier::{BlockVerifier, CellbaseVerifier};
+use super::super::block_verifier::{
+    BlockBytesVerifier, BlockProposalsLimitVerifier, BlockVerifier, CellbaseVerifier,
+};
 use super::super::error::{CellbaseError, Error as VerifyError};
 use super::dummy::DummyChainProvider;
 use crate::Verifier;
 use ckb_core::block::BlockBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::Capacity;
+use ckb_core::transaction::{
+    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use numext_fixed_hash::H256;
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
@@ -13,7 +17,7 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction 
         .input(CellInput::new_cellbase_input(0))
         .output(CellOutput::new(
             capacity,
-            Vec::new(),
+            Bytes::default(),
             Script::default(),
             None,
         ))
@@ -21,7 +25,7 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction 
 }
 
 fn create_cellbase_transaction() -> Transaction {
-    create_cellbase_transaction_with_capacity(100)
+    create_cellbase_transaction_with_capacity(capacity_bytes!(100))
 }
 
 fn create_normal_transaction() -> Transaction {
@@ -31,16 +35,21 @@ fn create_normal_transaction() -> Transaction {
             0,
             Default::default(),
         ))
-        .output(CellOutput::new(100, Vec::new(), Script::default(), None))
+        .output(CellOutput::new(
+            capacity_bytes!(100),
+            Bytes::default(),
+            Script::default(),
+            None,
+        ))
         .build()
 }
 
 #[test]
 pub fn test_block_without_cellbase() {
     let block = BlockBuilder::default()
-        .commit_transaction(TransactionBuilder::default().build())
+        .transaction(TransactionBuilder::default().build())
         .build();
-    let verifier = CellbaseVerifier::new(DummyChainProvider::default());
+    let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
         Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
@@ -52,24 +61,22 @@ pub fn test_block_with_one_cellbase_at_first() {
     let transaction = create_normal_transaction();
 
     let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction())
-        .commit_transaction(transaction)
+        .transaction(create_cellbase_transaction())
+        .transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider { block_reward: 100 };
-
-    let verifier = CellbaseVerifier::new(provider);
+    let verifier = CellbaseVerifier::new();
     assert!(verifier.verify(&block).is_ok());
 }
 
 #[test]
 pub fn test_block_with_one_cellbase_at_last() {
     let block = BlockBuilder::default()
-        .commit_transaction(create_normal_transaction())
-        .commit_transaction(create_cellbase_transaction())
+        .transaction(create_normal_transaction())
+        .transaction(create_cellbase_transaction())
         .build();
 
-    let verifier = CellbaseVerifier::new(DummyChainProvider::default());
+    let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
         Err(VerifyError::Cellbase(CellbaseError::InvalidPosition))
@@ -79,11 +86,11 @@ pub fn test_block_with_one_cellbase_at_last() {
 #[test]
 pub fn test_block_with_two_cellbases() {
     let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction())
-        .commit_transaction(create_cellbase_transaction())
+        .transaction(create_cellbase_transaction())
+        .transaction(create_cellbase_transaction())
         .build();
 
-    let verifier = CellbaseVerifier::new(DummyChainProvider::default());
+    let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
         Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
@@ -95,13 +102,13 @@ pub fn test_cellbase_with_less_reward() {
     let transaction = create_normal_transaction();
 
     let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction_with_capacity(50))
-        .commit_transaction(transaction)
+        .transaction(create_cellbase_transaction_with_capacity(capacity_bytes!(
+            50
+        )))
+        .transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider { block_reward: 100 };
-
-    let verifier = CellbaseVerifier::new(provider);
+    let verifier = CellbaseVerifier::new();
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -110,21 +117,40 @@ pub fn test_cellbase_with_fee() {
     let transaction = create_normal_transaction();
 
     let block = BlockBuilder::default()
-        .commit_transaction(create_cellbase_transaction_with_capacity(110))
-        .commit_transaction(transaction)
+        .transaction(create_cellbase_transaction_with_capacity(capacity_bytes!(
+            110
+        )))
+        .transaction(transaction)
         .build();
 
-    let provider = DummyChainProvider { block_reward: 100 };
-
-    let verifier = CellbaseVerifier::new(provider);
+    let verifier = CellbaseVerifier::new();
     assert!(verifier.verify(&block).is_ok());
+}
+
+#[test]
+pub fn test_cellbase_overflow_capacity() {
+    let cellbase = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(0))
+        .output(CellOutput::new(
+            capacity_bytes!(5),
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into(),
+            Script::default(),
+            None,
+        ))
+        .build();
+    let block = BlockBuilder::default().transaction(cellbase).build();
+    let verifier = CellbaseVerifier::new();
+    assert_eq!(verifier.verify(&block), Err(VerifyError::CapacityOverflow),);
 }
 
 #[test]
 pub fn test_empty_transactions() {
     let block = BlockBuilder::default().build();
 
-    let provider = DummyChainProvider { block_reward: 150 };
+    let provider = DummyChainProvider {
+        block_reward: capacity_bytes!(150),
+        ..Default::default()
+    };
 
     let full_verifier = BlockVerifier::new(provider);
     // short-circuit, Empty check first
@@ -132,4 +158,45 @@ pub fn test_empty_transactions() {
         full_verifier.verify(&block),
         Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
     );
+}
+
+#[test]
+pub fn test_max_block_bytes_verifier() {
+    let block = BlockBuilder::default().build();
+    let proof_size = 0usize;
+
+    {
+        let verifier =
+            BlockBytesVerifier::new(block.serialized_size(proof_size) as u64, proof_size);
+        assert_eq!(verifier.verify(&block), Ok(()));
+    }
+
+    {
+        let verifier =
+            BlockBytesVerifier::new(block.serialized_size(proof_size) as u64 - 1, proof_size);
+        assert_eq!(
+            verifier.verify(&block),
+            Err(VerifyError::ExceededMaximumBlockBytes)
+        );
+    }
+}
+
+#[test]
+pub fn test_max_proposals_limit_verifier() {
+    let block = BlockBuilder::default()
+        .proposal(ProposalShortId::zero())
+        .build();
+
+    {
+        let verifier = BlockProposalsLimitVerifier::new(1);
+        assert_eq!(verifier.verify(&block), Ok(()));
+    }
+
+    {
+        let verifier = BlockProposalsLimitVerifier::new(0);
+        assert_eq!(
+            verifier.verify(&block),
+            Err(VerifyError::ExceededMaximumProposalsLimit)
+        );
+    }
 }

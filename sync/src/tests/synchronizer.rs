@@ -1,6 +1,6 @@
 use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
 use crate::tests::TestNode;
-use crate::{Config, NetworkProtocol, Synchronizer};
+use crate::{Config, NetworkProtocol, SyncSharedState, Synchronizer};
 use ckb_chain::chain::ChainBuilder;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -10,7 +10,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
+use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
@@ -76,7 +76,8 @@ fn setup_node(
     let consensus = Consensus::default().set_genesis_block(block.clone());
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
-        .build();
+        .build()
+        .unwrap();
     let notify = NotifyService::default().start(Some(thread_name));
 
     let chain_service = ChainBuilder::new(shared.clone(), notify)
@@ -94,13 +95,13 @@ fn setup_node(
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(block.header().hash().clone())
+            .parent_hash(block.header().hash())
             .number(number)
             .timestamp(timestamp)
             .difficulty(difficulty);
 
         block = BlockBuilder::default()
-            .commit_transaction(cellbase)
+            .transaction(cellbase)
             .with_header_builder(header_builder);
 
         chain_controller
@@ -108,7 +109,8 @@ fn setup_node(
             .expect("process block should be OK");
     }
 
-    let synchronizer = Synchronizer::new(chain_controller, shared.clone(), Config::default());
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let synchronizer = Synchronizer::new(chain_controller, sync_shared_state, Config::default());
     let mut node = TestNode::default();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;
     node.add_protocol(

@@ -1,6 +1,7 @@
 use crate::specs::TestProtocol;
 use crate::Node;
 use bytes::Bytes;
+use ckb_core::BlockNumber;
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
     NetworkService, NetworkState, PeerIndex, ProtocolId,
@@ -20,6 +21,7 @@ impl Net {
         num_nodes: usize,
         start_port: u16,
         test_protocols: Vec<TestProtocol>,
+        cellbase_maturity: Option<BlockNumber>,
     ) -> Self {
         let nodes: Vec<Node> = (0..num_nodes)
             .map(|n| {
@@ -32,6 +34,7 @@ impl Net {
                         .unwrap(),
                     start_port + (n * 2 + 1) as u16,
                     start_port + (n * 2 + 2) as u16,
+                    cellbase_maturity,
                 )
             })
             .collect();
@@ -47,6 +50,7 @@ impl Net {
                     .expect("invalid address")],
                 public_addresses: vec![],
                 bootnodes: vec![],
+                dns_seeds: vec![],
                 reserved_peers: vec![],
                 reserved_only: false,
                 max_peers: 1,
@@ -102,7 +106,7 @@ impl Net {
         );
     }
 
-    pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Vec<u8>) {
+    pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Bytes) {
         self.controller
             .as_ref()
             .unwrap()

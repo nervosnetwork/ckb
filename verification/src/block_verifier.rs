@@ -1,19 +1,19 @@
 use crate::error::{CellbaseError, CommitError, Error, UnclesError};
 use crate::header_verifier::HeaderResolver;
-use crate::{InputVerifier, TransactionVerifier, Verifier};
+use crate::{TransactionVerifier, Verifier};
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::header::Header;
-use ckb_core::transaction::{Capacity, CellInput, Transaction};
+use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction};
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber};
+use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use log::error;
-use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
+use std::sync::Arc;
 
 //TODO: cellbase, witness
 #[derive(Clone)]
@@ -21,13 +21,17 @@ pub struct BlockVerifier<P> {
     // Verify if the committed and proposed transactions contains duplicate
     duplicate: DuplicateVerifier,
     // Verify the cellbase
-    cellbase: CellbaseVerifier<P>,
+    cellbase: CellbaseVerifier,
     // Verify the the committed and proposed transactions merkle root match header's announce
     merkle_root: MerkleRootVerifier,
     // Verify the the uncle
     uncles: UnclesVerifier<P>,
     // Verify the the propose-then-commit consensus rule
     commit: CommitVerifier<P>,
+    // Verify the amount of proposals does not exceed the limit.
+    block_proposals_limit: BlockProposalsLimitVerifier,
+    // Verify the size of the block does not exceed the limit.
+    block_bytes: BlockBytesVerifier,
 }
 
 impl<P> BlockVerifier<P>
@@ -35,13 +39,19 @@ where
     P: ChainProvider + Clone,
 {
     pub fn new(provider: P) -> Self {
+        let proof_size = provider.consensus().pow_engine().proof_size();
+        let max_block_proposals_limit = provider.consensus().max_block_proposals_limit();
+        let max_block_bytes = provider.consensus().max_block_bytes();
+
         BlockVerifier {
             // TODO change all new fn's chain to reference
             duplicate: DuplicateVerifier::new(),
-            cellbase: CellbaseVerifier::new(provider.clone()),
+            cellbase: CellbaseVerifier::new(),
             merkle_root: MerkleRootVerifier::new(),
             uncles: UnclesVerifier::new(provider.clone()),
             commit: CommitVerifier::new(provider),
+            block_proposals_limit: BlockProposalsLimitVerifier::new(max_block_proposals_limit),
+            block_bytes: BlockBytesVerifier::new(max_block_bytes, proof_size),
         }
     }
 }
@@ -50,6 +60,8 @@ impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
     type Target = Block;
 
     fn verify(&self, target: &Block) -> Result<(), Error> {
+        self.block_proposals_limit.verify(target)?;
+        self.block_bytes.verify(target)?;
         self.cellbase.verify(target)?;
         self.duplicate.verify(target)?;
         self.merkle_root.verify(target)?;
@@ -59,18 +71,16 @@ impl<P: ChainProvider + Clone> Verifier for BlockVerifier<P> {
 }
 
 #[derive(Clone)]
-pub struct CellbaseVerifier<CP> {
-    provider: CP,
-}
+pub struct CellbaseVerifier {}
 
-impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
-    pub fn new(provider: CP) -> Self {
-        CellbaseVerifier { provider }
+impl CellbaseVerifier {
+    pub fn new() -> Self {
+        CellbaseVerifier {}
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
         let cellbase_len = block
-            .commit_transactions()
+            .transactions()
             .iter()
             .filter(|tx| tx.is_cellbase())
             .count();
@@ -80,11 +90,11 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
             return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
         }
 
-        if !block.commit_transactions()[0].is_cellbase() {
+        let cellbase_transaction = &block.transactions()[0];
+        if !cellbase_transaction.is_cellbase() {
             return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
-        let cellbase_transaction = &block.commit_transactions()[0];
         let cellbase_input = &cellbase_transaction.inputs()[0];
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
@@ -99,6 +109,14 @@ impl<CP: ChainProvider + Clone> CellbaseVerifier<CP> {
             return Err(Error::Cellbase(CellbaseError::InvalidOutput));
         }
 
+        if cellbase_transaction
+            .outputs()
+            .iter()
+            .any(CellOutput::is_occupied_capacity_overflow)
+        {
+            return Err(Error::CapacityOverflow);
+        };
+
         Ok(())
     }
 }
@@ -112,37 +130,29 @@ impl DuplicateVerifier {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        let mut seen = HashSet::with_capacity(block.commit_transactions().len());
-        if !block
-            .commit_transactions()
-            .iter()
-            .all(|tx| seen.insert(tx.hash()))
-        {
+        let mut seen = HashSet::with_capacity(block.transactions().len());
+        if !block.transactions().iter().all(|tx| seen.insert(tx.hash())) {
             return Err(Error::CommitTransactionDuplicate);
         }
 
-        let mut seen = HashSet::with_capacity(block.proposal_transactions().len());
-        if !block
-            .proposal_transactions()
-            .iter()
-            .all(|id| seen.insert(id))
-        {
+        let mut seen = HashSet::with_capacity(block.proposals().len());
+        if !block.proposals().iter().all(|id| seen.insert(id)) {
             return Err(Error::ProposalTransactionDuplicate);
         }
         Ok(())
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MerkleRootVerifier {}
 
 impl MerkleRootVerifier {
     pub fn new() -> Self {
-        MerkleRootVerifier {}
+        MerkleRootVerifier::default()
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.header().txs_commit() != &block.cal_txs_commit_root() {
+        if block.header().transactions_root() != &block.cal_transactions_root() {
             return Err(Error::CommitTransactionsRoot);
         }
 
@@ -150,7 +160,7 @@ impl MerkleRootVerifier {
             return Err(Error::WitnessesMerkleRoot);
         }
 
-        if block.header().txs_proposal() != &block.cal_txs_proposal_root() {
+        if block.header().proposals_root() != &block.cal_proposals_root() {
             return Err(Error::ProposalTransactionsRoot);
         }
 
@@ -220,22 +230,30 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         let actual_uncles_hash = block.cal_uncles_hash();
         if &actual_uncles_hash != block.header().uncles_hash() {
             return Err(Error::Uncles(UnclesError::InvalidHash {
-                expected: block.header().uncles_hash().clone(),
+                expected: block.header().uncles_hash().to_owned(),
                 actual: actual_uncles_hash,
             }));
         }
+
         // if block.uncles is empty, return
-        if block.uncles().is_empty() {
+        if uncles_count == 0 {
             return Ok(());
         }
 
-        // verify uncles lenght =< max_uncles_num
-        let uncles_num = block.uncles().len();
-        let max_uncles_num = self.provider.consensus().max_uncles_num();
-        if uncles_num > max_uncles_num {
+        // if block is genesis, which is expected with zero uncles, return error
+        if block.is_genesis() {
+            return Err(Error::Uncles(UnclesError::OverCount {
+                max: 0,
+                actual: uncles_count,
+            }));
+        }
+
+        // verify uncles length =< max_uncles_num
+        let max_uncles_num = self.provider.consensus().max_uncles_num() as u32;
+        if uncles_count > max_uncles_num {
             return Err(Error::Uncles(UnclesError::OverCount {
                 max: max_uncles_num,
-                actual: uncles_num,
+                actual: uncles_count,
             }));
         }
 
@@ -266,17 +284,19 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
         // TODO: cache context
         let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
-        excluded.insert(block.header().hash().clone());
-        let mut block_hash = block.header().parent_hash().clone();
+        excluded.insert(block.header().hash());
+        let mut block_hash = block.header().parent_hash().to_owned();
         excluded.insert(block_hash.clone());
         for _ in 0..max_uncles_age {
-            if let Some(block) = self.provider.block(&block_hash) {
-                excluded.insert(block.header().parent_hash().clone());
-                for uncle in block.uncles() {
-                    excluded.insert(uncle.header.hash().clone());
-                }
-
-                block_hash = block.header().parent_hash().clone();
+            if let Some(header) = self.provider.block_header(&block_hash) {
+                let parent_hash = header.parent_hash().to_owned();
+                excluded.insert(parent_hash.clone());
+                if let Some(uncles) = self.provider.uncles(&block_hash) {
+                    uncles.iter().for_each(|uncle| {
+                        excluded.insert(uncle.header.hash());
+                    });
+                };
+                block_hash = parent_hash;
             } else {
                 break;
             }
@@ -299,7 +319,7 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
 
             let uncle_header = uncle.header.clone();
 
-            let uncle_hash = uncle_header.hash().clone();
+            let uncle_hash = uncle_header.hash();
             if included.contains(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash)));
             }
@@ -308,16 +328,12 @@ impl<CP: ChainProvider + Clone> UnclesVerifier<CP> {
                 return Err(Error::Uncles(UnclesError::InvalidInclude(uncle_hash)));
             }
 
-            if uncle_header.txs_proposal() != &uncle.cal_txs_proposal_root() {
+            if uncle_header.proposals_root() != &uncle.cal_proposals_root() {
                 return Err(Error::Uncles(UnclesError::ProposalTransactionsRoot));
             }
 
-            let mut seen = HashSet::with_capacity(uncle.proposal_transactions().len());
-            if !uncle
-                .proposal_transactions()
-                .iter()
-                .all(|id| seen.insert(id))
-            {
+            let mut seen = HashSet::with_capacity(uncle.proposals().len());
+            if !uncle.proposals().iter().all(|id| seen.insert(id)) {
                 return Err(Error::Uncles(UnclesError::ProposalTransactionDuplicate));
             }
 
@@ -347,10 +363,10 @@ impl TransactionsVerifier {
         TransactionsVerifier { max_cycles }
     }
 
-    pub fn verify<M>(
+    pub fn verify<M, CS: ChainStore>(
         &self,
-        txs_verify_cache: &mut LruCache<H256, Cycle>,
         resolved: &[ResolvedTransaction],
+        store: Arc<CS>,
         block_reward: Capacity,
         block_median_time_context: M,
         tip_number: BlockNumber,
@@ -361,11 +377,16 @@ impl TransactionsVerifier {
     {
         // verify cellbase reward
         let cellbase = &resolved[0];
-        let fee: Capacity = resolved.iter().skip(1).map(ResolvedTransaction::fee).sum();
-        if cellbase.transaction.outputs_capacity() > block_reward + fee {
+        let fee: Capacity = resolved
+            .iter()
+            .skip(1)
+            .map(ResolvedTransaction::fee)
+            .try_fold(Capacity::zero(), |acc, rhs| {
+                rhs.and_then(|x| acc.safe_add(x))
+            })?;
+        if cellbase.transaction.outputs_capacity()? > block_reward.safe_add(fee)? {
             return Err(Error::Cellbase(CellbaseError::InvalidReward));
         }
-        // TODO use TransactionScriptsVerifier to verify cellbase script
 
         // make verifiers orthogonal
         let cycles_set = resolved
@@ -373,32 +394,20 @@ impl TransactionsVerifier {
             .skip(1)
             .enumerate()
             .map(|(index, tx)| {
-                if let Some(cycles) = txs_verify_cache.get(&tx.transaction.hash()) {
-                    InputVerifier::new(&tx)
-                        .verify()
-                        .map_err(|e| Error::Transactions((index, e)))
-                        .map(|_| (None, *cycles))
-                } else {
-                    TransactionVerifier::new(
-                        &tx,
-                        &block_median_time_context,
-                        tip_number,
-                        cellbase_maturity,
-                    )
-                    .verify(self.max_cycles)
-                    .map_err(|e| Error::Transactions((index, e)))
-                    .map(|cycles| (Some(tx.transaction.hash()), cycles))
-                }
+                TransactionVerifier::new(
+                    &tx,
+                    Arc::clone(&store),
+                    &block_median_time_context,
+                    tip_number,
+                    cellbase_maturity,
+                )
+                .verify(self.max_cycles)
+                .map_err(|e| Error::Transactions((index, e)))
+                .map(|cycles| cycles)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let sum: Cycle = cycles_set.iter().map(|(_, cycles)| cycles).sum();
-
-        for (hash, cycles) in cycles_set {
-            if let Some(h) = hash {
-                txs_verify_cache.insert(h, cycles);
-            }
-        }
+        let sum: Cycle = cycles_set.iter().sum();
 
         if sum > self.max_cycles {
             Err(Error::ExceededMaximumCycles)
@@ -436,21 +445,29 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
         let mut proposal_txs_ids = FnvHashSet::default();
 
         while proposal_end >= proposal_start {
-            let block = self
+            let header = self
                 .provider
-                .block(&block_hash)
+                .block_header(&block_hash)
                 .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
-            if block.is_genesis() {
+            if header.is_genesis() {
                 break;
             }
-            proposal_txs_ids.extend(block.union_proposal_ids());
 
-            block_hash = block.header().parent_hash().clone();
+            if let Some(ids) = self.provider.block_proposal_txs_ids(&block_hash) {
+                proposal_txs_ids.extend(ids);
+            }
+            if let Some(uncles) = self.provider.uncles(&block_hash) {
+                uncles
+                    .iter()
+                    .for_each(|uncle| proposal_txs_ids.extend(uncle.proposals()));
+            }
+
+            block_hash = header.parent_hash().to_owned();
             proposal_end -= 1;
         }
 
         let committed_ids: FnvHashSet<_> = block
-            .commit_transactions()
+            .transactions()
             .par_iter()
             .skip(1)
             .map(Transaction::proposal_short_id)
@@ -466,5 +483,51 @@ impl<CP: ChainProvider + Clone> CommitVerifier<CP> {
             return Err(Error::Commit(CommitError::Invalid));
         }
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct BlockProposalsLimitVerifier {
+    block_proposals_limit: u64,
+}
+
+impl BlockProposalsLimitVerifier {
+    pub fn new(block_proposals_limit: u64) -> Self {
+        BlockProposalsLimitVerifier {
+            block_proposals_limit,
+        }
+    }
+
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        let proposals_len = block.proposals().len() as u64;
+        if proposals_len <= self.block_proposals_limit {
+            Ok(())
+        } else {
+            Err(Error::ExceededMaximumProposalsLimit)
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct BlockBytesVerifier {
+    block_bytes_limit: u64,
+    proof_size: usize,
+}
+
+impl BlockBytesVerifier {
+    pub fn new(block_bytes_limit: u64, proof_size: usize) -> Self {
+        BlockBytesVerifier {
+            block_bytes_limit,
+            proof_size,
+        }
+    }
+
+    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        let block_bytes = block.serialized_size(self.proof_size) as u64;
+        if block_bytes <= self.block_bytes_limit {
+            Ok(())
+        } else {
+            Err(Error::ExceededMaximumBlockBytes)
+        }
     }
 }

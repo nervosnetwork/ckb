@@ -1,3 +1,4 @@
+mod common;
 mod cost_model;
 mod syscalls;
 mod verify;

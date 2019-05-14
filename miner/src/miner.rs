@@ -35,11 +35,11 @@ impl Miner {
     }
     pub fn run(&self) {
         loop {
-            self.client.try_update_block_template();
             match self.mine() {
                 Ok(result) => {
                     if let Some((work_id, block)) = result {
                         self.client.submit_block(&work_id, &block);
+                        self.client.try_update_block_template();
                     }
                 }
                 Err(e) => error!(target: "miner", "mining error encountered: {:?}", e),
@@ -48,7 +48,8 @@ impl Miner {
     }
 
     fn mine(&self) -> Result<Option<(String, Block)>, Error> {
-        if let Some(template) = { self.current_work.lock().clone() } {
+        let current_work = { self.current_work.lock().to_owned() };
+        if let Some(template) = current_work {
             let BlockTemplate {
                 version,
                 difficulty,
@@ -56,8 +57,8 @@ impl Miner {
                 number,
                 parent_hash,
                 uncles, // Vec<UncleTemplate>
-                commit_transactions, // Vec<TransactionTemplate>
-                proposal_transactions, // Vec<ProposalShortId>
+                transactions, // Vec<TransactionTemplate>
+                proposals, // Vec<ProposalShortId>
                 cellbase, // CellbaseTemplate
                 work_id,
                 ..
@@ -85,22 +86,22 @@ impl Miner {
                         .map(TryInto::try_into)
                         .collect::<Result<_, _>>()?,
                 )
-                .commit_transaction(cellbase.try_into()?)
-                .commit_transactions(
-                    commit_transactions
+                .transaction(cellbase.try_into()?)
+                .transactions(
+                    transactions
                         .into_iter()
                         .map(TryInto::try_into)
                         .collect::<Result<_, _>>()?,
                 )
-                .proposal_transactions(
-                    proposal_transactions
+                .proposals(
+                    proposals
                         .into_iter()
                         .map(TryInto::try_into)
                         .collect::<Result<_, _>>()?,
                 )
                 .with_header_builder(header_builder);
 
-            let raw_header = block.header().raw().clone();
+            let raw_header = block.header().raw().to_owned();
 
             Ok(self
                 .mine_loop(&raw_header)

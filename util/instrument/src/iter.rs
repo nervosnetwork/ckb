@@ -1,7 +1,7 @@
 use ckb_core::block::Block;
 use ckb_core::BlockNumber;
 use ckb_shared::shared::Shared;
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 
 // An iterator over the entries of a `Chain`.

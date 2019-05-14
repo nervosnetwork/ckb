@@ -1,5 +1,5 @@
 use crate::{Capacity, CellOutput, OutPoint, Script};
-use ckb_core::cell::{CellStatus, LiveCell};
+use ckb_core::cell::CellStatus;
 use serde_derive::{Deserialize, Serialize};
 
 // This is used as return value of get_cells_by_type_hash RPC:
@@ -21,15 +21,12 @@ pub struct CellWithStatus {
 impl From<CellStatus> for CellWithStatus {
     fn from(status: CellStatus) -> Self {
         let (cell, status) = match status {
-            CellStatus::Live(cell) => match cell {
-                LiveCell::Null => (None, "live"),
-                LiveCell::Output(o) => (Some(o), "live"),
-            },
+            CellStatus::Live(cell_meta) => (cell_meta.cell_output, "live"),
             CellStatus::Dead => (None, "dead"),
             CellStatus::Unknown => (None, "unknown"),
         };
         Self {
-            cell: cell.map(|cell| cell.cell_output.into()),
+            cell: cell.map(Into::into),
             status: status.to_string(),
         }
     }

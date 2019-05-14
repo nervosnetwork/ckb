@@ -29,6 +29,8 @@ fn main() {
             "disconnect" => Box::new(Disconnect),
             "malformed_message" => Box::new(MalformedMessage),
             "depent_tx_in_same_block" => Box::new(DepentTxInSameBlock),
+            "cellbase_immature_tx" => Box::new(CellbaseImmatureTx),
+            "different_txs_with_same_input" => Box::new(DifferentTxsWithSameInput),
             _ => panic!("invalid spec"),
         };
         let net = spec.setup_net(&binary, start_port);
@@ -45,6 +47,8 @@ fn main() {
             Box::new(Disconnect),
             Box::new(MalformedMessage),
             Box::new(DepentTxInSameBlock),
+            Box::new(CellbaseImmatureTx),
+            Box::new(DifferentTxsWithSameInput),
         ];
 
         specs.iter().for_each(|spec| {

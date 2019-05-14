@@ -34,30 +34,30 @@ table Headers {
 }
 
 table Header {
-    version:        uint32;
-    parent_hash:    H256;
-    timestamp:      uint64;
-    number:         uint64;
-    txs_commit:     H256;
-    txs_proposal:   H256;
-    witnesses_root: H256;
-    difficulty:     Bytes;
-    nonce:          uint64;
-    proof:          Bytes;
-    uncles_hash:    H256;
-    uncles_count:   uint32;
+    version:                uint32;
+    parent_hash:            H256;
+    timestamp:              uint64;
+    number:                 uint64;
+    transactions_root:      H256;
+    proposals_root:         H256;
+    witnesses_root:         H256;
+    difficulty:             Bytes;
+    nonce:                  uint64;
+    proof:                  Bytes;
+    uncles_hash:            H256;
+    uncles_count:           uint32;
 }
 
 table Block {
     header:                 Header;
     uncles:                 [UncleBlock];
-    commit_transactions:    [Transaction];
-    proposal_transactions:  [ProposalShortId];
+    transactions:           [Transaction];
+    proposals:              [ProposalShortId];
 }
 
 table UncleBlock {
     header:                 Header;
-    proposal_transactions:  [ProposalShortId];
+    proposals:              [ProposalShortId];
 }
 
 table Transaction {
@@ -73,14 +73,14 @@ table Witness {
 }
 
 table OutPoint {
-    hash:           H256;
+    tx_hash:        H256;
     index:          uint32;
 }
 
 table CellInput {
-    hash:           H256;
+    tx_hash:        H256;
     index:          uint32;
-    valid_since:    uint64;
+    since:          uint64;
     args:           [Bytes];
 }
 
@@ -93,14 +93,16 @@ table CellOutput {
 
 table Script {
     args:           [Bytes];
-    binary_hash:    H256;
+    code_hash:      H256;
 }
 
 root_type SyncMessage;
 
 union RelayPayload {
     CompactBlock,
-    ValidTransaction,
+    RelayTransaction,
+    RelayTransactionHash,
+    GetRelayTransaction,
     GetBlockTransactions,
     BlockTransactions,
     GetBlockProposal,
@@ -117,7 +119,7 @@ table CompactBlock {
     short_ids:                  [Bytes];
     prefilled_transactions:     [IndexTransaction];
     uncles:                     [UncleBlock];
-    proposal_transactions:      [ProposalShortId];
+    proposals:                  [ProposalShortId];
 }
 
 table IndexTransaction {
@@ -125,24 +127,32 @@ table IndexTransaction {
     transaction:                Transaction;
 }
 
-table ValidTransaction {
+table RelayTransactionHash {
+    tx_hash: H256;
+}
+
+table GetRelayTransaction {
+    tx_hash: H256;
+}
+
+table RelayTransaction {
     cycles:                     uint64;
     transaction:                Transaction;
 }
 
 table GetBlockTransactions {
-    hash:                      H256;
+    block_hash:                H256;
     indexes:                   [uint32];
 }
 
 table BlockTransactions {
-    hash:                      H256;
+    block_hash:                H256;
     transactions:              [Transaction];
 }
 
 table GetBlockProposal {
     block_number:              uint64;
-    proposal_transactions:     [ProposalShortId];
+    proposals:     [ProposalShortId];
 }
 
 table BlockProposal {

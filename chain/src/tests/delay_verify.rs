@@ -1,5 +1,7 @@
 use crate::tests::util::{create_transaction, gen_block, start_chain};
 use ckb_core::block::Block;
+use ckb_core::cell::UnresolvableError;
+use ckb_core::transaction::OutPoint;
 use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
@@ -16,7 +18,7 @@ fn test_dead_cell_in_same_block() {
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..final_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(100u64),
@@ -25,12 +27,12 @@ fn test_dead_cell_in_same_block() {
             vec![],
         );
         chain1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..switch_fork_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(99u64),
@@ -39,16 +41,17 @@ fn test_dead_cell_in_same_block() {
             vec![],
         );
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
-    let last_cell_base = &chain2.last().unwrap().commit_transactions()[0];
+    let last_cell_base = &chain2.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx2 = create_transaction(tx1.hash(), 2);
-    let tx3 = create_transaction(tx1.hash(), 3);
+    let tx1_hash = tx1.hash();
+    let tx2 = create_transaction(tx1_hash.clone(), 2);
+    let tx3 = create_transaction(tx1_hash.clone(), 3);
     let txs = vec![tx1, tx2, tx3];
     for i in switch_fork_number..final_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = if i == switch_fork_number {
             gen_block(
                 &parent,
@@ -75,7 +78,7 @@ fn test_dead_cell_in_same_block() {
             )
         };
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     for block in &chain1 {
@@ -91,13 +94,16 @@ fn test_dead_cell_in_same_block() {
     }
 
     assert_eq!(
-        SharedError::InvalidTransaction("Transactions((2, Conflict))".to_string()),
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
+            tx_hash: tx1_hash,
+            index: 0,
+        })),
         chain_controller
             .process_block(Arc::new(chain2[switch_fork_number + 1].clone()))
             .unwrap_err()
             .downcast()
             .unwrap()
-    );
+    )
 }
 
 #[test]
@@ -111,7 +117,7 @@ fn test_dead_cell_in_different_block() {
 
     let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..final_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(100u64),
@@ -120,12 +126,12 @@ fn test_dead_cell_in_different_block() {
             vec![],
         );
         chain1.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..switch_fork_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
             &parent,
             difficulty + U256::from(99u64),
@@ -134,15 +140,16 @@ fn test_dead_cell_in_different_block() {
             vec![],
         );
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
-    let last_cell_base = &chain2.last().unwrap().commit_transactions()[0];
+    let last_cell_base = &chain2.last().unwrap().transactions()[0];
     let tx1 = create_transaction(last_cell_base.hash(), 1);
-    let tx2 = create_transaction(tx1.hash(), 2);
-    let tx3 = create_transaction(tx1.hash(), 3);
+    let tx1_hash = tx1.hash();
+    let tx2 = create_transaction(tx1_hash.clone(), 2);
+    let tx3 = create_transaction(tx1_hash.clone(), 3);
     for i in switch_fork_number..final_number {
-        let difficulty = parent.difficulty().clone();
+        let difficulty = parent.difficulty().to_owned();
         let new_block = if i == switch_fork_number {
             gen_block(
                 &parent,
@@ -177,7 +184,7 @@ fn test_dead_cell_in_different_block() {
             )
         };
         chain2.push(new_block.clone());
-        parent = new_block.header().clone();
+        parent = new_block.header().to_owned();
     }
 
     for block in &chain1 {
@@ -193,7 +200,10 @@ fn test_dead_cell_in_different_block() {
     }
 
     assert_eq!(
-        SharedError::InvalidTransaction("Transactions((0, Conflict))".to_string()),
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint {
+            tx_hash: tx1_hash,
+            index: 0,
+        })),
         chain_controller
             .process_block(Arc::new(chain2[switch_fork_number + 2].clone()))
             .unwrap_err()

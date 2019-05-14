@@ -12,6 +12,7 @@ use numext_fixed_uint::U256;
 #[derive(Default, Clone)]
 pub struct DummyChainProvider {
     pub block_reward: Capacity,
+    pub consensus: Consensus,
 }
 
 impl ChainProvider for DummyChainProvider {
@@ -23,7 +24,7 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn genesis_hash(&self) -> H256 {
+    fn genesis_hash(&self) -> &H256 {
         panic!("Not implemented!");
     }
 
@@ -59,7 +60,7 @@ impl ChainProvider for DummyChainProvider {
         panic!("Not implemented!");
     }
 
-    fn get_transaction(&self, _hash: &H256) -> Option<Transaction> {
+    fn get_transaction(&self, _hash: &H256) -> Option<(Transaction, H256)> {
         panic!("Not implemented!");
     }
 
@@ -72,7 +73,7 @@ impl ChainProvider for DummyChainProvider {
     }
 
     fn consensus(&self) -> &Consensus {
-        panic!("Not implemented!");
+        &self.consensus
     }
 }
 

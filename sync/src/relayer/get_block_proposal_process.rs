@@ -1,7 +1,7 @@
 use crate::relayer::Relayer;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use std::convert::TryInto;
@@ -30,13 +30,13 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let mut pending_proposals_request = self.relayer.state.pending_proposals_request.lock();
-        let proposal_transactions = cast!(self.message.proposal_transactions())?;
+        let proposals = cast!(self.message.proposals())?;
 
         let transactions = {
             let chain_state = self.relayer.shared.chain_state().lock();
             let tx_pool = chain_state.tx_pool();
 
-            let proposals = proposal_transactions
+            let proposals = proposals
                 .iter()
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, FailureError>>();
@@ -60,7 +60,7 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
         fbb.finish(message, None);
 
         self.nc
-            .send_message_to(self.peer, fbb.finished_data().to_vec());
+            .send_message_to(self.peer, fbb.finished_data().into());
         Ok(())
     }
 }

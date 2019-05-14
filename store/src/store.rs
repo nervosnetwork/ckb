@@ -1,14 +1,17 @@
 use crate::flat_serializer::{serialize as flat_serialize, serialized_addresses, Address};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_EXT, COLUMN_INDEX, COLUMN_META,
-    COLUMN_TRANSACTION_ADDR,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_EXT,
+    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
 };
 use bincode::{deserialize, serialize};
 use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::cell::CellMeta;
 use ckb_core::extras::{BlockExt, TransactionAddress};
 use ckb_core::header::{BlockNumber, Header, HeaderBuilder};
-use ckb_core::transaction::{ProposalShortId, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+};
 use ckb_core::uncle::UncleBlock;
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
 use numext_fixed_hash::H256;
@@ -16,6 +19,13 @@ use serde::Serialize;
 use std::ops::Range;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
+
+fn cell_store_key(tx_hash: &H256, index: u32) -> Vec<u8> {
+    let mut key: [u8; 36] = [0; 36];
+    key[..32].copy_from_slice(tx_hash.as_bytes());
+    key[32..36].copy_from_slice(&index.to_be_bytes());
+    key.to_vec()
+}
 
 pub struct ChainKVStore<T> {
     db: T,
@@ -37,23 +47,40 @@ impl<T: KeyValueDB> ChainKVStore<T> {
     }
 }
 
+/// Store interface by chain
 pub trait ChainStore: Sync + Send {
+    /// Batch handle
     type Batch: StoreBatch;
+    /// New a store batch handle
     fn new_batch(&self) -> Result<Self::Batch, Error>;
 
+    /// Get block by block header hash
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
+    /// Get header by block header hash
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
+    /// Get block body by block header hash
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
+    /// Get proposal short id by block header hash
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
+    /// Get block uncles by block header hash
     fn get_block_uncles(&self, block_hash: &H256) -> Option<Vec<UncleBlock>>;
+    /// Get block ext by block header hash
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
 
+    /// Init by genesis
     fn init(&self, genesis: &Block) -> Result<(), Error>;
+    /// Get block header hash by block number
     fn get_block_hash(&self, number: BlockNumber) -> Option<H256>;
+    /// Get block number by block header hash
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber>;
+    /// Get the tip(highest) header
     fn get_tip_header(&self) -> Option<Header>;
-    fn get_transaction(&self, h: &H256) -> Option<Transaction>;
+    /// Get commit transaction and block hash by it's hash
+    fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)>;
+    /// Get commit transaction address by it's hash
     fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
+    fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
+    fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
 }
 
 pub trait StoreBatch {
@@ -78,20 +105,20 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_block(&self, h: &H256) -> Option<Block> {
         self.get_header(h).map(|header| {
-            let commit_transactions = self
+            let transactions = self
                 .get_block_body(h)
                 .expect("block transactions must be stored");
             let uncles = self
                 .get_block_uncles(h)
                 .expect("block uncles must be stored");
-            let proposal_transactions = self
+            let proposals = self
                 .get_block_proposal_txs_ids(h)
                 .expect("block proposal_ids must be stored");
             BlockBuilder::default()
                 .header(header)
                 .uncles(uncles)
-                .commit_transactions(commit_transactions)
-                .proposal_transactions(proposal_transactions)
+                .transactions(transactions)
+                .proposals(proposals)
                 .build()
         })
     }
@@ -144,14 +171,14 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         let genesis_hash = genesis.header().hash();
         let ext = BlockExt {
             received_at: genesis.header().timestamp(),
-            total_difficulty: genesis.header().difficulty().clone(),
+            total_difficulty: genesis.header().difficulty().to_owned(),
             total_uncles_count: 0,
             txs_verified: Some(true),
         };
 
-        let mut cells = Vec::with_capacity(genesis.commit_transactions().len());
+        let mut cells = Vec::with_capacity(genesis.transactions().len());
 
-        for tx in genesis.commit_transactions() {
+        for tx in genesis.transactions() {
             let ins = if tx.is_cellbase() {
                 Vec::new()
             } else {
@@ -185,23 +212,36 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(Into::into)
     }
 
-    fn get_transaction(&self, h: &H256) -> Option<Transaction> {
-        self.get_transaction_address(h)
-            .and_then(|d| {
-                self.partial_get(
-                    COLUMN_BLOCK_BODY,
-                    d.block_hash.as_bytes(),
-                    &(d.offset..(d.offset + d.length)),
+    fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)> {
+        self.get_transaction_address(h).and_then(|d| {
+            self.partial_get(
+                COLUMN_BLOCK_BODY,
+                d.block_hash.as_bytes(),
+                &(d.offset..(d.offset + d.length)),
+            )
+            .map(|ref serialized_transaction| {
+                (
+                    TransactionBuilder::new(serialized_transaction).build(),
+                    d.block_hash,
                 )
             })
-            .map(|ref serialized_transaction| {
-                TransactionBuilder::new(serialized_transaction).build()
-            })
+        })
     }
 
     fn get_transaction_address(&self, h: &H256) -> Option<TransactionAddress> {
         self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
             .map(|raw| deserialize(&raw[..]).unwrap())
+    }
+
+    fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
+        self.get(COLUMN_CELL_META, &cell_store_key(tx_hash, index))
+            .map(|raw| deserialize(&raw[..]).unwrap())
+    }
+
+    // TODO build index for cell_output, avoid load the whole tx
+    fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
+        self.get_transaction(tx_hash)
+            .and_then(|(tx, _)| tx.outputs().get(index as usize).map(ToOwned::to_owned))
     }
 }
 
@@ -238,13 +278,9 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         let hash = b.header().hash();
         self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), b.header())?;
         self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), b.uncles())?;
-        self.insert_serialize(
-            COLUMN_BLOCK_PROPOSAL_IDS,
-            hash.as_bytes(),
-            b.proposal_transactions(),
-        )?;
+        self.insert_serialize(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), b.proposals())?;
         let (block_data, block_addresses) =
-            flat_serialize(b.commit_transactions().iter()).expect("flat serialize should be ok");
+            flat_serialize(b.transactions().iter()).expect("flat serialize should be ok");
         self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data)?;
         self.insert_serialize(
             COLUMN_BLOCK_TRANSACTION_ADDRESSES,
@@ -259,15 +295,33 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
         let hash = block.header().hash();
-        let addresses = serialized_addresses(block.commit_transactions().iter())
+        let addresses = serialized_addresses(block.transactions().iter())
             .expect("serialize addresses should be ok");
-        for (id, tx) in block.commit_transactions().iter().enumerate() {
+        for (id, tx) in block.transactions().iter().enumerate() {
             let address = TransactionAddress {
                 block_hash: hash.clone(),
                 offset: addresses[id].offset,
                 length: addresses[id].length,
             };
-            self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes(), &address)?;
+            let tx_hash = tx.hash();
+            self.insert_serialize(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes(), &address)?;
+            let cellbase = id == 0;
+            for (index, output) in tx.outputs().iter().enumerate() {
+                let out_point = OutPoint {
+                    tx_hash: tx_hash.clone(),
+                    index: index as u32,
+                };
+                let store_key = cell_store_key(&tx_hash, index as u32);
+                let cell_meta = CellMeta {
+                    cell_output: None,
+                    out_point,
+                    block_number: Some(block.header().number()),
+                    cellbase,
+                    capacity: output.capacity,
+                    data_hash: Some(output.data_hash()),
+                };
+                self.insert_serialize(COLUMN_CELL_META, &store_key, &cell_meta)?;
+            }
         }
 
         let number = block.header().number().to_le_bytes();
@@ -276,8 +330,13 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     }
 
     fn detach_block(&mut self, block: &Block) -> Result<(), Error> {
-        for tx in block.commit_transactions() {
-            self.delete(COLUMN_TRANSACTION_ADDR, tx.hash().as_bytes())?;
+        for tx in block.transactions() {
+            let tx_hash = tx.hash();
+            self.delete(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())?;
+            for index in 0..tx.outputs().len() {
+                let store_key = cell_store_key(&tx_hash, index as u32);
+                self.delete(COLUMN_CELL_META, &store_key)?;
+            }
         }
         self.delete(COLUMN_INDEX, &block.header().number().to_le_bytes())?;
         self.delete(COLUMN_INDEX, block.header().hash().as_bytes())
@@ -330,9 +389,9 @@ mod tests {
         let db = setup_db("save_and_get_block_with_transactions", COLUMNS);
         let store = ChainKVStore::new(db);
         let block = BlockBuilder::default()
-            .commit_transaction(TransactionBuilder::default().build())
-            .commit_transaction(TransactionBuilder::default().build())
-            .commit_transaction(TransactionBuilder::default().build())
+            .transaction(TransactionBuilder::default().build())
+            .transaction(TransactionBuilder::default().build())
+            .transaction(TransactionBuilder::default().build())
             .build();
 
         let hash = block.header().hash();
@@ -351,7 +410,7 @@ mod tests {
 
         let ext = BlockExt {
             received_at: block.header().timestamp(),
-            total_difficulty: block.header().difficulty().clone(),
+            total_difficulty: block.header().difficulty().to_owned(),
             total_uncles_count: block.uncles().len() as u64,
             txs_verified: Some(true),
         };

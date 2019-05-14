@@ -1,12 +1,12 @@
 pub(crate) mod discovery;
 pub(crate) mod feeler;
 pub(crate) mod identify;
-pub(crate) mod outbound_peer;
 pub(crate) mod ping;
 
 use log::{error, trace};
 use p2p::{
     builder::MetaBuilder,
+    bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
     service::{ProtocolHandle, ProtocolMeta, ServiceControl, TargetSession},
     traits::ServiceProtocol,
@@ -23,8 +23,10 @@ use crate::{Behaviour, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FR
 pub trait CKBProtocolContext: Send {
     // Interact with underlying p2p service
     fn set_notify(&self, interval: Duration, token: u64);
-    fn send_message_to(&self, peer_index: PeerIndex, data: Vec<u8>);
-    fn filter_broadcast(&self, target: TargetSession, data: Vec<u8>);
+    fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes);
+    fn send_message_to(&self, peer_index: PeerIndex, data: Bytes);
+    // TODO allow broadcast to target ProtocolId
+    fn filter_broadcast(&self, target: TargetSession, data: Bytes);
     fn disconnect(&self, peer_index: PeerIndex);
     // Interact with NetworkState
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
@@ -145,7 +147,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         nc.set_notify(Duration::from_secs(6), std::u64::MAX);
         self.handler.init(Box::new(nc));
@@ -155,7 +157,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
         self.handler.connected(Box::new(nc), peer_index, version);
@@ -165,7 +167,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
         self.handler.disconnected(Box::new(nc), peer_index);
@@ -176,7 +178,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         let peer_index = context.session.id;
         self.handler.received(Box::new(nc), peer_index, data);
@@ -189,7 +191,7 @@ impl ServiceProtocol for CKBHandler {
             let nc = DefaultCKBProtocolContext {
                 proto_id: self.proto_id,
                 network_state: Arc::clone(&self.network_state),
-                p2p_control: context.control().clone(),
+                p2p_control: context.control().to_owned(),
             };
             self.handler.notify(Box::new(nc), token);
         }
@@ -199,7 +201,7 @@ impl ServiceProtocol for CKBHandler {
         let nc = DefaultCKBProtocolContext {
             proto_id: self.proto_id,
             network_state: Arc::clone(&self.network_state),
-            p2p_control: context.control().clone(),
+            p2p_control: context.control().to_owned(),
         };
         self.handler.poll(Box::new(nc));
     }
@@ -220,8 +222,14 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             error!(target: "network", "send message to p2p service error: {:?}", err);
         }
     }
-    fn send_message_to(&self, peer_index: PeerIndex, data: Vec<u8>) {
-        trace!(target: "network", "[send message]: {}, to={}, length={}", self.proto_id, peer_index, data.len());
+    fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
+        trace!(target: "network", "[send message]: {}, to={}, length={}", proto_id, peer_index, data.len());
+        if let Err(err) = self.p2p_control.send_message_to(peer_index, proto_id, data) {
+            error!(target: "network", "send message to p2p service error: {:?}", err);
+        }
+    }
+    fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
+        trace!(target: "network", "[send message to]: {}, to={}, length={}", self.proto_id, peer_index, data.len());
         if let Err(err) = self
             .p2p_control
             .send_message_to(peer_index, self.proto_id, data)
@@ -229,7 +237,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             error!(target: "network", "send message to p2p service error: {:?}", err);
         }
     }
-    fn filter_broadcast(&self, target: TargetSession, data: Vec<u8>) {
+    fn filter_broadcast(&self, target: TargetSession, data: Bytes) {
         if let Err(err) = self
             .p2p_control
             .filter_broadcast(target, self.proto_id, data)

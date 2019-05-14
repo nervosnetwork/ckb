@@ -11,7 +11,7 @@ branch.
 The Linux builds require `libssl` dynamic libraries to run. In Ubuntu, it can be installed by:
 
 ```bash
-sudo apt-get install libssl1.0.0
+sudo apt-get install -y libssl1.0.0
 ```
 
 We also provides docker images, see [how to run CKB with docker](run-ckb-with-docker.md).
@@ -20,13 +20,13 @@ We also provides docker images, see [how to run CKB with docker](run-ckb-with-do
 
 ### Install Build Dependencies
 
-CKB is currently tested mainly with `stable-1.34.0` on Linux and macOS.
+CKB is currently tested mainly with `stable-1.34.1` on Linux and macOS.
 
 We recommend installing Rust through [rustup](https://www.rustup.rs/)
 
 ```bash
 # Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set 1.34.0
+rustup override set 1.34.1
 ```
 
 Report new breakage is welcome.
@@ -36,7 +36,7 @@ You also need to get the following packages：
 #### Ubuntu and Debian
 
 ```shell
-sudo apt-get install git gcc libc6-dev pkg-config libssl-dev libclang-dev clang
+sudo apt-get install -y git gcc libc6-dev pkg-config libssl-dev libclang-dev clang
 ```
 
 #### Arch Linux

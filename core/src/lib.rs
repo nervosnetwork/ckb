@@ -16,8 +16,9 @@ pub mod uncle;
 
 pub use crate::error::Error;
 
+pub use bytes::Bytes;
+pub use occupied_capacity::{capacity_bytes, Capacity};
 pub type PublicKey = numext_fixed_hash::H512;
 pub type BlockNumber = u64;
-pub type Capacity = u64;
 pub type Cycle = u64;
 pub type Version = u32;

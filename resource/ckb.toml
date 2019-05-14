@@ -28,8 +28,8 @@ log_to_stdout = true # {{
 
 [sentry]
 # set to blank to disable sentry error collection
-dsn = "https://48c6a88d92e246478e2d53b5917a887c@sentry.io/1422795" # {{
-# integration => dsn = ""
+dsn = "" # {{
+# testnet => dsn = "https://48c6a88d92e246478e2d53b5917a887c@sentry.io/1422795"
 # }}
 
 [network]
@@ -45,9 +45,11 @@ bootnodes = []
 reserved_peers = []
 reserved_only = false
 max_peers = 125
-max_outbound_peers = 30
-ping_interval_secs = 15
-ping_timeout_secs = 20
+max_outbound_peers = 8
+# 2 minutes
+ping_interval_secs = 120
+# 20 minutes
+ping_timeout_secs = 1200
 connect_outbound_interval_secs = 15 # {{
 # integration => connect_outbound_interval_secs = 1
 # }}
@@ -80,5 +82,5 @@ txs_verify_cache_size = 100000
 
 [block_assembler]
 # value is set as always success binary hash
-binary_hash = "0x0000000000000000000000000000000000000000000000000000000000000001"
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 args = []

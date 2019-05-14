@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "0.10.0"
+version = "0.11.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
+ckb-store = { path = "../store" }
 ckb-core = { path = "../core" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
@@ -21,7 +22,7 @@ bitflags = "1.0"
 ckb-verification = { path = "../verification" }
 serde = "1.0"
 serde_derive = "1.0"
-flatbuffers = "0.5.0"
+flatbuffers = "0.6.0"
 ckb-chain-spec = { path = "../spec" }
 bloom-filters = "0.1.0"
 ckb-traits = { path = "../traits" }
@@ -29,6 +30,7 @@ failure = "0.1.5"
 bytes = "0.4.12"
 hash = {path = "../util/hash"}
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+sentry = "^0.15.4"
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }

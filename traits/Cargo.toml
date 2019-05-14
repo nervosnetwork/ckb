@@ -1,6 +1,6 @@
 [package]
 name = "ckb-traits"
-version = "0.10.0"
+version = "0.11.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 

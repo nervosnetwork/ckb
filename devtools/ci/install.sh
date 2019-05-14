@@ -9,4 +9,5 @@ fi
 
 if [ "$CHECK" = true ]; then
   cargo clippy --version || rustup component add clippy
+  cargo audit --version || cargo install cargo-audit
 fi

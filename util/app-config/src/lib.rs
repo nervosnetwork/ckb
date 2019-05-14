@@ -4,8 +4,8 @@ pub mod cli;
 mod exit_code;
 mod sentry_config;
 
-pub use app_config::AppConfig;
-pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, RunArgs};
+pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
+pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs};
 pub use exit_code::ExitCode;
 
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
@@ -40,7 +40,7 @@ impl Setup {
             }
         };
 
-        let resource_locator = locator_from_matches(matches)?;
+        let resource_locator = Self::locator_from_matches(matches)?;
         let config = AppConfig::load_for_subcommand(&resource_locator, subcommand_name)?;
         if config.is_bundled() {
             eprintln!("Not a CKB directory, initialize one with `ckb init`.");
@@ -58,7 +58,10 @@ impl Setup {
     }
 
     pub fn setup_app(&self) -> Result<SetupGuard, ExitCode> {
-        let logger_guard = logger::init(self.config.logger().clone())?;
+        // Initialization of logger must do before sentry, since `logger::init()` and
+        // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
+        // replaces all hooks previously registered.
+        let logger_guard = logger::init(self.config.logger().to_owned())?;
 
         let sentry_guard = if self.is_sentry_enabled {
             let sentry_config = self.config.sentry();
@@ -104,6 +107,20 @@ impl Setup {
         })
     }
 
+    pub fn prof<'m>(self, matches: &ArgMatches<'m>) -> Result<ProfArgs, ExitCode> {
+        let consensus = self.consensus()?;
+        let config = self.config.into_ckb()?;
+        let from = value_t!(matches.value_of("from"), u64)?;
+        let to = value_t!(matches.value_of("to"), u64)?;
+
+        Ok(ProfArgs {
+            config,
+            consensus,
+            from,
+            to,
+        })
+    }
+
     pub fn import<'m>(self, matches: &ArgMatches<'m>) -> Result<ImportArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
@@ -133,7 +150,7 @@ impl Setup {
     }
 
     pub fn init<'m>(matches: &ArgMatches<'m>) -> Result<InitArgs, ExitCode> {
-        let locator = locator_from_matches(matches)?;
+        let locator = Self::locator_from_matches(matches)?;
         let export_specs = matches.is_present(cli::ARG_EXPORT_SPECS);
         let list_specs = matches.is_present(cli::ARG_LIST_SPECS);
         let force = matches.is_present(cli::ARG_FORCE);
@@ -160,9 +177,16 @@ impl Setup {
         })
     }
 
+    pub fn locator_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<ResourceLocator, ExitCode> {
+        let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
+            Some(arg_config_dir) => PathBuf::from(arg_config_dir),
+            None => ::std::env::current_dir()?,
+        };
+        ResourceLocator::with_root_dir(config_dir).map_err(Into::into)
+    }
+
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
         let result = self.config.chain_spec(&self.resource_locator);
-
         if let Ok(spec) = &result {
             if self.is_sentry_enabled {
                 sentry::configure_scope(|scope| {
@@ -181,7 +205,7 @@ impl Setup {
         if let Ok(consensus) = &result {
             if self.is_sentry_enabled {
                 sentry::configure_scope(|scope| {
-                    scope.set_tag("genesis", consensus.genesis_block.header().hash());
+                    scope.set_tag("genesis", consensus.genesis_hash());
                 });
             }
         }
@@ -200,15 +224,7 @@ fn is_daemon(subcommand_name: &str) -> bool {
 
 fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
     spec.to_consensus().map_err(|err| {
-        eprintln!("{:?}", err);
+        eprintln!("to_consensus error: {}", err);
         ExitCode::Config
     })
-}
-
-fn locator_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<ResourceLocator, ExitCode> {
-    let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
-        Some(arg_config_dir) => PathBuf::from(arg_config_dir),
-        None => ::std::env::current_dir()?,
-    };
-    ResourceLocator::with_root_dir(config_dir).map_err(Into::into)
 }

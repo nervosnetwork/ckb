@@ -138,9 +138,18 @@ impl Client {
         let future = self.send_submit_block_request(work_id, block);
         if self.config.block_on_submit {
             let ret: Result<Option<H256>, RpcError> = future.and_then(parse_response).wait();
-            if let Ok(hash) = ret {
-                if hash.is_none() {
-                    warn!(target: "miner", "submit_block failed {}", serde_json::to_string(block).unwrap());
+            match ret {
+                Ok(hash) => {
+                    if hash.is_none() {
+                        warn!(target: "miner", "submit_block failed {}", serde_json::to_string(block).unwrap());
+                    }
+                }
+                Err(e) => {
+                    error!(target: "miner", "rpc call submit_block error: {:?}", e);
+                    sentry::capture_message(
+                        &format!("rpc call submit_block error: {:?}", e),
+                        sentry::Level::Error,
+                    );
                 }
             }
         }
@@ -174,9 +183,11 @@ impl Client {
 
     fn get_block_template(&self) -> impl Future<Item = BlockTemplate, Error = RpcError> {
         let method = "get_block_template".to_owned();
+        let proposal_limit: Option<String> = None;
         let params = vec![
             json!(self.config.cycles_limit.to_string()),
             json!(self.config.bytes_limit.to_string()),
+            json!(proposal_limit),
             json!(self.config.max_version),
         ];
 

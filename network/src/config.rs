@@ -1,30 +1,34 @@
 use crate::errors::{ConfigError, Error};
 use crate::PeerId;
 use log::info;
-use p2p::multiaddr::{Multiaddr, Protocol, ToMultiaddr};
+use p2p::{
+    multiaddr::{Multiaddr, Protocol},
+    secio,
+};
 use rand;
 use rand::Rng;
-use secio;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkConfig {
-    pub listen_addresses: Vec<Multiaddr>,
-    pub public_addresses: Vec<Multiaddr>,
-    pub bootnodes: Vec<Multiaddr>,
-    pub reserved_peers: Vec<Multiaddr>,
     pub reserved_only: bool,
     pub max_peers: u32,
     pub max_outbound_peers: u32,
     #[serde(default)]
     pub path: PathBuf,
+    #[serde(default)]
+    pub dns_seeds: Vec<String>,
     pub ping_interval_secs: u64,
     pub ping_timeout_secs: u64,
     pub connect_outbound_interval_secs: u64,
+    pub listen_addresses: Vec<Multiaddr>,
+    pub public_addresses: Vec<Multiaddr>,
+    pub bootnodes: Vec<Multiaddr>,
+    pub reserved_peers: Vec<Multiaddr>,
 }
 
 fn generate_random_key() -> [u8; 32] {
@@ -104,9 +108,7 @@ impl NetworkConfig {
     pub fn reserved_peers(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
         let mut peers = Vec::with_capacity(self.reserved_peers.len());
         for addr_str in &self.reserved_peers {
-            let mut addr = addr_str
-                .to_multiaddr()
-                .map_err(|_| ConfigError::BadAddress)?;
+            let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
                 Some(Protocol::P2p(key)) => {
                     PeerId::from_bytes(key.into_bytes()).map_err(|_| ConfigError::BadAddress)?
@@ -121,9 +123,7 @@ impl NetworkConfig {
     pub fn bootnodes(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
         let mut peers = Vec::with_capacity(self.bootnodes.len());
         for addr_str in &self.bootnodes {
-            let mut addr = addr_str
-                .to_multiaddr()
-                .map_err(|_| ConfigError::BadAddress)?;
+            let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
                 Some(Protocol::P2p(key)) => {
                     PeerId::from_bytes(key.into_bytes()).map_err(|_| ConfigError::BadAddress)?

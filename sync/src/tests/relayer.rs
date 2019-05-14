@@ -1,17 +1,18 @@
 use crate::relayer::TX_PROPOSAL_TOKEN;
 use crate::tests::TestNode;
-use crate::{NetworkProtocol, Relayer};
+use crate::{NetworkProtocol, Relayer, SyncSharedState};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainKVStore;
+use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
@@ -46,29 +47,32 @@ fn relay_compact_block_with_one_tx() {
             let last_block = shared1
                 .block(&shared1.chain_state().lock().tip_hash())
                 .unwrap();
-            let last_cellbase = last_block.commit_transactions().first().unwrap();
+            let last_cellbase = last_block.transactions().first().unwrap();
 
             // building tx and broadcast it
             let tx = TransactionBuilder::default()
                 .input(CellInput::new(
-                    OutPoint::new(last_cellbase.hash().clone(), 0),
+                    OutPoint::new(last_cellbase.hash(), 0),
                     0,
                     vec![],
                 ))
-                .output(CellOutput::new(50, Vec::new(), Script::default(), None))
+                .output(CellOutput::new(
+                    capacity_bytes!(50),
+                    Bytes::default(),
+                    Script::default(),
+                    None,
+                ))
                 .build();
 
             {
                 let chain_state = shared1.chain_state().lock();
-                let rtx = chain_state.resolve_tx_from_pool(&tx, &chain_state.tx_pool());
-                println!("rtx {:?}", rtx);
-                let cycles = chain_state
-                    .verify_rtx(&rtx, shared1.consensus().max_block_cycles())
+                let _cycles = chain_state
+                    .add_tx_to_pool(tx.clone())
                     .expect("verify relay tx");
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
+                let message = RelayMessage::build_transaction_hash(fbb, &tx.hash());
                 fbb.finish(message, None);
-                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
+                node1.broadcast(NetworkProtocol::RELAY.into(), fbb.finished_data());
             }
 
             // building 1st compact block with tx proposal and broadcast it
@@ -82,14 +86,14 @@ fn relay_compact_block_with_one_tx() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash().clone())
+                    .parent_hash(last_block.header().hash())
                     .number(number)
                     .timestamp(timestamp)
                     .difficulty(difficulty);
 
                 BlockBuilder::default()
-                    .commit_transaction(cellbase)
-                    .proposal_transaction(tx.proposal_short_id())
+                    .transaction(cellbase)
+                    .proposal(tx.proposal_short_id())
                     .with_header_builder(header_builder)
             };
 
@@ -101,7 +105,7 @@ fn relay_compact_block_with_one_tx() {
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
                 fbb.finish(message, None);
-                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
+                node1.broadcast(NetworkProtocol::RELAY.into(), fbb.finished_data());
             }
 
             // building 2nd compact block with tx and broadcast it
@@ -117,14 +121,14 @@ fn relay_compact_block_with_one_tx() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash().clone())
+                    .parent_hash(last_block.header().hash())
                     .number(number)
                     .timestamp(timestamp)
                     .difficulty(difficulty);
 
                 BlockBuilder::default()
-                    .commit_transaction(cellbase)
-                    .commit_transaction(tx)
+                    .transaction(cellbase)
+                    .transaction(tx)
                     .with_header_builder(header_builder)
             };
 
@@ -188,35 +192,39 @@ fn relay_compact_block_with_missing_indexs() {
             let last_block = shared1
                 .block(&shared1.chain_state().lock().tip_hash())
                 .unwrap();
-            let last_cellbase = last_block.commit_transactions().first().unwrap();
+            let last_cellbase = last_block.transactions().first().unwrap();
 
             // building 10 txs and broadcast some
             let txs = (0..10u8)
                 .map(|i| {
                     TransactionBuilder::default()
                         .input(CellInput::new(
-                            OutPoint::new(last_cellbase.hash().clone(), u32::from(i)),
+                            OutPoint::new(last_cellbase.hash(), u32::from(i)),
                             0,
                             vec![],
                         ))
-                        .output(CellOutput::new(50, vec![i], Script::default(), None))
+                        .output(CellOutput::new(
+                            capacity_bytes!(50),
+                            Bytes::from(vec![i]),
+                            Script::default(),
+                            None,
+                        ))
                         .build()
                 })
                 .collect::<Vec<_>>();
 
             [3, 5].iter().for_each(|i| {
                 let tx = &txs[*i];
-                let cycles = {
+                let _cycles = {
                     let chain_state = shared1.chain_state().lock();
-                    let rtx = chain_state.resolve_tx_from_pool(tx, &chain_state.tx_pool());
                     chain_state
-                        .verify_rtx(&rtx, shared1.consensus().max_block_cycles())
+                        .add_tx_to_pool(tx.clone())
                         .expect("verify relay tx")
                 };
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, tx, cycles);
+                let message = RelayMessage::build_transaction_hash(fbb, &tx.hash());
                 fbb.finish(message, None);
-                node1.broadcast(NetworkProtocol::RELAY.into(), &fbb.finished_data().to_vec());
+                node1.broadcast(NetworkProtocol::RELAY.into(), fbb.finished_data());
             });
 
             // building 1st compact block with tx proposal and broadcast it
@@ -230,14 +238,14 @@ fn relay_compact_block_with_missing_indexs() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash().clone())
+                    .parent_hash(last_block.header().hash())
                     .number(number)
                     .timestamp(timestamp)
                     .difficulty(difficulty);
 
                 BlockBuilder::default()
-                    .commit_transaction(cellbase)
-                    .proposal_transactions(txs.iter().map(Transaction::proposal_short_id).collect())
+                    .transaction(cellbase)
+                    .proposals(txs.iter().map(Transaction::proposal_short_id).collect())
                     .with_header_builder(header_builder)
             };
 
@@ -265,14 +273,14 @@ fn relay_compact_block_with_missing_indexs() {
                     .build();
 
                 let header_builder = HeaderBuilder::default()
-                    .parent_hash(last_block.header().hash().clone())
+                    .parent_hash(last_block.header().hash())
                     .number(number)
                     .timestamp(timestamp)
                     .difficulty(difficulty);
 
                 BlockBuilder::default()
-                    .commit_transaction(cellbase)
-                    .commit_transactions(txs)
+                    .transaction(cellbase)
+                    .transactions(txs)
                     .with_header_builder(header_builder)
             };
 
@@ -327,7 +335,8 @@ fn setup_node(
 
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
-        .build();
+        .build()
+        .unwrap();
 
     let notify = NotifyService::default().start(Some(thread_name));
 
@@ -341,7 +350,14 @@ fn setup_node(
         let timestamp = block.header().timestamp() + 1;
         let difficulty = shared.calculate_difficulty(&block.header()).unwrap();
         let outputs = (0..20)
-            .map(|_| CellOutput::new(50, Vec::new(), Script::always_success(), None))
+            .map(|_| {
+                CellOutput::new(
+                    capacity_bytes!(50),
+                    Bytes::default(),
+                    Script::always_success(),
+                    None,
+                )
+            })
             .collect::<Vec<_>>();
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
@@ -349,13 +365,13 @@ fn setup_node(
             .build();
 
         let header_builder = HeaderBuilder::default()
-            .parent_hash(block.header().hash().clone())
+            .parent_hash(block.header().hash())
             .number(number)
             .timestamp(timestamp)
             .difficulty(difficulty);
 
         block = BlockBuilder::default()
-            .commit_transaction(cellbase)
+            .transaction(cellbase)
             .with_header_builder(header_builder);
 
         chain_controller
@@ -363,9 +379,10 @@ fn setup_node(
             .expect("process block should be OK");
     }
 
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let relayer = Relayer::new(
         chain_controller.clone(),
-        shared.clone(),
+        sync_shared_state,
         Arc::new(Default::default()),
     );
 

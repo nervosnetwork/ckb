@@ -1,10 +1,9 @@
 [package]
 name = "ckb"
-version = "0.10.0"
+version = "0.11.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
-build = "build.rs"
 
 [dependencies]
 clap = { version = "2" }
@@ -14,10 +13,12 @@ toml = "0.5"
 log = "0.4"
 futures = "0.1"
 crossbeam-channel = "0.3"
+ckb-app-config = { path = "util/app-config" }
 ckb-util = { path = "util" }
 ckb-core = { path = "core" }
 ckb-chain = { path = "chain" }
 ckb-shared = { path = "shared" }
+ckb-store = { path = "store" }
 ckb-chain-spec = {path = "spec"}
 ckb-notify = { path = "notify"}
 ckb-miner = { path = "miner" }
@@ -36,13 +37,11 @@ ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
 hash = { path = "util/hash"}
 build-info = { path = "util/build-info" }
 ckb-traits = { path = "traits" }
-sentry = "^0.15.2"
-
-[dev-dependencies]
+sentry = "^0.15.4"
+ckb-verification = { path = "verification" }
 tempfile = "3.0"
 
-[build-dependencies]
-build-info = { path = "util/build-info" }
+[dev-dependencies]
 
 [workspace]
 members = [
@@ -55,11 +54,13 @@ members = [
     "util/build-info",
     "util/occupied-capacity",
     "util/stop-handler",
+    "util/app-config",
     "traits",
     "network",
     "protocol",
     "sync",
     "core",
+    "store",
     "shared",
     "chain",
     "miner",
@@ -76,3 +77,4 @@ members = [
 
 [profile.release]
 debug = true
+overflow-checks = true

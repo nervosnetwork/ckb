@@ -1,20 +1,29 @@
-use ckb_core::cell::CellProvider;
-use ckb_core::BlockNumber;
-use ckb_shared::{shared::Shared, store::ChainStore};
+use crate::error::RPCError;
+use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::{transaction::ProposalShortId, BlockNumber};
+use ckb_shared::shared::Shared;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, Transaction};
+use jsonrpc_types::{
+    Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, TransactionWithStatus,
+};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
+
+pub const PAGE_SIZE: u64 = 100;
 
 #[rpc]
 pub trait ChainRpc {
     #[rpc(name = "get_block")]
     fn get_block(&self, _hash: H256) -> Result<Option<Block>>;
 
+    #[rpc(name = "get_block_by_number")]
+    fn get_block_by_number(&self, _number: String) -> Result<Option<Block>>;
+
     #[rpc(name = "get_transaction")]
-    fn get_transaction(&self, _hash: H256) -> Result<Option<Transaction>>;
+    fn get_transaction(&self, _hash: H256) -> Result<Option<TransactionWithStatus>>;
 
     #[rpc(name = "get_block_hash")]
     fn get_block_hash(&self, _number: String) -> Result<Option<H256>>;
@@ -46,8 +55,35 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         Ok(self.shared.block(&hash).as_ref().map(Into::into))
     }
 
-    fn get_transaction(&self, hash: H256) -> Result<Option<Transaction>> {
-        Ok(self.shared.get_transaction(&hash).as_ref().map(Into::into))
+    fn get_block_by_number(&self, number: String) -> Result<Option<Block>> {
+        Ok(self
+            .shared
+            .block_hash(
+                number
+                    .parse::<BlockNumber>()
+                    .map_err(|_| Error::parse_error())?,
+            )
+            .and_then(|hash| self.shared.block(&hash).as_ref().map(Into::into)))
+    }
+
+    fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithStatus>> {
+        let id = ProposalShortId::from_tx_hash(&hash);
+
+        let tx = {
+            let chan_state = self.shared.chain_state().lock();
+
+            let tx_pool = chan_state.tx_pool();
+            tx_pool
+                .get_tx_from_staging(&id)
+                .map(TransactionWithStatus::with_proposed)
+                .or_else(|| tx_pool.get_tx(&id).map(TransactionWithStatus::with_pending))
+        };
+
+        Ok(tx.or_else(|| {
+            self.shared
+                .get_transaction(&hash)
+                .map(|(tx, block_hash)| TransactionWithStatus::with_committed(tx, block_hash))
+        }))
     }
 
     fn get_block_hash(&self, number: String) -> Result<Option<H256>> {
@@ -58,8 +94,15 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         ))
     }
 
+    // get tip from store, avoid lock chain state
     fn get_tip_header(&self) -> Result<Header> {
-        Ok(self.shared.chain_state().lock().tip_header().into())
+        Ok(self
+            .shared
+            .store()
+            .get_tip_header()
+            .as_ref()
+            .map(Into::into)
+            .expect("tip header exists"))
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -77,28 +120,44 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         let to = to
             .parse::<BlockNumber>()
             .map_err(|_| Error::parse_error())?;
+        if from > to {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                "from greater than to".to_owned(),
+            ));
+        } else if to - from > PAGE_SIZE {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                "too large page size".to_owned(),
+            ));
+        }
+
         for block_number in from..=to {
-            if let Some(block_hash) = self.shared.block_hash(block_number) {
-                let block = self
-                    .shared
-                    .block(&block_hash)
+            let block_hash = self.shared.block_hash(block_number);
+            if block_hash.is_none() {
+                break;
+            }
+
+            let block_hash = block_hash.unwrap();
+            let block = self
+                .shared
+                .block(&block_hash)
+                .ok_or_else(Error::internal_error)?;
+            for transaction in block.transactions() {
+                let transaction_meta = chain_state
+                    .cell_set()
+                    .get(&transaction.hash())
                     .ok_or_else(Error::internal_error)?;
-                for transaction in block.commit_transactions() {
-                    let transaction_meta = chain_state
-                        .cell_set()
-                        .get(&transaction.hash())
-                        .ok_or_else(Error::internal_error)?;
-                    for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
-                            result.push(CellOutputWithOutPoint {
-                                out_point: OutPoint {
-                                    hash: transaction.hash().clone(),
-                                    index: i as u32,
-                                },
-                                capacity: output.capacity.to_string(),
-                                lock: output.lock.clone().into(),
-                            });
-                        }
+                for (i, output) in transaction.outputs().iter().enumerate() {
+                    if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
+                        result.push(CellOutputWithOutPoint {
+                            out_point: OutPoint {
+                                tx_hash: transaction.hash(),
+                                index: i as u32,
+                            },
+                            capacity: output.capacity.to_string(),
+                            lock: output.lock.clone().into(),
+                        });
                     }
                 }
             }
@@ -107,15 +166,26 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        Ok(self
-            .shared
-            .chain_state()
-            .lock()
-            .get_cell_status(&(out_point.try_into().map_err(|_| Error::parse_error())?))
-            .into())
+        let mut cell_status = self.shared.chain_state().lock().cell(
+            &(out_point
+                .clone()
+                .try_into()
+                .map_err(|_| Error::parse_error())?),
+        );
+        if let CellStatus::Live(ref mut cell_meta) = cell_status {
+            if cell_meta.cell_output.is_none() {
+                cell_meta.cell_output = Some(
+                    self.shared
+                        .store()
+                        .get_cell_output(&out_point.tx_hash, out_point.index)
+                        .expect("live cell must exists"),
+                );
+            }
+        }
+        Ok(cell_status.into())
     }
 
     fn get_tip_block_number(&self) -> Result<String> {
-        Ok(self.shared.chain_state().lock().tip_number().to_string())
+        self.get_tip_header().map(|h| h.number)
     }
 }

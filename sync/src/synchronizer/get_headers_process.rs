@@ -1,9 +1,9 @@
 use crate::synchronizer::Synchronizer;
-use crate::MAX_LOCATOR_SIZE;
+use crate::{MAX_LOCATOR_SIZE, SYNC_USELESS_BAN_TIME};
 use ckb_core::header::Header;
-use ckb_network::{Behaviour, CKBProtocolContext, PeerIndex};
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, info, warn};
@@ -36,7 +36,7 @@ where
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        if self.synchronizer.is_initial_block_download() {
+        if self.synchronizer.shared.is_initial_block_download() {
             info!(target: "sync", "Ignoring getheaders from peer={} because node is in initial block download", self.peer);
             return Ok(());
         }
@@ -56,13 +56,20 @@ where
 
         if let Some(block_number) = self
             .synchronizer
+            .shared
             .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
         {
-            debug!(target: "sync", "\n\nheaders latest_common={} tip={} begin\n\n", block_number, {self.synchronizer.tip_header().number()});
+            debug!(
+                target: "sync",
+                "\n\nheaders latest_common={} tip={} begin\n\n",
+                block_number,
+                self.synchronizer.shared.tip_header().number(),
+            );
 
             self.synchronizer.peers.getheaders_received(self.peer);
             let headers: Vec<Header> = self
                 .synchronizer
+                .shared
                 .get_locator_response(block_number, &hash_stop);
             // response headers
 
@@ -72,14 +79,11 @@ where
             let message = SyncMessage::build_headers(fbb, &headers);
             fbb.finish(message, None);
             self.nc
-                .send_message_to(self.peer, fbb.finished_data().to_vec());
+                .send_message_to(self.peer, fbb.finished_data().into());
         } else {
             warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks
-            // ban or close peers
-            self.nc.report_peer(self.peer, Behaviour::SyncUseless);
-            // disconnect peer anyway
-            self.nc.disconnect(self.peer);
+            self.nc.ban_peer(self.peer, SYNC_USELESS_BAN_TIME);
         }
         Ok(())
     }

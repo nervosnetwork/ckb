@@ -11,7 +11,7 @@ integration:
 	cd test && cargo run ../target/debug/ckb
 
 integration-release:
-	RUSTFLAGS="-C overflow-checks=on" cargo build ${VERBOSE} --release
+	cargo build ${VERBOSE} --release
 	cp -f Cargo.lock test/Cargo.lock
 	cd test && cargo run --release -- ../target/release/ckb
 
@@ -27,10 +27,10 @@ check:
 	cd test && cargo check ${VERBOSE} --all
 
 build:
-	RUSTFLAGS="-C overflow-checks=on" cargo build ${VERBOSE} --release
+	cargo build ${VERBOSE} --release
 
 prod:
-	RUSTFLAGS="--cfg disable_faketime -C overflow-checks=on" cargo build ${VERBOSE} --release
+	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release
 
 prod-test:
 	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
@@ -44,7 +44,7 @@ clippy:
 	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
 
-ci: fmt clippy test
+ci: fmt clippy security-audit test
 	git diff --exit-code Cargo.lock
 
 info:

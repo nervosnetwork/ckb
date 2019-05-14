@@ -4,11 +4,14 @@ use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::{Capacity, CellInput, CellOutput, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    Capacity, CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{Cycle, Version};
+use ckb_core::{Bytes, Cycle, Version};
 use ckb_notify::NotifyController;
-use ckb_shared::{shared::Shared, store::ChainStore, tx_pool::PoolEntry};
+use ckb_shared::{shared::Shared, tx_pool::PoolEntry};
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::Mutex;
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -16,7 +19,9 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashMap;
 use fnv::FnvHashSet;
-use jsonrpc_types::{BlockTemplate, Bytes, CellbaseTemplate, TransactionTemplate, UncleTemplate};
+use jsonrpc_types::{
+    BlockTemplate, CellbaseTemplate, JsonBytes, TransactionTemplate, UncleTemplate,
+};
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -27,7 +32,7 @@ use std::thread;
 use stop_handler::{SignalSender, StopHandler};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
-type BlockTemplateParams = (Option<Cycle>, Option<u64>, Option<Version>);
+type BlockTemplateParams = (Option<Cycle>, Option<u64>, Option<u64>, Option<Version>);
 type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
@@ -49,9 +54,9 @@ impl TemplateCache {
         number: String,
     ) -> bool {
         last_uncles_updated_at != self.uncles_updated_at
-            || last_txs_updated_at != self.txs_updated_at
+            || (last_txs_updated_at != self.txs_updated_at
+                && current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT)
             || number != self.template.number
-            || current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
     }
 }
 
@@ -73,45 +78,49 @@ impl<'a> FeeCalculator<'a> {
             txs_map,
         }
     }
-    fn get_transaction(&self, tx_hash: &H256) -> Option<Transaction> {
-        // tx may depend on a tx which within the same block
-        match self.provider.get_transaction(tx_hash) {
-            Some(tx) => Some(tx),
-            None => self
-                .txs_map
-                .get(tx_hash)
-                .map(|index| self.txs[*index].transaction.clone()),
-        }
+
+    fn get_capacity(&self, out_point: &OutPoint) -> Option<Capacity> {
+        self.txs_map.get(&out_point.tx_hash).map_or_else(
+            || {
+                self.provider
+                    .get_transaction(&out_point.tx_hash)
+                    .and_then(|(tx, _block_hash)| {
+                        tx.outputs()
+                            .get(out_point.index as usize)
+                            .map(|output| output.capacity)
+                    })
+            },
+            |index| {
+                self.txs[*index]
+                    .transaction
+                    .outputs()
+                    .get(out_point.index as usize)
+                    .map(|output| output.capacity)
+            },
+        )
     }
 
     fn calculate_transaction_fee(
         &self,
         transaction: &Transaction,
     ) -> Result<Capacity, FailureError> {
-        let mut fee = 0;
+        let mut fee = Capacity::zero();
         for input in transaction.inputs() {
-            let previous_output = &input.previous_output;
-            match self.get_transaction(&previous_output.hash) {
-                Some(previous_transaction) => {
-                    let index = previous_output.index as usize;
-                    if let Some(output) = previous_transaction.outputs().get(index) {
-                        fee += output.capacity;
-                    } else {
-                        Err(Error::InvalidInput)?;
-                    }
-                }
-                None => Err(Error::InvalidInput)?,
+            if let Some(capacity) = self.get_capacity(&input.previous_output) {
+                fee = fee.safe_add(capacity)?;
+            } else {
+                Err(Error::InvalidInput)?;
             }
         }
         let spent_capacity: Capacity = transaction
             .outputs()
             .iter()
             .map(|output| output.capacity)
-            .sum();
+            .try_fold(Capacity::zero(), Capacity::safe_add)?;
         if spent_capacity > fee {
             Err(Error::InvalidOutput)?;
         }
-        fee -= spent_capacity;
+        fee = fee.safe_sub(spent_capacity)?;
         Ok(fee)
     }
 }
@@ -137,11 +146,12 @@ impl BlockAssemblerController {
         &self,
         cycles_limit: Option<Cycle>,
         bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
         max_version: Option<Version>,
     ) -> BlockTemplateResult {
         Request::call(
             &self.get_block_template_sender,
-            (cycles_limit, bytes_limit, max_version),
+            (cycles_limit, bytes_limit, proposals_limit, max_version),
         )
         .expect("get_block_template() failed")
     }
@@ -154,11 +164,13 @@ pub struct BlockAssembler<CS> {
     work_id: AtomicUsize,
     last_uncles_updated_at: AtomicU64,
     template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
+    proof_size: usize,
 }
 
 impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     pub fn new(shared: Shared<CS>, config: BlockAssemblerConfig) -> Self {
         Self {
+            proof_size: shared.consensus().pow_engine().proof_size(),
             shared,
             config,
             candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
@@ -197,7 +209,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                     }
                     recv(new_uncle_receiver) -> msg => match msg {
                         Ok(uncle_block) => {
-                            let hash = uncle_block.header().hash().clone();
+                            let hash = uncle_block.header().hash();
                             self.candidate_uncles.insert(hash, uncle_block);
                             self.last_uncles_updated_at
                                 .store(unix_time_as_millis(), Ordering::SeqCst);
@@ -208,8 +220,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                         }
                     },
                     recv(receivers.get_block_template_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: (cycles_limit, bytes_limit, max_version) }) => {
-                            let _ = responder.send(self.get_block_template(cycles_limit, bytes_limit, max_version));
+                        Ok(Request { responder, arguments: (cycles_limit, bytes_limit, proposals_limit,  max_version) }) => {
+                            let _ = responder.send(self.get_block_template(cycles_limit, bytes_limit, proposals_limit, max_version));
                         },
                         _ => {
                             error!(target: "miner", "get_block_template_receiver closed");
@@ -230,8 +242,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         &self,
         cycles_limit: Option<Cycle>,
         bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
         max_version: Option<Version>,
-    ) -> (Cycle, u64, Version) {
+    ) -> (Cycle, u64, u64, Version) {
         let consensus = self.shared.consensus();
         let cycles_limit = cycles_limit
             .min(Some(consensus.max_block_cycles()))
@@ -239,23 +252,23 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let bytes_limit = bytes_limit
             .min(Some(consensus.max_block_bytes()))
             .unwrap_or_else(|| consensus.max_block_bytes());
+        let proposals_limit = proposals_limit
+            .min(Some(consensus.max_block_proposals_limit()))
+            .unwrap_or_else(|| consensus.max_block_proposals_limit());
         let version = max_version
             .min(Some(consensus.block_version()))
             .unwrap_or_else(|| consensus.block_version());
 
-        (cycles_limit, bytes_limit, version)
+        (cycles_limit, bytes_limit, proposals_limit, version)
     }
 
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
-        let UncleBlock {
-            header,
-            proposal_transactions,
-        } = uncle;
+        let UncleBlock { header, proposals } = uncle;
 
         UncleTemplate {
             hash: header.hash(),
             required: false,
-            proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
+            proposals: proposals.into_iter().map(Into::into).collect(),
             header: (&header).into(),
         }
     }
@@ -282,21 +295,39 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         }
     }
 
+    fn calculate_txs_size_limit(
+        &self,
+        bytes_limit: u64,
+        uncles: &[UncleBlock],
+        proposals: &[ProposalShortId],
+    ) -> usize {
+        let occupied = Header::serialized_size(self.proof_size)
+            + uncles
+                .iter()
+                .map(|u| u.serialized_size(self.proof_size))
+                .sum::<usize>()
+            + proposals.len() * ProposalShortId::serialized_size();
+        let bytes_limit = bytes_limit as usize;
+        assert!(bytes_limit > occupied, "block size limit is too small");
+        bytes_limit - occupied
+    }
+
     fn get_block_template(
         &mut self,
         cycles_limit: Option<Cycle>,
         bytes_limit: Option<u64>,
+        proposals_limit: Option<u64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate, FailureError> {
-        let (cycles_limit, bytes_limit, version) =
-            self.transform_params(cycles_limit, bytes_limit, max_version);
+        let (cycles_limit, bytes_limit, proposals_limit, version) =
+            self.transform_params(cycles_limit, bytes_limit, proposals_limit, max_version);
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst);
         let chain_state = self.shared.chain_state().lock();
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
 
-        let header = chain_state.tip_header();
+        let header = chain_state.tip_header().to_owned();
         let number = chain_state.tip_number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
 
@@ -315,11 +346,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         let difficulty = self
             .shared
-            .calculate_difficulty(header)
+            .calculate_difficulty(&header)
             .expect("get difficulty");
-
-        let (proposal_transactions, commit_transactions) =
-            chain_state.get_proposal_and_staging_txs(10000, 10000);
 
         let (uncles, bad_uncles) = self.prepare_uncles(&header, &difficulty);
         if !bad_uncles.is_empty() {
@@ -328,19 +356,28 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             }
         }
 
+        let proposals = chain_state.get_proposals(proposals_limit as usize);
+        let txs_size_limit = self.calculate_txs_size_limit(bytes_limit, &uncles, &proposals);
+        let transactions = chain_state.get_staging_txs(txs_size_limit, cycles_limit);
+
+        // Release the lock as soon as possible, let other services do their work
+        drop(chain_state);
+
         let args = self
             .config
             .args
             .iter()
             .cloned()
-            .map(Bytes::into_vec)
+            .map(JsonBytes::into_vec)
+            .map(Bytes::from)
             .collect();
 
         // dummy cellbase
-        let cellbase_lock = Script::new(args, self.config.binary_hash.clone());
-        let cellbase =
-            self.create_cellbase_transaction(header, &commit_transactions, cellbase_lock)?;
+        let cellbase_lock = Script::new(args, self.config.code_hash.clone());
+        let cellbase = self.create_cellbase_transaction(&header, &transactions, cellbase_lock)?;
 
+        // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
+        let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
         let template = BlockTemplate {
             version,
             difficulty,
@@ -351,11 +388,11 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             bytes_limit: bytes_limit.to_string(),
             uncles_count_limit,
             uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
-            commit_transactions: commit_transactions
+            transactions: transactions
                 .iter()
                 .map(|tx| Self::transform_tx(tx, false, None))
                 .collect(),
-            proposal_transactions: proposal_transactions.into_iter().map(Into::into).collect(),
+            proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
             work_id: format!("{}", self.work_id.fetch_add(1, Ordering::SeqCst)),
         };
@@ -386,14 +423,14 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // stick to the simpler way and just convert everything to a single string, then to UTF8
         // bytes, they really serve the same purpose at the moment
         let block_reward = self.shared.block_reward(header.number() + 1);
-        let mut fee = 0;
+        let mut fee = Capacity::zero();
         // depends cells may produced from previous tx
         let fee_calculator = FeeCalculator::new(&pes, &self.shared);
         for pe in pes {
-            fee += fee_calculator.calculate_transaction_fee(&pe.transaction)?;
+            fee = fee.safe_add(fee_calculator.calculate_transaction_fee(&pe.transaction)?)?;
         }
 
-        let output = CellOutput::new(block_reward + fee, Vec::new(), lock, None);
+        let output = CellOutput::new(block_reward.safe_add(fee)?, Bytes::new(), lock, None);
 
         Ok(TransactionBuilder::default()
             .input(input)
@@ -418,16 +455,16 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // tip.p^4  -----------/  6
         // tip.p^5  -------------/
         // tip.p^6
-        let mut block_hash = tip.hash().clone();
+        let mut block_hash = tip.hash();
         excluded.insert(block_hash.clone());
         for _depth in 0..max_uncles_age {
             if let Some(block) = self.shared.block(&block_hash) {
-                excluded.insert(block.header().parent_hash().clone());
+                excluded.insert(block.header().parent_hash().to_owned());
                 for uncle in block.uncles() {
-                    excluded.insert(uncle.header.hash().clone());
+                    excluded.insert(uncle.header.hash());
                 }
 
-                block_hash = block.header().parent_hash().clone();
+                block_hash = block.header().parent_hash().to_owned();
             } else {
                 break;
             }
@@ -467,8 +504,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 bad_uncles.push(hash.clone());
             } else {
                 let uncle = UncleBlock {
-                    header: block.header().clone(),
-                    proposal_transactions: block.proposal_transactions().to_vec(),
+                    header: block.header().to_owned(),
+                    proposals: block.proposals().to_vec(),
                 };
                 uncles.push(uncle);
                 included.insert(hash.clone());
@@ -491,13 +528,13 @@ mod tests {
     use ckb_core::transaction::{
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
-    use ckb_core::BlockNumber;
+    use ckb_core::{BlockNumber, Bytes, Capacity};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_shared::store::{ChainKVStore, ChainStore};
+    use ckb_store::{ChainKVStore, ChainStore};
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
@@ -518,7 +555,7 @@ mod tests {
         if let Some(consensus) = consensus {
             builder = builder.consensus(consensus);
         }
-        let shared = builder.build();
+        let shared = builder.build().unwrap();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
         let chain_service = ChainBuilder::new(shared.clone(), notify.clone())
@@ -539,13 +576,13 @@ mod tests {
     fn test_get_block_template() {
         let (_chain_controller, shared, _notify) = start_chain(None, None);
         let config = BlockAssemblerConfig {
-            binary_hash: H256::zero(),
+            code_hash: H256::zero(),
             args: vec![],
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
 
         let block_template = block_assembler
-            .get_block_template(None, None, None)
+            .get_block_template(None, None, None, None)
             .unwrap();
 
         let BlockTemplate {
@@ -555,8 +592,8 @@ mod tests {
             number,
             parent_hash,
             uncles, // Vec<UncleTemplate>
-            commit_transactions, // Vec<TransactionTemplate>
-            proposal_transactions, // Vec<ProposalShortId>
+            transactions, // Vec<TransactionTemplate>
+            proposals, // Vec<ProposalShortId>
             cellbase, // CellbaseTemplate
             ..
             // cycles_limit,
@@ -584,16 +621,16 @@ mod tests {
                     .collect::<Result<_, _>>()
                     .unwrap(),
             )
-            .commit_transaction(cellbase.try_into().unwrap())
-            .commit_transactions(
-                commit_transactions
+            .transaction(cellbase.try_into().unwrap())
+            .transactions(
+                transactions
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()
                     .unwrap(),
             )
-            .proposal_transactions(
-                proposal_transactions
+            .proposals(
+                proposals
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<_, _>>()
@@ -618,7 +655,7 @@ mod tests {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number);
         let header = HeaderBuilder::default()
-            .parent_hash(parent_header.hash().clone())
+            .parent_hash(parent_header.hash())
             .timestamp(parent_header.timestamp() + 10)
             .number(number)
             .difficulty(difficulty)
@@ -627,15 +664,20 @@ mod tests {
 
         BlockBuilder::default()
             .header(header)
-            .commit_transaction(cellbase)
-            .proposal_transaction(ProposalShortId::from_slice(&[1; 10]).unwrap())
+            .transaction(cellbase)
+            .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
             .build()
     }
 
     fn create_cellbase(number: BlockNumber) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(0, vec![], Script::default(), None))
+            .output(CellOutput::new(
+                Capacity::zero(),
+                Bytes::new(),
+                Script::default(),
+                None,
+            ))
             .build()
     }
 
@@ -647,7 +689,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            binary_hash: H256::zero(),
+            code_hash: H256::zero(),
             args: vec![],
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
@@ -655,12 +697,12 @@ mod tests {
         let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
 
         let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-        let block0_0 = gen_block(&genesis, 10, genesis.difficulty().clone());
-        let block0_1 = gen_block(&genesis, 11, genesis.difficulty().clone());
+        let block0_0 = gen_block(&genesis, 10, genesis.difficulty().to_owned());
+        let block0_1 = gen_block(&genesis, 11, genesis.difficulty().to_owned());
         let block1_1 = gen_block(
             block0_1.header(),
             10,
-            block0_1.header().difficulty().clone(),
+            block0_1.header().difficulty().to_owned(),
         );
 
         chain_controller
@@ -676,21 +718,21 @@ mod tests {
         // block number 3, epoch 0
         let _ = new_uncle_receiver.recv();
         let block_template = block_assembler_controller
-            .get_block_template(None, None, None)
+            .get_block_template(None, None, None, None)
             .unwrap();
         assert_eq!(block_template.uncles[0].hash, block0_0.header().hash());
 
         let block2_1 = gen_block(
             block1_1.header(),
             10,
-            block1_1.header().difficulty().clone(),
+            block1_1.header().difficulty().to_owned(),
         );
         chain_controller
             .process_block(Arc::new(block2_1.clone()))
             .unwrap();
 
         let block_template = block_assembler_controller
-            .get_block_template(None, None, None)
+            .get_block_template(None, None, None, None)
             .unwrap();
         // block number 4, epoch 1, block_template should not include last epoch uncles
         assert!(block_template.uncles.is_empty());

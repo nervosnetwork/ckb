@@ -18,8 +18,8 @@ mod synchronizer;
 struct TestNode {
     pub peers: Vec<PeerIndex>,
     pub protocols: HashMap<ProtocolId, Arc<RwLock<CKBProtocolHandler + Send + Sync>>>,
-    pub msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Vec<u8>>>,
-    pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Vec<u8>>>,
+    pub msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Bytes>>,
+    pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Bytes>>,
     pub timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
     pub timer_receivers: HashMap<(ProtocolId, u64), Receiver<()>>,
 }
@@ -103,7 +103,7 @@ impl TestNode {
                                 timer_senders: self.timer_senders.clone(),
                             }),
                             *peer,
-                            Bytes::from(payload.clone()),
+                            payload.clone(),
                         )
                     };
 
@@ -135,7 +135,7 @@ impl TestNode {
             .iter()
             .for_each(|((protocol_id, _), sender)| {
                 if *protocol_id == protocol {
-                    let _ = sender.send(msg.to_vec());
+                    let _ = sender.send(msg.into());
                 }
             })
     }
@@ -143,7 +143,7 @@ impl TestNode {
 
 struct TestNetworkContext {
     protocol: ProtocolId,
-    msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Vec<u8>>>,
+    msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<bytes::Bytes>>,
     timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
 }
 
@@ -158,13 +158,30 @@ impl CKBProtocolContext for TestNetworkContext {
             });
         }
     }
-    fn send_message_to(&self, peer_index: PeerIndex, data: Vec<u8>) {
+    fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: bytes::Bytes) {
+        if let Some(sender) = self.msg_senders.get(&(proto_id, peer_index)) {
+            let _ = sender.send(data);
+        }
+    }
+    fn send_message_to(&self, peer_index: PeerIndex, data: bytes::Bytes) {
         if let Some(sender) = self.msg_senders.get(&(self.protocol, peer_index)) {
             let _ = sender.send(data);
         }
     }
-    fn filter_broadcast(&self, _target: TargetSession, _data: Vec<u8>) {
-        unimplemented!();
+    fn filter_broadcast(&self, target: TargetSession, data: bytes::Bytes) {
+        match target {
+            TargetSession::Single(peer) => {
+                self.send_message_to(peer, data);
+            }
+            TargetSession::Multi(peers) => {
+                for peer in peers {
+                    self.send_message_to(peer, data.clone());
+                }
+            }
+            TargetSession::All => {
+                unimplemented!();
+            }
+        }
     }
     fn disconnect(&self, _peer_index: PeerIndex) {}
     // Interact with NetworkState

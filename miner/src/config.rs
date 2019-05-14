@@ -1,9 +1,9 @@
 use ckb_core::{Cycle, Version};
-use jsonrpc_types::Bytes;
+use jsonrpc_types::JsonBytes;
 use numext_fixed_hash::H256;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MinerConfig {
     pub rpc_url: String,
     pub poll_interval: u64,
@@ -13,8 +13,8 @@ pub struct MinerConfig {
     pub block_on_submit: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockAssemblerConfig {
-    pub binary_hash: H256,
-    pub args: Vec<Bytes>,
+    pub code_hash: H256,
+    pub args: Vec<JsonBytes>,
 }

@@ -20,16 +20,22 @@ impl Spec for TransactionRelayBasic {
         info!("Transaction should be relayed to node0 and node2");
         assert!(node0
             .rpc_client()
-            .get_pool_transaction(hash.clone())
+            .get_transaction(hash.clone())
             .call()
             .unwrap()
-            .is_some());
+            .unwrap()
+            .tx_status
+            .block_hash
+            .is_none());
 
         assert!(node2
             .rpc_client()
-            .get_pool_transaction(hash.clone())
+            .get_transaction(hash.clone())
             .call()
             .unwrap()
-            .is_some());
+            .unwrap()
+            .tx_status
+            .block_hash
+            .is_none());
     }
 }

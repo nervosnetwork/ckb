@@ -2,7 +2,7 @@ use crate::relayer::Relayer;
 use ckb_core::transaction::Transaction;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, BlockTransactions, FlatbuffersVectorIterator};
-use ckb_shared::store::ChainStore;
+use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -30,13 +30,13 @@ impl<'a, CS: ChainStore> BlockTransactionsProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let hash = cast!(self.message.hash())?.try_into()?;
+        let block_hash = cast!(self.message.block_hash())?.try_into()?;
         if let Some(compact_block) = self
             .relayer
             .state
             .pending_compact_blocks
             .lock()
-            .remove(&hash)
+            .remove(&block_hash)
         {
             let transactions: Result<Vec<Transaction>, FailureError> =
                 FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)

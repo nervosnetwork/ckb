@@ -24,9 +24,9 @@ pub trait ChainProvider: Sync + Send {
 
     fn block(&self, hash: &H256) -> Option<Block>;
 
-    fn genesis_hash(&self) -> H256;
+    fn genesis_hash(&self) -> &H256;
 
-    fn get_transaction(&self, hash: &H256) -> Option<Transaction>;
+    fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)>;
 
     fn contain_transaction(&self, hash: &H256) -> bool;
 

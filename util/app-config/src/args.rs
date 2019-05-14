@@ -26,6 +26,13 @@ pub struct RunArgs {
     pub consensus: Consensus,
 }
 
+pub struct ProfArgs {
+    pub config: Box<CKBAppConfig>,
+    pub consensus: Consensus,
+    pub from: u64,
+    pub to: u64,
+}
+
 pub struct MinerArgs {
     pub config: MinerConfig,
     pub pow_engine: Arc<dyn PowEngine>,

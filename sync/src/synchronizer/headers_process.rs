@@ -4,8 +4,8 @@ use crate::MAX_HEADERS_LEN;
 use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
-use ckb_shared::store::ChainStore;
-use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_store::ChainStore;
+use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use log::{self, debug, log_enabled, warn};
@@ -71,7 +71,7 @@ impl<'a, CS: ChainStore + 'a> BlockMedianTimeContext for VerifierResolver<'a, CS
         let mut block_hash = parent.hash().to_owned();
         let mut timestamps: Vec<u64> = Vec::with_capacity(count as usize);
         for _ in 0..count {
-            let header = match self.synchronizer.get_header(&block_hash) {
+            let header = match self.synchronizer.shared.get_header(&block_hash) {
                 Some(h) => h,
                 None => break,
             };
@@ -99,6 +99,7 @@ impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
 
             let interval = self
                 .synchronizer
+                .shared
                 .consensus()
                 .difficulty_adjustment_interval();
 
@@ -108,25 +109,29 @@ impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
 
             let start = parent_number.saturating_sub(interval);
 
-            if let Some(start_header) = self.synchronizer.get_ancestor(&parent_hash, start) {
+            if let Some(start_header) = self.synchronizer.shared.get_ancestor(&parent_hash, start) {
                 let start_total_uncles_count = self
                     .synchronizer
+                    .shared
                     .get_header_view(&start_header.hash())
                     .expect("start header_view exist")
                     .total_uncles_count();
 
                 let last_total_uncles_count = self
                     .synchronizer
+                    .shared
                     .get_header_view(&parent_hash)
                     .expect("last header_view exist")
                     .total_uncles_count();
 
                 let difficulty = last_difficulty
                     * U256::from(last_total_uncles_count - start_total_uncles_count)
-                    * U256::from((1.0 / self.synchronizer.consensus().orphan_rate_target()) as u64)
+                    * U256::from(
+                        (1.0 / self.synchronizer.shared.consensus().orphan_rate_target()) as u64,
+                    )
                     / U256::from(interval);
 
-                let min_difficulty = self.synchronizer.consensus().min_difficulty();
+                let min_difficulty = self.synchronizer.shared.consensus().min_difficulty();
                 let max_difficulty = last_difficulty * 2u32;
                 if difficulty > max_difficulty {
                     return Some(max_difficulty);
@@ -183,7 +188,7 @@ where
     }
 
     pub fn accept_first(&self, first: &Header) -> ValidationResult {
-        let parent = self.synchronizer.get_header(&first.parent_hash());
+        let parent = self.synchronizer.shared.get_header(&first.parent_hash());
         let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer);
         let verifier = HeaderVerifier::new(
             resolver.clone(),
@@ -205,8 +210,23 @@ where
             return Ok(());
         }
 
+        let best_known_header = self.synchronizer.shared.best_known_header();
         if headers.len() == 0 {
-            debug!(target: "sync", "HeadersProcess is_empty");
+            // Update peer's best known header
+            self.synchronizer
+                .peers
+                .best_known_headers
+                .write()
+                .insert(self.peer, best_known_header);
+            // Reset headers sync timeout
+            self.synchronizer
+                .peers
+                .state
+                .write()
+                .get_mut(&self.peer)
+                .expect("Peer must exists")
+                .headers_sync_timeout = None;
+            debug!(target: "sync", "HeadersProcess is_empty (synchronized)");
             return Ok(());
         }
 
@@ -255,7 +275,6 @@ where
         }
 
         if log_enabled!(target: "sync", log::Level::Debug) {
-            let own = { self.synchronizer.best_known_header.read().clone() };
             let chain_state = self.synchronizer.shared.chain_state().lock();
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
@@ -267,9 +286,9 @@ where
                 ),
                 chain_state.total_difficulty(),
                 chain_state.tip_number(),
-                own.number(),
-                own.hash(),
-                own.total_difficulty(),
+                best_known_header.number(),
+                best_known_header.hash(),
+                best_known_header.total_difficulty(),
                 self.peer,
                 peer_state.as_ref().map(HeaderView::number),
                 peer_state.as_ref().map(|state| format!("{:x}", state.hash())),
@@ -281,16 +300,37 @@ where
             // update peer last_block_announcement
         }
 
-        // If we're in IBD, we want outbound peers that will serve us a useful
-        // chain. Disconnect peers that are on chains with insufficient work.
-        if self.synchronizer.is_initial_block_download() && headers.len() != MAX_HEADERS_LEN {}
-
         // TODO: optimize: if last is an ancestor of BestKnownHeader, continue from there instead.
         if headers.len() == MAX_HEADERS_LEN {
             let start = headers.last().expect("empty checked");
             self.synchronizer
+                .shared
                 .send_getheaders_to_peer(self.nc, self.peer, start);
         }
+
+        // If we're in IBD, we want outbound peers that will serve us a useful
+        // chain. Disconnect peers that are on chains with insufficient work.
+        let is_outbound = self
+            .nc
+            .get_peer(self.peer)
+            .map(|peer| peer.is_outbound())
+            .unwrap_or(false);
+        let is_protected = self
+            .synchronizer
+            .peers
+            .state
+            .read()
+            .get(&self.peer)
+            .map(|state| state.chain_sync.protect)
+            .unwrap_or(false);
+        if self.synchronizer.shared.is_initial_block_download()
+            && headers.len() != MAX_HEADERS_LEN
+            && (is_outbound && !is_protected)
+        {
+            debug!(target: "sync", "Disconnect peer({}) is unprotected outbound", self.peer);
+            self.nc.disconnect(self.peer);
+        }
+
         Ok(())
     }
 }
@@ -389,28 +429,28 @@ where
         if self.prev_block_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash().clone(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         self.synchronizer
             .insert_header_view(&self.header, self.peer);
         self.synchronizer
-            .insert_block_status(self.header.hash().clone(), BlockStatus::VALID_MASK);
+            .insert_block_status(self.header.hash(), BlockStatus::VALID_MASK);
         result
     }
 }

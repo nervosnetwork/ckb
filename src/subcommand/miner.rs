@@ -1,4 +1,4 @@
-use crate::setup::{ExitCode, MinerArgs};
+use ckb_app_config::{ExitCode, MinerArgs};
 use ckb_miner::{Client, Miner};
 use ckb_util::Mutex;
 use crossbeam_channel::unbounded;

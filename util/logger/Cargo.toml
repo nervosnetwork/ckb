@@ -1,6 +1,6 @@
 [package]
 name = "logger"
-version = "0.10.0"
+version = "0.11.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
@@ -16,3 +16,4 @@ serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.3"
 parking_lot = "0.7"
+backtrace = "0.3"

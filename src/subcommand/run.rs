@@ -1,5 +1,5 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
-use crate::setup::{ExitCode, RunArgs};
+use ckb_app_config::{ExitCode, RunArgs};
 use ckb_chain::chain::{ChainBuilder, ChainController};
 use ckb_db::{CacheDB, RocksDB};
 use ckb_miner::BlockAssembler;
@@ -7,20 +7,28 @@ use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_rpc::RpcServer;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_shared::store::ChainStore;
-use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, Synchronizer};
+use ckb_store::ChainStore;
+use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_verification::{BlockVerifier, Verifier};
 use log::info;
 use std::sync::Arc;
 
 pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     deadlock_detection();
 
-    let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+    let shared = SharedBuilder::<CacheDB<RocksDB>>::new()
         .consensus(args.consensus)
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool)
-        .build();
+        .build()
+        .map_err(|err| {
+            eprintln!("Run error: {:?}", err);
+            ExitCode::Failure
+        })?;
+
+    // Verify genesis every time starting node
+    verify_genesis(&shared)?;
 
     let notify = NotifyService::default().start(Some("notify"));
 
@@ -33,12 +41,16 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
-    let synchronizer =
-        Synchronizer::new(chain_controller.clone(), shared.clone(), args.config.sync);
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let synchronizer = Synchronizer::new(
+        chain_controller.clone(),
+        Arc::clone(&sync_shared_state),
+        args.config.sync,
+    );
 
     let relayer = Relayer::new(
         chain_controller.clone(),
-        shared.clone(),
+        sync_shared_state,
         synchronizer.peers(),
     );
     let net_timer = NetTimeProtocol::default();
@@ -84,7 +96,6 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
 
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");
-
     Ok(())
 }
 
@@ -94,4 +105,14 @@ fn setup_chain<CS: ChainStore + 'static>(
 ) -> ChainController {
     let chain_service = ChainBuilder::new(shared, notify).build();
     chain_service.start(Some("ChainService"))
+}
+
+fn verify_genesis<CS: ChainStore + 'static>(shared: &Shared<CS>) -> Result<(), ExitCode> {
+    let genesis = shared.consensus().genesis_block();
+    BlockVerifier::new(shared.clone())
+        .verify(genesis)
+        .map_err(|err| {
+            eprintln!("genesis error: {}", err);
+            ExitCode::Config
+        })
 }

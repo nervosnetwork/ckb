@@ -18,8 +18,8 @@ pub struct BlockTemplate {
     pub bytes_limit: String,
     pub uncles_count_limit: u32,
     pub uncles: Vec<UncleTemplate>,
-    pub commit_transactions: Vec<TransactionTemplate>,
-    pub proposal_transactions: Vec<ProposalShortId>,
+    pub transactions: Vec<TransactionTemplate>,
+    pub proposals: Vec<ProposalShortId>,
     pub cellbase: CellbaseTemplate,
     pub work_id: String,
 }
@@ -28,7 +28,7 @@ pub struct BlockTemplate {
 pub struct UncleTemplate {
     pub hash: H256,
     pub required: bool,
-    pub proposal_transactions: Vec<ProposalShortId>,
+    pub proposals: Vec<ProposalShortId>,
     pub header: Header, // temporary
 }
 
@@ -37,14 +37,12 @@ impl TryFrom<UncleTemplate> for CoreUncleBlock {
 
     fn try_from(template: UncleTemplate) -> Result<Self, Self::Error> {
         let UncleTemplate {
-            proposal_transactions,
-            header,
-            ..
+            proposals, header, ..
         } = template;
 
         Ok(CoreUncleBlock {
             header: header.try_into()?,
-            proposal_transactions: proposal_transactions
+            proposals: proposals
                 .iter()
                 .cloned()
                 .map(TryInto::try_into)
