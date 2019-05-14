@@ -173,7 +173,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                                     tx_hash: transaction.hash().to_owned(),
                                     index: Unsigned(i as u64),
                                 }),
-                                block_hash: None,
+                                block_hash: Some(block_hash.to_owned()),
                             },
                             capacity: Capacity(output.capacity),
                             lock: output.lock.clone().into(),
