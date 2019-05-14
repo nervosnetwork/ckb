@@ -1,13 +1,15 @@
-use crate::syscalls::{Source, ITEM_MISSING, LOAD_HEADER_SYSCALL_NUMBER, SUCCESS};
+use crate::syscalls::{
+    utils::store_data, Source, INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_HEADER_SYSCALL_NUMBER,
+    SUCCESS,
+};
 use ckb_core::cell::ResolvedOutPoint;
 use ckb_core::header::Header;
 use ckb_protocol::Header as FbsHeader;
 use ckb_vm::{
-    registers::{A0, A1, A2, A3, A4, A7},
-    Error as VMError, Memory, Register, SupportMachine, Syscalls,
+    registers::{A0, A3, A4, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
 };
 use flatbuffers::FlatBufferBuilder;
-use std::cmp;
 
 #[derive(Debug)]
 pub struct LoadHeader<'a> {
@@ -26,11 +28,19 @@ impl<'a> LoadHeader<'a> {
         }
     }
 
-    fn fetch_header(&self, source: Source, index: usize) -> Option<&Header> {
+    fn fetch_header(&self, source: Source, index: usize) -> Result<&Header, u8> {
         match source {
-            Source::Input => self.resolved_inputs.get(index).and_then(|r| r.header()),
-            Source::Output => None,
-            Source::Dep => self.resolved_deps.get(index).and_then(|r| r.header()),
+            Source::Input => self
+                .resolved_inputs
+                .get(index)
+                .ok_or(INDEX_OUT_OF_BOUND)
+                .and_then(|r| r.header().ok_or(ITEM_MISSING)),
+            Source::Output => Err(ITEM_MISSING),
+            Source::Dep => self
+                .resolved_deps
+                .get(index)
+                .ok_or(INDEX_OUT_OF_BOUND)
+                .and_then(|r| r.header().ok_or(ITEM_MISSING)),
         }
     }
 }
@@ -44,21 +54,14 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<'a> {
         if machine.registers()[A7].to_u64() != LOAD_HEADER_SYSCALL_NUMBER {
             return Ok(false);
         }
-        machine.add_cycles(100)?;
-
-        let addr = machine.registers()[A0].to_usize();
-        let size_addr = machine.registers()[A1].to_usize();
-        let size = machine
-            .memory_mut()
-            .load64(&Mac::REG::from_usize(size_addr))?
-            .to_usize();
+        machine.add_cycles(10)?;
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
         let header = self.fetch_header(source, index);
-        if header.is_none() {
-            machine.set_register(A0, Mac::REG::from_u8(ITEM_MISSING));
+        if header.is_err() {
+            machine.set_register(A0, Mac::REG::from_u8(header.unwrap_err()));
             return Ok(true);
         }
         let header = header.unwrap();
@@ -68,18 +71,9 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<'a> {
         builder.finish(offset, None);
         let data = builder.finished_data();
 
-        let offset = machine.registers()[A2].to_usize();
-        let full_size = data.len() - offset;
-        let real_size = cmp::min(size, full_size);
-        machine.memory_mut().store64(
-            &Mac::REG::from_usize(size_addr),
-            &Mac::REG::from_usize(full_size),
-        )?;
-        machine
-            .memory_mut()
-            .store_bytes(addr, &data[offset..offset + real_size])?;
+        store_data(machine, &data)?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-        machine.add_cycles(data.len() as u64 * 100)?;
+        machine.add_cycles(data.len() as u64 * 10)?;
         Ok(true)
     }
 }

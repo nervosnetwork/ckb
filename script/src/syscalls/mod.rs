@@ -1,36 +1,35 @@
-mod builder;
 mod debugger;
 mod load_cell;
-mod load_cell_by_field;
 mod load_header;
-mod load_input_by_field;
+mod load_input;
 mod load_script_hash;
-mod load_tx;
 mod load_tx_hash;
 mod utils;
 
-pub use self::builder::build_tx;
 pub use self::debugger::Debugger;
 pub use self::load_cell::LoadCell;
-pub use self::load_cell_by_field::LoadCellByField;
 pub use self::load_header::LoadHeader;
-pub use self::load_input_by_field::LoadInputByField;
+pub use self::load_input::LoadInput;
 pub use self::load_script_hash::LoadScriptHash;
-pub use self::load_tx::LoadTx;
 pub use self::load_tx_hash::LoadTxHash;
 
 use ckb_vm::Error;
 
 pub const SUCCESS: u8 = 0;
+// INDEX_OUT_OF_BOUND is returned when requesting the 4th output in a transaction
+// with only 3 outputs; while ITEM_MISSING is returned when requesting (for example)
+// the type field on an output without type script, or requesting the cell data
+// for a dep OutPoint which only references a block header.
+pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
 
-pub const LOAD_TX_SYSCALL_NUMBER: u64 = 2049;
-pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2053;
-pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2054;
-pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2055;
-pub const LOAD_HEADER_SYSCALL_NUMBER: u64 = 2056;
-pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2057;
-pub const LOAD_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2058;
+pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
+pub const LOAD_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2062;
+pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2071;
+pub const LOAD_HEADER_SYSCALL_NUMBER: u64 = 2072;
+pub const LOAD_INPUT_SYSCALL_NUMBER: u64 = 2073;
+pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
+pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -38,10 +37,10 @@ enum CellField {
     Capacity = 0,
     Data = 1,
     DataHash = 2,
-    Lock = 6,
-    LockHash = 3,
-    Type = 4,
-    TypeHash = 5,
+    Lock = 3,
+    LockHash = 4,
+    Type = 5,
+    TypeHash = 6,
 }
 
 impl CellField {
@@ -50,10 +49,10 @@ impl CellField {
             0 => Ok(CellField::Capacity),
             1 => Ok(CellField::Data),
             2 => Ok(CellField::DataHash),
-            3 => Ok(CellField::LockHash),
-            4 => Ok(CellField::Type),
-            5 => Ok(CellField::TypeHash),
-            6 => Ok(CellField::Lock),
+            3 => Ok(CellField::Lock),
+            4 => Ok(CellField::LockHash),
+            5 => Ok(CellField::Type),
+            6 => Ok(CellField::TypeHash),
             _ => Err(Error::ParseError),
         }
     }
@@ -63,6 +62,7 @@ impl CellField {
 enum InputField {
     Args = 0,
     OutPoint = 1,
+    Since = 2,
 }
 
 impl InputField {
@@ -70,6 +70,7 @@ impl InputField {
         match i {
             0 => Ok(InputField::Args),
             1 => Ok(InputField::OutPoint),
+            2 => Ok(InputField::Since),
             _ => Err(Error::ParseError),
         }
     }
@@ -140,119 +141,7 @@ mod tests {
         ResolvedOutPoint::cell_only(build_cell_meta(output))
     }
 
-    fn _test_load_tx_all(tx: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
-        let size_addr: u64 = 0;
-        let addr: u64 = 100;
-
-        machine.set_register(A0, addr); // addr
-        machine.set_register(A1, size_addr); // size_addr
-        machine.set_register(A2, 0); // offset
-        machine.set_register(A7, LOAD_TX_SYSCALL_NUMBER); // syscall number
-
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(tx.len() as u64))
-            .is_ok());
-
-        let mut load_tx = LoadTx::new(tx);
-        prop_assert!(load_tx.ecall(&mut machine).is_ok());
-
-        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
-        for (i, addr) in (addr..addr + tx.len() as u64).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(tx[i])));
-        }
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn test_load_tx_all(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_tx_all(tx)?;
-        }
-    }
-
-    fn _test_load_tx_length(tx: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
-        let size_addr: u64 = 0;
-        let addr: u64 = 100;
-
-        machine.set_register(A0, addr); // addr
-        machine.set_register(A1, size_addr); // size_addr
-        machine.set_register(A2, 0); // offset
-        machine.set_register(A7, LOAD_TX_SYSCALL_NUMBER); // syscall number
-
-        prop_assert!(machine.memory_mut().store64(&size_addr, &0).is_ok());
-
-        let mut load_tx = LoadTx::new(tx);
-        prop_assert!(load_tx.ecall(&mut machine).is_ok());
-
-        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
-        prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(tx.len() as u64));
-
-        machine.set_register(A0, addr); // addr
-        machine.set_register(A2, 100); // offset
-
-        prop_assert!(machine.memory_mut().store64(&size_addr, &0).is_ok());
-
-        prop_assert!(load_tx.ecall(&mut machine).is_ok());
-
-        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
-        prop_assert_eq!(
-            machine.memory_mut().load64(&size_addr),
-            Ok(tx.len() as u64 - 100)
-        );
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn test_load_tx_length(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_tx_length(tx)?;
-        }
-    }
-
-    fn _test_load_tx_partial(tx: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
-        let size_addr: u64 = 0;
-        let addr: u64 = 100;
-        let offset: u64 = 100;
-
-        machine.set_register(A0, addr); // addr
-        machine.set_register(A1, size_addr); // size_addr
-        machine.set_register(A2, offset); // offset
-        machine.set_register(A7, LOAD_TX_SYSCALL_NUMBER); // syscall number
-
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(tx.len() as u64))
-            .is_ok());
-
-        let mut load_tx = LoadTx::new(tx);
-        prop_assert!(load_tx.ecall(&mut machine).is_ok());
-
-        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
-        prop_assert_eq!(
-            machine.memory_mut().load64(&size_addr),
-            Ok(tx.len() as u64 - offset)
-        );
-        for (i, addr) in (addr..addr + tx.len() as u64 - offset).enumerate() {
-            prop_assert_eq!(
-                machine.memory_mut().load8(&addr),
-                Ok(u64::from(tx[i + offset as usize]))
-            );
-        }
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn test_load_tx_partial(ref tx in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_tx_partial(tx)?;
-        }
-    }
-
-    fn _test_load_cell_item_missing(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -288,14 +177,14 @@ mod tests {
         let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
 
         prop_assert!(load_cell.ecall(&mut machine).is_ok());
-        prop_assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
+        prop_assert_eq!(machine.registers()[A0], u64::from(INDEX_OUT_OF_BOUND));
         Ok(())
     }
 
     proptest! {
         #[test]
-        fn test_load_cell_item_missing(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_cell_item_missing(data)?;
+        fn test_load_cell_not_exist(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_cell_not_exist(data)?;
         }
     }
 
@@ -542,7 +431,7 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCellByField::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &16).is_ok());
 
@@ -591,7 +480,7 @@ mod tests {
         let resolved_inputs = vec![];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCellByField::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
 
         assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
 
@@ -634,7 +523,7 @@ mod tests {
 
         let input = CellInput::new(OutPoint::default(), 0, args);
         let inputs = vec![&input];
-        let mut load_input = LoadInputByField::new(&inputs);
+        let mut load_input = LoadInput::new(&inputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -694,7 +583,7 @@ mod tests {
 
         let input = CellInput::new(OutPoint::default(), 0, args);
         let inputs = vec![&input];
-        let mut load_input = LoadInputByField::new(&inputs);
+        let mut load_input = LoadInput::new(&inputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -751,7 +640,7 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![&dep_cell];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCellByField::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
 
         prop_assert!(machine
             .memory_mut()
@@ -808,7 +697,7 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![&dep_cell];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCellByField::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
 
         let data_hash = blake2b_256(&data);
 
