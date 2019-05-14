@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run CI locally for current SHA and submit the result via GitHub statuses API.
+# Run CI locally for current SHA.
 #
 # Usage:
 #   devtools/ci/local.sh [--integration]
@@ -10,6 +10,8 @@
 #   hub pr checkout <pr_number>
 #
 # When the script completes, please post the output to the PR as a comment manually.
+#
+# You must have the write permission to the repository, otherwise @nervos-bot will ignore your comment.
 
 set -e
 set -u
