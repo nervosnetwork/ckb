@@ -538,7 +538,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         consensus.next_epoch_ext(
             last_epoch,
             header,
-            |hash, start| self.get_ancestor(hash, start),
+            |hash| self.get_header(hash),
             |hash| {
                 self.get_header_view(hash)
                     .map(|view| view.total_uncles_count())
