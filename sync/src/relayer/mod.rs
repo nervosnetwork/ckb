@@ -391,8 +391,8 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
 impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
-        nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
-        nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN);
+        nc.set_notify(Duration::from_millis(1000), TX_PROPOSAL_TOKEN);
+        nc.set_notify(Duration::from_millis(1000), ASK_FOR_TXS_TOKEN);
     }
 
     fn received(
