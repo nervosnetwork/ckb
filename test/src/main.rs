@@ -35,7 +35,7 @@ fn main() {
             "transaction_relay_basic" => Box::new(TransactionRelayBasic),
             "transaction_relay_multiple" => Box::new(TransactionRelayMultiple),
             "discovery" => Box::new(Discovery),
-            "disconnect" => Box::new(Disconnect),
+            // "disconnect" => Box::new(Disconnect),
             "malformed_message" => Box::new(MalformedMessage),
             "depent_tx_in_same_block" => Box::new(DepentTxInSameBlock),
             // TODO enable these after proposed/pending pool tip verfiry logic changing
@@ -64,7 +64,7 @@ fn main() {
             Box::new(PoolReconcile),
             Box::new(PoolResurrect),
             Box::new(Discovery),
-            Box::new(Disconnect),
+            // Box::new(Disconnect),
             Box::new(MalformedMessage),
             Box::new(DepentTxInSameBlock),
             // TODO enable these after proposed/pending pool tip verfiry logic changing
