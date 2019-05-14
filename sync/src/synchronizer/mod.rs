@@ -568,7 +568,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
                 TIMEOUT_EVICTION_TOKEN => {
                     self.eviction(nc.as_ref());
                 }
-                _ => unreachable!(),
+                _ => {}
             }
 
             trace!(target: "sync", "finished notify token={} cost={:?}", token, start_time.elapsed());
