@@ -220,7 +220,7 @@ impl ChainSpec {
         let block_reward =
             Capacity::shannons(self.params.epoch_reward.as_u64() / GENESIS_EPOCH_LENGTH);
         let remainder_reward =
-            Capacity::shannons(self.params.epoch_reward.as_u64() / GENESIS_EPOCH_LENGTH);
+            Capacity::shannons(self.params.epoch_reward.as_u64() % GENESIS_EPOCH_LENGTH);
 
         let genesis_epoch_ext = EpochExt::new(
             0,                        // number
