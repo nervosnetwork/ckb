@@ -110,13 +110,15 @@ impl Node {
             .call()
             .expect("rpc call add_node failed");
 
-        if !wait_until(5, || {
+        let result = wait_until(5, || {
             let peers = rpc_client
                 .get_peers()
                 .call()
                 .expect("rpc call get_peers failed");
             peers.iter().any(|peer| peer.node_id == node_id)
-        }) {
+        });
+
+        if !result {
             panic!("Connect timeout, node {}", node_id);
         }
     }
@@ -135,13 +137,15 @@ impl Node {
             .call()
             .expect("rpc call add_node failed");
 
-        if !wait_until(5, || {
+        let result = wait_until(5, || {
             let peers = rpc_client
                 .get_peers()
                 .call()
                 .expect("rpc call get_peers failed");
             peers.iter().all(|peer| peer.node_id != node_id)
-        }) {
+        });
+
+        if !result {
             panic!("Disconnect timeout, node {}", node_id);
         }
     }
@@ -151,7 +155,7 @@ impl Node {
         let mut node_rpc_client = node.rpc_client();
         let (mut self_tip_number, mut node_tip_number) = (0, 0);
 
-        if !wait_until(timeout, || {
+        let result = wait_until(timeout, || {
             self_tip_number = self_rpc_client
                 .get_tip_block_number()
                 .call()
@@ -163,7 +167,9 @@ impl Node {
                 .expect("rpc call get_tip_block_number failed")
                 .0;
             self_tip_number == node_tip_number && target == self_tip_number
-        }) {
+        });
+
+        if !result {
             panic!(
                 "Waiting for sync timeout, self_tip_number: {}, node_tip_number: {}",
                 self_tip_number, node_tip_number
@@ -208,13 +214,22 @@ impl Node {
 
     // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
     pub fn generate_transaction(&self) -> H256 {
+        self.submit_transaction(&self.new_transaction_spend_tip_cellbase())
+    }
+
+    // generate a transaction which spend tip block's cellbase
+    pub fn new_transaction_spend_tip_cellbase(&self) -> Transaction {
         let block = self.get_tip_block();
         let cellbase: Transaction = block.transactions()[0]
             .clone()
             .try_into()
             .expect("parse cellbase transaction failed");
-        let mut rpc = self.rpc_client();
-        rpc.send_transaction((&self.new_transaction(cellbase.hash().to_owned())).into())
+        self.new_transaction(cellbase.hash().to_owned())
+    }
+
+    pub fn submit_transaction(&self, transaction: &Transaction) -> H256 {
+        self.rpc_client()
+            .send_transaction(transaction.into())
             .call()
             .expect("rpc call send_transaction failed")
     }
