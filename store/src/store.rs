@@ -187,14 +187,19 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             txs_verified: Some(true),
             dao_stats: DaoStats {
                 accumulated_rate: DEFAULT_ACCUMULATED_RATE,
-                accumulated_capacity: genesis.transactions()[0]
-                    .outputs()
-                    .iter()
-                    .skip(1)
-                    .try_fold(Capacity::zero(), |capacity, output| {
-                        capacity.safe_add(output.capacity)
+                accumulated_capacity: genesis
+                    .transactions()
+                    .get(0)
+                    .map(|tx| {
+                        tx.outputs()
+                            .iter()
+                            .skip(1)
+                            .try_fold(Capacity::zero(), |capacity, output| {
+                                capacity.safe_add(output.capacity)
+                            })
+                            .unwrap()
                     })
-                    .map_err(|e| Error::DBError(e.to_string()))?
+                    .unwrap_or_else(Capacity::zero)
                     .as_u64(),
             },
         };
