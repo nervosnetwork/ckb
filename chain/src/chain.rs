@@ -1,4 +1,3 @@
-use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{
     resolve_transaction, BlockCellProvider, BlockHeadersProvider, OverlayCellProvider,
@@ -7,15 +6,15 @@ use ckb_core::cell::{
 use ckb_core::extras::{BlockExt, DaoStats};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
-use ckb_core::{header::Header, BlockNumber, Cycle};
+use ckb_core::{BlockNumber, Cycle};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_store::{ChainStore, StoreBatch};
-use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
+use ckb_traits::ChainProvider;
+use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use dao::calculate_dao_data;
 use failure::Error as FailureError;
@@ -103,39 +102,6 @@ impl GlobalIndex {
     pub(crate) fn forward(&mut self, hash: H256) {
         self.number -= 1;
         self.hash = hash;
-    }
-}
-
-// Verification context for fork
-struct ForkContext<'a, CS> {
-    pub fork_blocks: &'a [Block],
-    pub store: Arc<CS>,
-    pub consensus: &'a Consensus,
-}
-
-impl<'a, CS: ChainStore> ForkContext<'a, CS> {
-    fn get_header(&self, number: BlockNumber) -> Option<Header> {
-        match self
-            .fork_blocks
-            .iter()
-            .find(|b| b.header().number() == number)
-        {
-            Some(block) => Some(block.header().to_owned()),
-            None => self
-                .store
-                .get_block_hash(number)
-                .and_then(|hash| self.store.get_header(&hash)),
-        }
-    }
-}
-
-impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
-    fn median_block_count(&self) -> u64 {
-        self.consensus.median_time_block_count() as u64
-    }
-
-    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
-        self.get_header(number).map(|header| header.timestamp())
     }
 }
 
@@ -536,11 +502,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         // The verify function
-        let txs_verifier = TransactionsVerifier::new(
-            self.shared.clone(),
-            self.shared.consensus().max_block_cycles(),
-            self.shared.script_config(),
-        );
+        let contextual_block_verifier = ContextualBlockVerifier::new(self.shared.clone());
 
         let mut found_error = None;
         // verify transaction
@@ -577,33 +539,10 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .collect::<Result<Vec<ResolvedTransaction>, _>>()
                     {
                         Ok(resolved) => {
-                            let cellbase_maturity = self.shared.consensus().cellbase_maturity();
-
-                            let parent_hash = b.header().parent_hash();
-                            let parent_ext = self
-                                .shared
-                                .get_block_epoch(parent_hash)
-                                .expect("parent header verified");
-                            let parent = self
-                                .shared
-                                .block_header(parent_hash)
-                                .expect("parent header verified");
-                            let epoch = self
-                                .shared
-                                .next_epoch_ext(&parent_ext, &parent)
-                                .unwrap_or(parent_ext);
-
-                            match txs_verifier.verify(
+                            match contextual_block_verifier.verify(
                                 &resolved,
-                                Arc::clone(self.shared.store()),
-                                &epoch,
-                                ForkContext {
-                                    fork_blocks: &fork.attached_blocks,
-                                    store: Arc::clone(self.shared.store()),
-                                    consensus: self.shared.consensus(),
-                                },
-                                b.header(),
-                                cellbase_maturity,
+                                &fork.attached_blocks,
+                                b,
                                 txs_verify_cache,
                             ) {
                                 Ok(_) => {

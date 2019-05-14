@@ -2,6 +2,7 @@ use ckb_core::{transaction::Transaction, BlockNumber, Cycle};
 use ckb_shared::shared::Shared;
 use ckb_shared::tx_pool::PoolError;
 use ckb_store::ChainStore;
+use ckb_traits::chain_provider::ChainProvider;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::TransactionVerifier;
 use fnv::FnvHashMap;

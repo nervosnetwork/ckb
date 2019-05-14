@@ -13,30 +13,6 @@ pub const SIGNAL_CHANNEL_SIZE: usize = 1;
 pub const REGISTER_CHANNEL_SIZE: usize = 2;
 pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
-// #[derive(Clone, PartialEq, Debug, Default)]
-// pub struct ForkBlocks {
-//     olds: Vec<Block>,
-//     news: Vec<Block>,
-// }
-
-// impl ForkBlocks {
-//     pub fn new(olds: Vec<Block>, news: Vec<Block>) -> Self {
-//         ForkBlocks { olds, news }
-//     }
-
-//     pub fn old_blks(&self) -> &Vec<Block> {
-//         &self.olds
-//     }
-
-//     pub fn new_blks(&self) -> &Vec<Block> {
-//         &self.news
-//     }
-
-//     pub fn push_new(&mut self, b: Block) {
-//         self.news.push(b);
-//     }
-// }
-
 pub type MsgNewTransaction = ();
 // pub type MsgNewTip = Arc<Block>;
 pub type MsgNewUncle = Arc<Block>;

@@ -391,6 +391,7 @@ where
         }
         Ok(())
     }
+
     fn verify_relative_lock(
         &self,
         since: ValidSince,

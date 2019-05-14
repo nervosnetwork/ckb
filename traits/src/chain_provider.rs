@@ -4,9 +4,18 @@ use ckb_core::extras::{BlockExt, EpochExt};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
+use ckb_script::ScriptConfig;
+use ckb_store::ChainStore;
 use numext_fixed_hash::H256;
+use std::sync::Arc;
 
 pub trait ChainProvider: Sync + Send {
+    type Store: ChainStore;
+
+    fn store(&self) -> &Arc<Self::Store>;
+
+    fn script_config(&self) -> &ScriptConfig;
+
     fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>>;
 
     fn block_header(&self, hash: &H256) -> Option<Header>;
@@ -26,8 +35,6 @@ pub trait ChainProvider: Sync + Send {
     fn genesis_hash(&self) -> &H256;
 
     fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)>;
-
-    fn contain_transaction(&self, hash: &H256) -> bool;
 
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
 

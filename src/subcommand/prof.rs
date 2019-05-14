@@ -4,6 +4,7 @@ use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
+use ckb_traits::ChainProvider;
 use log::info;
 use std::sync::Arc;
 
