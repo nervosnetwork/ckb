@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian};
-use ckb_core::difficulty::{boundary_to_difficulty, difficulty_to_boundary};
+use ckb_core::difficulty::difficulty_to_target;
 use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
@@ -50,7 +50,7 @@ pub trait PowEngine: Send + Sync {
 
     fn verify_header(&self, header: &Header) -> bool {
         let proof_hash: H256 = blake2b_256(&header.proof()).into();
-        if boundary_to_difficulty(&proof_hash).lt(header.difficulty()) {
+        if proof_hash >= difficulty_to_target(&header.difficulty()) {
             return false;
         }
 
@@ -63,7 +63,7 @@ pub trait PowEngine: Send + Sync {
 
         if let Some(proof) = self.solve(header.number(), &message) {
             let result: H256 = blake2b_256(&proof).into();
-            if result < difficulty_to_boundary(&header.difficulty()) {
+            if result < difficulty_to_target(&header.difficulty()) {
                 return Some(Seal::new(nonce, proof));
             }
         }
