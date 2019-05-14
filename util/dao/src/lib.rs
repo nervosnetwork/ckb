@@ -6,26 +6,23 @@ use occupied_capacity::OccupiedCapacity;
 use std::cmp::max;
 
 pub fn calculate_dao_data(
-    block_number: BlockNumber,
-    parent_dao_stats: &DaoStats,
+    parent_block_number: BlockNumber,
     parent_block_epoch_ext: &EpochExt,
-    current_epoch_ext: &EpochExt,
+    parent_dao_stats: &DaoStats,
     secondary_epoch_reward: Capacity,
 ) -> Result<(u64, Capacity), FailureError> {
     let parent_c = Capacity::shannons(parent_dao_stats.accumulated_capacity);
-    let current_g2 = calculate_g2(block_number, current_epoch_ext, secondary_epoch_reward)?;
-    let g = current_epoch_ext
-        .block_reward(block_number)?
-        .safe_add(current_g2)?;
-    let current_c = parent_c.safe_add(g)?;
-
-    let parent_ar = parent_dao_stats.accumulated_rate;
     let parent_g2 = calculate_g2(
-        block_number - 1,
+        parent_block_number,
         parent_block_epoch_ext,
         secondary_epoch_reward,
     )?;
+    let parent_g = parent_block_epoch_ext
+        .block_reward(parent_block_number)?
+        .safe_add(parent_g2)?;
+    let current_c = parent_c.safe_add(parent_g)?;
 
+    let parent_ar = parent_dao_stats.accumulated_rate;
     let current_ar = u128::from(parent_ar) * u128::from((parent_c.safe_add(parent_g2)?).as_u64())
         / (max(u128::from(parent_c.as_u64()), 1));
 
@@ -81,7 +78,7 @@ mod tests {
             accumulated_rate: 10_000_000_000_123_456,
             accumulated_capacity: 500_000_000_123_000,
         };
-        let current_epoch_ext = EpochExt::new(
+        let parent_epoch_ext = EpochExt::new(
             12345,
             Capacity::shannons(50_000_000_000),
             Capacity::shannons(1_000_128),
@@ -93,9 +90,8 @@ mod tests {
 
         let result = calculate_dao_data(
             12345,
+            &parent_epoch_ext,
             &parent_dao_stats,
-            &current_epoch_ext,
-            &current_epoch_ext,
             Capacity::shannons(123_456),
         )
         .unwrap();
@@ -114,7 +110,7 @@ mod tests {
             accumulated_rate: 10_000_000_000_123_456,
             accumulated_capacity: 500_000_000_123_000,
         };
-        let current_epoch_ext = EpochExt::new(
+        let parent_epoch_ext = EpochExt::new(
             12345,
             Capacity::shannons(50_000_000_000),
             Capacity::shannons(1_000_128),
@@ -123,28 +119,18 @@ mod tests {
             2000,
             U256::from(1u64),
         );
-        let parent_block_epoch_ext = EpochExt::new(
-            12339,
-            Capacity::shannons(50_000_000_000),
-            Capacity::shannons(1_000_128),
-            h256!("0x1"),
-            12000,
-            2000,
-            U256::from(1u64),
-        );
 
         let result = calculate_dao_data(
             12340,
+            &parent_epoch_ext,
             &parent_dao_stats,
-            &parent_block_epoch_ext,
-            &current_epoch_ext,
             Capacity::shannons(123_456),
         )
         .unwrap();
         assert_eq!(
             result,
             (
-                10_000_000_000_124_675,
+                10_000_000_000_153_795,
                 Capacity::shannons(500_050_001_124_645)
             )
         );
@@ -156,7 +142,7 @@ mod tests {
             accumulated_rate: 10_000_000_000_123_456,
             accumulated_capacity: 0,
         };
-        let current_epoch_ext = EpochExt::new(
+        let parent_epoch_ext = EpochExt::new(
             10,
             Capacity::shannons(50_000_000_000),
             Capacity::shannons(1_000_128),
@@ -168,9 +154,8 @@ mod tests {
 
         let result = calculate_dao_data(
             1,
+            &parent_epoch_ext,
             &parent_dao_stats,
-            &current_epoch_ext,
-            &current_epoch_ext,
             Capacity::shannons(123_456),
         );
         assert!(result.is_ok());
@@ -182,7 +167,7 @@ mod tests {
             accumulated_rate: 10_000_000_000_123_456,
             accumulated_capacity: 18_446_744_073_709_000_000,
         };
-        let current_epoch_ext = EpochExt::new(
+        let parent_epoch_ext = EpochExt::new(
             12345,
             Capacity::shannons(50_000_000_000),
             Capacity::shannons(1_000_128),
@@ -194,9 +179,8 @@ mod tests {
 
         let result = calculate_dao_data(
             12340,
+            &parent_epoch_ext,
             &parent_dao_stats,
-            &current_epoch_ext,
-            &current_epoch_ext,
             Capacity::shannons(123_456),
         );
         assert!(result.is_err());

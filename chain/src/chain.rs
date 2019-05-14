@@ -230,10 +230,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let epoch = next_epoch_ext.unwrap_or_else(|| parent_header_epoch.to_owned());
 
         let (ar, c) = calculate_dao_data(
-            block.header().number(),
-            &parent_ext.dao_stats,
+            parent_header.number(),
             &parent_header_epoch,
-            &epoch,
+            &parent_ext.dao_stats,
             self.shared.consensus().secondary_epoch_reward(),
         )?;
 
