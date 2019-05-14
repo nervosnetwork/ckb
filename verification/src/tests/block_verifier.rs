@@ -3,6 +3,7 @@ use super::super::block_verifier::{
 };
 use super::super::error::{CellbaseError, Error as VerifyError};
 use ckb_core::block::BlockBuilder;
+use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
@@ -126,8 +127,26 @@ pub fn test_cellbase_with_fee() {
 }
 
 #[test]
-pub fn test_max_block_bytes_verifier() {
+pub fn test_max_block_bytes_verifier_skip_genesis() {
     let block = BlockBuilder::default().build();
+    let proof_size = 0usize;
+
+    {
+        let verifier =
+            BlockBytesVerifier::new(block.serialized_size(proof_size) as u64, proof_size);
+        assert_eq!(verifier.verify(&block), Ok(()));
+    }
+
+    {
+        let verifier =
+            BlockBytesVerifier::new(block.serialized_size(proof_size) as u64 - 1, proof_size);
+        assert_eq!(verifier.verify(&block), Ok(()),);
+    }
+}
+
+#[test]
+pub fn test_max_block_bytes_verifier() {
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2)).build();
     let proof_size = 0usize;
 
     {
