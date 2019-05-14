@@ -34,6 +34,8 @@ pub trait PeerStore: Send {
     /// Add discovered peer addresses
     /// this method will assume peer and addr is untrust since we have not connected to it.
     fn add_discovered_addr(&mut self, peer_id: &PeerId, address: Multiaddr) -> bool;
+    /// Delete peer by peer_id (TODO: remove later?)
+    fn delete_peer(&mut self, peer_id: &PeerId);
     /// Report peer behaviours
     fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult;
     /// Update peer status

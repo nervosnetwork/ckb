@@ -408,6 +408,13 @@ impl ServiceHandle for EventHandler {
                         .insert(addr, std::u8::MAX);
                 }
                 if let Some(peer_id) = extract_peer_id(address) {
+                    if error == &P2pError::PeerIdNotMatch {
+                        debug!(target: "network", "peer id not match delete from peer store: {}", address);
+                        self.network_state.with_peer_store_mut(|peer_store| {
+                            peer_store.delete_peer(&peer_id);
+                        });
+                    }
+
                     self.network_state.with_peer_registry_mut(|reg| {
                         reg.remove_feeler(&peer_id);
                     });
