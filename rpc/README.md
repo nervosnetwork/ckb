@@ -559,7 +559,7 @@ Returns the information about a cell by out_point.
 
 #### Parameters
 
-    out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
+    out_point - OutPoint object {"block_hash": "0xa5224507f309ea8e98b5af50cb21e9e957845c6faef730971292df974f6a4e23", "cell": {"tx_hash": <tx_hash>, "index": <index>}}.
 
 #### Examples
 
