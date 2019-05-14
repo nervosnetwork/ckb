@@ -1,6 +1,72 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [v0.11.0](https://github.com/nervosnetwork/ckb/compare/v0.10.0...v0.11.0) (2019-05-14)
+
+### Features
+
+* #631: add a new rpc: `get_block_by_number` (@yangby-cryptape)
+* #628: inspect and test well-known hashes (@doitian)
+* #623: add syscall for loading transaction hash (@xxuejie)
+* #599: Use DNS txt records for peer address seeding (optional) (@TheWaWaR)
+* #587: lazy load cell output (@jjyr)
+* #598: add RPC `tx_pool_info` to get transaction pool information (@TheWaWaR)
+* #586: Relay transaction by hash (@TheWaWaR)
+* #582: Verify genesis on startup (@keroro520)
+* #570: check if the data in database is compatible with the program (@yangby-cryptape)
+* #569: check if genesis hash in config file was same as 0th block hash in db (@yangby-cryptape)
+* #559: add panic logger hook (@keroro520)
+* #554: support ckb prof command (@jjyr)
+* #551: FeeCalculator get transaction from cache priori (@keroro520)
+* #528: capacity uses unit shannon which is `10e-8` CKBytes (@yangby-cryptape)
+
+### Bug Fixes
+
+* #630: blocktemplate cache outdate check (@zhangsoledad)
+* #627: block assembler limit (@zhangsoledad)
+* #624: only verify unknown tx in block proposal (@jjyr)
+* #621: Get headers forgot update best known header (@TheWaWaR)
+* #615: clean corresponding cache when receive proposals (@keroro520)
+* #616: Sync message flood (@TheWaWaR)
+
+    Avoid send too much GetHeaders when received CompactBlock (this will cause message flood)
+
+* #618: remove rpc call to improve miner profermance (@jjyr)
+
+    call `try_update_block_template` will take 200 ~ 400ms when node have too many txs
+
+* #617: BlockCellProvider determine cellbase error (@jjyr)
+* #612: rpc `get_live_cell` return null cell (@jjyr)
+* #609: fix cpu problem (@driftluo)
+* #601: Stop ask for transactions when initial block download (@TheWaWaR)
+* #588: Initial block download message storm (@driftluo)
+* #583: Return early for non-existent block (@keroro520)
+* #584: Disconnect wrong peer when process getheaders message (@TheWaWaR)
+* #581: Send network message to wrong protocol (@TheWaWaR)
+* #578: Testnet hotfix (@TheWaWaR)
+
+    **Main changes**:
+    1. Adjust relay filter size to avoid message flood
+    2. Send `getheaders` message when get UnknownParent Error
+    3. Fix send message to wrong protocol cause peer banned
+    4. Update `p2p` dependency
+    5. Fix BlockAssembler hold chain state lock most of the time when cellbase is large
+
+* #568: Add DuplicateDeps verifier (@jjyr)
+* #537: testnet relay (@jjyr)
+
+    Refactoring ugly code,
+    Add `is_bad_tx` function on `PoolError` and `TransactionError`, use this method to detect a tx is intended bad tx or just caused by the different tip.
+
+* #565: update testnet genesis hash (@doitian)
+
+### BREAKING CHANGES
+
+* Database is incompatible, please clear data directory.
+* Config file `ckb.toml`:
+    * `block_assembler.binary_hash` is renamed to `block_assembler.code_hash`.
+* P2P message flatbuffers schema changed.
+
 
 # [v0.10.0](https://github.com/nervosnetwork/ckb/compare/v0.9.0...v0.10.0) (2019-05-06)
 
