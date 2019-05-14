@@ -17,7 +17,7 @@ use ckb_core::extras::{
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::EpochNumber;
+use ckb_core::{Capacity, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
 use numext_fixed_hash::H256;
 use serde::Serialize;
@@ -188,8 +188,18 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             dao_stats: DaoStats {
                 accumulated_rate: DEFAULT_ACCUMULATED_RATE,
                 accumulated_capacity: genesis
-                    .outputs_capacity()
-                    .map_err(|e| Error::DBError(e.to_string()))?
+                    .transactions()
+                    .get(0)
+                    .map(|tx| {
+                        tx.outputs()
+                            .iter()
+                            .skip(1)
+                            .try_fold(Capacity::zero(), |capacity, output| {
+                                capacity.safe_add(output.capacity)
+                            })
+                            .unwrap()
+                    })
+                    .unwrap_or_else(Capacity::zero)
                     .as_u64(),
             },
         };

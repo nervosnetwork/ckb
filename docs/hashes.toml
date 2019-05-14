@@ -5,7 +5,7 @@ cellbase = "0x1d1d6e4c551e076d5248303bfc1a70b8dd0e82ecf8250c3d50b56aec57325c7e"
 system_cells = []
 
 [ckb_testnet]
-genesis = "0xd8b010a7a5761da720b8d7f574262a53393c6f72a51e03921b82cd870821c7f0"
+genesis = "0xcbdf7ba31715d7269b84d9554b9e1b11ca11cb66880992ad19f8e6ce9f2807a2"
 cellbase = "0xbffab7ee0a050e2cb882de066d3dbf3afdd8932d6a26eda44f06e4b23f0f4b5a"
 
 [[ckb_testnet.system_cells]]
