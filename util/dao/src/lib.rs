@@ -51,9 +51,6 @@ fn calculate_g2(
     current_epoch_ext: &EpochExt,
     secondary_epoch_reward: Capacity,
 ) -> Result<Capacity, FailureError> {
-    if block_number == 0 {
-        return Ok(Capacity::zero());
-    }
     let epoch_length = current_epoch_ext.length();
     let mut g2 = Capacity::shannons(secondary_epoch_reward.as_u64() / epoch_length);
     if current_epoch_ext.start_number() == block_number {
@@ -100,6 +97,38 @@ mod tests {
             (
                 10_000_000_000_124_675,
                 Capacity::shannons(500_050_000_123_061)
+            )
+        );
+    }
+
+    #[test]
+    fn check_initial_dao_data_calculation() {
+        let parent_dao_stats = DaoStats {
+            accumulated_rate: 10_000_000_000_000_000,
+            accumulated_capacity: 50_000_000_000_000,
+        };
+        let parent_epoch_ext = EpochExt::new(
+            0,
+            Capacity::shannons(50_000_000_000),
+            Capacity::shannons(1_000_128),
+            h256!("0x1"),
+            0,
+            2000,
+            U256::from(1u64),
+        );
+
+        let result = calculate_dao_data(
+            0,
+            &parent_epoch_ext,
+            &parent_dao_stats,
+            Capacity::shannons(123_456),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            (
+                10_000_000_000_303_400,
+                Capacity::shannons(50_050_001_001_645)
             )
         );
     }
