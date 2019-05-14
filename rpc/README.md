@@ -94,7 +94,7 @@ http://localhost:8114
 Dry run transaction and return the execution cycles. 
 
 This method will not check the transaction validaty, but only run the lock script 
-and type script and than return the execution cycles.
+and type script and then return the execution cycles.
 
 
 #### Examples
