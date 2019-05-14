@@ -27,6 +27,9 @@ doc: ## Build the documentation for the local package.
 doc-deps: ## Build the documentation for the local package and all dependencies.
 	cargo doc --all
 
+gen-doc:  ## Generate rpc documentation
+	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
+
 ##@ Building
 check: setup-ckb-test ## Runs all of the compiler's checks.
 	cargo check ${VERBOSE} --all
@@ -61,7 +64,7 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 ##@ Continuous Integration
 
 ci: ## Run recipes for CI.
-ci: cargo-license fmt clippy security-audit test
+ci: cargo-license fmt check-dirty-doc clippy security-audit test
 	git diff --exit-code Cargo.lock
 
 info: ## Show environment info.
@@ -71,6 +74,9 @@ info: ## Show environment info.
 
 cargo-license:
 	FILES="$$(find . -name Cargo.toml | xargs grep -L '^license')"; if [ -n "$$FILES" ]; then echo "Missing license in: $${FILES}"; false; fi
+
+check-dirty-doc:
+	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md; git diff --exit-code rpc/README.md
 
 ##@ Generates Files
 GEN_FILES := protocol/src/protocol_generated.rs protocol/src/protocol_generated_verifier.rs
@@ -104,6 +110,6 @@ help:  ## Display help message.
 
 .PHONY: build prod prod-test docker
 .PHONY: gen gen-clean clean check-cfbc-version
-.PHONY: fmt test clippy doc doc-deps check stats
+.PHONY: fmt test clippy doc doc-deps gen-doc check stats check-dirty-doc
 .PHONY: ci info security-audit
 .PHONY: integration integration-release setup-ckb-test
