@@ -341,15 +341,15 @@ impl Node {
     }
 
     pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> Transaction {
-        let out_point = OutPoint::new_cell(self.genesis_cellbase_hash.clone(), 1);
-        let script = Script::new(vec![], self.always_success_code_hash.clone());
+        let always_success_out_point = OutPoint::new_cell(self.genesis_cellbase_hash.clone(), 1);
+        let always_success_script = Script::new(vec![], self.always_success_code_hash.clone());
 
         TransactionBuilder::default()
-            .dep(out_point)
+            .dep(always_success_out_point)
             .output(CellOutput::new(
                 capacity_bytes!(50_000),
                 Bytes::new(),
-                script,
+                always_success_script,
                 None,
             ))
             .input(CellInput::new(OutPoint::new_cell(hash, 0), since, vec![]))
@@ -362,7 +362,7 @@ impl Node {
         modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
-        let always_success_cell = include_bytes!("../../resource/specs/cells/always_success");
+        let always_success_cell = include_bytes!("../../script/testdata/always_success");
         let always_success_path = Path::new(&self.dir).join("specs/cells/always_success");
         fs::create_dir_all(format!("{}/specs", self.dir))?;
         fs::create_dir_all(format!("{}/specs/cells", self.dir))?;
@@ -396,6 +396,11 @@ impl Node {
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
         ckb_config.chain.spec = config_path.into();
+        ckb_config
+            .block_assembler
+            .code_hash
+            .clone_from(&self.always_success_code_hash);
+        ckb_config.block_assembler.args.clear();
         modify_ckb_config(&mut ckb_config);
         fs::write(
             &ckb_config_path,

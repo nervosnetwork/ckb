@@ -7,7 +7,7 @@ timestamp = 0
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xb60128bc0c540c804c43f95ce49f8e0ebdbac379ba346e27e548b73f6cc2ff68"
+hash = "0x22fdc49ddbae1b3c9658121363cb26dc8faeb89424b176df16fc59e8b8de57eb"
 issued_cells = []
 
 [genesis.seal]
@@ -24,9 +24,7 @@ args = []
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
 [genesis.system_cells]
-files = [
-  "cells/always_success"
-]
+files = []
 
 [genesis.system_cells.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
