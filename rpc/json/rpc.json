@@ -332,7 +332,7 @@
     "skip": true
   },
   {
-    "description": "Dry run transaction and return the execution cycles. \n\nThis method will not check the transaction validaty, but only run the lock script \nand type script and than return the execution cycles.",
+    "description": "Dry run transaction and return the execution cycles. \n\nThis method will not check the transaction validaty, but only run the lock script \nand type script and then return the execution cycles.",
     "method": "dry_run_transaction",
     "params": [
       {
