@@ -4,6 +4,7 @@ use ckb_core::transaction::ProposalShortId;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
+use failure::Error as FailureError;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{
@@ -189,7 +190,8 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             &(out_point
                 .clone()
                 .try_into()
-                .map_err(|_| Error::parse_error())?),
+                .map_err(FailureError::from)
+                .map_err(|err| Error::invalid_params(err.to_string()))?),
         );
         if let CellStatus::Live(ref mut cell_meta) = cell_status {
             if cell_meta.cell_output.is_none() {

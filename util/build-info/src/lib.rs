@@ -69,7 +69,8 @@ pub fn get_commit_describe() -> Option<String> {
 
 pub fn get_commit_date() -> Option<String> {
     std::process::Command::new("git")
-        .args(&["log", "-1", "--date=short", "--pretty=format:%cd"])
+        .env("TZ", "UTC")
+        .args(&["log", "-1", "--date=short-local", "--pretty=format:%cd"])
         .output()
         .ok()
         .and_then(|r| {

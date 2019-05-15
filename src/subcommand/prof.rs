@@ -1,4 +1,5 @@
 use ckb_app_config::{ExitCode, ProfArgs};
+use ckb_chain::chain::ChainController;
 use ckb_chain::chain::ChainService;
 use ckb_db::{CacheDB, DBConfig, RocksDB};
 use ckb_notify::NotifyService;
@@ -35,9 +36,18 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
 
     let from = std::cmp::max(1, args.from);
     let to = std::cmp::min(shared.lock_chain_state().tip_number(), args.to);
+    let notify = NotifyService::default().start::<&str>(Some("notify"));
+    let chain = ChainService::new(tmp_shared, notify);
+    let chain_controller = chain.start(Some("chain"));
+    profile_block_process(
+        shared.clone(),
+        chain_controller.clone(),
+        1,
+        std::cmp::max(1, from.saturating_sub(1)),
+    );
     info!("start profling, re-process blocks {}..{}:", from, to);
     let now = std::time::Instant::now();
-    let tx_count = profile_block_process(shared, tmp_shared, from, to);
+    let tx_count = profile_block_process(shared, chain_controller, from, to);
     let duration = now.elapsed();
     info!(
         "end profling, duration {:?} txs {} tps {}",
@@ -50,13 +60,10 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
 
 fn profile_block_process<CS: ChainStore + 'static>(
     shared: Shared<CS>,
-    tmp_shared: Shared<CS>,
+    chain_controller: ChainController,
     from: u64,
     to: u64,
 ) -> usize {
-    let notify = NotifyService::default().start::<&str>(Some("notify"));
-    let chain = ChainService::new(tmp_shared, notify);
-    let chain_controller = chain.start(Some("chain"));
     let mut tx_count = 0;
     for index in from..=to {
         let block = {
