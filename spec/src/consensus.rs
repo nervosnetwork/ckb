@@ -105,7 +105,7 @@ impl Default for Consensus {
             pow: Pow::Dummy(Default::default()),
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
-            max_block_cycles: 20_000_000_000,
+            max_block_cycles: 10_000_000_000,
             max_block_bytes: MAX_BLOCK_BYTES,
             genesis_epoch_ext,
             block_version: BLOCK_VERSION,
