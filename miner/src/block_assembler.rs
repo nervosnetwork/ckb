@@ -10,7 +10,7 @@ use ckb_core::transaction::{
     Capacity, CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{BlockNumber, Bytes, Cycle, Version};
+use ckb_core::{Bytes, Cycle, Version};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
@@ -51,9 +51,8 @@ struct TemplateCache {
 }
 
 impl TemplateCache {
-    fn is_outdate(&self, current_time: u64, number: BlockNumber) -> bool {
+    fn is_outdate(&self, current_time: u64) -> bool {
         current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
-            || number != self.template.number.0
     }
 
     fn is_modified(&self, last_uncles_updated_at: u64, last_txs_updated_at: u64) -> bool {
@@ -267,21 +266,24 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let number = header.number() + 1;
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
         if let Some(template_cache) = template_caches.get(&(cycles_limit, bytes_limit, version)) {
-            // check template cache outdate time
-            if !template_cache.is_outdate(current_time, number) {
-                return Ok(template_cache.template.clone());
-            }
-            // try get chain_state
-            // we give it up if wait more than TRY_LOCK_CHAIN_STATE_TIMEOUT
-            if let Some(chain_state) = self
-                .shared
-                .try_lock_for_chain_state(TRY_LOCK_CHAIN_STATE_TIMEOUT)
-            {
-                let last_txs_updated_at = chain_state.get_last_txs_updated_at();
-                // check our tx_pool wether is modified
-                // we can reuse cache if it is not modidied
-                if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
+            // cache must invalid when tip changed
+            if template_cache.template.number.0 == number {
+                // check template cache outdate time
+                if !template_cache.is_outdate(current_time) {
                     return Ok(template_cache.template.clone());
+                }
+                // try get chain_state
+                // we give it up if wait more than TRY_LOCK_CHAIN_STATE_TIMEOUT
+                if let Some(chain_state) = self
+                    .shared
+                    .try_lock_for_chain_state(TRY_LOCK_CHAIN_STATE_TIMEOUT)
+                {
+                    let last_txs_updated_at = chain_state.get_last_txs_updated_at();
+                    // check our tx_pool wether is modified
+                    // we can reuse cache if it is not modidied
+                    if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
+                        return Ok(template_cache.template.clone());
+                    }
                 }
             }
         }
