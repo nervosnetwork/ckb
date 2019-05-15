@@ -157,7 +157,7 @@
           "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
         },
         "out_point": {
-          "block_hash": null,
+          "block_hash": "0xbd63393483cb066d2fb9f779b20b904020bb599b03fab6e4571990828510d829",
           "cell": {
             "index": "0",
             "tx_hash": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400"
@@ -171,7 +171,7 @@
           "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
         },
         "out_point": {
-          "block_hash": null,
+          "block_hash": "0x7ff4ff104794ca4146059d78b89acb4e16ad3959fadde361730f7a835004be45",
           "cell": {
             "index": "0",
             "tx_hash": "0x5af3009f5e2be240ce95a2faedab1b144821a24703c026ab8f25328ac596f550"
@@ -185,7 +185,7 @@
           "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
         },
         "out_point": {
-          "block_hash": null,
+          "block_hash": "0x79ef2d2666ad3c5a94e0b069b412cbf8049301338e09e8c193f80d9fec084cf8",
           "cell": {
             "index": "0",
             "tx_hash": "0x53d13bbfee6b4a64763b7231b00e18c7db5379b58d74f9b0677be1394ea1ef85"
@@ -199,7 +199,7 @@
           "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
         },
         "out_point": {
-          "block_hash": null,
+          "block_hash": "0x05786d4ac8858d5065a2f2ac41c87a85f59516bdb8779e81e1636151bdc89027",
           "cell": {
             "index": "0",
             "tx_hash": "0x00e47be2eeac34a22c4d7573bf2a65e531a5b78427ef5808c1b4971cf73418ac"
@@ -245,7 +245,7 @@
     },
     "types": [
       {
-        "out_point": "OutPoint object {\"tx_hash\": <tx_hash>, \"index\": <index>}."
+        "out_point": "OutPoint object {{\"tx_hash\": <tx_hash>, \"index\": <index>}, \"block_hash\": <block_hash>}."
       }
     ]
   },
@@ -377,7 +377,7 @@
     }
   },
   {
-    "description": "Return the transaction id\n\n**Deprecated**: will be removed in a later version",
+    "description": "Return the transaction hash\n\n**Deprecated**: will be removed in a later version",
     "method": "_compute_transaction_hash",
     "params": [
       {
