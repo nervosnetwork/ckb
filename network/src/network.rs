@@ -711,7 +711,11 @@ impl NetworkService {
             .build(event_handler);
 
         // == Build background service tasks
-        let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);
+        let disc_service = DiscoveryService::new(
+            Arc::clone(&network_state),
+            disc_receiver,
+            config.discovery_local_address,
+        );
         let ping_service = PingService::new(
             Arc::clone(&network_state),
             p2p_service.control().to_owned(),
@@ -728,7 +732,7 @@ impl NetworkService {
         );
         let bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
-            Box::new(disc_service.for_each(|_| Ok(()))) as Box<_>,
+            Box::new(disc_service) as Box<_>,
             Box::new(outbound_peer_service) as Box<_>,
             Box::new(dns_seeding_service) as Box<_>,
         ];
