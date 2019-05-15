@@ -3,6 +3,8 @@
 
 ## JSON-RPC
 
+* [`_compute_code_hash`](#_compute_code_hash)
+* [`_compute_script_hash`](#_compute_script_hash)
 * [`_compute_transaction_hash`](#_compute_transaction_hash)
 * [`dry_run_transaction`](#dry_run_transaction)
 * [`get_block`](#get_block)
@@ -21,6 +23,81 @@
 * [`local_node_info`](#local_node_info)
 * [`send_transaction`](#send_transaction)
 * [`tx_pool_info`](#tx_pool_info)
+
+### `_compute_code_hash`
+
+Returns code hash of given hex encoded data
+
+**Deprecated**: will be removed in a later version
+
+#### Parameters
+
+    data - Hex encoded data
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "_compute_code_hash",
+    "params": [
+        "0x123456"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type:application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0x7dacea2e6ae8131b7f187570135ebb1b217a69458b3eae350104942c06939783"
+}
+```
+
+### `_compute_script_hash`
+
+Returns script hash of given transaction script
+
+**Deprecated**: will be removed in a later version
+
+#### Parameters
+
+    args - Hex encoded arguments passed to reference cell
+    code_hash - Code hash of referenced cell
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "_compute_script_hash",
+    "params": [
+        {
+            "args": [
+                "0x123450",
+                "0x678900"
+            ],
+            "code_hash": "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type:application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0x7c72a3b5705bf5a4e7364fc358e2972f4eb376cf7937bf7ffd319f50f07e27a2"
+}
+```
 
 ### `_compute_transaction_hash`
 

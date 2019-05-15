@@ -38,6 +38,7 @@ ckb-util = { path = "../util" }
 faketime = "0.2.0"
 sentry = "^0.15.4"
 dao = { path = "../util/dao" }
+failure = "0.1.5"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
