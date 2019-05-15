@@ -18,6 +18,7 @@ use ckb_resource::{Resource, ResourceLocator};
 use ckb_rpc::Config as RpcConfig;
 use ckb_script::ScriptConfig;
 use ckb_shared::tx_pool::TxPoolConfig;
+use ckb_store::StoreConfig;
 use ckb_sync::Config as SyncConfig;
 use logger::Config as LogConfig;
 
@@ -50,6 +51,7 @@ pub struct CKBAppConfig {
     pub sync: SyncConfig,
     pub tx_pool: TxPoolConfig,
     pub script: ScriptConfig,
+    pub store: StoreConfig,
 }
 
 // change the order of fields will break integration test, see module doc.

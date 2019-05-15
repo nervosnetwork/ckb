@@ -1,10 +1,10 @@
 use ckb_app_config::{ExitCode, ExportArgs};
-use ckb_db::{CacheDB, RocksDB};
+use ckb_db::RocksDB;
 use ckb_instrument::Export;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn export(args: ExportArgs) -> Result<(), ExitCode> {
-    let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+    let shared = SharedBuilder::<RocksDB>::default()
         .consensus(args.consensus)
         .db(&args.config.db)
         .build()
