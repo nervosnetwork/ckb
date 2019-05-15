@@ -212,7 +212,7 @@ where
         }
     }
 
-    pub fn verify(&self, txs_verify_cache: &mut LruCache<H256, Cycle>) -> Result<(), Error> {
+    pub fn verify(&self, txs_verify_cache: &mut LruCache<H256, Cycle>) -> Result<Cycle, Error> {
         // make verifiers orthogonal
         let ret_set = self
             .resolved
@@ -257,7 +257,7 @@ where
         if sum > self.max_cycles {
             Err(Error::ExceededMaximumCycles)
         } else {
-            Ok(())
+            Ok(sum)
         }
     }
 }
@@ -296,7 +296,7 @@ where
         fork_attached_blocks: &[Block],
         block: &Block,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
-    ) -> Result<(), Error> {
+    ) -> Result<Cycle, Error> {
         let consensus = self.provider.consensus();
         let store = self.provider.store();
         let epoch_ext = prepare_epoch_ext(&self.provider, block)?;

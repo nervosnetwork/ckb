@@ -545,7 +545,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                 b,
                                 txs_verify_cache,
                             ) {
-                                Ok(_) => {
+                                Ok(cycles) => {
                                     cell_set_diff.push_new(b);
                                     outputs.extend(
                                         b.transactions()
@@ -553,6 +553,19 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                             .map(|tx| (tx.hash().to_owned(), tx.outputs())),
                                     );
                                     ext.txs_verified = Some(true);
+                                    let proof_size =
+                                        self.shared.consensus().pow_engine().proof_size();
+                                    if b.transactions().len() > 1 {
+                                        info!(
+                                            "[block_verifier] block number: {}, hash: {:x}, size:{}/{}, cycles: {}/{}",
+                                            b.header().number(),
+                                            b.header().hash(),
+                                            b.serialized_size(proof_size),
+                                            self.shared.consensus().max_block_bytes(),
+                                            cycles,
+                                            self.shared.consensus().max_block_cycles()
+                                        );
+                                    }
                                 }
                                 Err(err) => {
                                     error!(target: "chain", "cell_set_diff {}", serde_json::to_string(&cell_set_diff).unwrap());
