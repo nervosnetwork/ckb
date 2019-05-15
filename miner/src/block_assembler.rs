@@ -310,7 +310,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let txs_cycles_limit = cycles_limit - cellbase_cycle;
         let (entries, size, cycles) =
             chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
-        if entries.len() > 0 {
+        if !entries.is_empty() {
             log::info!(
                 "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
                 entries.len(),
