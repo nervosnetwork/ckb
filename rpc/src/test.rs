@@ -33,7 +33,7 @@ use test_chain_utils::create_always_success_cell;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct JsonResponse {
     pub jsonrpc: String,
     pub id: usize,
@@ -247,10 +247,11 @@ fn test_rpc() {
             .expect("send jsonrpc request")
             .json()
             .expect("transform jsonrpc response into json");
+        let message = response.clone();
         let actual = response
             .result
             .clone()
-            .expect("jsonrpc does not return result!");
+            .unwrap_or_else(|| panic!("jsonrpc does not return result! response: {:?}", message));
         let expect = case.remove("result").expect("get case result");
 
         // Print only at print_mode, otherwise do real testing asserts

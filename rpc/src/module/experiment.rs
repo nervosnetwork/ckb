@@ -1,14 +1,18 @@
 use crate::error::RPCError;
 use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderProvider, HeaderStatus};
-use ckb_core::transaction::{OutPoint as CoreOutPoint, Transaction as CoreTransaction};
+use ckb_core::script::Script as CoreScript;
+use ckb_core::transaction::{
+    CellOutput as CoreCellOutput, OutPoint as CoreOutPoint, Transaction as CoreTransaction,
+};
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_verification::ScriptVerifier;
 use dao::calculate_maximum_withdraw;
+use failure::Error as FailureError;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Transaction};
+use jsonrpc_types::{Capacity, Cycle, DryRunResult, JsonBytes, OutPoint, Script, Transaction};
 use log::error;
 use numext_fixed_hash::H256;
 use serde_derive::Serialize;
@@ -19,6 +23,12 @@ use std::sync::Arc;
 pub trait ExperimentRpc {
     #[rpc(name = "_compute_transaction_hash")]
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256>;
+
+    #[rpc(name = "_compute_code_hash")]
+    fn compute_code_hash(&self, data: JsonBytes) -> Result<H256>;
+
+    #[rpc(name = "_compute_script_hash")]
+    fn compute_script_hash(&self, script: Script) -> Result<H256>;
 
     #[rpc(name = "dry_run_transaction")]
     fn dry_run_transaction(&self, _tx: Transaction) -> Result<DryRunResult>;
@@ -36,12 +46,31 @@ pub(crate) struct ExperimentRpcImpl<CS> {
 
 impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256> {
-        let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
+        let tx: CoreTransaction = tx
+            .try_into()
+            .map_err(|err: FailureError| Error::invalid_params(err.to_string()))?;
         Ok(tx.hash().clone())
     }
 
+    fn compute_code_hash(&self, data: JsonBytes) -> Result<H256> {
+        let mut cell = CoreCellOutput::default();
+        cell.data = data.into_bytes();
+        Ok(cell.data_hash())
+    }
+
+    fn compute_script_hash(&self, script: Script) -> Result<H256> {
+        let script: CoreScript = script
+            .try_into()
+            .map_err(FailureError::from)
+            .map_err(|err| Error::invalid_params(err.to_string()))?;
+        Ok(script.hash().clone())
+    }
+
     fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {
-        let tx: CoreTransaction = tx.try_into().map_err(|_| Error::parse_error())?;
+        let tx: CoreTransaction = tx
+            .try_into()
+            .map_err(FailureError::from)
+            .map_err(|err| Error::invalid_params(err.to_string()))?;
         let chain_state = self.shared.lock_chain_state();
         DryRunner::new(&chain_state).run(tx)
     }
@@ -52,7 +81,8 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
             out_point
                 .clone()
                 .try_into()
-                .map_err(|_| Error::parse_error())?,
+                .map_err(FailureError::from)
+                .map_err(|err| Error::invalid_params(err.to_string()))?,
             hash,
         ) {
             Ok(capacity) => Ok(capacity),
