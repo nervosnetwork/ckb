@@ -729,7 +729,7 @@ impl NetworkService {
         let bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
             Box::new(disc_service.for_each(|_| Ok(()))) as Box<_>,
-            Box::new(outbound_peer_service.for_each(|_| Ok(()))) as Box<_>,
+            Box::new(outbound_peer_service) as Box<_>,
             Box::new(dns_seeding_service) as Box<_>,
         ];
 
