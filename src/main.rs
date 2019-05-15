@@ -4,6 +4,10 @@ mod subcommand;
 use build_info::Version;
 use ckb_app_config::{cli, ExitCode, Setup};
 
+#[cfg(unix)]
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 fn run_app() -> Result<(), ExitCode> {
     // Always print backtrace on panic.
     ::std::env::set_var("RUST_BACKTRACE", "full");
