@@ -72,9 +72,13 @@ def print_result(case):
 def print_toc(cases):
     print("## JSON-RPC")
     newline(1)
+    module = ""
     for case in cases:
+        if case["module"] != module:
+            module = case["module"]
+            print('* [`{}`](#{})'.format(module, module))
         method = case["method"]
-        print('* [`{}`](#{})'.format(method, method))
+        print('  - [`{}`](#{})'.format(method, method))
     newline(1)
 
 
@@ -100,7 +104,7 @@ def main():
     print("# CKB JSON-RPC Protocols")
     newline(2)
 
-    cases = sorted(cases, key = lambda x: x["method"])
+    cases = sorted(cases, key = lambda x: x["module"] + x["method"])
     print_toc(cases)
     for case in cases:
         print_title(case)

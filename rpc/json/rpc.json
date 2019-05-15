@@ -1,12 +1,14 @@
 [
   {
     "description": "Returns the number of blocks in the longest blockchain.",
+    "module": "chain",
     "method": "get_tip_block_number",
     "params": [],
     "result": "1024"
   },
   {
     "description": "Returns the information about the tip header of the longest.",
+    "module": "chain",
     "method": "get_tip_header",
     "params": [],
     "result": {
@@ -30,6 +32,7 @@
   },
   {
     "description": "Returns the information about the current epoch.",
+    "module": "chain",
     "method": "get_current_epoch",
     "params": [],
     "result": {
@@ -44,6 +47,7 @@
   },
   {
     "description": "Return the information corresponding the given epoch number.",
+    "module": "chain",
     "method": "get_epoch_by_number",
     "params": [
       "0"
@@ -65,6 +69,7 @@
   },
   {
     "description": "Returns the hash of a block in the best-block-chain by block number; block of No.0 is the genesis block.",
+    "module": "chain",
     "method": "get_block_hash",
     "params": [
       "2"
@@ -78,6 +83,7 @@
   },
   {
     "description": "Returns the information about a block by hash.",
+    "module": "chain",
     "method": "get_block",
     "params": [
       "0xbd63393483cb066d2fb9f779b20b904020bb599b03fab6e4571990828510d829"
@@ -144,6 +150,7 @@
   {
     "description": "Returns the information about cells collection by the hash of lock script.",
     "method": "get_cells_by_lock_hash",
+    "module": "chain",
     "params": [
       "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
       "2",
@@ -220,8 +227,9 @@
     ]
   },
   {
-    "description": "Returns the information about a cell by out_point.",
+    "description": "Returns the information about a cell by out_point. If [block_hash] is not specific, returns the cell if it is live. If [block_hash]",
     "method": "get_live_cell",
+    "module": "chain",
     "params": [
       {
         "block_hash": null,
@@ -252,6 +260,7 @@
   {
     "description": "Returns the local node information.",
     "method": "local_node_info",
+    "module": "net",
     "params": [],
     "result": {
       "addresses": [
@@ -273,6 +282,7 @@
   {
     "description": "Returns the connected peers information.",
     "method": "get_peers",
+    "module": "net",
     "params": [],
     "result": [
       {
@@ -308,6 +318,7 @@
   {
     "description": "Return state info of blockchain",
     "method": "get_blockchain_info",
+    "module": "stats",
     "params": [],
     "result": {
       "chain": "main",
@@ -321,6 +332,7 @@
   {
     "description": "Return state info of peers",
     "method": "get_peers_state",
+    "module": "stats",
     "params": [],
     "result": [
       {
@@ -332,8 +344,9 @@
     "skip": true
   },
   {
-    "description": "Dry run transaction and return the execution cycles. \n\nThis method will not check the transaction validaty, but only run the lock script \nand type script and then return the execution cycles.",
+    "description": "Dry run transaction and return the execution cycles. \n\nThis method will not check the transaction validity, but only run the lock script \nand type script and then return the execution cycles.\nUsed to debug transaction scripts and query how many cycles the scripts consume",
     "method": "dry_run_transaction",
+    "module": "experiment",
     "params": [
       {
         "deps": [
@@ -379,6 +392,7 @@
   {
     "description": "Return the transaction hash\n\n**Deprecated**: will be removed in a later version",
     "method": "_compute_transaction_hash",
+    "module": "experiment",
     "params": [
       {
         "deps": [],
@@ -433,8 +447,9 @@
     ]
   },
   {
-    "description": "Send new transaction into transaction pool",
+    "description": "Send new transaction into transaction pool\n\nIf <block_hash> of <previsous_output> is not specified, loads the corresponding input cell. If <block_hash> is specified, load the corresponding input cell only if the corresponding block exist and contain this cell as output.",
     "method": "send_transaction",
+    "module": "pool",
     "params": [
       {
         "deps": [
@@ -498,6 +513,7 @@
   {
     "description": "Returns the information about a transaction requested by transaction hash.",
     "method": "get_transaction",
+    "module": "chain",
     "params": [
       "0x8185ef3bf021f7db49c01dd8677e9b7bb305b078f181b49a412c550a68da4874"
     ],
@@ -554,6 +570,7 @@
   {
     "description": "Return the transaction pool information",
     "method": "tx_pool_info",
+    "module": "pool",
     "params": [],
     "result": {
       "last_txs_updated_at": "0",
@@ -565,6 +582,7 @@
   {
     "description": "Get block by number",
     "method": "get_block_by_number",
+    "module": "chain",
     "types": [
         {"block_number": "Number of a block"}
     ],
