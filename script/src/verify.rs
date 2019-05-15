@@ -14,6 +14,7 @@ use ckb_store::{ChainStore, LazyLoadCellOutput};
 use ckb_vm::{
     machine::asm::{AsmCoreMachine, AsmMachine},
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
+    WXorXMemory,
 };
 use dao::calculate_maximum_withdraw;
 use fnv::FnvHashMap;
@@ -60,18 +61,16 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             .outputs()
             .iter()
             .enumerate()
-            .map({
-                |(index, output)| CellMeta {
-                    cell_output: Some(output.clone()),
-                    out_point: CellOutPoint {
-                        tx_hash: tx_hash.to_owned(),
-                        index: index as u32,
-                    },
-                    block_info: None,
-                    cellbase: false,
-                    capacity: output.capacity,
-                    data_hash: None,
-                }
+            .map(|(index, output)| CellMeta {
+                cell_output: Some(output.clone()),
+                out_point: CellOutPoint {
+                    tx_hash: tx_hash.to_owned(),
+                    index: index as u32,
+                },
+                block_info: None,
+                cellbase: false,
+                capacity: output.capacity,
+                data_hash: None,
             })
             .collect();
         let witnesses: FnvHashMap<u32, &'a [Bytes]> = rtx
@@ -408,19 +407,18 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             }
             Runner::Rust => {
                 let core_machine =
-                    DefaultCoreMachine::<u64, SparseMemory<u64>>::new_with_max_cycles(max_cycles);
-                let machine =
-                    DefaultMachineBuilder::<DefaultCoreMachine<u64, SparseMemory<u64>>>::new(
-                        core_machine,
-                    )
-                    .instruction_cycle_func(Box::new(instruction_cycles))
-                    .syscall(Box::new(self.build_load_script_hash(current_script_hash)))
-                    .syscall(Box::new(self.build_load_tx_hash()))
-                    .syscall(Box::new(self.build_load_cell()))
-                    .syscall(Box::new(self.build_load_input()))
-                    .syscall(Box::new(self.build_load_header()))
-                    .syscall(Box::new(Debugger::new(prefix)))
-                    .build();
+                    DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(max_cycles);
+                let machine = DefaultMachineBuilder::<
+                    DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>,
+                >::new(core_machine)
+                .instruction_cycle_func(Box::new(instruction_cycles))
+                .syscall(Box::new(self.build_load_script_hash(current_script_hash)))
+                .syscall(Box::new(self.build_load_tx_hash()))
+                .syscall(Box::new(self.build_load_cell()))
+                .syscall(Box::new(self.build_load_input()))
+                .syscall(Box::new(self.build_load_header()))
+                .syscall(Box::new(Debugger::new(prefix)))
+                .build();
                 let mut machine = TraceMachine::new(machine);
                 machine
                     .load_program(&program, &args)

@@ -2,7 +2,7 @@ use crate::helper::{deadlock_detection, wait_for_exit};
 use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
 use ckb_chain::chain::ChainService;
-use ckb_db::{CacheDB, RocksDB};
+use ckb_db::RocksDB;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_notify::NotifyService;
@@ -18,11 +18,12 @@ use std::sync::Arc;
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
 
-    let shared = SharedBuilder::<CacheDB<RocksDB>>::new()
+    let shared = SharedBuilder::<RocksDB>::new()
         .consensus(args.consensus)
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool)
         .script_config(args.config.script)
+        .store_config(args.config.store)
         .build()
         .map_err(|err| {
             eprintln!("Run error: {:?}", err);

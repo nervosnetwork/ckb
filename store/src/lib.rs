@@ -3,7 +3,7 @@ mod lazy_load_cell_output;
 mod store;
 
 pub use lazy_load_cell_output::LazyLoadCellOutput;
-pub use store::{ChainKVStore, ChainStore, DefaultStoreBatch, StoreBatch};
+pub use store::{ChainKVStore, ChainStore, StoreBatch, StoreConfig};
 
 use ckb_db::Col;
 
