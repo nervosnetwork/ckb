@@ -56,8 +56,8 @@ impl TxProposalTable {
             .table
             .range((Bound::Unbounded, Bound::Included(&proposal_end)))
             .map(|pair| pair.1)
-            .cloned()
             .flatten()
+            .cloned()
             .collect();
 
         let removed_ids: FnvHashSet<ProposalShortId> =
