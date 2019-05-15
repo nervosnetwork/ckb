@@ -19,9 +19,11 @@ use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transacti
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Capacity, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use serde::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use std::ops::Range;
+use std::sync::Mutex;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
@@ -33,13 +35,38 @@ fn cell_store_key(tx_hash: &H256, index: u32) -> Vec<u8> {
     key.to_vec()
 }
 
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+pub struct StoreConfig {
+    pub header_cache_size: usize,
+    pub cell_output_cache_size: usize,
+}
+
+impl Default for StoreConfig {
+    fn default() -> Self {
+        Self {
+            header_cache_size: 4096,
+            cell_output_cache_size: 128,
+        }
+    }
+}
+
 pub struct ChainKVStore<T> {
     db: T,
+    header_cache: Mutex<LruCache<H256, Header>>,
+    cell_output_cache: Mutex<LruCache<(H256, u32), CellOutput>>,
 }
 
 impl<T: KeyValueDB> ChainKVStore<T> {
     pub fn new(db: T) -> Self {
-        ChainKVStore { db }
+        Self::with_config(db, StoreConfig::default())
+    }
+
+    pub fn with_config(db: T, config: StoreConfig) -> Self {
+        ChainKVStore {
+            db,
+            header_cache: Mutex::new(LruCache::new(config.header_cache_size)),
+            cell_output_cache: Mutex::new(LruCache::new(config.cell_output_cache_size)),
+        }
     }
 
     pub fn get(&self, col: Col, key: &[u8]) -> Option<Vec<u8>> {
@@ -142,9 +169,27 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         })
     }
 
-    fn get_header(&self, h: &H256) -> Option<Header> {
-        self.get(COLUMN_BLOCK_HEADER, h.as_bytes())
-            .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, h.to_owned()) })
+    fn get_header(&self, hash: &H256) -> Option<Header> {
+        let mut header_cache_unlocked = self
+            .header_cache
+            .lock()
+            .expect("poisoned header cache lock");
+        if let Some(header) = header_cache_unlocked.get_refresh(hash) {
+            return Some(header.clone());
+        }
+        // release lock asap
+        drop(header_cache_unlocked);
+
+        self.get(COLUMN_BLOCK_HEADER, hash.as_bytes())
+            .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, hash.to_owned()) })
+            .and_then(|header| {
+                let mut header_cache_unlocked = self
+                    .header_cache
+                    .lock()
+                    .expect("poisoned header cache lock");
+                header_cache_unlocked.insert(hash.clone(), header.clone());
+                Some(header)
+            })
     }
 
     fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
@@ -301,24 +346,41 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
+        let mut cell_output_cache_unlocked = self
+            .cell_output_cache
+            .lock()
+            .expect("poisoned cell output cache lock");
+        if let Some(cell_output) = cell_output_cache_unlocked.get_refresh(&(tx_hash.clone(), index))
+        {
+            return Some(cell_output.clone());
+        }
+        // release lock asap
+        drop(cell_output_cache_unlocked);
+
         self.get(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())
             .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
             .and_then(|stored: TransactionAddressStored| {
-                let tx_offset = stored.inner.offset;
                 stored
                     .inner
                     .outputs_addresses
                     .get(index as usize)
                     .and_then(|addr| {
-                        let output_offset = tx_offset + addr.offset;
+                        let output_offset = stored.inner.offset + addr.offset;
                         self.partial_get(
                             COLUMN_BLOCK_BODY,
                             stored.block_hash.as_bytes(),
                             &(output_offset..(output_offset + addr.length)),
                         )
                         .map(|ref serialized_cell_output| {
-                            deserialize(serialized_cell_output)
-                                .expect("flat deserialize cell output should be ok")
+                            let cell_output: CellOutput = deserialize(serialized_cell_output)
+                                .expect("flat deserialize cell output should be ok");
+                            let mut cell_output_cache_unlocked = self
+                                .cell_output_cache
+                                .lock()
+                                .expect("poisoned cell output cache lock");
+                            cell_output_cache_unlocked
+                                .insert((tx_hash.clone(), index), cell_output.clone());
+                            cell_output.to_owned()
                         })
                     })
             })
@@ -335,7 +397,7 @@ impl<B: DbBatch> DefaultStoreBatch<B> {
         self.inner.insert(col, key, value)
     }
 
-    fn insert_serialize<T: Serialize + ?Sized>(
+    fn insert_serialize<T: serde::ser::Serialize + ?Sized>(
         &mut self,
         col: Col,
         key: &[u8],
