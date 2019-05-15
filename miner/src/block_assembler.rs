@@ -26,7 +26,7 @@ use jsonrpc_types::{
     EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
     UncleTemplate, Unsigned, Version as JsonVersion,
 };
-use log::error;
+use log;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cmp;
@@ -152,7 +152,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                                 .store(unix_time_as_millis(), Ordering::SeqCst);
                         }
                         _ => {
-                            error!(target: "miner", "new_uncle_receiver closed");
+                            log::error!(target: "miner", "new_uncle_receiver closed");
                             break;
                         }
                     },
@@ -161,7 +161,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                             let _ = responder.send(self.get_block_template(bytes_limit, proposals_limit, max_version));
                         },
                         _ => {
-                            error!(target: "miner", "get_block_template_receiver closed");
+                            log::error!(target: "miner", "get_block_template_receiver closed");
                             break;
                         },
                     }
@@ -308,7 +308,18 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let txs_size_limit =
             self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
         let txs_cycles_limit = cycles_limit - cellbase_cycle;
-        let entries = chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
+        let (entries, size, cycles) =
+            chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
+        if !entries.is_empty() {
+            log::info!(
+                "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
+                entries.len(),
+                size,
+                txs_size_limit,
+                cycles,
+                txs_cycles_limit
+            );
+        }
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
 

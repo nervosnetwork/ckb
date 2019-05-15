@@ -475,11 +475,11 @@ impl<CS: ChainStore> ChainState<CS> {
         &self,
         txs_size_limit: usize,
         cycles_limit: Cycle,
-    ) -> Vec<ProposedEntry> {
+    ) -> (Vec<ProposedEntry>, usize, Cycle) {
         let mut size = 0;
         let mut cycles = 0;
         let tx_pool = self.tx_pool.borrow();
-        tx_pool
+        let entries = tx_pool
             .proposed
             .txs_iter()
             .take_while(|tx| {
@@ -488,7 +488,8 @@ impl<CS: ChainStore> ChainState<CS> {
                 (size < txs_size_limit) && (cycles < cycles_limit)
             })
             .cloned()
-            .collect()
+            .collect();
+        (entries, size, cycles)
     }
 
     pub fn tx_pool(&self) -> Ref<TxPool> {
