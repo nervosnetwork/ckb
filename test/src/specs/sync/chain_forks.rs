@@ -64,7 +64,8 @@ impl Spec for ChainFork2 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        net.connect_all();
+        node0.connect(node1);
+        node0.connect(node2);
         net.waiting_for_sync(2, 10);
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -122,7 +123,8 @@ impl Spec for ChainFork3 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        net.connect_all();
+        node0.connect(node1);
+        node0.connect(node2);
         net.waiting_for_sync(2, 10);
 
         info!("Disconnect all nodes");
@@ -196,7 +198,8 @@ impl Spec for ChainFork4 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        net.connect_all();
+        node0.connect(node1);
+        node0.connect(node2);
         net.waiting_for_sync(2, 10);
 
         info!("Disconnect all nodes");
@@ -273,7 +276,8 @@ impl Spec for ChainFork5 {
         node0.submit_transaction(&transaction);
         node0.generate_blocks(1);
         info!("Connect all nodes");
-        net.connect_all();
+        node0.connect(node1);
+        node0.connect(node2);
         net.waiting_for_sync(2, 10);
 
         info!("Disconnect all nodes");
@@ -351,7 +355,8 @@ impl Spec for ChainFork6 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        net.connect_all();
+        node0.connect(node1);
+        node0.connect(node2);
         net.waiting_for_sync(2, 10);
 
         info!("Disconnect all nodes");
@@ -421,7 +426,8 @@ impl Spec for ChainFork7 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        net.connect_all();
+        node0.connect(node1);
+        node0.connect(node2);
         net.waiting_for_sync(2, 10);
 
         info!("Disconnect all nodes");
