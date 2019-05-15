@@ -27,7 +27,7 @@ else:
         ['git', 'describe', '--tags', tag_rev]).strip())
 
 logs = _str(subprocess.check_output(
-    ['git', 'log', '--merges', '--first-parent', '--pretty=tformat:%s', '{}...HEAD'.format(since)]))
+    ['git', 'log', '--reverse', '--merges', '--first-parent', '--pretty=tformat:%s', '{}...HEAD'.format(since)]))
 
 PR_NUMBER_RE = re.compile(r'\s*Merge pull request #(\d+) from')
 PR_TITLE_RE = re.compile(r'(?:\[[^]]+\]\s*)*(?:(\w+)(?:\(([^\)]+)\))?: )?(.*)')
