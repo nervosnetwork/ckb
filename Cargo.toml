@@ -47,6 +47,10 @@ tempfile = "3.0"
 
 [dev-dependencies]
 
+[target.'cfg(unix)'.dependencies]
+jemallocator = { version = "0.3.0" }
+
+
 [workspace]
 members = [
     "util/logger",
