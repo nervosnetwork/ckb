@@ -32,6 +32,7 @@ use numext_fixed_hash::H256;
 use std::cmp;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
+use std::time::Duration;
 use stop_handler::{SignalSender, StopHandler};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
@@ -40,6 +41,7 @@ type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
+const TRY_LOCK_CHAIN_STATE_TIMEOUT: Duration = Duration::from_millis(500);
 
 struct TemplateCache {
     pub time: u64,
@@ -49,17 +51,14 @@ struct TemplateCache {
 }
 
 impl TemplateCache {
-    fn is_outdate(
-        &self,
-        last_uncles_updated_at: u64,
-        last_txs_updated_at: u64,
-        current_time: u64,
-        number: BlockNumber,
-    ) -> bool {
-        last_uncles_updated_at != self.uncles_updated_at
-            || (last_txs_updated_at != self.txs_updated_at
-                && current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT)
+    fn is_outdate(&self, current_time: u64, number: BlockNumber) -> bool {
+        current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
             || number != self.template.number.0
+    }
+
+    fn is_modified(&self, last_uncles_updated_at: u64, last_txs_updated_at: u64) -> bool {
+        last_uncles_updated_at != self.uncles_updated_at
+            || last_txs_updated_at != self.txs_updated_at
     }
 }
 
@@ -261,26 +260,33 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst);
-        let chain_state = self.shared.lock_chain_state();
-        let last_txs_updated_at = chain_state.get_last_txs_updated_at();
-
-        let header = chain_state.tip_header().to_owned();
-        let number = chain_state.tip_number() + 1;
-        let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
-
         let mut template_caches = self.template_caches.lock();
 
+        let store = self.shared.store();
+        let header = store.get_tip_header().to_owned().expect("get tip header");
+        let number = header.number() + 1;
+        let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
         if let Some(template_cache) = template_caches.get(&(cycles_limit, bytes_limit, version)) {
-            if !template_cache.is_outdate(
-                last_uncles_updated_at,
-                last_txs_updated_at,
-                current_time,
-                number,
-            ) {
+            // check template cache outdate time
+            if !template_cache.is_outdate(current_time, number) {
                 return Ok(template_cache.template.clone());
             }
+            // try get chain_state
+            // we give it up if wait more than TRY_LOCK_CHAIN_STATE_TIMEOUT
+            if let Some(chain_state) = self
+                .shared
+                .try_lock_for_chain_state(TRY_LOCK_CHAIN_STATE_TIMEOUT)
+            {
+                let last_txs_updated_at = chain_state.get_last_txs_updated_at();
+                // check our tx_pool wether is modified
+                // we can reuse cache if it is not modidied
+                if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
+                    return Ok(template_cache.template.clone());
+                }
+            }
         }
-        let last_epoch = chain_state.current_epoch_ext().clone();
+
+        let last_epoch = store.get_current_epoch_ext().expect("current epoch ext");
 
         let next_epoch_ext = self.shared.next_epoch_ext(&last_epoch, &header);
         let current_epoch = next_epoch_ext.unwrap_or(last_epoch);
@@ -304,24 +310,28 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let (dummy_cellbase, cellbase_size, cellbase_cycle) =
             self.dummy_cellbase_transaction(&header, cellbase_lock, None)?;
 
-        let proposals = chain_state.get_proposals(proposals_limit as usize);
-        let txs_size_limit =
-            self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
-        let txs_cycles_limit = cycles_limit - cellbase_cycle;
-        let (entries, size, cycles) =
-            chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
-        if !entries.is_empty() {
-            log::info!(
-                "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
-                entries.len(),
-                size,
-                txs_size_limit,
-                cycles,
-                txs_cycles_limit
-            );
-        }
         // Release the lock as soon as possible, let other services do their work
-        drop(chain_state);
+        let (last_txs_updated_at, proposals, entries) = {
+            let chain_state = self.shared.lock_chain_state();
+            let last_txs_updated_at = chain_state.get_last_txs_updated_at();
+            let proposals = chain_state.get_proposals(proposals_limit as usize);
+            let txs_size_limit =
+                self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
+            let txs_cycles_limit = cycles_limit - cellbase_cycle;
+            let (entries, size, cycles) =
+                chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
+            if !entries.is_empty() {
+                log::info!(
+                    "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
+                    entries.len(),
+                    size,
+                    txs_size_limit,
+                    cycles,
+                    txs_cycles_limit
+                );
+            }
+            (last_txs_updated_at, proposals, entries)
+        };
 
         let cellbase = self.rebuild_cellbase(&header, &dummy_cellbase, &current_epoch, &entries)?;
 
@@ -572,9 +582,9 @@ mod tests {
             proposals, // Vec<ProposalShortId>
             cellbase, // CellbaseTemplate
             ..
-            // cycles_limit,
-            // bytes_limit,
-            // uncles_count_limit,
+                // cycles_limit,
+                // bytes_limit,
+                // uncles_count_limit,
         } = block_template;
 
         let cellbase = {

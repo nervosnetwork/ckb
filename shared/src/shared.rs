@@ -16,6 +16,7 @@ use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
+use std::time::Duration;
 
 const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
 
@@ -69,6 +70,13 @@ impl<CS: ChainStore> Shared<CS> {
 
     pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
         lock_or_panic(&self.chain_state)
+    }
+
+    pub fn try_lock_for_chain_state(
+        &self,
+        timeout: Duration,
+    ) -> Option<MutexGuard<ChainState<CS>>> {
+        self.chain_state.try_lock_for(timeout)
     }
 
     pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
