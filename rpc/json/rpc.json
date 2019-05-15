@@ -624,5 +624,32 @@
       ],
       "uncles": []
     }
+  },
+  {
+      "method": "_compute_code_hash",
+      "module": "experiment",
+      "description": "Returns code hash of given hex encoded data\n\n**Deprecated**: will be removed in a later version",
+      "types": [
+          {"data": "Hex encoded data"}
+      ],
+      "params": ["0x123456"],
+      "result": "0x7dacea2e6ae8131b7f187570135ebb1b217a69458b3eae350104942c06939783"
+  },
+  {
+      "method": "_compute_script_hash",
+      "module": "experiment",
+      "description": "Returns script hash of given transaction script\n\n**Deprecated**: will be removed in a later version",
+      "types": [
+          {"args": "Hex encoded arguments passed to reference cell"},
+          {"code_hash": "Code hash of referenced cell"}
+      ],
+      "params": [{
+        "args": [
+            "0x123450",
+            "0x678900"
+        ],
+        "code_hash": "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+      }],
+      "result": "0x7c72a3b5705bf5a4e7364fc358e2972f4eb376cf7937bf7ffd319f50f07e27a2"
   }
 ]
