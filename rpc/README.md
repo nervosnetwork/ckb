@@ -1050,7 +1050,7 @@ http://localhost:8114
 
 ### `get_peers_state`
 
-Return state info of peers
+Deprecating in 0.12.0: Return state info of peers
 
 
 #### Examples

@@ -49,15 +49,14 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
     }
 
     fn get_peers_state(&self) -> Result<Vec<PeerState>> {
+        // deprecated
         Ok(self
             .synchronizer
             .peers()
             .blocks_inflight
             .read()
-            .iter()
-            .map(|(peer, in_flight)| {
-                PeerState::new(peer.value(), in_flight.timestamp, in_flight.blocks.len())
-            })
+            .blocks_iter()
+            .map(|(peer, blocks)| PeerState::new(peer.value(), 0, blocks.len()))
             .collect())
     }
 }
