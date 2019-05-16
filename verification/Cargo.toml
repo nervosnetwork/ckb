@@ -13,7 +13,6 @@ ckb-pow = { path = "../pow" }
 faketime = "0.2.0"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-rayon = "1.0"
 fnv = "1.0.3"
 occupied-capacity = { path = "../util/occupied-capacity" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }

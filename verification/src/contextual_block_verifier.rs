@@ -17,7 +17,6 @@ use fnv::FnvHashSet;
 use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::sync::Arc;
 
 // Verification context for fork
@@ -106,7 +105,7 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
         let committed_ids: FnvHashSet<_> = self
             .block
             .transactions()
-            .par_iter()
+            .iter()
             .skip(1)
             .map(Transaction::proposal_short_id)
             .collect();
@@ -216,7 +215,7 @@ where
         // make verifiers orthogonal
         let ret_set = self
             .resolved
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(index, tx)| {
                 let tx_hash = tx.transaction.hash().to_owned();
