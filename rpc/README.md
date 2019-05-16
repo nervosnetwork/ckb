@@ -1,33 +1,33 @@
 # CKB JSON-RPC Protocols
 
 
-## JSON-RPC
+*   [`Chain`](#chain)
+    *   [`get_block`](#get_block)
+    *   [`get_block_by_number`](#get_block_by_number)
+    *   [`get_block_hash`](#get_block_hash)
+    *   [`get_cells_by_lock_hash`](#get_cells_by_lock_hash)
+    *   [`get_current_epoch`](#get_current_epoch)
+    *   [`get_epoch_by_number`](#get_epoch_by_number)
+    *   [`get_live_cell`](#get_live_cell)
+    *   [`get_tip_block_number`](#get_tip_block_number)
+    *   [`get_tip_header`](#get_tip_header)
+    *   [`get_transaction`](#get_transaction)
+*   [`Experiment`](#experiment)
+    *   [`_compute_code_hash`](#_compute_code_hash)
+    *   [`_compute_script_hash`](#_compute_script_hash)
+    *   [`_compute_transaction_hash`](#_compute_transaction_hash)
+    *   [`dry_run_transaction`](#dry_run_transaction)
+*   [`Net`](#net)
+    *   [`get_peers`](#get_peers)
+    *   [`local_node_info`](#local_node_info)
+*   [`Pool`](#pool)
+    *   [`send_transaction`](#send_transaction)
+    *   [`tx_pool_info`](#tx_pool_info)
+*   [`Stats`](#stats)
+    *   [`get_blockchain_info`](#get_blockchain_info)
+    *   [`get_peers_state`](#get_peers_state)
 
-* [`Chain`](#get_block)
-  - [`get_block`](#get_block)
-  - [`get_block_by_number`](#get_block_by_number)
-  - [`get_block_hash`](#get_block_hash)
-  - [`get_cells_by_lock_hash`](#get_cells_by_lock_hash)
-  - [`get_current_epoch`](#get_current_epoch)
-  - [`get_epoch_by_number`](#get_epoch_by_number)
-  - [`get_live_cell`](#get_live_cell)
-  - [`get_tip_block_number`](#get_tip_block_number)
-  - [`get_tip_header`](#get_tip_header)
-  - [`get_transaction`](#get_transaction)
-* [`Experiment`](#_compute_code_hash)
-  - [`_compute_code_hash`](#_compute_code_hash)
-  - [`_compute_script_hash`](#_compute_script_hash)
-  - [`_compute_transaction_hash`](#_compute_transaction_hash)
-  - [`dry_run_transaction`](#dry_run_transaction)
-* [`Net`](#get_peers)
-  - [`get_peers`](#get_peers)
-  - [`local_node_info`](#local_node_info)
-* [`Pool`](#send_transaction)
-  - [`send_transaction`](#send_transaction)
-  - [`tx_pool_info`](#tx_pool_info)
-* [`Stats`](#get_blockchain_info)
-  - [`get_blockchain_info`](#get_blockchain_info)
-  - [`get_peers_state`](#get_peers_state)
+## Chain
 
 ### `get_block`
 
@@ -592,6 +592,8 @@ http://localhost:8114
 }
 ```
 
+## Experiment
+
 ### `_compute_code_hash`
 
 Returns code hash of given hex encoded data
@@ -736,9 +738,9 @@ http://localhost:8114
 
 ### `dry_run_transaction`
 
-Dry run transaction and return the execution cycles. 
+Dry run transaction and return the execution cycles.
 
-This method will not check the transaction validity, but only run the lock script 
+This method will not check the transaction validity, but only run the lock script
 and type script and then return the execution cycles.
 Used to debug transaction scripts and query how many cycles the scripts consume
 
@@ -803,6 +805,8 @@ http://localhost:8114
     }
 }
 ```
+
+## Net
 
 ### `get_peers`
 
@@ -899,6 +903,8 @@ http://localhost:8114
     }
 }
 ```
+
+## Pool
 
 ### `send_transaction`
 
@@ -1005,6 +1011,8 @@ http://localhost:8114
     }
 }
 ```
+
+## Stats
 
 ### `get_blockchain_info`
 

@@ -344,7 +344,7 @@
     "skip": true
   },
   {
-    "description": "Dry run transaction and return the execution cycles. \n\nThis method will not check the transaction validity, but only run the lock script \nand type script and then return the execution cycles.\nUsed to debug transaction scripts and query how many cycles the scripts consume",
+    "description": "Dry run transaction and return the execution cycles.\n\nThis method will not check the transaction validity, but only run the lock script\nand type script and then return the execution cycles.\nUsed to debug transaction scripts and query how many cycles the scripts consume",
     "method": "dry_run_transaction",
     "module": "experiment",
     "params": [
