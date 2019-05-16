@@ -44,7 +44,9 @@ fn run_app() -> Result<(), ExitCode> {
 }
 
 fn main() {
-    if let Some(exit_code) = run_app().err() {
+    let ret = run_app();
+    log::logger().flush();
+    if let Some(exit_code) = ret.err() {
         ::std::process::exit(exit_code.into());
     }
 }
