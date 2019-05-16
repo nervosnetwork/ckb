@@ -1,5 +1,5 @@
 use crate::synchronizer::Synchronizer;
-use crate::BLOCK_DOWNLOAD_WINDOW;
+use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlocks, SyncMessage};
 use ckb_store::ChainStore;
@@ -37,8 +37,7 @@ where
     pub fn execute(self) -> Result<(), FailureError> {
         let block_hashes = cast!(self.message.block_hashes())?;
 
-        // bitcoin limits 500
-        let n_limit = min(BLOCK_DOWNLOAD_WINDOW as usize, block_hashes.len());
+        let n_limit = min(MAX_BLOCKS_IN_TRANSIT_PER_PEER as usize, block_hashes.len());
         for fbs_h256 in block_hashes.iter().take(n_limit) {
             let block_hash = fbs_h256.try_into()?;
             debug!(target: "sync", "get_blocks {:x} from peer {:?}", block_hash, self.peer);
