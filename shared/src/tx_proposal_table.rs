@@ -9,6 +9,7 @@ use std::ops::Bound;
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct TxProposalTable {
     pub(crate) table: BTreeMap<BlockNumber, FnvHashSet<ProposalShortId>>,
+    pub(crate) gap: FnvHashSet<ProposalShortId>,
     pub(crate) set: FnvHashSet<ProposalShortId>,
     pub(crate) proposal_window: ProposalWindow,
 }
@@ -17,6 +18,7 @@ impl TxProposalTable {
     pub fn new(proposal_window: ProposalWindow) -> Self {
         TxProposalTable {
             proposal_window,
+            gap: FnvHashSet::default(),
             set: FnvHashSet::default(),
             table: BTreeMap::default(),
         }
@@ -34,6 +36,10 @@ impl TxProposalTable {
 
     pub fn contains(&self, id: &ProposalShortId) -> bool {
         self.set.contains(id)
+    }
+
+    pub fn contains_gap(&self, id: &ProposalShortId) -> bool {
+        self.gap.contains(id)
     }
 
     pub fn get_ids_iter(&self) -> impl Iterator<Item = &ProposalShortId> {
@@ -56,8 +62,16 @@ impl TxProposalTable {
             .table
             .range((Bound::Unbounded, Bound::Included(&proposal_end)))
             .map(|pair| pair.1)
-            .flatten()
             .cloned()
+            .flatten()
+            .collect();
+
+        self.gap = self
+            .table
+            .range((Bound::Excluded(&proposal_end), Bound::Unbounded))
+            .map(|pair| pair.1)
+            .cloned()
+            .flatten()
             .collect();
 
         let removed_ids: FnvHashSet<ProposalShortId> =

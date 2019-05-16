@@ -14,6 +14,8 @@ pub struct TxPool {
     pub(crate) config: TxPoolConfig,
     /// The short id that has not been proposed
     pub(crate) pending: PendingQueue,
+    /// The proposal gap
+    pub(crate) gap: PendingQueue,
     /// Tx pool that finely for commit
     pub(crate) proposed: ProposedPool,
     /// Orphans in the pool
@@ -32,6 +34,7 @@ impl TxPool {
         TxPool {
             config,
             pending: PendingQueue::new(),
+            gap: PendingQueue::new(),
             proposed: ProposedPool::new(),
             orphan: OrphanPool::new(),
             conflict: LruCache::new(cache_size),
@@ -42,6 +45,9 @@ impl TxPool {
     pub fn pending_size(&self) -> u32 {
         self.pending.size() as u32
     }
+    pub fn gap_size(&self) -> u32 {
+        self.gap.size() as u32
+    }
     pub fn proposed_size(&self) -> u32 {
         self.proposed.vertices.len() as u32
     }
@@ -49,9 +55,14 @@ impl TxPool {
         self.orphan.vertices.len() as u32
     }
 
-    // enqueue_tx inserts a new transaction into the non-verifiable transaction queue.
+    // enqueue_tx inserts a new transaction into pending queue.
     pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, tx: Transaction) -> bool {
         self.pending.add_tx(cycles, tx).is_none()
+    }
+
+    // add_gap inserts proposed but still uncommittable transaction.
+    pub fn add_gap(&mut self, cycles: Option<Cycle>, tx: Transaction) -> bool {
+        self.gap.add_tx(cycles, tx).is_none()
     }
 
     pub(crate) fn add_orphan(
@@ -95,6 +106,12 @@ impl TxPool {
             .cloned()
             .map(|entry| (entry.transaction, entry.cycles))
             .or_else(|| {
+                self.gap
+                    .get(id)
+                    .cloned()
+                    .map(|entry| (entry.transaction, entry.cycles))
+            })
+            .or_else(|| {
                 self.proposed
                     .get(id)
                     .cloned()
@@ -117,6 +134,7 @@ impl TxPool {
     pub fn get_tx(&self, id: &ProposalShortId) -> Option<Transaction> {
         self.pending
             .get_tx(id)
+            .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.proposed.get_tx(id))
             .or_else(|| self.orphan.get_tx(id))
             .or_else(|| self.conflict.get(id).map(|e| &e.transaction))
@@ -126,6 +144,7 @@ impl TxPool {
     pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<Transaction> {
         self.pending
             .get_tx(id)
+            .or_else(|| self.gap.get_tx(id))
             .or_else(|| self.proposed.get_tx(id))
             .or_else(|| self.orphan.get_tx(id))
             .cloned()
@@ -153,6 +172,9 @@ impl TxPool {
 
     pub fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
         for id in ids {
+            if let Some(entry) = self.gap.remove(id) {
+                self.enqueue_tx(entry.cycles, entry.transaction);
+            }
             if let Some(entries) = self.proposed.remove(id) {
                 for entry in entries {
                     self.enqueue_tx(Some(entry.cycles), entry.transaction);

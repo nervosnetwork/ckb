@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+mod inflight_blocks;
 #[cfg(not(disable_faketime))]
 mod synchronizer;
 

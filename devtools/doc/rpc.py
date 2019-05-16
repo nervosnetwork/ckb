@@ -70,15 +70,13 @@ def print_result(case):
 
 
 def print_toc(cases):
-    print("## JSON-RPC")
-    newline(1)
     module = ""
     for case in cases:
-        method = case["method"]
         if case["module"] != module:
             module = case["module"]
-            print('* [`{}`](#{})'.format(module.capitalize(), method))
-        print('  - [`{}`](#{})'.format(method, method))
+            print('*   [`{}`](#{})'.format(module.capitalize(), module))
+        method = case["method"]
+        print('    *   [`{}`](#{})'.format(method, method))
     newline(1)
 
 
@@ -106,7 +104,13 @@ def main():
 
     cases = sorted(cases, key = lambda x: x["module"] + x["method"])
     print_toc(cases)
+
+    module = ""
     for case in cases:
+        if case["module"] != module:
+            module = case["module"]
+            print('## {}'.format(module.capitalize()))
+            newline(1)
         print_title(case)
         print_description(case)
         print_types(case)
