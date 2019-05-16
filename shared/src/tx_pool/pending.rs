@@ -51,6 +51,10 @@ impl PendingQueue {
         self.inner.keys().take(n).cloned().collect()
     }
 
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &ProposalShortId> {
+        self.inner.keys()
+    }
+
     pub(crate) fn entries(&mut self) -> LinkedFnvHashMapEntries<ProposalShortId, PendingEntry> {
         self.inner.entries()
     }

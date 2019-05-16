@@ -205,6 +205,10 @@ impl<CS: ChainStore> ChainState<CS> {
         self.proposal_ids.contains(id)
     }
 
+    pub fn contains_gap(&self, id: &ProposalShortId) -> bool {
+        self.proposal_ids.contains_gap(id)
+    }
+
     pub fn insert_proposal_ids(&mut self, block: &Block) {
         self.proposal_ids
             .insert(block.header().number(), block.union_proposal_ids());
@@ -268,8 +272,9 @@ impl<CS: ChainStore> ChainState<CS> {
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
         let tx_pool = self.tx_pool.borrow_mut();
         let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
+        let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &proposed_provider);
         let pending_and_proposed_provider =
-            OverlayCellProvider::new(&tx_pool.pending, &proposed_provider);
+            OverlayCellProvider::new(&tx_pool.pending, &gap_and_proposed_provider);
         let mut seen_inputs = FnvHashSet::default();
         resolve_transaction(tx, &mut seen_inputs, &pending_and_proposed_provider, self)
     }
@@ -422,7 +427,8 @@ impl<CS: ChainStore> ChainState<CS> {
         for tx in retain {
             let tx_hash = tx.hash().to_owned();
             let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
-            if self.contains_proposal_id(&tx.proposal_short_id()) {
+            let tx_short_id = tx.proposal_short_id();
+            if self.contains_proposal_id(&tx_short_id) {
                 if let Ok(cycles) =
                     self.proposed_tx_and_descendants(&mut tx_pool, cached_cycles, tx)
                 {
@@ -430,6 +436,8 @@ impl<CS: ChainStore> ChainState<CS> {
                         txs_verify_cache.insert(tx_hash, cycles);
                     }
                 }
+            } else if self.contains_gap(&tx_short_id) {
+                tx_pool.add_gap(cached_cycles, tx);
             } else {
                 tx_pool.enqueue_tx(cached_cycles, tx);
             }
@@ -440,17 +448,36 @@ impl<CS: ChainStore> ChainState<CS> {
         }
 
         let mut entries = Vec::new();
-        for entry in tx_pool.pending.entries() {
+        let mut gaps = Vec::new();
+
+        // pending ---> gap ----> proposed
+        // try move gap to proposed
+        for entry in tx_pool.gap.entries() {
             if self.contains_proposal_id(entry.key()) {
                 let entry = entry.remove();
                 entries.push((entry.cycles, entry.transaction));
             }
         }
 
+        // try move pending to proposed
+        for entry in tx_pool.pending.entries() {
+            if self.contains_proposal_id(entry.key()) {
+                let entry = entry.remove();
+                entries.push((entry.cycles, entry.transaction));
+            } else if self.contains_gap(entry.key()) {
+                let entry = entry.remove();
+                gaps.push((entry.cycles, entry.transaction));
+            }
+        }
+
+        // try move conflict to proposed
         for entry in tx_pool.conflict.entries() {
             if self.contains_proposal_id(entry.key()) {
                 let entry = entry.remove();
                 entries.push((entry.cycles, entry.transaction));
+            } else if self.contains_gap(entry.key()) {
+                let entry = entry.remove();
+                gaps.push((entry.cycles, entry.transaction));
             }
         }
 
@@ -460,6 +487,11 @@ impl<CS: ChainStore> ChainState<CS> {
                 debug!(target: "tx_pool", "Failed to add proposed tx {:x}, reason: {:?}", tx_hash, e);
             }
         }
+
+        for (cycles, tx) in gaps {
+            debug!(target: "tx_pool", "tx proposed, add to gap {:x}", tx.hash());
+            tx_pool.add_gap(cycles, tx);
+        }
     }
 
     pub fn get_last_txs_updated_at(&self) -> u64 {
@@ -468,7 +500,13 @@ impl<CS: ChainStore> ChainState<CS> {
 
     pub fn get_proposals(&self, proposals_limit: usize) -> Vec<ProposalShortId> {
         let tx_pool = self.tx_pool.borrow();
-        tx_pool.pending.fetch(proposals_limit)
+        tx_pool
+            .pending
+            .keys()
+            .chain(tx_pool.gap.keys())
+            .take(proposals_limit)
+            .cloned()
+            .collect()
     }
 
     pub fn get_proposed_txs(
