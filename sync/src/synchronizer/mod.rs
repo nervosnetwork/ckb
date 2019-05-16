@@ -462,21 +462,25 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
-        let peers: Vec<PeerIndex> = self
-            .peers
-            .state
-            .read()
-            .iter()
-            .filter(|(_, state)| state.sync_started)
-            .map(|(peer_id, _)| peer_id)
-            .cloned()
-            .collect();
+        let peers: Vec<PeerIndex> = {
+            self.peers
+                .state
+                .read()
+                .iter()
+                .filter(|(_, state)| state.sync_started)
+                .map(|(peer_id, _)| peer_id)
+                .cloned()
+                .collect()
+        };
 
         trace!(target: "sync", "poll find_blocks_to_fetch select peers");
+        {
+            self.peers.blocks_inflight.write().prune();
+        }
         for peer in peers {
-            if let Some(v_fetch) = self.get_blocks_to_fetch(peer) {
-                if !v_fetch.is_empty() {
-                    self.send_getblocks(&v_fetch, nc, peer);
+            if let Some(fetch) = self.get_blocks_to_fetch(peer) {
+                if !fetch.is_empty() {
+                    self.send_getblocks(&fetch, nc, peer);
                 }
             }
         }

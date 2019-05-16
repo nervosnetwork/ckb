@@ -1,4 +1,6 @@
 use crate::NetworkProtocol;
+use crate::BLOCK_DOWNLOAD_TIMEOUT;
+use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -27,6 +29,7 @@ use std::collections::{
     hash_set::HashSet,
     BTreeMap,
 };
+use std::fmt;
 use std::time::{Duration, Instant};
 
 const FILTER_SIZE: usize = 20000;
@@ -209,7 +212,7 @@ impl KnownFilter {
 pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
     pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
-    pub blocks_inflight: RwLock<FnvHashMap<PeerIndex, BlocksInflight>>,
+    pub blocks_inflight: RwLock<InflightBlocks>,
     pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
     pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
     pub known_txs: Mutex<KnownFilter>,
@@ -217,44 +220,139 @@ pub struct Peers {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlocksInflight {
-    pub timestamp: u64,
-    pub blocks: FnvHashSet<H256>,
+pub struct InflightState {
+    pub(crate) peers: FnvHashSet<PeerIndex>,
+    pub(crate) timestamp: u64,
 }
 
-impl Default for BlocksInflight {
+impl Default for InflightState {
     fn default() -> Self {
-        BlocksInflight {
-            blocks: FnvHashSet::default(),
+        InflightState {
+            peers: FnvHashSet::default(),
             timestamp: unix_time_as_millis(),
         }
     }
 }
 
-impl BlocksInflight {
-    pub fn len(&self) -> usize {
-        self.blocks.len()
+impl InflightState {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn remove(&mut self, peer: &PeerIndex) {
+        self.peers.remove(peer);
+    }
+}
+
+#[derive(Clone)]
+pub struct InflightBlocks {
+    blocks: FnvHashMap<PeerIndex, FnvHashSet<H256>>,
+    states: FnvHashMap<H256, InflightState>,
+}
+
+impl Default for InflightBlocks {
+    fn default() -> Self {
+        InflightBlocks {
+            blocks: FnvHashMap::default(),
+            states: FnvHashMap::default(),
+        }
+    }
+}
+
+struct DebugHastSet<'a>(&'a FnvHashSet<H256>);
+
+impl<'a> fmt::Debug for DebugHastSet<'a> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_set()
+            .entries(self.0.iter().map(|h| format!("{:#x}", h)))
+            .finish()
+    }
+}
+
+impl fmt::Debug for InflightBlocks {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_map()
+            .entries(self.blocks.iter().map(|(k, v)| (k, DebugHastSet(v))))
+            .finish()?;
+        fmt.debug_map()
+            .entries(self.states.iter().map(|(k, v)| (format!("{:#x}", k), v)))
+            .finish()
+    }
+}
+
+impl InflightBlocks {
+    pub fn blocks_iter(&self) -> impl Iterator<Item = (&PeerIndex, &FnvHashSet<H256>)> {
+        self.blocks.iter()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub fn total_inflight_count(&self) -> usize {
+        self.states.len()
     }
 
-    pub fn insert(&mut self, hash: H256) -> bool {
-        self.blocks.insert(hash)
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn peer_inflight_count(&self, peer: &PeerIndex) -> usize {
+        self.blocks.get(peer).map(HashSet::len).unwrap_or(0)
+    }
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn inflight_block_by_peer(&self, peer: &PeerIndex) -> Option<&FnvHashSet<H256>> {
+        self.blocks.get(peer)
     }
 
-    pub fn remove(&mut self, hash: &H256) -> bool {
-        self.blocks.remove(hash)
+    pub fn inflight_state_by_block(&self, block: &H256) -> Option<&InflightState> {
+        self.states.get(block)
     }
 
-    pub fn update_timestamp(&mut self) {
-        self.timestamp = unix_time_as_millis();
+    pub fn prune(&mut self) {
+        let now = unix_time_as_millis();
+        let block = &mut self.blocks;
+        self.states.retain(|k, v| {
+            let outdate = (v.timestamp + BLOCK_DOWNLOAD_TIMEOUT) < now;
+            if outdate {
+                for peer in &v.peers {
+                    block.get_mut(peer).map(|set| set.remove(&k));
+                }
+            }
+            !outdate
+        });
     }
 
-    pub fn clear(&mut self) {
-        self.blocks.clear();
-        self.update_timestamp();
+    pub fn insert(&mut self, peer: PeerIndex, hash: H256) -> bool {
+        let state = self
+            .states
+            .entry(hash.clone())
+            .or_insert_with(InflightState::default);
+        if state.peers.len() >= MAX_PEERS_PER_BLOCK {
+            return false;
+        }
+
+        let blocks = self.blocks.entry(peer).or_insert_with(FnvHashSet::default);
+        let ret = blocks.insert(hash);
+        if ret {
+            state.peers.insert(peer);
+        }
+        ret
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn remove_by_peer(&mut self, peer: &PeerIndex) -> bool {
+        self.blocks
+            .remove(peer)
+            .map(|blocks| {
+                for block in blocks {
+                    if let Some(state) = self.states.get_mut(&block) {
+                        state.remove(peer)
+                    }
+                }
+            })
+            .is_some()
+    }
+
+    pub fn remove_by_block(&mut self, block: &H256) -> bool {
+        self.states
+            .remove(block)
+            .map(|state| {
+                for peer in state.peers {
+                    self.blocks.get_mut(&peer).map(|set| set.remove(block));
+                }
+            })
+            .is_some()
     }
 }
 
@@ -317,22 +415,14 @@ impl Peers {
     pub fn disconnected(&self, peer: PeerIndex) {
         self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
-        self.blocks_inflight.write().remove(&peer);
+        self.blocks_inflight.write().remove_by_peer(&peer);
         self.last_common_headers.write().remove(&peer);
     }
 
     // Return true when the block is that we have requested and received first time.
-    pub fn new_block_received(&self, peer: PeerIndex, block: &Block) -> bool {
+    pub fn new_block_received(&self, block: &Block) -> bool {
         let mut blocks_inflight = self.blocks_inflight.write();
-        let mut is_new = false;
-        debug!(target: "sync", "block_received from peer {} {} {:x}", peer, block.header().number(), block.header().hash());
-        blocks_inflight.entry(peer).and_modify(|inflight| {
-            if inflight.remove(&block.header().hash()) {
-                is_new = true;
-                inflight.update_timestamp();
-            }
-        });
-        is_new
+        blocks_inflight.remove_by_block(block.header().hash())
     }
 
     pub fn set_last_common_header(&self, peer: PeerIndex, header: &Header) {
