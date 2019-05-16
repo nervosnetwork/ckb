@@ -1,4 +1,5 @@
 // use crate::peer_store::Behaviour;
+use crate::peer_store::types::PeerAddr;
 use crate::NetworkState;
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
@@ -207,9 +208,7 @@ impl DiscoveryService {
                                 .collect::<Multiaddr>();
 
                             self.network_state.with_peer_store_mut(|peer_store| {
-                                if !peer_store.add_discovered_addr(&peer_id, addr) {
-                                    trace!(target: "network", "add_discovered_addr failed {:?}", peer_id);
-                                }
+                                peer_store.add_discovered_addr(&peer_id, addr);
                             });
                         }
                     }
@@ -228,7 +227,10 @@ impl DiscoveryService {
                     .with_peer_store(|peer_store| peer_store.random_peers(n as u32));
                 let addrs = random_peers
                     .into_iter()
-                    .filter_map(|(peer_id, mut addr)| {
+                    .filter_map(|paddr| {
+                        let PeerAddr {
+                            mut addr, peer_id, ..
+                        } = paddr;
                         if !self.is_valid_addr(&addr) {
                             return None;
                         }

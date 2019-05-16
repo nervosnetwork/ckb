@@ -1,9 +1,7 @@
 use crate::{
     multiaddr::Multiaddr,
     peer_store::{
-        sqlite::db,
-        sqlite::peer_store::{LAST_CONNECTED_TIMEOUT_SECS, PEER_STORE_LIMIT},
-        PeerStore, SqlitePeerStore, Status,
+        sqlite::db, PeerStore, SqlitePeerStore, Status, ADDR_TIMEOUT_MS, PEER_STORE_LIMIT,
     },
     Behaviour, PeerId, SessionType,
 };
@@ -23,7 +21,7 @@ fn test_add_connected_peer() {
         peer_store.peer_score(&peer_id),
         Some(peer_store.peer_score_config().default_score)
     );
-    assert_eq!(peer_store.peer_addrs(&peer_id, 1).unwrap().len(), 0);
+    assert_eq!(peer_store.peer_addrs(&peer_id, 1).len(), 1);
 }
 
 #[test]
@@ -31,7 +29,7 @@ fn test_add_discovered_addr() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     peer_store.add_discovered_addr(&peer_id, "/ip4/127.0.0.1".parse().unwrap());
-    assert_eq!(peer_store.peer_addrs(&peer_id, 2).unwrap().len(), 1);
+    assert_eq!(peer_store.peer_addrs(&peer_id, 2).len(), 1);
 }
 
 #[test]
@@ -156,10 +154,10 @@ fn test_delete_peer_info() {
     let mut peer_store = new_peer_store();
     let addr1 = "/ip4/127.0.0.1".parse().unwrap();
     let addr2 = "/ip4/192.163.1.1".parse().unwrap();
-    let now = faketime::unix_time();
+    let now = faketime::unix_time_as_millis();
     // prepare peer_info records
     for _ in 0..(PEER_STORE_LIMIT - 2) {
-        db::PeerInfo::insert(
+        db::PeerInfoDB::insert(
             &peer_store.conn,
             &PeerId::random(),
             &addr1,
@@ -173,8 +171,7 @@ fn test_delete_peer_info() {
     let fake_target = PeerId::random();
     {
         // make sure these 2 peers become candidate in eviction
-        let recent_not_seen_time =
-            faketime::unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS + 1);
+        let recent_not_seen_time = faketime::unix_time() - Duration::from_secs(ADDR_TIMEOUT_MS + 1);
         let faketime_file = faketime::millis_tempfile(recent_not_seen_time.as_secs() * 1000)
             .expect("create faketime file");
         faketime::enable(&faketime_file);

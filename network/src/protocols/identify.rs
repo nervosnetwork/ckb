@@ -58,9 +58,7 @@ impl Callback for IdentifyCallback {
             .insert(peer_id.clone(), addrs.clone());
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                if !peer_store.add_discovered_addr(&peer_id, addr) {
-                    trace!(target: "network", "add_discovered_addr failed {:?}", peer_id);
-                }
+                peer_store.add_discovered_addr(&peer_id, addr);
             }
         })
     }
@@ -104,9 +102,7 @@ impl Callback for IdentifyCallback {
             debug!(target: "network", "identify add transformed addr: {:?}", transformed_addr);
             let local_peer_id = self.network_state.local_peer_id();
             self.network_state.with_peer_store_mut(|peer_store| {
-                if !peer_store.add_discovered_addr(local_peer_id, transformed_addr) {
-                    trace!(target: "network", "add_discovered_addr failed {:?}", local_peer_id);
-                }
+                peer_store.add_discovered_addr(local_peer_id, transformed_addr);
             });
         }
         // NOTE: for future usage

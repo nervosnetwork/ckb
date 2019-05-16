@@ -1,6 +1,6 @@
 use crate::errors::Error;
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
-use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
+use crate::peer_store::{sqlite::SqlitePeerStore, types::PeerAddr, PeerStore, Status};
 use crate::protocols::feeler::Feeler;
 use crate::protocols::{
     discovery::{DiscoveryProtocol, DiscoveryService},
@@ -20,7 +20,6 @@ use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use futures::Stream;
 use log::{debug, error, info, trace, warn};
-use lru_cache::LruCache;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     bytes::Bytes,
@@ -33,7 +32,6 @@ use p2p::{
         TargetSession,
     },
     traits::ServiceHandle,
-    utils::extract_peer_id,
     SessionId,
 };
 use p2p_identify::IdentifyProtocol;
@@ -54,13 +52,10 @@ const IDENTIFY_PROTOCOL_ID: usize = 2;
 const FEELER_PROTOCOL_ID: usize = 3;
 
 const ADDR_LIMIT: u32 = 3;
-const FAILED_DIAL_CACHE_SIZE: usize = 100;
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
 const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
 // After 5 minutes we consider this dial hang
 const DIAL_HANG_TIMEOUT: Duration = Duration::from_secs(300);
-// Wait 5 minutes after failed dial this address
-const DIAL_FAILED_WAIT: Duration = Duration::from_secs(300);
 
 type MultiaddrList = Vec<(Multiaddr, u8)>;
 
@@ -74,8 +69,6 @@ pub struct NetworkState {
     peer_registry: RwLock<PeerRegistry>,
     peer_store: Mutex<Box<dyn PeerStore>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
-    // For avoid repeat failed dial
-    failed_dials: Mutex<LruCache<PeerId, Instant>>,
     dialing_addrs: RwLock<FnvHashMap<PeerId, Instant>>,
 
     protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
@@ -124,7 +117,6 @@ impl NetworkState {
             peer_store,
             config,
             peer_registry: RwLock::new(peer_registry),
-            failed_dials: Mutex::new(LruCache::new(FAILED_DIAL_CACHE_SIZE)),
             dialing_addrs: RwLock::new(FnvHashMap::default()),
             listened_addresses: RwLock::new(listened_addresses),
             original_listened_addresses: RwLock::new(Vec::new()),
@@ -353,23 +345,6 @@ impl NetworkState {
             return false;
         }
 
-        if self
-            .failed_dials
-            .lock()
-            .get_refresh(peer_id)
-            .map(|last_dial| last_dial.elapsed() <= DIAL_FAILED_WAIT)
-            .unwrap_or(false)
-        {
-            trace!(
-                target: "network",
-                "Do not dial address failed less than {} seconds: {:?}, {}",
-                DIAL_FAILED_WAIT.as_secs(),
-                peer_id,
-                addr,
-            );
-            return false;
-        }
-
         let peer_in_registry = self.with_peer_registry(|reg| {
             reg.get_key_by_peer_id(peer_id).is_some() || reg.is_feeler(peer_id)
         });
@@ -395,17 +370,8 @@ impl NetworkState {
         true
     }
 
-    pub(crate) fn dial_failed(&self, peer_id: PeerId) {
-        self.with_peer_registry_mut(|reg| {
-            reg.remove_feeler(&peer_id);
-        });
-        self.dialing_addrs.write().remove(&peer_id);
-        self.failed_dials.lock().insert(peer_id, Instant::now());
-    }
-
     pub(crate) fn dial_success(&self, peer_id: &PeerId) {
         self.dialing_addrs.write().remove(peer_id);
-        self.failed_dials.lock().remove(peer_id);
     }
 
     pub fn dial(
@@ -480,15 +446,6 @@ impl ServiceHandle for EventHandler {
                         .write()
                         .insert(addr, std::u8::MAX);
                 }
-
-                let peer_id = extract_peer_id(address).expect("Secio must enabled");
-                if error == &P2pError::PeerIdNotMatch {
-                    debug!(target: "network", "peer id not match delete from peer store: {}", address);
-                    self.network_state.with_peer_store_mut(|peer_store| {
-                        peer_store.delete_peer(&peer_id);
-                    });
-                }
-                self.network_state.dial_failed(peer_id);
             }
             ServiceError::ProtocolError {
                 id,
@@ -982,15 +939,17 @@ impl NetworkController {
             peers
                 .into_iter()
                 .map(|peer| {
+                    // FIXME how to return address score?
                     (
                         peer.peer_id.clone(),
                         peer.clone(),
                         peer_store
                             .peer_addrs(&peer.peer_id, ADDR_LIMIT)
-                            .unwrap_or_default()
                             .into_iter()
-                        // FIXME how to return address score?
-                            .map(|address| (address, 1))
+                            .map(|paddr| {
+                                let PeerAddr { addr, .. } = paddr;
+                                (addr, 1)
+                            })
                             .collect(),
                     )
                 })
