@@ -98,7 +98,7 @@ pub struct BlockAssembler<CS> {
     config: BlockAssemblerConfig,
     work_id: AtomicUsize,
     last_uncles_updated_at: AtomicU64,
-    template_caches: Mutex<LruCache<(Cycle, u64, Version), TemplateCache>>,
+    template_caches: Mutex<LruCache<(H256, Cycle, u64, Version), TemplateCache>>,
     proof_size: usize,
 }
 
@@ -264,26 +264,26 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let store = self.shared.store();
         let header = store.get_tip_header().to_owned().expect("get tip header");
         let number = header.number() + 1;
+        let hash = header.hash().to_owned();
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
-        if let Some(template_cache) = template_caches.get(&(cycles_limit, bytes_limit, version)) {
-            // cache must invalid when tip changed
-            if template_cache.template.number.0 == number {
-                // check template cache outdate time
-                if !template_cache.is_outdate(current_time) {
+        if let Some(template_cache) =
+            template_caches.get(&(hash.to_owned(), cycles_limit, bytes_limit, version))
+        {
+            // check template cache outdate time
+            if !template_cache.is_outdate(current_time) {
+                return Ok(template_cache.template.clone());
+            }
+            // try get chain_state
+            // we give it up if wait more than TRY_LOCK_CHAIN_STATE_TIMEOUT
+            if let Some(chain_state) = self
+                .shared
+                .try_lock_for_chain_state(TRY_LOCK_CHAIN_STATE_TIMEOUT)
+            {
+                let last_txs_updated_at = chain_state.get_last_txs_updated_at();
+                // check our tx_pool wether is modified
+                // we can reuse cache if it is not modidied
+                if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
                     return Ok(template_cache.template.clone());
-                }
-                // try get chain_state
-                // we give it up if wait more than TRY_LOCK_CHAIN_STATE_TIMEOUT
-                if let Some(chain_state) = self
-                    .shared
-                    .try_lock_for_chain_state(TRY_LOCK_CHAIN_STATE_TIMEOUT)
-                {
-                    let last_txs_updated_at = chain_state.get_last_txs_updated_at();
-                    // check our tx_pool wether is modified
-                    // we can reuse cache if it is not modidied
-                    if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
-                        return Ok(template_cache.template.clone());
-                    }
                 }
             }
         }
@@ -345,7 +345,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             current_time: JsonTimestamp(current_time),
             number: JsonBlockNumber(number),
             epoch: JsonEpochNumber(current_epoch.number()),
-            parent_hash: header.hash().to_owned(),
+            parent_hash: hash.to_owned(),
             cycles_limit: JsonCycle(cycles_limit),
             bytes_limit: Unsigned(bytes_limit),
             uncles_count_limit: Unsigned(uncles_count_limit.into()),
@@ -360,7 +360,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         };
 
         template_caches.insert(
-            (cycles_limit, bytes_limit, version),
+            (hash, cycles_limit, bytes_limit, version),
             TemplateCache {
                 time: current_time,
                 uncles_updated_at: last_uncles_updated_at,
@@ -584,9 +584,9 @@ mod tests {
             proposals, // Vec<ProposalShortId>
             cellbase, // CellbaseTemplate
             ..
-                // cycles_limit,
-                // bytes_limit,
-                // uncles_count_limit,
+            // cycles_limit,
+            // bytes_limit,
+            // uncles_count_limit,
         } = block_template;
 
         let cellbase = {
