@@ -7,15 +7,23 @@
 
 ---
 
-## About Nervos CKB
+## About CKB
 
-Nervos CKB is the layer 1 of Nervos Network, a public blockchain with PoW and cell model.
+CKB is the layer 1 of Nervos Network, a public blockchain with PoW, improved Nakamoto concensus, cell model and a new programming model for dApps.
 
-Nervos project defines a suite of scalable and interoperable blockchain protocols. Nervos CKB uses those protocols to create a self-evolving distributed network with a novel economic model, data model and more.
+[Nervos project](https://www.nervos.org) defines [a suite of scalable and interoperable blockchain protocols](https://github.com/nervosnetwork/rfcs) to create a self-evolving distributed economy, [CKB](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0002-ckb/0002-ckb.md) is among them.
 
 **Notice**: The ckb process will send stack trace to sentry on Rust panics.
 This is enabled by default before mainnet, which can be opted out by setting
 the option `dsn` to empty in the config file.
+
+## Testnet Rylai
+
+CKB Testnet *Rylai* is the testing network before its mainnet launch. At this time Rylai will be **RESET** every two weeks.
+
+## Mainnet
+
+TBD.
 
 ## License [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fnervosnetwork%2Fckb.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fnervosnetwork%2Fckb?ref=badge_shield)
 
