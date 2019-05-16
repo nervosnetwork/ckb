@@ -65,6 +65,7 @@ impl Net {
                 ping_interval_secs: 15,
                 ping_timeout_secs: 20,
                 connect_outbound_interval_secs: 1,
+                discovery_local_address: true,
             };
 
             let network_state =
