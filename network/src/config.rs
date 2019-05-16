@@ -22,6 +22,9 @@ pub struct NetworkConfig {
     pub path: PathBuf,
     #[serde(default)]
     pub dns_seeds: Vec<String>,
+    // Set if discovery add local address to peer store
+    #[serde(default)]
+    pub discovery_local_address: bool,
     pub ping_interval_secs: u64,
     pub ping_timeout_secs: u64,
     pub connect_outbound_interval_secs: u64,

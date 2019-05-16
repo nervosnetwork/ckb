@@ -42,7 +42,7 @@ def print_example(case):
 ```bash
 echo '@EXAMPLE' \
 | tr -d '\n' \
-| curl -H 'content-type:application/json' -d @- \
+| curl -H 'content-type: application/json' -d @- \
 http://localhost:8114
 ```"""
     bash = bash.replace(
@@ -72,9 +72,13 @@ def print_result(case):
 def print_toc(cases):
     print("## JSON-RPC")
     newline(1)
+    module = ""
     for case in cases:
         method = case["method"]
-        print('* [`{}`](#{})'.format(method, method))
+        if case["module"] != module:
+            module = case["module"]
+            print('* [`{}`](#{})'.format(module.capitalize(), method))
+        print('  - [`{}`](#{})'.format(method, method))
     newline(1)
 
 
@@ -100,7 +104,7 @@ def main():
     print("# CKB JSON-RPC Protocols")
     newline(2)
 
-    cases = sorted(cases, key = lambda x: x["method"])
+    cases = sorted(cases, key = lambda x: x["module"] + x["method"])
     print_toc(cases)
     for case in cases:
         print_title(case)

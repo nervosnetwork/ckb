@@ -1,7 +1,7 @@
 // use crate::peer_store::Behaviour;
 use crate::NetworkState;
 use fnv::FnvHashMap;
-use futures::{sync::mpsc, sync::oneshot, try_ready, Async, Future, Stream};
+use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
 use log::{debug, error, trace, warn};
 use std::{sync::Arc, time::Duration};
 
@@ -10,7 +10,7 @@ use p2p::{
     multiaddr::{multihash::Multihash, Multiaddr, Protocol},
     secio::PeerId,
     traits::ServiceProtocol,
-    utils::extract_peer_id,
+    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
     SessionId,
 };
 use p2p_discovery::{
@@ -151,41 +151,51 @@ pub struct DiscoveryService {
     event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
     network_state: Arc<NetworkState>,
     sessions: FnvHashMap<SessionId, PeerId>,
+    discovery_local_address: bool,
 }
 
 impl DiscoveryService {
     pub fn new(
         network_state: Arc<NetworkState>,
         event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
+        discovery_local_address: bool,
     ) -> DiscoveryService {
         DiscoveryService {
             event_receiver,
             network_state,
             sessions: FnvHashMap::default(),
+            discovery_local_address,
         }
     }
-}
 
-impl Stream for DiscoveryService {
-    type Item = ();
-    type Error = ();
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        match try_ready!(self.event_receiver.poll()) {
-            Some(DiscoveryEvent::Connected {
+    fn is_valid_addr(&self, addr: &Multiaddr) -> bool {
+        if !self.discovery_local_address {
+            let local_or_invalid = multiaddr_to_socketaddr(&addr)
+                .map(|socket_addr| !is_reachable(socket_addr.ip()))
+                .unwrap_or(true);
+            !local_or_invalid
+        } else {
+            true
+        }
+    }
+
+    fn handle_event(&mut self, event: DiscoveryEvent) {
+        match event {
+            DiscoveryEvent::Connected {
                 session_id,
                 peer_id,
-            }) => {
+            } => {
                 if let Some(peer_id) = peer_id {
                     self.sessions.insert(session_id, peer_id);
                 }
             }
-            Some(DiscoveryEvent::Disconnected(session_id)) => {
+            DiscoveryEvent::Disconnected(session_id) => {
                 self.sessions.remove(&session_id);
             }
-            Some(DiscoveryEvent::AddNewAddrs { session_id, addrs }) => {
+            DiscoveryEvent::AddNewAddrs { session_id, addrs } => {
                 if let Some(_peer_id) = self.sessions.get(&session_id) {
                     // TODO: wait for peer store update
-                    for addr in addrs.into_iter() {
+                    for addr in addrs.into_iter().filter(|addr| self.is_valid_addr(addr)) {
                         trace!(target: "network", "Add discovered address:{:?}", addr);
                         if let Some(peer_id) = extract_peer_id(&addr) {
                             let addr = addr
@@ -205,20 +215,23 @@ impl Stream for DiscoveryService {
                     }
                 }
             }
-            Some(DiscoveryEvent::Misbehave {
+            DiscoveryEvent::Misbehave {
                 session_id: _session_id,
                 kind: _kind,
                 result: _result,
-            }) => {
+            } => {
                 // FIXME:
             }
-            Some(DiscoveryEvent::GetRandom { n, result }) => {
+            DiscoveryEvent::GetRandom { n, result } => {
                 let random_peers = self
                     .network_state
                     .with_peer_store(|peer_store| peer_store.random_peers(n as u32));
                 let addrs = random_peers
                     .into_iter()
                     .filter_map(|(peer_id, mut addr)| {
+                        if !self.is_valid_addr(&addr) {
+                            return None;
+                        }
                         Multihash::from_bytes(peer_id.into_bytes())
                             .ok()
                             .map(move |peer_id_hash| {
@@ -232,12 +245,27 @@ impl Stream for DiscoveryService {
                     .send(addrs)
                     .expect("Send failed (should not happened)");
             }
-            None => {
-                debug!(target: "network", "discovery service shutdown");
-                return Ok(Async::Ready(None));
+        }
+    }
+}
+
+impl Future for DiscoveryService {
+    type Item = ();
+    type Error = ();
+    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+        loop {
+            match self.event_receiver.poll()? {
+                Async::Ready(Some(event)) => {
+                    self.handle_event(event);
+                }
+                Async::Ready(None) => {
+                    debug!(target: "network", "discovery service shutdown");
+                    return Ok(Async::Ready(()));
+                }
+                Async::NotReady => break,
             }
         }
-        Ok(Async::Ready(Some(())))
+        Ok(Async::NotReady)
     }
 }
 

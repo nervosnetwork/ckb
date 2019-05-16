@@ -1,5 +1,5 @@
 use crate::NetworkState;
-use futures::{try_ready, Async, Stream};
+use futures::{Async, Future, Stream};
 use log::{debug, trace, warn};
 use p2p::service::ServiceControl;
 use std::sync::Arc;
@@ -10,9 +10,11 @@ use tokio::timer::Interval;
 const FEELER_CONNECTION_COUNT: u32 = 5;
 
 pub struct OutboundPeerService {
-    pub stream_interval: Interval,
-    pub network_state: Arc<NetworkState>,
-    pub p2p_control: ServiceControl,
+    network_state: Arc<NetworkState>,
+    p2p_control: ServiceControl,
+    interval: Interval,
+    try_connect_interval: Duration,
+    last_connect: Option<Instant>,
 }
 
 impl OutboundPeerService {
@@ -24,7 +26,9 @@ impl OutboundPeerService {
         OutboundPeerService {
             network_state,
             p2p_control,
-            stream_interval: Interval::new_interval(try_connect_interval),
+            interval: Interval::new(Instant::now(), Duration::from_secs(1)),
+            try_connect_interval,
+            last_connect: None,
         }
     }
 
@@ -77,28 +81,43 @@ impl OutboundPeerService {
     }
 }
 
-impl Stream for OutboundPeerService {
+impl Future for OutboundPeerService {
     type Item = ();
     type Error = ();
 
-    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        match try_ready!(self.stream_interval.poll().map_err(|_| ())) {
-            Some(_tick) => {
-                let status = self.network_state.connection_status();
-                let new_outbound = status.max_outbound - status.unreserved_outbound;
-                if new_outbound > 0 {
-                    // dial peers
-                    self.attempt_dial_peers(new_outbound as u32);
-                } else {
-                    // feeler peers
-                    self.feeler_peers(FEELER_CONNECTION_COUNT);
+    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+        loop {
+            match self.interval.poll() {
+                Ok(Async::Ready(Some(_tick))) => {
+                    let last_connect = self
+                        .last_connect
+                        .map(|time| time.elapsed())
+                        .unwrap_or(Duration::from_secs(std::u64::MAX));
+                    if last_connect > self.try_connect_interval {
+                        let status = self.network_state.connection_status();
+                        let new_outbound = status.max_outbound - status.unreserved_outbound;
+                        if new_outbound > 0 {
+                            // dial peers
+                            self.attempt_dial_peers(new_outbound as u32);
+                        } else {
+                            // feeler peers
+                            self.feeler_peers(FEELER_CONNECTION_COUNT);
+                        }
+                        self.last_connect = Some(Instant::now());
+                    }
+                }
+                Ok(Async::Ready(None)) => {
+                    warn!(target: "network", "ckb outbound peer service stopped");
+                    return Ok(Async::Ready(()));
+                }
+                Ok(Async::NotReady) => {
+                    return Ok(Async::NotReady);
+                }
+                Err(err) => {
+                    warn!(target: "network", "outbound peer service stopped because: {:?}", err);
+                    return Err(());
                 }
             }
-            None => {
-                warn!(target: "network", "ckb outbound peer service stopped");
-                return Ok(Async::Ready(None));
-            }
         }
-        Ok(Async::Ready(Some(())))
     }
 }
