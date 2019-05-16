@@ -36,7 +36,7 @@ where
             total_difficulty,
         }
     }
-    pub fn check_inflight(&self) -> bool {
+    pub fn reached_inflight_limit(&self) -> bool {
         let inflight = self.synchronizer.peers.blocks_inflight.read();
 
         // Can't download any more from this peer
@@ -109,7 +109,7 @@ where
     pub fn fetch(self) -> Option<Vec<H256>> {
         trace!(target: "sync", "[block downloader] BlockFetcher process");
 
-        if self.check_inflight() {
+        if self.reached_inflight_limit() {
             trace!(
                 target: "sync",
                 "[block downloader] inflight count reach limit, can't download any more from peer {}",
