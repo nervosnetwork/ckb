@@ -54,7 +54,6 @@ pub trait PeerStore: Send {
     /// Update peer status
     fn update_status(&self, peer_id: &PeerId, status: Status);
     fn peer_status(&self, peer_id: &PeerId) -> Status;
-    fn peer_score(&self, peer_id: &PeerId) -> Option<Score>;
     /// Add bootnode
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr);
     /// This method randomly return peers, it return bootnodes if no other peers in PeerStore.

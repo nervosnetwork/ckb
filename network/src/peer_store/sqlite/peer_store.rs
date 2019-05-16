@@ -15,7 +15,7 @@ use crate::network_group::MultiaddrExt;
 use crate::peer_store::sqlite::{db, DBError};
 use crate::peer_store::types::{PeerAddr, PeerInfo};
 use crate::peer_store::{
-    Behaviour, Multiaddr, PeerId, PeerScoreConfig, PeerStore, ReportResult, Score, Status,
+    Behaviour, Multiaddr, PeerId, PeerScoreConfig, PeerStore, ReportResult, Status,
 };
 use crate::peer_store::{
     ADDR_TIMEOUT_MS, BAN_LIST_CLEAR_EXPIRES_SIZE, DEFAULT_ADDRS, MAX_ADDRS, PEER_STORE_LIMIT,
@@ -289,10 +289,6 @@ impl PeerStore for SqlitePeerStore {
         self.get_peer_info(peer_id)
             .map(|peer| peer.status)
             .unwrap_or_else(|| Status::Unknown)
-    }
-
-    fn peer_score(&self, peer_id: &PeerId) -> Option<Score> {
-        self.get_peer_info(peer_id).map(|peer| peer.score)
     }
 
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr) {

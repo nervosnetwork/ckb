@@ -17,10 +17,6 @@ fn test_add_connected_peer() {
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".parse().unwrap();
     peer_store.add_connected_peer(&peer_id, addr, SessionType::Outbound);
-    assert_eq!(
-        peer_store.peer_score(&peer_id),
-        Some(peer_store.peer_score_config().default_score)
-    );
     assert_eq!(peer_store.peer_addrs(&peer_id, 1).len(), 1);
 }
 
@@ -37,10 +33,10 @@ fn test_report() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     assert!(peer_store.report(&peer_id, Behaviour::TestGood).is_ok());
-    assert!(
-        peer_store.peer_score(&peer_id).expect("peer score")
-            > peer_store.peer_score_config().default_score
-    );
+    // assert!(
+    //     peer_store.peer_score(&peer_id).expect("peer score")
+    //         > peer_store.peer_score_config().default_score
+    // );
 }
 
 #[test]
@@ -181,13 +177,12 @@ fn test_delete_peer_info() {
     peer_store.report(&evict_target, Behaviour::TestBad);
     peer_store.report(&fake_target, Behaviour::TestBad);
     peer_store.report(&fake_target, Behaviour::TestBad);
-    // evict_target has lower score than init score
-    assert!(
-        peer_store.peer_score(&evict_target).expect("peer store")
-            < peer_store.peer_score_config().default_score
-    );
     // should evict evict_target and accept this
     peer_store.add_connected_peer(&PeerId::random(), addr1, SessionType::Inbound);
     // evict_target is evicted in previous step
-    assert_eq!(peer_store.peer_score(&evict_target), None);
+    assert!(
+        db::PeerInfoDB::get_by_peer_id(&peer_store.conn, &evict_target)
+            .expect("get peer")
+            .is_none()
+    );
 }
