@@ -40,22 +40,7 @@ impl OutboundPeerService {
         trace!(target: "network", "count={}, attempt_peers: {:?}", count, attempt_peers);
         for (peer_id, addr) in attempt_peers
             .into_iter()
-            .filter(|(peer_id, _addr)| {
-                self.network_state.local_peer_id() != peer_id
-                    && !self
-                        .network_state
-                        .with_peer_registry(|reg| reg.is_feeler(peer_id))
-                    && self
-                        .network_state
-                        .failed_dials
-                        .read()
-                        .get(peer_id)
-                        .map(|last_dial| {
-                            // Dial after 5 minutes when last failed
-                            Instant::now() - *last_dial > Duration::from_secs(300)
-                        })
-                        .unwrap_or(true)
-            })
+            .filter(|(peer_id, addr)| self.network_state.can_dial(peer_id, addr))
             .take(count as usize)
         {
             debug!(target: "network", "dial attempt peer: {:?}", addr);
@@ -66,11 +51,11 @@ impl OutboundPeerService {
     fn feeler_peers(&mut self, count: u32) {
         let peers = self
             .network_state
-            .with_peer_store(|peer_store| peer_store.peers_to_feeler(count));
+            .with_peer_store(|peer_store| peer_store.peers_to_feeler(count + 5));
         let p2p_control = self.p2p_control.clone();
         for (peer_id, addr) in peers
             .into_iter()
-            .filter(|(peer_id, _addr)| self.network_state.local_peer_id() != peer_id)
+            .filter(|(peer_id, addr)| self.network_state.can_dial(peer_id, addr))
         {
             self.network_state.with_peer_registry_mut(|reg| {
                 reg.add_feeler(peer_id.clone());
