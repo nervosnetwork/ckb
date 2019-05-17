@@ -198,6 +198,7 @@ impl PeerStore for SqlitePeerStore {
         if self.check_store_limit().is_err() {
             return;
         }
+
         let now = unix_time_as_millis();
         let default_peer_score = self.peer_score_config().default_score;
         // upsert peer_info
