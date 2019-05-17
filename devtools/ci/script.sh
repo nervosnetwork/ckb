@@ -23,6 +23,7 @@ fold() {
   fold_end
 }
 
+exec git log
 # Run test only in master branch and pull requests
 RUN_TEST=false
 # Run integration only in master, develop and rc branches
