@@ -28,11 +28,11 @@ use std::sync::Mutex;
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
 
-fn cell_store_key(tx_hash: &H256, index: u32) -> Vec<u8> {
+fn cell_store_key(tx_hash: &H256, index: u32) -> [u8; 36] {
     let mut key: [u8; 36] = [0; 36];
     key[..32].copy_from_slice(tx_hash.as_bytes());
     key[32..36].copy_from_slice(&index.to_be_bytes());
-    key.to_vec()
+    key
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]

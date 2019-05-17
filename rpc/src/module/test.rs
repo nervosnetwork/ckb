@@ -3,12 +3,11 @@ use ckb_core::block::Block as CoreBlock;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use jsonrpc_core::{Error, Result};
+use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::Block;
 use log::error;
 use numext_fixed_hash::H256;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 #[rpc]
@@ -47,10 +46,7 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
     }
 
     fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>> {
-        let block: Arc<CoreBlock> = Arc::new(
-            data.try_into()
-                .map_err(|err| Error::invalid_params(format!("parse block error: {}", err)))?,
-        );
+        let block: Arc<CoreBlock> = Arc::new(data.into());
         let ret = self.chain.process_block(Arc::clone(&block), false);
         if ret.is_ok() {
             Ok(Some(block.header().hash().to_owned()))
