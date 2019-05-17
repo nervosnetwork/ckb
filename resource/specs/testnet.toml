@@ -3,11 +3,11 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1557844038000
+timestamp = 1558137600000
 difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x8dde740343e6a98b126e00a0080f92cdb6486f572d0b25fd0615cbcecffb0f5d"
+hash = "0xaad9b82caa07f5989dfb8caa44927f0bab515a96ccaaceba82c7bea609fec205"
 issued_cells = []
 
 [genesis.seal]

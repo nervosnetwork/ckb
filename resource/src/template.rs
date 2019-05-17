@@ -41,7 +41,8 @@ fn writeln<W: io::Write>(w: &mut W, s: &str, context: &TemplateContext) -> io::R
     writeln!(
         w,
         "{}",
-        s.replace("{rpc_port}", context.rpc_port)
+        s.replace("\\n", "\n")
+            .replace("{rpc_port}", context.rpc_port)
             .replace("{p2p_port}", context.p2p_port)
             .replace("{log_to_file}", &format!("{}", context.log_to_file))
             .replace("{log_to_stdout}", &format!("{}", context.log_to_stdout))

@@ -1,6 +1,148 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [v0.12.0](https://github.com/nervosnetwork/ckb/compare/v0.11.0...v0.12.0) (2019-05-18)
+
+### Features
+
+* #633: Remove cycles config from miner (@zhangsoledad)
+* #614: Verify compact block (@keroro520)
+* #642: Incorporate assembly based CKB VM interpreter (@xxuejie)
+* #622: Allow type script in cellbase (@quake)
+* #620: Generalize OutPoint struct to reference headers as well (@xxuejie)
+* #651: Add syscall to load current script hash (@xxuejie)
+* #656: Add rpc `get_epoch_by_number` (@keroro520)
+* #662: Add txs verify cache (@zhangsoledad)
+* #670: Upgrade CKB VM version (@xxuejie)
+
+    The new version contains fixes for 2 bugs revealed in comprehensive testing.
+
+* #675: Limit sync header timeout by `MAX_HEADERS_LEN` (@keroro520)
+* #678: Update lock script due to protocol changes (@xxuejie)
+* #671: Add rpc get blockchain info (@keroro520)
+
+    * Add rpc `get_blockchain_info`
+    * Add rpc `get_peers_state`, currently only return the info of blocks synchronizing in flight.
+
+* #653: Add rpc experiment module (@keroro520)
+
+    * Add rpc `dry_run_transaction`
+    * Add rpc `_compute_transaction_id`
+    * Enable Experiment moduel by default
+
+* #689: Upgrade VM to latest version (@xxuejie)
+
+    Noticeable changes here include:
+
+    * Shrink VM memory from 16MB to 4MB now for both resource usage and performance
+    * Use Bytes in VM API to avoid unnecessary copying
+    * Use i8 as VM return code for better debugging
+
+* #686: Update default lock script to sign on transaction hash now (@xxuejie)
+* #690: Use script to generate rpc doc (@keroro520)
+* #701: Remove always success code hash (@xxuejie)
+* #703: Stringify numbers in rpc (@keroro520)
+* #709: Database save positions of CellOutputs in Transaction (@yangby-cryptape)
+* #720: Move DryRuResult into jsonrpc-types (@keroro520)
+
+    * Move `DryRunResult` into jsonrpc-types
+    * Complete rpc-client used in integration testing
+
+* #718: Initial NervosDAO implementation (@xxuejie)
+
+    Note that this is now implemented as a native module for the ease of experimenting ideas. We will move this to a separate script later when we know more about what the actual NervosDAO implementation should look like.
+
+* #714: Enforce resolve txs order within block (@zhangsoledad)
+
+    Transactions are expected to be sorted within a block
+    Transactions have to appear after any transactions upon which they depend
+
+* #731: Use `future_task` to avoid blocking (@jjyr)
+* #735: Panic if it's likely to reach a deadlock (@yangby-cryptape)
+* #742: Verify uncle max proposals limit (@zhangsoledad)
+* #736: Transaction since field support epoch-based verification rule (@jjyr)
+* #745: Genesis block customization (@doitian)
+* #772: Prof support start from non-zero block (@jjyr)
+* #781: Add secp256k1 in dev chainspec (@doitian)
+* #811: Upgrade CKB VM to latest version with performance improvements (@xxuejie)
+* #822: Add load witness syscall (@xxuejie)
+* #806: `peer_store` support retry and refresh (@jjyr)
+* #579: epoch revision (@zhangsoledad)
+* #632: Ignore staled block (@keroro520)
+
+### Bug Fixes
+
+* #643: A bug caused by merging a stale branch (@yangby-cryptape)
+* #641: Spec consensus params (@zhangsoledad)
+* #652: epoch init (@zhangsoledad)
+* #655: Use the String alias type EpochNumber (@ashchan)
+* #660: Information is inconsistent with the transaction pool display (@driftluo)
+* #673 **tx\_pool:** insertion order when chain reorg (@zhangsoledad)
+* #681: TxPoolExecutor return inconsistent result (@jjyr)
+* #692: respond parse error to miner (@jjyr)
+* #685: TxPoolExecutor panic when tx conflict (@jjyr)
+* #695: metric transaction header mem size (@zhangsoledad)
+* #688: initial block download blocked (@TheWaWaR)
+* #698: blocktemplate `size_limit` calculate (@zhangsoledad)
+* #697: Update p2p library fix network OOM issue (@TheWaWaR)
+* #699: Use random port (@keroro520)
+* #702: Compact block message flood (@quake)
+* #700: Outpoint memsize (@zhangsoledad)
+* #711: Update p2p to 0.2.0-alpha.11 fix send message timeout bug (@TheWaWaR)
+* #712: Proposal finalize (@zhangsoledad)
+* #744: block inflight timeout (@zhangsoledad)
+* #743: increase protocols time event interval (@jjyr)
+* #749 **deps:** upgrade p2p to 0.2.0-alpha.14 (@TheWaWaR)
+
+    * upgrade p2p to 0.2.0-alpha.14
+    * remove peer from peer store when peer id not match
+    * Rollback sync/relay notify interval
+
+* #751: token unreachable bug (@TheWaWaR)
+* #753: genesis epoch remainder reward (@zhangsoledad)
+* #746: block size calculation should not include uncle's proposal zones (@zhangsoledad)
+* #758: fix NervosDAO calculation logic (@xxuejie)
+* #776 **deps:** Upgrade p2p fix gracefully shutdown network service (@TheWaWaR)
+
+    ✨ Silky smooth `Ctrl + C` experience ✨
+
+* #788: correct `block_median_count` (@keroro520)
+* #793: Outbound peer service and discovery service (@TheWaWaR)
+* #797 **network:** Avoid dial too often (@TheWaWaR)
+* #819: `load_script_hash` should use script's own hash for lock script (@xxuejie)
+* #820: proposal deduplication (@zhangsoledad)
+* #739: next epoch calculate off-by-one (@zhangsoledad)
+
+### Improvements
+
+* #729: stop processing all relay messages on IBD mod and avoiding compact block message flood (@quake)
+* #640: calculate some hashes when constructing (@yangby-cryptape)
+* #734: refactor block verification (@zhangsoledad)
+* #634: avoiding unnecessary store lookup and trait bound tweak (@quake)
+* #591: specify different structs for JSON-RPC requests and responses (@yangby-cryptape)
+* #659: move VM config from chain spec to CKB config file (@xxuejie)
+* #657: remove ProposalShortId hash and Proposals root (@yangby-cryptape)
+* #668: store transaction hashes into database to avoid computing them again (@yangby-cryptape)
+* #706: improve core type fmt debug (@zhangsoledad)
+* #715: rename staging to proposed and remove trace RPC (@zhangsoledad)
+* #724: don't repeat resolve tx when calculate tx fee (@zhangsoledad)
+* #732: move `verification` field from ChainService struct to `process_block` fn params (@quake)
+* #723: revise VM syscalls used in CKB (@xxuejie)
+* #754 **network:** Spawn more than 4 tokio core threads when possible (@TheWaWaR)
+* #805: only parallelism verify tx in block verifier (@quake)
+* #747: make pow verify logic consistent with resolve (@zhangsoledad)
+
+### BREAKING CHANGES
+
+- Database version is incompatible, please remove the old data dir.
+- Genesis header hash changed.
+- Genesis cellbase transaction hash changed.
+- System cells start from 1 in the genesis cellbase outputs instead of 0.
+- System cells lock changed from all zeros to always fail.
+- Always success is no longer included in dev genesis block.
+- Header format changed, use proposals hash to replace proposals root.
+
+
 # [v0.11.0](https://github.com/nervosnetwork/ckb/compare/v0.10.0...v0.11.0) (2019-05-14)
 
 ### Features
