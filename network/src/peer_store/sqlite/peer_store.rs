@@ -10,7 +10,6 @@
 //!    score.
 //! 4. Good peers can get higher score than bad peers.
 
-
 use crate::network_group::MultiaddrExt;
 use crate::peer_store::sqlite::{db, DBError};
 use crate::peer_store::types::{PeerAddr, PeerInfo};
