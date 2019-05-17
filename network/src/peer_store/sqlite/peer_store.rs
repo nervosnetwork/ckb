@@ -1,37 +1,29 @@
+//! SqlitePeerStore
+//! Principles:
+//! 1. PeerId is easy to be generated, should never use a PeerId as an identity.
+//! 2. Peer's connected addr should be use as an identify to ban a peer, it is based on our
+//!    assumption that IP is a limited resource.
+
 use crate::network_group::MultiaddrExt;
 use crate::peer_store::sqlite::{db, DBError};
-/// SqlitePeerStore
-/// Principles:
-/// 1. PeerId is easy to be generated, should never use a PeerId as an identity.
-/// 2. Peer's connected addr should be use as an identify to ban a peer, it is based on our
-///    assumption that IP is a limited resource.
-/// Solution:
-/// 1. Through PeerId to ban or score a peer.
-/// 2. When a peer get banned we also ban peer's connected addr.
-/// 3. A bad peer can always avoid punishment by change it's PeerId, but it can't get high
-///    score.
-/// 4. Good peers can get higher score than bad peers.
+use crate::peer_store::types::{PeerAddr, PeerInfo};
 use crate::peer_store::{
-    Behaviour, Multiaddr, PeerId, PeerScoreConfig, PeerStore, ReportResult, Score, Status,
+    Behaviour, Multiaddr, PeerId, PeerScoreConfig, PeerStore, ReportResult, Status,
+};
+use crate::peer_store::{
+    ADDR_TIMEOUT_MS, BAN_LIST_CLEAR_EXPIRES_SIZE, DEFAULT_ADDRS, MAX_ADDRS, PEER_STORE_LIMIT,
 };
 use crate::SessionType;
-use faketime::unix_time;
+use faketime::unix_time_as_millis;
 use fnv::FnvHashMap;
+use rand::{seq::SliceRandom, thread_rng};
 use rusqlite::Connection;
 use std::time::Duration;
-
-/// After this limitation, peer store will try to eviction peers
-pub(crate) const PEER_STORE_LIMIT: u32 = 8192;
-/// Consider we never seen a peer if peer's last_connected_at beyond this timeout
-pub(crate) const LAST_CONNECTED_TIMEOUT_SECS: u64 = 14 * 24 * 3600;
-/// Clear banned list if the list reach this size
-const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 1024;
-const DEFAULT_ADDRS: u32 = 3;
 
 pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     peer_score_config: PeerScoreConfig,
-    ban_list: FnvHashMap<Vec<u8>, Duration>,
+    ban_list: FnvHashMap<Vec<u8>, u64>,
     pub(crate) conn: Connection,
 }
 
@@ -73,12 +65,12 @@ impl SqlitePeerStore {
     }
 
     fn reset_status(&self) -> Result<usize, DBError> {
-        db::PeerInfo::reset_status(&self.conn)
+        db::PeerInfoDB::reset_status(&self.conn)
     }
 
     fn load_banlist(&mut self) -> Result<(), DBError> {
         self.clear_expires_banned_ip()?;
-        let now = unix_time();
+        let now = unix_time_as_millis();
         let ban_records = db::get_ban_records(&self.conn, now)?;
         for (ip, ban_time) in ban_records {
             self.ban_list.insert(ip, ban_time);
@@ -93,7 +85,7 @@ impl SqlitePeerStore {
                 None => return,
             }
         };
-        let ban_time = unix_time() + timeout;
+        let ban_time = unix_time_as_millis() + (timeout.as_millis() as u64);
         db::insert_ban_record(&self.conn, &ip, ban_time).expect("ban ip");
         self.ban_list.insert(ip, ban_time);
         if self.ban_list.len() > BAN_LIST_CLEAR_EXPIRES_SIZE {
@@ -106,7 +98,7 @@ impl SqlitePeerStore {
             Some(ip) => ip,
             None => return false,
         };
-        let now = unix_time();
+        let now = unix_time_as_millis();
         match self.ban_list.get(&ip) {
             Some(ban_time) => *ban_time > now,
             None => false,
@@ -114,7 +106,7 @@ impl SqlitePeerStore {
     }
 
     fn clear_expires_banned_ip(&mut self) -> Result<(), DBError> {
-        let now = unix_time();
+        let now = unix_time_as_millis();
         let ips = db::clear_expires_banned_ip(&self.conn, now)?;
         for ip in ips {
             self.ban_list.remove(&ip);
@@ -124,17 +116,17 @@ impl SqlitePeerStore {
 
     /// check and try delete peer_info if peer_infos reach limit
     fn check_store_limit(&mut self) -> Result<(), ()> {
-        let peer_info_count = db::PeerInfo::count(&self.conn).expect("peer info count");
+        let peer_info_count = db::PeerInfoDB::count(&self.conn).expect("peer info count");
         if peer_info_count < PEER_STORE_LIMIT {
             return Ok(());
         }
         let candidate_peers = {
-            let peers = db::PeerInfo::largest_network_group(&self.conn)
+            let peers = db::PeerInfoDB::largest_network_group(&self.conn)
                 .expect("query largest network group");
-            let not_seen_timeout = unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS);
+            let not_seen_timeout = unix_time_as_millis() - ADDR_TIMEOUT_MS;
             peers
                 .into_iter()
-                .filter(move |peer| peer.last_connected_at < not_seen_timeout)
+                .filter(move |peer| peer.last_connected_at_ms < not_seen_timeout)
         };
         let candidate_peer = match candidate_peers.min_by_key(|peer| peer.score) {
             Some(peer) => peer,
@@ -146,44 +138,58 @@ impl SqlitePeerStore {
         }
 
         let tx = self.conn.transaction().expect("db tx");
-        db::PeerInfo::delete(&tx, candidate_peer.id).expect("delete peer error");
-        db::PeerAddr::delete_by_peer_id(&tx, candidate_peer.id)
+        db::PeerInfoDB::delete(&tx, &candidate_peer.peer_id).expect("delete peer error");
+        db::PeerAddrDB::delete_by_peer_id(&tx, &candidate_peer.peer_id)
             .expect("delete peer by peer_id error");
         tx.commit().expect("delete peer error");
         Ok(())
     }
 
-    fn fetch_peer_info(&self, peer_id: &PeerId) -> db::PeerInfo {
+    /// check and try delete peer_addr if peer_addr reach limit
+    fn check_limit_and_evict_peer_addrs(&mut self, peer_id: &PeerId) {
+        let now = unix_time_as_millis();
+        let peer_addrs_count = db::PeerAddrDB::count(&self.conn, peer_id).expect("peer info count");
+        if peer_addrs_count < MAX_ADDRS {
+            return;
+        }
+        let mut peer_addrs =
+            db::PeerAddrDB::get_addrs(&self.conn, peer_id, MAX_ADDRS).expect("peer addrs");
+        let mut terrible_addrs_count = 0;
+        for paddr in &peer_addrs {
+            if paddr.is_terrible(now) {
+                db::PeerAddrDB::delete(&self.conn, &paddr.peer_id, &paddr.addr)
+                    .expect("delete peer addr");
+                terrible_addrs_count += 1;
+            }
+        }
+        // have evict addrs
+        if terrible_addrs_count > 0 {
+            return;
+        }
+        // find oldest last_connected_at_ms addr
+        peer_addrs.sort_by_key(|paddr| paddr.last_connected_at_ms);
+        if let Some(old_peer_addr) = peer_addrs.get(0) {
+            db::PeerAddrDB::delete(&self.conn, &old_peer_addr.peer_id, &old_peer_addr.addr)
+                .expect("evict peer addr");
+        }
+    }
+
+    fn fetch_peer_info(&self, peer_id: &PeerId) -> PeerInfo {
         let blank_addr = &Multiaddr::empty();
-        db::PeerInfo::get_or_insert(
+        db::PeerInfoDB::get_or_insert(
             &self.conn,
             peer_id,
             &blank_addr,
             SessionType::Inbound,
             self.peer_score_config.default_score,
-            Duration::from_secs(0),
+            0,
         )
         .expect("get or insert")
         .expect("must have peer info")
     }
 
-    fn get_peer_info(&self, peer_id: &PeerId) -> Option<db::PeerInfo> {
-        db::PeerInfo::get_by_peer_id(&self.conn, peer_id).expect("get peer info")
-    }
-
-    fn find_addrs_for_peers(
-        &self,
-        conn: &rusqlite::Connection,
-        peers: Vec<(u32, PeerId)>,
-    ) -> Result<Vec<(PeerId, Multiaddr)>, DBError> {
-        let mut peer_addrs = Vec::with_capacity(peers.len());
-        for (id, peer_id) in peers {
-            let addrs = db::PeerAddr::get_addrs(conn, id, DEFAULT_ADDRS)?;
-            if let Some(addr) = addrs.into_iter().find(|addr| !self.is_addr_banned(&addr)) {
-                peer_addrs.push((peer_id, addr));
-            }
-        }
-        Ok(peer_addrs)
+    fn get_peer_info(&self, peer_id: &PeerId) -> Option<PeerInfo> {
+        db::PeerInfoDB::get_by_peer_id(&self.conn, peer_id).expect("get peer info")
     }
 }
 
@@ -192,15 +198,15 @@ impl PeerStore for SqlitePeerStore {
         if self.check_store_limit().is_err() {
             return;
         }
-        let now = unix_time();
+        let now = unix_time_as_millis();
         let default_peer_score = self.peer_score_config().default_score;
         // upsert peer_info
-        db::PeerInfo::update(&self.conn, peer_id, &addr, endpoint, now)
+        db::PeerInfoDB::update(&self.conn, peer_id, &addr, endpoint, now)
             .and_then(|affected_lines| {
                 if affected_lines > 0 {
                     Ok(())
                 } else {
-                    db::PeerInfo::insert(
+                    db::PeerInfoDB::insert(
                         &self.conn,
                         peer_id,
                         &addr,
@@ -213,55 +219,58 @@ impl PeerStore for SqlitePeerStore {
             })
             .expect("update peer failed");
 
+        // update peer connected_info if outbound
         if endpoint.is_outbound() {
-            let peer = db::PeerInfo::get_by_peer_id(&self.conn, peer_id)
-                .expect("get_by_peer_id failed")
-                .expect("must have");
-            db::PeerAddr::update_connected_at(&self.conn, peer.id, addr, now)
-                .expect("update connected at");
-        }
-    }
-
-    fn add_discovered_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) -> bool {
-        // peer store is full
-        if self.check_store_limit().is_err() {
-            return false;
-        }
-        let peer_info = self.fetch_peer_info(peer_id);
-        let inserted =
-            db::PeerAddr::insert(&self.conn, peer_info.id, &addr, Duration::from_secs(0))
+            // update peer_addr if addr already exists
+            if let Some(mut paddr) =
+                db::PeerAddrDB::get(&self.conn, &peer_id, &addr).expect("get peer addr")
+            {
+                paddr.mark_connected(now);
+                db::PeerAddrDB::insert_or_update(&self.conn, &paddr).expect("insert peer addr");
+            } else {
+                db::PeerAddrDB::insert_or_update(
+                    &self.conn,
+                    &PeerAddr::new(peer_id.to_owned(), addr, now),
+                )
                 .expect("insert addr");
-        inserted > 0
+            }
+        }
     }
 
-    fn delete_peer(&mut self, peer_id: &PeerId) {
-        let info = db::PeerInfo::get_by_peer_id(&self.conn, peer_id)
-            .expect("get peer info failed")
-            .expect("get peer info failed opt");
-        let tx = self.conn.transaction().expect("db tx");
-        db::PeerInfo::delete(&tx, info.id).expect("delete peer error");
-        db::PeerAddr::delete_by_peer_id(&tx, info.id).expect("delete peer by peer_id error");
-        tx.commit().expect("delete peer error");
+    fn add_discovered_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) {
+        // check and evict addrs if reach limit
+        self.check_limit_and_evict_peer_addrs(peer_id);
+        // insert a peer if peer not exists in db
+        let peer = self.fetch_peer_info(peer_id);
+        db::PeerAddrDB::insert_or_update(
+            &self.conn,
+            &PeerAddr::new(peer.peer_id.to_owned(), addr, 0),
+        )
+        .expect("insert addr");
+    }
+
+    fn update_peer_addr(&mut self, peer_addr: &PeerAddr) {
+        // check and evict addrs if reach limit
+        self.check_limit_and_evict_peer_addrs(&peer_addr.peer_id);
+        db::PeerAddrDB::insert_or_update(&self.conn, peer_addr).expect("insert addr");
     }
 
     fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult {
-        if self.is_banned(peer_id) {
+        let peer = self.fetch_peer_info(peer_id);
+        if self.is_banned(&peer.connected_addr) {
             return ReportResult::Banned;
         }
-        let peer = self.fetch_peer_info(peer_id);
         let score = peer.score.saturating_add(behaviour.score());
         if score < self.peer_score_config.ban_score {
-            self.ban_peer(peer_id, self.peer_score_config.ban_timeout);
+            self.ban_addr(&peer.connected_addr, self.peer_score_config.ban_timeout);
             return ReportResult::Banned;
         }
-        db::PeerInfo::update_score(&self.conn, peer.id, score).expect("update peer score");
+        db::PeerInfoDB::update_score(&self.conn, &peer.peer_id, score).expect("update peer score");
         ReportResult::Ok
     }
 
     fn update_status(&self, peer_id: &PeerId, status: Status) {
-        if let Some(peer) = self.get_peer_info(peer_id) {
-            db::PeerInfo::update_status(&self.conn, peer.id, status).expect("update status");
-        }
+        db::PeerInfoDB::update_status(&self.conn, &peer_id, status).expect("update status");
     }
 
     fn peer_status(&self, peer_id: &PeerId) -> Status {
@@ -270,16 +279,20 @@ impl PeerStore for SqlitePeerStore {
             .unwrap_or_else(|| Status::Unknown)
     }
 
-    fn peer_score(&self, peer_id: &PeerId) -> Option<Score> {
-        self.get_peer_info(peer_id).map(|peer| peer.score)
-    }
-
     fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr) {
         self.bootnodes.push((peer_id, addr));
     }
+
     // should return high scored nodes if possible, otherwise, return boostrap nodes
     fn bootnodes(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
-        let mut peers = self.peers_to_attempt(count);
+        let mut peers = self
+            .peers_to_attempt(count)
+            .into_iter()
+            .map(|paddr| {
+                let PeerAddr { peer_id, addr, .. } = paddr;
+                (peer_id, addr)
+            })
+            .collect::<Vec<_>>();
         if peers.len() < count as usize {
             for (peer_id, addr) in self.bootnodes.iter() {
                 let peer = (peer_id.to_owned(), addr.to_owned());
@@ -290,50 +303,81 @@ impl PeerStore for SqlitePeerStore {
         }
         peers
     }
-    fn peer_addrs<'a>(&'a self, peer_id: &'a PeerId, count: u32) -> Option<Vec<Multiaddr>> {
-        self.get_peer_info(peer_id).map(|peer| {
-            db::PeerAddr::get_addrs(&self.conn, peer.id, count).expect("get peer addrs")
-        })
+
+    fn peer_addrs<'a>(&'a self, peer_id: &'a PeerId, count: u32) -> Vec<PeerAddr> {
+        db::PeerAddrDB::get_addrs(&self.conn, peer_id, count).expect("get peer addrs")
     }
 
-    fn peers_to_attempt(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
+    fn peers_to_attempt(&self, count: u32) -> Vec<PeerAddr> {
+        let now_ms = unix_time_as_millis();
         let peers = db::get_peers_to_attempt(&self.conn, count).expect("get peers to attempt");
-        self.find_addrs_for_peers(&self.conn, peers)
-            .expect("find_addrs_for_peers failed")
+        peers
+            .into_iter()
+            .filter_map(|peer_id| {
+                let mut paddrs = db::PeerAddrDB::get_addrs(&self.conn, &peer_id, DEFAULT_ADDRS)
+                    .expect("get peer addr");
+                let mut rng = thread_rng();
+                // randomly find a address to attempt
+                paddrs.shuffle(&mut rng);
+                paddrs
+                    .into_iter()
+                    .find(|paddr| !self.is_addr_banned(&paddr.addr) && !paddr.is_terrible(now_ms))
+            })
+            .collect()
     }
 
-    fn peers_to_feeler(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
-        let peers = db::get_peers_to_feeler(
-            &self.conn,
-            count,
-            unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS),
-        )
-        .expect("get peers to feeler");
-        self.find_addrs_for_peers(&self.conn, peers)
-            .expect("find_addrs_for_peers failed")
+    fn peers_to_feeler(&self, count: u32) -> Vec<PeerAddr> {
+        let now_ms = unix_time_as_millis();
+        let peers = db::get_peers_to_feeler(&self.conn, count, now_ms - ADDR_TIMEOUT_MS)
+            .expect("get peers to feeler");
+        peers
+            .into_iter()
+            .filter_map(|peer_id| {
+                let mut paddrs = db::PeerAddrDB::get_addrs(&self.conn, &peer_id, DEFAULT_ADDRS)
+                    .expect("get peer addr");
+                // find worst addr to feeler unless it is terrible or banned or already tried in one minute
+                paddrs.sort_by_key(|paddr| paddr.last_connected_at_ms);
+                paddrs.into_iter().find(|paddr| {
+                    if paddr.is_terrible(now_ms) {
+                        // delete terrible addr
+                        db::PeerAddrDB::delete(&self.conn, &paddr.peer_id, &paddr.addr)
+                            .expect("delete peer addr");
+                        false
+                    } else {
+                        !self.is_addr_banned(&paddr.addr) && !paddr.tried_in_last_minute(now_ms)
+                    }
+                })
+            })
+            .collect()
     }
 
-    fn random_peers(&self, count: u32) -> Vec<(PeerId, Multiaddr)> {
-        db::get_random_peers(
-            &self.conn,
-            count,
-            unix_time() - Duration::from_secs(LAST_CONNECTED_TIMEOUT_SECS),
-        )
-        .expect("get random peers")
+    fn random_peers(&self, count: u32) -> Vec<PeerAddr> {
+        let now_ms = unix_time_as_millis();
+        let peers = db::get_random_peers(&self.conn, count, now_ms - ADDR_TIMEOUT_MS)
+            .expect("get random peers");
+        peers
+            .into_iter()
+            .filter_map(|peer_id| {
+                let mut paddrs = db::PeerAddrDB::get_addrs(&self.conn, &peer_id, DEFAULT_ADDRS)
+                    .expect("get peer addr");
+                let mut rng = thread_rng();
+                // randomly find a address to attempt
+                paddrs.shuffle(&mut rng);
+                paddrs
+                    .into_iter()
+                    .find(|paddr| !self.is_addr_banned(&paddr.addr) && !paddr.is_terrible(now_ms))
+            })
+            .collect()
     }
 
-    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration) {
-        if let Some(peer) = self.get_peer_info(peer_id) {
-            self.ban_ip(&peer.connected_addr, timeout);
-        }
+    fn ban_addr(&mut self, addr: &Multiaddr, timeout: Duration) {
+        self.ban_ip(addr, timeout);
     }
 
-    fn is_banned(&self, peer_id: &PeerId) -> bool {
-        if let Some(peer) = self.get_peer_info(peer_id) {
-            return self.is_addr_banned(&peer.connected_addr);
-        }
-        false
+    fn is_banned(&self, addr: &Multiaddr) -> bool {
+        self.is_addr_banned(addr)
     }
+
     fn peer_score_config(&self) -> PeerScoreConfig {
         self.peer_score_config
     }
