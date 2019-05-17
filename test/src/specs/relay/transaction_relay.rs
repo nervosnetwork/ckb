@@ -3,7 +3,6 @@ use crate::{Net, Spec};
 use ckb_core::transaction::{CellInput, OutPoint, TransactionBuilder};
 use ckb_core::Capacity;
 use log::info;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 pub struct TransactionRelayBasic;
 
@@ -85,7 +84,7 @@ impl Spec for TransactionRelayMultiple {
         let tx_hash = transaction.hash().to_owned();
         transaction
             .outputs()
-            .par_iter()
+            .iter()
             .enumerate()
             .for_each(|(i, output)| {
                 let tx = TransactionBuilder::default()
