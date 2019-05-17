@@ -418,7 +418,7 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
         debug!(target: "relay", "received msg {:?} from {}", msg.payload_type(), peer_index);
         let start_time = Instant::now();
         self.process(nc, peer_index, msg);
-        trace!(
+        debug!(
             target: "relay",
             "process message={:?}, peer={}, cost={:?}",
             msg.payload_type(),
