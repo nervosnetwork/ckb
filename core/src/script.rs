@@ -55,20 +55,10 @@ impl Script {
     }
 
     pub fn hash(&self) -> H256 {
-        self.hash_with_appended_arguments(&[])
-    }
-
-    // This calculates the script hash with provided arguments appended
-    // to the script's own argument list. This way we can calculate the
-    // script hash on &Script struct without needing to clone it.
-    pub fn hash_with_appended_arguments(&self, args: &[Bytes]) -> H256 {
         let mut ret = [0u8; 32];
         let mut blake2b = new_blake2b();
         blake2b.update(self.code_hash.as_bytes());
         for argument in &self.args {
-            blake2b.update(argument);
-        }
-        for argument in args {
             blake2b.update(argument);
         }
         blake2b.finalize(&mut ret);

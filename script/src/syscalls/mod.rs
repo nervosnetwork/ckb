@@ -873,4 +873,56 @@ mod tests {
             _test_load_current_script_hash(data)?;
         }
     }
+
+    fn _test_load_input_lock_script_hash(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A3, 0); //index
+        machine.set_register(A4, Source::Input as u64); //source: 1 input
+        machine.set_register(A5, CellField::LockHash as u64); //field: 2 lock hash
+        machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
+
+        let script = Script::new(vec![Bytes::from(data)], H256::zero());
+        let h = script.hash();
+        let hash = h.as_bytes();
+
+        let input_cell = build_resolved_outpoint(CellOutput::new(
+            capacity_bytes!(1000),
+            Bytes::default(),
+            script,
+            None,
+        ));
+        let outputs = vec![];
+        let resolved_inputs = vec![&input_cell];
+        let resolved_deps = vec![];
+        let store = Arc::new(new_memory_store());
+        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+
+        prop_assert!(machine.memory_mut().store64(&size_addr, &64).is_ok());
+
+        prop_assert!(load_cell.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(
+            machine.memory_mut().load64(&size_addr),
+            Ok(hash.len() as u64)
+        );
+
+        for (i, addr) in (addr..addr + hash.len() as u64).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(hash[i])));
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_input_lock_script_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_input_lock_script_hash(data)?;
+        }
+    }
 }
