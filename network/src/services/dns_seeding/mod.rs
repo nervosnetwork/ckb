@@ -17,7 +17,7 @@ use crate::NetworkState;
 use seed_record::SeedRecord;
 
 // FIXME: should replace this later
-const TXT_VERIFY_PUBKEY: &str = "33afa0d4309e4720ba60b29e63c4f378fef860bcfe14732fd2790107c4237ca92244ec8c76e013ba7d88499288ef94ff412b5c8bf239fbb70488d5f6fbbc75a2";
+const TXT_VERIFY_PUBKEY: &str = "";
 
 pub(crate) struct DnsSeedingService {
     network_state: Arc<NetworkState>,
@@ -46,6 +46,11 @@ impl DnsSeedingService {
     }
 
     fn seeding(&self) -> Result<(), Box<dyn Error>> {
+        // TODO: DNS seeding is disabled now, may enbale in the future (need discussed)
+        if TXT_VERIFY_PUBKEY.is_empty() {
+            return Ok(());
+        }
+
         let enough_outbound = self.network_state.with_peer_registry(|reg| {
             reg.peers()
                 .values()
