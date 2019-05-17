@@ -1,4 +1,7 @@
-use ckb_vm::{Error as VMError, Memory, Register, SupportMachine, A0, A1, A2};
+use ckb_vm::{
+    registers::{A0, A1, A2},
+    Error as VMError, Memory, Register, SupportMachine,
+};
 use std::cmp;
 
 pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result<(), VMError> {

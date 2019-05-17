@@ -4,14 +4,15 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::RelayTransactionHash as FbsRelayTransactionHash;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
-use log::debug;
+use log::{debug, trace};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
+use std::sync::Arc;
 
 pub struct TransactionHashProcess<'a, CS> {
     message: &'a FbsRelayTransactionHash<'a>,
     relayer: &'a Relayer<CS>,
-    _nc: &'a CKBProtocolContext,
+    _nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
@@ -19,7 +20,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
     pub fn new(
         message: &'a FbsRelayTransactionHash,
         relayer: &'a Relayer<CS>,
-        nc: &'a CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
         TransactionHashProcess {
@@ -31,14 +32,9 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        if self.relayer.shared.is_initial_block_download() {
-            debug!(target: "relay", "Do not ask for transaction when initial block download");
-            return Ok(());
-        }
-
         let tx_hash: H256 = (*self.message).try_into()?;
         let short_id = ProposalShortId::from_tx_hash(&tx_hash);
-        if self.relayer.state.already_known(&tx_hash) {
+        if self.relayer.state.already_known_tx(&tx_hash) {
             debug!(
                 target: "relay",
                 "transaction({}) from {} already known, ignore it",
@@ -48,19 +44,18 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
         } else if self
             .relayer
             .shared
-            .chain_state()
-            .lock()
+            .lock_chain_state()
             .tx_pool()
-            .get_entry(&short_id)
+            .get_tx_with_cycles(&short_id)
             .is_some()
         {
-            debug!(
+            trace!(
                 target: "relay",
                 "transaction({}) from {} already in transaction pool, ignore it",
                 tx_hash,
                 self.peer,
             );
-            self.relayer.state.insert_tx(tx_hash.clone());
+            self.relayer.state.mark_as_known_tx(tx_hash.clone());
         } else {
             debug!(
                 target: "relay",

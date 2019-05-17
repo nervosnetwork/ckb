@@ -1,14 +1,13 @@
-use crate::block::Block;
+use crate::block::{cal_proposals_hash, Block};
 use crate::header::Header;
 use crate::transaction::ProposalShortId;
 use crate::BlockNumber;
 use bincode::serialize;
-use ckb_merkle_tree::merkle_root;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct UncleBlock {
     pub header: Header,
     pub proposals: Vec<ProposalShortId>,
@@ -40,19 +39,12 @@ impl UncleBlock {
         &self.proposals
     }
 
-    pub fn cal_proposals_root(&self) -> H256 {
-        merkle_root(
-            &self
-                .proposals
-                .iter()
-                .map(ProposalShortId::hash)
-                .collect::<Vec<_>>(),
-        )
+    pub fn cal_proposals_hash(&self) -> H256 {
+        cal_proposals_hash(self.proposals())
     }
 
     pub fn serialized_size(&self, proof_size: usize) -> usize {
         Header::serialized_size(proof_size)
-            + ProposalShortId::serialized_size() * self.proposals.len()
     }
 }
 
@@ -61,5 +53,22 @@ pub fn uncles_hash(uncles: &[UncleBlock]) -> H256 {
         H256::zero()
     } else {
         blake2b_256(serialize(uncles).expect("Uncle serialize should not fail")).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::BlockBuilder;
+
+    #[test]
+    fn block_size_should_not_include_uncles_proposal_zones() {
+        let uncle1: UncleBlock = BlockBuilder::default()
+            .proposal(ProposalShortId::zero())
+            .build()
+            .into();
+        let uncle2: UncleBlock = BlockBuilder::default().build().into();
+
+        assert_eq!(uncle1.serialized_size(0), uncle2.serialized_size(0));
     }
 }

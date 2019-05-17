@@ -1,8 +1,7 @@
-use build_info::{get_version, Version};
 use ckb_network::NetworkController;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Node, NodeAddress};
+use jsonrpc_types::{Node, NodeAddress, Unsigned};
 
 const MAX_ADDRS: usize = 50;
 
@@ -24,14 +23,17 @@ pub(crate) struct NetworkRpcImpl {
 impl NetworkRpc for NetworkRpcImpl {
     fn local_node_info(&self) -> Result<Node> {
         Ok(Node {
-            version: get_version!().to_string(),
+            version: self.network_controller.node_version().to_string(),
             is_outbound: None,
             node_id: self.network_controller.node_id(),
             addresses: self
                 .network_controller
                 .external_urls(MAX_ADDRS)
                 .into_iter()
-                .map(|(address, score)| NodeAddress { address, score })
+                .map(|(address, score)| NodeAddress {
+                    address,
+                    score: Unsigned(u64::from(score)),
+                })
                 .collect(),
         })
     }
@@ -52,7 +54,7 @@ impl NetworkRpc for NetworkRpcImpl {
                     .into_iter()
                     .map(|(address, score)| NodeAddress {
                         address: address.to_string(),
-                        score,
+                        score: Unsigned(u64::from(score)),
                     })
                     .collect(),
             })

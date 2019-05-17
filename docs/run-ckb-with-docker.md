@@ -3,11 +3,11 @@
 Start latest CKB release with default configuration:
 
 ```bash
-docker run -it nervos/ckb:latest run
+docker run --rm -it nervos/ckb:latest run
 ```
 
 See other
-[tags](https://cloud.docker.com/u/nervos/repository/docker/nervos/ckb/tags)
+[tags](https://hub.docker.com/r/nervos/ckb/tags)
 listed in DockerHub.
 
 - Tag `latest` is always the latest release, which is built from the latest
@@ -18,39 +18,55 @@ listed in DockerHub.
 
 It is recommended to mount a volume at `/var/lib/ckb` in the container.
 Following is an example to mount a volume, generate config files in the volume
-and start CKB from it. The example will use a local directory as the volume.
+and start CKB from it.
 
-First, create the directory.
+First, create a volume.
 
 ```bash
-mkdir ckb-testnet
+docker volume create ckb-testnet
 ```
 
 Then init the directory with testnet chain spec.
 
 ```bash
 docker run --rm -it \
-  -v "$(pwd)/ckb-testnet:/var/lib/ckb" \
-  nervos/ckb:latest init --spec testnet
+  -v ckb-testnet:/var/lib/ckb \
+  nervos/ckb:latest init --spec testnet --force
 ```
 
-Check the directory `ckb-testnet`. It should contains two config files now:
-`ckb.toml` and `ckb-miner.toml`.
-
-Edit the files if you like, then start a node from the volume:
+Create a container `ckb-testnet-node` to run a node:
 
 ```bash
-docker run -it
-  -v "$(pwd)/ckb-testnet:/var/lib/ckb" \
+docker create -it \
+  -v ckb-testnet:/var/lib/ckb \
   nervos/ckb:latest run
 ```
 
-You can also start a miner with the following command. But you have to publish
-ports and edit the RPC address in `ckb-miner.toml` so that the miner can
-connect to the node.
+Copy the generated config files from the container:
 
 ```bash
-docker run -it
-  -v "$(pwd)/ckb-testnet:/var/lib/ckb" \
-  nervos/ckb:latest miner
+docker cp ckb-testnet-node:/var/lib/ckb/ckb.toml .
+docker cp ckb-testnet-node:/var/lib/ckb/ckb-miner.toml .
+```
+
+Edit the config files as you like. If you want to run a miner, remember to
+replace `block_assember` section in `ckb.toml`.
+
+Copy back the edited config files back to container:
+
+```bash
+tar --owner=1000 --group=1000 -cf - ckb.toml ckb-miner.toml | \
+  docker cp - ckb-testnet-node:/var/lib/ckb/
+```
+
+Now start the node:
+
+```bash
+docker start -i ckb-testnet-node
+```
+
+And start the miner in the same container
+
+```bash
+docker exec ckb-testnet-node ckb miner
 ```

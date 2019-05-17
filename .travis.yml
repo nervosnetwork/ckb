@@ -8,7 +8,7 @@ git:
   depth: 2
   submodules: false
 
-if: 'branch IN (master, develop) OR branch =~ /^rc\// OR type != push OR fork = true OR tag IS present'
+if: 'branch IN (master, develop) OR branch =~ /^rc\// OR type != push OR repo != nervosnetwork/ckb OR tag IS present'
 
 env:
   global:
@@ -16,12 +16,13 @@ env:
 
 matrix:
   include:
-    - rust: 1.34.1
+    - rust: 1.34.2
       os: osx
-      env: FMT=true CHECK=true TEST=true REL_PKG=darwin_amd64.zip
-    - rust: 1.34.1
+      env: REL_PKG=darwin_amd64.zip
+    - rust: 1.34.2
       os: linux
-      env: TEST=true REL_PKG=linux_amd64.tar.gz
+      dist: xenial
+      env: REL_PKG=linux_amd64.tar.gz
 
 addons:
   apt:
@@ -33,7 +34,12 @@ addons:
       - texinfo
       - libtool
 
-before_install: if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
+before_install:
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
+  - export -f travis_nanoseconds
+  - export -f travis_fold
+  - export -f travis_time_start
+  - export -f travis_time_finish
 install: ./devtools/ci/install.sh
 script: ./devtools/ci/script.sh
 
@@ -48,6 +54,6 @@ deploy:
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
 
 before_cache:
-- rm -rf ./target/release
-- rm -rf ./target/debug/incremental/
-- cargo sweep -f
+  - rm -rf ./target/release
+  - rm -rf ./target/debug/incremental/
+  - cargo sweep -f

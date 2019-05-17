@@ -1,473 +1,845 @@
 # CKB JSON-RPC Protocols
 
+
+*   [`Chain`](#chain)
+    *   [`get_block`](#get_block)
+    *   [`get_block_by_number`](#get_block_by_number)
+    *   [`get_block_hash`](#get_block_hash)
+    *   [`get_cells_by_lock_hash`](#get_cells_by_lock_hash)
+    *   [`get_current_epoch`](#get_current_epoch)
+    *   [`get_epoch_by_number`](#get_epoch_by_number)
+    *   [`get_live_cell`](#get_live_cell)
+    *   [`get_tip_block_number`](#get_tip_block_number)
+    *   [`get_tip_header`](#get_tip_header)
+    *   [`get_transaction`](#get_transaction)
+*   [`Experiment`](#experiment)
+    *   [`_compute_code_hash`](#_compute_code_hash)
+    *   [`_compute_script_hash`](#_compute_script_hash)
+    *   [`_compute_transaction_hash`](#_compute_transaction_hash)
+    *   [`dry_run_transaction`](#dry_run_transaction)
+*   [`Net`](#net)
+    *   [`get_peers`](#get_peers)
+    *   [`local_node_info`](#local_node_info)
+*   [`Pool`](#pool)
+    *   [`send_transaction`](#send_transaction)
+    *   [`tx_pool_info`](#tx_pool_info)
+*   [`Stats`](#stats)
+    *   [`get_blockchain_info`](#get_blockchain_info)
+    *   [`get_peers_state`](#get_peers_state)
+
 ## Chain
 
-### get_tip_block_number
-
-Returns the number of blocks in the longest blockchain.
-
-#### Examples
-
-```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_tip_block_number", "params": []}' \
-    http://localhost:8114
-```
-
-```json
-{
-    "jsonrpc": "2.0",
-    "result": "9140",
-    "id": 2
-}
-```
-
-### get_tip_header
-
-Returns the information about the tip header of the longest.
-
-#### Examples
-
-```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_tip_header", "params": []}' \
-    http://localhost:8114
-```
-
-```json
-{
-    "jsonrpc": "2.0",
-    "result": {
-        "difficulty": "0x800",
-        "hash": "0x80abcbd9395ba17ff9e677d373927adb8519a9fa7bc01d054f6d23584630fb9c",
-        "number": "9145",
-        "parent_hash": "0xeda8f89d8be63ac9ab976f3eb3adf634c1d200e3d5ccb889071cbb1df83dcabc",
-        "seal": {
-            "nonce": "17882382774081951528",
-            "proof": "0x131c00009227000084330000e54700002d4e0000cd4f000023510000b2560000715a0000156300006d6700007a740000"
-        },
-        "timestamp": "1555509433451",
-        "transactions_root": "0x6eb5de3f5ed394c3eae59b52996bb62ee6ea92e1b0159cd0866a98a6d6864599",
-        "proposals_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "uncles_count": 2,
-        "uncles_hash": "0x8290616424ad001046d5c3f7c232ffc512dcd57d3420b1e968c3460a69524045",
-        "version": 0,
-        "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
-    },
-    "id": 2
-}
-```
-
-### get_block_hash
-
-Returns the hash of a block in the best-block-chain by block number; block of No.0 is the genesis block.
-
-#### Parameters
-
-    block_number - Number of a block.
-
-#### Examples
-
-```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_block_hash", "params": ["1"]}' \
-    http://localhost:8114
-```
-
-```json
-{
-    "jsonrpc": "2.0",
-    "result": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71",
-    "id": 2
-}
-```
-
-### get_block
+### `get_block`
 
 Returns the information about a block by hash.
 
 #### Parameters
 
-    hash - Hash of a block.
+    hash - Hash of a block
 
 #### Examples
 
 ```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_block", "params": ["0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71"]}' \
-    http://localhost:8114
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_block",
+    "params": [
+        "0xbd63393483cb066d2fb9f779b20b904020bb599b03fab6e4571990828510d829"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
 ```json
 {
+    "id": 2,
     "jsonrpc": "2.0",
     "result": {
+        "header": {
+            "difficulty": "0x3e8",
+            "epoch": "0",
+            "hash": "0xbd63393483cb066d2fb9f779b20b904020bb599b03fab6e4571990828510d829",
+            "number": "2",
+            "parent_hash": "0xbd71290db6b9ebff5f72e62093ee9e228bd5c29d3bc7d3b607e9a764e561a563",
+            "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "seal": {
+                "nonce": "0",
+                "proof": "0x"
+            },
+            "timestamp": "1557310745",
+            "transactions_root": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400",
+            "uncles_count": "0",
+            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "version": "0",
+            "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "proposals": [],
         "transactions": [
             {
                 "deps": [],
-                "hash": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
+                "hash": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400",
                 "inputs": [
                     {
                         "args": [
-                            "0x0100000000000000"
+                            "0x0200000000000000"
                         ],
                         "previous_output": {
-                            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                            "index": 4294967295
+                            "block_hash": null,
+                            "cell": null
                         },
                         "since": "0"
                     }
                 ],
                 "outputs": [
                     {
-                        "capacity": "50000",
+                        "capacity": "50000000000000",
                         "data": "0x",
                         "lock": {
                             "args": [],
-                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
                         },
                         "type": null
                     }
                 ],
-                "version": 0,
+                "version": "0",
                 "witnesses": []
             }
         ],
-        "header": {
-            "difficulty": "0x100",
-            "hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71",
-            "number": "1",
-            "parent_hash": "0xf17b8bfe49aaa018610d20a19aa6a0639882a774c47bcb7623a085a59ee13d42",
-            "seal": {
-                "nonce": "14785007515249450415",
-                "proof": "0xa00600005a0a00001c21000009230000db240000fb350000523600005f4b0000bb4b00000a4d00001b56000070700000"
-            },
-            "timestamp": "1555422499746",
-            "transactions_root": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
-            "proposals_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "uncles_count": 0,
-            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "version": 0,
-            "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
-        },
-        "proposals": [],
         "uncles": []
-    },
-    "id": 2
+    }
 }
 ```
 
-### get_block_by_number
+### `get_block_by_number`
 
-Returns the information about a block by block number (height).
+Get block by number
 
 #### Parameters
 
-    number - Number of a block.
+    block_number - Number of a block
 
 #### Examples
 
 ```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_block_by_number", "params": ["1"]}' \
-    http://localhost:8114
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_block_by_number",
+    "params": [
+        "1024"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
 ```json
 {
+    "id": 2,
     "jsonrpc": "2.0",
     "result": {
+        "header": {
+            "difficulty": "0x3e8",
+            "epoch": "1",
+            "hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+            "number": "1024",
+            "parent_hash": "0xcb518eb7389b7ee64215fe7ab6904898c4c72819cb8fc45e243d726076fc3c0a",
+            "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "seal": {
+                "nonce": "0",
+                "proof": "0x"
+            },
+            "timestamp": "1557311767",
+            "transactions_root": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b",
+            "uncles_count": "0",
+            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "version": "0",
+            "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "proposals": [],
         "transactions": [
             {
                 "deps": [],
-                "hash": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
+                "hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b",
                 "inputs": [
                     {
                         "args": [
-                            "0x0100000000000000"
+                            "0x0004000000000000"
                         ],
                         "previous_output": {
-                            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                            "index": 4294967295
+                            "block_hash": null,
+                            "cell": null
                         },
                         "since": "0"
                     }
                 ],
                 "outputs": [
                     {
-                        "capacity": "50000",
+                        "capacity": "50000000000000",
                         "data": "0x",
                         "lock": {
                             "args": [],
-                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
                         },
                         "type": null
                     }
                 ],
-                "version": 0,
+                "version": "0",
                 "witnesses": []
             }
         ],
-        "header": {
-            "difficulty": "0x100",
-            "hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71",
-            "number": "1",
-            "parent_hash": "0xf17b8bfe49aaa018610d20a19aa6a0639882a774c47bcb7623a085a59ee13d42",
-            "seal": {
-                "nonce": "14785007515249450415",
-                "proof": "0xa00600005a0a00001c21000009230000db240000fb350000523600005f4b0000bb4b00000a4d00001b56000070700000"
-            },
-            "timestamp": "1555422499746",
-            "transactions_root": "0xbd9ed8dec5288bdeb2ebbcc4c118a8adb6baab07a44ea79843255ccda6c57915",
-            "proposals_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "uncles_count": 0,
-            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "version": 0,
-            "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
-        },
-        "proposals": [],
         "uncles": []
-    },
-    "id": 2
+    }
 }
 ```
 
-### get_transaction
+### `get_block_hash`
+
+Returns the hash of a block in the best-block-chain by block number; block of No.0 is the genesis block.
+
+#### Parameters
+
+    block_number - Number of a block
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_block_hash",
+    "params": [
+        "2"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0xbd63393483cb066d2fb9f779b20b904020bb599b03fab6e4571990828510d829"
+}
+```
+
+### `get_cells_by_lock_hash`
+
+Returns the information about cells collection by the hash of lock script.
+
+#### Parameters
+
+    lock_hash - Cell lock script hash
+    from - Start block number
+    to - End block number
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cells_by_lock_hash",
+    "params": [
+        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
+        "2",
+        "5"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "capacity": "50000000000000",
+            "lock": {
+                "args": [],
+                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+            },
+            "out_point": {
+                "block_hash": null,
+                "cell": {
+                    "index": "0",
+                    "tx_hash": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400"
+                }
+            }
+        },
+        {
+            "capacity": "50000000000000",
+            "lock": {
+                "args": [],
+                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+            },
+            "out_point": {
+                "block_hash": null,
+                "cell": {
+                    "index": "0",
+                    "tx_hash": "0x5af3009f5e2be240ce95a2faedab1b144821a24703c026ab8f25328ac596f550"
+                }
+            }
+        },
+        {
+            "capacity": "50000000000000",
+            "lock": {
+                "args": [],
+                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+            },
+            "out_point": {
+                "block_hash": null,
+                "cell": {
+                    "index": "0",
+                    "tx_hash": "0x53d13bbfee6b4a64763b7231b00e18c7db5379b58d74f9b0677be1394ea1ef85"
+                }
+            }
+        },
+        {
+            "capacity": "50000000000000",
+            "lock": {
+                "args": [],
+                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+            },
+            "out_point": {
+                "block_hash": null,
+                "cell": {
+                    "index": "0",
+                    "tx_hash": "0x00e47be2eeac34a22c4d7573bf2a65e531a5b78427ef5808c1b4971cf73418ac"
+                }
+            }
+        }
+    ]
+}
+```
+
+### `get_current_epoch`
+
+Returns the information about the current epoch.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_current_epoch",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "block_reward": "173611111111",
+        "difficulty": "0x3e8",
+        "last_block_hash_in_previous_epoch": "0x83f5a78004f6c0d79400fece7fe2a0c15ebb73b25331df08d5ecddefac0e08b3",
+        "length": "2880",
+        "number": "1",
+        "remainder_reward": "320",
+        "start_number": "1000"
+    }
+}
+```
+
+### `get_epoch_by_number`
+
+Return the information corresponding the given epoch number.
+
+#### Parameters
+
+    epoch_number - Epoch number
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_epoch_by_number",
+    "params": [
+        "0"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "block_reward": "500000000000",
+        "difficulty": "0x3e8",
+        "last_block_hash_in_previous_epoch": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "length": "1000",
+        "number": "0",
+        "remainder_reward": "0",
+        "start_number": "0"
+    }
+}
+```
+
+### `get_live_cell`
+
+Returns the information about a cell by out_point. If <block_hash> is not specific, returns the cell if it is live. If <block_hash> is specified, return the live cell only if the corresponding block contain this cell
+
+#### Parameters
+
+    out_point - OutPoint object {{"tx_hash": <tx_hash>, "index": <index>}, "block_hash": <block_hash>}.
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_live_cell",
+    "params": [
+        {
+            "block_hash": null,
+            "cell": {
+                "index": "0",
+                "tx_hash": "0x00e47be2eeac34a22c4d7573bf2a65e531a5b78427ef5808c1b4971cf73418ac"
+            }
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "cell": {
+            "capacity": "50000000000000",
+            "data": "0x",
+            "lock": {
+                "args": [],
+                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+            },
+            "type": null
+        },
+        "status": "live"
+    }
+}
+```
+
+### `get_tip_block_number`
+
+Returns the number of blocks in the longest blockchain.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_tip_block_number",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "1024"
+}
+```
+
+### `get_tip_header`
+
+Returns the information about the tip header of the longest.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_tip_header",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "difficulty": "0x3e8",
+        "epoch": "1",
+        "hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+        "number": "1024",
+        "parent_hash": "0xcb518eb7389b7ee64215fe7ab6904898c4c72819cb8fc45e243d726076fc3c0a",
+        "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "seal": {
+            "nonce": "0",
+            "proof": "0x"
+        },
+        "timestamp": "1557311767",
+        "transactions_root": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b",
+        "uncles_count": "0",
+        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "0",
+        "witnesses_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    }
+}
+```
+
+### `get_transaction`
 
 Returns the information about a transaction requested by transaction hash.
 
 #### Parameters
 
-    hash - Hash of a transaction.
+    hash - Hash of a transaction
 
 #### Examples
 
 ```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_transaction", "params": ["0xa093b2e820f3f2202a6802314ece2eee3f863b177b3abe11bf16b1588152d31b"]}' \
-    http://localhost:8114'
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_transaction",
+    "params": [
+        "0x8185ef3bf021f7db49c01dd8677e9b7bb305b078f181b49a412c550a68da4874"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
 ```json
 {
+    "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "transaction" : {
-            "deps": [],
-            "hash": "0xa093b2e820f3f2202a6802314ece2eee3f863b177b3abe11bf16b1588152d31b",
+        "transaction": {
+            "deps": [
+                {
+                    "block_hash": null,
+                    "cell": {
+                        "index": "0",
+                        "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc"
+                    }
+                }
+            ],
+            "hash": "0x8185ef3bf021f7db49c01dd8677e9b7bb305b078f181b49a412c550a68da4874",
             "inputs": [
                 {
                     "args": [],
                     "previous_output": {
-                        "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
-                        "index": 2996
+                        "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+                        "cell": {
+                            "index": "0",
+                            "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
+                        }
                     },
                     "since": "0"
                 }
             ],
             "outputs": [
                 {
-                    "capacity": "1000",
+                    "capacity": "100000000000",
                     "data": "0x",
                     "lock": {
-                        "args": [
-                            "0x79616e676279"
-                        ],
-                        "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
                     },
                     "type": null
                 }
             ],
-            "version": 0,
+            "version": "0",
             "witnesses": []
         },
         "tx_status": {
-            "status": "committed",
-            "block_hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71"
+            "block_hash": null,
+            "status": "pending"
         }
-    },
-    "id": 2
-}
-```
-
-#### `tx_status` Possible Values
-
-```
-{
-    "tx_status": {
-        "status": "pending",
-        "block_hash": null
-    }
-}
-
-{
-    "tx_status": {
-        "status": "proposed",
-        "block_hash": null
-    }
-}
-
-{
-    "tx_status": {
-        "status": "committed",
-        "block_hash": "0xef285e5da29247ce39385cbd8dc36535f7ea1b5b0379db26e9d459a8b47d0d71"
     }
 }
 ```
 
-### get_cells_by_lock_hash
+## Experiment
 
-Returns the information about cells collection by the hash of lock script.
+### `_compute_code_hash`
+
+Returns code hash of given hex encoded data
+
+**Deprecated**: will be removed in a later version
 
 #### Parameters
 
-    lock_hash - Cell lock script hash.
-    from - Start block number.
-    to - End block number.
+    data - Hex encoded data
 
 #### Examples
 
 ```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_cells_by_lock_hash", "params": ["0xcb7bce98a778f130d34da522623d7e56705bddfe0dc4781bd2331211134a19a5", "9001", "9003"]}' \
-    http://localhost:8114
-```
-
-```json
-{
+echo '{
+    "id": 2,
     "jsonrpc": "2.0",
-    "result": [
-        {
-            "capacity": 50000,
-            "lock": {
-                "args": [],
-                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-            },
-            "out_point": {
-                "tx_hash": "0xc15274f7aaec78b74ea2b87a2aefd5dc3e003b367eab326a29a73900fd9b91ff",
-                "index": 0
-            }
-        },
-        {
-            "capacity": 50000,
-            "lock": {
-                "args": [],
-                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-            },
-            "out_point": {
-                "tx_hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae",
-                "index": 0
-            }
-        },
-        {
-            "capacity": 50000,
-            "lock": {
-                "args": [],
-                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-            },
-            "out_point": {
-                "tx_hash": "0x9289e12f0a9b2cfce51cd4a64d733c0a3ca9a52093669863c485ea6dfae81a3e",
-                "index": 0
-            }
-        }
-    ],
-    "id": 2
-}
-```
-
-### get_live_cell
-
-Returns the information about a cell by out_point.
-
-#### Parameters
-
-    out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
-
-#### Examples
-
-```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method":"get_live_cell","params": [{"tx_hash": "0xbcc4ffd86c681c1004f746422e33b1ac3cd59bdf6155afd5ea076219ed29bbae", "index": 0}]}' \
-    http://localhost:8114
+    "method": "_compute_code_hash",
+    "params": [
+        "0x123456"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
 ```json
 {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0x7dacea2e6ae8131b7f187570135ebb1b217a69458b3eae350104942c06939783"
+}
+```
+
+### `_compute_script_hash`
+
+Returns script hash of given transaction script
+
+**Deprecated**: will be removed in a later version
+
+#### Parameters
+
+    args - Hex encoded arguments passed to reference cell
+    code_hash - Code hash of referenced cell
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "_compute_script_hash",
+    "params": [
+        {
+            "args": [
+                "0x123450",
+                "0x678900"
+            ],
+            "code_hash": "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0x7c72a3b5705bf5a4e7364fc358e2972f4eb376cf7937bf7ffd319f50f07e27a2"
+}
+```
+
+### `_compute_transaction_hash`
+
+Return the transaction hash
+
+**Deprecated**: will be removed in a later version
+
+#### Parameters
+
+    transaction - The transaction object
+    version - Transaction version
+    deps - Dependent cells
+    inputs - Transaction inputs
+    outputs - Transaction outputs
+    witnesses - Witnesses
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "_compute_transaction_hash",
+    "params": [
+        {
+            "deps": [],
+            "inputs": [
+                {
+                    "args": [],
+                    "previous_output": {
+                        "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+                        "cell": {
+                            "index": "0",
+                            "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
+                        }
+                    },
+                    "since": "0"
+                }
+            ],
+            "outputs": [
+                {
+                    "capacity": "100000000000",
+                    "data": "0x",
+                    "lock": {
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+                    },
+                    "type": null
+                }
+            ],
+            "version": "0",
+            "witnesses": []
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0xdec1bb3a1590607796de1fbb8bdf38c4fc777dc96db0807a1d70e6b5b0f0130e"
+}
+```
+
+### `dry_run_transaction`
+
+Dry run transaction and return the execution cycles.
+
+This method will not check the transaction validity, but only run the lock script
+and type script and then return the execution cycles.
+Used to debug transaction scripts and query how many cycles the scripts consume
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "dry_run_transaction",
+    "params": [
+        {
+            "deps": [
+                {
+                    "cell": {
+                        "index": "0",
+                        "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc"
+                    }
+                }
+            ],
+            "inputs": [
+                {
+                    "args": [],
+                    "previous_output": {
+                        "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+                        "cell": {
+                            "index": "0",
+                            "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
+                        }
+                    },
+                    "since": "0"
+                }
+            ],
+            "outputs": [
+                {
+                    "capacity": "100000000000",
+                    "data": "0x",
+                    "lock": {
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+                    },
+                    "type": null
+                }
+            ],
+            "version": "0",
+            "witnesses": []
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "cell": {
-            "capacity": "50000",
-            "data": "0x",
-            "lock": {
-                "args": [],
-                "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-            },
-            "type": null
-        },
-        "status": "live"
-    },
-    "id": 2
+        "cycles": "2"
+    }
 }
 ```
 
 ## Net
 
-### local_node_info
-
-Returns the local node information.
-
-#### Examples
-
-```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "local_node_info", "params": []}' \
-    http://localhost:8114
-```
-
-```json
-{
-    "jsonrpc": "2.0",
-    "result": {
-        "addresses": [
-            {
-                "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-                "score": 255
-            },
-            {
-                "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-                "score": 1
-            }
-        ],
-        "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-        "version": "0.9.0"
-    },
-    "id": 2
-}
-```
-
-### get_peers
+### `get_peers`
 
 Returns the connected peers information.
 
+
 #### Examples
 
 ```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_peers", "params": []}' \
-    http://localhost:8114
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_peers",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
 ```json
 {
+    "id": 2,
     "jsonrpc": "2.0",
     "result": [
         {
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.3/tcp/8115",
-                    "score": 1
+                    "score": "1"
                 }
             ],
+            "is_outbound": true,
             "node_id": "QmaaaLB4uPyDpZwTQGhV63zuYrKm4reyN2tF1j2ain4oE7",
             "version": "unknown"
         },
@@ -475,9 +847,10 @@ curl -H 'content-type:application/json' \
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.4/tcp/8113",
-                    "score": 255
+                    "score": "255"
                 }
             ],
+            "is_outbound": false,
             "node_id": "QmRuGcpVC3vE7aEoB6fhUdq9uzdHbyweCnn1sDBSjfmcbM",
             "version": "unknown"
         },
@@ -486,219 +859,225 @@ curl -H 'content-type:application/json' \
             "node_id": "QmUddxwRqgTmT6tFujXbYPMLGLAE2Tciyv6uHGfdYFyDVa",
             "version": "unknown"
         }
-    ],
-    "id": 2
+    ]
+}
+```
+
+### `local_node_info`
+
+Returns the local node information.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "local_node_info",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "addresses": [
+            {
+                "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+                "score": "255"
+            },
+            {
+                "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+                "score": "1"
+            }
+        ],
+        "is_outbound": null,
+        "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
+        "version": "0.9.0"
+    }
 }
 ```
 
 ## Pool
 
-### send_transaction
+### `send_transaction`
 
-Creates new transaction.
+Send new transaction into transaction pool
+
+If <block_hash> of <previsous_output> is not specified, loads the corresponding input cell. If <block_hash> is specified, load the corresponding input cell only if the corresponding block exist and contain this cell as output.
 
 #### Parameters
 
-transaction - The transaction object.
-
-    version - Transaction version.
-    deps - Dependent cells.
-    inputs - Transaction inputs.
-    outputs - Transaction outputs.
-    witnesses - Witnesses.
+    transaction - The transaction object
+    version - Transaction version
+    deps - Dependent cells
+    inputs - Transaction inputs
+    outputs - Transaction outputs
+    witnesses - Witnesses
 
 #### Examples
 
 ```bash
 echo '{
-        "id": 2,
-        "jsonrpc": "2.0",
-        "method": "send_transaction",
-        "params": [
-            {
-                "version": 0,
-                "deps": [],
-                "inputs": [
-                    {
-                        "previous_output": {
-                            "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
-                            "index": 2995
-                        },
-                        "since": "0",
-                        "args": []
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "send_transaction",
+    "params": [
+        {
+            "deps": [
+                {
+                    "cell": {
+                        "index": "0",
+                        "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc"
                     }
-                ],
-                "outputs": [
-                    {
-                        "capacity": "1000",
-                        "data": "0x",
-                        "lock": {
-                            "args": [
-                                "0x79616e676279"
-                            ],
-                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-                        },
-                        "type": null
-                    }
-                ],
-                "witnesses": [],
-                "hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-            }
-        ]
-    }' \
-    | tr -d '\n' \
-    | curl -H 'content-type:application/json' -d @- \
-    http://localhost:8114
+                }
+            ],
+            "inputs": [
+                {
+                    "args": [],
+                    "previous_output": {
+                        "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+                        "cell": {
+                            "index": "0",
+                            "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
+                        }
+                    },
+                    "since": "0"
+                }
+            ],
+            "outputs": [
+                {
+                    "capacity": "100000000000",
+                    "data": "0x",
+                    "lock": {
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+                    },
+                    "type": null
+                }
+            ],
+            "version": "0",
+            "witnesses": []
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
 ```json
 {
+    "id": 2,
     "jsonrpc": "2.0",
-    "result": "0xee577cd94b1f2f1667316ff3cb44810902fd35cf901db28cde955b82eea56725",
-    "id": 2
+    "result": "0x8185ef3bf021f7db49c01dd8677e9b7bb305b078f181b49a412c550a68da4874"
 }
 ```
 
-### tx_pool_info
+### `tx_pool_info`
 
 Return the transaction pool information
 
+
 #### Examples
 
-``` bash
-curl -H 'content-type:application/json' \
-    -d '{"params": [], "method": "tx_pool_info", "jsonrpc": "2.0", "id": 2}' \
-    http://localhost:8114
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "tx_pool_info",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
-``` json
+```json
 {
-    "jsonrpc": "2.0",
     "id": 2,
+    "jsonrpc": "2.0",
     "result": {
-        "pending": 34,
-        "staging": 22,
-        "orphan": 33,
-        "last_txs_updated_at": "1555507787683"
+        "last_txs_updated_at": "0",
+        "orphan": "0",
+        "pending": "1",
+        "proposed": "0"
     }
 }
 ```
 
+## Stats
 
-## Trace
+### `get_blockchain_info`
 
-### trace_transaction
+Return state info of blockchain
 
-Registers a transaction trace, returning the transaction hash.
-
-#### Parameters
-
-transaction - The transaction object.
-
-    version - Transaction version.
-    deps - Dependent cells.
-    inputs - Transaction inputs.
-    outputs - Transaction outputs.
-    witnesses - Witnesses.
 
 #### Examples
 
 ```bash
 echo '{
-        "id": 2,
-        "jsonrpc": "2.0",
-        "method": "trace_transaction",
-        "params": [
-            {
-                "version": 0,
-                "deps": [],
-                "inputs": [
-                    {
-                        "previous_output": {
-                            "tx_hash": "0xeea31bfdcc4ac3bcb0204c450f08fb46c3840042b0a4e657edff3180cbb01c47",
-                            "index": 2996
-                        },
-                        "since": "0",
-                        "args": []
-                    }
-                ],
-                "outputs": [
-                    {
-                        "capacity": "1000",
-                        "data": "0x",
-                        "lock": {
-                            "args": [
-                                "0x79616e676279"
-                            ],
-                            "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000001"
-                        },
-                        "type": null
-                    }
-                ],
-                "witnesses": [],
-                "hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-            }
-        ]
-    }' \
-    | tr -d '\n' \
-    | curl -H 'content-type:application/json' -d @- \
-    http://localhost:8114
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_blockchain_info",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
 ```json
 {
+    "id": 2,
     "jsonrpc": "2.0",
-    "result": "0xa093b2e820f3f2202a6802314ece2eee3f863b177b3abe11bf16b1588152d31b",
-    "id": 2
+    "result": {
+        "chain": "main",
+        "difficulty": "0x3e8",
+        "epoch": "1",
+        "is_initial_block_download": true,
+        "median_time": "1557311762",
+        "warnings": ""
+    }
 }
 ```
 
-### get_transaction_trace
+### `get_peers_state`
 
-Returns the traces of the transaction submitted by `trace_transaction`.
+Deprecating in 0.12.0: Return state info of peers
 
-#### Parameters
-
-    hash - Hash of a transaction.
 
 #### Examples
 
 ```bash
-curl -H 'content-type:application/json' \
-    -d '{"id": 2, "jsonrpc": "2.0", "method": "get_transaction_trace", "params": ["0xa093b2e820f3f2202a6802314ece2eee3f863b177b3abe11bf16b1588152d31b"]}' \
-    http://localhost:8114'
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_peers_state",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
 ```
 
 ```json
 {
+    "id": 2,
     "jsonrpc": "2.0",
     "result": [
         {
-            "action": "AddPending",
-            "info": "unknown tx, insert to pending queue",
-            "time": 1555507787683
-        },
-        {
-            "action": "Proposed",
-            "info": "ProposalShortId(0xa093b2e820f3f2202a68) proposed",
-            "time": 1555507857772
-        },
-        {
-            "action": "Staged",
-            "info": "tx staged",
-            "time": 1555507857782
-        },
-        {
-            "action": "Committed",
-            "info": "tx committed",
-            "time": 1555507913089
-        },
-        {
-            "action": "Committed",
-            "info": "tx committed",
-            "time": 1555508028264
+            "blocks_in_flight": "86",
+            "last_updated": "1557289448237",
+            "peer": "1"
         }
-    ],
-    "id": 2
+    ]
 }
 ```
+

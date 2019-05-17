@@ -72,16 +72,16 @@ impl Capacity {
     }
 }
 
-impl ::std::string::ToString for Capacity {
-    fn to_string(&self) -> String {
-        self.0.to_string()
-    }
-}
-
 impl ::std::str::FromStr for Capacity {
     type Err = ::std::num::ParseIntError;
 
     fn from_str(s: &str) -> ::std::result::Result<Self, Self::Err> {
         Ok(Capacity(s.parse::<u64>()?))
+    }
+}
+
+impl ::std::fmt::Display for Capacity {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

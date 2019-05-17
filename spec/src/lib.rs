@@ -9,12 +9,14 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
-use crate::consensus::Consensus;
+use crate::consensus::{Consensus, GENESIS_EPOCH_LENGTH};
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-use ckb_core::{BlockNumber, Capacity, Cycle};
+use ckb_core::{BlockNumber, Bytes, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{Resource, ResourceLocator};
 use numext_fixed_hash::H256;
@@ -28,29 +30,18 @@ use std::sync::Arc;
 
 pub mod consensus;
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
-    pub resource: Resource,
     pub name: String,
     pub genesis: Genesis,
     pub params: Params,
-    pub system_cells: Vec<Resource>,
-    pub pow: Pow,
-}
-
-// change the order will break integration test, see module doc.
-#[derive(Serialize, Deserialize)]
-pub struct ChainSpecConfig {
-    pub name: String,
-    pub genesis: Genesis,
-    pub params: Params,
-    pub system_cells: Vec<SystemCell>,
     pub pow: Pow,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
-    pub initial_block_reward: Capacity,
+    pub epoch_reward: Capacity,
+    pub secondary_epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: BlockNumber,
 }
@@ -63,18 +54,36 @@ pub struct Genesis {
     pub difficulty: U256,
     pub uncles_hash: H256,
     pub hash: Option<H256>,
+    pub issued_cells: Vec<IssuedCell>,
+    pub genesis_cell: GenesisCell,
+    pub system_cells: SystemCells,
     pub seal: Seal,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Seal {
     pub nonce: u64,
-    pub proof: Vec<u8>,
+    pub proof: Bytes,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct SystemCell {
-    pub path: PathBuf,
+pub struct SystemCells {
+    pub files: Vec<PathBuf>,
+    #[serde(skip)]
+    pub resources: Vec<Resource>,
+    pub lock: Script,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct GenesisCell {
+    pub message: String,
+    pub lock: Script,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct IssuedCell {
+    pub capacity: Capacity,
+    pub lock: Script,
 }
 
 #[derive(Debug)]
@@ -111,7 +120,7 @@ impl fmt::Debug for GenesisError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "GenesisError: hash mismatch, expect {:x}, actual {:x}",
+            "GenesisError: hash mismatch, expect {:#x}, actual {:#x}",
             self.expect, self.actual
         )
     }
@@ -128,69 +137,40 @@ impl ChainSpec {
         locator: &ResourceLocator,
         spec_path: PathBuf,
         config_file: &Resource,
-    ) -> Result<ChainSpec, Box<Error>> {
+    ) -> Result<ChainSpec, Box<dyn Error>> {
         let resource = match locator.resolve_relative_to(spec_path, config_file) {
             Some(r) => r,
             None => return Err(FileNotFoundError::boxed()),
         };
         let config_bytes = resource.get()?;
-        let spec_config: ChainSpecConfig = toml::from_slice(&config_bytes)?;
-
-        let system_cells_result: Result<Vec<_>, FileNotFoundError> = spec_config
+        let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
+        let system_cells_resources = spec
+            .genesis
             .system_cells
-            .into_iter()
-            .map(|c| {
+            .files
+            .iter()
+            .map(|path| {
                 locator
-                    .resolve_relative_to(c.path, &resource)
+                    .resolve_relative_to(path.clone(), &resource)
                     .ok_or(FileNotFoundError)
             })
-            .collect();
+            .collect::<Result<Vec<_>, FileNotFoundError>>()?;
 
-        Ok(ChainSpec {
-            resource,
-            system_cells: system_cells_result?,
-            name: spec_config.name,
-            genesis: spec_config.genesis,
-            params: spec_config.params,
-            pow: spec_config.pow,
-        })
+        spec.genesis.system_cells.resources = system_cells_resources;
+
+        Ok(spec)
     }
 
     pub fn pow_engine(&self) -> Arc<dyn PowEngine> {
         self.pow.engine()
     }
 
-    fn build_system_cells_transaction(&self) -> Result<Transaction, Box<Error>> {
-        let outputs_result: Result<Vec<_>, _> = self
-            .system_cells
-            .iter()
-            .map(|c| {
-                c.get()
-                    .map_err(|err| Box::new(err) as Box<Error>)
-                    .and_then(|data| {
-                        // TODO: we should provide a proper lock script here so system cells
-                        // can be updated.
-                        let mut cell = CellOutput::default();
-                        cell.data = data.into_owned().into();
-                        cell.capacity = cell.occupied_capacity()?;
-                        Ok(cell)
-                    })
-            })
-            .collect();
-
-        let outputs = outputs_result?;
-        Ok(TransactionBuilder::default()
-            .outputs(outputs)
-            .input(CellInput::new_cellbase_input(0))
-            .build())
-    }
-
-    fn verify_genesis_hash(&self, genesis: &Block) -> Result<(), Box<Error>> {
+    fn verify_genesis_hash(&self, genesis: &Block) -> Result<(), Box<dyn Error>> {
         if let Some(ref expect) = self.genesis.hash {
             let actual = genesis.header().hash();
-            if &actual != expect {
+            if actual != expect {
                 return Err(GenesisError {
-                    actual,
+                    actual: actual.clone(),
                     expect: expect.clone(),
                 }
                 .boxed());
@@ -199,31 +179,110 @@ impl ChainSpec {
         Ok(())
     }
 
-    pub fn to_consensus(&self) -> Result<Consensus, Box<Error>> {
-        let header_builder = HeaderBuilder::default()
-            .version(self.genesis.version)
-            .parent_hash(self.genesis.parent_hash.clone())
-            .timestamp(self.genesis.timestamp)
-            .difficulty(self.genesis.difficulty.clone())
-            .nonce(self.genesis.seal.nonce)
-            .proof(self.genesis.seal.proof.to_vec())
-            .uncles_hash(self.genesis.uncles_hash.clone());
-
-        let genesis_block = BlockBuilder::default()
-            .transaction(self.build_system_cells_transaction()?)
-            .with_header_builder(header_builder);
-
+    pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
+        let genesis_block = self.genesis.build_block()?;
         self.verify_genesis_hash(&genesis_block)?;
+
+        let block_reward =
+            Capacity::shannons(self.params.epoch_reward.as_u64() / GENESIS_EPOCH_LENGTH);
+        let remainder_reward =
+            Capacity::shannons(self.params.epoch_reward.as_u64() % GENESIS_EPOCH_LENGTH);
+
+        let genesis_epoch_ext = EpochExt::new(
+            0,                        // number
+            block_reward,             // block_reward
+            remainder_reward,         // remainder_reward
+            H256::zero(),             // last_block_hash_in_previous_epoch
+            0,                        // start
+            GENESIS_EPOCH_LENGTH,     // length
+            genesis_block.header().difficulty().clone() // difficulty,
+        );
 
         let consensus = Consensus::default()
             .set_id(self.name.clone())
+            .set_genesis_epoch_ext(genesis_epoch_ext)
             .set_genesis_block(genesis_block)
             .set_cellbase_maturity(self.params.cellbase_maturity)
-            .set_initial_block_reward(self.params.initial_block_reward)
+            .set_epoch_reward(self.params.epoch_reward)
+            .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
             .set_pow(self.pow.clone());
 
         Ok(consensus)
+    }
+}
+
+impl Genesis {
+    fn build_block(&self) -> Result<Block, Box<dyn Error>> {
+        let header_builder = HeaderBuilder::default()
+            .version(self.version)
+            .parent_hash(self.parent_hash.clone())
+            .timestamp(self.timestamp)
+            .difficulty(self.difficulty.clone())
+            .nonce(self.seal.nonce)
+            .proof(self.seal.proof.clone())
+            .uncles_hash(self.uncles_hash.clone());
+
+        Ok(BlockBuilder::from_header_builder(header_builder)
+            .transaction(self.build_cellbase_transaction()?)
+            .build())
+    }
+
+    fn build_cellbase_transaction(&self) -> Result<Transaction, Box<dyn Error>> {
+        let mut outputs =
+            Vec::<CellOutput>::with_capacity(1 + self.system_cells.len() + self.issued_cells.len());
+
+        // Layout of genesis cellbase:
+        // - genesis cell, which contains a message and can never be spent.
+        // - system cells, which stores the built-in code blocks.
+        // - issued cells
+        outputs.push(self.genesis_cell.build_output()?);
+        self.system_cells.build_outputs_into(&mut outputs)?;
+        outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
+
+        Ok(TransactionBuilder::default()
+            .outputs(outputs)
+            .input(CellInput::new_cellbase_input(0))
+            .build())
+    }
+}
+
+impl GenesisCell {
+    fn build_output(&self) -> Result<CellOutput, Box<dyn Error>> {
+        let mut cell = CellOutput::default();
+        cell.data = self.message.as_bytes().into();
+        cell.lock.clone_from(&self.lock);
+        cell.capacity = cell.occupied_capacity()?;
+        Ok(cell)
+    }
+}
+
+impl IssuedCell {
+    fn build_output(&self) -> CellOutput {
+        let mut cell = CellOutput::default();
+        cell.lock = self.lock.clone();
+        cell.capacity = self.capacity;
+        cell
+    }
+}
+
+impl SystemCells {
+    fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    fn build_outputs_into(&self, outputs: &mut Vec<CellOutput>) -> Result<(), Box<dyn Error>> {
+        assert_eq!(self.files.len(), self.resources.len());
+        for res in &self.resources {
+            let data = res.get()?;
+            let mut cell = CellOutput::default();
+            cell.data = data.into_owned().into();
+            cell.lock.clone_from(&self.lock);
+            cell.capacity = cell.occupied_capacity()?;
+            outputs.push(cell);
+        }
+
+        Ok(())
     }
 }
 
@@ -235,8 +294,9 @@ pub mod test {
     use std::collections::HashMap;
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
-    struct SystemCellHashes {
+    struct SystemCell {
         pub path: String,
+        pub index: usize,
         pub code_hash: H256,
         pub script_hash: H256,
     }
@@ -244,8 +304,8 @@ pub mod test {
     #[derive(Clone, Debug, Serialize, Deserialize)]
     struct SpecHashes {
         pub genesis: H256,
-        pub system_cells_transaction: H256,
-        pub system_cells: Vec<SystemCellHashes>,
+        pub cellbase: H256,
+        pub system_cells: Vec<SystemCell>,
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
@@ -280,21 +340,24 @@ pub mod test {
                 assert_eq!(genesis_hash, &spec_hashes.genesis, "{}", bundled_spec_err);
             }
 
-            let consensus = spec.to_consensus().expect("spec to consensus");
+            let consensus = spec.build_consensus().expect("spec to consensus");
             let block = consensus.genesis_block();
-            let cells_tx = &block.transactions()[0];
+            let cellbase = &block.transactions()[0];
 
-            assert_eq!(spec_hashes.system_cells_transaction, cells_tx.hash());
+            assert_eq!(&spec_hashes.cellbase, cellbase.hash());
 
-            for (output, cell_hashes) in cells_tx
+            for (index_minus_one, (output, cell)) in cellbase
                 .outputs()
                 .iter()
+                .skip(1)
                 .zip(spec_hashes.system_cells.iter())
+                .enumerate()
             {
                 let code_hash = output.data_hash();
                 let script_hash = Script::new(vec![], code_hash.clone()).hash();
-                assert_eq!(cell_hashes.code_hash, code_hash, "{}", bundled_spec_err);
-                assert_eq!(cell_hashes.script_hash, script_hash, "{}", bundled_spec_err);
+                assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
+                assert_eq!(cell.code_hash, code_hash, "{}", bundled_spec_err);
+                assert_eq!(cell.script_hash, script_hash, "{}", bundled_spec_err);
             }
         }
     }

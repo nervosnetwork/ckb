@@ -1,5 +1,8 @@
 use crate::syscalls::{utils::store_data, LOAD_TX_HASH_SYSCALL_NUMBER, SUCCESS};
-use ckb_vm::{Error as VMError, Register, SupportMachine, Syscalls, A0, A7};
+use ckb_vm::{
+    registers::{A0, A7},
+    Error as VMError, Register, SupportMachine, Syscalls,
+};
 
 #[derive(Debug)]
 pub struct LoadTxHash<'a> {

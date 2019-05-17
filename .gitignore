@@ -11,9 +11,8 @@
 target/
 target-cache/
 */target/
-admintool/example/
-
-*.pyc
+# target symlink in integration test folder
+test/target
 
 # Cargo lock in subs
 **/Cargo.lock
@@ -46,3 +45,7 @@ tags
 /ckb-dev
 /ckb-testnet
 /ckb-mainnet
+
+# tmp files
+/changes
+*.pyc

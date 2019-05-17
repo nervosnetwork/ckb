@@ -1,6 +1,6 @@
 [package]
 name = "ckb-verification"
-version = "0.11.0"
+version = "0.12.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -16,15 +16,17 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 rayon = "1.0"
 fnv = "1.0.3"
 occupied-capacity = { path = "../util/occupied-capacity" }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
 ckb-traits = { path = "../traits" }
 serde_json = "1.0"
 log = "0.4"
+ckb-chain-spec = { path = "../spec" }
+dao-utils = { path = "../util/dao/utils" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }
 ckb-chain = { path = "../chain" }
-ckb-chain-spec = { path = "../spec" }
 hash = {path = "../util/hash"}
 ckb-shared = { path = "../shared" }
+test-chain-utils = { path = "../util/test-chain-utils" }

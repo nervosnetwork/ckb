@@ -9,7 +9,7 @@ pub trait BlockMedianTimeContext {
     /// ancestor timestamps from a block
     fn ancestor_timestamps(&self, block_number: BlockNumber) -> Vec<u64> {
         let count = self.median_block_count();
-        (block_number.saturating_sub(count)..=block_number)
+        (block_number.saturating_sub(count.saturating_sub(1))..=block_number)
             .filter_map(|n| self.timestamp(n))
             .collect()
     }

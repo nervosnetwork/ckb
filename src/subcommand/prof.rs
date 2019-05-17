@@ -1,14 +1,16 @@
 use ckb_app_config::{ExitCode, ProfArgs};
-use ckb_chain::chain::ChainBuilder;
-use ckb_db::{CacheDB, DBConfig, RocksDB};
+use ckb_chain::chain::ChainController;
+use ckb_chain::chain::ChainService;
+use ckb_db::{DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
+use ckb_traits::ChainProvider;
 use log::info;
 use std::sync::Arc;
 
 pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
-    let shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+    let shared = SharedBuilder::<RocksDB>::default()
         .consensus(args.consensus.clone())
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool.clone())
@@ -19,7 +21,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
         })?;
 
     let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
-    let tmp_shared = SharedBuilder::<CacheDB<RocksDB>>::default()
+    let tmp_shared = SharedBuilder::<RocksDB>::default()
         .consensus(args.consensus)
         .db(&DBConfig {
             path: tmp_dir.as_ref().to_path_buf(),
@@ -33,10 +35,19 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
         })?;
 
     let from = std::cmp::max(1, args.from);
-    let to = std::cmp::min(shared.chain_state().lock().tip_number(), args.to);
+    let to = std::cmp::min(shared.lock_chain_state().tip_number(), args.to);
+    let notify = NotifyService::default().start::<&str>(Some("notify"));
+    let chain = ChainService::new(tmp_shared, notify);
+    let chain_controller = chain.start(Some("chain"));
+    profile_block_process(
+        shared.clone(),
+        chain_controller.clone(),
+        1,
+        std::cmp::max(1, from.saturating_sub(1)),
+    );
     info!("start profling, re-process blocks {}..{}:", from, to);
     let now = std::time::Instant::now();
-    let tx_count = profile_block_process(shared, tmp_shared, from, to);
+    let tx_count = profile_block_process(shared, chain_controller, from, to);
     let duration = now.elapsed();
     info!(
         "end profling, duration {:?} txs {} tps {}",
@@ -49,13 +60,10 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
 
 fn profile_block_process<CS: ChainStore + 'static>(
     shared: Shared<CS>,
-    tmp_shared: Shared<CS>,
+    chain_controller: ChainController,
     from: u64,
     to: u64,
 ) -> usize {
-    let notify = NotifyService::default().start::<&str>(Some("notify"));
-    let chain = ChainBuilder::new(tmp_shared, notify).build();
-    let chain_controller = chain.start(Some("chain"));
     let mut tx_count = 0;
     for index in from..=to {
         let block = {
@@ -63,7 +71,9 @@ fn profile_block_process<CS: ChainStore + 'static>(
             shared.store().get_block(&block_hash).unwrap()
         };
         tx_count += block.transactions().len();
-        chain_controller.process_block(Arc::new(block)).unwrap();
+        chain_controller
+            .process_block(Arc::new(block), true)
+            .unwrap();
     }
     tx_count
 }

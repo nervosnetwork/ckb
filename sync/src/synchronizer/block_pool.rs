@@ -40,7 +40,7 @@ impl OrphanBlockPool {
         while let Some(parent_hash) = queue.pop_front() {
             if let Entry::Occupied(entry) = guard.entry(parent_hash) {
                 let (_, orphaned) = entry.remove_entry();
-                queue.extend(orphaned.iter().map(|b| b.header().hash()));
+                queue.extend(orphaned.iter().map(|b| b.header().hash().to_owned()));
                 removed.extend(orphaned.into_iter());
             }
         }
@@ -74,7 +74,7 @@ mod tests {
 
     fn gen_block(parent_header: &Header) -> Block {
         let header = HeaderBuilder::default()
-            .parent_hash(parent_header.hash())
+            .parent_hash(parent_header.hash().to_owned())
             .timestamp(unix_time_as_millis())
             .number(parent_header.number() + 1)
             .nonce(parent_header.nonce() + 1)

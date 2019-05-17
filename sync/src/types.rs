@@ -1,17 +1,21 @@
 use crate::NetworkProtocol;
+use crate::BLOCK_DOWNLOAD_TIMEOUT;
+use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::Cycle;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_util::Mutex;
 use ckb_util::RwLock;
+use ckb_util::{Mutex, MutexGuard};
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -25,6 +29,7 @@ use std::collections::{
     hash_set::HashSet,
     BTreeMap,
 };
+use std::fmt;
 use std::time::{Duration, Instant};
 
 const FILTER_SIZE: usize = 20000;
@@ -54,6 +59,7 @@ pub struct ChainSyncState {
     pub work_header: Option<Header>,
     pub total_difficulty: Option<U256>,
     pub sent_getheaders: bool,
+    pub not_sync_until: Option<u64>,
     pub protect: bool,
 }
 
@@ -64,6 +70,7 @@ impl Default for ChainSyncState {
             work_header: None,
             total_difficulty: None,
             sent_getheaders: false,
+            not_sync_until: None,
             protect: false,
         }
     }
@@ -72,8 +79,9 @@ impl Default for ChainSyncState {
 #[derive(Clone, Default, Debug, PartialEq)]
 pub struct PeerState {
     pub sync_started: bool,
-    pub last_block_announcement: Option<u64>, //ms
     pub headers_sync_timeout: Option<u64>,
+    pub last_block_announcement: Option<u64>, //ms
+    pub is_outbound: bool,
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
     // The key is a `timeout`, means do not ask the tx before `timeout`.
@@ -82,16 +90,47 @@ pub struct PeerState {
 }
 
 impl PeerState {
-    pub fn new(headers_sync_timeout: Option<u64>, chain_sync: ChainSyncState) -> PeerState {
+    pub fn new(
+        is_outbound: bool,
+        chain_sync: ChainSyncState,
+        headers_sync_timeout: Option<u64>,
+    ) -> PeerState {
         PeerState {
             sync_started: false,
-            last_block_announcement: None,
             headers_sync_timeout,
+            last_block_announcement: None,
+            is_outbound,
             disconnect: false,
             chain_sync,
             tx_ask_for_map: BTreeMap::default(),
             tx_ask_for_set: HashSet::default(),
         }
+    }
+
+    pub fn can_sync(&self, now: u64) -> bool {
+        !self.sync_started
+            && self
+                .chain_sync
+                .not_sync_until
+                .map(|ts| ts < now)
+                .unwrap_or(true)
+    }
+
+    pub fn start_sync(&mut self, headers_sync_timeout: u64) {
+        self.sync_started = true;
+        self.chain_sync.not_sync_until = None;
+        self.headers_sync_timeout = Some(headers_sync_timeout);
+    }
+
+    pub fn stop_sync(&mut self, not_sync_until: u64) {
+        self.sync_started = false;
+        self.chain_sync.not_sync_until = Some(not_sync_until);
+        self.headers_sync_timeout = None;
+    }
+
+    // Not use yet
+    pub fn caught_up_sync(&mut self) {
+        self.headers_sync_timeout = Some(std::u64::MAX);
     }
 
     pub fn add_ask_for_tx(
@@ -173,7 +212,7 @@ impl KnownFilter {
 pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
     pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
-    pub blocks_inflight: RwLock<FnvHashMap<PeerIndex, BlocksInflight>>,
+    pub blocks_inflight: RwLock<InflightBlocks>,
     pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
     pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
     pub known_txs: Mutex<KnownFilter>,
@@ -181,43 +220,139 @@ pub struct Peers {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlocksInflight {
-    pub timestamp: u64,
-    pub blocks: FnvHashSet<H256>,
+pub struct InflightState {
+    pub(crate) peers: FnvHashSet<PeerIndex>,
+    pub(crate) timestamp: u64,
 }
 
-impl Default for BlocksInflight {
+impl Default for InflightState {
     fn default() -> Self {
-        BlocksInflight {
-            blocks: FnvHashSet::default(),
+        InflightState {
+            peers: FnvHashSet::default(),
             timestamp: unix_time_as_millis(),
         }
     }
 }
 
-impl BlocksInflight {
-    pub fn len(&self) -> usize {
-        self.blocks.len()
+impl InflightState {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn remove(&mut self, peer: &PeerIndex) {
+        self.peers.remove(peer);
+    }
+}
+
+#[derive(Clone)]
+pub struct InflightBlocks {
+    blocks: FnvHashMap<PeerIndex, FnvHashSet<H256>>,
+    states: FnvHashMap<H256, InflightState>,
+}
+
+impl Default for InflightBlocks {
+    fn default() -> Self {
+        InflightBlocks {
+            blocks: FnvHashMap::default(),
+            states: FnvHashMap::default(),
+        }
+    }
+}
+
+struct DebugHastSet<'a>(&'a FnvHashSet<H256>);
+
+impl<'a> fmt::Debug for DebugHastSet<'a> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_set()
+            .entries(self.0.iter().map(|h| format!("{:#x}", h)))
+            .finish()
+    }
+}
+
+impl fmt::Debug for InflightBlocks {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_map()
+            .entries(self.blocks.iter().map(|(k, v)| (k, DebugHastSet(v))))
+            .finish()?;
+        fmt.debug_map()
+            .entries(self.states.iter().map(|(k, v)| (format!("{:#x}", k), v)))
+            .finish()
+    }
+}
+
+impl InflightBlocks {
+    pub fn blocks_iter(&self) -> impl Iterator<Item = (&PeerIndex, &FnvHashSet<H256>)> {
+        self.blocks.iter()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub fn total_inflight_count(&self) -> usize {
+        self.states.len()
     }
 
-    pub fn insert(&mut self, hash: H256) -> bool {
-        self.blocks.insert(hash)
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn peer_inflight_count(&self, peer: &PeerIndex) -> usize {
+        self.blocks.get(peer).map(HashSet::len).unwrap_or(0)
+    }
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn inflight_block_by_peer(&self, peer: &PeerIndex) -> Option<&FnvHashSet<H256>> {
+        self.blocks.get(peer)
     }
 
-    pub fn remove(&mut self, hash: &H256) -> bool {
-        self.blocks.remove(hash)
+    pub fn inflight_state_by_block(&self, block: &H256) -> Option<&InflightState> {
+        self.states.get(block)
     }
 
-    pub fn update_timestamp(&mut self) {
-        self.timestamp = unix_time_as_millis();
+    pub fn prune(&mut self) {
+        let now = unix_time_as_millis();
+        let block = &mut self.blocks;
+        self.states.retain(|k, v| {
+            let outdate = (v.timestamp + BLOCK_DOWNLOAD_TIMEOUT) < now;
+            if outdate {
+                for peer in &v.peers {
+                    block.get_mut(peer).map(|set| set.remove(&k));
+                }
+            }
+            !outdate
+        });
     }
 
-    pub fn clear(&mut self) {
-        self.blocks.clear();
+    pub fn insert(&mut self, peer: PeerIndex, hash: H256) -> bool {
+        let state = self
+            .states
+            .entry(hash.clone())
+            .or_insert_with(InflightState::default);
+        if state.peers.len() >= MAX_PEERS_PER_BLOCK {
+            return false;
+        }
+
+        let blocks = self.blocks.entry(peer).or_insert_with(FnvHashSet::default);
+        let ret = blocks.insert(hash);
+        if ret {
+            state.peers.insert(peer);
+        }
+        ret
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn remove_by_peer(&mut self, peer: &PeerIndex) -> bool {
+        self.blocks
+            .remove(peer)
+            .map(|blocks| {
+                for block in blocks {
+                    if let Some(state) = self.states.get_mut(&block) {
+                        state.remove(peer)
+                    }
+                }
+            })
+            .is_some()
+    }
+
+    pub fn remove_by_block(&mut self, block: &H256) -> bool {
+        self.states
+            .remove(block)
+            .map(|state| {
+                for peer in state.peers {
+                    self.blocks.get_mut(&peer).map(|set| set.remove(block));
+                }
+            })
+            .is_some()
     }
 }
 
@@ -233,18 +368,24 @@ impl Peers {
             .or_insert_with(|| score);
     }
 
-    pub fn on_connected(&self, peer: PeerIndex, predicted_headers_sync_time: u64, protect: bool) {
+    pub fn on_connected(
+        &self,
+        peer: PeerIndex,
+        headers_sync_timeout: Option<u64>,
+        protect: bool,
+        is_outbound: bool,
+    ) {
         self.state
             .write()
             .entry(peer)
             .and_modify(|state| {
-                state.headers_sync_timeout = Some(predicted_headers_sync_time);
+                state.headers_sync_timeout = headers_sync_timeout;
                 state.chain_sync.protect = protect;
             })
             .or_insert_with(|| {
                 let mut chain_sync = ChainSyncState::default();
                 chain_sync.protect = protect;
-                PeerState::new(Some(predicted_headers_sync_time), chain_sync)
+                PeerState::new(is_outbound, chain_sync, headers_sync_timeout)
             });
     }
 
@@ -274,17 +415,14 @@ impl Peers {
     pub fn disconnected(&self, peer: PeerIndex) {
         self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
-        self.blocks_inflight.write().remove(&peer);
+        self.blocks_inflight.write().remove_by_peer(&peer);
         self.last_common_headers.write().remove(&peer);
     }
 
-    pub fn block_received(&self, peer: PeerIndex, block: &Block) {
+    // Return true when the block is that we have requested and received first time.
+    pub fn new_block_received(&self, block: &Block) -> bool {
         let mut blocks_inflight = self.blocks_inflight.write();
-        debug!(target: "sync", "block_received from peer {} {} {:x}", peer, block.header().number(), block.header().hash());
-        blocks_inflight.entry(peer).and_modify(|inflight| {
-            inflight.remove(&block.header().hash());
-            inflight.update_timestamp();
-        });
+        blocks_inflight.remove_by_block(block.header().hash())
     }
 
     pub fn set_last_common_header(&self, peer: PeerIndex, header: &Header) {
@@ -296,7 +434,7 @@ impl Peers {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeaderView {
     inner: Header,
     total_difficulty: U256,
@@ -316,8 +454,12 @@ impl HeaderView {
         self.inner.number()
     }
 
-    pub fn hash(&self) -> H256 {
+    pub fn hash(&self) -> &H256 {
         self.inner.hash()
+    }
+
+    pub fn timestamp(&self) -> u64 {
+        self.inner.timestamp()
     }
 
     pub fn total_uncles_count(&self) -> u64 {
@@ -337,8 +479,29 @@ impl HeaderView {
     }
 }
 
+#[derive(Default)]
+pub struct EpochIndices {
+    epoch: HashMap<H256, EpochExt>,
+    indices: HashMap<H256, H256>,
+}
+
+impl EpochIndices {
+    pub fn get_epoch_ext(&self, hash: &H256) -> Option<&EpochExt> {
+        self.indices.get(hash).and_then(|h| self.epoch.get(h))
+    }
+
+    fn insert_index(&mut self, block_hash: H256, epoch_hash: H256) -> Option<H256> {
+        self.indices.insert(block_hash, epoch_hash)
+    }
+
+    fn insert_epoch(&mut self, hash: H256, epoch: EpochExt) -> Option<EpochExt> {
+        self.epoch.insert(hash, epoch)
+    }
+}
+
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
+    epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
     best_known_header: RwLock<HeaderView>,
     get_headers_cache: RwLock<LruCache<(PeerIndex, H256), Instant>>,
@@ -347,7 +510,7 @@ pub struct SyncSharedState<CS> {
 impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn new(shared: Shared<CS>) -> SyncSharedState<CS> {
         let (total_difficulty, header, total_uncles_count) = {
-            let chain_state = shared.chain_state().lock();
+            let chain_state = shared.lock_chain_state();
             let block_ext = shared
                 .block_ext(&chain_state.tip_hash())
                 .expect("tip block_ext must exist");
@@ -364,9 +527,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         ));
         let header_map = RwLock::new(HashMap::new());
         let get_headers_cache = RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE));
+        let epoch_map = RwLock::new(EpochIndices::default());
+
         SyncSharedState {
             shared,
             header_map,
+            epoch_map,
             best_known_header,
             get_headers_cache,
         }
@@ -375,8 +541,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn shared(&self) -> &Shared<CS> {
         &self.shared
     }
-    pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
-        self.shared.chain_state()
+    pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
+        self.shared.lock_chain_state()
+    }
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
+        self.shared.lock_txs_verify_cache()
     }
     pub fn block_header(&self, hash: &H256) -> Option<Header> {
         self.shared.block_header(hash)
@@ -391,14 +560,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.shared.block(hash)
     }
     pub fn tip_header(&self) -> Header {
-        self.shared.chain_state().lock().tip_header().to_owned()
+        self.shared.lock_chain_state().tip_header().to_owned()
     }
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
     }
     pub fn is_initial_block_download(&self) -> bool {
         unix_time_as_millis()
-            .saturating_sub(self.shared.chain_state().lock().tip_header().timestamp())
+            .saturating_sub(self.shared.lock_chain_state().tip_header().timestamp())
             > MAX_TIP_AGE
     }
 
@@ -437,6 +606,36 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .or_else(|| self.shared.block_header(hash))
     }
 
+    pub fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
+        self.epoch_map
+            .read()
+            .get_epoch_ext(hash)
+            .cloned()
+            .or_else(|| self.shared.get_block_epoch(hash))
+    }
+
+    pub fn insert_epoch(&self, header: &Header, epoch: EpochExt) {
+        let mut epoch_map = self.epoch_map.write();
+        epoch_map.insert_index(
+            header.hash().to_owned(),
+            epoch.last_block_hash_in_previous_epoch().clone(),
+        );
+        epoch_map.insert_epoch(epoch.last_block_hash_in_previous_epoch().clone(), epoch);
+    }
+
+    pub fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
+        let consensus = self.shared.consensus();
+        consensus.next_epoch_ext(
+            last_epoch,
+            header,
+            |hash| self.get_header(hash),
+            |hash| {
+                self.get_header_view(hash)
+                    .map(|view| view.total_uncles_count())
+            },
+        )
+    }
+
     pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
         if let Some(header) = self.get_header(base) {
             let mut n_number = header.number();
@@ -462,12 +661,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
-        let mut base = start.hash();
+        let mut base = start.hash().to_owned();
         loop {
             let header = self
                 .get_ancestor(&base, index)
                 .expect("index calculated in get_locator");
-            locator.push(header.hash());
+            locator.push(header.hash().to_owned());
 
             if locator.len() >= 10 {
                 step <<= 1;
@@ -481,7 +680,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 break;
             }
             index -= step;
-            base = header.hash();
+            base = header.hash().to_owned();
         }
         locator
     }
@@ -561,7 +760,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn get_locator_response(&self, block_number: BlockNumber, hash_stop: &H256) -> Vec<Header> {
         // Should not change chain state when get headers from it
-        let chain_state = self.shared.chain_state().lock();
+        let chain_state = self.shared.lock_chain_state();
 
         // NOTE: call `self.tip_header()` will cause deadlock
         let tip_number = chain_state.tip_header().number();
@@ -585,7 +784,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         if let Some(last_time) = self
             .get_headers_cache
             .write()
-            .get_refresh(&(peer, header.hash()))
+            .get_refresh(&(peer, header.hash().to_owned()))
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
@@ -606,9 +805,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         }
         self.get_headers_cache
             .write()
-            .insert((peer, header.hash()), Instant::now());
+            .insert((peer, header.hash().to_owned()), Instant::now());
 
-        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={}", peer, header.hash());
+        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={:x}", peer, header.hash());
         let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);

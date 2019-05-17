@@ -1,34 +1,26 @@
-mod block_relay;
-mod block_sync;
 mod mining;
 mod p2p;
-mod pool;
-mod protocols;
-mod transaction_relay;
+mod relay;
+mod sync;
 mod tx_pool;
 
-pub use block_relay::BlockRelayBasic;
-pub use block_sync::BlockSyncBasic;
-pub use mining::MiningBasic;
-pub use p2p::{Disconnect, Discovery};
-pub use pool::{PoolReconcile, PoolTrace};
-pub use protocols::MalformedMessage;
-pub use transaction_relay::TransactionRelayBasic;
-pub use tx_pool::{CellbaseImmatureTx, DepentTxInSameBlock, DifferentTxsWithSameInput};
+pub use mining::*;
+pub use p2p::*;
+pub use relay::*;
+pub use sync::*;
+pub use tx_pool::*;
 
 use crate::Net;
-use ckb_core::BlockNumber;
+use ckb_app_config::CKBAppConfig;
+use ckb_chain_spec::ChainSpec;
 use ckb_network::{ProtocolId, ProtocolVersion};
+use ckb_sync::NetworkProtocol;
 
 pub trait Spec {
     fn run(&self, net: Net);
 
     fn num_nodes(&self) -> usize {
         3
-    }
-
-    fn cellbase_maturity(&self) -> Option<BlockNumber> {
-        None
     }
 
     fn connect_all(&self) -> bool {
@@ -39,25 +31,28 @@ pub trait Spec {
         vec![]
     }
 
+    fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
+        Box::new(|_| ())
+    }
+
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+        Box::new(|config| {
+            config.network.connect_outbound_interval_secs = 1;
+            config.network.discovery_local_address = true;
+        })
+    }
+
     fn setup_net(&self, binary: &str, start_port: u16) -> Net {
-        let mut net = Net::new(
-            binary,
-            self.num_nodes(),
-            start_port,
-            self.test_protocols(),
-            self.cellbase_maturity(),
-        );
+        let mut net = Net::new(binary, self.num_nodes(), start_port, self.test_protocols());
 
         // start all nodes
         net.nodes.iter_mut().for_each(|node| {
-            node.start();
+            node.start(self.modify_chain_spec(), self.modify_ckb_config());
         });
 
         // connect the nodes as a linear chain: node0 <-> node1 <-> node2 <-> ...
         if self.connect_all() {
-            net.nodes
-                .windows(2)
-                .for_each(|nodes| nodes[0].connect(&nodes[1]));
+            net.connect_all();
         }
 
         net
@@ -68,4 +63,22 @@ pub struct TestProtocol {
     pub id: ProtocolId,
     pub protocol_name: String,
     pub supported_versions: Vec<ProtocolVersion>,
+}
+
+impl TestProtocol {
+    pub fn sync() -> Self {
+        Self {
+            id: NetworkProtocol::SYNC.into(),
+            protocol_name: "syn".to_string(),
+            supported_versions: vec!["1".to_string()],
+        }
+    }
+
+    pub fn relay() -> Self {
+        Self {
+            id: NetworkProtocol::RELAY.into(),
+            protocol_name: "rel".to_string(),
+            supported_versions: vec!["1".to_string()],
+        }
+    }
 }

@@ -1,5 +1,5 @@
 use crate::NetworkState;
-use log::info;
+use log::{info, warn};
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
     secio::PublicKey,
@@ -35,8 +35,10 @@ impl ServiceProtocol for Feeler {
         self.network_state.with_peer_store_mut(|peer_store| {
             peer_store.add_connected_peer(&peer_id, session.address.clone(), session.ty);
         });
-        info!(target: "feeler", "peer={} FeelerProtocol.connected", session.address);
-        context.disconnect(session.id);
+        info!(target: "network", "peer={} FeelerProtocol.connected", session.address);
+        if let Err(err) = context.disconnect(session.id) {
+            warn!(target: "network", "Disconnect failed: {:?}", err);
+        }
     }
 
     fn disconnected(&mut self, context: ProtocolContextMutRef) {
@@ -49,6 +51,6 @@ impl ServiceProtocol for Feeler {
         self.network_state.with_peer_registry_mut(|reg| {
             reg.remove_feeler(&peer_id);
         });
-        info!(target: "relay", "peer={} FeelerProtocol.disconnected", session.address);
+        info!(target: "network", "peer={} FeelerProtocol.disconnected", session.address);
     }
 }

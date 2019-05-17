@@ -1,20 +1,22 @@
 use crate::config::Config;
 use crate::module::{
-    ChainRpc, ChainRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl,
-    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, TraceRpc, TraceRpcImpl,
+    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IntegrationTestRpc,
+    IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
+    PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
+use ckb_sync::Synchronizer;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 
 pub struct RpcServer {
-    server: Server,
+    pub(crate) server: Server,
 }
 
 impl RpcServer {
@@ -22,6 +24,7 @@ impl RpcServer {
         config: Config,
         network_controller: NetworkController,
         shared: Shared<CS>,
+        synchronizer: Synchronizer<CS>,
         chain: ChainController,
         block_assembler: BlockAssemblerController,
     ) -> RpcServer
@@ -41,11 +44,7 @@ impl RpcServer {
 
         if config.pool_enable() {
             io.extend_with(
-                PoolRpcImpl {
-                    network_controller: network_controller.clone(),
-                    shared: shared.clone(),
-                }
-                .to_delegate(),
+                PoolRpcImpl::new(shared.clone(), network_controller.clone()).to_delegate(),
             );
         }
 
@@ -54,7 +53,7 @@ impl RpcServer {
                 MinerRpcImpl {
                     shared: shared.clone(),
                     block_assembler,
-                    chain,
+                    chain: chain.clone(),
                     network_controller: network_controller.clone(),
                 }
                 .to_delegate(),
@@ -70,10 +69,19 @@ impl RpcServer {
             );
         }
 
-        if config.trace_enable() {
+        if config.stats_enable() {
             io.extend_with(
-                TraceRpcImpl {
-                    network_controller: network_controller.clone(),
+                StatsRpcImpl {
+                    shared: shared.clone(),
+                    synchronizer: synchronizer.clone(),
+                }
+                .to_delegate(),
+            );
+        }
+
+        if config.experiment_enable() {
+            io.extend_with(
+                ExperimentRpcImpl {
                     shared: shared.clone(),
                 }
                 .to_delegate(),
@@ -85,6 +93,7 @@ impl RpcServer {
                 IntegrationTestRpcImpl {
                     network_controller,
                     shared,
+                    chain,
                 }
                 .to_delegate(),
             );

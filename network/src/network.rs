@@ -1,6 +1,6 @@
 use crate::errors::Error;
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
-use crate::peer_store::{sqlite::SqlitePeerStore, PeerStore, Status};
+use crate::peer_store::{sqlite::SqlitePeerStore, types::PeerAddr, PeerStore, Status};
 use crate::protocols::feeler::Feeler;
 use crate::protocols::{
     discovery::{DiscoveryProtocol, DiscoveryService},
@@ -12,6 +12,7 @@ use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
+use build_info::Version;
 use ckb_util::{Mutex, RwLock};
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
@@ -19,7 +20,6 @@ use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use futures::Stream;
 use log::{debug, error, info, trace, warn};
-use lru_cache::LruCache;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     bytes::Bytes,
@@ -32,19 +32,19 @@ use p2p::{
         TargetSession,
     },
     traits::ServiceHandle,
-    utils::extract_peer_id,
     SessionId,
 };
 use p2p_identify::IdentifyProtocol;
 use p2p_ping::PingHandler;
 use std::boxed::Box;
 use std::cmp::max;
+use std::io;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::usize;
 use stop_handler::{SignalSender, StopHandler};
-use tokio::runtime::Runtime;
+use tokio::runtime;
 
 const PING_PROTOCOL_ID: usize = 0;
 const DISCOVERY_PROTOCOL_ID: usize = 1;
@@ -52,7 +52,10 @@ const IDENTIFY_PROTOCOL_ID: usize = 2;
 const FEELER_PROTOCOL_ID: usize = 3;
 
 const ADDR_LIMIT: u32 = 3;
-const FAILED_DIAL_CACHE_SIZE: usize = 100;
+const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
+const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
+// After 5 minutes we consider this dial hang
+const DIAL_HANG_TIMEOUT: Duration = Duration::from_secs(300);
 
 type MultiaddrList = Vec<(Multiaddr, u8)>;
 
@@ -66,8 +69,7 @@ pub struct NetworkState {
     peer_registry: RwLock<PeerRegistry>,
     peer_store: Mutex<Box<dyn PeerStore>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
-    // For avoid repeat failed dial
-    pub(crate) failed_dials: RwLock<LruCache<PeerId, Instant>>,
+    dialing_addrs: RwLock<FnvHashMap<PeerId, Instant>>,
 
     protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
@@ -115,7 +117,7 @@ impl NetworkState {
             peer_store,
             config,
             peer_registry: RwLock::new(peer_registry),
-            failed_dials: RwLock::new(LruCache::new(FAILED_DIAL_CACHE_SIZE)),
+            dialing_addrs: RwLock::new(FnvHashMap::default()),
             listened_addresses: RwLock::new(listened_addresses),
             original_listened_addresses: RwLock::new(Vec::new()),
             disconnecting_sessions: RwLock::new(FnvHashSet::default()),
@@ -187,10 +189,11 @@ impl NetworkState {
         timeout: Duration,
     ) {
         info!(target: "network", "ban peer {:?} with {:?}", peer_id, timeout);
-        self.peer_store.lock().ban_peer(peer_id, timeout);
         self.with_peer_registry_mut(|reg| {
             if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
-                reg.remove_peer(session_id);
+                if let Some(peer) = reg.remove_peer(session_id) {
+                    self.peer_store.lock().ban_addr(&peer.address, timeout);
+                }
                 if let Err(err) = p2p_control.disconnect(session_id) {
                     error!(target: "network", "send message to p2p service error: {:?}", err);
                 }
@@ -311,7 +314,6 @@ impl NetworkState {
             .collect()
     }
 
-    // TODO: A workaround method for `add_node` rpc call, need to re-write it after new p2p lib integration.
     pub(crate) fn add_node(
         &self,
         p2p_control: &ServiceControl,
@@ -319,9 +321,6 @@ impl NetworkState {
         address: Multiaddr,
     ) {
         self.dial_all(p2p_control, peer_id, address.clone());
-        if !self.peer_store.lock().add_discovered_addr(peer_id, address) {
-            warn!(target: "network", "add_node failed {:?}", peer_id);
-        }
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -337,6 +336,45 @@ impl NetworkState {
             .collect::<Vec<_>>()
     }
 
+    pub(crate) fn can_dial(&self, peer_id: &PeerId, addr: &Multiaddr) -> bool {
+        if self.local_peer_id() == peer_id {
+            trace!(target: "network", "Do not dial self: {:?}, {}", peer_id, addr);
+            return false;
+        }
+        if self.listened_addresses.read().contains_key(&addr) {
+            trace!(target: "network", "Do not dial listened address(self): {:?}, {}", peer_id, addr);
+            return false;
+        }
+
+        let peer_in_registry = self.with_peer_registry(|reg| {
+            reg.get_key_by_peer_id(peer_id).is_some() || reg.is_feeler(peer_id)
+        });
+        if peer_in_registry {
+            trace!(target: "network", "Do not dial peer in registry: {:?}, {}", peer_id, addr);
+            return false;
+        }
+
+        if let Some(dial_started) = self.dialing_addrs.read().get(peer_id) {
+            trace!(target: "network", "Do not repeat send dial command to network service: {:?}, {}", peer_id, addr);
+            if dial_started.elapsed() > DIAL_HANG_TIMEOUT {
+                error!(
+                    target: "network",
+                    "Dialing {:?}, {:?} for more than {} seconds, something is wrong in network service",
+                    peer_id,
+                    addr,
+                    DIAL_HANG_TIMEOUT.as_secs(),
+                );
+            }
+            return false;
+        }
+
+        true
+    }
+
+    pub(crate) fn dial_success(&self, peer_id: &PeerId) {
+        self.dialing_addrs.write().remove(peer_id);
+    }
+
     pub fn dial(
         &self,
         p2p_control: &ServiceControl,
@@ -344,18 +382,24 @@ impl NetworkState {
         mut addr: Multiaddr,
         target: DialProtocol,
     ) {
-        if !self.listened_addresses.read().contains_key(&addr) {
-            match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
-                Ok(peer_id_hash) => {
-                    addr.push(multiaddr::Protocol::P2p(peer_id_hash));
-                    debug!(target: "network", "dialing {} with {:?}", addr, target);
-                    if let Err(err) = p2p_control.dial(addr.clone(), target) {
-                        debug!(target: "network", "dial fialed: {:?}", err);
-                    }
+        if !self.can_dial(peer_id, &addr) {
+            return;
+        }
+
+        match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
+            Ok(peer_id_hash) => {
+                addr.push(multiaddr::Protocol::P2p(peer_id_hash));
+                debug!(target: "network", "dialing {} with {:?}", addr, target);
+                if let Err(err) = p2p_control.dial(addr.clone(), target) {
+                    debug!(target: "network", "dial failed: {:?}", err);
+                } else {
+                    self.dialing_addrs
+                        .write()
+                        .insert(peer_id.to_owned(), Instant::now());
                 }
-                Err(err) => {
-                    error!(target: "network", "failed to convert peer_id to addr: {}", err);
-                }
+            }
+            Err(err) => {
+                error!(target: "network", "failed to convert peer_id to addr: {}", err);
             }
         }
     }
@@ -403,15 +447,6 @@ impl ServiceHandle for EventHandler {
                         .write()
                         .insert(addr, std::u8::MAX);
                 }
-                if let Some(peer_id) = extract_peer_id(address) {
-                    self.network_state.with_peer_registry_mut(|reg| {
-                        reg.remove_feeler(&peer_id);
-                    });
-                    self.network_state
-                        .failed_dials
-                        .write()
-                        .insert(peer_id, Instant::now());
-                }
             }
             ServiceError::ProtocolError {
                 id,
@@ -419,7 +454,9 @@ impl ServiceHandle for EventHandler {
                 error,
             } => {
                 warn!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
-                context.disconnect(id);
+                if let Err(err) = context.disconnect(id) {
+                    warn!(target: "network", "Disconnect failed: {:?}", err);
+                }
             }
             ServiceError::SessionTimeout { session_context } => {
                 warn!(
@@ -440,7 +477,6 @@ impl ServiceHandle for EventHandler {
                     session_context.address,
                     error,
                 );
-                context.disconnect(session_context.id)
             }
             _ => {
                 warn!(target: "network", "p2p service error: {:?}", error);
@@ -463,6 +499,9 @@ impl ServiceHandle for EventHandler {
                     .as_ref()
                     .map(PublicKey::peer_id)
                     .expect("Secio must enabled");
+
+                self.network_state.dial_success(&peer_id);
+
                 if self
                     .network_state
                     .with_peer_registry(|reg| reg.is_feeler(&peer_id))
@@ -482,7 +521,9 @@ impl ServiceHandle for EventHandler {
                                 evicted_peer.session_id,
                                 evicted_peer.address,
                             );
-                            context.disconnect(evicted_peer.session_id);
+                            if let Err(err) = context.disconnect(evicted_peer.session_id) {
+                                warn!(target: "network", "Disconnect failed: {:?}", err);
+                            }
                         }
                         Ok(None) => info!(
                             target: "network",
@@ -498,7 +539,9 @@ impl ServiceHandle for EventHandler {
                                 session_context.id,
                                 session_context.address,
                             );
-                            context.disconnect(session_context.id);
+                            if let Err(err) = context.disconnect(session_context.id) {
+                                warn!(target: "network", "Disconnect failed: {:?}", err);
+                            }
                         }
                     }
                 }
@@ -510,6 +553,15 @@ impl ServiceHandle for EventHandler {
                     session_context.id,
                     session_context.address,
                 );
+                let peer_id = session_context
+                    .remote_pubkey
+                    .as_ref()
+                    .map(PublicKey::peer_id)
+                    .expect("Secio must enabled");
+
+                self.network_state.with_peer_registry_mut(|reg| {
+                    reg.remove_feeler(&peer_id);
+                });
                 self.network_state
                     .disconnecting_sessions
                     .write()
@@ -527,11 +579,6 @@ impl ServiceHandle for EventHandler {
                         session_context.id,
                         session_context.address,
                     );
-                    let peer_id = session_context
-                        .remote_pubkey
-                        .as_ref()
-                        .map(PublicKey::peer_id)
-                        .expect("Secio must enabled");
                     self.network_state.with_peer_store_mut(|peer_store| {
                         peer_store.update_status(&peer_id, Status::Disconnected);
                     })
@@ -607,10 +654,11 @@ impl ServiceHandle for EventHandler {
                         .disconnecting_sessions
                         .write()
                         .insert(session_id);
-                    context.disconnect(session_id);
+                    if let Err(err) = context.disconnect(session_id) {
+                        warn!(target: "network", "Disconnect failed: {:?}", err);
+                    }
                 }
             }
-            _ => {}
         }
     }
 }
@@ -698,7 +746,11 @@ impl NetworkService {
             .build(event_handler);
 
         // == Build background service tasks
-        let disc_service = DiscoveryService::new(Arc::clone(&network_state), disc_receiver);
+        let disc_service = DiscoveryService::new(
+            Arc::clone(&network_state),
+            disc_receiver,
+            config.discovery_local_address,
+        );
         let ping_service = PingService::new(
             Arc::clone(&network_state),
             p2p_service.control().to_owned(),
@@ -715,8 +767,8 @@ impl NetworkService {
         );
         let bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
-            Box::new(disc_service.for_each(|_| Ok(()))) as Box<_>,
-            Box::new(outbound_peer_service.for_each(|_| Ok(()))) as Box<_>,
+            Box::new(disc_service) as Box<_>,
+            Box::new(outbound_peer_service) as Box<_>,
             Box::new(dns_seeding_service) as Box<_>,
         ];
 
@@ -729,6 +781,7 @@ impl NetworkService {
 
     pub fn start<S: ToString>(
         mut self,
+        node_version: Version,
         thread_name: Option<S>,
     ) -> Result<NetworkController, Error> {
         let config = &self.network_state.config;
@@ -787,7 +840,11 @@ impl NetworkService {
         let thread = thread_builder
             .spawn(move || {
                 let inner_p2p_control = self.p2p_service.control().to_owned();
-                let mut runtime = Runtime::new().expect("Network tokio runtime init failed");
+                let num_threads = max(num_cpus::get(), 4);
+                let mut runtime = runtime::Builder::new()
+                    .core_threads(num_threads)
+                    .build()
+                    .expect("Network tokio runtime init failed");
                 runtime.spawn(self.p2p_service.for_each(|_| Ok(())));
 
                 // NOTE: for ensure background task finished
@@ -825,9 +882,10 @@ impl NetworkService {
                 runtime.shutdown_on_idle().wait().unwrap();
                 debug!(target: "network", "Shutdown network service finished!");
             })
-            .expect("Start NetworkService fialed");
+            .expect("Start NetworkService failed");
         let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
         Ok(NetworkController {
+            node_version,
             network_state,
             p2p_control,
             stop,
@@ -837,6 +895,7 @@ impl NetworkService {
 
 #[derive(Clone)]
 pub struct NetworkController {
+    node_version: Version,
     network_state: Arc<NetworkState>,
     p2p_control: ServiceControl,
     stop: StopHandler<()>,
@@ -845,6 +904,10 @@ pub struct NetworkController {
 impl NetworkController {
     pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
         self.network_state.external_urls(max_urls)
+    }
+
+    pub fn node_version(&self) -> &Version {
+        &self.node_version
     }
 
     pub fn node_id(&self) -> String {
@@ -856,6 +919,19 @@ impl NetworkController {
             .add_node(&self.p2p_control, peer_id, address)
     }
 
+    pub fn remove_node(&self, peer_id: &PeerId) {
+        self.network_state.with_peer_registry_mut(|reg| {
+            if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
+                reg.remove_peer(session_id);
+                if let Err(err) = self.p2p_control.disconnect(session_id) {
+                    error!(target: "network", "Failed to disconnect peer, error: {:?}", err);
+                }
+            } else {
+                error!(target: "network", "Cannot find peer {:?}", peer_id);
+            }
+        })
+    }
+
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
         let peers = self
             .network_state
@@ -864,15 +940,17 @@ impl NetworkController {
             peers
                 .into_iter()
                 .map(|peer| {
+                    // FIXME how to return address score?
                     (
                         peer.peer_id.clone(),
                         peer.clone(),
                         peer_store
                             .peer_addrs(&peer.peer_id, ADDR_LIMIT)
-                            .unwrap_or_default()
                             .into_iter()
-                        // FIXME how to return address score?
-                            .map(|address| (address, 1))
+                            .map(|paddr| {
+                                let PeerAddr { addr, .. } = paddr;
+                                (addr, 1)
+                            })
                             .collect(),
                     )
                 })
@@ -880,20 +958,61 @@ impl NetworkController {
         })
     }
 
-    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) {
-        let session_ids = self.network_state.peer_registry.read().connected_peers();
-        if let Err(err) =
-            self.p2p_control
-                .filter_broadcast(TargetSession::Multi(session_ids), proto_id, data)
-        {
-            warn!(target: "network", "broadcast message to {} failed: {:?}", proto_id, err);
+    fn try_broadcast(
+        &self,
+        quick: bool,
+        target: TargetSession,
+        proto_id: ProtocolId,
+        data: Bytes,
+    ) -> Result<(), P2pError> {
+        let now = Instant::now();
+        loop {
+            let result = if quick {
+                self.p2p_control
+                    .quick_filter_broadcast(target.clone(), proto_id, data.clone())
+            } else {
+                self.p2p_control
+                    .filter_broadcast(target.clone(), proto_id, data.clone())
+            };
+            match result {
+                Ok(()) => {
+                    return Ok(());
+                }
+                Err(P2pError::IoError(ref err)) if err.kind() == io::ErrorKind::WouldBlock => {
+                    if now.elapsed() > P2P_SEND_TIMEOUT {
+                        warn!(target: "network", "broadcast message to {} timeout", proto_id);
+                        return Err(P2pError::IoError(io::ErrorKind::TimedOut.into()));
+                    }
+                    thread::sleep(P2P_TRY_SEND_INTERVAL);
+                }
+                Err(err) => {
+                    warn!(target: "network", "broadcast message to {} failed: {:?}", proto_id, err);
+                    return Err(err);
+                }
+            }
         }
     }
 
-    pub fn send_message_to(&self, session_id: SessionId, proto_id: ProtocolId, data: Bytes) {
-        if let Err(err) = self.p2p_control.send_message_to(session_id, proto_id, data) {
-            warn!(target: "network", "send message to {} {} failed: {:?}", session_id, proto_id, err);
-        }
+    pub fn broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
+        let session_ids = self.network_state.peer_registry.read().connected_peers();
+        let target = TargetSession::Multi(session_ids.clone());
+        self.try_broadcast(false, target, proto_id, data)
+    }
+
+    pub fn quick_broadcast(&self, proto_id: ProtocolId, data: Bytes) -> Result<(), P2pError> {
+        let session_ids = self.network_state.peer_registry.read().connected_peers();
+        let target = TargetSession::Multi(session_ids.clone());
+        self.try_broadcast(true, target, proto_id, data)
+    }
+
+    pub fn send_message_to(
+        &self,
+        session_id: SessionId,
+        proto_id: ProtocolId,
+        data: Bytes,
+    ) -> Result<(), P2pError> {
+        let target = TargetSession::Single(session_id);
+        self.try_broadcast(false, target, proto_id, data)
     }
 }
 

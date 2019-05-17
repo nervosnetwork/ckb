@@ -1,11 +1,11 @@
 use super::Verifier;
-use crate::error::{DifficultyError, Error, NumberError, PowError, TimestampError};
-use crate::shared::ALLOWED_FUTURE_BLOCKTIME;
+use crate::error::{EpochError, Error, NumberError, PowError, TimestampError};
+use crate::ALLOWED_FUTURE_BLOCKTIME;
+use ckb_core::extras::EpochExt;
 use ckb_core::header::{Header, HEADER_VERSION};
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
 use faketime::unix_time_as_millis;
-use numext_fixed_uint::U256;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ pub trait HeaderResolver {
     /// resolves parent header
     fn parent(&self) -> Option<&Header>;
     /// resolves header difficulty
-    fn calculate_difficulty(&self) -> Option<U256>;
+    fn epoch(&self) -> Option<&EpochExt>;
 }
 
 pub struct HeaderVerifier<T, M> {
@@ -45,7 +45,7 @@ impl<T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<T
             .ok_or_else(|| Error::UnknownParent(header.parent_hash().to_owned()))?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(&self.block_median_time_context, header).verify()?;
-        DifficultyVerifier::verify(target)?;
+        EpochVerifier::verify(target)?;
         Ok(())
     }
 }
@@ -134,20 +134,27 @@ impl<'a> NumberVerifier<'a> {
     }
 }
 
-pub struct DifficultyVerifier<T> {
+pub struct EpochVerifier<T> {
     phantom: PhantomData<T>,
 }
 
-impl<T: HeaderResolver> DifficultyVerifier<T> {
-    pub fn verify(resolver: &T) -> Result<(), Error> {
-        let expected = resolver
-            .calculate_difficulty()
-            .ok_or_else(|| Error::Difficulty(DifficultyError::AncestorNotFound))?;
-        let actual = resolver.header().difficulty();
-        if &expected != actual {
-            return Err(Error::Difficulty(DifficultyError::MixMismatch {
-                expected,
-                actual: actual.clone(),
+impl<T: HeaderResolver> EpochVerifier<T> {
+    pub fn verify(target: &T) -> Result<(), Error> {
+        let epoch = target
+            .epoch()
+            .ok_or_else(|| Error::Epoch(EpochError::AncestorNotFound))?;
+        let actual_epoch_number = target.header().epoch();
+        if actual_epoch_number != epoch.number() {
+            return Err(Error::Epoch(EpochError::NumberMismatch {
+                expected: epoch.number(),
+                actual: actual_epoch_number,
+            }));
+        }
+        let actual_difficulty = target.header().difficulty();
+        if epoch.difficulty() != actual_difficulty {
+            return Err(Error::Epoch(EpochError::DifficultyMismatch {
+                expected: epoch.difficulty().clone(),
+                actual: actual_difficulty.clone(),
             }));
         }
         Ok(())

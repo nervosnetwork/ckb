@@ -146,8 +146,8 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
     fn try_from(header: ckb_protocol::Header<'a>) -> Result<Self, Self::Error> {
         let parent_hash = cast!(header.parent_hash())?;
         let transactions_root = cast!(header.transactions_root())?;
-        let proposals_root = cast!(header.proposals_root())?;
         let witnesses_root = cast!(header.witnesses_root())?;
+        let proposals_hash = cast!(header.proposals_hash())?;
         let uncles_hash = cast!(header.uncles_hash())?;
 
         Ok(ckb_core::header::HeaderBuilder::default()
@@ -155,9 +155,10 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
             .parent_hash(TryInto::try_into(parent_hash)?)
             .timestamp(header.timestamp())
             .number(header.number())
+            .epoch(header.epoch())
             .transactions_root(TryInto::try_into(transactions_root)?)
-            .proposals_root(TryInto::try_into(proposals_root)?)
             .witnesses_root(TryInto::try_into(witnesses_root)?)
+            .proposals_hash(TryInto::try_into(proposals_hash)?)
             .difficulty(U256::from_little_endian(cast!(header
                 .difficulty()
                 .and_then(|d| d.seq()))?)?)
@@ -166,7 +167,7 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
             .proof(cast!(header
                 .proof()
                 .and_then(|p| p.seq())
-                .map(|p| p.to_vec()))?)
+                .map(ckb_core::Bytes::from))?)
             .uncles_count(header.uncles_count())
             .build())
     }
@@ -240,8 +241,8 @@ impl<'a> TryFrom<ckb_protocol::Witness<'a>> for ckb_core::transaction::Witness {
     type Error = FailureError;
 
     fn try_from(wit: ckb_protocol::Witness<'a>) -> Result<Self, Self::Error> {
-        let data: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(cast!(wit.data())?)
-            .map(|item| item.seq().map(|s| s.to_vec()))
+        let data: Option<Vec<ckb_core::Bytes>> = FlatbuffersVectorIterator::new(cast!(wit.data())?)
+            .map(|item| item.seq().map(ckb_core::Bytes::from))
             .collect();
 
         Ok(cast!(data)?)
@@ -252,11 +253,18 @@ impl<'a> TryFrom<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint
     type Error = FailureError;
 
     fn try_from(out_point: ckb_protocol::OutPoint<'a>) -> Result<Self, Self::Error> {
-        let tx_hash = cast!(out_point.tx_hash())?;
-        Ok(ckb_core::transaction::OutPoint {
-            tx_hash: TryInto::try_into(tx_hash)?,
-            index: out_point.index(),
-        })
+        let cell = match out_point.tx_hash() {
+            Some(tx_hash) => Some(ckb_core::transaction::CellOutPoint {
+                tx_hash: TryInto::try_into(tx_hash)?,
+                index: out_point.index(),
+            }),
+            _ => None,
+        };
+        let block_hash = match out_point.block_hash() {
+            Some(block_hash) => Some(TryInto::try_into(block_hash)?),
+            None => None,
+        };
+        Ok(ckb_core::transaction::OutPoint { block_hash, cell })
     }
 }
 
@@ -287,16 +295,25 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
     type Error = FailureError;
 
     fn try_from(cell_input: ckb_protocol::CellInput<'a>) -> Result<Self, Self::Error> {
-        let tx_hash = cast!(cell_input.tx_hash())?;
+        let cell = match cell_input.tx_hash() {
+            Some(tx_hash) => Some(ckb_core::transaction::CellOutPoint {
+                tx_hash: TryInto::try_into(tx_hash)?,
+                index: cell_input.index(),
+            }),
+            _ => None,
+        };
+        let block_hash = match cell_input.block_hash() {
+            Some(block_hash) => Some(TryInto::try_into(block_hash)?),
+            None => None,
+        };
+        let previous_output = ckb_core::transaction::OutPoint { block_hash, cell };
+
         let args: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(cast!(cell_input.args())?)
             .map(|argument| argument.seq().map(|s| s.to_vec()))
             .collect();
 
         Ok(ckb_core::transaction::CellInput {
-            previous_output: ckb_core::transaction::OutPoint {
-                tx_hash: TryInto::try_into(tx_hash)?,
-                index: cell_input.index(),
-            },
+            previous_output,
             since: cell_input.since(),
             args: cast!(args)?
                 .into_iter()

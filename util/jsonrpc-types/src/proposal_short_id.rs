@@ -1,7 +1,5 @@
 use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
-use failure::Error as FailureError;
 use faster_hex::{hex_decode, hex_encode};
-use std::convert::TryFrom;
 use std::fmt;
 
 #[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
@@ -23,11 +21,9 @@ impl From<CoreProposalShortId> for ProposalShortId {
     }
 }
 
-impl TryFrom<ProposalShortId> for CoreProposalShortId {
-    type Error = FailureError;
-
-    fn try_from(json: ProposalShortId) -> Result<Self, Self::Error> {
-        Ok(CoreProposalShortId::new(json.into_inner()))
+impl From<ProposalShortId> for CoreProposalShortId {
+    fn from(json: ProposalShortId) -> Self {
+        CoreProposalShortId::new(json.into_inner())
     }
 }
 

@@ -1,23 +1,28 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
 use crate::error::SharedError;
-use crate::tx_pool::types::PoolEntry;
+use crate::tx_pool::types::{DefectEntry, ProposedEntry};
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellMeta, CellProvider, CellStatus, OverlayCellProvider,
-    ResolvedTransaction, UnresolvableError,
+    resolve_transaction, BlockInfo, CellMetaBuilder, CellProvider, CellStatus, HeaderProvider,
+    HeaderStatus, OverlayCellProvider, ResolvedTransaction, UnresolvableError,
 };
+use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
+use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_verification::{PoolTransactionVerifier, TransactionVerifier};
-use fnv::{FnvHashMap, FnvHashSet};
-use log::{error, trace};
+use ckb_util::LinkedFnvHashSet;
+use ckb_util::{FnvHashMap, FnvHashSet};
+use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
+use dao_utils::calculate_transaction_fee;
+use log::{debug, trace};
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cell::{Ref, RefCell};
@@ -33,6 +38,8 @@ pub struct ChainState<CS> {
     // interior mutability for immutable borrow proposal_ids
     tx_pool: RefCell<TxPool>,
     consensus: Arc<Consensus>,
+    current_epoch_ext: EpochExt,
+    script_config: ScriptConfig,
 }
 
 impl<CS: ChainStore> ChainState<CS> {
@@ -40,16 +47,19 @@ impl<CS: ChainStore> ChainState<CS> {
         store: &Arc<CS>,
         consensus: Arc<Consensus>,
         tx_pool_config: TxPoolConfig,
+        script_config: ScriptConfig,
     ) -> Result<Self, SharedError> {
         // check head in store or save the genesis block as head
-        let tip_header = {
-            let genesis = consensus.genesis_block();
-            match store.get_tip_header() {
-                Some(tip_header) => {
+        let (tip_header, epoch_ext) = {
+            match store
+                .get_tip_header()
+                .and_then(|header| store.get_current_epoch_ext().map(|epoch| (header, epoch)))
+            {
+                Some((tip_header, epoch)) => {
                     if let Some(genesis_hash) = store.get_block_hash(0) {
                         let expect_genesis_hash = consensus.genesis_hash();
                         if &genesis_hash == expect_genesis_hash {
-                            Ok(tip_header)
+                            Ok((tip_header, epoch))
                         } else {
                             Err(SharedError::InvalidData(format!(
                                 "mismatch genesis hash, expect {:#x} but {:#x} in database",
@@ -63,16 +73,20 @@ impl<CS: ChainStore> ChainState<CS> {
                     }
                 }
                 None => store
-                    .init(&genesis)
-                    .map_err(|_| {
-                        SharedError::InvalidData("failed to init genesis block".to_owned())
+                    .init(&consensus)
+                    .map_err(|e| {
+                        SharedError::InvalidData(format!("failed to init genesis block {:?}", e))
                     })
-                    .map(|_| genesis.header().to_owned()),
+                    .map(|_| {
+                        (
+                            consensus.genesis_block().header().to_owned(),
+                            consensus.genesis_epoch_ext().to_owned(),
+                        )
+                    }),
             }
         }?;
 
         let tx_pool = TxPool::new(tx_pool_config);
-
         let tip_number = tip_header.number();
         let proposal_window = consensus.tx_proposal_window();
         let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
@@ -91,7 +105,13 @@ impl<CS: ChainStore> ChainState<CS> {
             proposal_ids,
             tx_pool: RefCell::new(tx_pool),
             consensus,
+            current_epoch_ext: epoch_ext,
+            script_config,
         })
+    }
+
+    pub fn store(&self) -> &Arc<CS> {
+        &self.store
     }
 
     fn init_proposal_ids(
@@ -126,15 +146,23 @@ impl<CS: ChainStore> ChainState<CS> {
 
         for n in 0..=number {
             let hash = store.get_block_hash(n).unwrap();
+            let epoch_hash = store.get_block_epoch_index(&hash).unwrap();
+            let epoch_ext = store.get_epoch_ext(&epoch_hash).unwrap();
             for tx in store.get_block_body(&hash).unwrap() {
-                let inputs = tx.input_pts();
+                let inputs = tx.input_pts_iter();
                 let output_len = tx.outputs().len();
 
                 for o in inputs {
-                    cell_set.mark_dead(&o);
+                    cell_set.mark_dead(o);
                 }
 
-                cell_set.insert(tx.hash(), n, tx.is_cellbase(), output_len);
+                cell_set.insert(
+                    tx.hash().to_owned(),
+                    n,
+                    epoch_ext.number(),
+                    tx.is_cellbase(),
+                    output_len,
+                );
             }
         }
 
@@ -145,8 +173,12 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tip_header.number()
     }
 
-    pub fn tip_hash(&self) -> H256 {
+    pub fn tip_hash(&self) -> &H256 {
         self.tip_header.hash()
+    }
+
+    pub fn current_epoch_ext(&self) -> &EpochExt {
+        &self.current_epoch_ext
     }
 
     pub fn total_difficulty(&self) -> &U256 {
@@ -161,8 +193,8 @@ impl<CS: ChainStore> ChainState<CS> {
         &self.cell_set
     }
 
-    pub fn is_dead_cell(&self, o: &OutPoint) -> Option<bool> {
-        self.cell_set.is_dead(o)
+    pub fn script_config(&self) -> &ScriptConfig {
+        &self.script_config
     }
 
     pub fn proposal_ids(&self) -> &TxProposalTable {
@@ -171,6 +203,10 @@ impl<CS: ChainStore> ChainState<CS> {
 
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
         self.proposal_ids.contains(id)
+    }
+
+    pub fn contains_gap(&self, id: &ProposalShortId) -> bool {
+        self.proposal_ids.contains_gap(id)
     }
 
     pub fn insert_proposal_ids(&mut self, block: &Block) {
@@ -190,25 +226,36 @@ impl<CS: ChainStore> ChainState<CS> {
         self.proposal_ids.finalize(number)
     }
 
+    pub fn update_current_epoch_ext(&mut self, epoch_ext: EpochExt) {
+        self.current_epoch_ext = epoch_ext;
+    }
+
     pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: CellSetDiff) {
         self.tip_header = header;
         self.total_difficulty = total_difficulty;
         self.cell_set.update(txo_diff);
     }
 
-    pub fn get_entry_from_pool(&self, short_id: &ProposalShortId) -> Option<PoolEntry> {
-        self.tx_pool.borrow().get_entry(short_id).cloned()
+    pub fn get_tx_with_cycles_from_pool(
+        &self,
+        short_id: &ProposalShortId,
+    ) -> Option<(Transaction, Option<Cycle>)> {
+        self.tx_pool.borrow().get_tx_with_cycles(short_id)
     }
 
-    pub fn add_tx_to_pool(&self, tx: Transaction) -> Result<Cycle, PoolError> {
-        let mut tx_pool = self.tx_pool.borrow_mut();
+    // Add a verified tx into pool
+    // this method will handle fork related verifications to make sure we are safe during a fork
+    pub fn add_tx_to_pool(&self, tx: Transaction, cycles: Cycle) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
-        match self.resolve_tx_from_pending_and_staging(&tx, &tx_pool) {
+        match self.resolve_tx_from_pending_and_proposed(&tx) {
             Ok(rtx) => {
-                self.verify_rtx(&rtx, None).map(|cycles| {
+                self.verify_rtx(&rtx, Some(cycles)).map(|cycles| {
+                    let mut tx_pool = self.tx_pool.borrow_mut();
                     if self.contains_proposal_id(&short_id) {
-                        // if tx is proposed, we resolve from staging, verify again
-                        self.staging_tx_and_descendants(&mut tx_pool, Some(cycles), tx);
+                        // if tx is proposed, we resolve from proposed, verify again
+                        if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, Some(cycles), tx) {
+                            debug!(target: "tx_pool", "Failed to add proposed tx {:?}, reason: {:?}", short_id, e)
+                        }
                     } else {
                         tx_pool.enqueue_tx(Some(cycles), tx);
                     }
@@ -219,26 +266,27 @@ impl<CS: ChainStore> ChainState<CS> {
         }
     }
 
-    pub fn resolve_tx_from_pending_and_staging<'a>(
+    pub fn resolve_tx_from_pending_and_proposed<'a>(
         &self,
         tx: &'a Transaction,
-        tx_pool: &TxPool,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
-        let staging_provider = OverlayCellProvider::new(&tx_pool.staging, self);
-        let pending_and_staging_provider =
-            OverlayCellProvider::new(&tx_pool.pending, &staging_provider);
+        let tx_pool = self.tx_pool.borrow_mut();
+        let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
+        let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &proposed_provider);
+        let pending_and_proposed_provider =
+            OverlayCellProvider::new(&tx_pool.pending, &gap_and_proposed_provider);
         let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &pending_and_staging_provider)
+        resolve_transaction(tx, &mut seen_inputs, &pending_and_proposed_provider, self)
     }
 
-    pub fn resolve_tx_from_staging<'a>(
+    pub fn resolve_tx_from_proposed<'a>(
         &self,
         tx: &'a Transaction,
         tx_pool: &TxPool,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
-        let cell_provider = OverlayCellProvider::new(&tx_pool.staging, self);
+        let cell_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
         let mut seen_inputs = FnvHashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &cell_provider)
+        resolve_transaction(tx, &mut seen_inputs, &cell_provider, self)
     }
 
     pub(crate) fn verify_rtx(
@@ -248,10 +296,11 @@ impl<CS: ChainStore> ChainState<CS> {
     ) -> Result<Cycle, PoolError> {
         match cycles {
             Some(cycles) => {
-                PoolTransactionVerifier::new(
+                ContextualTransactionVerifier::new(
                     &rtx,
                     &self,
                     self.tip_number(),
+                    self.current_epoch_ext().number(),
                     self.consensus().cellbase_maturity,
                 )
                 .verify()
@@ -262,10 +311,12 @@ impl<CS: ChainStore> ChainState<CS> {
                 let max_cycles = self.consensus.max_block_cycles();
                 let cycles = TransactionVerifier::new(
                     &rtx,
-                    Arc::clone(&self.store),
+                    Arc::clone(self.store()),
                     &self,
                     self.tip_number(),
+                    self.current_epoch_ext().number(),
                     self.consensus().cellbase_maturity,
+                    &self.script_config,
                 )
                 .verify(max_cycles)
                 .map_err(PoolError::InvalidTx)?;
@@ -275,14 +326,14 @@ impl<CS: ChainStore> ChainState<CS> {
     }
 
     // remove resolved tx from orphan pool
-    pub(crate) fn try_staging_orphan_by_ancestor(&self, tx_pool: &mut TxPool, tx: &Transaction) {
+    pub(crate) fn try_proposed_orphan_by_ancestor(&self, tx_pool: &mut TxPool, tx: &Transaction) {
         let entries = tx_pool.orphan.remove_by_ancestor(tx);
         for entry in entries {
             if self.contains_proposal_id(&tx.proposal_short_id()) {
-                let tx_hash = entry.transaction.hash();
-                let ret = self.staging_tx(tx_pool, entry.cycles, entry.transaction);
+                let tx_hash = entry.transaction.hash().to_owned();
+                let ret = self.proposed_tx(tx_pool, entry.cycles, entry.transaction);
                 if ret.is_err() {
-                    trace!(target: "tx_pool", "staging tx {:x} failed {:?}", tx_hash, ret);
+                    trace!(target: "tx_pool", "proposed tx {:x} failed {:?}", tx_hash, ret);
                 }
             } else {
                 tx_pool.enqueue_tx(entry.cycles, entry.transaction);
@@ -290,7 +341,7 @@ impl<CS: ChainStore> ChainState<CS> {
         }
     }
 
-    pub(crate) fn staging_tx(
+    pub(crate) fn proposed_tx(
         &self,
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
@@ -299,14 +350,16 @@ impl<CS: ChainStore> ChainState<CS> {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
 
-        match self.resolve_tx_from_staging(&tx, tx_pool) {
+        match self.resolve_tx_from_proposed(&tx, tx_pool) {
             Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
                 Ok(cycles) => {
-                    tx_pool.add_staging(cycles, tx);
+                    let fee = calculate_transaction_fee(Arc::clone(self.store()), &rtx)
+                        .ok_or(PoolError::TxFee)?;
+                    tx_pool.add_proposed(cycles, fee, tx);
                     Ok(cycles)
                 }
                 Err(e) => {
-                    error!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx_hash, e);
+                    debug!(target: "tx_pool", "Failed to add proposed tx {:x}, reason: {:?}", tx_hash, e);
                     Err(e)
                 }
             },
@@ -315,31 +368,35 @@ impl<CS: ChainStore> ChainState<CS> {
                     UnresolvableError::Dead(_) => {
                         tx_pool
                             .conflict
-                            .insert(short_id, PoolEntry::new(tx, 0, cycles));
+                            .insert(short_id, DefectEntry::new(tx, 0, cycles));
                     }
                     UnresolvableError::Unknown(out_points) => {
-                        tx_pool.add_orphan(cycles, tx, out_points.clone());
+                        tx_pool.add_orphan(cycles, tx, out_points.to_owned());
                     }
+                    // The remaining errors are Empty, UnspecifiedInputCell and
+                    // InvalidHeader. They all represent invalid transactions
+                    // that should just be discarded.
+                    UnresolvableError::Empty => (),
+                    UnresolvableError::UnspecifiedInputCell(_) => (),
+                    UnresolvableError::InvalidHeader(_) => (),
+                    // OutOfOrder should only appear in BlockCellProvider
+                    UnresolvableError::OutOfOrder(_) => (),
                 }
                 Err(PoolError::UnresolvableTransaction(err))
             }
         }
     }
 
-    pub(crate) fn staging_tx_and_descendants(
+    pub(crate) fn proposed_tx_and_descendants(
         &self,
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
         tx: Transaction,
-    ) {
-        match self.staging_tx(tx_pool, cycles, tx.clone()) {
-            Ok(_) => {
-                self.try_staging_orphan_by_ancestor(tx_pool, &tx);
-            }
-            Err(e) => {
-                error!(target: "tx_pool", "Failed to staging tx {:}, reason: {:?}", tx.hash(), e);
-            }
-        }
+    ) -> Result<Cycle, PoolError> {
+        self.proposed_tx(tx_pool, cycles, tx.clone()).map(|cycles| {
+            self.try_proposed_orphan_by_ancestor(tx_pool, &tx);
+            cycles
+        })
     }
 
     pub fn update_tx_pool_for_reorg<'a>(
@@ -347,11 +404,12 @@ impl<CS: ChainStore> ChainState<CS> {
         detached_blocks: impl Iterator<Item = &'a Block>,
         attached_blocks: impl Iterator<Item = &'a Block>,
         detached_proposal_id: impl Iterator<Item = &'a ProposalShortId>,
+        txs_verify_cache: &mut LruCache<H256, Cycle>,
     ) {
         let mut tx_pool = self.tx_pool.borrow_mut();
 
-        let mut detached = FnvHashSet::default();
-        let mut attached = FnvHashSet::default();
+        let mut detached = LinkedFnvHashSet::default();
+        let mut attached = LinkedFnvHashSet::default();
 
         for blk in detached_blocks {
             detached.extend(blk.transactions().iter().skip(1).cloned())
@@ -364,24 +422,75 @@ impl<CS: ChainStore> ChainState<CS> {
         let retain: Vec<Transaction> = detached.difference(&attached).cloned().collect();
 
         tx_pool.remove_expired(detached_proposal_id);
-        tx_pool.remove_committed_txs_from_staging(attached.iter());
+        tx_pool.remove_committed_txs_from_proposed(attached.iter());
 
         for tx in retain {
-            if self.contains_proposal_id(&tx.proposal_short_id()) {
-                self.staging_tx_and_descendants(&mut tx_pool, None, tx);
+            let tx_hash = tx.hash().to_owned();
+            let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
+            let tx_short_id = tx.proposal_short_id();
+            if self.contains_proposal_id(&tx_short_id) {
+                if let Ok(cycles) =
+                    self.proposed_tx_and_descendants(&mut tx_pool, cached_cycles, tx)
+                {
+                    if cached_cycles.is_none() {
+                        txs_verify_cache.insert(tx_hash, cycles);
+                    }
+                }
+            } else if self.contains_gap(&tx_short_id) {
+                tx_pool.add_gap(cached_cycles, tx);
             } else {
-                tx_pool.enqueue_tx(None, tx);
+                tx_pool.enqueue_tx(cached_cycles, tx);
             }
         }
 
         for tx in &attached {
-            self.try_staging_orphan_by_ancestor(&mut tx_pool, tx);
+            self.try_proposed_orphan_by_ancestor(&mut tx_pool, tx);
         }
 
-        for id in self.get_proposal_ids_iter() {
-            if let Some(entry) = tx_pool.remove_pending_and_conflict(id) {
-                self.staging_tx_and_descendants(&mut tx_pool, entry.cycles, entry.transaction);
+        let mut entries = Vec::new();
+        let mut gaps = Vec::new();
+
+        // pending ---> gap ----> proposed
+        // try move gap to proposed
+        for entry in tx_pool.gap.entries() {
+            if self.contains_proposal_id(entry.key()) {
+                let entry = entry.remove();
+                entries.push((entry.cycles, entry.transaction));
             }
+        }
+
+        // try move pending to proposed
+        for entry in tx_pool.pending.entries() {
+            if self.contains_proposal_id(entry.key()) {
+                let entry = entry.remove();
+                entries.push((entry.cycles, entry.transaction));
+            } else if self.contains_gap(entry.key()) {
+                let entry = entry.remove();
+                gaps.push((entry.cycles, entry.transaction));
+            }
+        }
+
+        // try move conflict to proposed
+        for entry in tx_pool.conflict.entries() {
+            if self.contains_proposal_id(entry.key()) {
+                let entry = entry.remove();
+                entries.push((entry.cycles, entry.transaction));
+            } else if self.contains_gap(entry.key()) {
+                let entry = entry.remove();
+                gaps.push((entry.cycles, entry.transaction));
+            }
+        }
+
+        for (cycles, tx) in entries {
+            let tx_hash = tx.hash().to_owned();
+            if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, cycles, tx) {
+                debug!(target: "tx_pool", "Failed to add proposed tx {:x}, reason: {:?}", tx_hash, e);
+            }
+        }
+
+        for (cycles, tx) in gaps {
+            debug!(target: "tx_pool", "tx proposed, add to gap {:x}", tx.hash());
+            tx_pool.add_gap(cycles, tx);
         }
     }
 
@@ -389,25 +498,36 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tx_pool.borrow().last_txs_updated_at
     }
 
-    pub fn get_proposals(&self, proposals_limit: usize) -> Vec<ProposalShortId> {
+    pub fn get_proposals(&self, proposals_limit: usize) -> FnvHashSet<ProposalShortId> {
         let tx_pool = self.tx_pool.borrow();
-        tx_pool.pending.fetch(proposals_limit)
+        tx_pool
+            .pending
+            .keys()
+            .chain(tx_pool.gap.keys())
+            .take(proposals_limit)
+            .cloned()
+            .collect()
     }
 
-    pub fn get_staging_txs(&self, txs_size_limit: usize, cycles_limit: Cycle) -> Vec<PoolEntry> {
+    pub fn get_proposed_txs(
+        &self,
+        txs_size_limit: usize,
+        cycles_limit: Cycle,
+    ) -> (Vec<ProposedEntry>, usize, Cycle) {
         let mut size = 0;
         let mut cycles = 0;
         let tx_pool = self.tx_pool.borrow();
-        tx_pool
-            .staging
+        let entries = tx_pool
+            .proposed
             .txs_iter()
             .take_while(|tx| {
-                cycles += tx.cycles.expect("staging tx have cycles");
+                cycles += tx.cycles;
                 size += tx.transaction.serialized_size();
                 (size < txs_size_limit) && (cycles < cycles_limit)
             })
             .cloned()
-            .collect()
+            .collect();
+        (entries, size, cycles)
     }
 
     pub fn tx_pool(&self) -> Ref<TxPool> {
@@ -429,7 +549,7 @@ impl<CS: ChainStore> ChainState<CS> {
     ) -> ChainCellSetOverlay<'a, CS> {
         ChainCellSetOverlay {
             overlay: self.cell_set.new_overlay(diff),
-            store: Arc::clone(&self.store),
+            store: Arc::clone(self.store()),
             outputs,
         }
     }
@@ -443,54 +563,89 @@ pub struct ChainCellSetOverlay<'a, CS> {
 
 impl<CS: ChainStore> CellProvider for ChainState<CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.cell_set().get(&out_point.tx_hash) {
-            Some(tx_meta) => {
-                if tx_meta.is_dead(out_point.index as usize) {
-                    CellStatus::Dead
-                } else {
-                    let cell_meta = self
-                        .store
-                        .get_cell_meta(&out_point.tx_hash, out_point.index)
-                        .expect("store should be consistent with cell_set");
-                    CellStatus::live_cell(cell_meta)
-                }
+        if let Some(cell_out_point) = &out_point.cell {
+            match self.cell_set().get(&cell_out_point.tx_hash) {
+                Some(tx_meta) => match tx_meta.is_dead(cell_out_point.index as usize) {
+                    Some(false) => {
+                        let cell_meta = self
+                            .store
+                            .get_cell_meta(&cell_out_point.tx_hash, cell_out_point.index)
+                            .expect("store should be consistent with cell_set");
+                        CellStatus::live_cell(cell_meta)
+                    }
+                    Some(true) => CellStatus::Dead,
+                    None => CellStatus::Unknown,
+                },
+                None => CellStatus::Unknown,
             }
-            None => CellStatus::Unknown,
+        } else {
+            CellStatus::Unspecified
+        }
+    }
+}
+
+impl<CS: ChainStore> HeaderProvider for ChainState<CS> {
+    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
+        if let Some(block_hash) = &out_point.block_hash {
+            match self.store.get_header(&block_hash) {
+                Some(header) => {
+                    if let Some(cell_out_point) = &out_point.cell {
+                        self.store
+                            .get_transaction_address(&cell_out_point.tx_hash)
+                            .map_or(HeaderStatus::InclusionFaliure, |address| {
+                                if address.block_hash == *block_hash {
+                                    HeaderStatus::live_header(header)
+                                } else {
+                                    HeaderStatus::InclusionFaliure
+                                }
+                            })
+                    } else {
+                        HeaderStatus::live_header(header)
+                    }
+                }
+                None => HeaderStatus::Unknown,
+            }
+        } else {
+            HeaderStatus::Unspecified
         }
     }
 }
 
 impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.overlay.get(&out_point.tx_hash) {
-            Some(tx_meta) => {
-                if tx_meta.is_dead(out_point.index as usize) {
-                    CellStatus::Dead
-                } else {
-                    let cell_meta = self
-                        .outputs
-                        .get(&out_point.tx_hash)
-                        .map(|outputs| {
-                            let output = &outputs[out_point.index as usize];
-                            CellMeta {
-                                cell_output: Some(output.clone()),
-                                out_point: out_point.to_owned(),
-                                block_number: Some(tx_meta.block_number()),
-                                cellbase: tx_meta.is_cellbase(),
-                                capacity: output.capacity,
-                                data_hash: None,
-                            }
-                        })
-                        .or_else(|| {
-                            self.store
-                                .get_cell_meta(&out_point.tx_hash, out_point.index)
-                        })
-                        .expect("store should be consistent with cell_set");
+        if let Some(cell_out_point) = &out_point.cell {
+            match self.overlay.get(&cell_out_point.tx_hash) {
+                Some(tx_meta) => match tx_meta.is_dead(cell_out_point.index as usize) {
+                    Some(false) => {
+                        let cell_meta = self
+                            .outputs
+                            .get(&cell_out_point.tx_hash)
+                            .map(|outputs| {
+                                let output = &outputs[cell_out_point.index as usize];
+                                CellMetaBuilder::from_cell_output(output.to_owned())
+                                    .out_point(cell_out_point.to_owned())
+                                    .block_info(BlockInfo::new(
+                                        tx_meta.block_number(),
+                                        tx_meta.epoch_number(),
+                                    ))
+                                    .cellbase(tx_meta.is_cellbase())
+                                    .build()
+                            })
+                            .or_else(|| {
+                                self.store
+                                    .get_cell_meta(&cell_out_point.tx_hash, cell_out_point.index)
+                            })
+                            .expect("store should be consistent with cell_set");
 
-                    CellStatus::live_cell(cell_meta)
-                }
+                        CellStatus::live_cell(cell_meta)
+                    }
+                    Some(true) => CellStatus::Dead,
+                    None => CellStatus::Unknown,
+                },
+                None => CellStatus::Unknown,
             }
-            None => CellStatus::Unknown,
+        } else {
+            CellStatus::Unspecified
         }
     }
 }

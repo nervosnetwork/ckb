@@ -1,6 +1,7 @@
 use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::types::HeaderView;
 use crate::MAX_HEADERS_LEN;
+use ckb_core::extras::EpochExt;
 use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
@@ -9,7 +10,6 @@ use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use log::{self, debug, log_enabled, warn};
-use numext_fixed_uint::U256;
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -24,6 +24,7 @@ pub struct VerifierResolver<'a, CS: ChainStore + 'a> {
     synchronizer: &'a Synchronizer<CS>,
     header: &'a Header,
     parent: Option<&'a Header>,
+    epoch: Option<EpochExt>,
 }
 
 impl<'a, CS: ChainStore + 'a> VerifierResolver<'a, CS> {
@@ -32,10 +33,25 @@ impl<'a, CS: ChainStore + 'a> VerifierResolver<'a, CS> {
         header: &'a Header,
         synchronizer: &'a Synchronizer<CS>,
     ) -> Self {
+        let epoch = parent
+            .and_then(|parent| {
+                synchronizer
+                    .shared
+                    .get_epoch_ext(&parent.hash())
+                    .map(|ext| (parent, ext))
+            })
+            .map(|(parent, last_epoch)| {
+                synchronizer
+                    .shared
+                    .next_epoch_ext(&last_epoch, parent)
+                    .unwrap_or(last_epoch)
+            });
+
         VerifierResolver {
             parent,
             header,
             synchronizer,
+            epoch,
         }
     }
 }
@@ -46,6 +62,7 @@ impl<'a, CS: ChainStore> ::std::clone::Clone for VerifierResolver<'a, CS> {
             parent: self.parent,
             header: self.header,
             synchronizer: self.synchronizer,
+            epoch: self.epoch.clone(),
         }
     }
 }
@@ -91,59 +108,8 @@ impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {
         self.parent
     }
 
-    fn calculate_difficulty(&self) -> Option<U256> {
-        self.parent().and_then(|parent| {
-            let parent_hash = parent.hash();
-            let parent_number = parent.number();
-            let last_difficulty = parent.difficulty();
-
-            let interval = self
-                .synchronizer
-                .shared
-                .consensus()
-                .difficulty_adjustment_interval();
-
-            if self.header().number() % interval != 0 {
-                return Some(last_difficulty.clone());
-            }
-
-            let start = parent_number.saturating_sub(interval);
-
-            if let Some(start_header) = self.synchronizer.shared.get_ancestor(&parent_hash, start) {
-                let start_total_uncles_count = self
-                    .synchronizer
-                    .shared
-                    .get_header_view(&start_header.hash())
-                    .expect("start header_view exist")
-                    .total_uncles_count();
-
-                let last_total_uncles_count = self
-                    .synchronizer
-                    .shared
-                    .get_header_view(&parent_hash)
-                    .expect("last header_view exist")
-                    .total_uncles_count();
-
-                let difficulty = last_difficulty
-                    * U256::from(last_total_uncles_count - start_total_uncles_count)
-                    * U256::from(
-                        (1.0 / self.synchronizer.shared.consensus().orphan_rate_target()) as u64,
-                    )
-                    / U256::from(interval);
-
-                let min_difficulty = self.synchronizer.shared.consensus().min_difficulty();
-                let max_difficulty = last_difficulty * 2u32;
-                if difficulty > max_difficulty {
-                    return Some(max_difficulty);
-                }
-
-                if difficulty.lt(min_difficulty) {
-                    return Some(min_difficulty.clone());
-                }
-                return Some(difficulty);
-            }
-            None
-        })
+    fn epoch(&self) -> Option<&EpochExt> {
+        self.epoch.as_ref()
     }
 }
 
@@ -168,10 +134,10 @@ where
     fn is_continuous(&self, headers: &[Header]) -> bool {
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                if header.parent_hash() != &parent.hash() {
+                if header.parent_hash() != parent.hash() {
                     debug!(
                         target: "sync",
-                        "header.parent_hash {:?} parent.hash {:?}",
+                        "header.parent_hash {:x} parent.hash {:x}",
                         header.parent_hash(),
                         parent.hash()
                     );
@@ -275,7 +241,7 @@ where
         }
 
         if log_enabled!(target: "sync", log::Level::Debug) {
-            let chain_state = self.synchronizer.shared.chain_state().lock();
+            let chain_state = self.synchronizer.shared.lock_chain_state();
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
                 target: "sync",
@@ -310,19 +276,14 @@ where
 
         // If we're in IBD, we want outbound peers that will serve us a useful
         // chain. Disconnect peers that are on chains with insufficient work.
-        let is_outbound = self
-            .nc
-            .get_peer(self.peer)
-            .map(|peer| peer.is_outbound())
-            .unwrap_or(false);
-        let is_protected = self
+        let (is_outbound, is_protected) = self
             .synchronizer
             .peers
             .state
             .read()
             .get(&self.peer)
-            .map(|state| state.chain_sync.protect)
-            .unwrap_or(false);
+            .map(|state| (state.is_outbound, state.chain_sync.protect))
+            .unwrap_or((false, false));
         if self.synchronizer.shared.is_initial_block_download()
             && headers.len() != MAX_HEADERS_LEN
             && (is_outbound && !is_protected)
@@ -346,14 +307,14 @@ pub struct HeaderAcceptor<'a, V: Verifier, CS: ChainStore + 'a> {
 
 impl<'a, V, CS> HeaderAcceptor<'a, V, CS>
 where
-    V: Verifier,
+    V: Verifier<Target = VerifierResolver<'a, CS>>,
     CS: ChainStore + 'a,
 {
     pub fn new(
         header: &'a Header,
         peer: PeerIndex,
         synchronizer: &'a Synchronizer<CS>,
-        resolver: V::Target,
+        resolver: VerifierResolver<'a, CS>,
         verifier: V,
     ) -> Self {
         HeaderAcceptor {
@@ -393,13 +354,13 @@ where
     pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
         self.verifier.verify(&self.resolver).map_err(|error| match error {
             VerifyError::Pow(e) => {
-                debug!(target: "sync", "HeadersProcess accept {:?} pow", self.header.number());
+                debug!(target: "sync", "HeadersProcess accept {:?} pow error {:?}", self.header.number(), e);
                 state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);
             }
-            VerifyError::Difficulty(e) => {
-                debug!(target: "sync", "HeadersProcess accept {:?} difficulty", self.header.number());
+            VerifyError::Epoch(e) => {
+                debug!(target: "sync", "HeadersProcess accept {:?} epoch error {:?}", self.header.number(), e);
                 state.dos(
-                    Some(ValidationError::Verify(VerifyError::Difficulty(e))),
+                    Some(ValidationError::Verify(VerifyError::Epoch(e))),
                     50,
                 );
             }
@@ -429,28 +390,35 @@ where
         if self.prev_block_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
             debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         self.synchronizer
             .insert_header_view(&self.header, self.peer);
+        self.synchronizer.shared.insert_epoch(
+            &self.header,
+            self.resolver
+                .epoch()
+                .expect("epoch should be verified")
+                .clone(),
+        );
         self.synchronizer
-            .insert_block_status(self.header.hash(), BlockStatus::VALID_MASK);
+            .insert_block_status(self.header.hash().to_owned(), BlockStatus::VALID_MASK);
         result
     }
 }

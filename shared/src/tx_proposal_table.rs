@@ -1,7 +1,7 @@
 use ckb_chain_spec::consensus::ProposalWindow;
 use ckb_core::header::BlockNumber;
 use ckb_core::transaction::ProposalShortId;
-use fnv::FnvHashSet;
+use ckb_util::FnvHashSet;
 use log::trace;
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -9,6 +9,7 @@ use std::ops::Bound;
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct TxProposalTable {
     pub(crate) table: BTreeMap<BlockNumber, FnvHashSet<ProposalShortId>>,
+    pub(crate) gap: FnvHashSet<ProposalShortId>,
     pub(crate) set: FnvHashSet<ProposalShortId>,
     pub(crate) proposal_window: ProposalWindow,
 }
@@ -17,6 +18,7 @@ impl TxProposalTable {
     pub fn new(proposal_window: ProposalWindow) -> Self {
         TxProposalTable {
             proposal_window,
+            gap: FnvHashSet::default(),
             set: FnvHashSet::default(),
             table: BTreeMap::default(),
         }
@@ -34,6 +36,10 @@ impl TxProposalTable {
 
     pub fn contains(&self, id: &ProposalShortId) -> bool {
         self.set.contains(id)
+    }
+
+    pub fn contains_gap(&self, id: &ProposalShortId) -> bool {
+        self.gap.contains(id)
     }
 
     pub fn get_ids_iter(&self) -> impl Iterator<Item = &ProposalShortId> {
@@ -55,6 +61,14 @@ impl TxProposalTable {
         let new_ids = self
             .table
             .range((Bound::Unbounded, Bound::Included(&proposal_end)))
+            .map(|pair| pair.1)
+            .cloned()
+            .flatten()
+            .collect();
+
+        self.gap = self
+            .table
+            .range((Bound::Excluded(&proposal_end), Bound::Unbounded))
             .map(|pair| pair.1)
             .cloned()
             .flatten()

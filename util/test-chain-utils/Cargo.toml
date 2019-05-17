@@ -1,0 +1,10 @@
+[package]
+name = "test-chain-utils"
+version = "0.12.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+license = "MIT"
+
+[dependencies]
+ckb-core = { path = "../../core" }
+hash = { path = "../hash" }

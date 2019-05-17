@@ -1,4 +1,4 @@
-use ckb_core::header::Header;
+use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{IndexTransaction, ProposalShortId};
 use ckb_core::uncle::UncleBlock;
 use ckb_protocol::{self, cast, FlatbuffersVectorIterator};
@@ -15,6 +15,20 @@ pub struct CompactBlock {
     pub short_ids: Vec<ShortTransactionID>,
     pub prefilled_transactions: Vec<IndexTransaction>,
     pub proposals: Vec<ProposalShortId>,
+}
+
+impl Default for CompactBlock {
+    fn default() -> Self {
+        let header = HeaderBuilder::default().build();
+        Self {
+            header,
+            uncles: Default::default(),
+            nonce: Default::default(),
+            short_ids: Default::default(),
+            prefilled_transactions: Default::default(),
+            proposals: Default::default(),
+        }
+    }
 }
 
 impl<'a> TryFrom<ckb_protocol::CompactBlock<'a>> for CompactBlock {

@@ -1,4 +1,5 @@
-use super::compact_block::CompactBlock;
+use crate::relayer::compact_block::CompactBlock;
+use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
 use ckb_core::{header::Header, BlockNumber};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -18,15 +19,15 @@ use std::sync::Arc;
 pub struct CompactBlockProcess<'a, CS> {
     message: &'a FbsCompactBlock<'a>,
     relayer: &'a Relayer<CS>,
-    nc: &'a CKBProtocolContext,
+    nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
+impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
     pub fn new(
         message: &'a FbsCompactBlock,
         relayer: &'a Relayer<CS>,
-        nc: &'a CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
         CompactBlockProcess {
@@ -39,7 +40,16 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
-        let block_hash = compact_block.header.hash();
+        let block_hash = compact_block.header.hash().to_owned();
+
+        if self.relayer.state.already_known_compact_block(&block_hash) {
+            debug!(target: "relay", "discarding already known compact block {:x}", block_hash);
+            return Ok(());
+        }
+        self.relayer
+            .state
+            .mark_as_known_compact_block(block_hash.clone());
+
         if let Some(parent_header_view) = self
             .relayer
             .shared
@@ -59,25 +69,26 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                 return Ok(());
             }
         } else {
-            // If self is in the IBD state, do nothing
-            if self.relayer.shared.is_initial_block_download() {
-                return Ok(());
-            }
-            debug!(target: "relay", "UnknownParent: {}, send_getheaders_to_peer({})", block_hash, self.peer);
+            debug!(target: "relay", "UnknownParent: {:x}, send_getheaders_to_peer({})", block_hash, self.peer);
             self.relayer.shared.send_getheaders_to_peer(
-                self.nc,
+                self.nc.as_ref(),
                 self.peer,
-                self.relayer.shared.chain_state().lock().tip_header(),
+                self.relayer.shared.lock_chain_state().tip_header(),
             );
             return Ok(());
         }
 
+        // The new arrived has greater difficulty than local best known chain
         let mut missing_indexes: Vec<usize> = Vec::new();
         {
+            // Verify compact block
             let mut pending_compact_blocks = self.relayer.state.pending_compact_blocks.lock();
-            if pending_compact_blocks.get(&block_hash).is_none()
-                && self.relayer.shared.get_block(&block_hash).is_none()
+            if pending_compact_blocks.get(&block_hash).is_some()
+                || self.relayer.shared.get_block(&block_hash).is_some()
             {
+                debug!(target: "relay", "already processed compact block {:x}", block_hash);
+                return Ok(());
+            } else {
                 let resolver = HeaderResolverWrapper::new(
                     &compact_block.header,
                     self.relayer.shared.shared().to_owned(),
@@ -90,37 +101,39 @@ impl<'a, CS: ChainStore> CompactBlockProcess<'a, CS> {
                     },
                     Arc::clone(&self.relayer.shared.consensus().pow_engine()),
                 );
-                match header_verifier.verify(&resolver) {
-                    Ok(_) => {
-                        let ret = {
-                            let chain_state = self.relayer.shared.chain_state().lock();
-                            self.relayer.request_proposal_txs(
-                                &chain_state,
-                                self.nc,
-                                self.peer,
-                                &compact_block,
-                            );
-                            self.relayer
-                                .reconstruct_block(&chain_state, &compact_block, Vec::new())
-                        };
-                        match ret {
-                            Ok(block) => {
-                                self.relayer
-                                    .accept_block(self.nc, self.peer, &Arc::new(block))
-                            }
-                            Err(missing) => {
-                                missing_indexes = missing;
-                                pending_compact_blocks
-                                    .insert(block_hash.clone(), compact_block.clone());
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        debug!(target: "relay", "unexpected header verify failed: {}", err);
-                    }
+                let compact_block_verifier = CompactBlockVerifier::new();
+                if let Err(err) = header_verifier.verify(&resolver) {
+                    debug!(target: "relay", "unexpected header verify failed: {}", err);
+                    return Ok(());
                 }
-            } else {
-                debug!(target: "relay", "Already processed compact block {}", block_hash);
+                compact_block_verifier.verify(&compact_block)?;
+            }
+
+            // Reconstruct block
+            let ret = {
+                let chain_state = self.relayer.shared.lock_chain_state();
+                self.relayer.request_proposal_txs(
+                    &chain_state,
+                    self.nc.as_ref(),
+                    self.peer,
+                    &compact_block,
+                );
+                self.relayer
+                    .reconstruct_block(&chain_state, &compact_block, Vec::new())
+            };
+
+            // Accept block
+            // `relayer.accept_block` will make sure the validity of block before persisting
+            // into database
+            match ret {
+                Ok(block) => {
+                    self.relayer
+                        .accept_block(self.nc.as_ref(), self.peer, &Arc::new(block))
+                }
+                Err(missing) => {
+                    missing_indexes = missing;
+                    pending_compact_blocks.insert(block_hash.clone(), compact_block);
+                }
             }
         }
         if !missing_indexes.is_empty() {

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.11.0"
+version = "0.12.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -16,17 +16,17 @@ serde_derive = "1.0"
 ckb-util = { path = "../util" }
 stop-handler = { path = "../util/stop-handler" }
 unsigned-varint = {git = "https://github.com/paritytech/unsigned-varint", features = ["codec"]}
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
 log = "0.4.5"
 bytes = "0.4.12"
 tokio = "0.1.18"
 futures = "0.1"
 snap = "0.2"
 crossbeam-channel = "0.3"
-p2p = { version="0.2.0-alpha.8", package="tentacle" }
-p2p-ping = { version="0.3.2", package="tentacle-ping" }
-p2p-discovery = { version="0.2.2", package="tentacle-discovery" }
-p2p-identify = { version="0.2.2", package="tentacle-identify" }
+p2p = { version="0.2.0-alpha.18", package="tentacle" }
+p2p-ping = { version="0.3.4", package="tentacle-ping" }
+p2p-discovery = { version="0.2.4", package="tentacle-discovery" }
+p2p-identify = { version="0.2.4", package="tentacle-identify" }
 faketime = "0.2.0"
 rusqlite = {version = "0.18.0", features = ["bundled"]}
 lazy_static = "1.3.0"
@@ -37,6 +37,8 @@ faster-hex = "0.3"
 hash = {path = "../util/hash"}
 secp256k1 = {version = "0.12.2" }
 resolve = "0.2.0"
+build-info = {path = "../util/build-info"}
+num_cpus = "1.10"
 
 [dev-dependencies]
 criterion = "0.2"

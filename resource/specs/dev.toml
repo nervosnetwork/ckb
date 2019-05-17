@@ -6,15 +6,36 @@ parent_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 timestamp = 0
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-hash = "0xabe655029aa05408ff0ae846ecc32b40b9edf703440627bcaeda3626cf07f8db"
+# run `cargo run cli hashes -b` to get the genesis hash
+hash = "0x92968288728fc0901b2ed94611fcf668db7d15842f019674e0805dffd26dadd5"
+issued_cells = []
 
 [genesis.seal]
 nonce = 0
 proof = [0]
 
+[genesis.genesis_cell]
+message = ""
+
+[genesis.genesis_cell.lock]
+code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+args = []
+
+# An array list paths to system cell files, which is absolute or relative to
+# the directory containing this config file.
+[genesis.system_cells]
+files = [
+  "cells/secp256k1_blake160_sighash_all"
+]
+
+[genesis.system_cells.lock]
+code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+args = []
+
 [params]
-initial_block_reward = 5_000_000_000_000
-max_block_cycles = 100000000
+epoch_reward = 5_000_000_000_000_000
+secondary_epoch_reward = 5_000_000_000
+max_block_cycles = 10_000_000_000
 cellbase_maturity = 0
 
 [pow]
@@ -28,8 +49,3 @@ edge_bits = 15
 # length of the cycle to be found, must be an even number, a minimum of 12 is
 # recommended
 cycle_length = 12
-
-# An array list paths to system cell files, which is absolute or relative to
-# the directory containing this config file.
-[[system_cells]]
-path = "cells/always_success"

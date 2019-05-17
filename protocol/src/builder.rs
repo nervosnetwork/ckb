@@ -21,12 +21,13 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_core::Cycle;
+use ckb_core::{Bytes as CoreBytes, Cycle};
 use ckb_merkle_tree::build_merkle_proof;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rand::{thread_rng, Rng};
+use std::borrow::ToOwned;
 use std::collections::HashSet;
 
 fn uint_to_bytes(uint: &U256) -> [u8; 32] {
@@ -49,8 +50,8 @@ impl<'a> FbsHeader<'a> {
     pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, header: &Header) -> WIPOffset<FbsHeader<'b>> {
         let parent_hash = header.parent_hash().into();
         let transactions_root = header.transactions_root().into();
-        let proposals_root = header.proposals_root().into();
         let witnesses_root = header.witnesses_root().into();
+        let proposals_hash = header.proposals_hash().into();
         let difficulty = FbsBytes::build(fbb, &uint_to_bytes(header.difficulty()));
         let proof = FbsBytes::build(fbb, &header.proof());
         let uncles_hash = header.uncles_hash().into();
@@ -59,8 +60,9 @@ impl<'a> FbsHeader<'a> {
         builder.add_parent_hash(&parent_hash);
         builder.add_timestamp(header.timestamp());
         builder.add_number(header.number());
+        builder.add_epoch(header.epoch());
         builder.add_transactions_root(&transactions_root);
-        builder.add_proposals_root(&proposals_root);
+        builder.add_proposals_hash(&proposals_hash);
         builder.add_witnesses_root(&witnesses_root);
         builder.add_difficulty(difficulty);
         builder.add_nonce(header.nonce());
@@ -119,10 +121,20 @@ impl<'a> FbsOutPoint<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         out_point: &OutPoint,
     ) -> WIPOffset<FbsOutPoint<'b>> {
-        let tx_hash = (&out_point.tx_hash).into();
+        let tx_hash = out_point.cell.clone().map(|tx| (&tx.tx_hash).into());
+        let tx_index = out_point.cell.as_ref().map(|tx| tx.index);
+        let block_hash = out_point.block_hash.clone().map(|hash| (&hash).into());
+
         let mut builder = OutPointBuilder::new(fbb);
-        builder.add_tx_hash(&tx_hash);
-        builder.add_index(out_point.index);
+        if let Some(ref hash) = tx_hash {
+            builder.add_tx_hash(hash);
+        }
+        if let Some(index) = tx_index {
+            builder.add_index(index);
+        }
+        if let Some(ref hash) = block_hash {
+            builder.add_block_hash(hash);
+        }
         builder.finish()
     }
 }
@@ -170,7 +182,21 @@ impl<'a> FbsCellInput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_input: &CellInput,
     ) -> WIPOffset<FbsCellInput<'b>> {
-        let tx_hash = (&cell_input.previous_output.tx_hash).into();
+        let tx_hash = cell_input
+            .previous_output
+            .cell
+            .clone()
+            .map(|cell| (&cell.tx_hash).into());
+        let tx_index = cell_input
+            .previous_output
+            .cell
+            .as_ref()
+            .map(|cell| cell.index);
+        let block_hash = cell_input
+            .previous_output
+            .block_hash
+            .clone()
+            .map(|hash| (&hash).into());
 
         let vec = cell_input
             .args
@@ -180,8 +206,15 @@ impl<'a> FbsCellInput<'a> {
         let args = fbb.create_vector(&vec);
 
         let mut builder = CellInputBuilder::new(fbb);
-        builder.add_tx_hash(&tx_hash);
-        builder.add_index(cell_input.previous_output.index);
+        if let Some(ref hash) = tx_hash {
+            builder.add_tx_hash(hash);
+        }
+        if let Some(index) = tx_index {
+            builder.add_index(index);
+        }
+        if let Some(ref hash) = block_hash {
+            builder.add_block_hash(hash);
+        }
         builder.add_since(cell_input.since);
         builder.add_args(args);
         builder.finish()
@@ -209,7 +242,7 @@ impl<'a> FbsScript<'a> {
 impl<'a> FbsWitness<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        witness: &[Vec<u8>],
+        witness: &[CoreBytes],
     ) -> WIPOffset<FbsWitness<'b>> {
         let data = witness
             .iter()
@@ -438,6 +471,7 @@ impl<'a> FilteredBlock<'a> {
                     .transactions()
                     .iter()
                     .map(Transaction::hash)
+                    .map(ToOwned::to_owned)
                     .collect::<Vec<_>>(),
                 transactions_index,
             );

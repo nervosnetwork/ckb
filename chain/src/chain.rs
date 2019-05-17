@@ -1,37 +1,39 @@
-use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
+    resolve_transaction, BlockCellProvider, BlockHeadersProvider, OverlayCellProvider,
+    OverlayHeaderProvider, ResolvedTransaction,
 };
-use ckb_core::extras::BlockExt;
+use ckb_core::extras::{BlockExt, DaoStats};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
-use ckb_core::{header::Header, BlockNumber};
+use ckb_core::{BlockNumber, Cycle};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_store::{ChainStore, StoreBatch};
-use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{BlockVerifier, TransactionsVerifier, Verifier};
+use ckb_traits::ChainProvider;
+use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
+use dao::calculate_dao_data;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::{self, debug, error, info, log_enabled};
+use log::{self, debug, error, info, log_enabled, warn};
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
-use std::cmp;
-use std::mem;
 use std::sync::Arc;
-use std::thread;
+use std::{cmp, mem, thread};
 use stop_handler::{SignalSender, StopHandler};
+
+type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<(), FailureError>>;
 
 #[derive(Clone)]
 pub struct ChainController {
-    process_block_sender: Sender<Request<Arc<Block>, Result<(), FailureError>>>,
+    process_block_sender: Sender<ProcessBlockRequest>,
     stop: StopHandler<()>,
 }
 
@@ -42,13 +44,14 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    pub fn process_block(&self, block: Arc<Block>) -> Result<(), FailureError> {
-        Request::call(&self.process_block_sender, block).expect("process_block() failed")
+    pub fn process_block(&self, block: Arc<Block>, need_verify: bool) -> Result<(), FailureError> {
+        Request::call(&self.process_block_sender, (block, need_verify))
+            .expect("process_block() failed")
     }
 }
 
 struct ChainReceivers {
-    process_block_receiver: Receiver<Request<Arc<Block>, Result<(), FailureError>>>,
+    process_block_receiver: Receiver<ProcessBlockRequest>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -75,6 +78,10 @@ impl ForkChanges {
     pub fn detached_proposal_id(&self) -> &FnvHashSet<ProposalShortId> {
         &self.detached_proposal_id
     }
+
+    pub fn has_detached(&self) -> bool {
+        !self.detached_blocks.is_empty()
+    }
 }
 
 pub(crate) struct GlobalIndex {
@@ -98,56 +105,14 @@ impl GlobalIndex {
     }
 }
 
-// Verification context for fork
-struct ForkContext<'a, CS> {
-    pub fork_blocks: &'a [Block],
-    pub store: Arc<CS>,
-    pub consensus: &'a Consensus,
-}
-
-impl<'a, CS: ChainStore> ForkContext<'a, CS> {
-    fn get_header(&self, number: BlockNumber) -> Option<Header> {
-        match self
-            .fork_blocks
-            .iter()
-            .find(|b| b.header().number() == number)
-        {
-            Some(block) => Some(block.header().to_owned()),
-            None => self
-                .store
-                .get_block_hash(number)
-                .and_then(|hash| self.store.get_header(&hash)),
-        }
-    }
-}
-
-impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
-    fn median_block_count(&self) -> u64 {
-        self.consensus.median_time_block_count() as u64
-    }
-
-    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
-        self.get_header(number).map(|header| header.timestamp())
-    }
-}
-
 pub struct ChainService<CS> {
     shared: Shared<CS>,
     notify: NotifyController,
-    verification: bool,
 }
 
 impl<CS: ChainStore + 'static> ChainService<CS> {
-    pub fn new(
-        shared: Shared<CS>,
-        notify: NotifyController,
-        verification: bool,
-    ) -> ChainService<CS> {
-        ChainService {
-            shared,
-            notify,
-            verification,
-        }
+    pub fn new(shared: Shared<CS>, notify: NotifyController) -> ChainService<CS> {
+        ChainService { shared, notify }
     }
 
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
@@ -172,8 +137,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         break;
                     },
                     recv(receivers.process_block_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: block }) => {
-                            let _ = responder.send(self.process_block(block));
+                        Ok(Request { responder, arguments: (block, verify) }) => {
+                            let _ = responder.send(self.process_block(block, verify));
                         },
                         _ => {
                             error!(target: "chain", "process_block_receiver closed");
@@ -193,35 +158,49 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
     // process_block will do block verify
     // but invoker should guarantee block header be verified
-    pub(crate) fn process_block(&mut self, block: Arc<Block>) -> Result<(), FailureError> {
-        debug!(target: "chain", "begin processing block: {}", block.header().hash());
-        if self.verification {
+    pub(crate) fn process_block(
+        &mut self,
+        block: Arc<Block>,
+        need_verify: bool,
+    ) -> Result<(), FailureError> {
+        debug!(target: "chain", "begin processing block: {:x}", block.header().hash());
+        if block.header().number() < 1 {
+            warn!(target: "chain", "receive 0 number block: {}-{:x}", block.header().number(), block.header().hash());
+        }
+        self.insert_block(block, need_verify)?;
+        debug!(target: "chain", "finish processing block");
+        Ok(())
+    }
+
+    fn insert_block(&self, block: Arc<Block>, need_verify: bool) -> Result<(), FailureError> {
+        if need_verify {
             let block_verifier = BlockVerifier::new(self.shared.clone());
             block_verifier.verify(&block).map_err(|e| {
                 debug!(target: "chain", "[process_block] verification error {:?}", e);
                 e
             })?
         }
-        self.insert_block(block)?;
-        debug!(target: "chain", "finish processing block");
-        Ok(())
-    }
 
-    pub(crate) fn insert_block(&self, block: Arc<Block>) -> Result<(), FailureError> {
         let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
 
         let mut cell_set_diff = CellSetDiff::default();
         let mut fork = ForkChanges::default();
-        let mut chain_state = self.shared.chain_state().lock();
-        let tip_number = chain_state.tip_number();
-        let tip_hash = chain_state.tip_hash();
+        let mut chain_state = self.shared.lock_chain_state();
+        let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
+
         let parent_ext = self
             .shared
             .block_ext(&block.header().parent_hash())
             .expect("parent already store");
 
-        let cannon_total_difficulty = parent_ext.total_difficulty + block.header().difficulty();
+        let parent_header = self
+            .shared
+            .block_header(&block.header().parent_hash())
+            .expect("parent already store");
+
+        let cannon_total_difficulty =
+            parent_ext.total_difficulty.to_owned() + block.header().difficulty();
         let current_total_difficulty = chain_state.total_difficulty().to_owned();
 
         debug!(
@@ -235,18 +214,48 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             Err(SharedError::InvalidParentBlock)?;
         }
 
+        let mut batch = self.shared.store().new_batch()?;
+        batch.insert_block(&block)?;
+
+        let parent_header_epoch = self
+            .shared
+            .get_block_epoch(&parent_header.hash())
+            .expect("parent epoch already store");
+
+        let next_epoch_ext = self
+            .shared
+            .next_epoch_ext(&parent_header_epoch, &parent_header);
+        let new_epoch = next_epoch_ext.is_some();
+
+        let epoch = next_epoch_ext.unwrap_or_else(|| parent_header_epoch.to_owned());
+
+        let (ar, c) = calculate_dao_data(
+            parent_header.number(),
+            &parent_header_epoch,
+            &parent_ext.dao_stats,
+            self.shared.consensus().secondary_epoch_reward(),
+        )?;
+
         let ext = BlockExt {
             received_at: unix_time_as_millis(),
             total_difficulty: cannon_total_difficulty.clone(),
             total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
             txs_verified: None,
+            dao_stats: DaoStats {
+                accumulated_rate: ar,
+                accumulated_capacity: c.as_u64(),
+            },
         };
 
-        let mut batch = self.shared.store().new_batch()?;
-        batch.insert_block(&block)?;
+        batch.insert_block_epoch_index(
+            &block.header().hash(),
+            epoch.last_block_hash_in_previous_epoch(),
+        )?;
+        batch.insert_epoch_ext(epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+
         if (cannon_total_difficulty > current_total_difficulty)
             || ((current_total_difficulty == cannon_total_difficulty)
-                && (block.header().hash() < tip_hash))
+                && (block.header().hash() < chain_state.tip_hash()))
         {
             debug!(
                 target: "chain",
@@ -254,40 +263,52 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 block.header().number(), block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
             );
-
-            self.find_fork(&mut fork, tip_number, &block, ext);
+            self.find_fork(&mut fork, chain_state.tip_number(), &block, ext);
             self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
             // MUST update index before reconcile_main_chain
-            cell_set_diff = self.reconcile_main_chain(&mut batch, &mut fork, &mut chain_state)?;
+            cell_set_diff = self.reconcile_main_chain(
+                &mut batch,
+                &mut fork,
+                &mut chain_state,
+                &mut txs_verify_cache,
+                need_verify,
+            )?;
             self.update_proposal_ids(&mut chain_state, &fork);
             batch.insert_tip_header(&block.header())?;
+            if new_epoch || fork.has_detached() {
+                batch.insert_current_epoch_ext(&epoch)?;
+            }
             new_best_block = true;
 
-            total_difficulty = cannon_total_difficulty;
+            total_difficulty = cannon_total_difficulty.clone();
         } else {
             batch.insert_block_ext(&block.header().hash(), &ext)?;
         }
         batch.commit()?;
 
-        let tip_header = block.header();
-        let tip_number = tip_header.number();
-        let tip_hash = tip_header.hash();
-        let txs_cnt = block.transactions().len();
-
         if new_best_block {
+            let tip_header = block.header().to_owned();
             info!(
                 target: "chain",
-                "block: {}, hash: {:#x}, diff: {:#x}, txs: {}",
-                tip_number, tip_hash, total_difficulty, txs_cnt);
+                "block: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
+                tip_header.number(),
+                tip_header.hash(),
+                total_difficulty,
+                block.transactions().len()
+            );
             // finalize proposal_id table change
             // then, update tx_pool
-            let detached_proposal_id = chain_state.proposal_ids_finalize(tip_number);
+            let detached_proposal_id = chain_state.proposal_ids_finalize(tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
-            chain_state.update_tip(tip_header.to_owned(), total_difficulty, cell_set_diff);
+            if new_epoch || fork.has_detached() {
+                chain_state.update_current_epoch_ext(epoch);
+            }
+            chain_state.update_tip(tip_header, total_difficulty, cell_set_diff);
             chain_state.update_tx_pool_for_reorg(
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),
                 fork.detached_proposal_id().iter(),
+                &mut txs_verify_cache,
             );
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);
@@ -295,8 +316,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         } else {
             info!(
                 target: "chain",
-                "uncle: {}, hash: {:#x}, diff: {:#x}, txs: {}",
-                tip_number, tip_hash, total_difficulty, txs_cnt);
+                "uncle: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
+                block.header().number(),
+                block.header().hash(),
+                cannon_total_difficulty,
+                block.transactions().len()
+            );
             self.notify.notify_new_uncle(block);
         }
 
@@ -445,9 +470,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         batch: &mut StoreBatch,
         fork: &mut ForkChanges,
         chain_state: &mut ChainState<CS>,
+        txs_verify_cache: &mut LruCache<H256, Cycle>,
+        need_verify: bool,
     ) -> Result<CellSetDiff, FailureError> {
         let mut cell_set_diff = CellSetDiff::default();
         let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
+        let mut block_headers_provider = BlockHeadersProvider::default();
 
         let mut dirty_exts = Vec::new();
         // cause we need borrow outputs from fork, swap `dirty_exts` out to evade from borrow check
@@ -460,54 +488,84 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         for b in detached_blocks_iter {
             cell_set_diff.push_old(b);
+            block_headers_provider.push_detached(b);
         }
 
         for b in attached_blocks_iter.take(unverified_len) {
             cell_set_diff.push_new(b);
-            outputs.extend(b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())));
+            outputs.extend(
+                b.transactions()
+                    .iter()
+                    .map(|tx| (tx.hash().to_owned(), tx.outputs())),
+            );
+            block_headers_provider.push_attached(b);
         }
 
         // The verify function
-        let txs_verifier = TransactionsVerifier::new(self.shared.consensus().max_block_cycles());
+        let contextual_block_verifier = ContextualBlockVerifier::new(self.shared.clone());
 
         let mut found_error = None;
         // verify transaction
         for (ext, b) in dirty_exts.iter_mut().zip(fork.attached_blocks.iter()).rev() {
-            if self.verification {
+            if need_verify {
                 if found_error.is_none() {
                     let mut seen_inputs = FnvHashSet::default();
                     let cell_set_overlay =
                         chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
-                    let block_cp = BlockCellProvider::new(b);
+                    let block_cp = match BlockCellProvider::new(b) {
+                        Ok(block_cp) => block_cp,
+                        Err(err) => {
+                            found_error = Some(SharedError::UnresolvableTransaction(err));
+                            continue;
+                        }
+                    };
+
                     let cell_provider = OverlayCellProvider::new(&block_cp, &cell_set_overlay);
+                    block_headers_provider.push_attached(b);
+                    let header_provider =
+                        OverlayHeaderProvider::new(&block_headers_provider, &*chain_state);
 
                     match b
                         .transactions()
                         .iter()
-                        .map(|x| resolve_transaction(x, &mut seen_inputs, &cell_provider))
+                        .map(|x| {
+                            resolve_transaction(
+                                x,
+                                &mut seen_inputs,
+                                &cell_provider,
+                                &header_provider,
+                            )
+                        })
                         .collect::<Result<Vec<ResolvedTransaction>, _>>()
                     {
                         Ok(resolved) => {
-                            let cellbase_maturity = { self.shared.consensus().cellbase_maturity() };
-
-                            match txs_verifier.verify(
+                            match contextual_block_verifier.verify(
                                 &resolved,
-                                Arc::clone(self.shared.store()),
-                                self.shared.block_reward(b.header().number()),
-                                ForkContext {
-                                    fork_blocks: &fork.attached_blocks,
-                                    store: Arc::clone(self.shared.store()),
-                                    consensus: self.shared.consensus(),
-                                },
-                                b.header().number(),
-                                cellbase_maturity,
+                                &fork.attached_blocks,
+                                b,
+                                txs_verify_cache,
                             ) {
-                                Ok(_) => {
+                                Ok(cycles) => {
                                     cell_set_diff.push_new(b);
                                     outputs.extend(
-                                        b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())),
+                                        b.transactions()
+                                            .iter()
+                                            .map(|tx| (tx.hash().to_owned(), tx.outputs())),
                                     );
                                     ext.txs_verified = Some(true);
+                                    let proof_size =
+                                        self.shared.consensus().pow_engine().proof_size();
+                                    if b.transactions().len() > 1 {
+                                        info!(
+                                            "[block_verifier] block number: {}, hash: {:x}, size:{}/{}, cycles: {}/{}",
+                                            b.header().number(),
+                                            b.header().hash(),
+                                            b.serialized_size(proof_size),
+                                            self.shared.consensus().max_block_bytes(),
+                                            cycles,
+                                            self.shared.consensus().max_block_cycles()
+                                        );
+                                    }
                                 }
                                 Err(err) => {
                                     error!(target: "chain", "cell_set_diff {}", serde_json::to_string(&cell_set_diff).unwrap());
@@ -532,7 +590,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 }
             } else {
                 cell_set_diff.push_new(b);
-                outputs.extend(b.transactions().iter().map(|tx| (tx.hash(), tx.outputs())));
+                outputs.extend(
+                    b.transactions()
+                        .iter()
+                        .map(|tx| (tx.hash().to_owned(), tx.outputs())),
+                );
                 ext.txs_verified = Some(true);
             }
         }
@@ -567,39 +629,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             let hash = self.shared.block_hash(number).unwrap_or_else(|| {
                 panic!(format!("invaild block number({}), tip={}", number, tip))
             });
-            debug!(target: "chain", "   {} => {}", number, hash);
+            debug!(target: "chain", "   {} => {:x}", number, hash);
         }
 
         debug!(target: "chain", "}}");
-    }
-}
-
-pub struct ChainBuilder<CS> {
-    shared: Shared<CS>,
-    notify: NotifyController,
-    verification: bool,
-}
-
-impl<CS: ChainStore + 'static> ChainBuilder<CS> {
-    pub fn new(shared: Shared<CS>, notify: NotifyController) -> ChainBuilder<CS> {
-        ChainBuilder {
-            shared,
-            notify,
-            verification: true,
-        }
-    }
-
-    pub fn notify(mut self, value: NotifyController) -> Self {
-        self.notify = value;
-        self
-    }
-
-    pub fn verification(mut self, verification: bool) -> Self {
-        self.verification = verification;
-        self
-    }
-
-    pub fn build(self) -> ChainService<CS> {
-        ChainService::new(self.shared, self.notify, self.verification)
     }
 }

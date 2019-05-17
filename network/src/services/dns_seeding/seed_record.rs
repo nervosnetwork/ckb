@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use hash::sha3_256;
+use hash::blake2b_256;
 use lazy_static::lazy_static;
 use p2p::{
     multiaddr::{multihash::Multihash, Multiaddr, Protocol},
@@ -101,7 +101,7 @@ impl SeedRecord {
             .map_err(|_| SeedRecordError::InvalidSignature)?;
 
         let data = Self::data_to_sign(ip, port, peer_id.as_ref(), valid_until);
-        let hash = sha3_256(&data);
+        let hash = blake2b_256(&data);
         let message = Message::from_slice(&hash).expect("create message error");
 
         if let Ok(pubkey) = SECP256K1.recover(&message, &signature) {
@@ -219,7 +219,7 @@ mod tests {
 
             let data =
                 Self::data_to_sign(self.ip, self.port, self.peer_id.as_ref(), self.valid_until);
-            let hash = sha3_256(&data);
+            let hash = blake2b_256(&data);
             let message = Message::from_slice(&hash).expect("create message error");
 
             let signature = SECP256K1.sign_recoverable(&message, privkey);

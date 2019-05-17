@@ -1,10 +1,10 @@
 use crate::error::TransactionError;
 use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
 use ckb_core::{
-    cell::{CellMeta, ResolvedTransaction},
-    BlockNumber, Cycle,
+    cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
+    BlockNumber, Cycle, EpochNumber,
 };
-use ckb_script::TransactionScriptsVerifier;
+use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
@@ -12,11 +12,11 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub struct PoolTransactionVerifier<'a, M> {
+pub struct ContextualTransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
-    pub valid_since: ValidSinceVerifier<'a, M>,
+    pub since: SinceVerifier<'a, M>,
 }
-impl<'a, M> PoolTransactionVerifier<'a, M>
+impl<'a, M> ContextualTransactionVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
 {
@@ -24,17 +24,18 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         tip_number: BlockNumber,
+        tip_epoch_number: BlockNumber,
         cellbase_maturity: BlockNumber,
     ) -> Self {
-        PoolTransactionVerifier {
+        ContextualTransactionVerifier {
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
-            valid_since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
+            since: SinceVerifier::new(rtx, median_time_context, tip_number, tip_epoch_number),
         }
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         self.maturity.verify()?;
-        self.valid_since.verify()?;
+        self.since.verify()?;
         Ok(())
     }
 }
@@ -46,7 +47,7 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub capacity: CapacityVerifier<'a>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
     pub script: ScriptVerifier<'a, CS>,
-    pub since: ValidSinceVerifier<'a, M>,
+    pub since: SinceVerifier<'a, M>,
 }
 
 impl<'a, M, CS: ChainStore> TransactionVerifier<'a, M, CS>
@@ -58,16 +59,18 @@ where
         store: Arc<CS>,
         median_time_context: &'a M,
         tip_number: BlockNumber,
+        tip_epoch_number: BlockNumber,
         cellbase_maturity: BlockNumber,
+        script_config: &'a ScriptConfig,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(rtx, Arc::clone(&store)),
+            script: ScriptVerifier::new(rtx, Arc::clone(&store), script_config),
             capacity: CapacityVerifier::new(rtx),
-            since: ValidSinceVerifier::new(rtx, median_time_context, tip_number),
+            since: SinceVerifier::new(rtx, median_time_context, tip_number, tip_epoch_number),
         }
     }
 
@@ -103,20 +106,30 @@ impl<'a> VersionVerifier<'a> {
 pub struct ScriptVerifier<'a, CS> {
     store: Arc<CS>,
     resolved_transaction: &'a ResolvedTransaction<'a>,
+    script_config: &'a ScriptConfig,
 }
 
 impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction, store: Arc<CS>) -> Self {
+    pub fn new(
+        resolved_transaction: &'a ResolvedTransaction,
+        store: Arc<CS>,
+        script_config: &'a ScriptConfig,
+    ) -> Self {
         ScriptVerifier {
             store,
             resolved_transaction,
+            script_config,
         }
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
-        TransactionScriptsVerifier::new(&self.resolved_transaction, Arc::clone(&self.store))
-            .verify(max_cycles)
-            .map_err(TransactionError::ScriptFailure)
+        TransactionScriptsVerifier::new(
+            &self.resolved_transaction,
+            Arc::clone(&self.store),
+            &self.script_config,
+        )
+        .verify(max_cycles)
+        .map_err(TransactionError::ScriptFailure)
     }
 }
 
@@ -162,13 +175,27 @@ impl<'a> MaturityVerifier<'a> {
             meta.is_cellbase()
                 && self.tip_number
                     < meta
-                        .block_number
+                        .block_info
+                        .as_ref()
                         .expect("cell meta should have block number when transaction verify")
+                        .number
                         + self.cellbase_maturity
         };
 
-        let input_immature_spend = || self.transaction.input_cells.iter().any(cellbase_immature);
-        let dep_immature_spend = || self.transaction.dep_cells.iter().any(cellbase_immature);
+        let input_immature_spend = || {
+            self.transaction
+                .resolved_inputs
+                .iter()
+                .filter_map(ResolvedOutPoint::cell)
+                .any(cellbase_immature)
+        };
+        let dep_immature_spend = || {
+            self.transaction
+                .resolved_deps
+                .iter()
+                .filter_map(ResolvedOutPoint::cell)
+                .any(cellbase_immature)
+        };
 
         if input_immature_spend() || dep_immature_spend() {
             Err(TransactionError::CellbaseImmaturity)
@@ -211,26 +238,41 @@ impl<'a> CapacityVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let inputs_total = self
-            .resolved_transaction
-            .input_cells
-            .iter()
-            .try_fold(Capacity::zero(), |acc, cell_meta| {
-                acc.safe_add(cell_meta.capacity())
-            })?;
+        // skip OutputsSumOverflow verification for resolved cellbase and DAO
+        // withdraw transactions.
+        // cellbase's outputs are verified by TransactionsVerifier#InvalidReward
+        // DAO withdraw transaction is verified in TransactionScriptsVerifier
+        if !(self.resolved_transaction.is_cellbase()
+            || self
+                .resolved_transaction
+                .transaction
+                .is_withdrawing_from_dao())
+        {
+            let inputs_total = self.resolved_transaction.resolved_inputs.iter().try_fold(
+                Capacity::zero(),
+                |acc, resolved_out_point| {
+                    let capacity = resolved_out_point
+                        .cell()
+                        .map(|cell_meta| cell_meta.capacity)
+                        .unwrap_or_else(Capacity::zero);
+                    acc.safe_add(capacity)
+                },
+            )?;
 
-        let outputs_total = self
-            .resolved_transaction
-            .transaction
-            .outputs()
-            .iter()
-            .try_fold(Capacity::zero(), |acc, output| {
-                acc.safe_add(output.capacity)
-            })?;
+            let outputs_total = self
+                .resolved_transaction
+                .transaction
+                .outputs()
+                .iter()
+                .try_fold(Capacity::zero(), |acc, output| {
+                    acc.safe_add(output.capacity)
+                })?;
 
-        if inputs_total < outputs_total {
-            return Err(TransactionError::OutputsSumOverflow);
+            if inputs_total < outputs_total {
+                return Err(TransactionError::OutputsSumOverflow);
+            }
         }
+
         if self
             .resolved_transaction
             .transaction
@@ -246,15 +288,21 @@ impl<'a> CapacityVerifier<'a> {
 }
 
 const LOCK_TYPE_FLAG: u64 = 1 << 63;
-const TIME_TYPE_FLAG: u64 = 1 << 62;
-const VALUE_MUSK: u64 = 0x00ff_ffff_ffff_ffff;
-const REMAIN_FLAGS_BITS: u64 = 0x3f00_0000_0000_0000;
+const METRIC_TYPE_FLAG_MASK: u64 = 0x6000_0000_0000_0000;
+const VALUE_MASK: u64 = 0x00ff_ffff_ffff_ffff;
+const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
+
+enum SinceMetric {
+    BlockNumber(u64),
+    EpochNumber(u64),
+    Timestamp(u64),
+}
 
 /// RFC 0017
 #[derive(Copy, Clone, Debug)]
-struct ValidSince(u64);
+struct Since(u64);
 
-impl ValidSince {
+impl Since {
     pub fn is_absolute(self) -> bool {
         self.0 & LOCK_TYPE_FLAG == 0
     }
@@ -264,45 +312,35 @@ impl ValidSince {
         !self.is_absolute()
     }
 
-    pub fn remain_flags_is_empty(self) -> bool {
-        self.0 & REMAIN_FLAGS_BITS == 0
+    pub fn flags_is_valid(self) -> bool {
+        (self.0 & REMAIN_FLAGS_BITS == 0)
+            && ((self.0 & METRIC_TYPE_FLAG_MASK) != (0b0110_0000 << 56))
     }
 
-    fn metric_type_is_number(self) -> bool {
-        self.0 & TIME_TYPE_FLAG == 0
-    }
-
-    #[inline]
-    fn metric_type_is_timestamp(self) -> bool {
-        !self.metric_type_is_number()
-    }
-
-    pub fn block_timestamp(self) -> Option<u64> {
-        if self.metric_type_is_timestamp() {
-            Some((self.0 & VALUE_MUSK) * 1000)
-        } else {
-            None
-        }
-    }
-
-    pub fn block_number(self) -> Option<u64> {
-        if self.metric_type_is_number() {
-            Some(self.0 & VALUE_MUSK)
-        } else {
-            None
+    fn extract_metric(self) -> Option<SinceMetric> {
+        let value = self.0 & VALUE_MASK;
+        match self.0 & METRIC_TYPE_FLAG_MASK {
+            //0b0000_0000
+            0x0000_0000_0000_0000 => Some(SinceMetric::BlockNumber(value)),
+            //0b0010_0000
+            0x2000_0000_0000_0000 => Some(SinceMetric::EpochNumber(value)),
+            //0b0100_0000
+            0x4000_0000_0000_0000 => Some(SinceMetric::Timestamp(value * 1000)),
+            _ => None,
         }
     }
 }
 
 /// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md#detailed-specification
-pub struct ValidSinceVerifier<'a, M> {
+pub struct SinceVerifier<'a, M> {
     rtx: &'a ResolvedTransaction<'a>,
     block_median_time_context: &'a M,
     tip_number: BlockNumber,
+    tip_epoch_number: EpochNumber,
     median_timestamps_cache: RefCell<LruCache<BlockNumber, Option<u64>>>,
 }
 
-impl<'a, M> ValidSinceVerifier<'a, M>
+impl<'a, M> SinceVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
 {
@@ -310,12 +348,14 @@ where
         rtx: &'a ResolvedTransaction,
         block_median_time_context: &'a M,
         tip_number: BlockNumber,
+        tip_epoch_number: BlockNumber,
     ) -> Self {
-        let median_timestamps_cache = RefCell::new(LruCache::new(rtx.input_cells.len()));
-        ValidSinceVerifier {
+        let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
+        SinceVerifier {
             rtx,
             block_median_time_context,
             tip_number,
+            tip_epoch_number,
             median_timestamps_cache,
         }
     }
@@ -334,51 +374,70 @@ where
         }
     }
 
-    fn verify_absolute_lock(&self, since: ValidSince) -> Result<(), TransactionError> {
+    fn verify_absolute_lock(&self, since: Since) -> Result<(), TransactionError> {
         if since.is_absolute() {
-            if let Some(block_number) = since.block_number() {
-                if self.tip_number < block_number {
-                    return Err(TransactionError::Immature);
+            match since.extract_metric() {
+                Some(SinceMetric::BlockNumber(block_number)) => {
+                    if self.tip_number < block_number {
+                        return Err(TransactionError::Immature);
+                    }
                 }
-            }
-
-            if let Some(block_timestamp) = since.block_timestamp() {
-                let tip_timestamp = self
-                    .block_median_time(self.tip_number.saturating_sub(1))
-                    .unwrap_or_else(|| 0);
-                if tip_timestamp < block_timestamp {
-                    return Err(TransactionError::Immature);
+                Some(SinceMetric::EpochNumber(epoch_number)) => {
+                    if self.tip_epoch_number < epoch_number {
+                        return Err(TransactionError::Immature);
+                    }
+                }
+                Some(SinceMetric::Timestamp(timestamp)) => {
+                    let tip_timestamp = self
+                        .block_median_time(self.tip_number.saturating_sub(1))
+                        .unwrap_or_else(|| 0);
+                    if tip_timestamp < timestamp {
+                        return Err(TransactionError::Immature);
+                    }
+                }
+                None => {
+                    return Err(TransactionError::InvalidSince);
                 }
             }
         }
         Ok(())
     }
+
     fn verify_relative_lock(
         &self,
-        since: ValidSince,
+        since: Since,
         cell_meta: &CellMeta,
     ) -> Result<(), TransactionError> {
         if since.is_relative() {
             // cell still in tx_pool
-            let cell_block_number = match cell_meta.block_number {
-                Some(number) => number,
+            let (cell_block_number, cell_epoch_number) = match cell_meta.block_info {
+                Some(ref block_info) => (block_info.number, block_info.epoch),
                 None => return Err(TransactionError::Immature),
             };
-            if let Some(block_number) = since.block_number() {
-                if self.tip_number < cell_block_number + block_number {
-                    return Err(TransactionError::Immature);
+            match since.extract_metric() {
+                Some(SinceMetric::BlockNumber(block_number)) => {
+                    if self.tip_number < cell_block_number + block_number {
+                        return Err(TransactionError::Immature);
+                    }
                 }
-            }
-
-            if let Some(block_timestamp) = since.block_timestamp() {
-                let tip_timestamp = self
-                    .block_median_time(self.tip_number.saturating_sub(1))
-                    .unwrap_or_else(|| 0);
-                let median_timestamp = self
-                    .block_median_time(cell_block_number.saturating_sub(1))
-                    .unwrap_or_else(|| 0);
-                if tip_timestamp < median_timestamp + block_timestamp {
-                    return Err(TransactionError::Immature);
+                Some(SinceMetric::EpochNumber(epoch_number)) => {
+                    if self.tip_epoch_number < cell_epoch_number + epoch_number {
+                        return Err(TransactionError::Immature);
+                    }
+                }
+                Some(SinceMetric::Timestamp(timestamp)) => {
+                    let tip_timestamp = self
+                        .block_median_time(self.tip_number.saturating_sub(1))
+                        .unwrap_or_else(|| 0);
+                    let median_timestamp = self
+                        .block_median_time(cell_block_number.saturating_sub(1))
+                        .unwrap_or_else(|| 0);
+                    if tip_timestamp < median_timestamp + timestamp {
+                        return Err(TransactionError::Immature);
+                    }
+                }
+                None => {
+                    return Err(TransactionError::InvalidSince);
                 }
             }
         }
@@ -386,20 +445,24 @@ where
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        for (cell_meta, input) in self
+        for (resolved_out_point, input) in self
             .rtx
-            .input_cells
+            .resolved_inputs
             .iter()
             .zip(self.rtx.transaction.inputs())
         {
+            if resolved_out_point.cell().is_none() {
+                continue;
+            }
+            let cell_meta = resolved_out_point.cell().unwrap();
             // ignore empty since
             if input.since == 0 {
                 continue;
             }
-            let since = ValidSince(input.since);
+            let since = Since(input.since);
             // check remain flags
-            if !since.remain_flags_is_empty() {
-                return Err(TransactionError::InvalidValidSince);
+            if !since.flags_is_valid() {
+                return Err(TransactionError::InvalidSince);
             }
 
             // verify time lock

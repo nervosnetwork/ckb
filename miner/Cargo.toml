@@ -1,6 +1,6 @@
 [package]
 name = "ckb-miner"
-version = "0.11.0"
+version = "0.12.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -25,16 +25,17 @@ serde_json = "1.0"
 jsonrpc-types = { path = "../util/jsonrpc-types" }
 hyper = "0.12"
 futures = "0.1"
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
 stop-handler = { path = "../util/stop-handler" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 sentry = "^0.15.4"
+ckb-verification = { path = "../verification" }
+dao = { path = "../util/dao" }
 
 [dev-dependencies]
 proptest = "0.9"
 ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
-ckb-verification = { path = "../verification" }
 ckb-pow = { path = "../pow" }

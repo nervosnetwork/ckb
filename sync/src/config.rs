@@ -5,8 +5,8 @@ pub struct Config {
     pub orphan_block_limit: usize,
 }
 
-impl Config {
-    pub fn default() -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Config {
             orphan_block_limit: 1024,
         }

@@ -1,3 +1,4 @@
+use crate::Unsigned;
 use serde_derive::{Deserialize, Serialize};
 
 // TODO add more fields from PeerIdentifyInfo
@@ -12,5 +13,5 @@ pub struct Node {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct NodeAddress {
     pub address: String,
-    pub score: u8,
+    pub score: Unsigned,
 }

@@ -1,16 +1,15 @@
 use super::super::block_verifier::{
-    BlockBytesVerifier, BlockProposalsLimitVerifier, BlockVerifier, CellbaseVerifier,
+    BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier,
 };
 use super::super::error::{CellbaseError, Error as VerifyError};
-use super::dummy::DummyChainProvider;
-use crate::Verifier;
 use ckb_core::block::BlockBuilder;
+use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
@@ -31,7 +30,7 @@ fn create_cellbase_transaction() -> Transaction {
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new(
-            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
             0,
             Default::default(),
         ))
@@ -128,41 +127,26 @@ pub fn test_cellbase_with_fee() {
 }
 
 #[test]
-pub fn test_cellbase_overflow_capacity() {
-    let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(
-            capacity_bytes!(5),
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9].into(),
-            Script::default(),
-            None,
-        ))
-        .build();
-    let block = BlockBuilder::default().transaction(cellbase).build();
-    let verifier = CellbaseVerifier::new();
-    assert_eq!(verifier.verify(&block), Err(VerifyError::CapacityOverflow),);
-}
-
-#[test]
-pub fn test_empty_transactions() {
+pub fn test_max_block_bytes_verifier_skip_genesis() {
     let block = BlockBuilder::default().build();
+    let proof_size = 0usize;
 
-    let provider = DummyChainProvider {
-        block_reward: capacity_bytes!(150),
-        ..Default::default()
-    };
+    {
+        let verifier =
+            BlockBytesVerifier::new(block.serialized_size(proof_size) as u64, proof_size);
+        assert_eq!(verifier.verify(&block), Ok(()));
+    }
 
-    let full_verifier = BlockVerifier::new(provider);
-    // short-circuit, Empty check first
-    assert_eq!(
-        full_verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
-    );
+    {
+        let verifier =
+            BlockBytesVerifier::new(block.serialized_size(proof_size) as u64 - 1, proof_size);
+        assert_eq!(verifier.verify(&block), Ok(()),);
+    }
 }
 
 #[test]
 pub fn test_max_block_bytes_verifier() {
-    let block = BlockBuilder::default().build();
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2)).build();
     let proof_size = 0usize;
 
     {

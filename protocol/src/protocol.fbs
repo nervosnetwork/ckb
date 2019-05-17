@@ -39,13 +39,14 @@ table Header {
     timestamp:              uint64;
     number:                 uint64;
     transactions_root:      H256;
-    proposals_root:         H256;
     witnesses_root:         H256;
+    proposals_hash:         H256;
     difficulty:             Bytes;
     nonce:                  uint64;
     proof:                  Bytes;
     uncles_hash:            H256;
     uncles_count:           uint32;
+    epoch:                  uint64;
 }
 
 table Block {
@@ -73,11 +74,13 @@ table Witness {
 }
 
 table OutPoint {
+    block_hash:     H256;
     tx_hash:        H256;
     index:          uint32;
 }
 
 table CellInput {
+    block_hash:     H256;
     tx_hash:        H256;
     index:          uint32;
     since:          uint64;

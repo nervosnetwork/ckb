@@ -1,8 +1,9 @@
 [package]
 name = "ckb-shared"
-version = "0.11.0"
+version = "0.12.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+license = "MIT"
 
 [dependencies]
 serde = "1.0"
@@ -15,17 +16,21 @@ ckb-db = { path = "../db" }
 jsonrpc-types = { path = "../util/jsonrpc-types" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache" }
-fnv = "1.0.3"
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
 faketime = "0.2"
 log = "0.4"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }
-linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
+ckb-protocol = { path = "../protocol" }
+ckb-script = { path = "../script" }
+occupied-capacity = { path = "../util/occupied-capacity" }
+dao-utils = { path = "../util/dao/utils" }
 
 [dev-dependencies]
 env_logger = "0.6"
 tempfile = "3.0"
 rand = "0.6"
 serde_json = "1.0"
+ckb-chain = { path = "../chain" }
+ckb-notify = { path = "../notify" }

@@ -13,7 +13,7 @@ use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct NetworkConfig {
     pub reserved_only: bool,
     pub max_peers: u32,
@@ -22,6 +22,9 @@ pub struct NetworkConfig {
     pub path: PathBuf,
     #[serde(default)]
     pub dns_seeds: Vec<String>,
+    // Set if discovery add local address to peer store
+    #[serde(default)]
+    pub discovery_local_address: bool,
     pub ping_interval_secs: u64,
     pub ping_timeout_secs: u64,
     pub connect_outbound_interval_secs: u64,

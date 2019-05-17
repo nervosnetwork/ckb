@@ -10,15 +10,15 @@ use std::sync::Arc;
 pub struct BlockTransactionsProcess<'a, CS> {
     message: &'a BlockTransactions<'a>,
     relayer: &'a Relayer<CS>,
-    nc: &'a CKBProtocolContext,
+    nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore> BlockTransactionsProcess<'a, CS> {
+impl<'a, CS: ChainStore + 'static> BlockTransactionsProcess<'a, CS> {
     pub fn new(
         message: &'a BlockTransactions,
         relayer: &'a Relayer<CS>,
-        nc: &'a CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
         BlockTransactionsProcess {
@@ -38,20 +38,20 @@ impl<'a, CS: ChainStore> BlockTransactionsProcess<'a, CS> {
             .lock()
             .remove(&block_hash)
         {
-            let transactions: Result<Vec<Transaction>, FailureError> =
+            let transactions: Vec<Transaction> =
                 FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
                     .map(TryInto::try_into)
-                    .collect();
+                    .collect::<Result<_, FailureError>>()?;
 
             let ret = {
-                let chain_state = self.relayer.shared.chain_state().lock();
+                let chain_state = self.relayer.shared.lock_chain_state();
                 self.relayer
-                    .reconstruct_block(&chain_state, &compact_block, transactions?)
+                    .reconstruct_block(&chain_state, &compact_block, transactions)
             };
 
             if let Ok(block) = ret {
                 self.relayer
-                    .accept_block(self.nc, self.peer, &Arc::new(block));
+                    .accept_block(self.nc.as_ref(), self.peer, &Arc::new(block));
             }
         }
         Ok(())

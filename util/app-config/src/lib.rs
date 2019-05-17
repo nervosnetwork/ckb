@@ -8,6 +8,7 @@ pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs};
 pub use exit_code::ExitCode;
 
+use build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
 use ckb_resource::ResourceLocator;
@@ -57,7 +58,7 @@ impl Setup {
         })
     }
 
-    pub fn setup_app(&self) -> Result<SetupGuard, ExitCode> {
+    pub fn setup_app(&self, version: &Version) -> Result<SetupGuard, ExitCode> {
         // Initialization of logger must do before sentry, since `logger::init()` and
         // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
         // replaces all hooks previously registered.
@@ -71,7 +72,7 @@ impl Setup {
                 This is enabled by default before mainnet, which can be opted out by setting \
                 the option `dsn` to empty in the config file. The DSN is now {}", sentry_config.dsn);
 
-            let guard = sentry_config.init();
+            let guard = sentry_config.init(&version);
 
             sentry::configure_scope(|scope| {
                 scope.set_tag("subcommand", &self.subcommand_name);
@@ -223,8 +224,8 @@ fn is_daemon(subcommand_name: &str) -> bool {
 }
 
 fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
-    spec.to_consensus().map_err(|err| {
-        eprintln!("to_consensus error: {}", err);
+    spec.build_consensus().map_err(|err| {
+        eprintln!("chainspec error: {}", err);
         ExitCode::Config
     })
 }

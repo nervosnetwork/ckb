@@ -1,4 +1,5 @@
 use crate::specs::TestProtocol;
+use crate::utils::wait_until;
 use crate::Node;
 use bytes::Bytes;
 use ckb_core::BlockNumber;
@@ -6,13 +7,17 @@ use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
     NetworkService, NetworkState, PeerIndex, ProtocolId,
 };
-use crossbeam_channel::{self, Receiver, Sender};
+use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::tempdir;
+
+pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 
 pub struct Net {
     pub nodes: Vec<Node>,
-    pub controller: Option<(NetworkController, Receiver<(PeerIndex, Bytes)>)>,
+    pub controller: Option<(NetworkController, Receiver<NetMessage>)>,
 }
 
 impl Net {
@@ -21,7 +26,6 @@ impl Net {
         num_nodes: usize,
         start_port: u16,
         test_protocols: Vec<TestProtocol>,
-        cellbase_maturity: Option<BlockNumber>,
     ) -> Self {
         let nodes: Vec<Node> = (0..num_nodes)
             .map(|n| {
@@ -34,7 +38,6 @@ impl Net {
                         .unwrap(),
                     start_port + (n * 2 + 1) as u16,
                     start_port + (n * 2 + 2) as u16,
-                    cellbase_maturity,
                 )
             })
             .collect();
@@ -53,8 +56,8 @@ impl Net {
                 dns_seeds: vec![],
                 reserved_peers: vec![],
                 reserved_only: false,
-                max_peers: 1,
-                max_outbound_peers: 1,
+                max_peers: num_nodes as u32,
+                max_outbound_peers: num_nodes as u32,
                 path: tempdir()
                     .expect("create tempdir failed")
                     .path()
@@ -62,6 +65,7 @@ impl Net {
                 ping_interval_secs: 15,
                 ping_timeout_secs: 20,
                 connect_outbound_interval_secs: 1,
+                discovery_local_address: true,
             };
 
             let network_state =
@@ -83,7 +87,7 @@ impl Net {
 
             Some((
                 NetworkService::new(Arc::clone(&network_state), protocols)
-                    .start(Some("NetworkService"))
+                    .start(Default::default(), Some("NetworkService"))
                     .expect("Start network service failed"),
                 rx,
             ))
@@ -106,32 +110,75 @@ impl Net {
         );
     }
 
+    pub fn connect_all(&self) {
+        self.nodes
+            .windows(2)
+            .for_each(|nodes| nodes[0].connect(&nodes[1]));
+    }
+
+    pub fn disconnect_all(&self) {
+        self.nodes.iter().for_each(|node_a| {
+            self.nodes.iter().for_each(|node_b| {
+                if node_a.node_id != node_b.node_id {
+                    node_a.disconnect(node_b)
+                }
+            })
+        });
+    }
+
+    pub fn waiting_for_sync(&self, target: BlockNumber, timeout: u64) {
+        let mut rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
+        let mut tip_numbers: HashSet<BlockNumber> = HashSet::with_capacity(self.nodes.len());
+        let result = wait_until(timeout, || {
+            tip_numbers = rpc_clients
+                .iter_mut()
+                .map(|rpc_client| {
+                    rpc_client
+                        .get_tip_block_number()
+                        .call()
+                        .expect("rpc call get_tip_block_number failed")
+                        .0
+                })
+                .collect();
+            tip_numbers.len() == 1 && tip_numbers.iter().next().cloned().unwrap() == target
+        });
+
+        if !result {
+            panic!("timeout to wait for sync, tip_numbers: {:?}", tip_numbers);
+        }
+    }
+
     pub fn send(&self, protocol_id: ProtocolId, peer: PeerIndex, data: Bytes) {
         self.controller
             .as_ref()
             .unwrap()
             .0
-            .send_message_to(peer, protocol_id, data);
+            .send_message_to(peer, protocol_id, data)
+            .expect("Send message to p2p network failed");
     }
 
-    pub fn receive(&self) -> (PeerIndex, Bytes) {
+    pub fn receive(&self) -> NetMessage {
         self.controller.as_ref().unwrap().1.recv().unwrap()
+    }
+
+    pub fn receive_timeout(&self, timeout: Duration) -> Result<NetMessage, RecvTimeoutError> {
+        self.controller.as_ref().unwrap().1.recv_timeout(timeout)
     }
 }
 
 pub struct DummyProtocolHandler {
-    tx: Sender<(PeerIndex, Bytes)>,
+    tx: Sender<NetMessage>,
 }
 
 impl CKBProtocolHandler for DummyProtocolHandler {
-    fn init(&mut self, _nc: Box<dyn CKBProtocolContext>) {}
+    fn init(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) {}
 
     fn received(
         &mut self,
-        _nc: Box<dyn CKBProtocolContext>,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
         data: bytes::Bytes,
     ) {
-        let _ = self.tx.send((peer_index, data));
+        let _ = self.tx.send((peer_index, nc.protocol_id(), data));
     }
 }

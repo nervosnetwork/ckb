@@ -2,12 +2,12 @@
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use crate::script::Script;
 pub use crate::Capacity;
-use crate::{BlockNumber, Version};
+use crate::{BlockNumber, Bytes, Version};
 use bincode::{deserialize, serialize};
-use bytes::Bytes;
+use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -17,35 +17,94 @@ use std::ops::{Deref, DerefMut};
 
 pub const TX_VERSION: Version = 0;
 
+// This is the tx hash used to mark the input is actually a special input for
+// issuing DAO interests. When this is encountered, CKB will skip resolving and
+// script validation. All CKB does is to validate that the transaction has
+// another input referencing a DAO cell(determined by having DAO_CODE_HASH as
+// code hash of lock script). The actual DAO validation logic is left to the
+// unlocking process of the DAO cell. The hex used here is actually
+// "NERVOSDAOINPUT0001" in hex mode.
+pub const ISSUING_DAO_HASH: H256 = h256!("0x4e4552564f5344414f494e50555430303031");
+
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
-pub struct OutPoint {
+pub struct CellOutPoint {
     // Hash of Transaction
     pub tx_hash: H256,
     // Index of output
     pub index: u32,
 }
 
-impl fmt::Debug for OutPoint {
+impl fmt::Debug for CellOutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("OutPoint")
+        f.debug_struct("CellOutPoint")
             .field("tx_hash", &format_args!("{:#x}", self.tx_hash))
             .field("index", &self.index)
             .finish()
     }
 }
 
-impl Default for OutPoint {
+impl Default for CellOutPoint {
     fn default() -> Self {
-        OutPoint {
+        CellOutPoint {
             tx_hash: H256::zero(),
             index: u32::max_value(),
         }
     }
 }
 
+impl CellOutPoint {
+    pub fn destruct(self) -> (H256, u32) {
+        let CellOutPoint { tx_hash, index } = self;
+        (tx_hash, index)
+    }
+
+    pub const fn serialized_size() -> usize {
+        H256::size_of() + mem::size_of::<u32>()
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
+pub struct OutPoint {
+    pub cell: Option<CellOutPoint>,
+    pub block_hash: Option<H256>,
+}
+
+impl fmt::Debug for OutPoint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("OutPoint")
+            .field("cell", &self.cell)
+            .field(
+                "block_hash",
+                &format_args!("{:#x}", LowerHexOption(self.block_hash.as_ref())),
+            )
+            .finish()
+    }
+}
+
 impl OutPoint {
-    pub fn new(tx_hash: H256, index: u32) -> Self {
-        OutPoint { tx_hash, index }
+    pub fn new(block_hash: H256, tx_hash: H256, index: u32) -> Self {
+        OutPoint {
+            block_hash: Some(block_hash),
+            cell: Some(CellOutPoint { tx_hash, index }),
+        }
+    }
+
+    pub fn new_cell(tx_hash: H256, index: u32) -> Self {
+        OutPoint {
+            block_hash: None,
+            cell: Some(CellOutPoint { tx_hash, index }),
+        }
+    }
+
+    pub fn new_block_hash(block_hash: H256) -> Self {
+        OutPoint {
+            block_hash: Some(block_hash),
+            cell: None,
+        }
+    }
+
+    pub fn new_issuing_dao() -> Self {
+        OutPoint::new_cell(ISSUING_DAO_HASH, 0)
     }
 
     pub fn null() -> Self {
@@ -53,16 +112,33 @@ impl OutPoint {
     }
 
     pub fn is_null(&self) -> bool {
-        self.tx_hash.is_zero() && self.index == u32::max_value()
+        self.cell.is_none() && self.block_hash.is_none()
     }
 
-    pub const fn serialized_size() -> usize {
-        H256::size_of() + mem::size_of::<u32>()
+    pub fn serialized_size(&self) -> usize {
+        self.cell
+            .as_ref()
+            .map(|_| CellOutPoint::serialized_size())
+            .unwrap_or(0)
+            + self
+                .block_hash
+                .as_ref()
+                .map(|_| H256::size_of())
+                .unwrap_or(0)
     }
 
-    pub fn destruct(self) -> (H256, u32) {
-        let OutPoint { tx_hash, index } = self;
-        (tx_hash, index)
+    pub fn is_issuing_dao(&self) -> bool {
+        self.block_hash.is_none()
+            && self
+                .cell
+                .as_ref()
+                .map(|cell| cell.tx_hash == ISSUING_DAO_HASH && cell.index == 0)
+                .unwrap_or(false)
+    }
+
+    pub fn destruct(self) -> (Option<H256>, Option<CellOutPoint>) {
+        let OutPoint { block_hash, cell } = self;
+        (block_hash, cell)
     }
 }
 
@@ -104,7 +180,7 @@ impl CellInput {
     }
 
     pub fn serialized_size(&self) -> usize {
-        OutPoint::serialized_size()
+        self.previous_output.serialized_size()
             + mem::size_of::<u64>()
             + self.args.iter().map(Bytes::len).sum::<usize>()
     }
@@ -176,9 +252,9 @@ impl CellOutput {
     }
 }
 
-pub type Witness = Vec<Vec<u8>>;
+pub type Witness = Vec<Bytes>;
 
-#[derive(Clone, Serialize, Deserialize, Eq, Debug, Default, HasOccupiedCapacity)]
+#[derive(Clone, Serialize, Eq, Debug, HasOccupiedCapacity)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
@@ -186,6 +262,116 @@ pub struct Transaction {
     outputs: Vec<CellOutput>,
     //Segregated Witness to provide protection from transaction malleability.
     witnesses: Vec<Witness>,
+    #[serde(skip)]
+    #[free_capacity]
+    hash: H256,
+    #[serde(skip)]
+    #[free_capacity]
+    witness_hash: H256,
+}
+
+impl<'de> serde::de::Deserialize<'de> for Transaction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            Version,
+            Deps,
+            Inputs,
+            Outputs,
+            Witnesses,
+        }
+
+        struct InnerVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for InnerVisitor {
+            type Value = Transaction;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Transaction")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
+            where
+                V: serde::de::SeqAccess<'de>,
+            {
+                let version = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+                let deps = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
+                let inputs = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
+                let outputs = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(3, &self))?;
+                let witnesses = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
+                Ok(Self::Value::new(version, deps, inputs, outputs, witnesses))
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut version = None;
+                let mut deps = None;
+                let mut inputs = None;
+                let mut outputs = None;
+                let mut witnesses = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Version => {
+                            if version.is_some() {
+                                return Err(serde::de::Error::duplicate_field("version"));
+                            }
+                            version = Some(map.next_value()?);
+                        }
+                        Field::Deps => {
+                            if deps.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deps"));
+                            }
+                            deps = Some(map.next_value()?);
+                        }
+                        Field::Inputs => {
+                            if inputs.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inputs"));
+                            }
+                            inputs = Some(map.next_value()?);
+                        }
+                        Field::Outputs => {
+                            if outputs.is_some() {
+                                return Err(serde::de::Error::duplicate_field("outputs"));
+                            }
+                            outputs = Some(map.next_value()?);
+                        }
+                        Field::Witnesses => {
+                            if witnesses.is_some() {
+                                return Err(serde::de::Error::duplicate_field("witnesses"));
+                            }
+                            witnesses = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let version = version.ok_or_else(|| serde::de::Error::missing_field("version"))?;
+                let deps = deps.ok_or_else(|| serde::de::Error::missing_field("deps"))?;
+                let inputs = inputs.ok_or_else(|| serde::de::Error::missing_field("inputs"))?;
+                let outputs = outputs.ok_or_else(|| serde::de::Error::missing_field("outputs"))?;
+                let witnesses =
+                    witnesses.ok_or_else(|| serde::de::Error::missing_field("witnesses"))?;
+                Ok(Self::Value::new(version, deps, inputs, outputs, witnesses))
+            }
+        }
+
+        const FIELDS: &[&str] = &["version", "deps", "inputs", "outputs", "witnesses"];
+        deserializer.deserialize_struct("Transaction", FIELDS, InnerVisitor)
+    }
 }
 
 #[derive(Serialize)]
@@ -209,6 +395,36 @@ impl PartialEq for Transaction {
 }
 
 impl Transaction {
+    pub(crate) fn new(
+        version: Version,
+        deps: Vec<OutPoint>,
+        inputs: Vec<CellInput>,
+        outputs: Vec<CellOutput>,
+        witnesses: Vec<Witness>,
+    ) -> Self {
+        let raw = RawTransaction {
+            version,
+            deps: &deps,
+            inputs: &inputs,
+            outputs: &outputs,
+        };
+        let hash =
+            blake2b_256(serialize(&raw).expect("RawTransaction serialize should not fail")).into();
+        let mut tx = Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            hash,
+            witness_hash: H256::zero(),
+        };
+        let witness_hash =
+            blake2b_256(serialize(&tx).expect("Transaction serialize should not fail")).into();
+        tx.witness_hash = witness_hash;
+        tx
+    }
+
     pub fn version(&self) -> u32 {
         self.version
     }
@@ -235,44 +451,33 @@ impl Transaction {
             && self.inputs[0].since == 0
     }
 
-    pub fn hash(&self) -> H256 {
-        let raw = RawTransaction {
-            version: self.version,
-            deps: &self.deps,
-            inputs: &self.inputs,
-            outputs: &self.outputs,
-        };
-        blake2b_256(serialize(&raw).expect("Transaction serialize should not fail")).into()
+    pub fn is_withdrawing_from_dao(&self) -> bool {
+        self.inputs
+            .iter()
+            .any(|input| input.previous_output.is_issuing_dao())
     }
 
-    pub fn witness_hash(&self) -> H256 {
-        blake2b_256(serialize(&self).expect("Transaction serialize should not fail")).into()
+    pub fn hash(&self) -> &H256 {
+        &self.hash
     }
 
-    pub fn out_points_iter(&self) -> impl Iterator<Item = &OutPoint> {
-        self.deps.iter().chain(
-            self.inputs
-                .iter()
-                .map(|input: &CellInput| &input.previous_output),
-        )
+    pub fn witness_hash(&self) -> &H256 {
+        &self.witness_hash
     }
 
     pub fn output_pts(&self) -> Vec<OutPoint> {
         let h = self.hash();
         (0..self.outputs.len())
-            .map(|x| OutPoint::new(h.clone(), x as u32))
+            .map(|x| OutPoint::new_cell(h.clone(), x as u32))
             .collect()
     }
 
-    pub fn input_pts(&self) -> Vec<OutPoint> {
-        self.inputs
-            .iter()
-            .map(|x| x.previous_output.clone())
-            .collect()
+    pub fn input_pts_iter(&self) -> impl Iterator<Item = &OutPoint> {
+        self.inputs.iter().map(|x| &x.previous_output)
     }
 
-    pub fn dep_pts(&self) -> Vec<OutPoint> {
-        self.deps.clone()
+    pub fn deps_iter(&self) -> impl Iterator<Item = &OutPoint> {
+        self.deps.iter()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -297,7 +502,11 @@ impl Transaction {
 
     pub fn serialized_size(&self) -> usize {
         mem::size_of::<Version>()
-            + self.deps.len() * OutPoint::serialized_size()
+            + self
+                .deps
+                .iter()
+                .map(OutPoint::serialized_size)
+                .sum::<usize>()
             + self
                 .inputs
                 .iter()
@@ -308,94 +517,157 @@ impl Transaction {
                 .iter()
                 .map(CellOutput::serialized_size)
                 .sum::<usize>()
-            + self.witnesses.iter().map(Vec::len).sum::<usize>()
+            + self
+                .witnesses
+                .iter()
+                .flat_map(|witness| witness.iter().map(Bytes::len))
+                .sum::<usize>()
     }
 }
 
 #[derive(Default)]
 pub struct TransactionBuilder {
-    inner: Transaction,
+    version: Version,
+    deps: Vec<OutPoint>,
+    inputs: Vec<CellInput>,
+    outputs: Vec<CellOutput>,
+    witnesses: Vec<Witness>,
 }
 
 impl TransactionBuilder {
     pub fn new(bytes: &[u8]) -> Self {
-        TransactionBuilder {
-            inner: deserialize(bytes).expect("transaction deserializing should be ok"),
+        let Transaction {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            ..
+        } = deserialize(bytes).expect("transaction deserializing should be ok");
+        Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
         }
     }
 
-    pub fn transaction(mut self, transaction: Transaction) -> Self {
-        self.inner = transaction;
-        self
+    pub fn from_transaction(transaction: Transaction) -> Self {
+        let Transaction {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            ..
+        } = transaction;
+        Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+        }
     }
 
     pub fn version(mut self, version: u32) -> Self {
-        self.inner.version = version;
+        self.version = version;
         self
     }
 
     pub fn dep(mut self, dep: OutPoint) -> Self {
-        self.inner.deps.push(dep);
+        self.deps.push(dep);
         self
     }
 
     pub fn deps(mut self, deps: Vec<OutPoint>) -> Self {
-        self.inner.deps.extend(deps);
+        self.deps.extend(deps);
         self
     }
 
     pub fn deps_clear(mut self) -> Self {
-        self.inner.deps.clear();
+        self.deps.clear();
         self
     }
 
     pub fn input(mut self, input: CellInput) -> Self {
-        self.inner.inputs.push(input);
+        self.inputs.push(input);
         self
     }
 
     pub fn inputs(mut self, inputs: Vec<CellInput>) -> Self {
-        self.inner.inputs.extend(inputs);
+        self.inputs.extend(inputs);
         self
     }
 
     pub fn inputs_clear(mut self) -> Self {
-        self.inner.inputs.clear();
+        self.inputs.clear();
         self
     }
 
     pub fn output(mut self, output: CellOutput) -> Self {
-        self.inner.outputs.push(output);
+        self.outputs.push(output);
         self
     }
 
     pub fn outputs(mut self, outputs: Vec<CellOutput>) -> Self {
-        self.inner.outputs.extend(outputs);
+        self.outputs.extend(outputs);
         self
     }
 
     pub fn outputs_clear(mut self) -> Self {
-        self.inner.outputs.clear();
+        self.outputs.clear();
         self
     }
 
     pub fn witness(mut self, witness: Witness) -> Self {
-        self.inner.witnesses.push(witness);
+        self.witnesses.push(witness);
         self
     }
 
     pub fn witnesses(mut self, witness: Vec<Witness>) -> Self {
-        self.inner.witnesses.extend(witness);
+        self.witnesses.extend(witness);
         self
     }
 
     pub fn witnesses_clear(mut self) -> Self {
-        self.inner.witnesses.clear();
+        self.witnesses.clear();
         self
     }
 
     pub fn build(self) -> Transaction {
-        self.inner
+        let Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+        } = self;
+        Transaction::new(version, deps, inputs, outputs, witnesses)
+    }
+
+    /// # Warning
+    ///
+    /// When using this method, the caller should ensure the input hashes is right, or the caller
+    /// will get a incorrect Transaction.
+    pub unsafe fn build_unchecked(self, hash: H256, witness_hash: H256) -> Transaction {
+        let Self {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+        } = self;
+        Transaction {
+            version,
+            deps,
+            inputs,
+            outputs,
+            witnesses,
+            hash,
+            witness_hash,
+        }
     }
 }
 
@@ -454,10 +726,6 @@ impl ProposalShortId {
         ProposalShortId(inner)
     }
 
-    pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(self).expect("ProposalShortId serialize should not fail")).into()
-    }
-
     pub fn zero() -> Self {
         ProposalShortId([0; 10])
     }
@@ -485,17 +753,21 @@ mod test {
                 Script::default(),
                 None,
             ))
-            .input(CellInput::new(OutPoint::new(H256::zero(), 0), 0, vec![]))
-            .witness(vec![vec![7, 8, 9]])
+            .input(CellInput::new(
+                OutPoint::new_cell(H256::zero(), 0),
+                0,
+                vec![],
+            ))
+            .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "a2cfcbc6b5f4d153ea90b6e203b14f7ab1ead6eab61450f88203e414a7e68c2c"
+            "d5af472fc9cae95c8c3fe440ad72b83ea3e1b1f150aaf5dd19742c0acebace89"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "4bb6ed9e544f5609749cfaa91f315adc7facecbe18b0d507330ed070fb2a4247"
+            "01da42e3575e48f2f40b63b598bd97ffcb3d089049308a676cad2cb791422f2c"
         );
     }
 }

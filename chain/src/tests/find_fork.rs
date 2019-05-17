@@ -1,8 +1,8 @@
-use crate::chain::{ChainBuilder, ForkChanges};
+use crate::chain::{ChainService, ForkChanges};
 use crate::tests::util::gen_block;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::extras::BlockExt;
+use ckb_core::extras::{BlockExt, DaoStats, DEFAULT_ACCUMULATED_RATE};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
@@ -22,10 +22,7 @@ fn test_find_fork_case1() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
-        .build();
-
+    let mut chain_service = ChainService::new(shared.clone(), notify);
     let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
 
     let mut fork1: Vec<Block> = Vec::new();
@@ -47,15 +44,19 @@ fn test_find_fork_case1() {
 
     // fork1 total_difficulty 400
     for blk in &fork1 {
-        chain_service.process_block(Arc::new(blk.clone())).unwrap();
+        chain_service
+            .process_block(Arc::new(blk.clone()), false)
+            .unwrap();
     }
 
     // fork2 total_difficulty 270
     for blk in &fork2 {
-        chain_service.process_block(Arc::new(blk.clone())).unwrap();
+        chain_service
+            .process_block(Arc::new(blk.clone()), false)
+            .unwrap();
     }
 
-    let tip_number = { shared.chain_state().lock().tip_number() };
+    let tip_number = { shared.lock_chain_state().tip_number() };
 
     // fork2 total_difficulty 470
     let new_block = gen_block(&parent, U256::from(200u64), vec![], vec![], vec![]);
@@ -67,6 +68,10 @@ fn test_find_fork_case1() {
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
         txs_verified: None,
+        dao_stats: DaoStats {
+            accumulated_rate: DEFAULT_ACCUMULATED_RATE,
+            accumulated_capacity: 0,
+        },
     };
 
     let mut fork = ForkChanges::default();
@@ -94,9 +99,7 @@ fn test_find_fork_case2() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
-        .build();
+    let mut chain_service = ChainService::new(shared.clone(), notify);
 
     let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
 
@@ -119,15 +122,19 @@ fn test_find_fork_case2() {
 
     // fork2 total_difficulty 400
     for blk in &fork1 {
-        chain_service.process_block(Arc::new(blk.clone())).unwrap();
+        chain_service
+            .process_block(Arc::new(blk.clone()), false)
+            .unwrap();
     }
 
     // fork2 total_difficulty 280
     for blk in &fork2 {
-        chain_service.process_block(Arc::new(blk.clone())).unwrap();
+        chain_service
+            .process_block(Arc::new(blk.clone()), false)
+            .unwrap();
     }
 
-    let tip_number = { shared.chain_state().lock().tip_number() };
+    let tip_number = { shared.lock_chain_state().tip_number() };
 
     let difficulty = parent.difficulty().to_owned();
     let new_block = gen_block(
@@ -145,6 +152,10 @@ fn test_find_fork_case2() {
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
         txs_verified: None,
+        dao_stats: DaoStats {
+            accumulated_rate: DEFAULT_ACCUMULATED_RATE,
+            accumulated_capacity: 0,
+        },
     };
 
     let mut fork = ForkChanges::default();
@@ -172,9 +183,7 @@ fn test_find_fork_case3() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
-        .build();
+    let mut chain_service = ChainService::new(shared.clone(), notify);
 
     let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
 
@@ -197,17 +206,19 @@ fn test_find_fork_case3() {
 
     // fork2 total_difficulty 240
     for blk in &fork1 {
-        chain_service.process_block(Arc::new(blk.clone())).unwrap();
+        chain_service
+            .process_block(Arc::new(blk.clone()), false)
+            .unwrap();
     }
 
     // fork2 total_difficulty 200
     for blk in &fork2 {
-        chain_service.process_block(Arc::new(blk.clone())).unwrap();
+        chain_service
+            .process_block(Arc::new(blk.clone()), false)
+            .unwrap();
     }
 
-    let tip_number = { shared.chain_state().lock().tip_number() };
-
-    println!("case3 tip{}", tip_number);
+    let tip_number = { shared.lock_chain_state().tip_number() };
 
     let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
@@ -218,6 +229,10 @@ fn test_find_fork_case3() {
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
         txs_verified: None,
+        dao_stats: DaoStats {
+            accumulated_rate: DEFAULT_ACCUMULATED_RATE,
+            accumulated_capacity: 0,
+        },
     };
     let mut fork = ForkChanges::default();
 
@@ -244,9 +259,7 @@ fn test_find_fork_case4() {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainBuilder::new(shared.clone(), notify)
-        .verification(false)
-        .build();
+    let mut chain_service = ChainService::new(shared.clone(), notify);
 
     let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
 
@@ -269,17 +282,19 @@ fn test_find_fork_case4() {
 
     // fork2 total_difficulty 200
     for blk in &fork1 {
-        chain_service.process_block(Arc::new(blk.clone())).unwrap();
+        chain_service
+            .process_block(Arc::new(blk.clone()), false)
+            .unwrap();
     }
 
     // fork2 total_difficulty 160
     for blk in &fork2 {
-        chain_service.process_block(Arc::new(blk.clone())).unwrap();
+        chain_service
+            .process_block(Arc::new(blk.clone()), false)
+            .unwrap();
     }
 
-    let tip_number = { shared.chain_state().lock().tip_number() };
-
-    println!("case3 tip{}", tip_number);
+    let tip_number = { shared.lock_chain_state().tip_number() };
 
     let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
@@ -290,6 +305,10 @@ fn test_find_fork_case4() {
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
         txs_verified: None,
+        dao_stats: DaoStats {
+            accumulated_rate: DEFAULT_ACCUMULATED_RATE,
+            accumulated_capacity: 0,
+        },
     };
 
     let mut fork = ForkChanges::default();

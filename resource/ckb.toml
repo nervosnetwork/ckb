@@ -16,7 +16,7 @@ spec = "specs/dev.toml" # {{
 
 [logger]
 filter = "info" # {{
-# integration => filter = "info,network=trace,rpc=debug,sync=debug,relay=debug"
+# integration => filter = "info,network=trace,rpc=debug,sync=debug,relay=debug,tx_pool=debug"
 # }}
 color = true
 log_to_file = true # {{
@@ -40,7 +40,9 @@ public_addresses = []
 
 # Node connects to nodes listed here to discovery other peers when there's no local stored peers.
 # When chain.spec is changed, this usually should also be changed to the bootnodes in the new chain.
-bootnodes = []
+bootnodes = [] # {{
+# testnet => bootnodes = [\n  # Hangzhou (China)\n  "/ip4/47.111.169.36/tcp/8111/p2p/QmNQ4jky6uVqLDrPU7snqxARuNGWNLgSrTnssbRuy3ij2W",\n  # Ohio (USA)\n  "/ip4/18.217.146.65/tcp/8111/p2p/QmT6DFfm18wtbJz3y4aPNn3ac86N4d4p4xtfQRRPf73frC",\n  # Singapore\n  "/ip4/18.136.60.221/tcp/8111/p2p/QmTt6HeNakL8Fpmevrhdna7J4NzEMf9pLchf1CXtmtSrwb",\n  # London\n  "/ip4/35.176.207.239/tcp/8111/p2p/QmSJTsMsMGBjzv1oBNwQU36VhQRxc2WQpFoRu1ZifYKrjZ",\n]
+# }}
 
 reserved_peers = []
 reserved_only = false
@@ -50,21 +52,19 @@ max_outbound_peers = 8
 ping_interval_secs = 120
 # 20 minutes
 ping_timeout_secs = 1200
-connect_outbound_interval_secs = 15 # {{
-# integration => connect_outbound_interval_secs = 1
-# }}
+connect_outbound_interval_secs = 15
 
 [rpc]
-listen_address = "0.0.0.0:8114" # {{
-# _ => listen_address = "0.0.0.0:{rpc_port}"
+listen_address = "127.0.0.1:8114" # {{
+# _ => listen_address = "127.0.0.1:{rpc_port}"
 # }}
 
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Trace"]
-modules = ["Net", "Pool", "Miner", "Chain"] # {{
-# integration => modules = ["Net", "Pool", "Miner", "Chain", "Trace", "IntegrationTest"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"]
+modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
+# integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "IntegrationTest"]
 # }}
 
 [sync]
@@ -77,10 +77,19 @@ max_orphan_size = 10000
 max_proposal_size = 10000
 max_cache_size = 1000
 max_pending_size = 10000
-trace = 100
 txs_verify_cache_size = 100000
 
+# This config is derived using 0x5c2514fb16b83259d3326a0acf05901c15a87dc46239b77b0a501cd58198dca0
+# as private key. If you want to mine CKB, please make sure to create your own
+# private key and change the config here, otherwise your CKB might be stolen by
+# someone else.
 [block_assembler]
-# value is set as always success binary hash
-code_hash = "0x0000000000000000000000000000000000000000000000000000000000000001"
-args = []
+code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
+args = ["0x7f52f0fccdd1d11391c441adfb174f87bca612b0"]
+
+[script]
+runner = "Assembly"
+
+[store]
+header_cache_size       = 4096
+cell_output_cache_size  = 128

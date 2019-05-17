@@ -1,45 +1,8 @@
-use crate::chain_state::{ChainCellSetOverlay, ChainState};
 use crate::shared::{Shared, SharedBuilder};
-use ckb_core::cell::CellProvider;
-use ckb_core::cell::CellStatus;
-use ckb_core::transaction::OutPoint;
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::{KeyValueDB, MemoryKeyValueDB};
 use ckb_store::{ChainKVStore, ChainStore, StoreBatch};
-use ckb_traits::BlockMedianTimeContext;
-
-// Mock CellProvider
-#[cfg(test)]
-impl<CS: ChainStore> CellProvider for ChainState<CS> {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.cell_set().get(&out_point.tx_hash) {
-            Some(tx_meta) => {
-                if tx_meta.is_dead(out_point.index as usize) {
-                    CellStatus::Dead
-                } else {
-                    CellStatus::live_null()
-                }
-            }
-            None => CellStatus::Unknown,
-        }
-    }
-}
-
-#[cfg(test)]
-impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        match self.overlay.get(&out_point.tx_hash) {
-            Some(tx_meta) => {
-                if tx_meta.is_dead(out_point.index as usize) {
-                    CellStatus::Dead
-                } else {
-                    CellStatus::live_null()
-                }
-            }
-            None => CellStatus::Unknown,
-        }
-    }
-}
+use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 
 fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
     SharedBuilder::<MemoryKeyValueDB>::new().build().unwrap()
@@ -51,7 +14,7 @@ where
 {
     let mut blocks = Vec::with_capacity(timestamps.len());
     let tip_header = store.get_tip_header().expect("tip");
-    let mut parent_hash = tip_header.hash();
+    let mut parent_hash = tip_header.hash().to_owned();
     let mut parent_number = tip_header.number();
     for timestamp in timestamps {
         let header = HeaderBuilder::default()
@@ -59,7 +22,7 @@ where
             .parent_hash(parent_hash.clone())
             .number(parent_number + 1)
             .build();
-        parent_hash = header.hash();
+        parent_hash = header.hash().to_owned();
         parent_number += 1;
         blocks.push(BlockBuilder::default().header(header).build());
     }
@@ -74,7 +37,7 @@ where
 #[test]
 fn test_block_median_time() {
     let shared = new_shared();
-    let chain_state = shared.chain_state().lock();
+    let chain_state = shared.lock_chain_state();
     assert_eq!((&*chain_state).block_median_time(0), Some(0));
     let now = faketime::unix_time_as_millis();
     insert_block_timestamps(shared.store(), &[now]);

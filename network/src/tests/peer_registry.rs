@@ -3,7 +3,7 @@ use crate::{
     multiaddr::Multiaddr,
     peer_registry::{PeerRegistry, EVICTION_PROTECT_PEERS},
     peer_store::{PeerStore, SqlitePeerStore},
-    Behaviour, PeerId, SessionType,
+    PeerId, SessionType,
 };
 use std::time::{Duration, Instant};
 
@@ -75,7 +75,6 @@ fn test_accept_inbound_peer_until_full() {
         PeerError::SessionExists(3.into()),
     );
 
-    println!("{:?}", peers.connection_status());
     // test evict a peer
     assert!(peers
         .accept_peer(
@@ -114,24 +113,26 @@ fn test_accept_inbound_peer_until_full() {
 #[test]
 fn test_accept_inbound_peer_eviction() {
     // eviction inbound peer
-    // 1. should evict from largest network groups
-    // 2. should never evict reserved peer
-    // 3. should evict lowest scored peer
+    // We build an unprotected evict targets set
+    // PeerRegistry should
+    // 1. evict from largest network groups
+    // 2. never evict reserved peer
     let mut peer_store = new_peer_store();
     let reserved_peer = PeerId::random();
     let evict_target = PeerId::random();
-    let lowest_score_peer = PeerId::random();
+    let mut evict_targets = vec![evict_target.to_owned()];
     let addr1 = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
     let addr2 = "/ip4/192.168.0.1".parse::<Multiaddr>().unwrap();
     // prepare protected peers
     let longest_connection_time_peers_count = 5;
-    let protected_peers_count = 3 * EVICTION_PROTECT_PEERS + longest_connection_time_peers_count;
+    let protected_peers_count = 2 * (EVICTION_PROTECT_PEERS + longest_connection_time_peers_count);
     let mut peers_registry = PeerRegistry::new(
-        (protected_peers_count + longest_connection_time_peers_count) as u32,
+        (protected_peers_count) as u32,
         3,
         false,
         vec![reserved_peer.clone()],
     );
+    // prepare all peers
     for session_id in 0..protected_peers_count {
         assert!(peers_registry
             .accept_peer(
@@ -152,14 +153,6 @@ fn test_accept_inbound_peer_eviction() {
     };
 
     let mut peers_iter = peers.iter();
-    // higest scored peers
-    {
-        for _ in 0..EVICTION_PROTECT_PEERS {
-            let peer_id = peers_iter.next().unwrap();
-            peer_store.report(&peer_id, Behaviour::TestGood);
-            peer_store.report(&peer_id, Behaviour::TestGood);
-        }
-    }
     // lowest ping peers
     for _ in 0..EVICTION_PROTECT_PEERS {
         let peer_id = peers_iter.next().unwrap();
@@ -183,7 +176,7 @@ fn test_accept_inbound_peer_eviction() {
             peer.last_message_time = Some(now + Duration::from_secs(10));
         };
     }
-    // protect 5 peers which have the longest connection time
+    // protect half peers which have the longest connection time
     for _ in 0..longest_connection_time_peers_count {
         let peer_id = peers_iter.next().unwrap();
         let session_id = peers_registry
@@ -193,89 +186,18 @@ fn test_accept_inbound_peer_eviction() {
             peer.connected_time = now - Duration::from_secs(10);
         };
     }
-    let mut new_peer_ids = (0..3).map(|_| PeerId::random()).collect::<Vec<_>>();
-    // setup 3 node and 1 reserved node from addr1
-    peers_registry
-        .accept_peer(
-            reserved_peer.clone(),
-            addr1.clone(),
-            1000.into(),
-            SessionType::Inbound,
-            peer_store.as_mut(),
-        )
-        .expect("accept");
-    peers_registry
-        .accept_peer(
-            evict_target.clone(),
-            addr1.clone(),
-            1001.into(),
-            SessionType::Inbound,
-            peer_store.as_mut(),
-        )
-        .expect("accept");
-    peers_registry
-        .accept_peer(
-            new_peer_ids[0].clone(),
-            addr1.clone(),
-            1002.into(),
-            SessionType::Inbound,
-            peer_store.as_mut(),
-        )
-        .expect("accept");
-    peers_registry
-        .accept_peer(
-            new_peer_ids[1].clone(),
-            addr1.clone(),
-            1003.into(),
-            SessionType::Inbound,
-            peer_store.as_mut(),
-        )
-        .expect("accept");
-    // setup 2 node from addr2
-    peers_registry
-        .accept_peer(
-            lowest_score_peer.clone(),
-            addr2.clone(),
-            1004.into(),
-            SessionType::Inbound,
-            peer_store.as_mut(),
-        )
-        .expect("accept");
-    peers_registry
-        .accept_peer(
-            new_peer_ids[2].clone(),
-            addr2.clone(),
-            1005.into(),
-            SessionType::Inbound,
-            peer_store.as_mut(),
-        )
-        .expect("accept");
-    // setup score
-    {
-        peer_store.report(&lowest_score_peer, Behaviour::TestBad);
-        peer_store.report(&lowest_score_peer, Behaviour::TestBad);
-        peer_store.report(&lowest_score_peer, Behaviour::TestBad);
-        peer_store.report(&reserved_peer, Behaviour::TestBad);
-        peer_store.report(&reserved_peer, Behaviour::TestBad);
-        peer_store.report(&evict_target, Behaviour::TestBad);
-    }
-    // make sure other peers should not protected by longest connection time rule
-    new_peer_ids.extend_from_slice(&[
-        reserved_peer.clone(),
-        evict_target.clone(),
-        lowest_score_peer.clone(),
-    ]);
-    for peer_id in new_peer_ids {
+    // thoses peers will not be protect, we add them to evict_targets
+    for _ in 0..longest_connection_time_peers_count {
+        let peer_id = peers_iter.next().unwrap();
+        evict_targets.push(peer_id.to_owned());
         let session_id = peers_registry
             .get_key_by_peer_id(&peer_id)
             .expect("get_key_by_peer_id failed");
         if let Some(peer) = peers_registry.get_peer_mut(session_id) {
-            // push the connected_time to make sure peer is unprotect
-            peer.connected_time = now + Duration::from_secs(10);
+            peer.connected_time = now - Duration::from_secs(10);
         };
     }
-    // should evict evict target
-    assert!(peers_registry.get_key_by_peer_id(&evict_target).is_some());
+
     peers_registry
         .accept_peer(
             PeerId::random(),
@@ -285,5 +207,10 @@ fn test_accept_inbound_peer_eviction() {
             peer_store.as_mut(),
         )
         .expect("accept");
-    assert!(peers_registry.get_key_by_peer_id(&evict_target).is_none());
+    let len_after_eviction = evict_targets
+        .iter()
+        .filter_map(|peer_id| peers_registry.get_key_by_peer_id(peer_id))
+        .count();
+    // should evict from one of evict_targets
+    assert_eq!(len_after_eviction, evict_targets.len() - 1);
 }

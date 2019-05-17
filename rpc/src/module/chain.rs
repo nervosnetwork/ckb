@@ -1,49 +1,55 @@
 use crate::error::RPCError;
 use ckb_core::cell::{CellProvider, CellStatus};
-use ckb_core::{transaction::ProposalShortId, BlockNumber};
+use ckb_core::transaction::ProposalShortId;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{
-    Block, CellOutputWithOutPoint, CellWithStatus, Header, OutPoint, TransactionWithStatus,
+    BlockNumber, BlockView, Capacity, CellOutPoint, CellOutputWithOutPoint, CellWithStatus,
+    EpochExt, EpochNumber, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
 };
 use numext_fixed_hash::H256;
-use std::convert::TryInto;
 
 pub const PAGE_SIZE: u64 = 100;
 
 #[rpc]
 pub trait ChainRpc {
     #[rpc(name = "get_block")]
-    fn get_block(&self, _hash: H256) -> Result<Option<Block>>;
+    fn get_block(&self, _hash: H256) -> Result<Option<BlockView>>;
 
     #[rpc(name = "get_block_by_number")]
-    fn get_block_by_number(&self, _number: String) -> Result<Option<Block>>;
+    fn get_block_by_number(&self, _number: BlockNumber) -> Result<Option<BlockView>>;
 
     #[rpc(name = "get_transaction")]
     fn get_transaction(&self, _hash: H256) -> Result<Option<TransactionWithStatus>>;
 
     #[rpc(name = "get_block_hash")]
-    fn get_block_hash(&self, _number: String) -> Result<Option<H256>>;
+    fn get_block_hash(&self, _number: BlockNumber) -> Result<Option<H256>>;
 
     #[rpc(name = "get_tip_header")]
-    fn get_tip_header(&self) -> Result<Header>;
+    fn get_tip_header(&self) -> Result<HeaderView>;
 
     #[rpc(name = "get_cells_by_lock_hash")]
     fn get_cells_by_lock_hash(
         &self,
         _lock_hash: H256,
-        _from: String,
-        _to: String,
+        _from: BlockNumber,
+        _to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>>;
 
     #[rpc(name = "get_live_cell")]
     fn get_live_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
 
     #[rpc(name = "get_tip_block_number")]
-    fn get_tip_block_number(&self) -> Result<String>;
+    fn get_tip_block_number(&self) -> Result<BlockNumber>;
+
+    #[rpc(name = "get_current_epoch")]
+    fn get_current_epoch(&self) -> Result<EpochExt>;
+
+    #[rpc(name = "get_epoch_by_number")]
+    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochExt>>;
 }
 
 pub(crate) struct ChainRpcImpl<CS> {
@@ -51,18 +57,14 @@ pub(crate) struct ChainRpcImpl<CS> {
 }
 
 impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
-    fn get_block(&self, hash: H256) -> Result<Option<Block>> {
+    fn get_block(&self, hash: H256) -> Result<Option<BlockView>> {
         Ok(self.shared.block(&hash).as_ref().map(Into::into))
     }
 
-    fn get_block_by_number(&self, number: String) -> Result<Option<Block>> {
+    fn get_block_by_number(&self, number: BlockNumber) -> Result<Option<BlockView>> {
         Ok(self
             .shared
-            .block_hash(
-                number
-                    .parse::<BlockNumber>()
-                    .map_err(|_| Error::parse_error())?,
-            )
+            .block_hash(number.0)
             .and_then(|hash| self.shared.block(&hash).as_ref().map(Into::into)))
     }
 
@@ -70,13 +72,17 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         let id = ProposalShortId::from_tx_hash(&hash);
 
         let tx = {
-            let chan_state = self.shared.chain_state().lock();
+            let chan_state = self.shared.lock_chain_state();
 
             let tx_pool = chan_state.tx_pool();
             tx_pool
-                .get_tx_from_staging(&id)
+                .get_tx_from_proposed(&id)
                 .map(TransactionWithStatus::with_proposed)
-                .or_else(|| tx_pool.get_tx(&id).map(TransactionWithStatus::with_pending))
+                .or_else(|| {
+                    tx_pool
+                        .get_tx_without_conflict(&id)
+                        .map(TransactionWithStatus::with_pending)
+                })
         };
 
         Ok(tx.or_else(|| {
@@ -86,16 +92,11 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         }))
     }
 
-    fn get_block_hash(&self, number: String) -> Result<Option<H256>> {
-        Ok(self.shared.block_hash(
-            number
-                .parse::<BlockNumber>()
-                .map_err(|_| Error::parse_error())?,
-        ))
+    fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
+        Ok(self.shared.block_hash(number.0))
     }
 
-    // get tip from store, avoid lock chain state
-    fn get_tip_header(&self) -> Result<Header> {
+    fn get_tip_header(&self) -> Result<HeaderView> {
         Ok(self
             .shared
             .store()
@@ -105,21 +106,34 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             .expect("tip header exists"))
     }
 
+    fn get_current_epoch(&self) -> Result<EpochExt> {
+        Ok(self
+            .shared
+            .store()
+            .get_current_epoch_ext()
+            .map(Into::into)
+            .expect("current_epoch exists"))
+    }
+
+    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochExt>> {
+        Ok(self
+            .shared
+            .store()
+            .get_epoch_index(number.0)
+            .and_then(|hash| self.shared.store().get_epoch_ext(&hash).map(Into::into)))
+    }
+
     // TODO: we need to build a proper index instead of scanning every time
     fn get_cells_by_lock_hash(
         &self,
         lock_hash: H256,
-        from: String,
-        to: String,
+        from: BlockNumber,
+        to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
-        let chain_state = self.shared.chain_state().lock();
-        let from = from
-            .parse::<BlockNumber>()
-            .map_err(|_| Error::parse_error())?;
-        let to = to
-            .parse::<BlockNumber>()
-            .map_err(|_| Error::parse_error())?;
+        let chain_state = self.shared.lock_chain_state();
+        let from = from.0;
+        let to = to.0;
         if from > to {
             return Err(RPCError::custom(
                 RPCError::Invalid,
@@ -149,13 +163,17 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                     .get(&transaction.hash())
                     .ok_or_else(Error::internal_error)?;
                 for (i, output) in transaction.outputs().iter().enumerate() {
-                    if output.lock.hash() == lock_hash && (!transaction_meta.is_dead(i)) {
+                    if output.lock.hash() == lock_hash && transaction_meta.is_dead(i) == Some(false)
+                    {
                         result.push(CellOutputWithOutPoint {
                             out_point: OutPoint {
-                                tx_hash: transaction.hash(),
-                                index: i as u32,
+                                cell: Some(CellOutPoint {
+                                    tx_hash: transaction.hash().to_owned(),
+                                    index: Unsigned(i as u64),
+                                }),
+                                block_hash: None,
                             },
-                            capacity: output.capacity.to_string(),
+                            capacity: Capacity(output.capacity),
                             lock: output.lock.clone().into(),
                         });
                     }
@@ -166,18 +184,16 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        let mut cell_status = self.shared.chain_state().lock().cell(
-            &(out_point
-                .clone()
-                .try_into()
-                .map_err(|_| Error::parse_error())?),
-        );
+        let mut cell_status = self
+            .shared
+            .lock_chain_state()
+            .cell(&out_point.clone().into());
         if let CellStatus::Live(ref mut cell_meta) = cell_status {
             if cell_meta.cell_output.is_none() {
                 cell_meta.cell_output = Some(
                     self.shared
                         .store()
-                        .get_cell_output(&out_point.tx_hash, out_point.index)
+                        .get_cell_output(&cell_meta.out_point.tx_hash, cell_meta.out_point.index)
                         .expect("live cell must exists"),
                 );
             }
@@ -185,7 +201,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         Ok(cell_status.into())
     }
 
-    fn get_tip_block_number(&self) -> Result<String> {
-        self.get_tip_header().map(|h| h.number)
+    fn get_tip_block_number(&self) -> Result<BlockNumber> {
+        self.get_tip_header().map(|h| h.inner.number)
     }
 }

@@ -1,7 +1,7 @@
 use ckb_core::block::Block;
 use ckb_core::transaction::OutPoint;
 use ckb_core::transaction_meta::TransactionMeta;
-use fnv::{FnvHashMap, FnvHashSet};
+use ckb_util::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
@@ -10,30 +10,35 @@ pub struct CellSetDiff {
     pub old_inputs: FnvHashSet<OutPoint>,
     pub old_outputs: FnvHashSet<H256>,
     pub new_inputs: FnvHashSet<OutPoint>,
-    pub new_outputs: FnvHashMap<H256, (u64, bool, usize)>,
+    pub new_outputs: FnvHashMap<H256, (u64, u64, bool, usize)>,
 }
 
 impl CellSetDiff {
     pub fn push_new(&mut self, block: &Block) {
         for tx in block.transactions() {
-            let input_pts = tx.input_pts();
+            let input_iter = tx.input_pts_iter();
             let tx_hash = tx.hash();
             let output_len = tx.outputs().len();
-            self.new_inputs.extend(input_pts);
+            self.new_inputs.extend(input_iter.cloned());
             self.new_outputs.insert(
-                tx_hash,
-                (block.header().number(), tx.is_cellbase(), output_len),
+                tx_hash.to_owned(),
+                (
+                    block.header().number(),
+                    block.header().epoch(),
+                    tx.is_cellbase(),
+                    output_len,
+                ),
             );
         }
     }
 
     pub fn push_old(&mut self, block: &Block) {
         for tx in block.transactions() {
-            let input_pts = tx.input_pts();
+            let input_iter = tx.input_pts_iter();
             let tx_hash = tx.hash();
 
-            self.old_inputs.extend(input_pts);
-            self.old_outputs.insert(tx_hash);
+            self.old_inputs.extend(input_iter.cloned());
+            self.old_outputs.insert(tx_hash.to_owned());
         }
     }
 }
@@ -77,30 +82,34 @@ impl CellSet {
             }
         }
 
-        for (hash, (number, cellbase, len)) in diff.new_outputs.clone() {
+        for (hash, (number, epoch, cellbase, len)) in diff.new_outputs.clone() {
             removed.remove(&hash);
             if cellbase {
-                new.insert(hash, TransactionMeta::new_cellbase(number, len));
+                new.insert(hash, TransactionMeta::new_cellbase(number, epoch, len));
             } else {
-                new.insert(hash, TransactionMeta::new(number, len));
+                new.insert(hash, TransactionMeta::new(number, epoch, len));
             }
         }
 
         for old_input in &diff.old_inputs {
-            if let Some(meta) = self.inner.get(&old_input.tx_hash) {
-                let meta = new
-                    .entry(old_input.tx_hash.clone())
-                    .or_insert_with(|| meta.clone());
-                meta.unset_dead(old_input.index as usize);
+            if let Some(cell_input) = &old_input.cell {
+                if let Some(meta) = self.inner.get(&cell_input.tx_hash) {
+                    let meta = new
+                        .entry(cell_input.tx_hash.clone())
+                        .or_insert_with(|| meta.clone());
+                    meta.unset_dead(cell_input.index as usize);
+                }
             }
         }
 
         for new_input in &diff.new_inputs {
-            if let Some(meta) = self.inner.get(&new_input.tx_hash) {
-                let meta = new
-                    .entry(new_input.tx_hash.clone())
-                    .or_insert_with(|| meta.clone());
-                meta.set_dead(new_input.index as usize);
+            if let Some(cell_input) = &new_input.cell {
+                if let Some(meta) = self.inner.get(&cell_input.tx_hash) {
+                    let meta = new
+                        .entry(cell_input.tx_hash.clone())
+                        .or_insert_with(|| meta.clone());
+                    meta.set_dead(cell_input.index as usize);
+                }
             }
         }
 
@@ -111,23 +120,26 @@ impl CellSet {
         }
     }
 
-    pub fn is_dead(&self, o: &OutPoint) -> Option<bool> {
-        self.inner
-            .get(&o.tx_hash)
-            .map(|x| x.is_dead(o.index as usize))
-    }
-
     pub fn get(&self, h: &H256) -> Option<&TransactionMeta> {
         self.inner.get(h)
     }
 
-    pub fn insert(&mut self, tx_hash: H256, number: u64, cellbase: bool, outputs_len: usize) {
+    pub fn insert(
+        &mut self,
+        tx_hash: H256,
+        number: u64,
+        epoch: u64,
+        cellbase: bool,
+        outputs_len: usize,
+    ) {
         if cellbase {
-            self.inner
-                .insert(tx_hash, TransactionMeta::new_cellbase(number, outputs_len));
+            self.inner.insert(
+                tx_hash,
+                TransactionMeta::new_cellbase(number, epoch, outputs_len),
+            );
         } else {
             self.inner
-                .insert(tx_hash, TransactionMeta::new(number, outputs_len));
+                .insert(tx_hash, TransactionMeta::new(number, epoch, outputs_len));
         }
     }
 
@@ -136,14 +148,18 @@ impl CellSet {
     }
 
     pub fn mark_dead(&mut self, o: &OutPoint) {
-        if let Some(meta) = self.inner.get_mut(&o.tx_hash) {
-            meta.set_dead(o.index as usize);
+        if let Some(cell) = &o.cell {
+            if let Some(meta) = self.inner.get_mut(&cell.tx_hash) {
+                meta.set_dead(cell.index as usize);
+            }
         }
     }
 
     fn mark_live(&mut self, o: &OutPoint) {
-        if let Some(meta) = self.inner.get_mut(&o.tx_hash) {
-            meta.unset_dead(o.index as usize);
+        if let Some(cell) = &o.cell {
+            if let Some(meta) = self.inner.get_mut(&cell.tx_hash) {
+                meta.unset_dead(cell.index as usize);
+            }
         }
     }
 
@@ -165,8 +181,8 @@ impl CellSet {
 
         new_outputs
             .into_iter()
-            .for_each(|(hash, (number, cellbase, len))| {
-                self.insert(hash, number, cellbase, len);
+            .for_each(|(hash, (number, epoch, cellbase, len))| {
+                self.insert(hash, number, epoch, cellbase, len);
             });
 
         new_inputs.iter().for_each(|o| {

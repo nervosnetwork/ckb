@@ -2,7 +2,6 @@ use crate::client::Client;
 use crate::Work;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
-use ckb_core::BlockNumber;
 use ckb_pow::PowEngine;
 use crossbeam_channel::Receiver;
 use failure::Error;
@@ -55,6 +54,7 @@ impl Miner {
                 difficulty,
                 current_time,
                 number,
+                epoch,
                 parent_hash,
                 uncles, // Vec<UncleTemplate>
                 transactions, // Vec<TransactionTemplate>
@@ -73,13 +73,14 @@ impl Miner {
             };
 
             let header_builder = HeaderBuilder::default()
-                .version(version)
-                .number(number.parse::<BlockNumber>()?)
+                .version(version.0)
+                .number(number.0)
+                .epoch(epoch.0)
                 .difficulty(difficulty)
-                .timestamp(current_time.parse::<u64>()?)
+                .timestamp(current_time.0)
                 .parent_hash(parent_hash);
 
-            let block = BlockBuilder::default()
+            let block = BlockBuilder::from_header_builder(header_builder)
                 .uncles(
                     uncles
                         .into_iter()
@@ -99,19 +100,18 @@ impl Miner {
                         .map(TryInto::try_into)
                         .collect::<Result<_, _>>()?,
                 )
-                .with_header_builder(header_builder);
+                .build();
 
             let raw_header = block.header().raw().to_owned();
 
             Ok(self
                 .mine_loop(&raw_header)
                 .map(|seal| {
-                    BlockBuilder::default()
-                        .block(block)
+                    BlockBuilder::from_block(block)
                         .header(raw_header.with_seal(seal))
                         .build()
                 })
-                .map(|block| (work_id, block)))
+                .map(|block| (work_id.0.to_string(), block)))
         } else {
             Ok(None)
         }

@@ -6,11 +6,12 @@ use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::debug;
 use std::convert::TryInto;
+use std::sync::Arc;
 
 pub struct GetBlockTransactionsProcess<'a, CS> {
     message: &'a GetBlockTransactions<'a>,
     relayer: &'a Relayer<CS>,
-    nc: &'a CKBProtocolContext,
+    nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
@@ -18,7 +19,7 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
     pub fn new(
         message: &'a GetBlockTransactions,
         relayer: &'a Relayer<CS>,
-        nc: &'a CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
         GetBlockTransactionsProcess {
@@ -31,7 +32,7 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block_hash = cast!(self.message.block_hash())?.try_into()?;
-        debug!(target: "relay", "get_block_transactions {:?}", block_hash);
+        debug!(target: "relay", "get_block_transactions {:x}", block_hash);
 
         let indexes = cast!(self.message.indexes())?;
 

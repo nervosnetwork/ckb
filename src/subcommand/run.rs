@@ -1,10 +1,11 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
+use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
-use ckb_chain::chain::{ChainBuilder, ChainController};
-use ckb_db::{CacheDB, RocksDB};
+use ckb_chain::chain::ChainService;
+use ckb_db::RocksDB;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
-use ckb_notify::{NotifyController, NotifyService};
+use ckb_notify::NotifyService;
 use ckb_rpc::RpcServer;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
@@ -14,13 +15,15 @@ use ckb_verification::{BlockVerifier, Verifier};
 use log::info;
 use std::sync::Arc;
 
-pub fn run(args: RunArgs) -> Result<(), ExitCode> {
+pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
 
-    let shared = SharedBuilder::<CacheDB<RocksDB>>::new()
+    let shared = SharedBuilder::<RocksDB>::new()
         .consensus(args.consensus)
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool)
+        .script_config(args.config.script)
+        .store_config(args.config.store)
         .build()
         .map_err(|err| {
             eprintln!("Run error: {:?}", err);
@@ -31,8 +34,8 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     verify_genesis(&shared)?;
 
     let notify = NotifyService::default().start(Some("notify"));
-
-    let chain_controller = setup_chain(shared.clone(), notify.clone());
+    let chain_service = ChainService::new(shared.clone(), notify.clone());
+    let chain_controller = chain_service.start(Some("ChainService"));
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
 
     let block_assembler = BlockAssembler::new(shared.clone(), args.config.block_assembler);
@@ -55,12 +58,13 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     );
     let net_timer = NetTimeProtocol::default();
 
+    let synchronizer_clone = synchronizer.clone();
     let protocols = vec![
         CKBProtocol::new(
             "syn".to_string(),
             NetworkProtocol::SYNC.into(),
             &["1".to_string()][..],
-            move || Box::new(synchronizer.clone()),
+            move || Box::new(synchronizer_clone.clone()),
             Arc::clone(&network_state),
         ),
         CKBProtocol::new(
@@ -79,13 +83,14 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
         ),
     ];
     let network_controller = NetworkService::new(Arc::clone(&network_state), protocols)
-        .start(Some("NetworkService"))
+        .start(version, Some("NetworkService"))
         .expect("Start network service failed");
 
     let rpc_server = RpcServer::new(
         args.config.rpc,
         network_controller,
         shared,
+        synchronizer,
         chain_controller,
         block_assembler_controller,
     );
@@ -97,14 +102,6 @@ pub fn run(args: RunArgs) -> Result<(), ExitCode> {
     rpc_server.close();
     info!(target: "main", "Jsonrpc shutdown");
     Ok(())
-}
-
-fn setup_chain<CS: ChainStore + 'static>(
-    shared: Shared<CS>,
-    notify: NotifyController,
-) -> ChainController {
-    let chain_service = ChainBuilder::new(shared, notify).build();
-    chain_service.start(Some("ChainService"))
 }
 
 fn verify_genesis<CS: ChainStore + 'static>(shared: &Shared<CS>) -> Result<(), ExitCode> {

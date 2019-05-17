@@ -6,15 +6,14 @@ use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 use std::{fmt, mem};
 
-pub use crate::{BlockNumber, Version};
+pub use crate::{BlockNumber, Bytes, EpochNumber, Version};
 
 pub const HEADER_VERSION: Version = 0;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Seal {
     nonce: u64,
-    #[serde(with = "serde_bytes")]
-    proof: Vec<u8>,
+    proof: Bytes,
 }
 
 impl fmt::Debug for Seal {
@@ -30,11 +29,11 @@ impl fmt::Debug for Seal {
 }
 
 impl Seal {
-    pub fn new(nonce: u64, proof: Vec<u8>) -> Self {
+    pub fn new(nonce: u64, proof: Bytes) -> Self {
         Seal { nonce, proof }
     }
 
-    pub fn destruct(self) -> (u64, Vec<u8>) {
+    pub fn destruct(self) -> (u64, Bytes) {
         let Seal { nonce, proof } = self;
         (nonce, proof)
     }
@@ -51,8 +50,8 @@ pub struct RawHeader {
     number: BlockNumber,
     /// Transactions merkle root.
     transactions_root: H256,
-    /// Transactions proposal merkle root.
-    proposals_root: H256,
+    /// Transactions proposal hash.
+    proposals_hash: H256,
     /// Witness hash commitment.
     witnesses_root: H256,
     /// Block difficulty.
@@ -61,6 +60,8 @@ pub struct RawHeader {
     uncles_hash: H256,
     /// Number of the uncles
     uncles_count: u32,
+    /// Epoch sequence number
+    epoch: EpochNumber,
 }
 
 impl RawHeader {
@@ -69,14 +70,15 @@ impl RawHeader {
     }
 
     pub fn with_seal(self, seal: Seal) -> Header {
-        let builder = HeaderBuilder {
-            inner: Header { raw: self, seal },
-        };
-        builder.build()
+        HeaderBuilder { raw: self, seal }.build()
     }
 
     pub fn number(&self) -> BlockNumber {
         self.number
+    }
+
+    pub fn epoch(&self) -> EpochNumber {
+        self.epoch
     }
 
     pub fn difficulty(&self) -> &U256 {
@@ -96,16 +98,93 @@ impl RawHeader {
         mem::size_of::<Version>()
             + H256::size_of() * 5
             + U256::size_of()
-            + mem::size_of::<u64>() * 2
+            + mem::size_of::<u64>() * 3
             + mem::size_of::<u32>()
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Default, Eq)]
+#[derive(Clone, Serialize, Eq)]
 pub struct Header {
     raw: RawHeader,
     /// proof seal
     seal: Seal,
+    #[serde(skip)]
+    hash: H256,
+}
+
+// The order of fields should be same as Header deserialization
+#[derive(Deserialize)]
+struct HeaderKernel {
+    raw: RawHeader,
+    seal: Seal,
+}
+
+// The order of fields should be same as HeaderKernel deserialization
+impl<'de> serde::de::Deserialize<'de> for Header {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            Raw,
+            Seal,
+        }
+
+        struct InnerVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for InnerVisitor {
+            type Value = Header;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Header")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
+            where
+                V: serde::de::SeqAccess<'de>,
+            {
+                let raw = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+                let seal = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
+                Ok(Self::Value::new(raw, seal))
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut raw = None;
+                let mut seal = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Raw => {
+                            if raw.is_some() {
+                                return Err(serde::de::Error::duplicate_field("raw"));
+                            }
+                            raw = Some(map.next_value()?);
+                        }
+                        Field::Seal => {
+                            if seal.is_some() {
+                                return Err(serde::de::Error::duplicate_field("seal"));
+                            }
+                            seal = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let raw = raw.ok_or_else(|| serde::de::Error::missing_field("raw"))?;
+                let seal = seal.ok_or_else(|| serde::de::Error::missing_field("seal"))?;
+                Ok(Self::Value::new(raw, seal))
+            }
+        }
+
+        const FIELDS: &[&str] = &["raw", "seal"];
+        deserializer.deserialize_struct("Header", FIELDS, InnerVisitor)
+    }
 }
 
 impl fmt::Debug for Header {
@@ -121,22 +200,45 @@ impl fmt::Debug for Header {
                 &format_args!("{:#x}", self.raw.transactions_root),
             )
             .field(
-                "proposals_root",
-                &format_args!("{:#x}", self.raw.proposals_root),
-            )
-            .field(
                 "witnesses_root",
                 &format_args!("{:#x}", self.raw.witnesses_root),
             )
+            .field(
+                "proposals_hash",
+                &format_args!("{:#x}", self.raw.proposals_hash),
+            )
             .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
-            .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
             .field("uncles_count", &self.raw.uncles_count)
+            .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
+            .field("epoch", &self.raw.epoch)
             .field("seal", &self.seal)
             .finish()
     }
 }
 
 impl Header {
+    pub(crate) fn new(raw: RawHeader, seal: Seal) -> Self {
+        let mut header = Self {
+            raw,
+            seal,
+            hash: H256::zero(),
+        };
+        let hash =
+            blake2b_256(serialize(&header).expect("Header serialize should not fail")).into();
+        header.hash = hash;
+        header
+    }
+
+    /// # Warning
+    ///
+    /// When using this method, the caller should ensure the input hash is right, or the caller
+    /// will get a incorrect Header.
+    pub unsafe fn from_bytes_with_hash_unchecked(bytes: &[u8], hash: H256) -> Self {
+        let HeaderKernel { raw, seal } =
+            deserialize(bytes).expect("header kernel deserializing should be ok");
+        Self { raw, seal, hash }
+    }
+
     pub fn serialized_size(proof_size: usize) -> usize {
         RawHeader::serialized_size() + proof_size + mem::size_of::<u64>()
     }
@@ -151,6 +253,10 @@ impl Header {
 
     pub fn number(&self) -> BlockNumber {
         self.raw.number
+    }
+
+    pub fn epoch(&self) -> EpochNumber {
+        self.raw.epoch
     }
 
     pub fn difficulty(&self) -> &U256 {
@@ -169,8 +275,8 @@ impl Header {
         self.seal.nonce
     }
 
-    pub fn hash(&self) -> H256 {
-        blake2b_256(serialize(&self).expect("Header serialize should not fail")).into()
+    pub fn hash(&self) -> &H256 {
+        &self.hash
     }
 
     pub fn pow_hash(&self) -> H256 {
@@ -189,12 +295,12 @@ impl Header {
         &self.raw.transactions_root
     }
 
-    pub fn proposals_root(&self) -> &H256 {
-        &self.raw.proposals_root
-    }
-
     pub fn witnesses_root(&self) -> &H256 {
         &self.raw.witnesses_root
+    }
+
+    pub fn proposals_hash(&self) -> &H256 {
+        &self.raw.proposals_hash
     }
 
     pub fn uncles_hash(&self) -> &H256 {
@@ -222,87 +328,88 @@ impl PartialEq for Header {
 
 #[derive(Default)]
 pub struct HeaderBuilder {
-    inner: Header,
+    raw: RawHeader,
+    seal: Seal,
 }
 
 impl HeaderBuilder {
-    pub fn new(bytes: &[u8]) -> Self {
-        HeaderBuilder {
-            inner: deserialize(bytes).expect("header deserializing should be ok"),
-        }
-    }
-
-    pub fn header(mut self, header: Header) -> Self {
-        self.inner = header;
-        self
+    pub fn from_header(header: Header) -> Self {
+        let Header { raw, seal, .. } = header;
+        Self { raw, seal }
     }
 
     pub fn seal(mut self, seal: Seal) -> Self {
-        self.inner.seal = seal;
+        self.seal = seal;
         self
     }
 
     pub fn version(mut self, version: u32) -> Self {
-        self.inner.raw.version = version;
+        self.raw.version = version;
         self
     }
 
     pub fn number(mut self, number: BlockNumber) -> Self {
-        self.inner.raw.number = number;
+        self.raw.number = number;
+        self
+    }
+
+    pub fn epoch(mut self, number: EpochNumber) -> Self {
+        self.raw.epoch = number;
         self
     }
 
     pub fn difficulty(mut self, difficulty: U256) -> Self {
-        self.inner.raw.difficulty = difficulty;
+        self.raw.difficulty = difficulty;
         self
     }
 
     pub fn timestamp(mut self, timestamp: u64) -> Self {
-        self.inner.raw.timestamp = timestamp;
+        self.raw.timestamp = timestamp;
         self
     }
 
-    pub fn proof(mut self, proof: Vec<u8>) -> Self {
-        self.inner.seal.proof = proof;
+    pub fn proof(mut self, proof: Bytes) -> Self {
+        self.seal.proof = proof;
         self
     }
 
     pub fn nonce(mut self, nonce: u64) -> Self {
-        self.inner.seal.nonce = nonce;
+        self.seal.nonce = nonce;
         self
     }
 
     pub fn parent_hash(mut self, hash: H256) -> Self {
-        self.inner.raw.parent_hash = hash;
+        self.raw.parent_hash = hash;
         self
     }
 
     pub fn transactions_root(mut self, hash: H256) -> Self {
-        self.inner.raw.transactions_root = hash;
-        self
-    }
-
-    pub fn proposals_root(mut self, hash: H256) -> Self {
-        self.inner.raw.proposals_root = hash;
+        self.raw.transactions_root = hash;
         self
     }
 
     pub fn witnesses_root(mut self, hash: H256) -> Self {
-        self.inner.raw.witnesses_root = hash;
+        self.raw.witnesses_root = hash;
+        self
+    }
+
+    pub fn proposals_hash(mut self, hash: H256) -> Self {
+        self.raw.proposals_hash = hash;
         self
     }
 
     pub fn uncles_hash(mut self, hash: H256) -> Self {
-        self.inner.raw.uncles_hash = hash;
+        self.raw.uncles_hash = hash;
         self
     }
 
     pub fn uncles_count(mut self, uncles_count: u32) -> Self {
-        self.inner.raw.uncles_count = uncles_count;
+        self.raw.uncles_count = uncles_count;
         self
     }
 
     pub fn build(self) -> Header {
-        self.inner
+        let Self { raw, seal } = self;
+        Header::new(raw, seal)
     }
 }

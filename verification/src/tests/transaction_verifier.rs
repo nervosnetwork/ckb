@@ -1,13 +1,13 @@
 use super::super::transaction_verifier::{
-    CapacityVerifier, DuplicateDepsVerifier, EmptyVerifier, MaturityVerifier, ValidSinceVerifier,
+    CapacityVerifier, DuplicateDepsVerifier, EmptyVerifier, MaturityVerifier, SinceVerifier,
 };
 use crate::error::TransactionError;
-use ckb_core::cell::{CellMeta, ResolvedTransaction};
+use ckb_core::cell::{BlockInfo, CellMeta, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_traits::BlockMedianTimeContext;
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 
 #[test]
 pub fn test_empty() {
@@ -30,12 +30,9 @@ pub fn test_capacity_outofbound() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![CellMeta::from(&CellOutput::new(
-            capacity_bytes!(50),
-            Bytes::new(),
-            Script::default(),
-            None,
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(CellMeta::from(
+            &CellOutput::new(capacity_bytes!(50), Bytes::new(), Script::default(), None),
         ))],
     };
     let verifier = CapacityVerifier::new(&rtx);
@@ -44,6 +41,28 @@ pub fn test_capacity_outofbound() {
         verifier.verify().err(),
         Some(TransactionError::CapacityOverflow)
     );
+}
+
+#[test]
+pub fn test_skip_dao_capacity_check() {
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]))
+        .output(CellOutput::new(
+            capacity_bytes!(500),
+            Bytes::from(vec![1; 10]),
+            Script::default(),
+            None,
+        ))
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction: &transaction,
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::issuing_dao()],
+    };
+    let verifier = CapacityVerifier::new(&rtx);
+
+    assert!(verifier.verify().is_ok());
 }
 
 #[test]
@@ -59,17 +78,18 @@ pub fn test_cellbase_maturity() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![CellMeta {
-            block_number: Some(30),
-            cellbase: true,
-            ..CellMeta::from(&CellOutput::new(
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(CellOutput::new(
                 capacity_bytes!(50),
                 Bytes::new(),
                 Script::default(),
                 None,
             ))
-        }],
+            .block_info(BlockInfo::new(30, 0))
+            .cellbase(true)
+            .build(),
+        )],
     };
 
     let tip_number = 70;
@@ -108,20 +128,20 @@ pub fn test_capacity_invalid() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![
-            CellMeta::from(&CellOutput::new(
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![
+            ResolvedOutPoint::cell_only(CellMeta::from(&CellOutput::new(
                 capacity_bytes!(49),
                 Bytes::default(),
                 Script::default(),
                 None,
-            )),
-            CellMeta::from(&CellOutput::new(
+            ))),
+            ResolvedOutPoint::cell_only(CellMeta::from(&CellOutput::new(
                 capacity_bytes!(100),
                 Bytes::default(),
                 Script::default(),
                 None,
-            )),
+            ))),
         ],
     };
     let verifier = CapacityVerifier::new(&rtx);
@@ -136,8 +156,8 @@ pub fn test_capacity_invalid() {
 pub fn test_duplicate_deps() {
     let transaction = TransactionBuilder::default()
         .deps(vec![
-            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
-            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
         ])
         .build();
 
@@ -170,39 +190,40 @@ pub fn test_since() {
     // use remain flags
     let transaction = TransactionBuilder::default()
         .inputs(vec![CellInput::new(
-            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
-            0x2000_0000_0000_0000,
+            OutPoint::new_cell(h256!("0x1"), 0),
+            0x1000_0000_0000_0000,
             Default::default(),
         )])
         .build();
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![CellMeta {
-            block_number: Some(1),
-            ..CellMeta::from(&CellOutput::new(
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(CellOutput::new(
                 capacity_bytes!(50),
                 Bytes::new(),
                 Script::default(),
                 None,
             ))
-        }],
+            .block_info(BlockInfo::new(1, 0))
+            .build(),
+        )],
     };
 
     let median_time_context = FakeMedianTime {
         timestamps: vec![0; 11],
     };
-    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 5);
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 5, 1);
     assert_eq!(
         verifier.verify().err(),
-        Some(TransactionError::InvalidValidSince)
+        Some(TransactionError::InvalidSince)
     );
 
     // absolute lock
     let transaction = TransactionBuilder::default()
         .inputs(vec![CellInput::new(
-            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
             0x0000_0000_0000_000a,
             Default::default(),
         )])
@@ -210,31 +231,32 @@ pub fn test_since() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![CellMeta {
-            block_number: Some(1),
-            ..CellMeta::from(&CellOutput::new(
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(CellOutput::new(
                 capacity_bytes!(50),
                 Bytes::new(),
                 Script::default(),
                 None,
             ))
-        }],
+            .block_info(BlockInfo::new(1, 0))
+            .build(),
+        )],
     };
 
     let median_time_context = FakeMedianTime {
         timestamps: vec![0; 11],
     };
-    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 5);
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 5, 1);
     assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
     // spent after 10 height
-    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 10);
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 10, 1);
     assert!(verifier.verify().is_ok());
 
     // relative lock
     let transaction = TransactionBuilder::default()
         .inputs(vec![CellInput::new(
-            OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+            OutPoint::new_cell(h256!("0x1"), 0),
             0xc000_0000_0000_0002,
             Default::default(),
         )])
@@ -242,38 +264,39 @@ pub fn test_since() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![CellMeta {
-            block_number: Some(1),
-            ..CellMeta::from(&CellOutput::new(
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(CellOutput::new(
                 capacity_bytes!(50),
                 Bytes::new(),
                 Script::default(),
                 None,
             ))
-        }],
+            .block_info(BlockInfo::new(1, 0))
+            .build(),
+        )],
     };
 
-    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 4);
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 1);
     assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
     // spent after 1024 seconds
     // fake median time: 1124
     let median_time_context = FakeMedianTime {
         timestamps: vec![0, 100_000, 1_124_000, 2_000_000, 3_000_000],
     };
-    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 4);
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 1);
     assert!(verifier.verify().is_ok());
 
     // both
     let transaction = TransactionBuilder::default()
         .inputs(vec![
             CellInput::new(
-                OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+                OutPoint::new_cell(h256!("0x1"), 0),
                 0x0000_0000_0000_000a,
                 Default::default(),
             ),
             CellInput::new(
-                OutPoint::new(H256::from_trimmed_hex_str("1").unwrap(), 0),
+                OutPoint::new_cell(h256!("0x1"), 0),
                 0xc000_0000_0000_0002,
                 Default::default(),
             ),
@@ -282,19 +305,20 @@ pub fn test_since() {
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
-        dep_cells: Vec::new(),
-        input_cells: vec![CellMeta {
-            block_number: Some(1),
-            ..CellMeta::from(&CellOutput::new(
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(CellOutput::new(
                 capacity_bytes!(50),
                 Bytes::default(),
                 Script::default(),
                 None,
             ))
-        }],
+            .block_info(BlockInfo::new(1, 0))
+            .build(),
+        )],
     };
 
-    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 4);
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 1);
     assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
     // spent after 1024 seconds and 10 blocks
     // fake median time: 1124
@@ -304,6 +328,64 @@ pub fn test_since() {
             6_000_000,
         ],
     };
-    let verifier = ValidSinceVerifier::new(&rtx, &median_time_context, 10);
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 10, 1);
     assert!(verifier.verify().is_ok());
+    // next epoch
+    let transaction = TransactionBuilder::default()
+        .inputs(vec![CellInput::new(
+            OutPoint::new_cell(h256!("0x1"), 0),
+            0xa000_0000_0000_0001,
+            Default::default(),
+        )])
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction: &transaction,
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(CellOutput::new(
+                capacity_bytes!(50),
+                Bytes::new(),
+                Script::default(),
+                None,
+            ))
+            .block_info(BlockInfo::new(1, 1))
+            .build(),
+        )],
+    };
+
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 1);
+    assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 2);
+    assert!(verifier.verify().is_ok());
+
+    // invalid since flags
+    let transaction = TransactionBuilder::default()
+        .inputs(vec![CellInput::new(
+            OutPoint::new_cell(h256!("0x1"), 0),
+            0x6000_0000_0000_0001,
+            Default::default(),
+        )])
+        .build();
+
+    let rtx = ResolvedTransaction {
+        transaction: &transaction,
+        resolved_deps: Vec::new(),
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(CellOutput::new(
+                capacity_bytes!(50),
+                Bytes::new(),
+                Script::default(),
+                None,
+            ))
+            .block_info(BlockInfo::new(1, 1))
+            .build(),
+        )],
+    };
+
+    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 2);
+    assert_eq!(
+        verifier.verify().err(),
+        Some(TransactionError::InvalidSince)
+    );
 }

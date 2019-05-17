@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use crate::tx_pool::types::PoolEntry;
+use crate::tx_pool::types::DefectEntry;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
-use fnv::FnvHashMap;
+use ckb_util::FnvHashMap;
 use std::collections::hash_map;
 use std::collections::VecDeque;
 use std::iter::ExactSizeIterator;
@@ -11,7 +11,7 @@ use std::iter::ExactSizeIterator;
 ///not verified, may contain conflict transactions
 #[derive(Default, Debug, Clone)]
 pub(crate) struct OrphanPool {
-    pub(crate) vertices: FnvHashMap<ProposalShortId, PoolEntry>,
+    pub(crate) vertices: FnvHashMap<ProposalShortId, DefectEntry>,
     pub(crate) edges: FnvHashMap<OutPoint, Vec<ProposalShortId>>,
 }
 
@@ -24,7 +24,7 @@ impl OrphanPool {
         self.vertices.len()
     }
 
-    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&PoolEntry> {
+    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&DefectEntry> {
         self.vertices.get(id)
     }
 
@@ -48,7 +48,7 @@ impl OrphanPool {
         unknown: impl ExactSizeIterator<Item = OutPoint>,
     ) {
         let short_id = tx.proposal_short_id();
-        let entry = PoolEntry::new(tx, unknown.len(), cycles);
+        let entry = DefectEntry::new(tx, unknown.len(), cycles);
         for out_point in unknown {
             let edge = self.edges.entry(out_point).or_insert_with(Vec::new);
             edge.push(short_id);
@@ -70,7 +70,7 @@ impl OrphanPool {
         }
     }
 
-    pub(crate) fn remove_by_ancestor(&mut self, tx: &Transaction) -> Vec<PoolEntry> {
+    pub(crate) fn remove_by_ancestor(&mut self, tx: &Transaction) -> Vec<DefectEntry> {
         let mut txs = Vec::new();
         let mut queue = VecDeque::new();
 
@@ -102,10 +102,10 @@ impl OrphanPool {
     }
 
     pub(crate) fn remove_conflict(&mut self, tx: &Transaction) {
-        let inputs = tx.input_pts();
+        let inputs = tx.input_pts_iter();
 
         for input in inputs {
-            if let Some(ids) = self.edges.remove(&input) {
+            if let Some(ids) = self.edges.remove(input) {
                 for cid in ids {
                     self.recursion_remove(&cid);
                 }
@@ -122,13 +122,17 @@ mod tests {
     use ckb_core::{Bytes, Capacity};
     use numext_fixed_hash::H256;
 
-    fn build_tx(inputs: Vec<(H256, u32)>, outputs_len: usize) -> Transaction {
+    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
             .inputs(
                 inputs
                     .into_iter()
                     .map(|(txid, index)| {
-                        CellInput::new(OutPoint::new(txid, index), 0, Default::default())
+                        CellInput::new(
+                            OutPoint::new_cell(txid.to_owned(), index),
+                            0,
+                            Default::default(),
+                        )
                     })
                     .collect(),
             )
@@ -151,7 +155,7 @@ mod tests {
     fn test_orphan_pool_remove_by_ancestor1() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
+        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
         let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
@@ -183,10 +187,10 @@ mod tests {
     fn test_orphan_pool_remove_by_ancestor2() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
+        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
         let tx1_hash = tx1.hash();
 
-        let tx2 = build_tx(vec![(H256::zero(), 1)], 1);
+        let tx2 = build_tx(vec![(&H256::zero(), 1)], 1);
         let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(tx1_hash, 0), (tx2_hash, 1)], 1);
@@ -218,7 +222,7 @@ mod tests {
     fn test_orphan_pool_recursion_remove() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(H256::zero(), 0)], 1);
+        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
         let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);

@@ -3,24 +3,26 @@ use ckb_network::{
     Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId, TargetSession,
 };
 use ckb_util::RwLock;
+use futures::future::Future;
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-#[cfg(not(disable_faketime))]
-mod relayer;
+mod inflight_blocks;
 #[cfg(not(disable_faketime))]
 mod synchronizer;
+
+const DEFAULT_CHANNEL: usize = 128;
 
 #[derive(Default)]
 struct TestNode {
     pub peers: Vec<PeerIndex>,
     pub protocols: HashMap<ProtocolId, Arc<RwLock<CKBProtocolHandler + Send + Sync>>>,
-    pub msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<Bytes>>,
+    pub msg_senders: HashMap<(ProtocolId, PeerIndex), SyncSender<Bytes>>,
     pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Bytes>>,
-    pub timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
+    pub timer_senders: HashMap<(ProtocolId, u64), SyncSender<()>>,
     pub timer_receivers: HashMap<(ProtocolId, u64), Receiver<()>>,
 }
 
@@ -33,13 +35,13 @@ impl TestNode {
     ) {
         self.protocols.insert(protocol, Arc::clone(handler));
         timers.iter().for_each(|timer| {
-            let (timer_sender, timer_receiver) = channel();
+            let (timer_sender, timer_receiver) = sync_channel(DEFAULT_CHANNEL);
             self.timer_senders.insert((protocol, *timer), timer_sender);
             self.timer_receivers
                 .insert((protocol, *timer), timer_receiver);
         });
 
-        handler.write().init(Box::new(TestNetworkContext {
+        handler.write().init(Arc::new(TestNetworkContext {
             protocol,
             msg_senders: self.msg_senders.clone(),
             timer_senders: self.timer_senders.clone(),
@@ -47,13 +49,13 @@ impl TestNode {
     }
 
     pub fn connect(&mut self, remote: &mut TestNode, protocol: ProtocolId) {
-        let (local_sender, local_receiver) = channel();
+        let (local_sender, local_receiver) = sync_channel(DEFAULT_CHANNEL);
         let local_index = self.peers.len();
         self.peers.insert(local_index, local_index.into());
         self.msg_senders
             .insert((protocol, local_index.into()), local_sender);
 
-        let (remote_sender, remote_receiver) = channel();
+        let (remote_sender, remote_receiver) = sync_channel(DEFAULT_CHANNEL);
         let remote_index = remote.peers.len();
         remote.peers.insert(remote_index, remote_index.into());
         remote
@@ -68,7 +70,7 @@ impl TestNode {
 
         if let Some(handler) = self.protocols.get(&protocol) {
             handler.write().connected(
-                Box::new(TestNetworkContext {
+                Arc::new(TestNetworkContext {
                     protocol,
                     msg_senders: self.msg_senders.clone(),
                     timer_senders: self.timer_senders.clone(),
@@ -80,7 +82,7 @@ impl TestNode {
 
         if let Some(handler) = remote.protocols.get(&protocol) {
             handler.write().connected(
-                Box::new(TestNetworkContext {
+                Arc::new(TestNetworkContext {
                     protocol,
                     msg_senders: remote.msg_senders.clone(),
                     timer_senders: remote.timer_senders.clone(),
@@ -91,13 +93,13 @@ impl TestNode {
         }
     }
 
-    pub fn start<F: Fn(&[u8]) -> bool>(&self, signal: &Sender<()>, pred: F) {
+    pub fn start<F: Fn(&[u8]) -> bool>(&self, signal: &SyncSender<()>, pred: F) {
         loop {
             for ((protocol, peer), receiver) in &self.msg_receivers {
                 let _ = receiver.try_recv().map(|payload| {
                     if let Some(handler) = self.protocols.get(protocol) {
                         handler.write().received(
-                            Box::new(TestNetworkContext {
+                            Arc::new(TestNetworkContext {
                                 protocol: *protocol,
                                 msg_senders: self.msg_senders.clone(),
                                 timer_senders: self.timer_senders.clone(),
@@ -117,7 +119,7 @@ impl TestNode {
                 let _ = receiver.try_recv().map(|_| {
                     if let Some(handler) = self.protocols.get(protocol) {
                         handler.write().notify(
-                            Box::new(TestNetworkContext {
+                            Arc::new(TestNetworkContext {
                                 protocol: *protocol,
                                 msg_senders: self.msg_senders.clone(),
                                 timer_senders: self.timer_senders.clone(),
@@ -129,22 +131,12 @@ impl TestNode {
             }
         }
     }
-
-    pub fn broadcast(&self, protocol: ProtocolId, msg: &[u8]) {
-        self.msg_senders
-            .iter()
-            .for_each(|((protocol_id, _), sender)| {
-                if *protocol_id == protocol {
-                    let _ = sender.send(msg.into());
-                }
-            })
-    }
 }
 
 struct TestNetworkContext {
     protocol: ProtocolId,
-    msg_senders: HashMap<(ProtocolId, PeerIndex), Sender<bytes::Bytes>>,
-    timer_senders: HashMap<(ProtocolId, u64), Sender<()>>,
+    msg_senders: HashMap<(ProtocolId, PeerIndex), SyncSender<bytes::Bytes>>,
+    timer_senders: HashMap<(ProtocolId, u64), SyncSender<()>>,
 }
 
 impl CKBProtocolContext for TestNetworkContext {
@@ -157,6 +149,25 @@ impl CKBProtocolContext for TestNetworkContext {
                 let _ = sender.send(());
             });
         }
+    }
+
+    fn future_task(
+        &self,
+        task: Box<
+            (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
+        >,
+    ) {
+        task.wait().expect("resolve future task error")
+    }
+
+    fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
+        self.send_message(proto_id, peer_index, data)
+    }
+    fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
+        self.send_message_to(peer_index, data)
+    }
+    fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) {
+        self.filter_broadcast(target, data)
     }
     fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: bytes::Bytes) {
         if let Some(sender) = self.msg_senders.get(&(proto_id, peer_index)) {

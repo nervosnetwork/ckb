@@ -3,23 +3,29 @@ use crate::error::SharedError;
 use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::extras::BlockExt;
+use ckb_core::extras::{BlockExt, EpochExt};
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{Capacity, ProposalShortId, Transaction};
+use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_db::{CacheDB, DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
-use ckb_store::{ChainKVStore, ChainStore, COLUMNS, COLUMN_BLOCK_HEADER};
+use ckb_core::Cycle;
+use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_script::ScriptConfig;
+use ckb_store::{ChainKVStore, ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
-use ckb_util::Mutex;
+use ckb_util::{lock_or_panic, Mutex, MutexGuard};
+use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 use std::sync::Arc;
+
+const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
 
 #[derive(Debug)]
 pub struct Shared<CS> {
     store: Arc<CS>,
     chain_state: Arc<Mutex<ChainState<CS>>>,
+    txs_verify_cache: Arc<Mutex<LruCache<H256, Cycle>>>,
     consensus: Arc<Consensus>,
+    script_config: ScriptConfig,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -29,6 +35,8 @@ impl<CS: ChainStore> ::std::clone::Clone for Shared<CS> {
             store: Arc::clone(&self.store),
             chain_state: Arc::clone(&self.chain_state),
             consensus: Arc::clone(&self.consensus),
+            script_config: self.script_config.clone(),
+            txs_verify_cache: Arc::clone(&self.txs_verify_cache),
         }
     }
 }
@@ -38,32 +46,47 @@ impl<CS: ChainStore> Shared<CS> {
         store: CS,
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
+        script_config: ScriptConfig,
     ) -> Result<Self, SharedError> {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
+        let txs_verify_cache = Arc::new(Mutex::new(LruCache::new(TXS_VERIFY_CACHE_SIZE)));
         let chain_state = Arc::new(Mutex::new(ChainState::init(
             &store,
             Arc::clone(&consensus),
             tx_pool_config,
+            script_config.clone(),
         )?));
 
         Ok(Shared {
             store,
             chain_state,
             consensus,
+            script_config,
+            txs_verify_cache,
         })
     }
 
-    pub fn chain_state(&self) -> &Mutex<ChainState<CS>> {
-        &self.chain_state
+    pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
+        lock_or_panic(&self.chain_state)
     }
 
-    pub fn store(&self) -> &Arc<CS> {
-        &self.store
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
+        lock_or_panic(&self.txs_verify_cache)
     }
 }
 
 impl<CS: ChainStore> ChainProvider for Shared<CS> {
+    type Store = CS;
+
+    fn store(&self) -> &Arc<CS> {
+        &self.store
+    }
+
+    fn script_config(&self) -> &ScriptConfig {
+        &self.script_config
+    }
+
     fn block(&self, hash: &H256) -> Option<Block> {
         self.store.get_block(hash)
     }
@@ -104,15 +127,6 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         self.store.get_transaction(hash)
     }
 
-    fn contain_transaction(&self, hash: &H256) -> bool {
-        self.store.get_transaction_address(hash).is_some()
-    }
-
-    fn block_reward(&self, _block_number: BlockNumber) -> Capacity {
-        // TODO: block reward calculation algorithm
-        self.consensus.initial_block_reward()
-    }
-
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
         // if base in the main chain
         if let Some(n_number) = self.block_number(base) {
@@ -146,49 +160,19 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         None
     }
 
-    // T_interval = L / C_m
-    // HR_m = HR_last/ (1 + o)
-    // Diff= HR_m * T_interval / H = Diff_last * o_last / o
-    fn calculate_difficulty(&self, last: &Header) -> Option<U256> {
-        let last_hash = last.hash();
-        let last_number = last.number();
-        let last_difficulty = last.difficulty();
+    fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt> {
+        self.store()
+            .get_block_epoch_index(hash)
+            .and_then(|index| self.store().get_epoch_ext(&index))
+    }
 
-        let interval = self.consensus.difficulty_adjustment_interval();
-
-        if (last_number + 1) % interval != 0 {
-            return Some(last_difficulty.clone());
-        }
-
-        let start = last_number.saturating_sub(interval);
-        if let Some(start_header) = self.get_ancestor(&last_hash, start) {
-            let start_total_uncles_count = self
-                .block_ext(&start_header.hash())
-                .expect("block_ext exist")
-                .total_uncles_count;
-
-            let last_total_uncles_count = self
-                .block_ext(&last_hash)
-                .expect("block_ext exist")
-                .total_uncles_count;
-
-            let difficulty = last_difficulty
-                * U256::from(last_total_uncles_count - start_total_uncles_count)
-                * U256::from((1.0 / self.consensus.orphan_rate_target()) as u64)
-                / U256::from(interval);
-
-            let min_difficulty = self.consensus.min_difficulty();
-            let max_difficulty = last_difficulty * 2u32;
-            if difficulty > max_difficulty {
-                return Some(max_difficulty);
-            }
-
-            if difficulty.lt(min_difficulty) {
-                return Some(min_difficulty.clone());
-            }
-            return Some(difficulty);
-        }
-        None
+    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
+        self.consensus.next_epoch_ext(
+            last_epoch,
+            header,
+            |hash| self.block_header(hash),
+            |hash| self.block_ext(hash).map(|ext| ext.total_uncles_count),
+        )
     }
 
     fn consensus(&self) -> &Consensus {
@@ -200,6 +184,8 @@ pub struct SharedBuilder<DB: KeyValueDB> {
     db: Option<DB>,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
+    script_config: Option<ScriptConfig>,
+    store_config: Option<StoreConfig>,
 }
 
 impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
@@ -208,6 +194,8 @@ impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
             db: None,
             consensus: None,
             tx_pool_config: None,
+            script_config: None,
+            store_config: None,
         }
     }
 }
@@ -218,20 +206,19 @@ impl SharedBuilder<MemoryKeyValueDB> {
             db: Some(MemoryKeyValueDB::open(COLUMNS as usize)),
             consensus: None,
             tx_pool_config: None,
+            script_config: None,
+            store_config: None,
         }
     }
 }
 
-impl SharedBuilder<CacheDB<RocksDB>> {
+impl SharedBuilder<RocksDB> {
     pub fn new() -> Self {
         Default::default()
     }
 
     pub fn db(mut self, config: &DBConfig) -> Self {
-        self.db = Some(CacheDB::new(
-            RocksDB::open(config, COLUMNS),
-            &[(COLUMN_BLOCK_HEADER, 4096)],
-        ));
+        self.db = Some(RocksDB::open(config, COLUMNS));
         self
     }
 }
@@ -249,10 +236,24 @@ impl<DB: KeyValueDB> SharedBuilder<DB> {
         self
     }
 
+    pub fn script_config(mut self, config: ScriptConfig) -> Self {
+        self.script_config = Some(config);
+        self
+    }
+
+    pub fn store_config(mut self, config: StoreConfig) -> Self {
+        self.store_config = Some(config);
+        self
+    }
+
     pub fn build(self) -> Result<Shared<ChainKVStore<DB>>, SharedError> {
-        let store = ChainKVStore::new(self.db.unwrap());
+        let store = ChainKVStore::with_config(
+            self.db.unwrap(),
+            self.store_config.unwrap_or_else(Default::default),
+        );
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        Shared::init(store, consensus, tx_pool_config)
+        let script_config = self.script_config.unwrap_or_else(Default::default);
+        Shared::init(store, consensus, tx_pool_config, script_config)
     }
 }

@@ -7,11 +7,12 @@ use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use log::{debug, trace};
 use std::convert::TryInto;
+use std::sync::Arc;
 
 pub struct GetTransactionProcess<'a, CS> {
     message: &'a FbsGetRelayTransaction<'a>,
     relayer: &'a Relayer<CS>,
-    nc: &'a CKBProtocolContext,
+    nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
@@ -19,7 +20,7 @@ impl<'a, CS: ChainStore> GetTransactionProcess<'a, CS> {
     pub fn new(
         message: &'a FbsGetRelayTransaction,
         relayer: &'a Relayer<CS>,
-        nc: &'a CKBProtocolContext,
+        nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
         GetTransactionProcess {
@@ -37,10 +38,9 @@ impl<'a, CS: ChainStore> GetTransactionProcess<'a, CS> {
             let short_id = ProposalShortId::from_tx_hash(&tx_hash);
             self.relayer
                 .shared
-                .chain_state()
-                .lock()
-                .get_entry_from_pool(&short_id)
-                .and_then(|entry| entry.cycles.map(|cycles| (entry.transaction, cycles)))
+                .lock_chain_state()
+                .get_tx_with_cycles_from_pool(&short_id)
+                .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
         };
         if let Some((tx, cycles)) = entry_opt {
             let fbb = &mut FlatBufferBuilder::new();

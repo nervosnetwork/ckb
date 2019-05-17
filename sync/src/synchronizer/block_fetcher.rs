@@ -1,14 +1,10 @@
 use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::types::HeaderView;
-use crate::{
-    BLOCK_DOWNLOAD_TIMEOUT, BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER,
-    PER_FETCH_BLOCK_LIMIT,
-};
+use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
 use ckb_util::try_option;
-use faketime::unix_time_as_millis;
 use log::{debug, trace};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -27,7 +23,7 @@ where
 {
     pub fn new(synchronizer: Synchronizer<CS>, peer: PeerIndex) -> Self {
         let (tip_header, total_difficulty) = {
-            let chain_state = synchronizer.shared.chain_state().lock();
+            let chain_state = synchronizer.shared.lock_chain_state();
             (
                 chain_state.tip_header().to_owned(),
                 chain_state.total_difficulty().to_owned(),
@@ -40,19 +36,11 @@ where
             total_difficulty,
         }
     }
-    pub fn initial_and_check_inflight(&self) -> bool {
-        let mut blocks_inflight = self.synchronizer.peers.blocks_inflight.write();
-        let inflight = blocks_inflight
-            .entry(self.peer)
-            .or_insert_with(Default::default);
+    pub fn reached_inflight_limit(&self) -> bool {
+        let inflight = self.synchronizer.peers.blocks_inflight.read();
 
-        if inflight.timestamp < unix_time_as_millis().saturating_sub(BLOCK_DOWNLOAD_TIMEOUT) {
-            trace!(target: "sync", "[block downloader] inflight block download timeout");
-            inflight.clear();
-        }
-
-        // current peer block blocks_inflight reach limit
-        inflight.len() >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
+        // Can't download any more from this peer
+        inflight.peer_inflight_count(&self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
@@ -121,15 +109,23 @@ where
     pub fn fetch(self) -> Option<Vec<H256>> {
         trace!(target: "sync", "[block downloader] BlockFetcher process");
 
-        if self.initial_and_check_inflight() {
-            debug!(target: "sync", "[block downloader] inflight count reach limit");
+        if self.reached_inflight_limit() {
+            trace!(
+                target: "sync",
+                "[block downloader] inflight count reach limit, can't download any more from peer {}",
+                self.peer
+            );
             return None;
         }
 
         let best_known_header = match self.peer_best_known_header() {
             Some(best_known_header) => best_known_header,
             _ => {
-                trace!(target: "sync", "[block downloader] peer_best_known_header not found peer={}", self.peer);
+                trace!(
+                    target: "sync",
+                    "[block downloader] peer_best_known_header not found peer={}",
+                    self.peer
+                );
                 return None;
             }
         };
@@ -151,10 +147,13 @@ where
 
         // If the peer reorganized, our previous last_common_header may not be an ancestor
         // of its current best_known_header. Go back enough to fix that.
-        let fixed_last_common_header = try_option!(self.last_common_header(&best_known_header));
+        let fixed_last_common_header = self.last_common_header(&best_known_header)?;
 
         if &fixed_last_common_header == best_known_header.inner() {
-            debug!(target: "sync", "[block downloader] fixed_last_common_header == best_known_header");
+            trace!(
+                target: "sync",
+                "[block downloader] fixed_last_common_header == best_known_header"
+            );
             return None;
         }
 
@@ -169,34 +168,38 @@ where
 
         let window_end = fixed_last_common_header.number() + BLOCK_DOWNLOAD_WINDOW;
         let max_height = cmp::min(window_end + 1, best_known_header.number());
-
-        let mut n_height = fixed_last_common_header.number();
-        let mut v_fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
+        let mut index_height = fixed_last_common_header.number();
+        // Read up to 128, get_ancestor may be as expensive
+        // as iterating over ~100 entries anyway.
+        let max_height = cmp::min(max_height, index_height + PER_FETCH_BLOCK_LIMIT as u64);
+        let mut fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
 
         {
-            let mut guard = self.synchronizer.peers.blocks_inflight.write();
-            let inflight = guard.get_mut(&self.peer).expect("inflight already init");
+            let mut inflight = self.synchronizer.peers.blocks_inflight.write();
+            let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
+                .saturating_sub(inflight.peer_inflight_count(&self.peer));
 
-            while n_height < max_height && v_fetch.len() < PER_FETCH_BLOCK_LIMIT {
-                n_height += 1;
+            while index_height < max_height && fetch.len() < count {
+                index_height += 1;
                 let to_fetch = self
                     .synchronizer
                     .shared
-                    .get_ancestor(&best_known_header.hash(), n_height)?;
+                    .get_ancestor(&best_known_header.hash(), index_height)?;
                 let to_fetch_hash = to_fetch.hash();
 
-                let block_status = self.synchronizer.get_block_status(&to_fetch_hash);
-                if block_status == BlockStatus::VALID_MASK && inflight.insert(to_fetch_hash.clone())
+                let block_status = self.synchronizer.get_block_status(to_fetch_hash);
+                if block_status == BlockStatus::VALID_MASK
+                    && inflight.insert(self.peer, to_fetch_hash.to_owned())
                 {
                     trace!(
                         target: "sync", "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),
                         to_fetch_hash
                     );
-                    v_fetch.push(to_fetch_hash);
+                    fetch.push(to_fetch_hash.to_owned());
                 }
             }
         }
-        Some(v_fetch)
+        Some(fetch)
     }
 }

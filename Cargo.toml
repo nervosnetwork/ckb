@@ -1,9 +1,13 @@
 [package]
 name = "ckb"
-version = "0.11.0"
+version = "0.12.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+build = "build.rs"
+
+[build-dependencies]
+build-info = { path = "util/build-info" }
 
 [dependencies]
 clap = { version = "2" }
@@ -43,6 +47,10 @@ tempfile = "3.0"
 
 [dev-dependencies]
 
+[target.'cfg(unix)'.dependencies]
+jemallocator = { version = "0.3.0" }
+
+
 [workspace]
 members = [
     "util/logger",
@@ -55,6 +63,7 @@ members = [
     "util/occupied-capacity",
     "util/stop-handler",
     "util/app-config",
+    "shared/tx-pool-executor",
     "traits",
     "network",
     "protocol",

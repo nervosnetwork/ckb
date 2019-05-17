@@ -20,23 +20,17 @@ We also provides docker images, see [how to run CKB with docker](run-ckb-with-do
 
 ### Install Build Dependencies
 
-CKB is currently tested mainly with `stable-1.34.1` on Linux and macOS.
+CKB requires Rust to build. We recommend installing [rustup](https://www.rustup.rs/) to manage Rust versions.
 
-We recommend installing Rust through [rustup](https://www.rustup.rs/)
-
-```bash
-# Get rustup from rustup.rs, then in your `ckb` folder:
-rustup override set 1.34.1
-```
-
-Report new breakage is welcome.
+The required Rust version is saved in the file `rust-toolchain`. If rustup is
+available, it will pick the right version automatically.
 
 You also need to get the following packages：
 
 #### Ubuntu and Debian
 
 ```shell
-sudo apt-get install -y git gcc libc6-dev pkg-config libssl-dev libclang-dev clang
+sudo apt-get install -y git gcc libc6-dev pkg-config libssl1.0-dev libclang-dev clang
 ```
 
 #### Arch Linux
@@ -49,6 +43,18 @@ sudo pacman -Sy git gcc pkgconf clang
 
 ```shell
 brew install autoconf libtool
+```
+
+### Add Environment Variables
+
+If your OS contains pre-compiled `rocksdb` or `snappy` libraries,
+you may setup `ROCKSDB_LIB_DIR` and/or `SNAPPY_LIB_DIR` environment variable
+to point to a directory with these libraries.
+This will significantly reduce compile time.
+
+```shell
+export ROCKSDB_LIB_DIR=/usr/local/lib
+export SNAPPY_LIB_DIR=/usr/local/lib
 ```
 
 ### Build from source
