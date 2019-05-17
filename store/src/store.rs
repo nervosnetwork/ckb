@@ -4,8 +4,8 @@ use crate::flat_block_body::{
 };
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_EPOCH,
-    COLUMN_EXT, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
+    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET,
+    COLUMN_EPOCH, COLUMN_EXT, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
 };
 use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
@@ -15,7 +15,8 @@ use ckb_core::extras::{
     BlockExt, DaoStats, EpochExt, TransactionAddress, DEFAULT_ACCUMULATED_RATE,
 };
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transaction};
+use ckb_core::transaction::{CellKey, CellOutPoint, CellOutput, ProposalShortId, Transaction};
+use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Capacity, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
@@ -27,13 +28,6 @@ use std::sync::Mutex;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
-
-fn cell_store_key(tx_hash: &H256, index: u32) -> [u8; 36] {
-    let mut key: [u8; 36] = [0; 36];
-    key[..32].copy_from_slice(tx_hash.as_bytes());
-    key[32..36].copy_from_slice(&index.to_be_bytes());
-    key
-}
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct StoreConfig {
@@ -143,6 +137,9 @@ pub trait StoreBatch {
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error>;
     fn detach_block(&mut self, block: &Block) -> Result<(), Error>;
+
+    fn update_cell_set(&mut self, tx_hash: &H256, meta: &TransactionMeta) -> Result<(), Error>;
+    fn delete_cell_set(&mut self, tx_hash: &H256) -> Result<(), Error>;
 
     fn commit(self) -> Result<(), Error>;
 }
@@ -259,11 +256,25 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         let mut cells = Vec::with_capacity(genesis.transactions().len());
 
         for tx in genesis.transactions() {
+            let tx_meta;
             let ins = if tx.is_cellbase() {
+                tx_meta = TransactionMeta::new_cellbase(
+                    genesis.header().number(),
+                    genesis.header().epoch(),
+                    tx.outputs().len(),
+                    false,
+                );
                 Vec::new()
             } else {
+                tx_meta = TransactionMeta::new(
+                    genesis.header().number(),
+                    genesis.header().epoch(),
+                    tx.outputs().len(),
+                    false,
+                );
                 tx.input_pts_iter().cloned().collect()
             };
+            batch.update_cell_set(tx.hash(), &tx_meta)?;
             let outs = tx.output_pts();
 
             cells.push((ins, outs));
@@ -348,8 +359,11 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
-        self.get(COLUMN_CELL_META, &cell_store_key(tx_hash, index))
-            .map(|raw| deserialize(&raw[..]).unwrap())
+        self.get(
+            COLUMN_CELL_META,
+            CellKey::calculate(tx_hash, index).as_ref(),
+        )
+        .map(|raw| deserialize(&raw[..]).unwrap())
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
@@ -468,7 +482,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                     tx_hash: tx_hash.to_owned(),
                     index: index as u32,
                 };
-                let store_key = cell_store_key(&tx_hash, index as u32);
+                let store_key = out_point.cell_key();
                 let cell_meta = CellMeta {
                     cell_output: None,
                     out_point,
@@ -480,7 +494,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                     capacity: output.capacity,
                     data_hash: Some(output.data_hash()),
                 };
-                self.insert_serialize(COLUMN_CELL_META, &store_key, &cell_meta)?;
+                self.insert_serialize(COLUMN_CELL_META, store_key.as_ref(), &cell_meta)?;
             }
         }
 
@@ -494,8 +508,8 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
             let tx_hash = tx.hash();
             self.delete(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())?;
             for index in 0..tx.outputs().len() {
-                let store_key = cell_store_key(&tx_hash, index as u32);
-                self.delete(COLUMN_CELL_META, &store_key)?;
+                let store_key = CellKey::calculate(&tx_hash, index as u32);
+                self.delete(COLUMN_CELL_META, store_key.as_ref())?;
             }
         }
         self.delete(COLUMN_INDEX, &block.header().number().to_le_bytes())?;
@@ -527,6 +541,14 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
 
     fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {
         self.insert_serialize(COLUMN_META, META_CURRENT_EPOCH_KEY, epoch)
+    }
+
+    fn update_cell_set(&mut self, tx_hash: &H256, meta: &TransactionMeta) -> Result<(), Error> {
+        self.insert_serialize(COLUMN_CELL_SET, tx_hash.as_bytes(), meta)
+    }
+
+    fn delete_cell_set(&mut self, tx_hash: &H256) -> Result<(), Error> {
+        self.delete(COLUMN_CELL_SET, tx_hash.as_bytes())
     }
 
     fn commit(self) -> Result<(), Error> {

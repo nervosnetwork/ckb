@@ -15,12 +15,13 @@ use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_script::ScriptConfig;
-use ckb_store::ChainStore;
+use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_util::LinkedFnvHashSet;
 use ckb_util::{FnvHashMap, FnvHashSet};
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use dao_utils::calculate_transaction_fee;
+use failure::Error as FailureError;
 use log::{debug, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -153,7 +154,9 @@ impl<CS: ChainStore> ChainState<CS> {
                 let output_len = tx.outputs().len();
 
                 for o in inputs {
-                    cell_set.mark_dead(o);
+                    if let Some(ref cell) = o.cell {
+                        let _ = cell_set.mark_dead(cell);
+                    }
                 }
 
                 cell_set.insert(
@@ -230,10 +233,77 @@ impl<CS: ChainStore> ChainState<CS> {
         self.current_epoch_ext = epoch_ext;
     }
 
-    pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: CellSetDiff) {
+    pub fn update_tip(
+        &mut self,
+        header: Header,
+        total_difficulty: U256,
+        txo_diff: CellSetDiff,
+    ) -> Result<(), FailureError> {
         self.tip_header = header;
         self.total_difficulty = total_difficulty;
-        self.cell_set.update(txo_diff);
+
+        let CellSetDiff {
+            old_inputs,
+            old_outputs,
+            new_inputs,
+            new_outputs,
+        } = txo_diff;
+
+        let removed_old_outputs = old_outputs
+            .into_iter()
+            .filter_map(|tx_hash| self.cell_set.remove(&tx_hash).map(|_| tx_hash))
+            .collect::<Vec<_>>();
+
+        let updated_old_inputs = old_inputs
+            .into_iter()
+            .filter_map(|out_point| {
+                out_point.cell.and_then(|cell| {
+                    self.cell_set
+                        .mark_live(&cell)
+                        .map(|tx_meta| (cell.tx_hash, tx_meta))
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let inserted_new_outputs = new_outputs
+            .into_iter()
+            .map(|(tx_hash, (number, epoch, cellbase, len))| {
+                let tx_meta =
+                    self.cell_set
+                        .insert(tx_hash.to_owned(), number, epoch, cellbase, len);
+                (tx_hash, tx_meta)
+            })
+            .collect::<Vec<_>>();
+
+        let updated_new_inputs = new_inputs
+            .into_iter()
+            .filter_map(|out_point| {
+                out_point.cell.and_then(|cell| {
+                    self.cell_set
+                        .mark_dead(&cell)
+                        .map(|tx_meta| (cell.tx_hash, tx_meta))
+                })
+            })
+            .collect::<Vec<_>>();
+
+        {
+            let mut batch = self.store.new_batch()?;
+            for tx_hash in removed_old_outputs.iter() {
+                batch.delete_cell_set(&tx_hash)?;
+            }
+            for (tx_hash, tx_meta) in updated_old_inputs.iter() {
+                batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
+                batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            for (tx_hash, tx_meta) in updated_new_inputs.iter() {
+                batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            batch.commit()?;
+        }
+
+        Ok(())
     }
 
     pub fn get_tx_with_cycles_from_pool(
