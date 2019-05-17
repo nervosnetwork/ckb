@@ -354,10 +354,20 @@ impl PeerStore for SqlitePeerStore {
 
     fn random_peers(&self, count: u32) -> Vec<PeerAddr> {
         let now_ms = unix_time_as_millis();
-        db::get_random_peers(&self.conn, count, now_ms - ADDR_TIMEOUT_MS)
-            .expect("get random peers")
+        let peers = db::get_random_peers(&self.conn, count, now_ms - ADDR_TIMEOUT_MS)
+            .expect("get random peers");
+        peers
             .into_iter()
-            .filter(|paddr| !paddr.is_terrible(now_ms))
+            .filter_map(|peer_id| {
+                let mut paddrs = db::PeerAddrDB::get_addrs(&self.conn, &peer_id, DEFAULT_ADDRS)
+                    .expect("get peer addr");
+                let mut rng = thread_rng();
+                // randomly find a address to attempt
+                paddrs.shuffle(&mut rng);
+                paddrs
+                    .into_iter()
+                    .find(|paddr| !self.is_addr_banned(&paddr.addr) && !paddr.is_terrible(now_ms))
+            })
             .collect()
     }
 

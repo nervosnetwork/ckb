@@ -282,7 +282,7 @@ pub fn get_random_peers(
     conn: &Connection,
     count: u32,
     expired_at_ms: u64,
-) -> DBResult<Vec<PeerAddr>> {
+) -> DBResult<Vec<PeerId>> {
     // random select peers that we have connect to recently.
     let mut stmt = conn.prepare(
         "SELECT peer_id FROM peer_info 
@@ -297,16 +297,7 @@ pub fn get_random_peers(
         ],
         |row| Ok(PeerId::from_bytes(row.get(0)?).expect("parse peer_id")),
     )?;
-
-    let mut peers = Vec::with_capacity(count as usize);
-    for row in rows {
-        let peer_id = row?;
-        let mut addrs = PeerAddrDB::get_addrs(conn, &peer_id, 1)?;
-        if let Some(addr) = addrs.pop() {
-            peers.push(addr);
-        }
-    }
-    Ok(peers)
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<PeerId>> {
