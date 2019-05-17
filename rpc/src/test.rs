@@ -25,7 +25,6 @@ use numext_fixed_uint::U256;
 use reqwest;
 use serde_derive::Deserialize;
 use serde_json::{from_reader, json, to_string_pretty, Map, Value};
-use std::env::temp_dir;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -127,15 +126,17 @@ fn setup_node(
     }
 
     // Start network services
-    let mut dir = temp_dir();
+    let dir = tempfile::Builder::new()
+        .prefix("ckb_resource_test")
+        .tempdir()
+        .unwrap();
     let mut network_config = NetworkConfig::default();
-    network_config.path = dir.clone();
+    network_config.path = dir.path().to_path_buf();
     network_config.ping_interval_secs = 1;
     network_config.ping_timeout_secs = 1;
     network_config.connect_outbound_interval_secs = 1;
 
-    dir.push("network");
-    File::create(dir.clone()).expect("create network database");
+    File::create(dir.path().join("network")).expect("create network database");
     let network_state =
         Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
     let network_controller = NetworkService::new(Arc::clone(&network_state), Vec::new())
