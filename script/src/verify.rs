@@ -176,7 +176,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         appended_arguments: &[Bytes],
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        let current_script_hash = script.hash_with_appended_arguments(&appended_arguments);
+        let current_script_hash = script.hash();
         let mut args = vec!["verify".into()];
         args.extend_from_slice(&script.args);
         args.extend_from_slice(&appended_arguments);
