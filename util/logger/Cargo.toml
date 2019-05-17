@@ -1,6 +1,6 @@
 [package]
 name = "logger"
-version = "0.12.0-pre"
+version = "0.12.0"
 license = "MIT"
 authors = ["Nervos <dev@nervos.org>"]
 edition = "2018"
