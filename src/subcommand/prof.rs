@@ -14,6 +14,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
         .consensus(args.consensus.clone())
         .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool.clone())
+        .script_config(args.config.script)
         .build()
         .map_err(|err| {
             eprintln!("Prof error: {:?}", err);
