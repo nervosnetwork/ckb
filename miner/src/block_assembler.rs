@@ -229,7 +229,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         cellbase_size: usize,
         bytes_limit: u64,
         uncles: &[UncleBlock],
-        proposals: &[ProposalShortId],
+        proposals: &FnvHashSet<ProposalShortId>,
     ) -> Result<usize, FailureError> {
         let occupied = Header::serialized_size(self.proof_size)
             + uncles
