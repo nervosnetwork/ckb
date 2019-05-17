@@ -30,7 +30,7 @@ You also need to get the following packages：
 #### Ubuntu and Debian
 
 ```shell
-sudo apt-get install -y git gcc libc6-dev pkg-config libssl-dev libclang-dev clang
+sudo apt-get install -y git gcc libc6-dev pkg-config libssl1.0-dev libclang-dev clang
 ```
 
 #### Arch Linux
