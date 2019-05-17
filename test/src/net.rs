@@ -1,3 +1,4 @@
+use crate::rpc::RpcClient;
 use crate::specs::TestProtocol;
 use crate::utils::wait_until;
 use crate::Node;
@@ -97,11 +98,7 @@ impl Net {
     }
 
     pub fn connect(&self, node: &Node) {
-        let node_info = node
-            .rpc_client()
-            .local_node_info()
-            .call()
-            .expect("rpc call local_node_info failed");
+        let node_info = node.rpc_client().local_node_info();
         self.controller.as_ref().unwrap().0.add_node(
             &node_info.node_id.parse().expect("invalid peer_id"),
             format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port)
@@ -132,13 +129,7 @@ impl Net {
         let result = wait_until(timeout, || {
             tip_numbers = rpc_clients
                 .iter_mut()
-                .map(|rpc_client| {
-                    rpc_client
-                        .get_tip_block_number()
-                        .call()
-                        .expect("rpc call get_tip_block_number failed")
-                        .0
-                })
+                .map(RpcClient::get_tip_block_number)
                 .collect();
             tip_numbers.len() == 1 && tip_numbers.iter().next().cloned().unwrap() == target
         });

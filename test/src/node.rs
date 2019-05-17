@@ -8,8 +8,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_resource::Resource;
-use jsonrpc_client_http::{HttpHandle, HttpTransport};
-use jsonrpc_types::{BlockTemplate, CellbaseTemplate, Unsigned, Version};
+use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::info;
 use numext_fixed_hash::H256;
 use rand;
@@ -74,12 +73,11 @@ impl Node {
         self.guard = Some(ProcessGuard(child_process));
         info!("Started node with working dir: {}", self.dir);
 
-        let mut client = self.rpc_client();
+        let mut rpc_client = self.rpc_client();
         loop {
-            if let Ok(result) = client.local_node_info().call() {
-                info!("RPC service ready, {:?}", result);
+            if let Ok(result) = rpc_client.inner().local_node_info().call() {
                 self.node_id = Some(result.node_id);
-                assert!(client.tx_pool_info().call().is_ok());
+                let _ = rpc_client.tx_pool_info();
                 break;
             } else if let Some(ref mut child) = self.guard {
                 match child.0.try_wait() {
@@ -100,27 +98,17 @@ impl Node {
     }
 
     pub fn connect(&self, node: &Node) {
-        let node_info = node
-            .rpc_client()
-            .local_node_info()
-            .call()
-            .expect("rpc call local_node_info failed");
+        let node_info = node.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
         let mut rpc_client = self.rpc_client();
-        rpc_client
-            .add_node(
-                node_id.clone(),
-                format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port),
-            )
-            .call()
-            .expect("rpc call add_node failed");
+        rpc_client.add_node(
+            node_id.clone(),
+            format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port),
+        );
 
         let result = wait_until(5, || {
-            let peers = rpc_client
-                .get_peers()
-                .call()
-                .expect("rpc call get_peers failed");
+            let peers = rpc_client.get_peers();
             peers.iter().any(|peer| peer.node_id == node_id)
         });
 
@@ -130,24 +118,14 @@ impl Node {
     }
 
     pub fn disconnect(&self, node: &Node) {
-        let node_info = node
-            .rpc_client()
-            .local_node_info()
-            .call()
-            .expect("rpc call local_node_info failed");
+        let node_info = node.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
         let mut rpc_client = self.rpc_client();
-        rpc_client
-            .remove_node(node_id.clone())
-            .call()
-            .expect("rpc call add_node failed");
+        rpc_client.remove_node(node_id.clone());
 
         let result = wait_until(5, || {
-            let peers = rpc_client
-                .get_peers()
-                .call()
-                .expect("rpc call get_peers failed");
+            let peers = rpc_client.get_peers();
             peers.iter().all(|peer| peer.node_id != node_id)
         });
 
@@ -162,16 +140,8 @@ impl Node {
         let (mut self_tip_number, mut node_tip_number) = (0, 0);
 
         let result = wait_until(timeout, || {
-            self_tip_number = self_rpc_client
-                .get_tip_block_number()
-                .call()
-                .expect("rpc call get_tip_block_number failed")
-                .0;
-            node_tip_number = node_rpc_client
-                .get_tip_block_number()
-                .call()
-                .expect("rpc call get_tip_block_number failed")
-                .0;
+            self_tip_number = self_rpc_client.get_tip_block_number();
+            node_tip_number = node_rpc_client.get_tip_block_number();
             self_tip_number == node_tip_number && target == self_tip_number
         });
 
@@ -183,30 +153,20 @@ impl Node {
         }
     }
 
-    pub fn rpc_client(&self) -> RpcClient<HttpHandle> {
-        let transport = HttpTransport::new().standalone().unwrap();
-        let transport_handle = transport
-            .handle(&format!("http://127.0.0.1:{}/", self.rpc_port))
-            .unwrap();
-        RpcClient::new(transport_handle)
+    pub fn rpc_client(&self) -> RpcClient {
+        RpcClient::new(&format!("http://127.0.0.1:{}/", self.rpc_port))
     }
 
     pub fn submit_block(&self, block: &Block) -> H256 {
-        let result = self
-            .rpc_client()
+        self.rpc_client()
             .submit_block("".to_owned(), block.into())
-            .call()
-            .expect("rpc call submit_block failed");
-        result.expect("submit_block result none")
+            .expect("submit_block result none")
     }
 
     pub fn process_block_without_verify(&self, block: &Block) -> H256 {
-        let result = self
-            .rpc_client()
+        self.rpc_client()
             .process_block_without_verify(block.into())
-            .call()
-            .expect("rpc call process_block_without_verify failed");
-        result.expect("process_block_without_verify result none")
+            .expect("process_block_without_verify result none")
     }
 
     pub fn generate_blocks(&self, blocks_num: usize) -> Vec<H256> {
@@ -234,29 +194,17 @@ impl Node {
     }
 
     pub fn submit_transaction(&self, transaction: &Transaction) -> H256 {
-        self.rpc_client()
-            .send_transaction(transaction.into())
-            .call()
-            .expect("rpc call send_transaction failed")
+        self.rpc_client().send_transaction(transaction.into())
     }
 
     pub fn get_tip_block(&self) -> Block {
-        let mut rpc = self.rpc_client();
-        let tip_number = rpc
-            .get_tip_block_number()
-            .call()
-            .expect("rpc call get_tip_block_number failed");
-        let block_hash = rpc
-            .get_block_hash(tip_number)
-            .call()
-            .expect("rpc call get_block_hash failed")
-            .expect("get_block_hash result none");
-        rpc.get_block(block_hash)
-            .call()
-            .expect("rpc call get_block failed")
-            .expect("get_block result none")
+        let mut rpc_client = self.rpc_client();
+        let tip_number = rpc_client.get_tip_block_number();
+        rpc_client
+            .get_block_by_number(tip_number)
+            .expect("tip block exists")
             .try_into()
-            .expect("block")
+            .unwrap()
     }
 
     pub fn new_block(
@@ -275,15 +223,9 @@ impl Node {
         proposals_limit: Option<u64>,
         max_version: Option<u32>,
     ) -> BlockBuilder {
-        let bytes_limit = bytes_limit.map(Unsigned);
-        let proposals_limit = proposals_limit.map(Unsigned);
-        let max_version = max_version.map(Version);
-        let template = self
-            .rpc_client()
-            .get_block_template(bytes_limit, proposals_limit, max_version)
-            .call()
-            .expect("rpc call get_block_template failed");
-
+        let template =
+            self.rpc_client()
+                .get_block_template(bytes_limit, proposals_limit, max_version);
         let BlockTemplate {
             version,
             difficulty,
@@ -447,11 +389,7 @@ impl Node {
     }
 
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
-        let tx_pool_info = self
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
+        let tx_pool_info = self.rpc_client().tx_pool_info();
         assert_eq!(tx_pool_info.pending.0, pending_size);
         assert_eq!(tx_pool_info.proposed.0, proposed_size);
     }

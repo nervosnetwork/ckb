@@ -18,11 +18,7 @@ impl Spec for TemplateSizeLimit {
 
         (0..5).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
-            hash = node
-                .rpc_client()
-                .send_transaction((&tx).into())
-                .call()
-                .expect("rpc call send_transaction failed");
+            hash = node.rpc_client().send_transaction((&tx).into());
             txs_hash.push(hash.clone());
         });
 

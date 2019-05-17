@@ -97,7 +97,7 @@ impl CompactBlockBasic {
             peer_id0,
             build_compact_block_with_prefilled(&new_block, vec![1]),
         );
-        let ret = wait_until(50, move || node0.get_tip_block() == new_block);
+        let ret = wait_until(10, move || node0.get_tip_block() == new_block);
         assert!(
             ret,
             "Node0 should reconstruct all-prefilled block successfully"

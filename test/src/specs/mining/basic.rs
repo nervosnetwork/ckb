@@ -37,16 +37,12 @@ impl MiningBasic {
         let block1: Block = node
             .rpc_client()
             .get_block(block1_hash)
-            .call()
-            .unwrap()
             .unwrap()
             .try_into()
             .unwrap();
         let block3: Block = node
             .rpc_client()
             .get_block(block3_hash)
-            .call()
-            .unwrap()
             .unwrap()
             .try_into()
             .unwrap();
@@ -85,24 +81,11 @@ impl MiningBasic {
         let mut rpc_client = node.rpc_client();
         let block_hash1 = block1.header().hash().clone();
         assert_eq!(block_hash1, node.submit_block(&block1));
-        assert_eq!(
-            block_hash1,
-            rpc_client
-                .get_tip_header()
-                .call()
-                .expect("rpc call get_tip_header")
-                .hash
-        );
+        assert_eq!(block_hash1, rpc_client.get_tip_header().hash);
 
-        let template1 = rpc_client
-            .get_block_template(None, None, None)
-            .call()
-            .expect("rpc call get_block_template");
+        let template1 = rpc_client.get_block_template(None, None, None);
         sleep(Duration::new(0, 200));
-        let template2 = rpc_client
-            .get_block_template(None, None, None)
-            .call()
-            .expect("rpc call get_block_template");
+        let template2 = rpc_client.get_block_template(None, None, None);
         assert_eq!(block_hash1, template1.parent_hash);
         assert_eq!(
             template1, template2,
@@ -111,18 +94,8 @@ impl MiningBasic {
 
         let block_hash2 = block2.header().hash().clone();
         assert_eq!(block_hash2, node.submit_block(&block2));
-        assert_eq!(
-            block_hash2,
-            rpc_client
-                .get_tip_header()
-                .call()
-                .expect("rpc call get_tip_header")
-                .hash
-        );
-        let template3 = rpc_client
-            .get_block_template(None, None, None)
-            .call()
-            .expect("rpc call get_block_template");
+        assert_eq!(block_hash2, rpc_client.get_tip_header().hash);
+        let template3 = rpc_client.get_block_template(None, None, None);
         assert_eq!(block_hash2, template3.parent_hash);
         assert!(
             template3.current_time.0 > template1.current_time.0,

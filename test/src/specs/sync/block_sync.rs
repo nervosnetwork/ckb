@@ -1,10 +1,10 @@
 use crate::utils::{build_block, build_header, new_block_with_template, wait_until};
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_core::block::Block;
-use ckb_network::{PeerId, PeerIndex};
+use ckb_network::PeerIndex;
 use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
-use jsonrpc_types::{BlockNumber, ChainInfo, Timestamp};
+use jsonrpc_types::{ChainInfo, Timestamp};
 use log::info;
 use std::collections::HashSet;
 use std::thread::sleep;
@@ -16,40 +16,18 @@ impl BlockSyncBasic {
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn test_sync_from_one(&self, _net: &Net, node0: &Node, node1: &Node) {
         let (mut rpc_client0, mut rpc_client1) = (node0.rpc_client(), node1.rpc_client());
-        assert_eq!(
-            0,
-            rpc_client0
-                .get_tip_block_number()
-                .call()
-                .expect("rpc call get_tip_block_number")
-                .0
-        );
-        assert_eq!(
-            0,
-            rpc_client1
-                .get_tip_block_number()
-                .call()
-                .expect("rpc call get_tip_block_number")
-                .0
-        );
+        assert_eq!(0, rpc_client0.get_tip_block_number());
+        assert_eq!(0, rpc_client1.get_tip_block_number());
 
         (0..3).for_each(|_| {
             node0.generate_block();
         });
 
-        info!("Connect node0 to node1");
         node0.connect(node1);
 
-        info!("Node1 should be synced to same block number (3) with node0");
-        let ret = wait_until(60, || {
-            let header0 = rpc_client0
-                .get_tip_header()
-                .call()
-                .expect("rpc call get_tip_header");
-            let header1 = rpc_client1
-                .get_tip_header()
-                .call()
-                .expect("rpc call get_tip_header");
+        let ret = wait_until(10, || {
+            let header0 = rpc_client0.get_tip_header();
+            let header1 = rpc_client1.get_tip_header();
             header0 == header1 && header0.inner.number.0 == 3
         });
         assert!(
@@ -61,55 +39,23 @@ impl BlockSyncBasic {
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn test_sync_forks(&self, _net: &Net, node0: &Node, node1: &Node) {
         let (mut rpc_client0, mut rpc_client1) = (node0.rpc_client(), node1.rpc_client());
-        assert_eq!(
-            0,
-            rpc_client0
-                .get_tip_block_number()
-                .call()
-                .expect("rpc call get_tip_block_number")
-                .0
-        );
-        assert_eq!(
-            0,
-            rpc_client1
-                .get_tip_block_number()
-                .call()
-                .expect("rpc call get_tip_block_number")
-                .0
-        );
+        assert_eq!(0, rpc_client0.get_tip_block_number());
+        assert_eq!(0, rpc_client1.get_tip_block_number());
 
         build_forks(node0, &[2, 0, 0, 0, 0, 0, 0, 0, 0]);
         build_forks(node1, &[1, 0, 0, 0, 0, 0, 0, 0, 0]);
-        let info0: ChainInfo = rpc_client0
-            .get_blockchain_info()
-            .call()
-            .expect("rpc call get_blockchain_info");
-        let info1: ChainInfo = rpc_client1
-            .get_blockchain_info()
-            .call()
-            .expect("rpc call get_blockchain_info");
-        let tip0 = rpc_client0
-            .get_tip_header()
-            .call()
-            .expect("rpc call get_tip_block_number");
-        let tip1 = rpc_client1
-            .get_tip_header()
-            .call()
-            .expect("rpc call get_tip_block_number");
+        let info0: ChainInfo = rpc_client0.get_blockchain_info();
+        let info1: ChainInfo = rpc_client1.get_blockchain_info();
+        let tip0 = rpc_client0.get_tip_header();
+        let tip1 = rpc_client1.get_tip_header();
         assert_eq!(tip0.inner.number, tip1.inner.number);
         assert_ne!(tip0.hash, tip1.hash);
 
         // Connect node0 and node1, so that they can sync with each other
         node0.connect(node1);
-        let ret = wait_until(60, || {
-            let header0 = rpc_client0
-                .get_tip_header()
-                .call()
-                .expect("rpc call get_tip_header");
-            let header1 = rpc_client1
-                .get_tip_header()
-                .call()
-                .expect("rpc call get_tip_header");
+        let ret = wait_until(10, || {
+            let header0 = rpc_client0.get_tip_header();
+            let header1 = rpc_client1.get_tip_header();
             header0 == header1
         });
         assert!(
@@ -117,27 +63,15 @@ impl BlockSyncBasic {
             "Node0 and node1 should sync with each other until same tip chain",
         );
         for number in 1u64..tip0.inner.number.0 {
-            let block0 = rpc_client0
-                .get_block_by_number(BlockNumber(number))
-                .call()
-                .expect("rpc call get_block_by_number");
-            let block1 = rpc_client1
-                .get_block_by_number(BlockNumber(number))
-                .call()
-                .expect("rpc call get_block_by_number");
+            let block0 = rpc_client0.get_block_by_number(number);
+            let block1 = rpc_client1.get_block_by_number(number);
             assert_eq!(
                 block0, block1,
                 "nodes should have same best chain after synchronizing",
             );
         }
-        let info00: ChainInfo = rpc_client0
-            .get_blockchain_info()
-            .call()
-            .expect("rpc call get_blockchain_info");
-        let info11: ChainInfo = rpc_client1
-            .get_blockchain_info()
-            .call()
-            .expect("rpc call get_blockchain_info");
+        let info00: ChainInfo = rpc_client0.get_blockchain_info();
+        let info11: ChainInfo = rpc_client1.get_blockchain_info();
         let medians = vec![
             info0.median_time.0,
             info00.median_time.0,
@@ -184,14 +118,9 @@ impl BlockSyncBasic {
 
         // Disconnect and reconnect node, and then sync the same header
         // `node` should send back a corresponding GetBlocks message
-        let mut rpc_client = node.rpc_client();
-        let node_info: jsonrpc_types::Node = rpc_client
-            .local_node_info()
-            .call()
-            .expect("rpc call local_node_info");
         if let Some(ref ctrl) = net.controller.as_ref() {
-            ctrl.0
-                .remove_node(&PeerId::from_bytes(node_info.node_id.into_bytes()).unwrap());
+            let peer = ctrl.0.connected_peers()[peer_id.value() - 1].clone();
+            ctrl.0.remove_node(&peer.0);
         }
         net.connect(node);
         let (peer_id, _, _) = net
@@ -212,14 +141,8 @@ impl BlockSyncBasic {
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(net, peer_id, &block);
         let hash = block.header().hash().clone();
-        wait_until(10, || {
-            rpc_client
-                .get_tip_header()
-                .call()
-                .expect("rpc call get_tip_header")
-                .hash
-                == hash
-        });
+        let mut rpc_client = node.rpc_client();
+        wait_until(10, || rpc_client.get_tip_header().hash == hash);
     }
 
     pub fn test_sync_orphan_blocks(&self, net: &Net, node0: &Node, node1: &Node) {
@@ -230,11 +153,10 @@ impl BlockSyncBasic {
             .receive_timeout(Duration::new(10, 0))
             .expect("net receive timeout");
         let mut rpc_client = node0.rpc_client();
-        let tip_number = rpc_client.get_tip_block_number().call().unwrap();
+        let tip_number = rpc_client.get_tip_block_number();
 
         // Generate some blocks from node1
         let mut blocks: Vec<Block> = (1..=5)
-            .into_iter()
             .map(|_| {
                 let block = node1.new_block(None, None, None);
                 node1.submit_block(&block);
@@ -255,16 +177,12 @@ impl BlockSyncBasic {
         blocks.into_iter().for_each(|block| {
             sync_block(net, peer_id, &block);
         });
-        let ret = wait_until(5, || {
-            rpc_client.get_tip_block_number().call().unwrap().0 > tip_number.0
-        });
+        let ret = wait_until(5, || rpc_client.get_tip_block_number() > tip_number);
         assert!(!ret, "node0 should stay the same");
 
         // Send that skipped first block to node0
         sync_block(net, peer_id, &first);
-        let ret = wait_until(10, || {
-            rpc_client.get_tip_block_number().call().unwrap().0 > tip_number.0 + 2
-        });
+        let ret = wait_until(10, || rpc_client.get_tip_block_number() > tip_number + 2);
         assert!(ret, "node0 should grow up");
     }
 }
@@ -294,10 +212,7 @@ impl Spec for BlockSyncBasic {
 fn build_forks(node: &Node, offsets: &[u64]) {
     let mut rpc_client = node.rpc_client();
     for offset in offsets.iter() {
-        let mut template = rpc_client
-            .get_block_template(None, None, None)
-            .call()
-            .expect("rpc call get_block_template failed");
+        let mut template = rpc_client.get_block_template(None, None, None);
         template.current_time = Timestamp(template.current_time.0 + offset);
         let block = new_block_with_template(template);
         node.submit_block(&block);
