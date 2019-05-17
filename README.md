@@ -1,5 +1,3 @@
-<img src="https://raw.githubusercontent.com/poshboytl/tuchuang/master/nervos-logo-dark.png" width="256">
-
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
 [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
@@ -9,7 +7,9 @@
 
 ## About CKB
 
-CKB is the layer 1 of Nervos Network, a public blockchain with PoW, improved Nakamoto concensus, cell model and a new programming model for dApps.
+CKB is the layer 1 of Nervos Network, a public/permissionless blockchain. CKB uses [Proof of Work](https://en.wikipedia.org/wiki/Proof-of-work_system) and [improved Nakamoto concensus](https://medium.com/nervosnetwork/breaking-the-throughput-limit-of-nakamoto-consensus-ccdf65fe0832) to achieve maximized performance on average hardware and internet condition, without sacrificing decentralization and security which are the core value of blockchain.
+
+CKB supports scripting in any programming language with its own [CKB-VM](https://github.com/nervosnetwork/ckb-vm/), a virtual machine fully compatible with RISC-V ISA. CKB is a [General Verification Network](https://medium.com/nervosnetwork/https-medium-com-nervosnetwork-cell-model-7323fca57571), its programming model focuses on state verification, leaves state generation to layer 2 applications/protocols.
 
 [Nervos project](https://www.nervos.org) defines [a suite of scalable and interoperable blockchain protocols](https://github.com/nervosnetwork/rfcs) to create a self-evolving distributed economy, [CKB](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0002-ckb/0002-ckb.md) is among them.
 
@@ -19,11 +19,19 @@ the option `dsn` to empty in the config file.
 
 ## Testnet Rylai
 
-CKB Testnet *Rylai* is the testing network before its mainnet launch. At this time Rylai will be **RESET** every two weeks.
+CKB Testnet *Rylai* is the testing network before its mainnet launch.
 
 ## Mainnet
 
 TBD.
+
+## Mining
+
+Mining on testnet Rylai is for testing purpose only, the mining algorithm **WILL BE CHANGED SOON**.
+
+At this time Rylai will be **RESET** every two weeks.
+
+Please check [here](https://docs.nervos.org/getting-started/mine) for more information.
 
 ## License [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fnervosnetwork%2Fckb.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fnervosnetwork%2Fckb?ref=badge_shield)
 
