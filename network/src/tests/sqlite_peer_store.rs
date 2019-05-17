@@ -33,10 +33,6 @@ fn test_report() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     assert!(peer_store.report(&peer_id, Behaviour::TestGood).is_ok());
-    // assert!(
-    //     peer_store.peer_score(&peer_id).expect("peer score")
-    //         > peer_store.peer_score_config().default_score
-    // );
 }
 
 #[test]

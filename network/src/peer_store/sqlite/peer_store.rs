@@ -1,16 +1,16 @@
-/// SqlitePeerStore
-/// Principles:
-/// 1. PeerId is easy to be generated, should never use a PeerId as an identity.
-/// 2. Peer's connected addr should be use as an identify to ban a peer, it is based on our
-///    assumption that IP is a limited resource.
-/// Solution:
-/// 1. Through PeerId to ban or score a peer.
-/// 2. When a peer get banned we also ban peer's connected addr.
-/// 3. A bad peer can always avoid punishment by change it's PeerId, but it can't get high
-///    score.
-/// 4. Good peers can get higher score than bad peers.
-///
-///
+//! SqlitePeerStore
+//! Principles:
+//! 1. PeerId is easy to be generated, should never use a PeerId as an identity.
+//! 2. Peer's connected addr should be use as an identify to ban a peer, it is based on our
+//!    assumption that IP is a limited resource.
+//! Solution:
+//! 1. Through PeerId to ban or score a peer.
+//! 2. When a peer get banned we also ban peer's connected addr.
+//! 3. A bad peer can always avoid punishment by change it's PeerId, but it can't get high
+//!    score.
+//! 4. Good peers can get higher score than bad peers.
+
+
 use crate::network_group::MultiaddrExt;
 use crate::peer_store::sqlite::{db, DBError};
 use crate::peer_store::types::{PeerAddr, PeerInfo};

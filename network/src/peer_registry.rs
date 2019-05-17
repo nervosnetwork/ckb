@@ -118,17 +118,6 @@ impl PeerRegistry {
                 .collect::<Vec<_>>()
         };
         // Protect peers based on characteristics that an attacker hard to simulate or manipulate
-        // Protect peers which has the highest score
-        // sort_then_drop(
-        //     &mut candidate_peers,
-        //     EVICTION_PROTECT_PEERS,
-        //     |peer1, peer2| {
-        //         let peer1_score = peer_store.peer_score(&peer1.peer_id).unwrap_or_default();
-        //         let peer2_score = peer_store.peer_score(&peer2.peer_id).unwrap_or_default();
-        //         peer1_score.cmp(&peer2_score)
-        //     },
-        // );
-
         // Protect peers which has the lowest ping
         sort_then_drop(
             &mut candidate_peers,
@@ -186,7 +175,7 @@ impl PeerRegistry {
         let mut rng = thread_rng();
         evict_group.shuffle(&mut rng);
 
-        // randomly evict a lowest scored peer
+        // randomly evict a peer
         evict_group.get(0).map(|peer| {
             debug!(target: "network", "evict inbound peer {:?}", peer.peer_id);
             peer.session_id
