@@ -566,7 +566,7 @@ dependencies = [
  "snap 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "stop-handler 0.13.0-pre",
  "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.17 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle 0.2.0-alpha.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle-discovery 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle-identify 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle-ping 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -669,6 +669,7 @@ dependencies = [
  "serde 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "test-chain-utils 0.13.0-pre",
 ]
 
@@ -682,7 +683,7 @@ dependencies = [
  "ckb-protocol 0.13.0-pre",
  "ckb-resource 0.13.0-pre",
  "ckb-store 0.13.0-pre",
- "ckb-vm 0.12.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=83c1335)",
+ "ckb-vm 0.12.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=5c443bc)",
  "crypto 0.13.0-pre",
  "dao 0.13.0-pre",
  "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -813,7 +814,6 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "rayon 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "test-chain-utils 0.13.0-pre",
 ]
 
@@ -858,12 +858,12 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.12.0-pre"
-source = "git+https://github.com/nervosnetwork/ckb-vm?rev=83c1335#83c13353b6cf68b28f31b96df2068c33986a613d"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=5c443bc#5c443bc4cc79e28d1e7b5a813eeb492ba908c59e"
 dependencies = [
  "byteorder 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-vm-definitions 0.12.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=83c1335)",
+ "ckb-vm-definitions 0.12.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=5c443bc)",
  "goblin 0.0.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.54 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -871,7 +871,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm-definitions"
 version = "0.12.0-pre"
-source = "git+https://github.com/nervosnetwork/ckb-vm?rev=83c1335#83c13353b6cf68b28f31b96df2068c33986a613d"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=5c443bc#5c443bc4cc79e28d1e7b5a813eeb492ba908c59e"
 
 [[package]]
 name = "clang-sys"
@@ -3044,7 +3044,7 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.2.0-alpha.17"
+version = "0.2.0-alpha.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3072,7 +3072,7 @@ dependencies = [
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.17 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle 0.2.0-alpha.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -3085,7 +3085,7 @@ dependencies = [
  "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers-verifier 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.17 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle 0.2.0-alpha.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -3100,7 +3100,7 @@ dependencies = [
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "generic-channel 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle 0.2.0-alpha.17 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle 0.2.0-alpha.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3705,8 +3705,8 @@ dependencies = [
 "checksum cexpr 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "a7fa24eb00d5ffab90eaeaf1092ac85c04c64aaf358ea6f84505b8116d24c6af"
 "checksum cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "11d43355396e872eefb45ce6342e4374ed7bc2b3a502d1b28e36d6e23c05d1f4"
 "checksum chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "45912881121cb26fad7c38c17ba7daa18764771836b34fab7d3fbd93ed633878"
-"checksum ckb-vm 0.12.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=83c1335)" = "<none>"
-"checksum ckb-vm-definitions 0.12.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=83c1335)" = "<none>"
+"checksum ckb-vm 0.12.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=5c443bc)" = "<none>"
+"checksum ckb-vm-definitions 0.12.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=5c443bc)" = "<none>"
 "checksum clang-sys 0.26.4 (registry+https://github.com/rust-lang/crates.io-index)" = "6ef0c1bcf2e99c649104bd7a7012d8f8802684400e03db0ec0af48583c6fa0e4"
 "checksum clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5067f5bb2d80ef5d68b4c87db81601f0b75bca627bc2ef76b141d7b846a3c6d9"
 "checksum clicolors-control 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "73abfd4c73d003a674ce5d2933fca6ce6c42480ea84a5ffe0a2dc39ed56300f9"
@@ -3932,7 +3932,7 @@ dependencies = [
 "checksum syn 0.15.29 (registry+https://github.com/rust-lang/crates.io-index)" = "1825685f977249735d510a242a6727b46efe914bb67e38d30c071b1b72b1d5c2"
 "checksum synstructure 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)" = "73687139bf99285483c96ac0add482c3776528beac1d97d444f6e91f203a2015"
 "checksum tempfile 3.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "b86c784c88d98c801132806dadd3819ed29d8600836c4088e855cdf3e178ed8a"
-"checksum tentacle 0.2.0-alpha.17 (registry+https://github.com/rust-lang/crates.io-index)" = "8d73dbd20d91339b1475b11609c4dc8292454b4d1bfde5d8bf65b5fc1554d656"
+"checksum tentacle 0.2.0-alpha.18 (registry+https://github.com/rust-lang/crates.io-index)" = "0471908d0dd4be91fcff04647e004b7fd8c596cc0d7b78b6a5c7f985f27d7962"
 "checksum tentacle-discovery 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "48f049945da9545ef3208a10a28a33ca64e9672dab762ad28cfc861262f9a770"
 "checksum tentacle-identify 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "345d23968098e355e3e01973c3531886c0f1631723aa46774fc3ebfb8f1e714c"
 "checksum tentacle-ping 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "8b70c3cca0a78b4661039f257d849993009a5f4bcd32203fffc9b5d755001613"

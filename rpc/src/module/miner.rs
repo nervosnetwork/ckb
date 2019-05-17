@@ -16,7 +16,6 @@ use jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
 use log::{debug, error};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 #[rpc]
@@ -75,10 +74,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         sentry::configure_scope(|scope| scope.set_extra("work_id", work_id.clone().into()));
 
         debug!(target: "rpc", "[{}] submit block", work_id);
-        let block: Arc<CoreBlock> = Arc::new(
-            data.try_into()
-                .map_err(|err| Error::invalid_params(format!("parse block error: {}", err)))?,
-        );
+        let block: Arc<CoreBlock> = Arc::new(data.into());
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
         let header_verify_ret = {
             let chain_state = self.shared.lock_chain_state();

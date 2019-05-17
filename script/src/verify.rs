@@ -1,12 +1,14 @@
 use crate::{
     cost_model::instruction_cycles,
-    syscalls::{Debugger, LoadCell, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash},
+    syscalls::{
+        Debugger, LoadCell, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash, LoadWitness,
+    },
     Runner, ScriptConfig, ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::extras::BlockExt;
 use ckb_core::script::{Script, DAO_CODE_HASH};
-use ckb_core::transaction::{CellInput, CellOutPoint};
+use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{BlockNumber, Capacity};
 use ckb_core::{Bytes, Cycle};
 use ckb_resource::bundled;
@@ -41,7 +43,7 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     outputs: Vec<CellMeta>,
     resolved_inputs: Vec<&'a ResolvedOutPoint>,
     resolved_deps: Vec<&'a ResolvedOutPoint>,
-    witnesses: FnvHashMap<u32, &'a [Bytes]>,
+    witnesses: Vec<&'a Witness>,
     hash: H256,
     config: &'a ScriptConfig,
 }
@@ -56,6 +58,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         let resolved_deps: Vec<&'a ResolvedOutPoint> = rtx.resolved_deps.iter().collect();
         let resolved_inputs: Vec<&'a ResolvedOutPoint> = rtx.resolved_inputs.iter().collect();
         let inputs: Vec<&'a CellInput> = rtx.transaction.inputs().iter().collect();
+        let witnesses: Vec<&'a Witness> = rtx.transaction.witnesses().iter().collect();
         let outputs = rtx
             .transaction
             .outputs()
@@ -72,13 +75,6 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 capacity: output.capacity,
                 data_hash: None,
             })
-            .collect();
-        let witnesses: FnvHashMap<u32, &'a [Bytes]> = rtx
-            .transaction
-            .witnesses()
-            .iter()
-            .enumerate()
-            .map(|(idx, wit)| (idx as u32, &wit[..]))
             .collect();
 
         let binary_index: FnvHashMap<H256, usize> = resolved_deps
@@ -156,6 +152,10 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         LoadHeader::new(&self.resolved_inputs, &self.resolved_deps)
     }
 
+    fn build_load_witness(&'a self) -> LoadWitness<'a> {
+        LoadWitness::new(&self.witnesses)
+    }
+
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
         match self.binary_index.get(&script.code_hash).and_then(|index| {
@@ -176,7 +176,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         appended_arguments: &[Bytes],
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        let current_script_hash = script.hash_with_appended_arguments(&appended_arguments);
+        let current_script_hash = script.hash();
         let mut args = vec!["verify".into()];
         args.extend_from_slice(&script.args);
         args.extend_from_slice(&appended_arguments);
@@ -221,7 +221,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             let prefix = format!("Transaction {:x}, input {}", self.hash, i);
             let mut appended_arguments = vec![];
             appended_arguments.extend_from_slice(&input.args);
-            if let Some(witness) = self.witnesses.get(&(i as u32)) {
+            if let Some(witness) = self.witnesses.get(i) {
                 appended_arguments.extend_from_slice(&witness);
             }
 
@@ -396,6 +396,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     .syscall(Box::new(self.build_load_cell()))
                     .syscall(Box::new(self.build_load_input()))
                     .syscall(Box::new(self.build_load_header()))
+                    .syscall(Box::new(self.build_load_witness()))
                     .syscall(Box::new(Debugger::new(prefix)))
                     .build();
                 let mut machine = AsmMachine::new(machine);
@@ -417,6 +418,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 .syscall(Box::new(self.build_load_cell()))
                 .syscall(Box::new(self.build_load_input()))
                 .syscall(Box::new(self.build_load_header()))
+                .syscall(Box::new(self.build_load_witness()))
                 .syscall(Box::new(Debugger::new(prefix)))
                 .build();
                 let mut machine = TraceMachine::new(machine);

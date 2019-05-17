@@ -498,7 +498,7 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tx_pool.borrow().last_txs_updated_at
     }
 
-    pub fn get_proposals(&self, proposals_limit: usize) -> Vec<ProposalShortId> {
+    pub fn get_proposals(&self, proposals_limit: usize) -> FnvHashSet<ProposalShortId> {
         let tx_pool = self.tx_pool.borrow();
         tx_pool
             .pending

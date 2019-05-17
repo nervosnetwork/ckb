@@ -4,7 +4,6 @@ use ckb_core::transaction::ProposalShortId;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use failure::Error as FailureError;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{
@@ -12,7 +11,6 @@ use jsonrpc_types::{
     EpochExt, EpochNumber, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
 };
 use numext_fixed_hash::H256;
-use std::convert::TryInto;
 
 pub const PAGE_SIZE: u64 = 100;
 
@@ -186,13 +184,10 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        let mut cell_status = self.shared.lock_chain_state().cell(
-            &(out_point
-                .clone()
-                .try_into()
-                .map_err(FailureError::from)
-                .map_err(|err| Error::invalid_params(err.to_string()))?),
-        );
+        let mut cell_status = self
+            .shared
+            .lock_chain_state()
+            .cell(&out_point.clone().into());
         if let CellStatus::Live(ref mut cell_meta) = cell_status {
             if cell_meta.cell_output.is_none() {
                 cell_meta.cell_output = Some(

@@ -7,7 +7,6 @@ use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::TransactionVerifier;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::sync::Arc;
 
 struct StoreBlockMedianTimeContext<CS> {
@@ -100,7 +99,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         };
         // parallet verify txs
         let cycles_vec = resolved_txs
-            .par_iter()
+            .iter()
             .map(|(tx_hash, tx)| {
                 let verified_result = TransactionVerifier::new(
                     &tx,

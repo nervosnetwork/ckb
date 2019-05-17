@@ -30,7 +30,7 @@ logs = _str(subprocess.check_output(
     ['git', 'log', '--reverse', '--merges', '--first-parent', '--pretty=tformat:%s', '{}...HEAD'.format(since)]))
 
 PR_NUMBER_RE = re.compile(r'\s*Merge pull request #(\d+) from')
-PR_TITLE_RE = re.compile(r'(?:\[[^]]+\]\s*)*(?:(\w+)(?:\(([^\)]+)\))?: )?(.*)')
+PR_TITLE_RE = re.compile(r'(?:\[[^]]+\]\s*)*(?:(\w+)(?:\(([^\)]+)\))?:\s*)?(.*)')
 
 Change = namedtuple('Change', ['scope', 'module', 'title', 'text'])
 
@@ -86,6 +86,8 @@ for line in logs.splitlines():
             continue
 
         user = pr['user']['login']
+        message = message.strip()
+        message = message[0].upper() + message[1:]
         if module:
             title = '* #{0} **{1}:** {2} (@{3})'.format(pr_number,
                                                         module, message, user)

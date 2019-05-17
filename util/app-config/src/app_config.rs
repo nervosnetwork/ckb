@@ -277,7 +277,7 @@ mod tests {
                 vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
             );
             assert_eq!(ckb_config.network.connect_outbound_interval_secs, 15);
-            assert_eq!(ckb_config.rpc.listen_address, "0.0.0.0:7000");
+            assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
         }
         {
             locator.export_miner(&context).expect("export config files");
@@ -344,7 +344,7 @@ mod tests {
                 vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
             );
             assert_eq!(ckb_config.network.connect_outbound_interval_secs, 15);
-            assert_eq!(ckb_config.rpc.listen_address, "0.0.0.0:7000");
+            assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
         }
         {
             locator.export_miner(&context).expect("export config files");
@@ -381,7 +381,7 @@ mod tests {
                 ckb_config.network.listen_addresses,
                 vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
             );
-            assert_eq!(ckb_config.rpc.listen_address, "0.0.0.0:7000");
+            assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
         }
         {
             locator.export_miner(&context).expect("export config files");

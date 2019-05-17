@@ -12,7 +12,6 @@ ckb-store = { path = "../../store" }
 ckb-traits = { path = "../../traits" }
 ckb-verification = { path = "../../verification" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-rayon = "1.0"
 fnv = "1.0.3"
 [dev-dependencies]
 ckb-chain = { path = "../../chain" }

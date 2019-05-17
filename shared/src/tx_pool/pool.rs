@@ -56,7 +56,11 @@ impl TxPool {
     }
 
     // enqueue_tx inserts a new transaction into pending queue.
+    // If did have this value present, false is returned.
     pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, tx: Transaction) -> bool {
+        if self.gap.contains_key(&tx.proposal_short_id()) {
+            return false;
+        }
         self.pending.add_tx(cycles, tx).is_none()
     }
 

@@ -106,7 +106,7 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
         let committed_ids: FnvHashSet<_> = self
             .block
             .transactions()
-            .par_iter()
+            .iter()
             .skip(1)
             .map(Transaction::proposal_short_id)
             .collect();

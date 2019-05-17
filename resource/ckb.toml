@@ -53,8 +53,8 @@ ping_timeout_secs = 1200
 connect_outbound_interval_secs = 15
 
 [rpc]
-listen_address = "0.0.0.0:8114" # {{
-# _ => listen_address = "0.0.0.0:{rpc_port}"
+listen_address = "127.0.0.1:8114" # {{
+# _ => listen_address = "127.0.0.1:{rpc_port}"
 # }}
 
 # Default is 10MiB = 10 * 1024 * 1024

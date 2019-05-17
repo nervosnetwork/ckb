@@ -4,11 +4,9 @@ use crate::{
 };
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
-use std::convert::{TryFrom, TryInto};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockTemplate {
@@ -36,22 +34,20 @@ pub struct UncleTemplate {
     pub header: Header, // temporary
 }
 
-impl TryFrom<UncleTemplate> for CoreUncleBlock {
-    type Error = FailureError;
-
-    fn try_from(template: UncleTemplate) -> Result<Self, Self::Error> {
+impl From<UncleTemplate> for CoreUncleBlock {
+    fn from(template: UncleTemplate) -> Self {
         let UncleTemplate {
             proposals, header, ..
         } = template;
 
-        Ok(CoreUncleBlock {
-            header: header.try_into()?,
+        CoreUncleBlock {
+            header: header.into(),
             proposals: proposals
                 .iter()
                 .cloned()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
-        })
+                .map(Into::into)
+                .collect::<Vec<_>>(),
+        }
     }
 }
 
@@ -62,12 +58,10 @@ pub struct CellbaseTemplate {
     pub data: Transaction, // temporary
 }
 
-impl TryFrom<CellbaseTemplate> for CoreTransaction {
-    type Error = FailureError;
-
-    fn try_from(template: CellbaseTemplate) -> Result<Self, Self::Error> {
+impl From<CellbaseTemplate> for CoreTransaction {
+    fn from(template: CellbaseTemplate) -> Self {
         let CellbaseTemplate { data, .. } = template;
-        data.try_into()
+        data.into()
     }
 }
 
@@ -80,11 +74,9 @@ pub struct TransactionTemplate {
     pub data: Transaction, // temporary
 }
 
-impl TryFrom<TransactionTemplate> for CoreTransaction {
-    type Error = FailureError;
-
-    fn try_from(template: TransactionTemplate) -> Result<Self, Self::Error> {
+impl From<TransactionTemplate> for CoreTransaction {
+    fn from(template: TransactionTemplate) -> Self {
         let TransactionTemplate { data, .. } = template;
-        data.try_into()
+        data.into()
     }
 }

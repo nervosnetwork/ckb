@@ -59,7 +59,7 @@ fn random_order_benchmark(c: &mut Criterion) {
             for _ in 0..8000 {
                 let peer_id = PeerId::random();
                 peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
-                let _ = peer_store.add_discovered_addr(&peer_id, addr.clone());
+                peer_store.add_discovered_addr(&peer_id, addr.clone());
             }
         }
         c.bench_function("random order 1000 / 8000 peer_info", {
@@ -77,7 +77,7 @@ fn random_order_benchmark(c: &mut Criterion) {
             for _ in 0..8000 {
                 let peer_id = PeerId::random();
                 peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
-                let _ = peer_store.add_discovered_addr(&peer_id, addr.clone());
+                peer_store.add_discovered_addr(&peer_id, addr.clone());
             }
         }
         c.bench_function("random order 2000 / 8000 peer_info", {
@@ -100,7 +100,7 @@ fn random_order_benchmark(c: &mut Criterion) {
                 for _ in 0..8000 {
                     let peer_id = PeerId::random();
                     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Outbound);
-                    let _ = peer_store.add_discovered_addr(&peer_id, addr.clone());
+                    peer_store.add_discovered_addr(&peer_id, addr.clone());
                 }
                 move || {
                     let count = 1000;

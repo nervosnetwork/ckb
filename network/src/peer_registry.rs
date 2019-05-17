@@ -84,7 +84,7 @@ impl PeerRegistry {
                 return Err(PeerError::NonReserved);
             }
             // ban_list lock acquired
-            if peer_store.is_banned(&peer_id) {
+            if peer_store.is_banned(&remote_addr) {
                 return Err(PeerError::Banned);
             }
 
@@ -110,7 +110,7 @@ impl PeerRegistry {
 
     // When have inbound connection, we try evict a inbound peer
     // TODO: revisit this after find out what's bitcoin way
-    fn try_evict_inbound_peer(&self, peer_store: &PeerStore) -> Option<SessionId> {
+    fn try_evict_inbound_peer(&self, _peer_store: &PeerStore) -> Option<SessionId> {
         let mut candidate_peers = {
             self.peers
                 .values()
@@ -118,17 +118,6 @@ impl PeerRegistry {
                 .collect::<Vec<_>>()
         };
         // Protect peers based on characteristics that an attacker hard to simulate or manipulate
-        // Protect peers which has the highest score
-        sort_then_drop(
-            &mut candidate_peers,
-            EVICTION_PROTECT_PEERS,
-            |peer1, peer2| {
-                let peer1_score = peer_store.peer_score(&peer1.peer_id).unwrap_or_default();
-                let peer2_score = peer_store.peer_score(&peer2.peer_id).unwrap_or_default();
-                peer1_score.cmp(&peer2_score)
-            },
-        );
-
         // Protect peers which has the lowest ping
         sort_then_drop(
             &mut candidate_peers,
@@ -169,7 +158,7 @@ impl PeerRegistry {
         });
 
         // Grop peers by network group
-        let mut evict_group = candidate_peers
+        let evict_group = candidate_peers
             .into_iter()
             .fold(FnvHashMap::default(), |mut groups, peer| {
                 groups
@@ -183,17 +172,12 @@ impl PeerRegistry {
             .cloned()
             .unwrap_or_else(Vec::new);
 
+        // randomly evict a peer
         let mut rng = thread_rng();
-        evict_group.shuffle(&mut rng);
-
-        // randomly evict a lowest scored peer
-        evict_group
-            .iter()
-            .min_by_key(|peer| peer_store.peer_score(&peer.peer_id).unwrap_or_default())
-            .map(|peer| {
-                debug!(target: "network", "evict inbound peer {:?}", peer.peer_id);
-                peer.session_id
-            })
+        evict_group.choose(&mut rng).map(|peer| {
+            debug!(target: "network", "evict inbound peer {:?}", peer.peer_id);
+            peer.session_id
+        })
     }
 
     pub fn add_feeler(&mut self, peer_id: PeerId) {
