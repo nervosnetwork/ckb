@@ -146,11 +146,11 @@ impl SqlitePeerStore {
     }
 
     /// check and try delete peer_addr if peer_addr reach limit
-    fn check_peer_addrs_limit(&mut self, peer_id: &PeerId) -> Result<(), ()> {
+    fn check_limit_and_evict_peer_addrs(&mut self, peer_id: &PeerId) {
         let now = unix_time_as_millis();
         let peer_addrs_count = db::PeerAddrDB::count(&self.conn, peer_id).expect("peer info count");
         if peer_addrs_count < MAX_ADDRS {
-            return Ok(());
+            return;
         }
         let mut peer_addrs =
             db::PeerAddrDB::get_addrs(&self.conn, peer_id, MAX_ADDRS).expect("peer addrs");
@@ -164,7 +164,7 @@ impl SqlitePeerStore {
         }
         // have evict addrs
         if terrible_addrs_count > 0 {
-            return Ok(());
+            return;
         }
         // find oldest last_connected_at_ms addr
         peer_addrs.sort_by(|a, b| a.last_connected_at_ms.cmp(&b.last_connected_at_ms));
@@ -172,7 +172,6 @@ impl SqlitePeerStore {
             db::PeerAddrDB::delete(&self.conn, &old_peer_addr.peer_id, &old_peer_addr.addr)
                 .expect("evict peer addr");
         }
-        Ok(())
     }
 
     fn fetch_peer_info(&self, peer_id: &PeerId) -> PeerInfo {
@@ -239,10 +238,8 @@ impl PeerStore for SqlitePeerStore {
     }
 
     fn add_discovered_addr(&mut self, peer_id: &PeerId, addr: Multiaddr) {
-        // peer store is full
-        if self.check_peer_addrs_limit(peer_id).is_err() {
-            return;
-        }
+        // check and evict addrs if reach limit
+        self.check_limit_and_evict_peer_addrs(peer_id);
         // insert a peer if peer not exists in db
         let peer = self.fetch_peer_info(peer_id);
         db::PeerAddrDB::insert_or_update(
@@ -253,10 +250,8 @@ impl PeerStore for SqlitePeerStore {
     }
 
     fn update_peer_addr(&mut self, peer_addr: &PeerAddr) {
-        // peer store is full
-        if self.check_peer_addrs_limit(&peer_addr.peer_id).is_err() {
-            return;
-        }
+        // check and evict addrs if reach limit
+        self.check_limit_and_evict_peer_addrs(&peer_addr.peer_id);
         db::PeerAddrDB::insert_or_update(&self.conn, peer_addr).expect("insert addr");
     }
 
