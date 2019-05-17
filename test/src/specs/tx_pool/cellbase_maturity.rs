@@ -21,11 +21,7 @@ impl Spec for CellbaseMaturity {
 
         (0..MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is not maturity in N + {} block", i);
-            let error = node
-                .rpc_client()
-                .send_transaction((&tx).into())
-                .call()
-                .unwrap_err();
+            let error = node.rpc_client().send_transaction((&tx).into());
             assert_regex_match(&error.to_string(), r"InvalidTx\(CellbaseImmaturity\)");
             node.generate_block();
         });
@@ -34,11 +30,7 @@ impl Spec for CellbaseMaturity {
             "Tx will be added to pending pool in N + {} block",
             MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
-        let tx_hash = node
-            .rpc_client()
-            .send_transaction((&tx).into())
-            .call()
-            .unwrap();
+        let tx_hash = node.rpc_client().send_transaction((&tx).into());
         assert_eq!(tx_hash, tx.hash().to_owned());
         node.assert_tx_pool_size(1, 0);
 

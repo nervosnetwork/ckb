@@ -15,8 +15,6 @@ impl Spec for Discovery {
         let ret = wait_until(10, || {
             rpc_client
                 .get_peers()
-                .call()
-                .expect("rpc call get_peers failed")
                 .iter()
                 .any(|peer| &peer.node_id == node0_id)
         });

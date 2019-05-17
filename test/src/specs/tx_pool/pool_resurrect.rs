@@ -19,11 +19,7 @@ impl Spec for PoolResurrect {
 
         (0..5).for_each(|_| {
             let tx = node0.new_transaction(hash.clone());
-            hash = node0
-                .rpc_client()
-                .send_transaction((&tx).into())
-                .call()
-                .expect("rpc call send_transaction failed");
+            hash = node0.rpc_client().send_transaction((&tx).into());
             txs_hash.push(hash.clone());
         });
 
@@ -31,11 +27,7 @@ impl Spec for PoolResurrect {
         node0.generate_blocks(3);
 
         info!("Pool should be empty");
-        let tx_pool_info = node0
-            .rpc_client()
-            .tx_pool_info()
-            .call()
-            .expect("rpc call tx_pool_info failed");
+        let tx_pool_info = node0.rpc_client().tx_pool_info();
         assert!(tx_pool_info.pending.0 == 0);
 
         info!("Generate 5 blocks on node1");

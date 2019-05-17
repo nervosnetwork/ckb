@@ -22,7 +22,7 @@ fn main() {
     let mut specs: HashMap<&str, Box<dyn Spec>> = HashMap::new();
     specs.insert("block_relay_basic", Box::new(BlockRelayBasic));
     specs.insert("block_sync_basic", Box::new(BlockSyncBasic));
-    specs.insert("sync_timeout", Box::new(SyncTimeout));
+    // specs.insert("sync_timeout", Box::new(SyncTimeout));
     specs.insert("chain_fork_1", Box::new(ChainFork1));
     specs.insert("chain_fork_2", Box::new(ChainFork2));
     specs.insert("chain_fork_3", Box::new(ChainFork3));

@@ -25,7 +25,7 @@ impl Spec for TransactionRelayBasic {
         info!("Waiting for relay");
         let mut rpc_client = node0.rpc_client();
         let ret = wait_until(10, || {
-            if let Some(transaction) = rpc_client.get_transaction(hash.clone()).call().unwrap() {
+            if let Some(transaction) = rpc_client.get_transaction(hash.clone()) {
                 transaction.tx_status.block_hash.is_none()
             } else {
                 false
@@ -35,7 +35,7 @@ impl Spec for TransactionRelayBasic {
 
         let mut rpc_client = node2.rpc_client();
         let ret = wait_until(10, || {
-            if let Some(transaction) = rpc_client.get_transaction(hash.clone()).call().unwrap() {
+            if let Some(transaction) = rpc_client.get_transaction(hash.clone()) {
                 transaction.tx_status.block_hash.is_none()
             } else {
                 false
@@ -70,11 +70,7 @@ impl Spec for TransactionRelayMultiple {
             tb = tb.output(output.clone());
         }
         let transaction = tb.build();
-        node0
-            .rpc_client()
-            .send_transaction((&transaction).into())
-            .call()
-            .expect("rpc call send_transaction failed");
+        node0.rpc_client().send_transaction((&transaction).into());
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
@@ -96,11 +92,7 @@ impl Spec for TransactionRelayMultiple {
                         vec![],
                     ))
                     .build();
-                node0
-                    .rpc_client()
-                    .send_transaction((&tx).into())
-                    .call()
-                    .expect("rpc call send_transaction failed");
+                node0.rpc_client().send_transaction((&tx).into());
             });
 
         node0.generate_block();

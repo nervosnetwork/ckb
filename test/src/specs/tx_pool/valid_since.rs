@@ -23,11 +23,7 @@ impl Spec for ValidSince {
 
         (0..relative_blocks - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is immature in block N + {}", i);
-            let error = node
-                .rpc_client()
-                .send_transaction((&tx).into())
-                .call()
-                .unwrap_err();
+            let error = node.rpc_client().send_transaction((&tx).into());
             assert_regex_match(&error.to_string(), r"InvalidTx\(Immature\)");
             node.generate_block();
         });
@@ -36,11 +32,7 @@ impl Spec for ValidSince {
             "Tx will be added to pending pool in N + {} block",
             relative_blocks - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
-        let tx_hash = node
-            .rpc_client()
-            .send_transaction((&tx).into())
-            .call()
-            .unwrap();
+        let tx_hash = node.rpc_client().send_transaction((&tx).into());
         assert_eq!(tx_hash, tx.hash().to_owned());
         node.assert_tx_pool_size(1, 0);
 
@@ -57,7 +49,7 @@ impl Spec for ValidSince {
         node.assert_tx_pool_size(0, 0);
 
         // test absolute block number since
-        let tip_number: BlockNumber = node.rpc_client().get_tip_block_number().call().unwrap().0;
+        let tip_number: BlockNumber = node.rpc_client().get_tip_block_number();
         info!(
             "Use tip block {} cellbase as tx input with an absolute block number since",
             tip_number
@@ -70,11 +62,7 @@ impl Spec for ValidSince {
 
         (tip_number..absolute_block - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is immature in block {}", i);
-            let error = node
-                .rpc_client()
-                .send_transaction((&tx).into())
-                .call()
-                .unwrap_err();
+            let error = node.rpc_client().send_transaction((&tx).into());
             assert_regex_match(&error.to_string(), r"InvalidTx\(Immature\)");
             node.generate_block();
         });
@@ -83,11 +71,7 @@ impl Spec for ValidSince {
             "Tx will be added to pending pool in {} block",
             absolute_block - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
-        let tx_hash = node
-            .rpc_client()
-            .send_transaction((&tx).into())
-            .call()
-            .unwrap();
+        let tx_hash = node.rpc_client().send_transaction((&tx).into());
         assert_eq!(tx_hash, tx.hash().to_owned());
         node.assert_tx_pool_size(1, 0);
 

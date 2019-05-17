@@ -22,16 +22,8 @@ impl Spec for DifferentTxsWithSameInput {
             .outputs_clear()
             .output(output)
             .build();
-        node0
-            .rpc_client()
-            .send_transaction((&tx1).into())
-            .call()
-            .unwrap();
-        node0
-            .rpc_client()
-            .send_transaction((&tx1).into())
-            .call()
-            .unwrap();
+        node0.rpc_client().send_transaction((&tx1).into());
+        node0.rpc_client().send_transaction((&tx1).into());
 
         node0.generate_block();
         node0.generate_block();
