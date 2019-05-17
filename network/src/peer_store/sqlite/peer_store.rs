@@ -167,7 +167,7 @@ impl SqlitePeerStore {
             return;
         }
         // find oldest last_connected_at_ms addr
-        peer_addrs.sort_by(|a, b| a.last_connected_at_ms.cmp(&b.last_connected_at_ms));
+        peer_addrs.sort_by_key(|paddr| paddr.last_connected_at_ms);
         if let Some(old_peer_addr) = peer_addrs.get(0) {
             db::PeerAddrDB::delete(&self.conn, &old_peer_addr.peer_id, &old_peer_addr.addr)
                 .expect("evict peer addr");
@@ -256,13 +256,13 @@ impl PeerStore for SqlitePeerStore {
     }
 
     fn report(&mut self, peer_id: &PeerId, behaviour: Behaviour) -> ReportResult {
-        if self.is_banned(peer_id) {
+        let peer = self.fetch_peer_info(peer_id);
+        if self.is_banned(&peer.connected_addr) {
             return ReportResult::Banned;
         }
-        let peer = self.fetch_peer_info(peer_id);
         let score = peer.score.saturating_add(behaviour.score());
         if score < self.peer_score_config.ban_score {
-            self.ban_peer(peer_id, self.peer_score_config.ban_timeout);
+            self.ban_addr(&peer.connected_addr, self.peer_score_config.ban_timeout);
             return ReportResult::Banned;
         }
         db::PeerInfoDB::update_score(&self.conn, &peer.peer_id, score).expect("update peer score");
@@ -336,7 +336,7 @@ impl PeerStore for SqlitePeerStore {
                 let mut paddrs = db::PeerAddrDB::get_addrs(&self.conn, &peer_id, DEFAULT_ADDRS)
                     .expect("get peer addr");
                 // find worst addr to feeler unless it is terrible or banned or already tried in one minute
-                paddrs.sort_by(|a, b| a.last_connected_at_ms.cmp(&b.last_connected_at_ms));
+                paddrs.sort_by_key(|paddr| paddr.last_connected_at_ms);
                 paddrs.into_iter().find(|paddr| {
                     if paddr.is_terrible(now_ms) {
                         // delete terrible addr
@@ -344,8 +344,7 @@ impl PeerStore for SqlitePeerStore {
                             .expect("delete peer addr");
                         false
                     } else {
-                        !self.is_addr_banned(&paddr.addr)
-                            && paddr.last_tried_at_ms < now_ms - 60_000
+                        !self.is_addr_banned(&paddr.addr) && !paddr.tried_in_last_minute(now_ms)
                     }
                 })
             })
@@ -371,17 +370,12 @@ impl PeerStore for SqlitePeerStore {
             .collect()
     }
 
-    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration) {
-        if let Some(peer) = self.get_peer_info(peer_id) {
-            self.ban_ip(&peer.connected_addr, timeout);
-        }
+    fn ban_addr(&mut self, addr: &Multiaddr, timeout: Duration) {
+        self.ban_ip(addr, timeout);
     }
 
-    fn is_banned(&self, peer_id: &PeerId) -> bool {
-        if let Some(peer) = self.get_peer_info(peer_id) {
-            return self.is_addr_banned(&peer.connected_addr);
-        }
-        false
+    fn is_banned(&self, addr: &Multiaddr) -> bool {
+        self.is_addr_banned(addr)
     }
 
     fn peer_score_config(&self) -> PeerScoreConfig {

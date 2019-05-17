@@ -34,9 +34,13 @@ impl PeerAddr {
         }
     }
 
+    pub fn tried_in_last_minute(&self, now_ms: u64) -> bool {
+        self.last_tried_at_ms >= (now_ms - 60_000)
+    }
+
     pub fn is_terrible(&self, now_ms: u64) -> bool {
         // do not remove addr tried in last minute
-        if self.last_tried_at_ms >= (now_ms - 60_000) {
+        if self.tried_in_last_minute(now_ms) {
             return false;
         }
         // we give up if never connect to this addr

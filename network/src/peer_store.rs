@@ -67,10 +67,10 @@ pub trait PeerStore: Send {
     fn peers_to_feeler(&self, count: u32) -> Vec<PeerAddr>;
     /// Randomly get peers
     fn random_peers(&self, count: u32) -> Vec<PeerAddr>;
-    /// Ban a peer
-    fn ban_peer(&mut self, peer_id: &PeerId, timeout: Duration);
+    /// Ban a addr
+    fn ban_addr(&mut self, addr: &Multiaddr, timeout: Duration);
     /// Check peer ban status
-    fn is_banned(&self, peer_id: &PeerId) -> bool;
+    fn is_banned(&self, addr: &Multiaddr) -> bool;
     /// peer score config
     fn peer_score_config(&self) -> PeerScoreConfig;
 }

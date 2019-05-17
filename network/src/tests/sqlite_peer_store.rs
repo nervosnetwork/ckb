@@ -51,12 +51,10 @@ fn test_update_status() {
 fn test_ban_peer() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
-    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
-    assert!(!peer_store.is_banned(&peer_id));
-    let addr = "/ip4/127.0.0.1".parse().unwrap();
-    peer_store.add_connected_peer(&peer_id, addr, SessionType::Inbound);
-    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
-    assert!(peer_store.is_banned(&peer_id));
+    let addr: Multiaddr = "/ip4/127.0.0.1".parse().unwrap();
+    peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Inbound);
+    peer_store.ban_addr(&addr, Duration::from_secs(10));
+    assert!(peer_store.is_banned(&addr));
 }
 
 #[test]
@@ -67,7 +65,7 @@ fn test_attepmt_ban() {
     peer_store.add_connected_peer(&peer_id, addr.clone(), SessionType::Inbound);
     peer_store.add_discovered_addr(&peer_id, addr.clone());
     assert_eq!(peer_store.peers_to_attempt(2).len(), 1);
-    peer_store.ban_peer(&peer_id, Duration::from_secs(10));
+    peer_store.ban_addr(&addr, Duration::from_secs(10));
     assert_eq!(peer_store.peers_to_attempt(2).len(), 0);
 }
 

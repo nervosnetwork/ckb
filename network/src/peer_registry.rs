@@ -84,7 +84,7 @@ impl PeerRegistry {
                 return Err(PeerError::NonReserved);
             }
             // ban_list lock acquired
-            if peer_store.is_banned(&peer_id) {
+            if peer_store.is_banned(&remote_addr) {
                 return Err(PeerError::Banned);
             }
 
