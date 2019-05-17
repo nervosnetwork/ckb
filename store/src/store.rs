@@ -78,6 +78,13 @@ impl<T: KeyValueDB> ChainKVStore<T> {
             .partial_read(col, key, range)
             .expect("db operation should be ok")
     }
+
+    pub fn traverse<F>(&self, col: Col, callback: F) -> Result<(), Error>
+    where
+        F: FnMut(&[u8], &[u8]) -> Result<(), Error>,
+    {
+        self.db.traverse(col, callback)
+    }
 }
 
 /// Store interface by chain
