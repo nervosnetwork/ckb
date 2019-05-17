@@ -22,8 +22,12 @@ pub struct TxPool {
     pub(crate) orphan: OrphanPool,
     /// cache for conflict transaction
     pub(crate) conflict: LruCache<ProposalShortId, DefectEntry>,
-    /// last txs updated timestamp
+    /// last txs updated timestamp, used by getblocktemplate
     pub(crate) last_txs_updated_at: u64,
+    // sum of all tx_pool tx's virtual sizes.
+    pub(crate) total_tx_size: u64,
+    // sum of all tx_pool tx's cycles.
+    pub(crate) total_tx_cycles: Cycle,
 }
 
 impl TxPool {
@@ -39,6 +43,8 @@ impl TxPool {
             orphan: OrphanPool::new(),
             conflict: LruCache::new(cache_size),
             last_txs_updated_at,
+            total_tx_size: 0,
+            total_tx_cycles: 0,
         }
     }
 
@@ -57,37 +63,44 @@ impl TxPool {
 
     // enqueue_tx inserts a new transaction into pending queue.
     // If did have this value present, false is returned.
-    pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, tx: Transaction) -> bool {
+    pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, size: usize, tx: Transaction) -> bool {
         if self.gap.contains_key(&tx.proposal_short_id()) {
             return false;
         }
-        self.pending.add_tx(cycles, tx).is_none()
+        self.pending.add_tx(cycles, size, tx).is_none()
     }
 
     // add_gap inserts proposed but still uncommittable transaction.
-    pub fn add_gap(&mut self, cycles: Option<Cycle>, tx: Transaction) -> bool {
-        self.gap.add_tx(cycles, tx).is_none()
+    pub fn add_gap(&mut self, cycles: Option<Cycle>, size: usize, tx: Transaction) -> bool {
+        self.gap.add_tx(cycles, size, tx).is_none()
     }
 
     pub(crate) fn add_orphan(
         &mut self,
         cycles: Option<Cycle>,
+        size: usize,
         tx: Transaction,
         unknowns: Vec<OutPoint>,
     ) {
         trace!(target: "tx_pool", "add_orphan {:#x}", &tx.hash());
-        self.orphan.add_tx(cycles, tx, unknowns.into_iter());
+        self.orphan.add_tx(cycles, size, tx, unknowns.into_iter());
     }
 
-    pub(crate) fn add_proposed(&mut self, cycles: Cycle, fee: Capacity, tx: Transaction) {
+    pub(crate) fn add_proposed(
+        &mut self,
+        cycles: Cycle,
+        fee: Capacity,
+        size: usize,
+        tx: Transaction,
+    ) {
         trace!(target: "tx_pool", "add_proposed {:#x}", tx.hash());
         self.touch_last_txs_updated_at();
-        self.proposed.add_tx(cycles, fee, tx);
+        self.proposed.add_tx(cycles, fee, size, tx);
     }
 
-    pub(crate) fn capacity(&self) -> usize {
-        self.proposed.capacity() + self.orphan.capacity()
-    }
+    // pub(crate) fn capacity(&self) -> usize {
+    //     self.proposed.capacity() + self.orphan.capacity()
+    // }
 
     pub(crate) fn touch_last_txs_updated_at(&mut self) {
         self.last_txs_updated_at = unix_time_as_millis();
@@ -159,9 +172,9 @@ impl TxPool {
     }
 
     //FIXME: use memsize
-    pub fn is_full(&self) -> bool {
-        self.capacity() > self.config.max_pool_size
-    }
+    // pub fn is_full(&self) -> bool {
+    //     self.capacity() > self.config.max_pool_size
+    // }
 
     pub(crate) fn remove_committed_txs_from_proposed<'a>(
         &mut self,
@@ -177,11 +190,11 @@ impl TxPool {
     pub fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
         for id in ids {
             if let Some(entry) = self.gap.remove(id) {
-                self.enqueue_tx(entry.cycles, entry.transaction);
+                self.enqueue_tx(entry.cycles, entry.size, entry.transaction);
             }
             if let Some(entries) = self.proposed.remove(id) {
                 for entry in entries {
-                    self.enqueue_tx(Some(entry.cycles), entry.transaction);
+                    self.enqueue_tx(Some(entry.cycles), entry.size, entry.transaction);
                 }
             }
         }

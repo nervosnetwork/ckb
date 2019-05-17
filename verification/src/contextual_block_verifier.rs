@@ -9,7 +9,6 @@ use ckb_core::transaction::Capacity;
 use ckb_core::transaction::Transaction;
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber, EpochNumber};
-use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use dao_utils::calculate_transaction_fee;
@@ -173,41 +172,32 @@ where
     }
 }
 
-struct BlockTxsVerifier<'a, M, CS> {
-    cellbase_maturity: BlockNumber,
-    script_config: &'a ScriptConfig,
-    max_cycles: Cycle,
+struct BlockTxsVerifier<'a, M, P> {
+    provider: &'a P,
     block_median_time_context: &'a M,
     number: BlockNumber,
     epoch: EpochNumber,
-    store: &'a Arc<CS>,
     resolved: &'a [ResolvedTransaction<'a>],
 }
 
-impl<'a, M, CS> BlockTxsVerifier<'a, M, CS>
+impl<'a, M, P> BlockTxsVerifier<'a, M, P>
 where
     M: BlockMedianTimeContext + Sync,
-    CS: ChainStore,
+    P: ChainProvider,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        cellbase_maturity: BlockNumber,
-        script_config: &'a ScriptConfig,
-        max_cycles: Cycle,
+        provider: &'a P,
         block_median_time_context: &'a M,
         number: BlockNumber,
         epoch: EpochNumber,
-        store: &'a Arc<CS>,
         resolved: &'a [ResolvedTransaction<'a>],
-    ) -> BlockTxsVerifier<'a, M, CS> {
+    ) -> BlockTxsVerifier<'a, M, P> {
         BlockTxsVerifier {
-            cellbase_maturity,
-            script_config,
-            max_cycles,
+            provider,
             block_median_time_context,
             number,
             epoch,
-            store,
             resolved,
         }
     }
@@ -226,7 +216,7 @@ where
                         self.block_median_time_context,
                         self.number,
                         self.epoch,
-                        self.cellbase_maturity,
+                        self.provider.consensus(),
                     )
                     .verify()
                     .map_err(|e| Error::Transactions((index, e)))
@@ -234,14 +224,14 @@ where
                 } else {
                     TransactionVerifier::new(
                         &tx,
-                        Arc::clone(self.store),
                         self.block_median_time_context,
                         self.number,
                         self.epoch,
-                        self.cellbase_maturity,
-                        self.script_config,
+                        self.provider.consensus(),
+                        self.provider.script_config(),
+                        self.provider.store(),
                     )
-                    .verify(self.max_cycles)
+                    .verify(self.provider.consensus().max_block_cycles())
                     .map_err(|e| Error::Transactions((index, e)))
                     .map(|cycles| (tx_hash, cycles))
                 }
@@ -254,7 +244,7 @@ where
             txs_verify_cache.insert(hash, cycles);
         }
 
-        if sum > self.max_cycles {
+        if sum > self.provider.consensus().max_block_cycles() {
             Err(Error::ExceededMaximumCycles)
         } else {
             Ok(sum)
@@ -303,13 +293,7 @@ where
 
         CommitVerifier::new(self.provider.clone(), block).verify()?;
         UnclesVerifier::new(self.provider.clone(), &epoch_ext, block).verify()?;
-        RewardVerifier::new(
-            self.provider.store(),
-            resolved,
-            &epoch_ext,
-            block.header().number(),
-        )
-        .verify()?;
+        RewardVerifier::new(store, resolved, &epoch_ext, block.header().number()).verify()?;
 
         let block_median_time_context = ForkContext {
             fork_attached_blocks,
@@ -318,13 +302,10 @@ where
         };
 
         BlockTxsVerifier::new(
-            consensus.cellbase_maturity(),
-            self.provider.script_config(),
-            consensus.max_block_cycles(),
+            &self.provider,
             &block_median_time_context,
             block.header().number(),
             block.header().epoch(),
-            self.provider.store(),
             resolved,
         )
         .verify(txs_verify_cache)

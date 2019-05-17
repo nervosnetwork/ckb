@@ -44,11 +44,12 @@ impl OrphanPool {
     pub(crate) fn add_tx(
         &mut self,
         cycles: Option<Cycle>,
+        size: usize,
         tx: Transaction,
         unknown: impl ExactSizeIterator<Item = OutPoint>,
     ) {
         let short_id = tx.proposal_short_id();
-        let entry = DefectEntry::new(tx, unknown.len(), cycles);
+        let entry = DefectEntry::new(tx, unknown.len(), cycles, size);
         for out_point in unknown {
             let edge = self.edges.entry(out_point).or_insert_with(Vec::new);
             edge.push(short_id);
@@ -151,6 +152,8 @@ mod tests {
             .build()
     }
 
+    const MOCK_SIZE: usize = 0;
+
     #[test]
     fn test_orphan_pool_remove_by_ancestor1() {
         let mut pool = OrphanPool::new();
@@ -166,9 +169,9 @@ mod tests {
 
         let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
 
-        pool.add_tx(None, tx2.clone(), tx1.output_pts().into_iter());
-        pool.add_tx(None, tx3.clone(), tx2.output_pts().into_iter());
-        pool.add_tx(None, tx4.clone(), tx3.output_pts().into_iter());
+        pool.add_tx(None, MOCK_SIZE, tx2.clone(), tx1.output_pts().into_iter());
+        pool.add_tx(None, MOCK_SIZE, tx3.clone(), tx2.output_pts().into_iter());
+        pool.add_tx(None, MOCK_SIZE, tx4.clone(), tx3.output_pts().into_iter());
 
         assert!(pool.contains(&tx2));
         assert!(pool.contains(&tx3));
@@ -198,8 +201,8 @@ mod tests {
 
         let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
 
-        pool.add_tx(None, tx3.clone(), tx2.output_pts().into_iter());
-        pool.add_tx(None, tx4.clone(), tx3.output_pts().into_iter());
+        pool.add_tx(None, MOCK_SIZE, tx3.clone(), tx2.output_pts().into_iter());
+        pool.add_tx(None, MOCK_SIZE, tx4.clone(), tx3.output_pts().into_iter());
 
         assert!(pool.contains(&tx3));
 
@@ -233,9 +236,9 @@ mod tests {
 
         let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
 
-        pool.add_tx(None, tx2.clone(), tx1.output_pts().into_iter());
-        pool.add_tx(None, tx3.clone(), tx2.output_pts().into_iter());
-        pool.add_tx(None, tx4.clone(), tx3.output_pts().into_iter());
+        pool.add_tx(None, MOCK_SIZE, tx2.clone(), tx1.output_pts().into_iter());
+        pool.add_tx(None, MOCK_SIZE, tx3.clone(), tx2.output_pts().into_iter());
+        pool.add_tx(None, MOCK_SIZE, tx4.clone(), tx3.output_pts().into_iter());
 
         assert!(pool.contains(&tx2));
         assert!(pool.contains(&tx3));

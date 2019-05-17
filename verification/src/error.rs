@@ -159,6 +159,7 @@ pub enum TransactionError {
     /// Invalid Since flags
     InvalidSince,
     CellbaseImmaturity,
+    ExceededMaximumBlockBytes,
 }
 
 impl StdError for TransactionError {}

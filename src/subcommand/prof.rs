@@ -13,7 +13,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
     let shared = SharedBuilder::<RocksDB>::default()
         .consensus(args.consensus.clone())
         .db(&args.config.db)
-        .tx_pool_config(args.config.tx_pool.clone())
+        .tx_pool_config(args.config.tx_pool)
         .script_config(args.config.script)
         .build()
         .map_err(|err| {

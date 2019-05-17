@@ -12,24 +12,20 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 /// Transaction pool configuration
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct TxPoolConfig {
     /// Maximum capacity of the pool in number of transactions
-    pub max_pool_size: usize,
-    pub max_orphan_size: usize,
-    pub max_proposal_size: usize,
+    pub max_mem_szie: usize,
+    pub max_cycles: usize,
     pub max_cache_size: usize,
-    pub max_pending_size: usize,
 }
 
 impl Default for TxPoolConfig {
     fn default() -> Self {
         TxPoolConfig {
-            max_pool_size: 10000,
-            max_orphan_size: 10000,
-            max_proposal_size: 10000,
-            max_cache_size: 1000,
-            max_pending_size: 10000,
+            max_mem_szie: 20_000_000, // 20mb
+            max_cycles: 200_000_000_000,
+            max_cache_size: 100_000,
         }
     }
 }
@@ -80,15 +76,23 @@ pub struct DefectEntry {
     pub refs_count: usize,
     /// Cycles
     pub cycles: Option<Cycle>,
+    /// tx size
+    pub size: usize,
 }
 
 impl DefectEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, refs_count: usize, cycles: Option<Cycle>) -> DefectEntry {
+    pub fn new(
+        tx: Transaction,
+        refs_count: usize,
+        cycles: Option<Cycle>,
+        size: usize,
+    ) -> DefectEntry {
         DefectEntry {
             transaction: tx,
             refs_count,
             cycles,
+            size,
         }
     }
 }
@@ -100,14 +104,17 @@ pub struct PendingEntry {
     pub transaction: Transaction,
     /// Cycles
     pub cycles: Option<Cycle>,
+    /// tx size
+    pub size: usize,
 }
 
 impl PendingEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, cycles: Option<Cycle>) -> PendingEntry {
+    pub fn new(tx: Transaction, cycles: Option<Cycle>, size: usize) -> PendingEntry {
         PendingEntry {
             transaction: tx,
             cycles,
+            size,
         }
     }
 }
@@ -123,16 +130,25 @@ pub struct ProposedEntry {
     pub cycles: Cycle,
     /// fee
     pub fee: Capacity,
+    /// tx size
+    pub size: usize,
 }
 
 impl ProposedEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, refs_count: usize, cycles: Cycle, fee: Capacity) -> ProposedEntry {
+    pub fn new(
+        tx: Transaction,
+        refs_count: usize,
+        cycles: Cycle,
+        fee: Capacity,
+        size: usize,
+    ) -> ProposedEntry {
         ProposedEntry {
             transaction: tx,
             refs_count,
             cycles,
             fee,
+            size,
         }
     }
 }

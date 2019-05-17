@@ -200,7 +200,7 @@ impl ProposedPool {
         }
     }
 
-    pub fn add_tx(&mut self, cycles: Cycle, fee: Capacity, tx: Transaction) {
+    pub fn add_tx(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
         let inputs = tx.input_pts_iter();
         let outputs = tx.output_pts();
         let deps = tx.deps_iter();
@@ -234,7 +234,7 @@ impl ProposedPool {
         }
 
         self.vertices
-            .insert(id, ProposedEntry::new(tx, count, cycles, fee));
+            .insert(id, ProposedEntry::new(tx, count, cycles, fee, size));
     }
 
     pub fn remove_committed_tx(&mut self, tx: &Transaction) {
@@ -342,8 +342,9 @@ mod tests {
             .build()
     }
 
-    pub const MOCK_CYCLES: Cycle = 0;
-    pub const MOCK_FEE: Capacity = Capacity::zero();
+    const MOCK_CYCLES: Cycle = 0;
+    const MOCK_FEE: Capacity = Capacity::zero();
+    const MOCK_SIZE: usize = 0;
 
     #[test]
     fn test_add_entry() {
@@ -355,8 +356,8 @@ mod tests {
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx2.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
 
         assert_eq!(pool.vertices.len(), 2);
         assert_eq!(pool.edges.inner_len(), 2);
@@ -382,8 +383,8 @@ mod tests {
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx2.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id2).unwrap().refs_count, 0);
@@ -431,11 +432,11 @@ mod tests {
 
         let mut pool = ProposedPool::new();
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx2.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx3.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx4.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, tx5.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx3.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx4.clone());
+        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx5.clone());
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id3).unwrap().refs_count, 1);

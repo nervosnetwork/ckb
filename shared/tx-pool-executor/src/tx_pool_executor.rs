@@ -97,18 +97,19 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
             store: Arc::clone(&store),
             median_time_block_count: consensus.median_time_block_count() as u64,
         };
+
         // parallet verify txs
         let cycles_vec = resolved_txs
             .iter()
             .map(|(tx_hash, tx)| {
                 let verified_result = TransactionVerifier::new(
                     &tx,
-                    Arc::clone(&store),
                     &block_median_time_context,
                     tip_number,
                     epoch_number,
-                    consensus.cellbase_maturity(),
+                    &consensus,
                     self.shared.script_config(),
+                    &store,
                 )
                 .verify(max_block_cycles)
                 .map(|cycles| (tx, cycles))

@@ -15,7 +15,6 @@ use jsonrpc_types::{Capacity, Cycle, DryRunResult, JsonBytes, OutPoint, Script, 
 use log::error;
 use numext_fixed_hash::H256;
 use serde_derive::Serialize;
-use std::sync::Arc;
 
 #[rpc]
 pub trait ExperimentRpc {
@@ -170,9 +169,7 @@ impl<'a, CS: ChainStore> DryRunner<'a, CS> {
                 let max_cycles = consensus.max_block_cycles;
                 let script_config = self.chain_state.script_config();
                 let store = self.chain_state.store();
-                match ScriptVerifier::new(&resolved, Arc::clone(store), script_config)
-                    .verify(max_cycles)
-                {
+                match ScriptVerifier::new(&resolved, &store, script_config).verify(max_cycles) {
                     Ok(cycles) => Ok(DryRunResult {
                         cycles: Cycle(cycles),
                     }),
