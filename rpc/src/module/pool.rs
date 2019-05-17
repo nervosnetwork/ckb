@@ -6,13 +6,11 @@ use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_sync::NetworkProtocol;
 use ckb_tx_pool_executor::TxPoolExecutor;
-use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use jsonrpc_core::{Error, Result};
+use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Timestamp, Transaction, TxPoolInfo, Unsigned};
 use numext_fixed_hash::H256;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 #[rpc]
@@ -45,10 +43,7 @@ impl<CS: ChainStore + 'static> PoolRpcImpl<CS> {
 
 impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let tx: CoreTransaction = tx
-            .try_into()
-            .map_err(FailureError::from)
-            .map_err(|err| Error::invalid_params(err.to_string()))?;
+        let tx: CoreTransaction = tx.into();
 
         let result = self.tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
 

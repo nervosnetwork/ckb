@@ -9,14 +9,12 @@ use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_verification::ScriptVerifier;
 use dao::calculate_maximum_withdraw;
-use failure::Error as FailureError;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Capacity, Cycle, DryRunResult, JsonBytes, OutPoint, Script, Transaction};
 use log::error;
 use numext_fixed_hash::H256;
 use serde_derive::Serialize;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 #[rpc]
@@ -46,10 +44,8 @@ pub(crate) struct ExperimentRpcImpl<CS> {
 
 impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256> {
-        let tx: CoreTransaction = tx
-            .try_into()
-            .map_err(|err: FailureError| Error::invalid_params(err.to_string()))?;
-        Ok(tx.hash().clone())
+        let tx: CoreTransaction = tx.into();
+        Ok(tx.hash().to_owned())
     }
 
     fn compute_code_hash(&self, data: JsonBytes) -> Result<H256> {
@@ -59,32 +55,19 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
     }
 
     fn compute_script_hash(&self, script: Script) -> Result<H256> {
-        let script: CoreScript = script
-            .try_into()
-            .map_err(FailureError::from)
-            .map_err(|err| Error::invalid_params(err.to_string()))?;
-        Ok(script.hash().clone())
+        let script: CoreScript = script.into();
+        Ok(script.hash())
     }
 
     fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {
-        let tx: CoreTransaction = tx
-            .try_into()
-            .map_err(FailureError::from)
-            .map_err(|err| Error::invalid_params(err.to_string()))?;
+        let tx: CoreTransaction = tx.into();
         let chain_state = self.shared.lock_chain_state();
         DryRunner::new(&chain_state).run(tx)
     }
 
     fn calculate_dao_maximum_withdraw(&self, out_point: OutPoint, hash: H256) -> Result<Capacity> {
         let chain_state = self.shared.lock_chain_state();
-        match DaoWithdrawCalculator::new(&chain_state).calculate(
-            out_point
-                .clone()
-                .try_into()
-                .map_err(FailureError::from)
-                .map_err(|err| Error::invalid_params(err.to_string()))?,
-            hash,
-        ) {
+        match DaoWithdrawCalculator::new(&chain_state).calculate(out_point.clone().into(), hash) {
             Ok(capacity) => Ok(capacity),
             Err(err) => {
                 error!(target: "rpc", "calculate_dao_maximum_withdraw error {:?}", err);
