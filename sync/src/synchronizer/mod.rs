@@ -242,59 +242,57 @@ impl<CS: ChainStore> Synchronizer<CS> {
         Ok(())
     }
 
-    //FIXME: guarantee concurrent block process
+    // FIXME: guarantee concurrent block process
+    // TODO: limit and prune orphan pool
     fn insert_new_block(&self, peer: PeerIndex, block: Block) {
-        let block = Arc::new(block);
-        if self
-            .shared
-            .block_header(&block.header().parent_hash())
-            .is_some()
-        {
-            let accept_ret = self.accept_block(peer, &block);
-            if accept_ret.is_ok() {
-                let pre_orphan_block = self
-                    .orphan_block_pool
-                    .remove_blocks_by_parent(&block.header().hash());
-                for block in pre_orphan_block {
-                    let block = Arc::new(block);
-                    if self
-                        .shared
-                        .block_header(&block.header().parent_hash())
-                        .is_some()
-                    {
-                        if let Err(e) = self.accept_block(peer, &block) {
-                            debug!(
-                                target: "sync", "[Synchronizer] accept_block {:?} error {:?}",
-                                block,
-                                e
-                            );
-                        }
-                    } else {
-                        debug!(
-                            target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:x}",
-                            block.header().number(),
-                            block.header().hash()
-                        );
-                        self.orphan_block_pool.insert(Block::clone(&block));
-                    }
-                }
-            } else {
-                debug!(
-                    target: "sync", "[Synchronizer] accept_block {:?} error {}",
-                    block,
-                    accept_ret.unwrap_err()
-                )
-            }
-        } else {
+        let known_parent = |block: &Block| {
+            self.shared
+                .block_header(block.header().parent_hash())
+                .is_some()
+        };
+
+        // Insert the given block into orphan_block_pool if its parent is not found
+        if !known_parent(&block) {
             debug!(
-                target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:x}",
+                target: "sync", "insert new orphan block {} {:x}",
                 block.header().number(),
                 block.header().hash()
             );
-            self.orphan_block_pool.insert(Block::clone(&block));
+            self.orphan_block_pool.insert(block);
+            return;
         }
 
-        debug!(target: "sync", "[Synchronizer] insert_new_block finish");
+        // Attempt to accept the given block if its parent already exist in database
+        let block = Arc::new(block);
+        if let Err(err) = self.accept_block(peer, &block) {
+            debug!(target: "sync", "accept block {:?} error {:?}", block, err);
+            return;
+        }
+
+        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
+        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
+        let descendants = self
+            .orphan_block_pool
+            .remove_blocks_by_parent(&block.header().hash());
+        for block in descendants {
+            let block = Arc::new(block);
+
+            // If we can not find the block's parent in database, that means it was failed to accept
+            // its parent, so we treat it as a invalid block as well.
+            if !known_parent(&block) {
+                debug!(
+                    target: "sync", "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
+                    block.header().number(),
+                    block.header().hash(),
+                    block.header().parent_hash(),
+                );
+                continue;
+            }
+
+            if let Err(err) = self.accept_block(peer, &block) {
+                debug!(target: "sync", "accept descendant orphan block {:?} error {:?}", block, err);
+            }
+        }
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
