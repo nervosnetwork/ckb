@@ -3,12 +3,6 @@
 //! 1. PeerId is easy to be generated, should never use a PeerId as an identity.
 //! 2. Peer's connected addr should be use as an identify to ban a peer, it is based on our
 //!    assumption that IP is a limited resource.
-//! Solution:
-//! 1. Through PeerId to ban or score a peer.
-//! 2. When a peer get banned we also ban peer's connected addr.
-//! 3. A bad peer can always avoid punishment by change it's PeerId, but it can't get high
-//!    score.
-//! 4. Good peers can get higher score than bad peers.
 
 use crate::network_group::MultiaddrExt;
 use crate::peer_store::sqlite::{db, DBError};
@@ -328,6 +322,7 @@ impl PeerStore for SqlitePeerStore {
                 let mut paddrs = db::PeerAddrDB::get_addrs(&self.conn, &peer_id, DEFAULT_ADDRS)
                     .expect("get peer addr");
                 let mut rng = thread_rng();
+                // randomly find a address to attempt
                 paddrs.shuffle(&mut rng);
                 paddrs
                     .into_iter()
@@ -338,9 +333,8 @@ impl PeerStore for SqlitePeerStore {
 
     fn peers_to_feeler(&self, count: u32) -> Vec<PeerAddr> {
         let now_ms = unix_time_as_millis();
-        let peers =
-            db::get_peers_to_feeler(&self.conn, count, unix_time_as_millis() - ADDR_TIMEOUT_MS)
-                .expect("get peers to feeler");
+        let peers = db::get_peers_to_feeler(&self.conn, count, now_ms - ADDR_TIMEOUT_MS)
+            .expect("get peers to feeler");
         peers
             .into_iter()
             .filter_map(|peer_id| {
@@ -365,7 +359,7 @@ impl PeerStore for SqlitePeerStore {
 
     fn random_peers(&self, count: u32) -> Vec<PeerAddr> {
         let now_ms = unix_time_as_millis();
-        db::get_random_peers(&self.conn, count, unix_time_as_millis() - ADDR_TIMEOUT_MS)
+        db::get_random_peers(&self.conn, count, now_ms - ADDR_TIMEOUT_MS)
             .expect("get random peers")
             .into_iter()
             .filter(|paddr| !paddr.is_terrible(now_ms))

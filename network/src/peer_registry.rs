@@ -158,7 +158,7 @@ impl PeerRegistry {
         });
 
         // Grop peers by network group
-        let mut evict_group = candidate_peers
+        let evict_group = candidate_peers
             .into_iter()
             .fold(FnvHashMap::default(), |mut groups, peer| {
                 groups
@@ -172,11 +172,9 @@ impl PeerRegistry {
             .cloned()
             .unwrap_or_else(Vec::new);
 
-        let mut rng = thread_rng();
-        evict_group.shuffle(&mut rng);
-
         // randomly evict a peer
-        evict_group.get(0).map(|peer| {
+        let mut rng = thread_rng();
+        evict_group.choose(&mut rng).map(|peer| {
             debug!(target: "network", "evict inbound peer {:?}", peer.peer_id);
             peer.session_id
         })
