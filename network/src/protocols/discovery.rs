@@ -199,14 +199,6 @@ impl DiscoveryService {
                     for addr in addrs.into_iter().filter(|addr| self.is_valid_addr(addr)) {
                         trace!(target: "network", "Add discovered address:{:?}", addr);
                         if let Some(peer_id) = extract_peer_id(&addr) {
-                            let addr = addr
-                                .into_iter()
-                                .filter(|proto| match proto {
-                                    Protocol::P2p(_) => false,
-                                    _ => true,
-                                })
-                                .collect::<Multiaddr>();
-
                             self.network_state.with_peer_store_mut(|peer_store| {
                                 peer_store.add_discovered_addr(&peer_id, addr);
                             });

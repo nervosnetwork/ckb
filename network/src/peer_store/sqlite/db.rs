@@ -1,7 +1,7 @@
 use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::sqlite::DBError;
 use crate::peer_store::types::{PeerAddr, PeerInfo};
-use crate::peer_store::{Multiaddr, PeerId, Score, Status};
+use crate::peer_store::{Multiaddr, PeerId, Protocol, Score, Status};
 use crate::SessionType;
 use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
@@ -221,13 +221,22 @@ impl PeerAddrDB {
         })).optional().map_err(Into::into)
     }
     pub fn insert_or_update(conn: &Connection, peer_addr: &PeerAddr) -> DBResult<usize> {
+        let addr = peer_addr
+            .addr
+            .into_iter()
+            .filter(|proto| match proto {
+                Protocol::P2p(_) => false,
+                _ => true,
+            })
+            .collect::<Multiaddr>();
+
         let mut stmt = conn.prepare(
             "INSERT OR REPLACE INTO peer_addr (peer_id, addr, last_connected_at_secs, last_tried_at_secs, attempts_count)
                      VALUES(:peer_id, :addr, :last_connected_at_secs, :last_tried_at_secs, :attempts_count)",
         )?;
         stmt.execute_named(&[
             (":peer_id", &peer_addr.peer_id.as_bytes()),
-            (":addr", &peer_addr.addr.as_ref()),
+            (":addr", &addr.as_ref()),
             (
                 ":last_connected_at_secs",
                 &millis_to_secs(peer_addr.last_connected_at_ms),
