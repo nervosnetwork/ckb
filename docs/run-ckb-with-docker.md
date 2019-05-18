@@ -12,7 +12,6 @@ listed in DockerHub.
 
 - Tag `latest` is always the latest release, which is built from the latest
   master branch.
-- Tag `develop` is built from the latest develop branch.
 - Tags `vx.y.z` are history releases.
 - Tags `vx.y.z-rc` are the preview of the release candidates.
 
