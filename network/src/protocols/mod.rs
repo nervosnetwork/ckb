@@ -4,7 +4,7 @@ pub(crate) mod identify;
 pub(crate) mod ping;
 
 use futures::Future;
-use log::{error, trace};
+use log::{debug, error, trace};
 use p2p::{
     builder::MetaBuilder,
     bytes::Bytes,
@@ -284,7 +284,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     }
     fn disconnect(&self, peer_index: PeerIndex) {
         if let Err(err) = self.p2p_control.disconnect(peer_index) {
-            error!(target: "network", "send message to p2p service error: {:?}", err);
+            debug!(target: "network", "Disconnect failed {:?}, error: {:?}", peer_index, err);
         }
     }
 

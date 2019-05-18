@@ -61,7 +61,7 @@ where
         {
             debug!(
                 target: "sync",
-                "\n\nheaders latest_common={} tip={} begin\n\n",
+                "headers latest_common={} tip={} begin",
                 block_number,
                 self.synchronizer.shared.tip_header().number(),
             );
@@ -73,7 +73,7 @@ where
                 .get_locator_response(block_number, &hash_stop);
             // response headers
 
-            debug!(target: "sync", "\nheaders len={}\n", headers.len());
+            debug!(target: "sync", "headers len={}", headers.len());
 
             let fbb = &mut FlatBufferBuilder::new();
             let message = SyncMessage::build_headers(fbb, &headers);
@@ -81,7 +81,7 @@ where
             self.nc
                 .send_message_to(self.peer, fbb.finished_data().into());
         } else {
-            warn!(target: "sync", "\n\nunknown block headers from peer {} {:#?}\n\n", self.peer, block_locator_hashes);
+            warn!(target: "sync", "unknown block headers from peer {} {:x?}", self.peer, block_locator_hashes);
             // Got 'headers' message without known blocks
             self.nc.ban_peer(self.peer, SYNC_USELESS_BAN_TIME);
         }
