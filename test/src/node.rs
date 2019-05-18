@@ -430,7 +430,7 @@ impl Node {
                 "-C",
                 &self.dir,
                 "init",
-                "--spec",
+                "--chain",
                 "integration",
                 "--rpc-port",
                 &rpc_port,

@@ -151,11 +151,27 @@ impl Setup {
     }
 
     pub fn init<'m>(matches: &ArgMatches<'m>) -> Result<InitArgs, ExitCode> {
+        if matches.is_present("list-specs") {
+            eprintln!(
+                "Deprecated: Option `--list-specs` is deprecated, use `--list-chains` instead"
+            );
+        }
+        if matches.is_present("spec") {
+            eprintln!("Deprecated: Option `--spec` is deprecated, use `--chain` instead");
+        }
+        if matches.is_present("export-specs") {
+            eprintln!("Deprecated: Option `--export-specs` is deprecated");
+        }
+
         let locator = Self::locator_from_matches(matches)?;
-        let export_specs = matches.is_present(cli::ARG_EXPORT_SPECS);
-        let list_specs = matches.is_present(cli::ARG_LIST_SPECS);
+        let list_chains =
+            matches.is_present(cli::ARG_LIST_CHAINS) || matches.is_present("list-specs");
         let force = matches.is_present(cli::ARG_FORCE);
-        let spec = matches.value_of(cli::ARG_SPEC).unwrap().to_string();
+        let chain = if matches.occurrences_of(cli::ARG_CHAIN) > 0 || !matches.is_present("spec") {
+            matches.value_of(cli::ARG_CHAIN).unwrap().to_string()
+        } else {
+            matches.value_of("spec").unwrap().to_string()
+        };
         let rpc_port = matches.value_of(cli::ARG_RPC_PORT).unwrap().to_string();
         let p2p_port = matches.value_of(cli::ARG_P2P_PORT).unwrap().to_string();
         let (log_to_file, log_to_stdout) = match matches.value_of(cli::ARG_LOG_TO) {
@@ -167,11 +183,10 @@ impl Setup {
 
         Ok(InitArgs {
             locator,
-            spec,
+            chain,
             rpc_port,
             p2p_port,
-            export_specs,
-            list_specs,
+            list_chains,
             force,
             log_to_file,
             log_to_stdout,
