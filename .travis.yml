@@ -8,7 +8,7 @@ git:
   depth: 2
   submodules: false
 
-if: 'branch IN (master, develop) OR branch =~ /^rc\// OR type != push OR repo != nervosnetwork/ckb OR tag IS present'
+if: 'branch IN (master, develop, rylai) OR branch =~ /^rc\// OR type != push OR repo != nervosnetwork/ckb OR tag IS present'
 
 env:
   global:

@@ -4,7 +4,7 @@ pub mod types;
 use self::types::PeerAddr;
 pub use crate::{peer_store::sqlite::SqlitePeerStore, SessionType};
 pub(crate) use crate::{Behaviour, PeerId};
-use p2p::multiaddr::Multiaddr;
+use p2p::multiaddr::{Multiaddr, Protocol};
 use std::time::Duration;
 
 /// After this limitation, peer store will try to eviction peers
