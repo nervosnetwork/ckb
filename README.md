@@ -20,7 +20,8 @@ the option `dsn` to empty in the config file.
 
 ## Testnet Rylai
 
-CKB Testnet *Rylai* is the testing network before its mainnet launch.
+CKB Testnet *Rylai* is the testing network before its mainnet launch. Switch
+to branch [rylai] to see the documentations.
 
 ## Mainnet
 
@@ -54,6 +55,11 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 ## Documentations
 
 [Latest version](https://github.com/nervosnetwork/ckb#documentations) is hosted in GitHub.
+
+The default branch in GitHub is `develop`, if you are looking for docs for the
+Testnet Rylai, switch to the branch [rylai].
+
+[rylai]: https://github.com/nervosnetwork/ckb/tree/rylai#documentations
 
 - [Get CKB](docs/get-ckb.md)
 - [Quick Start](docs/quick-start.md)
