@@ -213,7 +213,7 @@ where
                     .peers
                     .misbehavior(self.peer, result.misbehavior);
             }
-            debug!(target: "sync", "\n\nHeadersProcess accept_first is_valid {:?} headers = {:?}\n\n", result, headers[0]);
+            debug!(target: "sync", "HeadersProcess accept_first is_valid {:?} headers = {:?}", result, headers[0]);
             return Ok(());
         }
 

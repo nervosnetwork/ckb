@@ -160,7 +160,7 @@ impl NetworkState {
                 if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
                     reg.remove_peer(session_id);
                     if let Err(err) = p2p_control.disconnect(session_id) {
-                        error!(target: "network", "send message to p2p service error: {:?}", err);
+                        debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
             })
@@ -193,7 +193,7 @@ impl NetworkState {
         if let Some(peer) = peer_opt {
             self.peer_store.lock().ban_addr(&peer.address, timeout);
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
-                error!(target: "network", "send message to p2p service error: {:?}", err);
+                debug!(target: "network", "Disconnect failed {:?}, error: {:?}", peer.session_id, err);
             }
         }
     }
@@ -452,7 +452,7 @@ impl ServiceHandle for EventHandler {
             } => {
                 warn!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
                 if let Err(err) = context.disconnect(id) {
-                    warn!(target: "network", "Disconnect failed: {:?}", err);
+                    debug!(target: "network", "Disconnect failed {:?}, error {:?}", id, err);
                 }
             }
             ServiceError::SessionTimeout { session_context } => {
@@ -512,24 +512,24 @@ impl ServiceHandle for EventHandler {
                 } else {
                     match self.network_state.accept_peer(&session_context) {
                         Ok(Some(evicted_peer)) => {
-                            info!(
+                            debug!(
                                 target: "network",
                                 "evict peer (disonnect it), {} => {}",
                                 evicted_peer.session_id,
                                 evicted_peer.address,
                             );
                             if let Err(err) = context.disconnect(evicted_peer.session_id) {
-                                warn!(target: "network", "Disconnect failed: {:?}", err);
+                                debug!(target: "network", "Disconnect failed {:?}, error: {:?}", evicted_peer.session_id, err);
                             }
                         }
-                        Ok(None) => info!(
+                        Ok(None) => debug!(
                             target: "network",
                             "{} open, registry {} success",
                             session_context.id,
                             session_context.address,
                         ),
                         Err(err) => {
-                            warn!(
+                            debug!(
                                 target: "network",
                                 "registry peer failed {:?} disconnect it, {} => {}",
                                 err,
@@ -537,7 +537,7 @@ impl ServiceHandle for EventHandler {
                                 session_context.address,
                             );
                             if let Err(err) = context.disconnect(session_context.id) {
-                                warn!(target: "network", "Disconnect failed: {:?}", err);
+                                debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_context.id, err);
                             }
                         }
                     }
@@ -570,7 +570,7 @@ impl ServiceHandle for EventHandler {
                     .remove_peer(session_context.id)
                     .is_some();
                 if peer_exists {
-                    info!(
+                    debug!(
                         target: "network",
                         "{} closed, remove {} from peer_registry",
                         session_context.id,
@@ -652,7 +652,7 @@ impl ServiceHandle for EventHandler {
                         .write()
                         .insert(session_id);
                     if let Err(err) = context.disconnect(session_id) {
-                        warn!(target: "network", "Disconnect failed: {:?}", err);
+                        debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
             }
@@ -864,9 +864,9 @@ impl NetworkService {
                 // Recevied stop signal, doing cleanup
                 let _ = receiver.recv();
                 for peer in self.network_state.peer_registry.read().peers().values() {
-                    info!(target: "network", "disconnect peer {}", peer.address);
+                    info!(target: "network", "Disconnect peer {}", peer.address);
                     if let Err(err) = inner_p2p_control.disconnect(peer.session_id) {
-                        warn!(target: "network", "send disconnect message to p2p error: {:?}", err);
+                        debug!(target: "network", "Disconnect failed {:?}, error: {:?}", peer.session_id, err);
                     }
                 }
                 // Drop senders to stop all corresponding background task
@@ -921,7 +921,7 @@ impl NetworkController {
             if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
                 reg.remove_peer(session_id);
                 if let Err(err) = self.p2p_control.disconnect(session_id) {
-                    error!(target: "network", "Failed to disconnect peer, error: {:?}", err);
+                    debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_id, err);
                 }
             } else {
                 error!(target: "network", "Cannot find peer {:?}", peer_id);

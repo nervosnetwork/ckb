@@ -1,6 +1,6 @@
 use crate::NetworkState;
 use futures::{sync::mpsc::Receiver, try_ready, Async, Stream};
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use p2p::service::ServiceControl;
 use p2p_ping::Event;
 use std::sync::Arc;
@@ -54,13 +54,7 @@ impl Stream for PingService {
                         .map(|peer| peer.session_id)
                 }) {
                     if let Err(err) = self.p2p_control.disconnect(session_id) {
-                        warn!(
-                            target: "network",
-                            "send disconnect failed {} => {:?}, error={:?}",
-                            session_id,
-                            peer_id,
-                            err,
-                        );
+                        debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
             }
@@ -71,13 +65,7 @@ impl Stream for PingService {
                         .map(|peer| peer.session_id)
                 }) {
                     if let Err(err) = self.p2p_control.disconnect(session_id) {
-                        warn!(
-                            target: "network",
-                            "send disconnect failed {} => {:?}, error={:?}",
-                            session_id,
-                            peer_id,
-                            err,
-                        );
+                        debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
             }
