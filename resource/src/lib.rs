@@ -20,7 +20,7 @@ include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
 
 pub const CKB_CONFIG_FILE_NAME: &str = "ckb.toml";
 pub const MINER_CONFIG_FILE_NAME: &str = "ckb-miner.toml";
-pub const SPECS_RESOURCE_DIR_NAME: &str = "specs/";
+pub const SPEC_DEV_FILE_NAME: &str = "specs/dev.toml";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Resource {
@@ -161,34 +161,25 @@ impl ResourceLocator {
     }
 
     pub fn export_ckb<'a>(&self, context: &TemplateContext<'a>) -> Result<()> {
-        let ckb = Resource::Bundled(CKB_CONFIG_FILE_NAME.to_string());
-        let template = Template::new(from_utf8(ckb.get()?)?);
-        let mut out = NamedTempFile::new_in(&self.root_dir)?;
-        template.write_to(&mut out, context)?;
-        out.persist(self.root_dir.join(CKB_CONFIG_FILE_NAME))?;
-        Ok(())
+        self.export(CKB_CONFIG_FILE_NAME, context)
     }
 
     pub fn export_miner<'a>(&self, context: &TemplateContext<'a>) -> Result<()> {
-        let miner = Resource::Bundled(MINER_CONFIG_FILE_NAME.to_string());
-        let template = Template::new(from_utf8(miner.get()?)?);
-        let mut out = NamedTempFile::new_in(&self.root_dir)?;
-        template.write_to(&mut out, context)?;
-        out.persist(self.root_dir.join(MINER_CONFIG_FILE_NAME))?;
-        Ok(())
+        self.export(MINER_CONFIG_FILE_NAME, context)
     }
 
-    pub fn export_specs(&self) -> Result<()> {
-        for name in BUNDLED.file_names() {
-            if name.starts_with(SPECS_RESOURCE_DIR_NAME) {
-                let path = self.root_dir.join(name);
-                fs::create_dir_all(path.parent().unwrap())?;
-                let mut out = NamedTempFile::new_in(&self.root_dir)?;
-                io::copy(&mut BUNDLED.read(name)?, &mut out)?;
-                out.into_temp_path().persist(path)?;
+    pub fn export<'a>(&self, name: &str, context: &TemplateContext<'a>) -> Result<()> {
+        let target = self.root_dir.join(name);
+        let resource = Resource::Bundled(name.to_string());
+        let template = Template::new(from_utf8(resource.get()?)?);
+        let mut out = NamedTempFile::new_in(&self.root_dir)?;
+        if name.contains('/') {
+            if let Some(dir) = target.parent() {
+                fs::create_dir_all(dir)?;
             }
         }
-
+        template.write_to(&mut out, context)?;
+        out.persist(target)?;
         Ok(())
     }
 }

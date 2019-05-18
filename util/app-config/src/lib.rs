@@ -152,10 +152,9 @@ impl Setup {
 
     pub fn init<'m>(matches: &ArgMatches<'m>) -> Result<InitArgs, ExitCode> {
         let locator = Self::locator_from_matches(matches)?;
-        let export_specs = matches.is_present(cli::ARG_EXPORT_SPECS);
-        let list_specs = matches.is_present(cli::ARG_LIST_SPECS);
+        let list_chains = matches.is_present(cli::ARG_LIST_CHAINS);
         let force = matches.is_present(cli::ARG_FORCE);
-        let spec = matches.value_of(cli::ARG_SPEC).unwrap().to_string();
+        let chain = matches.value_of(cli::ARG_CHAIN).unwrap().to_string();
         let rpc_port = matches.value_of(cli::ARG_RPC_PORT).unwrap().to_string();
         let p2p_port = matches.value_of(cli::ARG_P2P_PORT).unwrap().to_string();
         let (log_to_file, log_to_stdout) = match matches.value_of(cli::ARG_LOG_TO) {
@@ -167,11 +166,10 @@ impl Setup {
 
         Ok(InitArgs {
             locator,
-            spec,
+            chain,
             rpc_port,
             p2p_port,
-            export_specs,
-            list_specs,
+            list_chains,
             force,
             log_to_file,
             log_to_stdout,

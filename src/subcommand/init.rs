@@ -1,11 +1,11 @@
 use ckb_app_config::{ExitCode, InitArgs};
 use ckb_resource::{
     TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, MINER_CONFIG_FILE_NAME,
-    SPECS_RESOURCE_DIR_NAME,
+    SPEC_DEV_FILE_NAME,
 };
 
 pub fn init(args: InitArgs) -> Result<(), ExitCode> {
-    if args.list_specs {
+    if args.list_chains {
         for spec in AVAILABLE_SPECS {
             println!("{}", spec);
         }
@@ -13,7 +13,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     }
 
     let context = TemplateContext {
-        spec: &args.spec,
+        spec: &args.chain,
         rpc_port: &args.rpc_port,
         p2p_port: &args.p2p_port,
         log_to_file: args.log_to_file,
@@ -36,14 +36,14 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         args.locator.root_dir().display()
     );
 
-    println!("export {}", CKB_CONFIG_FILE_NAME);
+    println!("create {}", CKB_CONFIG_FILE_NAME);
     args.locator.export_ckb(&context)?;
-    println!("export {}", MINER_CONFIG_FILE_NAME);
+    println!("create {}", MINER_CONFIG_FILE_NAME);
     args.locator.export_miner(&context)?;
 
-    if args.export_specs {
-        println!("export {}", SPECS_RESOURCE_DIR_NAME);
-        args.locator.export_specs()?;
+    if args.chain == "dev" {
+        println!("create {}", SPEC_DEV_FILE_NAME);
+        args.locator.export(SPEC_DEV_FILE_NAME, &context)?;
     }
 
     eprintln!(
