@@ -34,6 +34,12 @@ docker run --rm -it \
   nervos/ckb:latest init --spec testnet --force
 ```
 
+Find the rpc configuration in `ckb.toml`, and change the `listen_address` to `0.0.0.0:8114`:
+```bash
+[rpc]
+listen_address = "0.0.0.0:8114"
+```
+
 Create a container `ckb-testnet-node` to run a node:
 
 ```bash
