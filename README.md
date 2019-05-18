@@ -54,6 +54,9 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 
 [Latest version](https://github.com/nervosnetwork/ckb#documentations) is hosted in GitHub.
 
+The default branch in GitHub is `develop`, which is the actively developing
+version. Switch to the correct tag or branch to see docs for other versions.
+
 - [Get CKB](docs/get-ckb.md)
 - [Quick Start](docs/quick-start.md)
 - [Run CKB with Docker](docs/run-ckb-with-docker.md)
