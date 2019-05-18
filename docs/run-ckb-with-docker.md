@@ -39,6 +39,7 @@ Create a container `ckb-testnet-node` to run a node:
 ```bash
 docker create -it \
   -v ckb-testnet:/var/lib/ckb \
+  --name ckb-testnet-node \
   nervos/ckb:latest run
 ```
 
