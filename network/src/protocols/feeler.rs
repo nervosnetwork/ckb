@@ -1,5 +1,5 @@
 use crate::NetworkState;
-use log::{info, warn};
+use log::{debug, info};
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
     secio::PublicKey,
@@ -37,7 +37,7 @@ impl ServiceProtocol for Feeler {
         });
         info!(target: "network", "peer={} FeelerProtocol.connected", session.address);
         if let Err(err) = context.disconnect(session.id) {
-            warn!(target: "network", "Disconnect failed: {:?}", err);
+            debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session.id, err);
         }
     }
 
