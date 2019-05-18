@@ -189,16 +189,16 @@ impl NetworkState {
         timeout: Duration,
     ) {
         info!(target: "network", "ban peer {:?} with {:?}", peer_id, timeout);
-        self.with_peer_registry_mut(|reg| {
-            if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
-                if let Some(peer) = reg.remove_peer(session_id) {
-                    self.peer_store.lock().ban_addr(&peer.address, timeout);
-                }
-                if let Err(err) = p2p_control.disconnect(session_id) {
-                    error!(target: "network", "send message to p2p service error: {:?}", err);
-                }
-            }
+        let peer_opt = self.with_peer_registry_mut(|reg| {
+            reg.get_key_by_peer_id(peer_id)
+                .and_then(|session_id| reg.remove_peer(session_id))
         });
+        if let Some(peer) = peer_opt {
+            self.peer_store.lock().ban_addr(&peer.address, timeout);
+            if let Err(err) = p2p_control.disconnect(peer.session_id) {
+                error!(target: "network", "send message to p2p service error: {:?}", err);
+            }
+        }
     }
 
     pub(crate) fn query_session_id(&self, peer_id: &PeerId) -> Option<SessionId> {
