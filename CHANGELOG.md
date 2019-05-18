@@ -1,7 +1,19 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
-# [v0.12.0](https://github.com/nervosnetwork/ckb/compare/v0.11.0...v0.12.0) (2019-05-18)
+# [v0.12.1](https://github.com/nervosnetwork/ckb/compare/v0.12.0...v0.12.1) (2019-05-18)
+
+### Bug Fixes
+
+* #825: Filter out p2p field in address (@TheWaWaR)
+* #826: Ban peer deadlock (@TheWaWaR)
+* #829 **docker:** Fix docker problems found in rylai (@doitian)
+
+    - avoid dirty flag in version info
+    - bind rpc on 0.0.0.0 in docker
+    - fix docker files permissions
+
+# [v0.12.0](https://github.com/nervosnetwork/ckb/compare/v0.11.0...v0.12.0) (2019-05-18) rylai
 
 ### Features
 
