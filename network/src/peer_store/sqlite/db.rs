@@ -51,52 +51,31 @@ pub fn create_tables(conn: &Connection) -> DBResult<()> {
 pub struct PeerInfoDB;
 
 impl PeerInfoDB {
-    pub fn insert(
-        conn: &Connection,
-        peer_id: &PeerId,
-        connected_addr: &Multiaddr,
-        endpoint: SessionType,
-        score: Score,
-        last_connected_at_ms: u64,
-    ) -> DBResult<usize> {
-        let network_group = connected_addr.network_group();
+    pub fn insert_or_update(conn: &Connection, peer: &PeerInfo) -> DBResult<usize> {
+        let network_group = peer.connected_addr.network_group();
         let mut stmt = conn.prepare("INSERT OR REPLACE INTO peer_info (peer_id, connected_addr, score, status, endpoint, last_connected_at_secs, network_group, ban_time_secs) 
                                     VALUES(:peer_id, :connected_addr, :score, :status, :endpoint, :last_connected_at_secs, :network_group, 0)").expect("prepare");
         stmt.execute_named(&[
-            (":peer_id", &peer_id.as_bytes()),
-            (":connected_addr", &connected_addr.as_ref()),
-            (":score", &score),
-            (":status", &status_to_u8(Status::Unknown)),
-            (":endpoint", &endpoint_to_bool(endpoint)),
+            (":peer_id", &peer.peer_id.as_bytes()),
+            (":connected_addr", &peer.connected_addr.as_ref()),
+            (":score", &peer.score),
+            (":status", &status_to_u8(peer.status)),
+            (":endpoint", &endpoint_to_bool(peer.session_type)),
             (
                 ":last_connected_at_secs",
-                &millis_to_secs(last_connected_at_ms),
+                &millis_to_secs(peer.last_connected_at_ms),
             ),
             (":network_group", &network_group_to_bytes(&network_group)),
         ])
         .map_err(Into::into)
     }
 
-    pub fn get_or_insert(
-        conn: &Connection,
-        peer_id: &PeerId,
-        addr: &Multiaddr,
-        session_type: SessionType,
-        score: Score,
-        last_connected_at_ms: u64,
-    ) -> DBResult<Option<PeerInfo>> {
-        match Self::get_by_peer_id(conn, peer_id)? {
+    pub fn get_or_insert(conn: &Connection, peer: &PeerInfo) -> DBResult<Option<PeerInfo>> {
+        match Self::get_by_peer_id(conn, &peer.peer_id)? {
             Some(peer) => Ok(Some(peer)),
             None => {
-                Self::insert(
-                    conn,
-                    peer_id,
-                    addr,
-                    session_type,
-                    score,
-                    last_connected_at_ms,
-                )?;
-                Self::get_by_peer_id(conn, peer_id)
+                Self::insert_or_update(conn, peer)?;
+                Self::get_by_peer_id(conn, &peer.peer_id)
             }
         }
     }
@@ -139,7 +118,7 @@ impl PeerInfoDB {
             connected_addr: Multiaddr::try_from(row.get::<_, Vec<u8>>(1)?).expect("parse multiaddr"),
             score: row.get(2)?,
             status: u8_to_status(row.get::<_, u8>(3)?),
-            endpoint: bool_to_endpoint(row.get::<_, bool>(4)?),
+            session_type: bool_to_endpoint(row.get::<_, bool>(4)?),
             ban_time_ms: secs_to_millis(row.get(5)?),
             last_connected_at_ms: secs_to_millis(row.get(6)?),
         })).optional().map_err(Into::into)
@@ -181,7 +160,7 @@ impl PeerInfoDB {
                     .expect("parse multiaddr"),
                 score: row.get(2)?,
                 status: u8_to_status(row.get::<_, u8>(3)?),
-                endpoint: bool_to_endpoint(row.get::<_, bool>(4)?),
+                session_type: bool_to_endpoint(row.get::<_, bool>(4)?),
                 ban_time_ms: secs_to_millis(row.get(5)?),
                 last_connected_at_ms: secs_to_millis(row.get(6)?),
             })
