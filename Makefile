@@ -38,6 +38,9 @@ build: ## Build binary with release profile.
 prod: ## Build binary for production release.
 	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release
 
+prod-docker: ## Build binary for production release.
+	RUSTFLAGS="--cfg disable_faketime --cfg docker" cargo build --verbose --release
+
 prod-test: ## Build binary for testing production release.
 	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
 

@@ -3,7 +3,7 @@ FROM nervos/ckb-docker-builder:xenial-rust-1.34.2 as ckb-docker-builder
 WORKDIR /ckb
 COPY ./ .
 
-RUN make VERBOSE=--verbose prod
+RUN make prod-docker
 
 FROM ubuntu:xenial
 LABEL description="Nervos CKB is a public permissionless blockchain, the common knowledge layer of Nervos network."
