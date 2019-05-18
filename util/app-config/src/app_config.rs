@@ -124,7 +124,7 @@ impl AppConfig {
             AppConfigContent::Miner(config) => &config.chain.spec,
         });
         ChainSpec::resolve_relative_to(locator, spec_path, &self.resource).map_err(|err| {
-            eprintln!("{:?}", err);
+            eprintln!("{}", err);
             ExitCode::Config
         })
     }
