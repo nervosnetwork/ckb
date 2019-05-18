@@ -189,10 +189,7 @@ impl NetworkState {
         timeout: Duration,
     ) {
         info!(target: "network", "ban peer {:?} with {:?}", peer_id, timeout);
-        let peer_opt = self.with_peer_registry_mut(|reg| {
-            reg.get_key_by_peer_id(peer_id)
-                .and_then(|session_id| reg.remove_peer(session_id))
-        });
+        let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer_opt {
             self.peer_store.lock().ban_addr(&peer.address, timeout);
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
