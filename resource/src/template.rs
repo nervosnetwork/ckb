@@ -38,6 +38,8 @@ impl<T> Template<T> {
 }
 
 fn writeln<W: io::Write>(w: &mut W, s: &str, context: &TemplateContext) -> io::Result<()> {
+    #[cfg(docker)]
+    let s = s.replace("127.0.0.1:{rpc_port}", "0.0.0.0:{rpc_port}");
     writeln!(
         w,
         "{}",
