@@ -338,6 +338,7 @@ impl Node {
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
         ckb_config.chain.spec = config_path.into();
+        ckb_config.block_assembler.enable = true;
         ckb_config
             .block_assembler
             .code_hash

@@ -11,6 +11,7 @@ pub struct MinerConfig {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockAssemblerConfig {
+    pub enable: bool,
     pub code_hash: H256,
     pub args: Vec<JsonBytes>,
 }

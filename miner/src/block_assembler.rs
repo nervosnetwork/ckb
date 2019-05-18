@@ -563,6 +563,7 @@ mod tests {
     fn test_get_block_template() {
         let (_chain_controller, shared, _notify) = start_chain(None, None);
         let config = BlockAssemblerConfig {
+            enable: true,
             code_hash: H256::zero(),
             args: vec![],
         };
@@ -682,6 +683,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
+            enable: true,
             code_hash: H256::zero(),
             args: vec![],
         };

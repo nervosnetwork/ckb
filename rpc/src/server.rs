@@ -14,6 +14,7 @@ use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use log::info;
 
 pub struct RpcServer {
     pub(crate) server: Server,
@@ -26,7 +27,7 @@ impl RpcServer {
         shared: Shared<CS>,
         synchronizer: Synchronizer<CS>,
         chain: ChainController,
-        block_assembler: BlockAssemblerController,
+        block_assembler: Option<BlockAssemblerController>,
     ) -> RpcServer
     where
         CS: ChainStore,
@@ -48,16 +49,21 @@ impl RpcServer {
             );
         }
 
-        if config.miner_enable() {
-            io.extend_with(
-                MinerRpcImpl {
-                    shared: shared.clone(),
-                    block_assembler,
-                    chain: chain.clone(),
-                    network_controller: network_controller.clone(),
-                }
-                .to_delegate(),
-            );
+        match (config.miner_enable(), block_assembler) {
+            (true, Some(block_assembler)) => {
+                io.extend_with(
+                    MinerRpcImpl {
+                        shared: shared.clone(),
+                        block_assembler,
+                        chain: chain.clone(),
+                        network_controller: network_controller.clone(),
+                    }
+                    .to_delegate(),
+                );
+            }
+            _ => {
+                info!(target: "rpc", "miner_enable: false");
+            }
         }
 
         if config.net_enable() {
