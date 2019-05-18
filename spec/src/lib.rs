@@ -87,48 +87,43 @@ pub struct IssuedCell {
 }
 
 #[derive(Debug)]
-pub struct FileNotFoundError;
+pub enum SpecLoadError {
+    FileNotFound,
+    ChainNameNotAllowed(String),
+    GenesisMismatch { expect: H256, actual: H256 },
+}
 
-impl FileNotFoundError {
-    fn boxed() -> Box<Self> {
-        Box::new(FileNotFoundError)
+impl SpecLoadError {
+    fn file_not_found() -> Box<Self> {
+        Box::new(SpecLoadError::FileNotFound)
+    }
+
+    fn spec_name_not_allowed(name: String) -> Box<Self> {
+        Box::new(SpecLoadError::ChainNameNotAllowed(name))
+    }
+
+    fn genesis_mismatch(expect: H256, actual: H256) -> Box<Self> {
+        Box::new(SpecLoadError::GenesisMismatch { expect, actual })
     }
 }
 
-impl Error for FileNotFoundError {}
+impl Error for SpecLoadError {}
 
-impl fmt::Display for FileNotFoundError {
+impl fmt::Display for SpecLoadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ChainSpec: file not found")
-    }
-}
-
-pub struct GenesisError {
-    expect: H256,
-    actual: H256,
-}
-
-impl GenesisError {
-    fn boxed(self) -> Box<Self> {
-        Box::new(self)
-    }
-}
-
-impl Error for GenesisError {}
-
-impl fmt::Debug for GenesisError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "GenesisError: hash mismatch, expect {:#x}, actual {:#x}",
-            self.expect, self.actual
-        )
-    }
-}
-
-impl fmt::Display for GenesisError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
+        match self {
+            SpecLoadError::FileNotFound => write!(f, "ChainSpec: file not found"),
+            SpecLoadError::ChainNameNotAllowed(name) => write!(
+                f,
+                "ChainSpec: name not allowed, expect ckb_dev, actual {}",
+                name
+            ),
+            SpecLoadError::GenesisMismatch { expect, actual } => write!(
+                f,
+                "ChainSpec: genesis hash mismatch, expect {:#x}, actual {:#x}",
+                expect, actual
+            ),
+        }
     }
 }
 
@@ -140,10 +135,15 @@ impl ChainSpec {
     ) -> Result<ChainSpec, Box<dyn Error>> {
         let resource = match locator.resolve_relative_to(spec_path, config_file) {
             Some(r) => r,
-            None => return Err(FileNotFoundError::boxed()),
+            None => return Err(SpecLoadError::file_not_found()),
         };
         let config_bytes = resource.get()?;
         let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
+        if !(resource.is_bundled() || spec.name == "ckb_dev" || spec.name == "ckb_integration_test")
+        {
+            return Err(SpecLoadError::spec_name_not_allowed(spec.name.clone()));
+        }
+
         let system_cells_resources = spec
             .genesis
             .system_cells
@@ -152,9 +152,9 @@ impl ChainSpec {
             .map(|path| {
                 locator
                     .resolve_relative_to(path.clone(), &resource)
-                    .ok_or(FileNotFoundError)
+                    .ok_or(SpecLoadError::FileNotFound)
             })
-            .collect::<Result<Vec<_>, FileNotFoundError>>()?;
+            .collect::<Result<Vec<_>, SpecLoadError>>()?;
 
         spec.genesis.system_cells.resources = system_cells_resources;
 
@@ -169,11 +169,10 @@ impl ChainSpec {
         if let Some(ref expect) = self.genesis.hash {
             let actual = genesis.header().hash();
             if actual != expect {
-                return Err(GenesisError {
-                    actual: actual.clone(),
-                    expect: expect.clone(),
-                }
-                .boxed());
+                return Err(SpecLoadError::genesis_mismatch(
+                    actual.clone(),
+                    expect.clone(),
+                ));
             }
         }
         Ok(())
