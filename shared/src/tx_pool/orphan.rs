@@ -47,14 +47,14 @@ impl OrphanPool {
         size: usize,
         tx: Transaction,
         unknown: impl ExactSizeIterator<Item = OutPoint>,
-    ) {
+    ) -> Option<DefectEntry> {
         let short_id = tx.proposal_short_id();
         let entry = DefectEntry::new(tx, unknown.len(), cycles, size);
         for out_point in unknown {
             let edge = self.edges.entry(out_point).or_insert_with(Vec::new);
             edge.push(short_id);
         }
-        self.vertices.insert(short_id, entry);
+        self.vertices.insert(short_id, entry)
     }
 
     pub(crate) fn recursion_remove(&mut self, id: &ProposalShortId) {

@@ -71,9 +71,9 @@ modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
 orphan_block_limit = 1024
 
 [tx_pool]
-max_mem_szie = 20_000_000 # 20mb
+max_mem_size = 20_000_000 # 20mb
 max_cycles = 200_000_000_000
-max_cache_size = 100_000
+max_verfify_cache_size = 100_000
 
 # This config is derived using 0x5c2514fb16b83259d3326a0acf05901c15a87dc46239b77b0a501cd58198dca0
 # as private key. If you want to mine CKB, please make sure to create your own

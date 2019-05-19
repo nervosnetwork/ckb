@@ -6,7 +6,7 @@ use crate::tx_pool::proposed::ProposedPool;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::{Capacity, Cycle};
 use faketime::unix_time_as_millis;
-use log::trace;
+use log::{self, trace};
 use lru_cache::LruCache;
 
 #[derive(Debug, Clone)]
@@ -25,14 +25,14 @@ pub struct TxPool {
     /// last txs updated timestamp, used by getblocktemplate
     pub(crate) last_txs_updated_at: u64,
     // sum of all tx_pool tx's virtual sizes.
-    pub(crate) total_tx_size: u64,
+    pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
     pub(crate) total_tx_cycles: Cycle,
 }
 
 impl TxPool {
     pub fn new(config: TxPoolConfig) -> TxPool {
-        let cache_size = config.max_cache_size;
+        let cache_size = config.max_verfify_cache_size;
         let last_txs_updated_at = 0u64;
 
         TxPool {
@@ -61,6 +61,41 @@ impl TxPool {
         self.orphan.vertices.len() as u32
     }
 
+    pub fn total_tx_size(&self) -> usize {
+        self.total_tx_size
+    }
+
+    pub fn total_tx_cycles(&self) -> Cycle {
+        self.total_tx_cycles
+    }
+
+    pub fn reach_size_limit(&self, tx_size: usize) -> bool {
+        (self.total_tx_size + tx_size) > self.config.max_mem_size
+    }
+
+    pub fn reach_cycles_limit(&self, cycles: Cycle) -> bool {
+        (self.total_tx_cycles + cycles) > self.config.max_cycles
+    }
+
+    pub fn update_statics_for_add_tx(&mut self, tx_size: usize, cycles: Cycle) {
+        self.total_tx_size += tx_size;
+        self.total_tx_cycles += cycles;
+    }
+
+    // cycles overflow is possible, currently obtaining cycles is not accurate
+    pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
+        let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
+            log::error!(target: "tx_pool", "total_tx_size {} overflow by sub {}", self.total_tx_size, tx_size);
+            0
+        });
+        let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
+            log::error!(target: "tx_pool", "total_tx_cycles {} overflow by sub {}", self.total_tx_cycles, cycles);
+            0
+        });
+        self.total_tx_size = total_tx_size;
+        self.total_tx_cycles = total_tx_cycles;
+    }
+
     // enqueue_tx inserts a new transaction into pending queue.
     // If did have this value present, false is returned.
     pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, size: usize, tx: Transaction) -> bool {
@@ -81,9 +116,9 @@ impl TxPool {
         size: usize,
         tx: Transaction,
         unknowns: Vec<OutPoint>,
-    ) {
+    ) -> Option<DefectEntry> {
         trace!(target: "tx_pool", "add_orphan {:#x}", &tx.hash());
-        self.orphan.add_tx(cycles, size, tx, unknowns.into_iter());
+        self.orphan.add_tx(cycles, size, tx, unknowns.into_iter())
     }
 
     pub(crate) fn add_proposed(
@@ -97,10 +132,6 @@ impl TxPool {
         self.touch_last_txs_updated_at();
         self.proposed.add_tx(cycles, fee, size, tx);
     }
-
-    // pub(crate) fn capacity(&self) -> usize {
-    //     self.proposed.capacity() + self.orphan.capacity()
-    // }
 
     pub(crate) fn touch_last_txs_updated_at(&mut self) {
         self.last_txs_updated_at = unix_time_as_millis();
@@ -171,11 +202,6 @@ impl TxPool {
         self.proposed.get_tx(id).cloned()
     }
 
-    //FIXME: use memsize
-    // pub fn is_full(&self) -> bool {
-    //     self.capacity() > self.config.max_pool_size
-    // }
-
     pub(crate) fn remove_committed_txs_from_proposed<'a>(
         &mut self,
         txs: impl Iterator<Item = &'a Transaction>,
@@ -183,7 +209,9 @@ impl TxPool {
         for tx in txs {
             let hash = tx.hash();
             trace!(target: "tx_pool", "committed {:#x}", hash);
-            self.proposed.remove_committed_tx(tx);
+            for entry in self.proposed.remove_committed_tx(tx) {
+                self.update_statics_for_remove_tx(entry.size, entry.cycles);
+            }
         }
     }
 
@@ -192,10 +220,8 @@ impl TxPool {
             if let Some(entry) = self.gap.remove(id) {
                 self.enqueue_tx(entry.cycles, entry.size, entry.transaction);
             }
-            if let Some(entries) = self.proposed.remove(id) {
-                for entry in entries {
-                    self.enqueue_tx(Some(entry.cycles), entry.size, entry.transaction);
-                }
+            for entry in self.proposed.remove(id) {
+                self.enqueue_tx(Some(entry.cycles), entry.size, entry.transaction);
             }
         }
     }

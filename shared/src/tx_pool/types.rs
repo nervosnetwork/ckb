@@ -14,18 +14,20 @@ use std::hash::{Hash, Hasher};
 /// Transaction pool configuration
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct TxPoolConfig {
-    /// Maximum capacity of the pool in number of transactions
-    pub max_mem_szie: usize,
-    pub max_cycles: usize,
-    pub max_cache_size: usize,
+    // Keep the transaction pool below <max_mem_size> mb
+    pub max_mem_size: usize,
+    // Keep the transaction pool below <max_cycles> cycles
+    pub max_cycles: Cycle,
+    // tx verfify cache capacity
+    pub max_verfify_cache_size: usize,
 }
 
 impl Default for TxPoolConfig {
     fn default() -> Self {
         TxPoolConfig {
-            max_mem_szie: 20_000_000, // 20mb
+            max_mem_size: 20_000_000, // 20mb
             max_cycles: 200_000_000_000,
-            max_cache_size: 100_000,
+            max_verfify_cache_size: 100_000,
         }
     }
 }
@@ -38,8 +40,8 @@ pub enum PoolError {
     UnresolvableTransaction(UnresolvableError),
     /// An invalid pool entry caused by underlying tx validation error
     InvalidTx(TransactionError),
-    /// Transaction pool is over capacity, can't accept more transactions
-    OverCapacity,
+    /// Transaction pool reach limit, can't accept more transactions
+    LimitReached,
     /// TimeOut
     TimeOut,
     /// BlockNumber is not right

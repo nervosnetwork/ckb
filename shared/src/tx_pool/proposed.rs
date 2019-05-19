@@ -190,14 +190,8 @@ impl ProposedPool {
         entries
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<Vec<ProposedEntry>> {
-        let rtxs = self.remove_vertex(id);
-
-        if rtxs.is_empty() {
-            None
-        } else {
-            Some(rtxs)
-        }
+    pub fn remove(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
+        self.remove_vertex(id)
     }
 
     pub fn add_tx(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
@@ -237,13 +231,16 @@ impl ProposedPool {
             .insert(id, ProposedEntry::new(tx, count, cycles, fee, size));
     }
 
-    pub fn remove_committed_tx(&mut self, tx: &Transaction) {
+    pub fn remove_committed_tx(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts_iter();
         let deps = tx.deps_iter();
         let id = tx.proposal_short_id();
 
-        if self.vertices.remove(&id).is_some() {
+        let mut removed = Vec::new();
+
+        if let Some(entry) = self.vertices.remove(&id) {
+            removed.push(entry);
             for o in outputs {
                 if let Some(cid) = self.edges.remove_inner(&o) {
                     self.dec_ref(&cid);
@@ -262,27 +259,30 @@ impl ProposedPool {
             }
 
             for d in deps {
-                self.edges.delete_value_in_deps(d, &id)
+                self.edges.delete_value_in_deps(d, &id);
             }
         } else {
-            self.resolve_conflict(tx);
+            removed.append(&mut self.resolve_conflict(tx));
         }
+        removed
     }
 
-    pub fn resolve_conflict(&mut self, tx: &Transaction) {
+    pub fn resolve_conflict(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
         let inputs = tx.input_pts_iter();
+        let mut removed = Vec::new();
 
         for i in inputs {
             if let Some(id) = self.edges.remove_outer(i) {
-                self.remove(&id);
+                removed.append(&mut self.remove(&id));
             }
 
             if let Some(x) = self.edges.remove_deps(&i) {
                 for id in x {
-                    self.remove(&id);
+                    removed.append(&mut self.remove(&id));
                 }
             }
         }
+        removed
     }
 
     /// Get n transactions in topology

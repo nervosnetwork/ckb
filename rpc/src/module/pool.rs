@@ -72,6 +72,8 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
             pending: Unsigned(u64::from(tx_pool.pending_size())),
             proposed: Unsigned(u64::from(tx_pool.proposed_size())),
             orphan: Unsigned(u64::from(tx_pool.orphan_size())),
+            total_tx_size: Unsigned(tx_pool.total_tx_size() as u64),
+            total_tx_cycles: Unsigned(tx_pool.total_tx_cycles()),
             last_txs_updated_at: Timestamp(chain_state.get_last_txs_updated_at()),
         })
     }

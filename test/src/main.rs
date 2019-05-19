@@ -53,6 +53,8 @@ fn main() {
     );
     specs.insert("compact_block_basic", Box::new(CompactBlockBasic));
     specs.insert("invalid_locator_size", Box::new(InvalidLocatorSize));
+    specs.insert("tx_pool_size_limit", Box::new(SizeLimit));
+    specs.insert("tx_pool_cycles_limit", Box::new(CyclesLimit));
 
     if let Some(spec_name) = env::args().nth(3) {
         if let Some(spec) = specs.get(spec_name.as_str()) {

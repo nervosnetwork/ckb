@@ -404,4 +404,10 @@ impl Node {
         assert_eq!(tx_pool_info.pending.0, pending_size);
         assert_eq!(tx_pool_info.proposed.0, proposed_size);
     }
+
+    pub fn assert_tx_pool_statics(&self, total_tx_size: u64, total_tx_cycles: u64) {
+        let tx_pool_info = self.rpc_client().tx_pool_info();
+        assert_eq!(tx_pool_info.total_tx_size.0, total_tx_size);
+        assert_eq!(tx_pool_info.total_tx_cycles.0, total_tx_cycles);
+    }
 }
