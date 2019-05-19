@@ -1,6 +1,8 @@
-use crate::{Col, DBConfig, DbBatch, Error, KeyValueDB, Result};
+use crate::{
+    Col, DBConfig, DbBatch, Error, IterableKeyValueDB, KeyValueDB, KeyValueIteratorItem, Result,
+};
 use log::{info, warn};
-use rocksdb::{ColumnFamily, Error as RdbError, IteratorMode, Options, WriteBatch, DB};
+use rocksdb::{ColumnFamily, Direction, Error as RdbError, IteratorMode, Options, WriteBatch, DB};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -156,6 +158,21 @@ impl KeyValueDB for RocksDB {
             db: Arc::clone(&self.inner),
             wb: WriteBatch::default(),
         })
+    }
+}
+
+impl IterableKeyValueDB for RocksDB {
+    fn iter<'a>(
+        &'a self,
+        col: Col,
+        from_key: &'a [u8],
+    ) -> Result<Box<Iterator<Item = KeyValueIteratorItem> + 'a>> {
+        let cf = cf_handle(&self.inner, col)?;
+        let mode = IteratorMode::From(from_key, Direction::Forward);
+        self.inner
+            .iterator_cf(cf, mode)
+            .map(|iter| Box::new(iter) as Box<_>)
+            .map_err(Into::into)
     }
 }
 
