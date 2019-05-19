@@ -1,5 +1,5 @@
 mod hashes;
-mod keygen;
+mod secp256k1;
 
 pub use hashes::hashes;
-pub use keygen::keygen;
+pub use secp256k1::secp256k1;

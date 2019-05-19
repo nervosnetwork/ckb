@@ -9,7 +9,7 @@ pub const CMD_IMPORT: &str = "import";
 pub const CMD_INIT: &str = "init";
 pub const CMD_PROF: &str = "prof";
 pub const CMD_CLI: &str = "cli";
-pub const CMD_KEYGEN: &str = "keygen";
+pub const CMD_SECP256K1: &str = "secp256k1";
 pub const CMD_HASHES: &str = "hashes";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
@@ -125,7 +125,7 @@ fn cli() -> App<'static, 'static> {
     SubCommand::with_name(CMD_CLI)
         .about("CLI tools")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(SubCommand::with_name(CMD_KEYGEN).about("Generate new key"))
+        .subcommand(SubCommand::with_name(CMD_SECP256K1).about("Setup secp256k1 as miner lock"))
         .subcommand(
             SubCommand::with_name(CMD_HASHES)
                 .about("List well known hashes")
