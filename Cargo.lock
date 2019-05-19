@@ -327,6 +327,7 @@ dependencies = [
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "crypto 0.12.1",
  "ctrlc 3.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "hash 0.12.1",
  "jemallocator 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -100,4 +100,4 @@ cell_output_cache_size  = 128
 #
 # [block_assembler]
 # code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
-# args = ["blake160(pubkey) here"]
+# args = ["blake160(compressed_pubkey)"]

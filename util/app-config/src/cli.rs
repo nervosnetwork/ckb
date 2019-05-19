@@ -24,6 +24,9 @@ pub const ARG_RPC_PORT: &str = "rpc-port";
 pub const ARG_FORCE: &str = "force";
 pub const ARG_LOG_TO: &str = "log-to";
 pub const ARG_BUNDLED: &str = "bundled";
+pub const ARG_GENERATE: &str = "generate";
+pub const ARG_PRIVKEY: &str = "privkey";
+pub const ARG_PUBKEY: &str = "pubkey";
 
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
     App::new("ckb")
@@ -125,17 +128,55 @@ fn cli() -> App<'static, 'static> {
     SubCommand::with_name(CMD_CLI)
         .about("CLI tools")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(SubCommand::with_name(CMD_SECP256K1).about("Setup secp256k1 as miner lock"))
-        .subcommand(
-            SubCommand::with_name(CMD_HASHES)
-                .about("List well known hashes")
-                .arg(
-                    Arg::with_name(ARG_BUNDLED)
-                        .short("b")
-                        .long(ARG_BUNDLED)
-                        .help(
-                            "List hashes of the bundled chain specs instead of the current effective one.",
-                        ),
+        .subcommand(cli_secp256k1())
+        .subcommand(cli_hashes())
+}
+
+fn cli_hashes() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_HASHES)
+        .about("List well known hashes")
+        .arg(
+            Arg::with_name(ARG_BUNDLED)
+                .short("b")
+                .long(ARG_BUNDLED)
+                .help(
+                    "List hashes of the bundled chain specs instead of the current effective one.",
+                ),
+        )
+}
+
+fn cli_secp256k1() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_SECP256K1)
+        .about("Use secp256k1 in [block_assember]")
+        .arg(
+            Arg::with_name(ARG_GENERATE)
+                .long(ARG_GENERATE)
+                .short("g")
+                .requires(ARG_PRIVKEY)
+                .help(
+                    "Generate the privkey and save it into the file. \
+                     Then print [block_assember] from the privkey",
+                ),
+        )
+        .arg(
+            Arg::with_name(ARG_PRIVKEY)
+                .long(ARG_PRIVKEY)
+                .value_name("path")
+                .takes_value(true)
+                .help(
+                    "Read privkey from the file, or write generated privkey into the file \
+                     when `--generate` is specified.",
+                ),
+        )
+        .arg(
+            Arg::with_name(ARG_PUBKEY)
+                .long(ARG_PUBKEY)
+                .value_name("path")
+                .takes_value(true)
+                .required_unless(ARG_PRIVKEY)
+                .help(
+                    "Read pubkey from the file, or write generated pubkey into the file \
+                     when `--generate` is specified",
                 ),
         )
 }

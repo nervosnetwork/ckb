@@ -48,8 +48,8 @@ impl RpcServer {
             );
         }
 
-        match (config.miner_enable(), block_assembler) {
-            (true, Some(block_assembler)) => {
+        if config.miner_enable() {
+            if let Some(block_assembler) = block_assembler {
                 io.extend_with(
                     MinerRpcImpl {
                         shared: shared.clone(),
@@ -59,9 +59,6 @@ impl RpcServer {
                     }
                     .to_delegate(),
                 );
-            }
-            _ => {
-                // skip
             }
         }
 

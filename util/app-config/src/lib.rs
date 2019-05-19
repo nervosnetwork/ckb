@@ -6,6 +6,7 @@ mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs};
+pub use ckb_miner::BlockAssemblerConfig;
 pub use exit_code::ExitCode;
 
 use build_info::Version;
