@@ -68,7 +68,6 @@ modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
 # }}
 
 [sync]
-verification_level = "Full"
 orphan_block_limit = 1024
 
 [tx_pool]
