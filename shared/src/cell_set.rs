@@ -124,6 +124,10 @@ impl CellSet {
         self.inner.get(h)
     }
 
+    pub(crate) fn put(&mut self, tx_hash: H256, tx_meta: TransactionMeta) {
+        self.inner.insert(tx_hash, tx_meta);
+    }
+
     pub(crate) fn insert(
         &mut self,
         tx_hash: H256,

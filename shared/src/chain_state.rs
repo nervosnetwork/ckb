@@ -22,7 +22,7 @@ use ckb_util::{FnvHashMap, FnvHashSet};
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use dao_utils::calculate_transaction_fee;
 use failure::Error as FailureError;
-use log::{debug, trace};
+use log::{debug, info, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -92,7 +92,8 @@ impl<CS: ChainStore> ChainState<CS> {
         let proposal_window = consensus.tx_proposal_window();
         let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
 
-        let cell_set = Self::init_cell_set(&store, tip_number);
+        let cell_set = Self::init_cell_set(&store)
+            .map_err(|e| SharedError::InvalidData(format!("failed to load cell set{:?}", e)))?;
 
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
@@ -142,34 +143,20 @@ impl<CS: ChainStore> ChainState<CS> {
         proposal_ids
     }
 
-    fn init_cell_set(store: &CS, number: u64) -> CellSet {
+    fn init_cell_set(store: &CS) -> Result<CellSet, FailureError> {
         let mut cell_set = CellSet::new();
-
-        for n in 0..=number {
-            let hash = store.get_block_hash(n).unwrap();
-            let epoch_hash = store.get_block_epoch_index(&hash).unwrap();
-            let epoch_ext = store.get_epoch_ext(&epoch_hash).unwrap();
-            for tx in store.get_block_body(&hash).unwrap() {
-                let inputs = tx.input_pts_iter();
-                let output_len = tx.outputs().len();
-
-                for o in inputs {
-                    if let Some(ref cell) = o.cell {
-                        let _ = cell_set.mark_dead(cell);
-                    }
-                }
-
-                cell_set.insert(
-                    tx.hash().to_owned(),
-                    n,
-                    epoch_ext.number(),
-                    tx.is_cellbase(),
-                    output_len,
-                );
+        let mut count = 0;
+        info!(target: "chain", "Start: loading live cells ...");
+        store.traverse_cell_set(|tx_hash, tx_meta| {
+            count += 1;
+            cell_set.put(tx_hash, tx_meta);
+            if count % 10_000 == 0 {
+                info!(target: "chain", "    loading {} transactions which include live cells ...", count);
             }
-        }
-
-        cell_set
+            Ok(())
+        })?;
+        info!(target: "chain", "Done: total {} transactions.", count);
+        Ok(cell_set)
     }
 
     pub fn tip_number(&self) -> BlockNumber {

@@ -121,6 +121,10 @@ pub trait ChainStore: Sync + Send {
     fn get_epoch_index(&self, number: EpochNumber) -> Option<H256>;
     // Get epoch index by block hash
     fn get_block_epoch_index(&self, h256: &H256) -> Option<H256>;
+
+    fn traverse_cell_set<F>(&self, callback: F) -> Result<(), Error>
+    where
+        F: FnMut(H256, TransactionMeta) -> Result<(), Error>;
 }
 
 pub trait StoreBatch {
@@ -405,6 +409,18 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                         })
                     })
             })
+    }
+
+    fn traverse_cell_set<F>(&self, mut callback: F) -> Result<(), Error>
+    where
+        F: FnMut(H256, TransactionMeta) -> Result<(), Error>,
+    {
+        self.traverse(COLUMN_CELL_SET, |hash_slice, tx_meta_bytes| {
+            let tx_hash = H256::from_slice(hash_slice).expect("deserialize tx hash should be ok");
+            let tx_meta: TransactionMeta =
+                deserialize(tx_meta_bytes).expect("deserialize TransactionMeta should be ok");
+            callback(tx_hash, tx_meta)
+        })
     }
 }
 
