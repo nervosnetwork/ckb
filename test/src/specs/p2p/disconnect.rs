@@ -12,7 +12,7 @@ impl Spec for Disconnect {
         let node1 = net.nodes.pop().unwrap();
         std::mem::drop(node1);
 
-        let mut rpc_client = net.nodes[0].rpc_client();
+        let rpc_client = net.nodes[0].rpc_client();
         let ret = wait_until(10, || {
             let peers = rpc_client.get_peers();
             peers.is_empty()

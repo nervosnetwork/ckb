@@ -23,7 +23,7 @@ impl Spec for TransactionRelayBasic {
         let hash = node1.generate_transaction();
 
         info!("Waiting for relay");
-        let mut rpc_client = node0.rpc_client();
+        let rpc_client = node0.rpc_client();
         let ret = wait_until(10, || {
             if let Some(transaction) = rpc_client.get_transaction(hash.clone()) {
                 transaction.tx_status.block_hash.is_none()
@@ -33,7 +33,7 @@ impl Spec for TransactionRelayBasic {
         });
         assert!(ret, "Transaction should be relayed to node0");
 
-        let mut rpc_client = node2.rpc_client();
+        let rpc_client = node2.rpc_client();
         let ret = wait_until(10, || {
             if let Some(transaction) = rpc_client.get_transaction(hash.clone()) {
                 transaction.tx_status.block_hash.is_none()

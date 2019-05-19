@@ -19,13 +19,14 @@ use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
 
 pub struct Node {
-    pub binary: String,
-    pub dir: String,
-    pub p2p_port: u16,
-    pub rpc_port: u16,
-    pub node_id: Option<String>,
-    pub genesis_cellbase_hash: H256,
-    pub always_success_code_hash: H256,
+    binary: String,
+    dir: String,
+    p2p_port: u16,
+    rpc_port: u16,
+    rpc_client: RpcClient,
+    node_id: Option<String>,
+    genesis_cellbase_hash: H256,
+    always_success_code_hash: H256,
     guard: Option<ProcessGuard>,
 }
 
@@ -42,16 +43,26 @@ impl Drop for ProcessGuard {
 
 impl Node {
     pub fn new(binary: &str, dir: &str, p2p_port: u16, rpc_port: u16) -> Self {
+        let rpc_client = RpcClient::new(&format!("http://127.0.0.1:{}/", rpc_port));
         Self {
             binary: binary.to_string(),
             dir: dir.to_string(),
             p2p_port,
             rpc_port,
+            rpc_client,
             node_id: None,
             guard: None,
             genesis_cellbase_hash: Default::default(),
             always_success_code_hash: Default::default(),
         }
+    }
+
+    pub fn node_id(&self) -> &Option<String> {
+        &self.node_id
+    }
+
+    pub fn p2p_port(&self) -> u16 {
+        self.p2p_port
     }
 
     pub fn start(
@@ -73,11 +84,11 @@ impl Node {
         self.guard = Some(ProcessGuard(child_process));
         info!("Started node with working dir: {}", self.dir);
 
-        let mut rpc_client = self.rpc_client();
         loop {
-            if let Ok(result) = rpc_client.inner().local_node_info().call() {
-                self.node_id = Some(result.node_id);
-                let _ = rpc_client.tx_pool_info();
+            let result = { self.rpc_client().inner().lock().local_node_info().call() };
+            if let Ok(local_node_info) = result {
+                self.node_id = Some(local_node_info.node_id);
+                let _ = self.rpc_client().tx_pool_info();
                 break;
             } else if let Some(ref mut child) = self.guard {
                 match child.0.try_wait() {
@@ -101,7 +112,7 @@ impl Node {
         let node_info = node.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
-        let mut rpc_client = self.rpc_client();
+        let rpc_client = self.rpc_client();
         rpc_client.add_node(
             node_id.clone(),
             format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port),
@@ -121,7 +132,7 @@ impl Node {
         let node_info = node.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
-        let mut rpc_client = self.rpc_client();
+        let rpc_client = self.rpc_client();
         rpc_client.remove_node(node_id.clone());
 
         let result = wait_until(5, || {
@@ -135,8 +146,8 @@ impl Node {
     }
 
     pub fn waiting_for_sync(&self, node: &Node, target: BlockNumber, timeout: u64) {
-        let mut self_rpc_client = self.rpc_client();
-        let mut node_rpc_client = node.rpc_client();
+        let self_rpc_client = self.rpc_client();
+        let node_rpc_client = node.rpc_client();
         let (mut self_tip_number, mut node_tip_number) = (0, 0);
 
         let result = wait_until(timeout, || {
@@ -153,8 +164,8 @@ impl Node {
         }
     }
 
-    pub fn rpc_client(&self) -> RpcClient {
-        RpcClient::new(&format!("http://127.0.0.1:{}/", self.rpc_port))
+    pub fn rpc_client(&self) -> &RpcClient {
+        &self.rpc_client
     }
 
     pub fn submit_block(&self, block: &Block) -> H256 {
@@ -198,7 +209,7 @@ impl Node {
     }
 
     pub fn get_tip_block(&self) -> Block {
-        let mut rpc_client = self.rpc_client();
+        let rpc_client = self.rpc_client();
         let tip_number = rpc_client.get_tip_block_number();
         rpc_client
             .get_block_by_number(tip_number)

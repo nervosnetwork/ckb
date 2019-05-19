@@ -78,7 +78,7 @@ impl MiningBasic {
             std::mem::swap(&mut block1, &mut block2);
         }
 
-        let mut rpc_client = node.rpc_client();
+        let rpc_client = node.rpc_client();
         let block_hash1 = block1.header().hash().clone();
         assert_eq!(block_hash1, node.submit_block(&block1));
         assert_eq!(block_hash1, rpc_client.get_tip_header().hash);

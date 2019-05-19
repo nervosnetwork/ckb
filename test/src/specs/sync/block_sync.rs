@@ -15,7 +15,7 @@ pub struct BlockSyncBasic;
 impl BlockSyncBasic {
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn test_sync_from_one(&self, _net: &Net, node0: &Node, node1: &Node) {
-        let (mut rpc_client0, mut rpc_client1) = (node0.rpc_client(), node1.rpc_client());
+        let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
         assert_eq!(0, rpc_client1.get_tip_block_number());
 
@@ -38,7 +38,7 @@ impl BlockSyncBasic {
 
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn test_sync_forks(&self, _net: &Net, node0: &Node, node1: &Node) {
-        let (mut rpc_client0, mut rpc_client1) = (node0.rpc_client(), node1.rpc_client());
+        let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
         assert_eq!(0, rpc_client1.get_tip_block_number());
 
@@ -141,7 +141,7 @@ impl BlockSyncBasic {
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(net, peer_id, &block);
         let hash = block.header().hash().clone();
-        let mut rpc_client = node.rpc_client();
+        let rpc_client = node.rpc_client();
         wait_until(10, || rpc_client.get_tip_header().hash == hash);
     }
 
@@ -152,7 +152,7 @@ impl BlockSyncBasic {
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
             .expect("net receive timeout");
-        let mut rpc_client = node0.rpc_client();
+        let rpc_client = node0.rpc_client();
         let tip_number = rpc_client.get_tip_block_number();
 
         // Generate some blocks from node1
@@ -210,7 +210,7 @@ impl Spec for BlockSyncBasic {
 }
 
 fn build_forks(node: &Node, offsets: &[u64]) {
-    let mut rpc_client = node.rpc_client();
+    let rpc_client = node.rpc_client();
     for offset in offsets.iter() {
         let mut template = rpc_client.get_block_template(None, None, None);
         template.current_time = Timestamp(template.current_time.0 + offset);
