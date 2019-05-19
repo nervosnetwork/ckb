@@ -236,10 +236,7 @@ impl<CS: ChainStore> ChainState<CS> {
             new_outputs,
         } = txo_diff;
 
-        let removed_old_outputs = old_outputs
-            .into_iter()
-            .filter_map(|tx_hash| self.cell_set.remove(&tx_hash).map(|_| tx_hash))
-            .collect::<Vec<_>>();
+        // The order is important, do NOT change them, unlese you know them clearly.
 
         let updated_old_inputs = old_inputs
             .into_iter()
@@ -270,6 +267,11 @@ impl<CS: ChainStore> ChainState<CS> {
             })
             .collect::<Vec<_>>();
 
+        let removed_old_outputs = old_outputs
+            .into_iter()
+            .filter_map(|tx_hash| self.cell_set.remove(&tx_hash).map(|_| tx_hash))
+            .collect::<Vec<_>>();
+
         let inserted_new_outputs = new_outputs
             .into_iter()
             .map(|(tx_hash, (number, epoch, cellbase, len))| {
@@ -284,8 +286,8 @@ impl<CS: ChainStore> ChainState<CS> {
             })
             .collect::<Vec<_>>();
 
-        let mut removed_new_inputs = Vec::new();
         let mut updated_new_inputs = Vec::new();
+        let mut removed_new_inputs = Vec::new();
         new_inputs.into_iter().for_each(|out_point| {
             out_point.cell.and_then(|cell| {
                 self.cell_set.mark_dead(&cell).map(|opr| match opr {
@@ -297,20 +299,20 @@ impl<CS: ChainStore> ChainState<CS> {
 
         {
             let mut batch = self.store.new_batch()?;
-            for tx_hash in removed_old_outputs.iter() {
-                batch.delete_cell_set(&tx_hash)?;
-            }
             for (tx_hash, tx_meta) in updated_old_inputs.iter() {
                 batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            for tx_hash in removed_old_outputs.iter() {
+                batch.delete_cell_set(&tx_hash)?;
             }
             for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
                 batch.update_cell_set(&tx_hash, &tx_meta)?;
             }
-            for tx_hash in removed_new_inputs.iter() {
-                batch.delete_cell_set(&tx_hash)?;
-            }
             for (tx_hash, tx_meta) in updated_new_inputs.iter() {
                 batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            for tx_hash in removed_new_inputs.iter() {
+                batch.delete_cell_set(&tx_hash)?;
             }
             batch.commit()?;
         }
