@@ -31,7 +31,7 @@ Then init the directory with testnet chain spec.
 ```bash
 docker run --rm -it \
   -v ckb-testnet:/var/lib/ckb \
-  nervos/ckb:latest init --spec testnet --force
+  nervos/ckb:latest init --chain testnet --force
 ```
 
 Create a container `ckb-testnet-node` to run a node:
