@@ -22,36 +22,47 @@ impl From<BitVecSerde> for BitVec {
 pub struct TransactionMeta {
     block_number: u64,
     epoch_number: u64,
-    /// first bit indicate if transaction is a cellbase transaction
-    /// next bits indicate if transaction has dead cells
+    cellbase: bool,
+    /// each bits indicate if transaction has dead cells
     #[serde(with = "BitVecSerde")]
     dead_cell: BitVec,
 }
 
 impl TransactionMeta {
-    pub fn new(block_number: u64, epoch_number: u64, outputs_count: usize) -> TransactionMeta {
+    pub fn new(
+        block_number: u64,
+        epoch_number: u64,
+        outputs_count: usize,
+        all_dead: bool,
+    ) -> TransactionMeta {
         TransactionMeta {
             block_number,
             epoch_number,
-            dead_cell: BitVec::from_elem(outputs_count + 1, false),
+            cellbase: false,
+            dead_cell: BitVec::from_elem(outputs_count, all_dead),
         }
     }
 
     /// New cellbase transaction
-    pub fn new_cellbase(block_number: u64, epoch_number: u64, outputs: usize) -> Self {
-        let mut result = Self::new(block_number, epoch_number, outputs);
-        result.dead_cell.set(0, true);
+    pub fn new_cellbase(
+        block_number: u64,
+        epoch_number: u64,
+        outputs_count: usize,
+        all_dead: bool,
+    ) -> Self {
+        let mut result = Self::new(block_number, epoch_number, outputs_count, all_dead);
+        result.cellbase = true;
         result
     }
 
     /// Returns true if it is a cellbase transaction
     pub fn is_cellbase(&self) -> bool {
-        self.dead_cell.get(0).expect("One bit should always exists")
+        self.cellbase
     }
 
     /// Returns transaction outputs count
     pub fn len(&self) -> usize {
-        self.dead_cell.len() - 1
+        self.dead_cell.len()
     }
 
     pub fn block_number(&self) -> u64 {
@@ -66,27 +77,23 @@ impl TransactionMeta {
         self.dead_cell.is_empty()
     }
 
-    pub fn is_new(&self) -> bool {
-        self.dead_cell.none()
-    }
-
-    pub fn is_all_dead(&self) -> bool {
-        self.dead_cell.all()
-    }
-
     pub fn is_dead(&self, index: usize) -> Option<bool> {
-        self.dead_cell.get(index + 1)
+        self.dead_cell.get(index)
+    }
+
+    pub fn all_dead(&self) -> bool {
+        self.dead_cell.all()
     }
 
     pub fn set_dead(&mut self, index: usize) {
         if index < self.len() {
-            self.dead_cell.set(index + 1, true);
+            self.dead_cell.set(index, true);
         }
     }
 
     pub fn unset_dead(&mut self, index: usize) {
         if index < self.len() {
-            self.dead_cell.set(index + 1, false);
+            self.dead_cell.set(index, false);
         }
     }
 }
@@ -98,7 +105,7 @@ mod tests {
 
     #[test]
     fn transaction_meta_serde() {
-        let mut original = TransactionMeta::new(0, 0, 4);
+        let mut original = TransactionMeta::new(0, 0, 4, false);
         original.set_dead(1);
         original.set_dead(3);
 
@@ -114,7 +121,7 @@ mod tests {
 
     #[test]
     fn set_unset_dead_out_of_bounds() {
-        let mut meta = TransactionMeta::new(0, 0, 4);
+        let mut meta = TransactionMeta::new(0, 0, 4, false);
         meta.set_dead(3);
         assert!(meta.is_dead(3) == Some(true));
         meta.unset_dead(3);

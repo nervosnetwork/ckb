@@ -1,4 +1,4 @@
-use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
+use crate::cell_set::{CellSet, CellSetDiff, CellSetOpr, CellSetOverlay};
 use crate::error::SharedError;
 use crate::tx_pool::types::{DefectEntry, ProposedEntry};
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
@@ -244,10 +244,28 @@ impl<CS: ChainStore> ChainState<CS> {
         let updated_old_inputs = old_inputs
             .into_iter()
             .filter_map(|out_point| {
-                out_point.cell.and_then(|cell| {
-                    self.cell_set
-                        .mark_live(&cell)
-                        .map(|tx_meta| (cell.tx_hash, tx_meta))
+                out_point.cell.map(|cell| {
+                    if let Some(tx_meta) = self.cell_set.try_mark_live(&cell) {
+                        (cell.tx_hash, tx_meta)
+                    } else {
+                        let (tx, block_hash) = self
+                            .store
+                            .get_transaction(&cell.tx_hash)
+                            .expect("we should have this transaction");
+                        let block = self
+                            .store
+                            .get_block(&block_hash)
+                            .expect("we should have this block");
+                        let cellbase = block.transactions()[0].hash() == tx.hash();
+                        let tx_meta = self.cell_set.insert_cell(
+                            &cell,
+                            block.header().number(),
+                            block.header().epoch(),
+                            cellbase,
+                            tx.outputs().len(),
+                        );
+                        (cell.tx_hash, tx_meta)
+                    }
                 })
             })
             .collect::<Vec<_>>();
@@ -255,23 +273,27 @@ impl<CS: ChainStore> ChainState<CS> {
         let inserted_new_outputs = new_outputs
             .into_iter()
             .map(|(tx_hash, (number, epoch, cellbase, len))| {
-                let tx_meta =
-                    self.cell_set
-                        .insert(tx_hash.to_owned(), number, epoch, cellbase, len);
+                let tx_meta = self.cell_set.insert_transaction(
+                    tx_hash.to_owned(),
+                    number,
+                    epoch,
+                    cellbase,
+                    len,
+                );
                 (tx_hash, tx_meta)
             })
             .collect::<Vec<_>>();
 
-        let updated_new_inputs = new_inputs
-            .into_iter()
-            .filter_map(|out_point| {
-                out_point.cell.and_then(|cell| {
-                    self.cell_set
-                        .mark_dead(&cell)
-                        .map(|tx_meta| (cell.tx_hash, tx_meta))
+        let mut removed_new_inputs = Vec::new();
+        let mut updated_new_inputs = Vec::new();
+        new_inputs.into_iter().for_each(|out_point| {
+            out_point.cell.and_then(|cell| {
+                self.cell_set.mark_dead(&cell).map(|opr| match opr {
+                    CellSetOpr::Delete => removed_new_inputs.push(cell.tx_hash),
+                    CellSetOpr::Update(tx_meta) => updated_new_inputs.push((cell.tx_hash, tx_meta)),
                 })
-            })
-            .collect::<Vec<_>>();
+            });
+        });
 
         {
             let mut batch = self.store.new_batch()?;
@@ -283,6 +305,9 @@ impl<CS: ChainStore> ChainState<CS> {
             }
             for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
                 batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            for tx_hash in removed_new_inputs.iter() {
+                batch.delete_cell_set(&tx_hash)?;
             }
             for (tx_hash, tx_meta) in updated_new_inputs.iter() {
                 batch.update_cell_set(&tx_hash, &tx_meta)?;
