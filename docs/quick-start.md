@@ -41,7 +41,12 @@ curl -d '{"id": 1, "jsonrpc": "2.0", "method":"get_tip_header","params": []}' \
 
 ## Run Miner
 
-Run miner, gets a block template to mine.
+Miner is disabled by default, unless you have setup the miner lock
+to keep your mined CKB safe. See the comment of the section `[block_assember]`
+in `ckb.toml` how to configure it.
+
+After setting up the config file, restart the process `ckb run`, and start the
+miner process:
 
 ```shell
 ckb miner

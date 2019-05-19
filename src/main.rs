@@ -18,7 +18,7 @@ fn run_app() -> Result<(), ExitCode> {
         (cli::CMD_INIT, Some(matches)) => return subcommand::init(Setup::init(&matches)?),
         (cli::CMD_CLI, Some(matches)) => {
             return match matches.subcommand() {
-                (cli::CMD_KEYGEN, _) => subcommand::cli::keygen(),
+                (cli::CMD_SECP256K1, Some(sub_matches)) => subcommand::cli::secp256k1(sub_matches),
                 (cli::CMD_HASHES, Some(sub_matches)) => {
                     subcommand::cli::hashes(Setup::locator_from_matches(&matches)?, sub_matches)
                 }

@@ -79,17 +79,25 @@ max_cache_size = 1000
 max_pending_size = 10000
 txs_verify_cache_size = 100000
 
-# This config is derived using 0x5c2514fb16b83259d3326a0acf05901c15a87dc46239b77b0a501cd58198dca0
-# as private key. If you want to mine CKB, please make sure to create your own
-# private key and change the config here, otherwise your CKB might be stolen by
-# someone else.
-[block_assembler]
-code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
-args = ["0x7f52f0fccdd1d11391c441adfb174f87bca612b0"]
-
 [script]
 runner = "Assembly"
 
 [store]
 header_cache_size       = 4096
 cell_output_cache_size  = 128
+
+# Set the lock script to protect mined CKB.
+#
+# The `code_hash` identifies different cryptography algorithm. Read the manual
+# of the lock script provider about how to generate this config.
+#
+# CKB provides an secp256k1 implementation, it requires a public key hash in
+# the args.
+#
+# See `ckb cli secp256k1 --help` about how to setup secp256k1 as block assembler lock.
+#
+# Following is an example output:
+#
+# [block_assembler]
+# code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
+# args = ["blake160(compressed_pubkey)"]

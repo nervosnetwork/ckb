@@ -43,7 +43,7 @@ pub struct CKBAppConfig {
     pub sentry: SentryConfig,
     pub chain: ChainConfig,
 
-    pub block_assembler: BlockAssemblerConfig,
+    pub block_assembler: Option<BlockAssemblerConfig>,
     #[serde(skip)]
     pub db: DBConfig,
     pub network: NetworkConfig,

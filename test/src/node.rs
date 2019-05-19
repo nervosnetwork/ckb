@@ -1,6 +1,6 @@
 use crate::rpc::RpcClient;
 use crate::utils::wait_until;
-use ckb_app_config::{CKBAppConfig, MinerAppConfig};
+use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig, MinerAppConfig};
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
@@ -396,11 +396,10 @@ impl Node {
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
         ckb_config.chain.spec = config_path.into();
-        ckb_config
-            .block_assembler
-            .code_hash
-            .clone_from(&self.always_success_code_hash);
-        ckb_config.block_assembler.args.clear();
+        ckb_config.block_assembler = Some(BlockAssemblerConfig {
+            code_hash: self.always_success_code_hash.clone(),
+            args: Default::default(),
+        });
         modify_ckb_config(&mut ckb_config);
         fs::write(
             &ckb_config_path,

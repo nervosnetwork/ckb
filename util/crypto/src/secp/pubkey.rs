@@ -44,6 +44,10 @@ impl Pubkey {
         let pubkey = key::PublicKey::from_slice(&prefix_key).unwrap();
         Vec::from(&pubkey.serialize()[..])
     }
+
+    pub fn from_slice(data: &[u8]) -> Result<Self, Error> {
+        Ok(key::PublicKey::from_slice(data)?.into())
+    }
 }
 
 impl From<[u8; 64]> for Pubkey {

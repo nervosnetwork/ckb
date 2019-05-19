@@ -46,11 +46,5 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         args.locator.export(SPEC_DEV_FILE_NAME, &context)?;
     }
 
-    eprintln!(
-        "**Notice**: \
-         If you want to mine CKB, please make sure to create your own \
-         private key and change the block_assembler config in ckb.toml."
-    );
-
     Ok(())
 }
