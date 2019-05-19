@@ -79,7 +79,9 @@ cargo-license:
 	FILES="$$(find . -name Cargo.toml | xargs grep -L '^license')"; if [ -n "$$FILES" ]; then echo "Missing license in: $${FILES}"; false; fi
 
 check-dirty-doc:
-	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md; git diff --exit-code rpc/README.md
+	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
+	prettier --write rpc/json/rpc.json
+	git diff --exit-code rpc/README.md rpc/json/rpc.json
 
 ##@ Generates Files
 GEN_FILES := protocol/src/protocol_generated.rs protocol/src/protocol_generated_verifier.rs
