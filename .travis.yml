@@ -23,6 +23,15 @@ matrix:
       os: linux
       dist: xenial
       env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz
+    - name: Centos Package
+      if: 'repo = nervosnetwork/ckb AND tag IS present'
+      language: ruby
+      addons:
+        apt:
+          packages: []
+      install: echo install
+      script: devtools/ci/centos-docker.sh run
+      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz
 
 addons:
   apt:

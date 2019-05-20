@@ -8,8 +8,8 @@ is listed there, you can download the package directory.
 There is also a repository [ckb-builds](https://github.com/ckb-builds/ckb-builds/releases) containing the nightly builds from the develop
 branch.
 
-Since CentOS bundles an incompatible version of `libc` and `libstdc++`, the Linux
-binaries does not work on CentOS. Use docker or build from source instead.
+CentOS users please use the `x86_64-unknown-centos-gnu` package. It requires
+OpenSSL to run.
 
 We also provides docker images, see [how to run CKB with docker](run-ckb-with-docker.md).
 
