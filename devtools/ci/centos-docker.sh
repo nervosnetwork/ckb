@@ -3,6 +3,7 @@
 if [ "$1" = run ]; then
   docker run --rm -it -v $(pwd):/ckb centos:7 bash /ckb/devtools/ci/centos-docker.sh
   devtools/ci/package.sh target/release/ckb
+  exit 0
 fi
 
 cd /ckb

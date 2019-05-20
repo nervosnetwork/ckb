@@ -132,9 +132,6 @@ if [ -n "${TRAVIS_TAG:-}" -a -n "${GITHUB_TOKEN:-}" -a -n "${REL_PKG:-}" ]; then
   echo "Start packaging..."
 
   git fetch --unshallow
-  if [ "$TRAVIS_OS_NAME" = "linux" ]; then
-    export OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu OPENSSL_INCLUDE_DIR=/usr/include/openssl
-  fi
 
   make prod
   devtools/ci/package.sh target/release/ckb
