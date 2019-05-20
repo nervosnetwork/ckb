@@ -6,6 +6,7 @@ use ckb_db::RocksDB;
 use ckb_logger::info_target;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
+use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConfig};
 use ckb_notify::NotifyService;
 use ckb_rpc::RpcServer;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -74,6 +75,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         Arc::clone(synchronizer.peers()),
     );
     let net_timer = NetTimeProtocol::default();
+    let alert_relayer = AlertRelayer::new(version.to_string(), AlertConfig::default());
+
+    let alert_notifier = alert_relayer.notifier();
+    let alert_verifier = alert_relayer.verifier();
 
     let synchronizer_clone = synchronizer.clone();
     let protocols = vec![
@@ -98,6 +103,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             move || Box::new(net_timer.clone()),
             Arc::clone(&network_state),
         ),
+        CKBProtocol::new(
+            "alt".to_string(),
+            NetworkProtocol::ALERT.into(),
+            &["1".to_string()][..],
+            move || Box::new(alert_relayer.clone()),
+            Arc::clone(&network_state),
+        ),
     ];
     let network_controller = NetworkService::new(Arc::clone(&network_state), protocols)
         .start(version, Some("NetworkService"))
@@ -110,6 +122,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         synchronizer,
         chain_controller,
         block_assembler_controller,
+        alert_notifier,
+        alert_verifier,
     );
 
     wait_for_exit();

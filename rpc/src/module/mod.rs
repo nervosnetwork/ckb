@@ -1,3 +1,4 @@
+mod alert;
 mod chain;
 mod experiment;
 mod miner;
@@ -6,6 +7,7 @@ mod pool;
 mod stats;
 mod test;
 
+pub(crate) use self::alert::{AlertRpc, AlertRpcImpl};
 pub(crate) use self::chain::{ChainRpc, ChainRpcImpl};
 pub(crate) use self::experiment::{ExperimentRpc, ExperimentRpcImpl};
 pub(crate) use self::miner::{MinerRpc, MinerRpcImpl};

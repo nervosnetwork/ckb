@@ -20,6 +20,7 @@ ckb-miner = { path = "../miner" }
 ckb-protocol = { path = "../protocol" }
 ckb-pow = { path = "../pow"}
 ckb-logger = { path = "../util/logger"}
+ckb-network-alert = { path = "../util/network-alert" }
 jsonrpc-core = "10.1"
 jsonrpc-derive = "10.1"
 jsonrpc-http-server = { git = "https://github.com/nervosnetwork/jsonrpc", rev = "7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0" }

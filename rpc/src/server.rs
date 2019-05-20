@@ -1,12 +1,13 @@
 use crate::config::Config;
 use crate::module::{
-    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IntegrationTestRpc,
-    IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
-    PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl,
+    IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl,
+    PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use ckb_chain::chain::ChainController;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
+use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_sync::Synchronizer;
@@ -14,12 +15,14 @@ use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use std::sync::Arc;
 
 pub struct RpcServer {
     pub(crate) server: Server,
 }
 
 impl RpcServer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<CS: ChainStore + 'static>(
         config: Config,
         network_controller: NetworkController,
@@ -27,6 +30,8 @@ impl RpcServer {
         synchronizer: Synchronizer<CS>,
         chain: ChainController,
         block_assembler: Option<BlockAssemblerController>,
+        alert_notifier: Arc<AlertNotifier>,
+        alert_verifier: Arc<AlertVerifier>,
     ) -> RpcServer
     where
         CS: ChainStore,
@@ -76,6 +81,7 @@ impl RpcServer {
                 StatsRpcImpl {
                     shared: shared.clone(),
                     synchronizer: synchronizer.clone(),
+                    alert_notifier: Arc::clone(&alert_notifier),
                 }
                 .to_delegate(),
             );
@@ -93,11 +99,17 @@ impl RpcServer {
         if config.integration_test_enable() {
             io.extend_with(
                 IntegrationTestRpcImpl {
-                    network_controller,
+                    network_controller: network_controller.clone(),
                     shared,
                     chain,
                 }
                 .to_delegate(),
+            );
+        }
+
+        if config.alert_enable() {
+            io.extend_with(
+                AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller).to_delegate(),
             );
         }
 
