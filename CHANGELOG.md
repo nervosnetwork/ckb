@@ -1,6 +1,35 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [v0.12.2](https://github.com/nervosnetwork/ckb/compare/v0.12.1...v0.12.2) (2019-05-20)
+
+### Features
+
+* #838: Limit name in chainspec (@doitian)
+
+    Only `ckb_dev` is allowed in the chainspec loaded from file.
+
+* #840: Modify subcommand `ckb init`. (@doitian)
+
+    - Export `specs/dev.toml` when init for dev chain.
+    - Deprecate option `--export-specs`.
+    - Rename `spec` to `chain` in options.
+        - Add option `--chain` and deprecate `--spec`
+        - Add option `--list-chains` and deprecate `--list-specs`
+    - Rename `export` to `create` in messages.
+
+* #843: Secp256k1 block assembler (@doitian)
+
+    - Remove the default block assembler config. If user want to mine, they must configure it.
+
+* #856: Revamp the secp256k1 support in CKB (@doitian)
+
+    - Remove keygen feature added in #843
+    - Add `ckb cli blake160` and `ckb cli blake256` utilities to compute hash.
+    - Add `ckb cli secp256k1-lock` to print block assembler config from
+    a secp256k1 pubkey.
+
+
 # [v0.12.1](https://github.com/nervosnetwork/ckb/compare/v0.12.0...v0.12.1) (2019-05-18)
 
 ### Bug Fixes
