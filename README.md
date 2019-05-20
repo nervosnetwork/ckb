@@ -1,5 +1,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
+![Version](https://img.shields.io/badge/version-0.13.0--pre-orange.svg)
 [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
 [![Telegram Group](https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg)](https://t.me/nervosnetwork)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/)
@@ -21,7 +22,7 @@ the option `dsn` to empty in the config file.
 ## Testnet Rylai
 
 CKB Testnet *Rylai* is the testing network before its mainnet launch. Switch
-to branch [rylai] to see the documentations.
+to branch [master] to see the documentations.
 
 ## Mainnet
 
@@ -57,9 +58,9 @@ The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md), an
 [Latest version](https://github.com/nervosnetwork/ckb#documentations) is hosted in GitHub.
 
 The default branch in GitHub is `develop`, if you are looking for docs for the
-Testnet Rylai, switch to the branch [rylai].
+Testnet Rylai, switch to the branch [master].
 
-[rylai]: https://github.com/nervosnetwork/ckb/tree/rylai#documentations
+[master]: https://github.com/nervosnetwork/ckb/tree/master#documentations
 
 - [Get CKB](docs/get-ckb.md)
 - [Quick Start](docs/quick-start.md)
