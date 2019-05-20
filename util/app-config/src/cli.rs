@@ -9,13 +9,16 @@ pub const CMD_IMPORT: &str = "import";
 pub const CMD_INIT: &str = "init";
 pub const CMD_PROF: &str = "prof";
 pub const CMD_CLI: &str = "cli";
-pub const CMD_SECP256K1: &str = "secp256k1";
 pub const CMD_HASHES: &str = "hashes";
+pub const CMD_BLAKE256: &str = "blake256";
+pub const CMD_BLAKE160: &str = "blake160";
+pub const CMD_SECP256K1_LOCK: &str = "secp256k1-lock";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 pub const ARG_FORMAT: &str = "format";
 pub const ARG_TARGET: &str = "target";
 pub const ARG_SOURCE: &str = "source";
+pub const ARG_DATA: &str = "data";
 pub const ARG_LIST_CHAINS: &str = "list-chains";
 pub const ARG_CHAIN: &str = "chain";
 pub const ARG_P2P_PORT: &str = "p2p-port";
@@ -23,9 +26,6 @@ pub const ARG_RPC_PORT: &str = "rpc-port";
 pub const ARG_FORCE: &str = "force";
 pub const ARG_LOG_TO: &str = "log-to";
 pub const ARG_BUNDLED: &str = "bundled";
-pub const ARG_GENERATE: &str = "generate";
-pub const ARG_PRIVKEY: &str = "privkey";
-pub const ARG_PUBKEY: &str = "pubkey";
 
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
     App::new("ckb")
@@ -127,8 +127,10 @@ fn cli() -> App<'static, 'static> {
     SubCommand::with_name(CMD_CLI)
         .about("CLI tools")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(cli_secp256k1())
         .subcommand(cli_hashes())
+        .subcommand(cli_blake256())
+        .subcommand(cli_blake160())
+        .subcommand(cli_secp256k1_lock())
 }
 
 fn cli_hashes() -> App<'static, 'static> {
@@ -144,39 +146,48 @@ fn cli_hashes() -> App<'static, 'static> {
         )
 }
 
-fn cli_secp256k1() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_SECP256K1)
-        .about("Use secp256k1 in [block_assember]")
+fn arg_hex_data() -> Arg<'static, 'static> {
+    Arg::with_name(ARG_DATA)
+        .short("d")
+        .long(ARG_DATA)
+        .value_name("hex")
+        .required(true)
+        .index(1)
+        .help("The data encoded in hex.")
+}
+
+fn cli_blake256() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_BLAKE256)
+        .about("Hashes data using blake2b with CKB personal option, prints first 256 bits.")
+        .arg(arg_hex_data())
+}
+
+fn cli_blake160() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_BLAKE160)
+        .about("Hashes data using blake2b with CKB personal option, prints first 160 bits.")
+        .arg(arg_hex_data())
+}
+
+fn cli_secp256k1_lock() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_SECP256K1_LOCK)
+        .about("Prints lock structure from secp256k1 pubkey")
         .arg(
-            Arg::with_name(ARG_GENERATE)
-                .long(ARG_GENERATE)
-                .short("g")
-                .requires(ARG_PRIVKEY)
-                .help(
-                    "Generate the privkey and save it into the file. \
-                     Then print [block_assember] from the privkey",
-                ),
+            Arg::with_name(ARG_DATA)
+                .short("d")
+                .long(ARG_DATA)
+                .required(true)
+                .index(1)
+                .help("Pubkey encoded in hex, either uncompressed 65 bytes or compresed 33 bytes"),
         )
         .arg(
-            Arg::with_name(ARG_PRIVKEY)
-                .long(ARG_PRIVKEY)
-                .value_name("path")
+            Arg::with_name(ARG_FORMAT)
+                .long(ARG_FORMAT)
+                .short("s")
+                .possible_values(&["block_assembler", "json"])
+                .default_value("block_assembler")
+                .required(true)
                 .takes_value(true)
-                .help(
-                    "Read privkey from the file, or write generated privkey into the file \
-                     when `--generate` is specified.",
-                ),
-        )
-        .arg(
-            Arg::with_name(ARG_PUBKEY)
-                .long(ARG_PUBKEY)
-                .value_name("path")
-                .takes_value(true)
-                .required_unless(ARG_PRIVKEY)
-                .help(
-                    "Read pubkey from the file, or write generated pubkey into the file \
-                     when `--generate` is specified",
-                ),
+                .help("Output format: `block_assembler` is used in ckb.toml."),
         )
 }
 
