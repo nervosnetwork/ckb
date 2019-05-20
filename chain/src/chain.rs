@@ -557,7 +557,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                         self.shared.consensus().pow_engine().proof_size();
                                     if b.transactions().len() > 1 {
                                         info!(
-                                            "[block_verifier] block number: {}, hash: {:x}, size:{}/{}, cycles: {}/{}",
+                                            target: "chain",
+                                            "[block_verifier] block number: {}, hash: {:#x}, size:{}/{}, cycles: {}/{}",
                                             b.header().number(),
                                             b.header().hash(),
                                             b.serialized_size(proof_size),
