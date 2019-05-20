@@ -8,11 +8,8 @@ is listed there, you can download the package directory.
 There is also a repository [ckb-builds](https://github.com/ckb-builds/ckb-builds/releases) containing the nightly builds from the develop
 branch.
 
-The Linux builds require `libssl` dynamic libraries to run. In Ubuntu, it can be installed by:
-
-```bash
-sudo apt-get install -y libssl1.0.0
-```
+Since CentOS bundles an incompatible version of `libc` and `libstdc++`, the Linux
+binaries does not work on CentOS. Use docker or build from source instead.
 
 We also provides docker images, see [how to run CKB with docker](run-ckb-with-docker.md).
 
@@ -30,7 +27,7 @@ You also need to get the following packages：
 #### Ubuntu and Debian
 
 ```shell
-sudo apt-get install -y git gcc libc6-dev pkg-config libssl1.0-dev libclang-dev clang
+sudo apt-get install -y git gcc libc6-dev pkg-config libssl-dev libclang-dev clang
 ```
 
 #### Arch Linux
@@ -44,6 +41,21 @@ sudo pacman -Sy git gcc pkgconf clang
 ```shell
 brew install autoconf libtool
 ```
+
+#### CentOS
+
+```shell
+sudo yum install -y centos-release-scl
+sudo yum install -y git make gcc-c++ openssl-devel llvm-toolset-7
+```
+
+Start a shell enabling clang
+
+```shell
+scl enable llvm-toolset-7 bash
+```
+
+Remember to run following commands in this console.
 
 ### Add Environment Variables
 
