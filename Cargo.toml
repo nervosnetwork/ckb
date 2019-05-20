@@ -44,6 +44,7 @@ ckb-traits = { path = "traits" }
 sentry = "^0.15.4"
 ckb-verification = { path = "verification" }
 tempfile = "3.0"
+faster-hex = "0.3"
 
 [dev-dependencies]
 
