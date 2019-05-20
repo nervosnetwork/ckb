@@ -167,7 +167,7 @@ fn init() -> App<'static, 'static> {
             Arg::with_name(ARG_FORCE)
                 .short("f")
                 .long(ARG_FORCE)
-                .help("Force overwrits existing files"),
+                .help("Forces overwriting existing files"),
         )
         .arg(
             Arg::with_name(ARG_RPC_PORT)
