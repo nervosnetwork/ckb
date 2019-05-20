@@ -1,5 +1,4 @@
 use crate::synchronizer::{BlockStatus, Synchronizer};
-use crate::types::HeaderView;
 use crate::MAX_HEADERS_LEN;
 use ckb_core::extras::EpochExt;
 use ckb_core::{header::Header, BlockNumber};
@@ -245,21 +244,29 @@ where
             let peer_state = self.synchronizer.peers.best_known_header(self.peer);
             debug!(
                 target: "sync",
-                concat!(
-                    "\n\nchain total_difficulty = {}; number={}\n",
-                    "number={}; best_known_header = {:x}; total_difficulty = {};\n",
-                    "peers={} number={:?}; best_known_header = {:?}; total_difficulty = {:?}\n",
-                ),
-                chain_state.total_difficulty(),
+                "chain: num={}, diff={:#x};",
                 chain_state.tip_number(),
-                best_known_header.number(),
-                best_known_header.hash(),
-                best_known_header.total_difficulty(),
-                self.peer,
-                peer_state.as_ref().map(HeaderView::number),
-                peer_state.as_ref().map(|state| format!("{:x}", state.hash())),
-                peer_state.as_ref().map(|state| format!("{}", state.total_difficulty())),
+                chain_state.total_difficulty()
             );
+            debug!(
+                target: "sync",
+                "known: num={}, diff={:#x}, hash={:#x};",
+                best_known_header.number(),
+                best_known_header.total_difficulty(),
+                best_known_header.hash(),
+            );
+            if let Some(ref state) = peer_state {
+                debug!(
+                    target: "sync",
+                    "state: num={}; diff={:#x}, hash={:#x};",
+                    state.number(),
+                    state.total_difficulty(),
+                    state.hash()
+                );
+            } else {
+                debug!(target: "sync", "state: null;");
+            }
+            debug!(target: "sync", "peer: {}", self.peer);
         }
 
         if self.received_new_header(&headers) {
