@@ -46,19 +46,19 @@ Then edit the generated config files according to the in-line comments.
 ## Chain Spec
 
 The option `ckb.chain` configures the chain spec, which controls which kind of chain to run.
-This option is set to a spec used for development by default.
+This option is set to a chain used for development by default.
 
 The subcommand `init` supports exporting the default options for different
-chain specs. The following command lists all supported chain specs.
+chains. The following command lists all supported chains.
 
 ```
-ckb init --list-specs
+ckb init --list-chains
 ```
 
 Here is an example to export config files for testnet.
 
 ```
-ckb init --spec testnet
+ckb init --chain testnet
 ```
 
 Nodes running different chain specs cannot synchronize with each other, so be carefully when editing this option.

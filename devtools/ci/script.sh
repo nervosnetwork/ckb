@@ -1,7 +1,32 @@
 #!/bin/bash
-set -e
+set -eu
+
+TRAVIS_PULL_REQUEST="${TRAVIS_PULL_REQUEST:-false}"
+TRAVIS_JOB_NUMBER="${TRAVIS_JOB_NUMBER:-0.1}"
+TRAVIS_BUILD_NUMBER="${TRAVIS_BUILD_NUMBER:-0}"
+TRAVIS_REPO_SLUG="${TRAVIS_REPO_SLUG:-nervosnetwork/ckb}"
+TRAVIS_BRANCH="${TRAVIS_BRANCH:-"$(git rev-parse --abbrev-ref HEAD)"}"
 
 CURRENT_FOLD=
+
+if ! type -f travis_fold &> /dev/null; then
+  travis_fold() {
+    local action="$1"
+    shift
+    if [ "$action" = start ]; then
+      echo "----(( $*"
+    else
+      echo "----)) $*"
+      echo
+    fi
+  }
+  travis_time_start() {
+    :
+  }
+  travis_time_finish() {
+    :
+  }
+fi
 
 fold_start() {
   CURRENT_FOLD="script.$1"
@@ -42,7 +67,7 @@ if [ "$TRAVIS_PULL_REQUEST" != false ]; then
   fi
 elif [ "$TRAVIS_REPO_SLUG" = "nervosnetwork/ckb" ]; then
   RUN_INTEGRATION=true
-  if [ "$TRAVIS_BRANCH" = master ]; then
+  if [ "$TRAVIS_BRANCH" = master ] || [ "$TRAVIS_BUILD_NUMBER" = 0 ]; then
     RUN_TEST=true
   fi
 else
@@ -67,7 +92,9 @@ echo "\${FMT} = ${FMT}"
 echo "\${CHECK} = ${CHECK}"
 echo "\${TEST} = ${TEST}"
 
-fold cargo-sweep cargo sweep -s
+if type -f cargo-sweep &> /dev/null; then
+  fold cargo-sweep cargo sweep -s
+fi
 
 if [ "$RUN_TEST" = true ]; then
   if [ "$FMT" = true ]; then
@@ -99,29 +126,14 @@ fi
 fold_end
 
 # Publish package for release
-if [ -n "$TRAVIS_TAG" -a -n "$GITHUB_TOKEN" -a -n "$REL_PKG" ]; then
+if [ -n "${TRAVIS_TAG:-}" -a -n "${GITHUB_TOKEN:-}" -a -n "${REL_PKG:-}" ]; then
   fold_start "package"
   echo "Start packaging..."
 
   git fetch --unshallow
-  make prod
-  rm -rf releases
-  mkdir releases
-  PKG_NAME="ckb_${TRAVIS_TAG}_${REL_PKG%%.*}"
-  mkdir "releases/$PKG_NAME"
-  mv target/release/ckb "releases/$PKG_NAME"
-  cp README.md CHANGELOG.md COPYING "releases/$PKG_NAME"
-  cp -R devtools/init "releases/$PKG_NAME"
-  cp -R docs "releases/$PKG_NAME"
-  cp rpc/README.md "releases/$PKG_NAME/docs/rpc.md"
 
-  pushd releases
-  if [ "${REL_PKG#*.}" = "tar.gz" ]; then
-    tar -czf $PKG_NAME.tar.gz $PKG_NAME
-  else
-    zip -r $PKG_NAME.zip $PKG_NAME
-  fi
-  popd
+  make prod
+  devtools/ci/package.sh target/release/ckb
 
   fold_end
 fi

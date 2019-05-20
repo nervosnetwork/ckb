@@ -43,7 +43,7 @@ pub struct CKBAppConfig {
     pub sentry: SentryConfig,
     pub chain: ChainConfig,
 
-    pub block_assembler: BlockAssemblerConfig,
+    pub block_assembler: Option<BlockAssemblerConfig>,
     #[serde(skip)]
     pub db: DBConfig,
     pub network: NetworkConfig,
@@ -124,7 +124,7 @@ impl AppConfig {
             AppConfigContent::Miner(config) => &config.chain.spec,
         });
         ChainSpec::resolve_relative_to(locator, spec_path, &self.resource).map_err(|err| {
-            eprintln!("{:?}", err);
+            eprintln!("{}", err);
             ExitCode::Config
         })
     }

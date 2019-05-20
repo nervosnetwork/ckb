@@ -38,8 +38,18 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let chain_controller = chain_service.start(Some("ChainService"));
     info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
 
-    let block_assembler = BlockAssembler::new(shared.clone(), args.config.block_assembler);
-    let block_assembler_controller = block_assembler.start(Some("MinerAgent"), &notify);
+    let block_assembler_controller =
+        match (args.config.rpc.miner_enable(), args.config.block_assembler) {
+            (true, Some(block_assembler)) => Some(
+                BlockAssembler::new(shared.clone(), block_assembler)
+                    .start(Some("MinerAgent"), &notify),
+            ),
+            _ => {
+                info!(target: "main", "Miner is disabled, edit ckb.toml to enable it");
+
+                None
+            }
+        };
 
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),

@@ -9,16 +9,18 @@ pub const CMD_IMPORT: &str = "import";
 pub const CMD_INIT: &str = "init";
 pub const CMD_PROF: &str = "prof";
 pub const CMD_CLI: &str = "cli";
-pub const CMD_KEYGEN: &str = "keygen";
 pub const CMD_HASHES: &str = "hashes";
+pub const CMD_BLAKE256: &str = "blake256";
+pub const CMD_BLAKE160: &str = "blake160";
+pub const CMD_SECP256K1_LOCK: &str = "secp256k1-lock";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 pub const ARG_FORMAT: &str = "format";
 pub const ARG_TARGET: &str = "target";
 pub const ARG_SOURCE: &str = "source";
-pub const ARG_LIST_SPECS: &str = "list-specs";
-pub const ARG_SPEC: &str = "spec";
-pub const ARG_EXPORT_SPECS: &str = "export-specs";
+pub const ARG_DATA: &str = "data";
+pub const ARG_LIST_CHAINS: &str = "list-chains";
+pub const ARG_CHAIN: &str = "chain";
 pub const ARG_P2P_PORT: &str = "p2p-port";
 pub const ARG_RPC_PORT: &str = "rpc-port";
 pub const ARG_FORCE: &str = "force";
@@ -125,18 +127,67 @@ fn cli() -> App<'static, 'static> {
     SubCommand::with_name(CMD_CLI)
         .about("CLI tools")
         .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(SubCommand::with_name(CMD_KEYGEN).about("Generate new key"))
-        .subcommand(
-            SubCommand::with_name(CMD_HASHES)
-                .about("List well known hashes")
-                .arg(
-                    Arg::with_name(ARG_BUNDLED)
-                        .short("b")
-                        .long(ARG_BUNDLED)
-                        .help(
-                            "List hashes of the bundled chain specs instead of the current effective one.",
-                        ),
+        .subcommand(cli_hashes())
+        .subcommand(cli_blake256())
+        .subcommand(cli_blake160())
+        .subcommand(cli_secp256k1_lock())
+}
+
+fn cli_hashes() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_HASHES)
+        .about("List well known hashes")
+        .arg(
+            Arg::with_name(ARG_BUNDLED)
+                .short("b")
+                .long(ARG_BUNDLED)
+                .help(
+                    "List hashes of the bundled chain specs instead of the current effective one.",
                 ),
+        )
+}
+
+fn arg_hex_data() -> Arg<'static, 'static> {
+    Arg::with_name(ARG_DATA)
+        .short("d")
+        .long(ARG_DATA)
+        .value_name("hex")
+        .required(true)
+        .index(1)
+        .help("The data encoded in hex.")
+}
+
+fn cli_blake256() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_BLAKE256)
+        .about("Hashes data using blake2b with CKB personal option, prints first 256 bits.")
+        .arg(arg_hex_data())
+}
+
+fn cli_blake160() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_BLAKE160)
+        .about("Hashes data using blake2b with CKB personal option, prints first 160 bits.")
+        .arg(arg_hex_data())
+}
+
+fn cli_secp256k1_lock() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_SECP256K1_LOCK)
+        .about("Prints lock structure from secp256k1 pubkey")
+        .arg(
+            Arg::with_name(ARG_DATA)
+                .short("d")
+                .long(ARG_DATA)
+                .required(true)
+                .index(1)
+                .help("Pubkey encoded in hex, either uncompressed 65 bytes or compresed 33 bytes"),
+        )
+        .arg(
+            Arg::with_name(ARG_FORMAT)
+                .long(ARG_FORMAT)
+                .short("s")
+                .possible_values(&["block_assembler", "json"])
+                .default_value("block_assembler")
+                .required(true)
+                .takes_value(true)
+                .help("Output format: `block_assembler` is used in ckb.toml."),
         )
 }
 
@@ -144,17 +195,17 @@ fn init() -> App<'static, 'static> {
     SubCommand::with_name(CMD_INIT)
         .about("Create a CKB direcotry or reinitialize an existing one")
         .arg(
-            Arg::with_name(ARG_LIST_SPECS)
+            Arg::with_name(ARG_LIST_CHAINS)
                 .short("l")
-                .long(ARG_LIST_SPECS)
-                .help("List available chain specs"),
+                .long(ARG_LIST_CHAINS)
+                .help("List available options for --chain"),
         )
         .arg(
-            Arg::with_name(ARG_SPEC)
-                .short("s")
-                .long(ARG_SPEC)
+            Arg::with_name(ARG_CHAIN)
+                .short("c")
+                .long(ARG_CHAIN)
                 .default_value(DEFAULT_SPEC)
-                .help("Export config files for <spec>"),
+                .help("Init CKB direcotry for <chain>"),
         )
         .arg(
             Arg::with_name(ARG_LOG_TO)
@@ -173,18 +224,25 @@ fn init() -> App<'static, 'static> {
             Arg::with_name(ARG_RPC_PORT)
                 .long(ARG_RPC_PORT)
                 .default_value(DEFAULT_RPC_PORT)
-                .help("Replace CKB RPC port in the exported config file"),
+                .help("Set CKB RPC port"),
         )
         .arg(
             Arg::with_name(ARG_P2P_PORT)
                 .long(ARG_P2P_PORT)
                 .default_value(DEFAULT_P2P_PORT)
-                .help("Replace CKB P2P port in the exported config file"),
+                .help("Set CKB P2P port"),
         )
         .arg(
-            Arg::with_name(ARG_EXPORT_SPECS)
-                .long(ARG_EXPORT_SPECS)
-                .hidden(true)
-                .help("Export spec files as well"),
+            Arg::with_name("export-specs")
+                .long("export-specs")
+                .hidden(true),
+        )
+        .arg(Arg::with_name("list-specs").long("list-specs").hidden(true))
+        .arg(
+            Arg::with_name("spec")
+                .short("s")
+                .long("spec")
+                .takes_value(true)
+                .hidden(true),
         )
 }

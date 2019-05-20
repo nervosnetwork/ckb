@@ -21,31 +21,31 @@ pub struct Config {
 }
 
 impl Config {
-    pub(crate) fn net_enable(&self) -> bool {
+    pub fn net_enable(&self) -> bool {
         self.modules.contains(&Module::Net)
     }
 
-    pub(crate) fn chain_enable(&self) -> bool {
+    pub fn chain_enable(&self) -> bool {
         self.modules.contains(&Module::Chain)
     }
 
-    pub(crate) fn miner_enable(&self) -> bool {
+    pub fn miner_enable(&self) -> bool {
         self.modules.contains(&Module::Miner)
     }
 
-    pub(crate) fn pool_enable(&self) -> bool {
+    pub fn pool_enable(&self) -> bool {
         self.modules.contains(&Module::Pool)
     }
 
-    pub(crate) fn experiment_enable(&self) -> bool {
+    pub fn experiment_enable(&self) -> bool {
         self.modules.contains(&Module::Experiment)
     }
 
-    pub(crate) fn stats_enable(&self) -> bool {
+    pub fn stats_enable(&self) -> bool {
         self.modules.contains(&Module::Stats)
     }
 
-    pub(crate) fn integration_test_enable(&self) -> bool {
+    pub fn integration_test_enable(&self) -> bool {
         self.modules.contains(&Module::IntegrationTest)
     }
 }

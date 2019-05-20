@@ -10,10 +10,10 @@ See other
 [tags](https://hub.docker.com/r/nervos/ckb/tags)
 listed in DockerHub.
 
-- Tag `latest` is always the latest release, which is built from the latest
-  master branch.
-- Tags `vx.y.z` are history releases.
-- Tags `vx.y.z-rc` are the preview of the release candidates.
+-   Tag `latest` is always the latest release, which is built from the latest
+    master branch.
+-   Tags `vx.y.z` are history releases.
+-   Tags `vx.y.z-rc` are the preview of the release candidates.
 
 It is recommended to mount a volume at `/var/lib/ckb` in the container.
 Following is an example to mount a volume, generate config files in the volume
@@ -30,7 +30,7 @@ Then init the directory with testnet chain spec.
 ```bash
 docker run --rm -it \
   -v ckb-testnet:/var/lib/ckb \
-  nervos/ckb:latest init --spec testnet --force
+  nervos/ckb:latest init --chain testnet --force
 ```
 
 Create a container `ckb-testnet-node` to run a node:
@@ -50,7 +50,7 @@ docker cp ckb-testnet-node:/var/lib/ckb/ckb-miner.toml .
 ```
 
 Edit the config files as you like. If you want to run a miner, remember to
-replace `block_assember` section in `ckb.toml`.
+replace `[block_assember]` section in `ckb.toml`.
 
 Copy back the edited config files back to container:
 

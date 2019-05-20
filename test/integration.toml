@@ -1,4 +1,4 @@
-name = "ckb-integration-test"
+name = "ckb_integration_test"
 
 [genesis]
 version = 0
