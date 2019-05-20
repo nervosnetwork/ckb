@@ -54,7 +54,6 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<'a> {
         if machine.registers()[A7].to_u64() != LOAD_HEADER_SYSCALL_NUMBER {
             return Ok(false);
         }
-        machine.add_cycles(10)?;
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;

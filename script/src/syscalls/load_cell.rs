@@ -149,7 +149,6 @@ impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCell
             LOAD_CELL_BY_FIELD_SYSCALL_NUMBER => (true, 10),
             _ => return Ok(false),
         };
-        machine.add_cycles(cycle_factor)?;
 
         let index = machine.registers()[A3].to_usize();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;

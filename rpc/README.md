@@ -801,7 +801,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "cycles": "2"
+        "cycles": "12"
     }
 }
 ```
