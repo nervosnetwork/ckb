@@ -2,7 +2,7 @@ use std::io;
 
 /// Uses 0, 64 - 113 as exit code.
 #[repr(i32)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ExitCode {
     Cli = 64,
     Config = 65,

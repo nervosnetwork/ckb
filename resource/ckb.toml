@@ -88,16 +88,37 @@ cell_output_cache_size  = 128
 
 # Set the lock script to protect mined CKB.
 #
+# CKB uses CS architecture for miner. Miner process (ckb miner) gets block
+# template from the Node process (ckb run) via RPC. Thus the lock script is
+# configured in ckb.toml instead of ckb-miner.toml, and the config takes effect
+# after restarting Node process.
+#
 # The `code_hash` identifies different cryptography algorithm. Read the manual
 # of the lock script provider about how to generate this config.
 #
 # CKB provides an secp256k1 implementation, it requires a public key hash in
-# the args.
+# the args. The hash algorithm is blake2b, with personal "ckb-default-hash".
+# The first 160 bits (20 bytes) are used as the only arg.
 #
-# See `ckb cli secp256k1 --help` about how to setup secp256k1 as block assembler lock.
+# The public key is compatible with Bitcoin, use any tool you trust to generate
+# the key pairs and keep your private key safe. CKB node never requires your private
+# key.
 #
-# Following is an example output:
+# Following is an example to generate the key pair using OpenSSL.
+#
+# **WARNING**: This command will print the private key to screen.
+#
+#    openssl ecparam -genkey -name secp256k1 -text -noout -outform DER | \
+#       xxd -p -c 1000 | \
+#       sed 's/41534e31204f49443a20736563703235366b310a30740201010420/PrivKey: /' | \
+#       sed 's/a00706052b8104000aa144034200/\'$'\nPubKey: /'
+#
+# Once you get your public key, generate the block_assembler config via the command:
+#
+#     ckb cli secp256k1-lock <pubkey>
+#
+# Below is an example block_assembler config:
 #
 # [block_assembler]
 # code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
-# args = ["blake160(compressed_pubkey)"]
+# args = ["ckb cli blake160 <pubkey>"]
