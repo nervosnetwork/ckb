@@ -41,7 +41,7 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
                 .value_name("path")
                 .takes_value(true)
                 .help(
-                    "Run as if ckb was started in <path> instead of the current working directory.",
+                    "Runs as if ckb was started in <path> instead of the current working directory.",
                 ),
         )
         .subcommand(run())
@@ -55,17 +55,17 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
 }
 
 fn run() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_RUN).about("Running ckb node")
+    SubCommand::with_name(CMD_RUN).about("Runs ckb node")
 }
 
 fn miner() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_MINER).about("Running ckb miner")
+    SubCommand::with_name(CMD_MINER).about("Runs ckb miner")
 }
 
 fn prof() -> App<'static, 'static> {
     SubCommand::with_name(CMD_PROF)
         .about(
-            "Profling ckb node\n\
+            "Profiles ckb node\n\
              Example: Process 1..500 blocks then output flagme graph\n\
              cargo flamegraph --bin ckb -- -C <dir> prof 1 500",
         )
@@ -73,13 +73,13 @@ fn prof() -> App<'static, 'static> {
             Arg::with_name("from")
                 .required(true)
                 .index(1)
-                .help("from block number."),
+                .help("Specifies from block number."),
         )
         .arg(
             Arg::with_name("to")
                 .required(true)
                 .index(2)
-                .help("to block number."),
+                .help("Specifies to block number."),
         )
 }
 
@@ -90,12 +90,12 @@ fn arg_format() -> Arg<'static, 'static> {
         .possible_values(&["bin", "json"])
         .required(true)
         .takes_value(true)
-        .help("Specify the format.")
+        .help("Specifies the format.")
 }
 
 fn export() -> App<'static, 'static> {
     SubCommand::with_name(CMD_EXPORT)
-        .about("Export ckb data")
+        .about("Exports ckb data")
         .arg(arg_format())
         .arg(
             Arg::with_name(ARG_TARGET)
@@ -104,13 +104,13 @@ fn export() -> App<'static, 'static> {
                 .value_name("path")
                 .required(true)
                 .index(1)
-                .help("Specify the export target path."),
+                .help("Specifies the export target path."),
         )
 }
 
 fn import() -> App<'static, 'static> {
     SubCommand::with_name(CMD_IMPORT)
-        .about("Import ckb data")
+        .about("Imports ckb data")
         .arg(arg_format())
         .arg(
             Arg::with_name(ARG_SOURCE)
@@ -119,7 +119,7 @@ fn import() -> App<'static, 'static> {
                 .value_name("path")
                 .required(true)
                 .index(1)
-                .help("Specify the exported data path."),
+                .help("Specifies the exported data path."),
         )
 }
 
@@ -135,13 +135,13 @@ fn cli() -> App<'static, 'static> {
 
 fn cli_hashes() -> App<'static, 'static> {
     SubCommand::with_name(CMD_HASHES)
-        .about("List well known hashes")
+        .about("Lists well known hashes")
         .arg(
             Arg::with_name(ARG_BUNDLED)
                 .short("b")
                 .long(ARG_BUNDLED)
                 .help(
-                    "List hashes of the bundled chain specs instead of the current effective one.",
+                    "Lists hashes of the bundled chain specs instead of the current effective one.",
                 ),
         )
 }
@@ -193,19 +193,19 @@ fn cli_secp256k1_lock() -> App<'static, 'static> {
 
 fn init() -> App<'static, 'static> {
     SubCommand::with_name(CMD_INIT)
-        .about("Create a CKB direcotry or reinitialize an existing one")
+        .about("Creates a CKB direcotry or reinitializes an existing one")
         .arg(
             Arg::with_name(ARG_LIST_CHAINS)
                 .short("l")
                 .long(ARG_LIST_CHAINS)
-                .help("List available options for --chain"),
+                .help("Lists available options for --chain"),
         )
         .arg(
             Arg::with_name(ARG_CHAIN)
                 .short("c")
                 .long(ARG_CHAIN)
                 .default_value(DEFAULT_SPEC)
-                .help("Init CKB direcotry for <chain>"),
+                .help("Initializes CKB direcotry for <chain>"),
         )
         .arg(
             Arg::with_name(ARG_LOG_TO)
@@ -218,19 +218,19 @@ fn init() -> App<'static, 'static> {
             Arg::with_name(ARG_FORCE)
                 .short("f")
                 .long(ARG_FORCE)
-                .help("Force overwriting existing files"),
+                .help("Forces overwriting existing files"),
         )
         .arg(
             Arg::with_name(ARG_RPC_PORT)
                 .long(ARG_RPC_PORT)
                 .default_value(DEFAULT_RPC_PORT)
-                .help("Set CKB RPC port"),
+                .help("Replaces CKB RPC port in the created config file"),
         )
         .arg(
             Arg::with_name(ARG_P2P_PORT)
                 .long(ARG_P2P_PORT)
                 .default_value(DEFAULT_P2P_PORT)
-                .help("Set CKB P2P port"),
+                .help("Replaces CKB P2P port in the created config file"),
         )
         .arg(
             Arg::with_name("export-specs")
