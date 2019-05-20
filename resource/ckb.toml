@@ -96,9 +96,9 @@ cell_output_cache_size  = 128
 # The `code_hash` identifies different cryptography algorithm. Read the manual
 # of the lock script provider about how to generate this config.
 #
-# CKB provides an secp256k1 implementation, it requires a public key hash in
-# the args. The hash algorithm is blake2b, with personal "ckb-default-hash".
-# The first 160 bits (20 bytes) are used as the only arg.
+# CKB provides an secp256k1 implementation, it requires a hash on the
+# compressed public key. The hash algorithm is blake2b, with personal
+# "ckb-default-hash". The first 160 bits (20 bytes) are used as the only arg.
 #
 # The public key is compatible with Bitcoin, use any tool you trust to generate
 # the key pairs and keep your private key safe. CKB node never requires your private
