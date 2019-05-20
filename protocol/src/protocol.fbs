@@ -241,3 +241,19 @@ table TimeMessage {
 table Time {
     timestamp: uint64;
 }
+
+table AlertMessage {
+    payload:        Alert;
+}
+
+table Alert {
+    id: uint32;
+    cancel: uint32;
+    min_version: Bytes;
+    max_version: Bytes;
+    priority: uint32;
+    signatures: [Bytes];
+    notice_until: uint64;
+    message: Bytes;
+}
+

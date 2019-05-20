@@ -3,6 +3,7 @@ use crate::module::{
     PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::RpcServer;
+use ckb_alert_system::{alert_relayer::AlertRelayer, config::Config as AlertSystemConfig};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
@@ -164,10 +165,14 @@ fn setup_node(
         }
         .to_delegate(),
     );
+    let alert_relayer = AlertRelayer::new("0".to_string(), AlertSystemConfig::default());
+
+    let alert_notifier = alert_relayer.notifier();
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),
             synchronizer: synchronizer.clone(),
+            alert_notifier,
         }
         .to_delegate(),
     );

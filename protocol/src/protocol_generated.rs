@@ -3591,6 +3591,242 @@ impl<'a: 'b, 'b> TimeBuilder<'a, 'b> {
   }
 }
 
+pub enum AlertMessageOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct AlertMessage<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for AlertMessage<'a> {
+    type Inner = AlertMessage<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> AlertMessage<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        AlertMessage {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args AlertMessageArgs<'args>) -> flatbuffers::WIPOffset<AlertMessage<'bldr>> {
+      let mut builder = AlertMessageBuilder::new(_fbb);
+      if let Some(x) = args.payload { builder.add_payload(x); }
+      builder.finish()
+    }
+
+    pub const VT_PAYLOAD: flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub fn payload(&self) -> Option<Alert<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Alert<'a>>>(AlertMessage::VT_PAYLOAD, None)
+  }
+}
+
+pub struct AlertMessageArgs<'a> {
+    pub payload: Option<flatbuffers::WIPOffset<Alert<'a >>>,
+}
+impl<'a> Default for AlertMessageArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        AlertMessageArgs {
+            payload: None,
+        }
+    }
+}
+pub struct AlertMessageBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> AlertMessageBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_payload(&mut self, payload: flatbuffers::WIPOffset<Alert<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Alert>>(AlertMessage::VT_PAYLOAD, payload);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> AlertMessageBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    AlertMessageBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<AlertMessage<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum AlertOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct Alert<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Alert<'a> {
+    type Inner = Alert<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> Alert<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        Alert {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args AlertArgs<'args>) -> flatbuffers::WIPOffset<Alert<'bldr>> {
+      let mut builder = AlertBuilder::new(_fbb);
+      builder.add_notice_until(args.notice_until);
+      if let Some(x) = args.message { builder.add_message(x); }
+      if let Some(x) = args.signatures { builder.add_signatures(x); }
+      builder.add_priority(args.priority);
+      if let Some(x) = args.max_version { builder.add_max_version(x); }
+      if let Some(x) = args.min_version { builder.add_min_version(x); }
+      builder.add_cancel(args.cancel);
+      builder.add_id(args.id);
+      builder.finish()
+    }
+
+    pub const VT_ID: flatbuffers::VOffsetT = 4;
+    pub const VT_CANCEL: flatbuffers::VOffsetT = 6;
+    pub const VT_MIN_VERSION: flatbuffers::VOffsetT = 8;
+    pub const VT_MAX_VERSION: flatbuffers::VOffsetT = 10;
+    pub const VT_PRIORITY: flatbuffers::VOffsetT = 12;
+    pub const VT_SIGNATURES: flatbuffers::VOffsetT = 14;
+    pub const VT_NOTICE_UNTIL: flatbuffers::VOffsetT = 16;
+    pub const VT_MESSAGE: flatbuffers::VOffsetT = 18;
+
+  #[inline]
+  pub fn id(&self) -> u32 {
+    self._tab.get::<u32>(Alert::VT_ID, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn cancel(&self) -> u32 {
+    self._tab.get::<u32>(Alert::VT_CANCEL, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn min_version(&self) -> Option<Bytes<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Alert::VT_MIN_VERSION, None)
+  }
+  #[inline]
+  pub fn max_version(&self) -> Option<Bytes<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Alert::VT_MAX_VERSION, None)
+  }
+  #[inline]
+  pub fn priority(&self) -> u32 {
+    self._tab.get::<u32>(Alert::VT_PRIORITY, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn signatures(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(Alert::VT_SIGNATURES, None)
+  }
+  #[inline]
+  pub fn notice_until(&self) -> u64 {
+    self._tab.get::<u64>(Alert::VT_NOTICE_UNTIL, Some(0)).unwrap()
+  }
+  #[inline]
+  pub fn message(&self) -> Option<Bytes<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Alert::VT_MESSAGE, None)
+  }
+}
+
+pub struct AlertArgs<'a> {
+    pub id: u32,
+    pub cancel: u32,
+    pub min_version: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub max_version: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub priority: u32,
+    pub signatures: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+    pub notice_until: u64,
+    pub message: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+}
+impl<'a> Default for AlertArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        AlertArgs {
+            id: 0,
+            cancel: 0,
+            min_version: None,
+            max_version: None,
+            priority: 0,
+            signatures: None,
+            notice_until: 0,
+            message: None,
+        }
+    }
+}
+pub struct AlertBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> AlertBuilder<'a, 'b> {
+  #[inline]
+  pub fn add_id(&mut self, id: u32) {
+    self.fbb_.push_slot::<u32>(Alert::VT_ID, id, 0);
+  }
+  #[inline]
+  pub fn add_cancel(&mut self, cancel: u32) {
+    self.fbb_.push_slot::<u32>(Alert::VT_CANCEL, cancel, 0);
+  }
+  #[inline]
+  pub fn add_min_version(&mut self, min_version: flatbuffers::WIPOffset<Bytes<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Alert::VT_MIN_VERSION, min_version);
+  }
+  #[inline]
+  pub fn add_max_version(&mut self, max_version: flatbuffers::WIPOffset<Bytes<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Alert::VT_MAX_VERSION, max_version);
+  }
+  #[inline]
+  pub fn add_priority(&mut self, priority: u32) {
+    self.fbb_.push_slot::<u32>(Alert::VT_PRIORITY, priority, 0);
+  }
+  #[inline]
+  pub fn add_signatures(&mut self, signatures: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Alert::VT_SIGNATURES, signatures);
+  }
+  #[inline]
+  pub fn add_notice_until(&mut self, notice_until: u64) {
+    self.fbb_.push_slot::<u64>(Alert::VT_NOTICE_UNTIL, notice_until, 0);
+  }
+  #[inline]
+  pub fn add_message(&mut self, message: flatbuffers::WIPOffset<Bytes<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Alert::VT_MESSAGE, message);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> AlertBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    AlertBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<Alert<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
 #[inline]
 pub fn get_root_as_sync_message<'a>(buf: &'a [u8]) -> SyncMessage<'a> {
   flatbuffers::get_root::<SyncMessage<'a>>(buf)

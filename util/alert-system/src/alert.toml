@@ -1,0 +1,5 @@
+# need 2 signatures to send alert
+signatures_threshold = 2
+public_keys = [
+]
+

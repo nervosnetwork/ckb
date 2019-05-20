@@ -1,3 +1,4 @@
+use ckb_alert_system::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_sync::Synchronizer;
@@ -5,6 +6,7 @@ use ckb_traits::BlockMedianTimeContext;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{ChainInfo, EpochNumber, PeerState, Timestamp};
+use std::sync::Arc;
 
 #[rpc]
 pub trait StatsRpc {
@@ -21,6 +23,7 @@ where
 {
     pub shared: Shared<CS>,
     pub synchronizer: Synchronizer<CS>,
+    pub alert_notifier: Arc<AlertNotifier>,
 }
 
 impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
@@ -37,6 +40,13 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
         let epoch = tip_header.epoch();
         let difficulty = tip_header.difficulty().clone();
         let is_initial_block_download = self.synchronizer.shared.is_initial_block_download();
+        let warnings = self
+            .alert_notifier
+            .alerts()
+            .into_iter()
+            .map(|alert| alert.message.clone())
+            .collect::<Vec<String>>()
+            .join("\n");
 
         Ok(ChainInfo {
             chain,
@@ -44,7 +54,7 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
             epoch: EpochNumber(epoch),
             difficulty,
             is_initial_block_download,
-            warnings: String::new(),
+            warnings,
         })
     }
 

@@ -1,4 +1,5 @@
 use crate::error::{Error, ErrorKind};
+use log::{debug, trace};
 pub use secp256k1::{
     All, Error as Secp256k1Error, Message, PublicKey, RecoverableSignature, Secp256k1, SecretKey,
     Signature,
@@ -29,7 +30,17 @@ pub fn verify_m_of_n(
     let verified_sig_count = sigs
         .iter()
         .zip(pks.iter())
-        .filter_map(|(sig, pk)| sig.and_then(|sig| SECP256K1.verify(&message, &sig, pk).ok()))
+        .filter_map(|(sig, pk)| {
+            sig.and_then(|sig| {
+            trace!(target: "multisig", "verify sig {:x?} with pubkey {:x?}", &sig.serialize_compact()[..], &pk.serialize()[..]);
+                match SECP256K1.verify(&message, &sig, pk) {
+                Ok(()) => Some(()),
+                Err(err) => {
+                    debug!(target: "multisig", "verify secp256k1 sig error: {}", err);
+                    None
+                }
+            }})
+        })
         .take(m_threshold)
         .count();
     if verified_sig_count < m_threshold {
@@ -90,12 +101,9 @@ mod tests {
                 Err(ErrorKind::Threshold(2, 3)),
             ),
         ];
-        for (threshold, sigs, pks, result) in test_set.into_iter() {
+        for (threshold, sigs, pks, result) in test_set.iter() {
             let message = random_message();
-            let sks: Vec<SecretKey> = (0..sigs.len())
-                .into_iter()
-                .map(|_| random_secret_key())
-                .collect();
+            let sks: Vec<SecretKey> = (0..sigs.len()).map(|_| random_secret_key()).collect();
             let pks: Vec<PublicKey> = sks
                 .iter()
                 .enumerate()
@@ -103,7 +111,7 @@ mod tests {
                 .take(*pks)
                 .collect();
             let sigs: Vec<Option<Signature>> = sigs
-                .into_iter()
+                .iter()
                 .enumerate()
                 .map(|(i, valid)| {
                     if *valid {
@@ -122,7 +130,7 @@ mod tests {
     #[test]
     fn test_2_of_3_with_wrong_signature() {
         let message = random_message();
-        let sks: Vec<SecretKey> = (0..3).into_iter().map(|_| random_secret_key()).collect();
+        let sks: Vec<SecretKey> = (0..3).map(|_| random_secret_key()).collect();
         let pks: Vec<PublicKey> = sks
             .iter()
             .map(|sk| PublicKey::from_secret_key(&SECP256K1, sk))

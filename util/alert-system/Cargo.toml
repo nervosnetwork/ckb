@@ -1,0 +1,26 @@
+[package]
+name = "ckb-alert-system"
+version = "0.1.0"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+toml = "0.5.0"
+multisig = { path = "../multisig" }
+ckb-core = { path = "../../core" }
+ckb-util = { path = "../../util" }
+ckb-network = { path = "../../network" }
+ckb-protocol = { path = "../../protocol" }
+jsonrpc-types = { path = "../jsonrpc-types" }
+log = "0.4"
+fnv = "1.0"
+faketime = "0.2.0"
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+failure = "0.1.5"
+bytes = "0.4.12"
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
+serde = "1.0"
+serde_derive = "1.0"
+flatbuffers = "0.6.0"
+

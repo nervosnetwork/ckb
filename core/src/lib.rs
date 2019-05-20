@@ -2,6 +2,7 @@
 //!
 //! This Library provides the essential types for building ckb.
 
+pub mod alert;
 pub mod block;
 pub mod cell;
 pub mod difficulty;

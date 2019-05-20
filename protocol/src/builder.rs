@@ -1,9 +1,10 @@
 use crate::protocol_generated::ckb::protocol::{
-    Block as FbsBlock, BlockBuilder, BlockProposalBuilder, BlockTransactionsBuilder,
-    Bytes as FbsBytes, BytesBuilder, CellInput as FbsCellInput, CellInputBuilder,
-    CellOutput as FbsCellOutput, CellOutputBuilder, CompactBlock, CompactBlockBuilder,
-    FilteredBlock, FilteredBlockBuilder, GetBlockProposalBuilder, GetBlockTransactionsBuilder,
-    GetBlocks as FbsGetBlocks, GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
+    Alert as FbsAlert, AlertBuilder, AlertMessage, AlertMessageBuilder, Block as FbsBlock,
+    BlockBuilder, BlockProposalBuilder, BlockTransactionsBuilder, Bytes as FbsBytes, BytesBuilder,
+    CellInput as FbsCellInput, CellInputBuilder, CellOutput as FbsCellOutput, CellOutputBuilder,
+    CompactBlock, CompactBlockBuilder, FilteredBlock, FilteredBlockBuilder,
+    GetBlockProposalBuilder, GetBlockTransactionsBuilder, GetBlocks as FbsGetBlocks,
+    GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
     GetRelayTransaction as FbsGetRelayTransaction, GetRelayTransactionBuilder, Header as FbsHeader,
     HeaderBuilder, Headers as FbsHeaders, HeadersBuilder, IndexTransactionBuilder,
     MerkleProofBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
@@ -16,6 +17,7 @@ use crate::protocol_generated::ckb::protocol::{
     WitnessBuilder, H256 as FbsH256,
 };
 use crate::{short_transaction_id, short_transaction_id_keys};
+use ckb_core::alert::Alert;
 use ckb_core::block::Block;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
@@ -708,6 +710,54 @@ impl<'a> TimeMessage<'a> {
         let fbs_time = FbsTime::build(fbb, timestamp);
         let mut builder = TimeMessageBuilder::new(fbb);
         builder.add_payload(fbs_time);
+        builder.finish()
+    }
+}
+
+impl<'a> FbsAlert<'a> {
+    pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, alert: &Alert) -> WIPOffset<FbsAlert<'b>> {
+        let min_version = alert
+            .min_version
+            .as_ref()
+            .map(|min_ver| FbsBytes::build(fbb, min_ver.as_bytes()));
+        let max_version = alert
+            .max_version
+            .as_ref()
+            .map(|max_ver| FbsBytes::build(fbb, max_ver.as_bytes()));
+        let signatures = {
+            let signatures: Vec<_> = alert
+                .signatures
+                .iter()
+                .map(|sig| FbsBytes::build(fbb, sig))
+                .collect();
+            fbb.create_vector(&signatures)
+        };
+        let message = FbsBytes::build(fbb, alert.message.as_bytes());
+        let mut builder = AlertBuilder::new(fbb);
+        builder.add_id(alert.id);
+        builder.add_cancel(alert.cancel);
+        if let Some(min_version) = min_version {
+            builder.add_min_version(min_version);
+        }
+        if let Some(max_version) = max_version {
+            builder.add_max_version(max_version);
+        }
+        builder.add_priority(alert.priority);
+        builder.add_signatures(signatures);
+        builder.add_notice_until(alert.notice_until);
+        builder.add_message(message);
+        builder.finish()
+    }
+}
+
+impl<'a> AlertMessage<'a> {
+    pub fn build_alert<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        alert: &Alert,
+    ) -> WIPOffset<AlertMessage<'b>> {
+        let fbs_alert = FbsAlert::build(fbb, alert);
+        let mut builder = AlertMessageBuilder::new(fbb);
+        builder.add_payload(fbs_alert);
         builder.finish()
     }
 }

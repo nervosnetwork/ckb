@@ -36,6 +36,7 @@ pub enum NetworkProtocol {
     SYNC = 100,
     RELAY = 101,
     TIME = 102,
+    ALERT = 110,
 }
 
 impl Into<ProtocolId> for NetworkProtocol {

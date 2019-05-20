@@ -27,6 +27,7 @@ ckb-pow = { path = "../pow" }
 ckb-network = { path = "../network"}
 ckb-rpc = { path = "../rpc"}
 ckb-resource = { path = "../resource"}
+ckb-alert-system = { path = "../util/alert-system" }
 logger = { path = "../util/logger" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

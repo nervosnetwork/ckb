@@ -1,5 +1,6 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
 use build_info::Version;
+use ckb_alert_system::{alert_relayer::AlertRelayer, config::Config as AlertSystemConfig};
 use ckb_app_config::{ExitCode, RunArgs};
 use ckb_chain::chain::ChainService;
 use ckb_db::RocksDB;
@@ -67,6 +68,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         synchronizer.peers(),
     );
     let net_timer = NetTimeProtocol::default();
+    let alert_relayer = AlertRelayer::new(version.to_string(), AlertSystemConfig::default());
+
+    let alert_notifier = alert_relayer.notifier();
+    let alert_verifier = alert_relayer.verifier();
 
     let synchronizer_clone = synchronizer.clone();
     let protocols = vec![
@@ -91,6 +96,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             move || Box::new(net_timer.clone()),
             Arc::clone(&network_state),
         ),
+        CKBProtocol::new(
+            "alt".to_string(),
+            NetworkProtocol::ALERT.into(),
+            &["1".to_string()][..],
+            move || Box::new(alert_relayer.clone()),
+            Arc::clone(&network_state),
+        ),
     ];
     let network_controller = NetworkService::new(Arc::clone(&network_state), protocols)
         .start(version, Some("NetworkService"))
@@ -103,6 +115,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         synchronizer,
         chain_controller,
         block_assembler_controller,
+        alert_notifier,
+        alert_verifier,
     );
 
     wait_for_exit();
