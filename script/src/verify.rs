@@ -464,13 +464,18 @@ mod tests {
     use ckb_store::{ChainKVStore, StoreBatch, COLUMNS};
     use crypto::secp::Generator;
     use faster_hex::hex_encode;
-    use hash::{blake2b_256, sha3_256};
+    use hash::blake2b_256;
+
     use numext_fixed_hash::{h256, H256};
     use std::fs::File;
     use std::io::{Read, Write};
     use std::path::Path;
     use std::sync::Arc;
     use test_chain_utils::create_always_success_cell;
+
+    fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
+        tiny_keccak::sha3_256(s.as_ref())
+    }
 
     fn open_cell_verify() -> File {
         File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
