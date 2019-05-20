@@ -100,11 +100,11 @@ cell_output_cache_size  = 128
 # compressed public key. The hash algorithm is blake2b, with personal
 # "ckb-default-hash". The first 160 bits (20 bytes) are used as the only arg.
 #
-# The public key is compatible with Bitcoin, use any tool you trust to generate
-# the key pairs and keep your private key safe. CKB node never requires your private
-# key.
+# You can use any tool you trust to generate a Bitcoin private key and public
+# key pair, which can be used in CKB as well. CKB CLI provides the function for
+# you to convert the public key into block assembler configuration parameters.
 #
-# Following is an example to generate the key pair using OpenSSL.
+# Here is an example using OpenSSL to generate the key pair:
 #
 # **WARNING**: This command will print the private key to screen.
 #
@@ -113,11 +113,11 @@ cell_output_cache_size  = 128
 #       sed 's/41534e31204f49443a20736563703235366b310a30740201010420/PrivKey: /' | \
 #       sed 's/a00706052b8104000aa144034200/\'$'\nPubKey: /'
 #
-# Once you get your public key, generate the block_assembler config via the command:
+# Once you get your public key, generate the block assembler parameters:
 #
 #     ckb cli secp256k1-lock <pubkey>
 #
-# Below is an example block_assembler config:
+# Below is an example block assembler configuration section:
 #
 # [block_assembler]
 # code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
