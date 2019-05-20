@@ -26,7 +26,7 @@ impl RpcServer {
         shared: Shared<CS>,
         synchronizer: Synchronizer<CS>,
         chain: ChainController,
-        block_assembler: BlockAssemblerController,
+        block_assembler: Option<BlockAssemblerController>,
     ) -> RpcServer
     where
         CS: ChainStore,
@@ -49,15 +49,17 @@ impl RpcServer {
         }
 
         if config.miner_enable() {
-            io.extend_with(
-                MinerRpcImpl {
-                    shared: shared.clone(),
-                    block_assembler,
-                    chain: chain.clone(),
-                    network_controller: network_controller.clone(),
-                }
-                .to_delegate(),
-            );
+            if let Some(block_assembler) = block_assembler {
+                io.extend_with(
+                    MinerRpcImpl {
+                        shared: shared.clone(),
+                        block_assembler,
+                        chain: chain.clone(),
+                        network_controller: network_controller.clone(),
+                    }
+                    .to_delegate(),
+                );
+            }
         }
 
         if config.net_enable() {

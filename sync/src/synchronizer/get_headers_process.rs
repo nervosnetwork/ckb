@@ -81,7 +81,9 @@ where
             self.nc
                 .send_message_to(self.peer, fbb.finished_data().into());
         } else {
-            warn!(target: "sync", "unknown block headers from peer {} {:x?}", self.peer, block_locator_hashes);
+            for hash in &block_locator_hashes[..] {
+                warn!(target: "sync", "unknown block headers from peer {} {:#x}", self.peer, hash);
+            }
             // Got 'headers' message without known blocks
             self.nc.ban_peer(self.peer, SYNC_USELESS_BAN_TIME);
         }

@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.12.1"
+version = "0.12.2"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -44,6 +44,7 @@ ckb-traits = { path = "traits" }
 sentry = "^0.15.4"
 ckb-verification = { path = "verification" }
 tempfile = "3.0"
+faster-hex = "0.3"
 
 [dev-dependencies]
 

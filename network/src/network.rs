@@ -840,6 +840,7 @@ impl NetworkService {
                 let num_threads = max(num_cpus::get(), 4);
                 let mut runtime = runtime::Builder::new()
                     .core_threads(num_threads)
+                    .name_prefix("NetworkRuntime-")
                     .build()
                     .expect("Network tokio runtime init failed");
                 runtime.spawn(self.p2p_service.for_each(|_| Ok(())));
