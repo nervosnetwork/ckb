@@ -27,3 +27,4 @@ ckb-resource = { path = "../resource" }
 proptest = "0.9"
 ckb-db = { path = "../db" }
 test-chain-utils = { path = "../util/test-chain-utils" }
+tiny-keccak = "1.4"
