@@ -32,6 +32,7 @@ use p2p::{
         TargetSession,
     },
     traits::ServiceHandle,
+    utils::extract_peer_id,
     SessionId,
 };
 use p2p_identify::IdentifyProtocol;
@@ -354,12 +355,14 @@ impl NetworkState {
         if let Some(dial_started) = self.dialing_addrs.read().get(peer_id) {
             trace!(target: "network", "Do not repeat send dial command to network service: {:?}, {}", peer_id, addr);
             if dial_started.elapsed() > DIAL_HANG_TIMEOUT {
-                error!(
-                    target: "network",
-                    "Dialing {:?}, {:?} for more than {} seconds, something is wrong in network service",
-                    peer_id,
-                    addr,
-                    DIAL_HANG_TIMEOUT.as_secs(),
+                sentry::capture_message(
+                    &format!(
+                        "Dialing {:?}, {:?} for more than {} seconds, something is wrong in network service",
+                        peer_id,
+                        addr,
+                        DIAL_HANG_TIMEOUT.as_secs(),
+                    ),
+                    sentry::Level::Warning,
                 );
             }
             return false;
@@ -370,6 +373,13 @@ impl NetworkState {
 
     pub(crate) fn dial_success(&self, peer_id: &PeerId) {
         self.dialing_addrs.write().remove(peer_id);
+    }
+
+    pub(crate) fn dial_failed(&self, peer_id: PeerId) {
+        self.with_peer_registry_mut(|reg| {
+            reg.remove_feeler(&peer_id);
+        });
+        self.dialing_addrs.write().remove(&peer_id);
     }
 
     pub fn dial(
@@ -429,7 +439,7 @@ impl ServiceHandle for EventHandler {
                 ref address,
                 ref error,
             } => {
-                warn!(target: "network", "DialerError({}) {}", address, error);
+                debug!(target: "network", "DialerError({}) {}", address, error);
                 if error == &P2pError::ConnectSelf {
                     debug!(target: "network", "add self address: {:?}", address);
                     let addr = address
@@ -444,13 +454,15 @@ impl ServiceHandle for EventHandler {
                         .write()
                         .insert(addr, std::u8::MAX);
                 }
+                let peer_id = extract_peer_id(address).expect("Secio must enabled");
+                self.network_state.dial_failed(peer_id);
             }
             ServiceError::ProtocolError {
                 id,
                 proto_id,
                 error,
             } => {
-                warn!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
+                debug!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
                 if let Err(err) = context.disconnect(id) {
                     debug!(target: "network", "Disconnect failed {:?}, error {:?}", id, err);
                 }
@@ -467,7 +479,7 @@ impl ServiceHandle for EventHandler {
                 session_context,
                 error,
             } => {
-                warn!(
+                debug!(
                     target: "network",
                     "MuxerError({}, {}), substream error {}, disconnect it",
                     session_context.id,
@@ -476,7 +488,10 @@ impl ServiceHandle for EventHandler {
                 );
             }
             _ => {
-                warn!(target: "network", "p2p service error: {:?}", error);
+                sentry::capture_message(
+                    &format!("p2p service error: {:?}", error),
+                    sentry::Level::Warning,
+                );
             }
         }
     }
