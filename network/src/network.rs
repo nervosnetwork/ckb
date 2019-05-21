@@ -32,6 +32,7 @@ use p2p::{
         TargetSession,
     },
     traits::ServiceHandle,
+    utils::extract_peer_id,
     SessionId,
 };
 use p2p_identify::IdentifyProtocol;
@@ -374,6 +375,13 @@ impl NetworkState {
         self.dialing_addrs.write().remove(peer_id);
     }
 
+    pub(crate) fn dial_failed(&self, peer_id: PeerId) {
+        self.with_peer_registry_mut(|reg| {
+            reg.remove_feeler(&peer_id);
+        });
+        self.dialing_addrs.write().remove(&peer_id);
+    }
+
     pub fn dial(
         &self,
         p2p_control: &ServiceControl,
@@ -446,6 +454,8 @@ impl ServiceHandle for EventHandler {
                         .write()
                         .insert(addr, std::u8::MAX);
                 }
+                let peer_id = extract_peer_id(address).expect("Secio must enabled");
+                self.network_state.dial_failed(peer_id);
             }
             ServiceError::ProtocolError {
                 id,
