@@ -431,7 +431,7 @@ impl ServiceHandle for EventHandler {
                 ref address,
                 ref error,
             } => {
-                warn!(target: "network", "DialerError({}) {}", address, error);
+                debug!(target: "network", "DialerError({}) {}", address, error);
                 if error == &P2pError::ConnectSelf {
                     debug!(target: "network", "add self address: {:?}", address);
                     let addr = address
@@ -452,7 +452,7 @@ impl ServiceHandle for EventHandler {
                 proto_id,
                 error,
             } => {
-                warn!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
+                debug!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
                 if let Err(err) = context.disconnect(id) {
                     debug!(target: "network", "Disconnect failed {:?}, error {:?}", id, err);
                 }
@@ -469,7 +469,7 @@ impl ServiceHandle for EventHandler {
                 session_context,
                 error,
             } => {
-                warn!(
+                debug!(
                     target: "network",
                     "MuxerError({}, {}), substream error {}, disconnect it",
                     session_context.id,
@@ -478,7 +478,10 @@ impl ServiceHandle for EventHandler {
                 );
             }
             _ => {
-                warn!(target: "network", "p2p service error: {:?}", error);
+                sentry::capture_message(
+                    &format!("p2p service error: {:?}", error),
+                    sentry::Level::Warning,
+                );
             }
         }
     }
