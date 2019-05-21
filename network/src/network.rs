@@ -354,12 +354,14 @@ impl NetworkState {
         if let Some(dial_started) = self.dialing_addrs.read().get(peer_id) {
             trace!(target: "network", "Do not repeat send dial command to network service: {:?}, {}", peer_id, addr);
             if dial_started.elapsed() > DIAL_HANG_TIMEOUT {
-                error!(
-                    target: "network",
-                    "Dialing {:?}, {:?} for more than {} seconds, something is wrong in network service",
-                    peer_id,
-                    addr,
-                    DIAL_HANG_TIMEOUT.as_secs(),
+                sentry::capture_message(
+                    &format!(
+                        "Dialing {:?}, {:?} for more than {} seconds, something is wrong in network service",
+                        peer_id,
+                        addr,
+                        DIAL_HANG_TIMEOUT.as_secs(),
+                    ),
+                    sentry::Level::Warning,
                 );
             }
             return false;
