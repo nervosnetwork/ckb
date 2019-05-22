@@ -57,7 +57,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                     .network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data)
                 {
-                    log::error!(target: "rpc", "Broadcast transaction failed: {:?}", err);
+                    log::error!(target: "rpc-server", "Broadcast transaction failed: {:?}", err);
                 }
                 Ok(tx.hash().to_owned())
             }

@@ -70,7 +70,7 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
         match DaoWithdrawCalculator::new(&chain_state).calculate(out_point.clone().into(), hash) {
             Ok(capacity) => Ok(capacity),
             Err(err) => {
-                error!(target: "rpc", "calculate_dao_maximum_withdraw error {:?}", err);
+                error!(target: "rpc-server", "calculate_dao_maximum_withdraw error {:?}", err);
                 Err(Error::internal_error())
             }
         }

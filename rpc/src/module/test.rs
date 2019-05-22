@@ -51,7 +51,7 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
         if ret.is_ok() {
             Ok(Some(block.header().hash().to_owned()))
         } else {
-            error!(target: "rpc", "process_block_without_verify error: {:?}", ret);
+            error!(target: "rpc-server", "process_block_without_verify error: {:?}", ret);
             Ok(None)
         }
     }
