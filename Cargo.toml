@@ -10,47 +10,10 @@ build = "build.rs"
 build-info = { path = "util/build-info" }
 
 [dependencies]
-clap = { version = "2" }
-serde = "1.0"
-serde_derive = "1.0"
-toml = "0.5"
-log = "0.4"
-futures = "0.1"
-crossbeam-channel = "0.3"
-ckb-app-config = { path = "util/app-config" }
-ckb-util = { path = "util" }
-ckb-core = { path = "core" }
-ckb-chain = { path = "chain" }
-ckb-shared = { path = "shared" }
-ckb-store = { path = "store" }
-ckb-chain-spec = {path = "spec"}
-ckb-notify = { path = "notify"}
-ckb-miner = { path = "miner" }
-ckb-db = { path = "db" }
-ckb-pow = { path = "pow" }
-ckb-network = { path = "network"}
-ckb-rpc = { path = "rpc"}
-ckb-resource = { path = "resource"}
-logger = { path = "util/logger" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ctrlc = { version = "3.1", features = ["termination"] }
-ckb-sync = { path = "sync"}
-crypto = { path = "util/crypto"}
-ckb-instrument = { path = "util/instrument", features = ["progress_bar"] }
-hash = { path = "util/hash"}
 build-info = { path = "util/build-info" }
-ckb-traits = { path = "traits" }
-sentry = "^0.15.4"
-ckb-verification = { path = "verification" }
-tempfile = "3.0"
-faster-hex = "0.3"
+ckb-bin = { path = "ckb-bin" }
 
 [dev-dependencies]
-
-[target.'cfg(unix)'.dependencies]
-jemallocator = { version = "0.3.0" }
-
 
 [workspace]
 members = [
@@ -65,6 +28,7 @@ members = [
     "util/stop-handler",
     "util/app-config",
     "shared/tx-pool-executor",
+    "ckb-bin",
     "traits",
     "network",
     "protocol",
@@ -88,3 +52,6 @@ members = [
 [profile.release]
 debug = true
 overflow-checks = true
+
+[target.'cfg(unix)'.dependencies]
+jemallocator = { version = "0.3.0" }
