@@ -5,7 +5,10 @@ use crate::types::{
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
 use ckb_core::transaction::{CellOutPoint, CellOutput};
-use ckb_db::{Col, DBConfig, DbBatch, IterableKeyValueDB, KeyValueDB, rocksdb::{RocksDB, RocksdbBatch}};
+use ckb_db::{
+    rocksdb::{RocksDB, RocksdbBatch},
+    Col, DBConfig, DbBatch, IterableKeyValueDB, KeyValueDB,
+};
 use ckb_notify::NotifyController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -233,7 +236,7 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                 tx.inputs().iter().enumerate().for_each(|(index, input)| {
                     let index = index as u32;
                     let cell_out_point = input.previous_output.cell.clone().expect("cell exists");
-                    if let Some(lock_hash_cell_output) =
+                    if let Some(mut lock_hash_cell_output) =
                         self.get_lock_hash_cell_output(&cell_out_point)
                     {
                         if index_states.contains_key(&lock_hash_cell_output.lock_hash) {
@@ -243,8 +246,19 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                                 tx_hash.clone(),
                                 index,
                             );
-                            batch.insert_lock_hash_live_cell(&lock_hash_index, &lock_hash_cell_output.cell_output);
+                            batch.insert_lock_hash_live_cell(
+                                &lock_hash_index,
+                                &lock_hash_cell_output
+                                    .cell_output
+                                    .expect("inconsistent state"),
+                            );
                             batch.insert_lock_hash_transaction(&lock_hash_index, &None);
+
+                            lock_hash_cell_output.cell_output = None;
+                            batch.insert_cell_out_point_lock_hash(
+                                &cell_out_point,
+                                &lock_hash_cell_output,
+                            );
                         }
                     }
                 });
@@ -281,19 +295,22 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                 if index_states.contains_key(&lock_hash) {
                     let lock_hash_index =
                         LockHashIndex::new(lock_hash.clone(), block_number, tx_hash.clone(), index);
-                    let lock_hash_cell_output = LockHashCellOutput {
+                    batch.insert_lock_hash_live_cell(&lock_hash_index, output);
+                    batch.insert_lock_hash_transaction(&lock_hash_index, &None);
+
+                    let mut lock_hash_cell_output = LockHashCellOutput {
                         lock_hash,
                         block_number,
-                        cell_output: output.clone(),
+                        cell_output: None,
                     };
                     let cell_out_point = CellOutPoint {
                         tx_hash: tx_hash.clone(),
                         index,
                     };
-
-                    batch.insert_lock_hash_live_cell(&lock_hash_index, &lock_hash_cell_output.cell_output);
-                    batch.insert_lock_hash_transaction(&lock_hash_index, &None);
                     batch.insert_cell_out_point_lock_hash(&cell_out_point, &lock_hash_cell_output);
+
+                    // insert lock_hash_cell_output as a cached value
+                    lock_hash_cell_output.cell_output = Some(output.clone());
                     batch_buffer.insert(cell_out_point, lock_hash_cell_output);
                 }
             });
@@ -309,6 +326,10 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                         .or_else(|| self.get_lock_hash_cell_output(&cell_out_point))
                     {
                         if index_states.contains_key(&lock_hash_cell_output.lock_hash) {
+                            batch.insert_cell_out_point_lock_hash(
+                                &cell_out_point,
+                                &lock_hash_cell_output,
+                            );
                             let lock_hash_index = LockHashIndex::new(
                                 lock_hash_cell_output.lock_hash,
                                 lock_hash_cell_output.block_number,
@@ -321,7 +342,8 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                                 index,
                             };
                             batch.delete_lock_hash_live_cell(&lock_hash_index);
-                            batch.insert_lock_hash_transaction(&lock_hash_index, &Some(consumed_by));
+                            batch
+                                .insert_lock_hash_transaction(&lock_hash_index, &Some(consumed_by));
                         }
                     }
                 });
@@ -358,7 +380,11 @@ impl WalletStoreBatch {
             .expect("batch insert COLUMN_LOCK_HASH_INDEX_STATE failed");
     }
 
-    fn insert_lock_hash_live_cell(&mut self, lock_hash_index: &LockHashIndex, cell_output: &CellOutput) {
+    fn insert_lock_hash_live_cell(
+        &mut self,
+        lock_hash_index: &LockHashIndex,
+        cell_output: &CellOutput,
+    ) {
         self.batch
             .insert(
                 COLUMN_LOCK_HASH_LIVE_CELL,
@@ -399,10 +425,7 @@ impl WalletStoreBatch {
 
     fn delete_lock_hash_index_state(&mut self, lock_hash: &H256) {
         self.batch
-            .delete(
-                COLUMN_LOCK_HASH_INDEX_STATE,
-                lock_hash.as_bytes(),
-            )
+            .delete(COLUMN_LOCK_HASH_INDEX_STATE, lock_hash.as_bytes())
             .expect("batch delete COLUMN_LOCK_HASH_INDEX_STATE failed");
     }
 

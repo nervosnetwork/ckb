@@ -32,7 +32,8 @@ pub struct TransactionPoint {
 pub struct LockHashCellOutput {
     pub lock_hash: H256,
     pub block_number: BlockNumber,
-    pub cell_output: CellOutput,
+    // Cache the `CellOutput` when `LiveCell` is deleted, it's required for fork switching.
+    pub cell_output: Option<CellOutput>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
