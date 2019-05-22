@@ -2087,7 +2087,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "numext-fixed-hash-core 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash-hack 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "proc-macro-hack 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2110,7 +2110,7 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "numext-fixed-hash-core 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "proc-macro-hack 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2 0.4.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.6.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 0.15.29 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2123,7 +2123,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "numext-fixed-uint-core 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint-hack 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "proc-macro-hack 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2144,7 +2144,7 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "numext-fixed-uint-core 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "proc-macro-hack 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2 0.4.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.6.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 0.15.29 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2156,7 +2156,7 @@ version = "0.13.0-pre"
 dependencies = [
  "occupied-capacity-core 0.13.0-pre",
  "occupied-capacity-macros 0.13.0-pre",
- "proc-macro-hack 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2174,7 +2174,7 @@ name = "occupied-capacity-macros"
 version = "0.13.0-pre"
 dependencies = [
  "occupied-capacity-core 0.13.0-pre",
- "proc-macro-hack 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2 0.4.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.6.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 0.15.29 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2371,7 +2371,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "proc-macro-hack"
-version = "0.5.5"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "proc-macro2 0.4.27 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3861,7 +3861,7 @@ dependencies = [
 "checksum phf_shared 0.7.24 (registry+https://github.com/rust-lang/crates.io-index)" = "234f71a15de2288bcb7e3b6515828d22af7ec8598ee6d24c3b526fa0a80b67a0"
 "checksum pkg-config 0.3.14 (registry+https://github.com/rust-lang/crates.io-index)" = "676e8eb2b1b4c9043511a9b7bea0915320d7e502b0a079fb03f9635a5252b18c"
 "checksum plain 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
-"checksum proc-macro-hack 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)" = "6a9bed9ebc40cf53e3a76d7486c54d05002eae6485b2711ab9104476fb2eb8bc"
+"checksum proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)" = "0c1dd4172a1e1f96f709341418f49b11ea6c2d95d53dca08c0f74cbd332d9cf3"
 "checksum proc-macro2 0.4.27 (registry+https://github.com/rust-lang/crates.io-index)" = "4d317f9caece796be1980837fd5cb3dfec5613ebdb04ad0956deea83ce168915"
 "checksum proptest 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)" = "2afed8cbdc8a64b58a5c021757a782351ec1afee85be374872721c84d5da5d80"
 "checksum publicsuffix 1.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "5afecba86dcf1e4fd610246f89899d1924fe12e1e89f555eb7c7f710f3c5ad1d"
