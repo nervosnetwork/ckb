@@ -1,4 +1,5 @@
 use bytes::{Bytes, BytesMut};
+use log::debug;
 use snap::{Decoder as SnapDecoder, Encoder as SnapEncoder};
 use tokio::codec::{Decoder, Encoder, LengthDelimitedCodec};
 
@@ -27,80 +28,71 @@ struct Message {
 }
 
 impl Message {
-    /// Init
-    fn init() -> Self {
-        Message {
-            inner: BytesMut::from(&[0u8][..]),
-        }
+    /// create from raw data
+    fn from_raw(data: Bytes) -> Self {
+        let mut inner = BytesMut::from(&[0u8][..]);
+        inner.unsplit(BytesMut::from(data));
+        Self { inner }
+    }
+
+    /// create from compressed data
+    fn from_compressed(data: BytesMut) -> Self {
+        Self { inner: data }
     }
 
     /// Compress message
-    fn compress(&mut self, input: Bytes) {
+    fn compress(mut self) -> Bytes {
+        let input = self.inner.split_off(1);
         if input.len() > SKIP_COMPRESS_SIZE {
             match SnapEncoder::new().compress_vec(&input) {
                 Ok(res) => {
                     self.inner.unsplit(BytesMut::from(res));
                     self.set_compress_flag(true);
                 }
-                Err(_) => {
-                    self.inner.unsplit(BytesMut::from(input));
+                Err(e) => {
+                    debug!(target: "network", "snappy compress error: {}", e);
+                    self.inner.unsplit(input);
                     self.set_compress_flag(false);
                 }
             }
         } else {
             self.set_compress_flag(false);
-            self.inner.unsplit(BytesMut::from(input));
+            self.inner.unsplit(input);
         }
+        self.inner.freeze()
     }
 
     /// Decompress message
-    fn decompress(mut self) -> Option<BytesMut> {
-        if self.inner.len() <= 1 {
-            None
+    fn decompress(mut self) -> Result<BytesMut, io::Error> {
+        if self.inner.is_empty() {
+            Err(io::ErrorKind::InvalidData.into())
         } else if self.compress_flag() {
             match SnapDecoder::new().decompress_vec(&self.inner[1..]) {
-                Ok(res) => Some(BytesMut::from(res)),
-                Err(_) => None,
+                Ok(res) => Ok(BytesMut::from(res)),
+                Err(e) => {
+                    debug!(target: "network", "snappy error: {:?}", e);
+                    Err(io::ErrorKind::InvalidData.into())
+                }
             }
         } else {
             self.inner.split_to(1);
-            Some(self.inner.take())
+            Ok(self.inner.take())
         }
     }
 
     fn set_compress_flag(&mut self, flag: bool) {
         let compress_flag = if flag { 0b1000_0000 } else { 0b0000_0000 };
-        self.inner[0] = (self.inner[0] & 0b0111_1111) + (compress_flag & 0b1000_0000);
+        self.inner[0] = (self.inner[0] & 0b0111_1111) + compress_flag;
     }
 
     fn compress_flag(&self) -> bool {
         (self.inner[0] & 0b1000_0000) != 0
     }
-
-    fn into_inner(self) -> Bytes {
-        self.inner.freeze()
-    }
-}
-
-impl From<BytesMut> for Message {
-    fn from(src: BytesMut) -> Self {
-        Message { inner: src }
-    }
-}
-
-impl From<Bytes> for Message {
-    fn from(src: Bytes) -> Self {
-        Message {
-            inner: BytesMut::from(src),
-        }
-    }
 }
 
 /// Compress data
 pub fn compress(src: Bytes) -> Bytes {
-    let mut msg = Message::init();
-    msg.compress(src);
-    msg.into_inner()
+    Message::from_raw(src).compress()
 }
 
 /// Decompression structure for Codec
@@ -126,9 +118,13 @@ impl Decoder for LengthDelimited {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        self.0
-            .decode(src)
-            .map(|item| item.and_then(|item| Into::<Message>::into(item).decompress()))
+        self.0.decode(src).and_then(|item| {
+            match item {
+                // if decompress error, just return error to disconnect
+                Some(inner) => Message::from_compressed(inner).decompress().map(Some),
+                None => Ok(None),
+            }
+        })
     }
 }
 
@@ -138,8 +134,9 @@ mod test {
 
     #[test]
     fn test_no_need_compress() {
-        let mut msg = Message::init();
-        msg.compress(Bytes::from("1222"));
+        let cmp_data = Message::from_raw(Bytes::from("1222")).compress();
+
+        let msg = Message::from_compressed(cmp_data.into());
 
         assert!(!msg.compress_flag());
 
@@ -150,29 +147,14 @@ mod test {
 
     #[test]
     fn test_compress_and_decompress() {
-        let mut msg = Message::init();
-        let data = Bytes::from(vec![1; SKIP_COMPRESS_SIZE + 1]);
-        msg.compress(data.clone());
+        let raw_data = Bytes::from(vec![1; SKIP_COMPRESS_SIZE + 1]);
+        let cmp_data = Message::from_raw(raw_data.clone()).compress();
 
+        let msg = Message::from_compressed(cmp_data.into());
         assert!(msg.compress_flag());
 
         let demsg = msg.decompress().unwrap();
 
-        assert_eq!(data, demsg)
-    }
-
-    #[test]
-    fn test_compress_and_decompress_use_another_message() {
-        let mut msg = Message::init();
-        let data = Bytes::from(vec![1; SKIP_COMPRESS_SIZE + 1]);
-        msg.compress(data.clone());
-
-        assert!(msg.compress_flag());
-
-        let cmp_msg = msg.into_inner();
-
-        let demsg = Into::<Message>::into(cmp_msg).decompress().unwrap();
-
-        assert_eq!(data, demsg)
+        assert_eq!(raw_data, demsg)
     }
 }
