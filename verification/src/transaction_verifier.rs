@@ -423,7 +423,7 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self.block_median_time(self.tip_number.saturating_sub(1));
+                    let tip_timestamp = self.block_median_time(self.tip_number);
                     if tip_timestamp < timestamp {
                         return Err(TransactionError::Immature);
                     }
@@ -459,9 +459,13 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self.block_median_time(self.tip_number.saturating_sub(1));
+                    // pass_median_time(current_block) starts with tip block, which is the
+                    // parent of current block.
+                    // pass_median_time(input_cell's block) starts with cell_block_number - 1,
+                    // which is the parent of input_cell's block
                     let median_timestamp =
                         self.block_median_time(cell_block_number.saturating_sub(1));
+                    let tip_timestamp = self.block_median_time(self.tip_number);
                     if tip_timestamp < median_timestamp + timestamp {
                         return Err(TransactionError::Immature);
                     }
