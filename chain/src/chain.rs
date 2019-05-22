@@ -205,7 +205,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         debug!(
             target: "chain",
-            "difficulty current = {}, cannon = {}",
+            "difficulty current = {:#x}, cannon = {:#x}",
             current_total_difficulty,
             cannon_total_difficulty,
         );
@@ -259,7 +259,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         {
             debug!(
                 target: "chain",
-                "new best block found: {} => {}, difficulty diff = {}",
+                "new best block found: {} => {:#x}, difficulty diff = {:#x}",
                 block.header().number(), block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
             );

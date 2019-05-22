@@ -67,7 +67,10 @@ impl StdError for Error {}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self, f)
+        match self {
+            Error::UnknownParent(h) => write!(f, "UnknownParent({:#x})", h),
+            _ => fmt::Debug::fmt(&self, f),
+        }
     }
 }
 
