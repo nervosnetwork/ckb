@@ -14,7 +14,7 @@ use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::ChainProvider;
-use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier};
+use ckb_verification::{BlockVerifier, ContextualBlockVerifier, ForkContext, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use dao::calculate_dao_data;
 use failure::Error as FailureError;
@@ -310,6 +310,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.detached_proposal_id().iter(),
                 &mut txs_verify_cache,
             );
+            if !fork.detached_blocks().is_empty() {
+                for detached_block in fork.detached_blocks() {
+                    self.notify
+                        .notify_new_uncle(Arc::new(detached_block.clone()));
+                }
+            }
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);
             }
@@ -484,14 +490,20 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let attached_blocks_iter = fork.attached_blocks().iter().rev();
         let detached_blocks_iter = fork.detached_blocks().iter().rev();
 
-        let unverified_len = fork.attached_blocks.len() - dirty_exts.len();
+        let mut fork_context = ForkContext {
+            attached_blocks: Vec::with_capacity(fork.attached_blocks().len()),
+            detached_blocks: fork.detached_blocks().iter().rev().collect(),
+            provider: self.shared.clone(),
+        };
+
+        let verified_len = fork.attached_blocks.len() - dirty_exts.len();
 
         for b in detached_blocks_iter {
             cell_set_diff.push_old(b);
             block_headers_provider.push_detached(b);
         }
 
-        for b in attached_blocks_iter.take(unverified_len) {
+        for b in attached_blocks_iter.take(verified_len) {
             cell_set_diff.push_new(b);
             outputs.extend(
                 b.transactions()
@@ -499,16 +511,15 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     .map(|tx| (tx.hash().to_owned(), tx.outputs())),
             );
             block_headers_provider.push_attached(b);
+            fork_context.attached_blocks.push(b);
         }
-
-        // The verify function
-        let contextual_block_verifier = ContextualBlockVerifier::new(self.shared.clone());
 
         let mut found_error = None;
         // verify transaction
         for (ext, b) in dirty_exts.iter_mut().zip(fork.attached_blocks.iter()).rev() {
             if need_verify {
                 if found_error.is_none() {
+                    let contextual_block_verifier = ContextualBlockVerifier::new(&fork_context);
                     let mut seen_inputs = FnvHashSet::default();
                     let cell_set_overlay =
                         chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
@@ -539,12 +550,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .collect::<Result<Vec<ResolvedTransaction>, _>>()
                     {
                         Ok(resolved) => {
-                            match contextual_block_verifier.verify(
-                                &resolved,
-                                &fork.attached_blocks,
-                                b,
-                                txs_verify_cache,
-                            ) {
+                            match contextual_block_verifier.verify(&resolved, b, txs_verify_cache) {
                                 Ok(cycles) => {
                                     cell_set_diff.push_new(b);
                                     outputs.extend(
@@ -598,6 +604,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 );
                 ext.txs_verified = Some(true);
             }
+            fork_context.attached_blocks.push(b);
         }
         mem::replace(&mut fork.dirty_exts, dirty_exts);
 

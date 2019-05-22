@@ -16,7 +16,7 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 rayon = "1.0"
 fnv = "1.0.3"
 occupied-capacity = { path = "../util/occupied-capacity" }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-traits = { path = "../traits" }
 serde_json = "1.0"
 log = "0.4"

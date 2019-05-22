@@ -5,7 +5,7 @@ use crate::flat_block_body::{
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
     COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET,
-    COLUMN_EPOCH, COLUMN_EXT, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR,
+    COLUMN_EPOCH, COLUMN_EXT, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR, COLUMN_UNCLES,
 };
 use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
@@ -125,6 +125,7 @@ pub trait ChainStore: Sync + Send {
     fn traverse_cell_set<F>(&self, callback: F) -> Result<(), Error>
     where
         F: FnMut(H256, TransactionMeta) -> Result<(), Error>;
+    fn is_uncle(&self, hash: &H256) -> bool;
 }
 
 pub trait StoreBatch {
@@ -175,6 +176,10 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 .proposals(proposals)
                 .build()
         })
+    }
+
+    fn is_uncle(&self, hash: &H256) -> bool {
+        self.get(COLUMN_UNCLES, hash.as_bytes()).is_some()
     }
 
     fn get_header(&self, hash: &H256) -> Option<Header> {
@@ -516,6 +521,9 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
 
         let number = block.header().number().to_le_bytes();
         self.insert_raw(COLUMN_INDEX, &number, hash.as_bytes())?;
+        for uncle in block.uncles() {
+            self.insert_raw(COLUMN_UNCLES, &uncle.hash().as_bytes(), &[])?;
+        }
         self.insert_raw(COLUMN_INDEX, hash.as_bytes(), &number)
     }
 
@@ -527,6 +535,10 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                 let store_key = CellKey::calculate(&tx_hash, index as u32);
                 self.delete(COLUMN_CELL_META, store_key.as_ref())?;
             }
+        }
+
+        for uncle in block.uncles() {
+            self.delete(COLUMN_UNCLES, &uncle.hash().as_bytes())?;
         }
         self.delete(COLUMN_INDEX, &block.header().number().to_le_bytes())?;
         self.delete(COLUMN_INDEX, block.header().hash().as_bytes())

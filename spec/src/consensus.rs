@@ -13,7 +13,6 @@ use std::sync::Arc;
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(50);
 pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(5_000_000);
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
-pub(crate) const MAX_UNCLE_AGE: usize = 6;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 pub(crate) const CELLBASE_MATURITY: BlockNumber = 100;
 // TODO: should adjust this value based on CKB average block time
@@ -53,7 +52,6 @@ pub struct Consensus {
     pub genesis_hash: H256,
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
-    pub max_uncles_age: usize,
     pub max_uncles_num: usize,
     pub orphan_rate_target_recip: u64,
     pub epoch_duration_target: u64,
@@ -101,7 +99,6 @@ impl Default for Consensus {
             genesis_hash: genesis_block.header().hash().to_owned(),
             genesis_block,
             id: "main".to_owned(),
-            max_uncles_age: MAX_UNCLE_AGE,
             max_uncles_num: MAX_UNCLE_NUM,
             epoch_reward: DEFAULT_EPOCH_REWARD,
             orphan_rate_target_recip: ORPHAN_RATE_TARGET_RECIP,
@@ -183,10 +180,6 @@ impl Consensus {
 
     pub fn max_uncles_num(&self) -> usize {
         self.max_uncles_num
-    }
-
-    pub fn max_uncles_age(&self) -> usize {
-        self.max_uncles_age
     }
 
     pub fn min_difficulty(&self) -> &U256 {

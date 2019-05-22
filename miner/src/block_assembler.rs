@@ -15,7 +15,6 @@ use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_util::Mutex;
 use ckb_verification::ScriptVerifier;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
@@ -92,11 +91,10 @@ impl BlockAssemblerController {
 
 pub struct BlockAssembler<CS> {
     shared: Shared<CS>,
-    candidate_uncles: LruCache<H256, Arc<Block>>,
     config: BlockAssemblerConfig,
     work_id: AtomicUsize,
     last_uncles_updated_at: AtomicU64,
-    template_caches: Mutex<LruCache<(H256, Cycle, u64, Version), TemplateCache>>,
+    template_caches: LruCache<(H256, Cycle, u64, Version), TemplateCache>,
     proof_size: usize,
 }
 
@@ -106,10 +104,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             proof_size: shared.consensus().pow_engine().proof_size(),
             shared,
             config,
-            candidate_uncles: LruCache::new(MAX_CANDIDATE_UNCLES),
             work_id: AtomicUsize::new(0),
             last_uncles_updated_at: AtomicU64::new(0),
-            template_caches: Mutex::new(LruCache::new(TEMPLATE_CACHE_SIZE)),
+            template_caches: LruCache::new(TEMPLATE_CACHE_SIZE),
         }
     }
 
@@ -135,31 +132,41 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         let new_uncle_receiver = notify.subscribe_new_uncle(BLOCK_ASSEMBLER_SUBSCRIBER);
         let thread = thread_builder
-            .spawn(move || loop {
-                select! {
-                    recv(signal_receiver) -> _ => {
-                        break;
-                    }
-                    recv(new_uncle_receiver) -> msg => match msg {
-                        Ok(uncle_block) => {
-                            let hash = uncle_block.header().hash();
-                            self.candidate_uncles.insert(hash.to_owned(), uncle_block);
-                            self.last_uncles_updated_at
-                                .store(unix_time_as_millis(), Ordering::SeqCst);
-                        }
-                        _ => {
-                            log::error!(target: "miner", "new_uncle_receiver closed");
+            .spawn(move || {
+                let mut candidate_uncles = LruCache::new(MAX_CANDIDATE_UNCLES);
+                loop {
+                    select! {
+                        recv(signal_receiver) -> _ => {
                             break;
                         }
-                    },
-                    recv(receivers.get_block_template_receiver) -> msg => match msg {
-                        Ok(Request { responder, arguments: (bytes_limit, proposals_limit,  max_version) }) => {
-                            let _ = responder.send(self.get_block_template(bytes_limit, proposals_limit, max_version));
+                        recv(new_uncle_receiver) -> msg => match msg {
+                            Ok(uncle_block) => {
+                                let hash = uncle_block.header().hash();
+                                candidate_uncles.insert(hash.to_owned(), uncle_block);
+                                self.last_uncles_updated_at
+                                    .store(unix_time_as_millis(), Ordering::SeqCst);
+                            }
+                            _ => {
+                                log::error!(target: "miner", "new_uncle_receiver closed");
+                                break;
+                            }
                         },
-                        _ => {
-                            log::error!(target: "miner", "get_block_template_receiver closed");
-                            break;
-                        },
+                        recv(receivers.get_block_template_receiver) -> msg => match msg {
+                            Ok(Request { responder, arguments: (bytes_limit, proposals_limit,  max_version) }) => {
+                                let _ = responder.send(
+                                    self.get_block_template(
+                                        bytes_limit,
+                                        proposals_limit,
+                                        max_version,
+                                        &mut candidate_uncles
+                                    )
+                                );
+                            },
+                            _ => {
+                                log::error!(target: "miner", "get_block_template_receiver closed");
+                                break;
+                            },
+                        }
                     }
                 }
             }).expect("Start MinerAgent failed");
@@ -228,7 +235,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         &self,
         cellbase_size: usize,
         bytes_limit: u64,
-        uncles: &[UncleBlock],
+        uncles: &FnvHashSet<UncleBlock>,
         proposals: &FnvHashSet<ProposalShortId>,
     ) -> Result<usize, FailureError> {
         let occupied = Header::serialized_size(self.proof_size)
@@ -250,6 +257,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
+        candidate_uncles: &mut LruCache<H256, Arc<Block>>,
     ) -> Result<BlockTemplate, FailureError> {
         let cycles_limit = self.shared.consensus().max_block_cycles();
         let (bytes_limit, proposals_limit, version) =
@@ -257,16 +265,18 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
 
         let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst);
-        let mut template_caches = self.template_caches.lock();
 
         // try get cache
         // this attempt will not touch chain_state lock which mean it should be fast
         let store = self.shared.store();
         let header = store.get_tip_header().to_owned().expect("get tip header");
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
-        if let Some(template_cache) =
-            template_caches.get(&(header.hash().to_owned(), cycles_limit, bytes_limit, version))
-        {
+        if let Some(template_cache) = self.template_caches.get(&(
+            header.hash().to_owned(),
+            cycles_limit,
+            bytes_limit,
+            version,
+        )) {
             // check template cache outdate time
             if !template_cache.is_outdate(current_time) {
                 return Ok(template_cache.template.clone());
@@ -281,7 +291,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let number = header.number() + 1;
         // check cache again, return cache if we have no modify
         if let Some(template_cache) =
-            template_caches.get(&(hash.to_owned(), cycles_limit, bytes_limit, version))
+            self.template_caches
+                .get(&(hash.to_owned(), cycles_limit, bytes_limit, version))
         {
             let last_txs_updated_at = chain_state.get_last_txs_updated_at();
             // check our tx_pool wether is modified
@@ -292,16 +303,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         }
 
         let last_epoch = store.get_current_epoch_ext().expect("current epoch ext");
-
         let next_epoch_ext = self.shared.next_epoch_ext(&last_epoch, &header);
         let current_epoch = next_epoch_ext.unwrap_or(last_epoch);
-
-        let (uncles, bad_uncles) = self.prepare_uncles(&header, &current_epoch);
-        if !bad_uncles.is_empty() {
-            for bad in bad_uncles {
-                self.candidate_uncles.remove(&bad);
-            }
-        }
+        let uncles = self.prepare_uncles(&current_epoch, candidate_uncles);
 
         let cellbase_lock_args = self
             .config
@@ -359,7 +363,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
         };
 
-        template_caches.insert(
+        self.template_caches.insert(
             (hash.to_owned(), cycles_limit, bytes_limit, version),
             TemplateCache {
                 time: current_time,
@@ -429,80 +433,41 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
     fn prepare_uncles(
         &self,
-        tip: &Header,
         current_epoch_ext: &EpochExt,
-    ) -> (Vec<UncleBlock>, Vec<H256>) {
-        let max_uncles_age = self.shared.consensus().max_uncles_age();
-        let mut excluded = FnvHashSet::default();
-
-        // cB
-        // tip      1 depth, valid uncle
-        // tip.p^0  ---/  2
-        // tip.p^1  -----/  3
-        // tip.p^2  -------/  4
-        // tip.p^3  ---------/  5
-        // tip.p^4  -----------/  6
-        // tip.p^5  -------------/
-        // tip.p^6
-        let mut block_hash = tip.hash().to_owned();
-        excluded.insert(block_hash.clone());
-        for _depth in 0..max_uncles_age {
-            if let Some(block) = self.shared.block(&block_hash) {
-                excluded.insert(block.header().parent_hash().to_owned());
-                for uncle in block.uncles() {
-                    excluded.insert(uncle.header.hash().to_owned());
-                }
-
-                block_hash = block.header().parent_hash().to_owned();
-            } else {
-                break;
-            }
-        }
-
-        let current_number = tip.number() + 1;
-
+        candidate_uncles: &mut LruCache<H256, Arc<Block>>,
+    ) -> FnvHashSet<UncleBlock> {
+        let store = self.shared.store();
+        let epoch_number = current_epoch_ext.number();
         let max_uncles_num = self.shared.consensus().max_uncles_num();
-        let mut included = FnvHashSet::default();
-        let mut uncles = Vec::with_capacity(max_uncles_num);
-        let mut bad_uncles = Vec::new();
+        let mut uncles = FnvHashSet::with_capacity_and_hasher(max_uncles_num, Default::default());
 
-        for (hash, block) in self.candidate_uncles.iter() {
-            if uncles.len() == max_uncles_num {
+        loop {
+            if candidate_uncles.is_empty() || uncles.len() == max_uncles_num {
                 break;
             }
-
-            let epoch_number = current_epoch_ext.number();
-
-            // uncle must be same difficulty epoch with candidate
+            let (hash, block) = candidate_uncles
+                .pop_front()
+                .expect("candidate_uncles is not empty");
             if block.header().difficulty() != current_epoch_ext.difficulty()
                 || block.header().epoch() != epoch_number
+                || store.get_block_number(&hash).is_some()
+                || store.is_uncle(&hash)
             {
-                bad_uncles.push(hash.clone());
                 continue;
             }
-
-            let depth = current_number.saturating_sub(block.header().number());
-            if depth > max_uncles_age as u64
-                || depth < 1
-                || included.contains(hash)
-                || excluded.contains(hash)
-            {
-                bad_uncles.push(hash.clone());
-            } else {
-                let uncle = UncleBlock {
-                    header: block.header().to_owned(),
-                    proposals: block.proposals().to_vec(),
-                };
-                uncles.push(uncle);
-                included.insert(hash.clone());
-            }
+            let uncle = UncleBlock {
+                header: block.header().to_owned(),
+                proposals: block.proposals().to_vec(),
+            };
+            uncles.insert(uncle);
         }
-        (uncles, bad_uncles)
+        uncles
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{block_assembler::BlockAssembler, config::BlockAssemblerConfig};
     use ckb_chain::chain::ChainController;
     use ckb_chain::chain::ChainService;
@@ -564,9 +529,10 @@ mod tests {
             args: vec![],
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
+        let mut candidate_uncles = LruCache::new(MAX_CANDIDATE_UNCLES);
 
         let block_template = block_assembler
-            .get_block_template(None, None, None)
+            .get_block_template(None, None, None, &mut candidate_uncles)
             .unwrap();
 
         let BlockTemplate {

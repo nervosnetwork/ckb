@@ -30,7 +30,7 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 bytes = "0.4.12"
 hash = {path = "../util/hash"}
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 sentry = "^0.15.4"
 hashbrown = "0.3.0"
 futures = "0.1"

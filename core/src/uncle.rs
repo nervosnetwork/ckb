@@ -7,7 +7,7 @@ use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, Debug)]
 pub struct UncleBlock {
     pub header: Header,
     pub proposals: Vec<ProposalShortId>,
@@ -31,6 +31,10 @@ impl UncleBlock {
         &self.header
     }
 
+    pub fn hash(&self) -> &H256 {
+        self.header.hash()
+    }
+
     pub fn number(&self) -> BlockNumber {
         self.header.number()
     }
@@ -45,6 +49,22 @@ impl UncleBlock {
 
     pub fn serialized_size(&self, proof_size: usize) -> usize {
         Header::serialized_size(proof_size)
+    }
+}
+
+impl PartialEq for UncleBlock {
+    fn eq(&self, other: &UncleBlock) -> bool {
+        self.header().hash() == other.header().hash()
+    }
+}
+
+impl ::std::hash::Hash for UncleBlock {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
+        state.write(&self.header.hash().as_bytes());
+        state.finish();
     }
 }
 

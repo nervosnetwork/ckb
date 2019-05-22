@@ -16,7 +16,7 @@ ckb-db = { path = "../db" }
 jsonrpc-types = { path = "../util/jsonrpc-types" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 faketime = "0.2"
 log = "0.4"
 ckb-traits = { path = "../traits" }
