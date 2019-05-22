@@ -1,4 +1,6 @@
 language: rust
+rust: 1.34.2
+dist: xenial
 sudo: true
 cache:
   cargo: true
@@ -13,35 +15,6 @@ if: 'branch IN (master, develop) OR branch =~ /^rc\// OR type != push OR repo !=
 env:
   global:
     - RUST_BACKTRACE=full
-
-matrix:
-  include:
-    - name: macOS
-      rust: 1.34.2
-      os: osx
-      env: REL_PKG=x86_64-apple-darwin.zip
-    - name: Linux
-      rust: 1.34.2
-      os: linux
-      dist: xenial
-      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz
-    - name: Quick Check
-      cache: false
-      language: javascript
-      install:
-        - npm install -g prettier
-      script:
-        - make cargo-license
-        - make check-dirty-doc
-    - name: Centos Package
-      if: 'repo = nervosnetwork/ckb AND tag IS present'
-      language: ruby
-      addons:
-        apt:
-          packages: []
-      install: echo install
-      script: devtools/ci/centos-docker.sh run
-      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz
 
 addons:
   apt:
@@ -60,8 +33,17 @@ before_install:
   - export -f travis_fold
   - export -f travis_time_start
   - export -f travis_time_finish
-install: ./devtools/ci/install.sh
+
+before_script:
+  - cargo sweep --version || cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
+  - cargo sweep -s
+
 script: ./devtools/ci/script.sh
+
+before_cache:
+  - rm -rf ./target/release
+  - rm -rf ./target/debug/incremental/
+  - cargo sweep -f || true
 
 deploy:
   provider: releases
@@ -73,7 +55,77 @@ deploy:
     tags: true
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
 
-before_cache:
-  - rm -rf ./target/release
-  - rm -rf ./target/debug/incremental/
-  - cargo sweep -f || true
+matrix:
+  include:
+    - name: Tests on macOS
+      os: osx
+    - name: Tests on Linux
+      os: linux
+    - name: Quick Check
+      cache: false
+      before_script: skip
+      language: javascript
+      install:
+        - npm install -g prettier
+      script:
+        - make cargo-license
+        - make check-dirty-doc
+
+    - name: Integration on macOS
+      if: 'type != pull_request'
+      os: osx
+      script: make integration
+    - name: Integration on Linux
+      if: 'type != pull_request'
+      os: linux
+      script: make integration
+
+    - name: Package for macOS
+      # if: 'repo = nervosnetwork/ckb AND tag IS present'
+      os: osx
+      env: REL_PKG=x86_64-apple-darwin.zip
+      before_script: skip
+      cache:
+        directories:
+          - $HOME/.cargo
+      before_cache:
+        rm -rf $HOME/.cargo/registry
+      script:
+        git fetch --unshallow
+        make prod
+        devtools/ci/package.sh target/release/ckb
+    - name: Package for Linux
+      # if: 'repo = nervosnetwork/ckb AND tag IS present'
+      os: linux
+      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz
+      before_script: skip
+      cache:
+        directories:
+          - $HOME/.cargo
+      before_cache:
+        rm -rf $HOME/.cargo/registry
+      script:
+        git fetch --unshallow
+        make prod
+        devtools/ci/package.sh target/release/ckb
+    - name: Package for Centos
+      # if: 'repo = nervosnetwork/ckb AND tag IS present'
+      language: ruby
+      addons:
+        apt:
+          packages: []
+      before_script: skip
+      cache: false
+      script: devtools/ci/centos-docker.sh run
+      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz
+
+  fast_finish: true
+  allow_failures:
+    - name: Integration on macOS
+      if: 'type == pull_request'
+      os: osx
+      script: make integration
+    - name: Integration on Linux
+      if: 'type == pull_request'
+      os: linux
+      script: make integration
