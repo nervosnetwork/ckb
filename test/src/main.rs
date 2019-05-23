@@ -46,7 +46,7 @@ fn main() {
     specs.insert("depent_tx_in_same_block", Box::new(DepentTxInSameBlock));
     // TODO enable these after proposed/pending pool tip verfiry logic changing
     // specs.insert("cellbase_maturity", Box::new(CellbaseMaturity));
-    // specs.insert("valid_since", Box::new(ValidSince));
+    specs.insert("valid_since", Box::new(ValidSince));
     specs.insert(
         "different_txs_with_same_input",
         Box::new(DifferentTxsWithSameInput),
