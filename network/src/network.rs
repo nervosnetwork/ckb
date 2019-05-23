@@ -10,8 +10,7 @@ use crate::protocols::{
 use crate::services::{dns_seeding::DnsSeedingService, outbound_peer::OutboundPeerService};
 use crate::Peer;
 use crate::{
-    compress::compress, Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion,
-    PublicKey, ServiceControl,
+    Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
 use build_info::Version;
 use ckb_util::{Mutex, RwLock};
@@ -980,14 +979,13 @@ impl NetworkController {
         data: Bytes,
     ) -> Result<(), P2pError> {
         let now = Instant::now();
-        let cmp_data = compress(data);
         loop {
             let result = if quick {
                 self.p2p_control
-                    .quick_filter_broadcast(target.clone(), proto_id, cmp_data.clone())
+                    .quick_filter_broadcast(target.clone(), proto_id, data.clone())
             } else {
                 self.p2p_control
-                    .filter_broadcast(target.clone(), proto_id, cmp_data.clone())
+                    .filter_broadcast(target.clone(), proto_id, data.clone())
             };
             match result {
                 Ok(()) => {
