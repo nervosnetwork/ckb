@@ -33,8 +33,8 @@ impl Spec for SizeLimit {
         assert_regex_match(&error.to_string(), r"LimitReached");
 
         // 124 * 5
-        // 2 * 5
-        node.assert_tx_pool_statics(620, 10);
+        // 12 * 5
+        node.assert_tx_pool_statics(620, 60);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
@@ -85,8 +85,8 @@ impl Spec for CyclesLimit {
         assert_regex_match(&error.to_string(), r"LimitReached");
 
         // 124 * 5
-        // 2 * 5
-        node.assert_tx_pool_statics(620, 10);
+        // 12 * 5
+        node.assert_tx_pool_statics(620, 60);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
@@ -101,7 +101,7 @@ impl Spec for CyclesLimit {
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         Box::new(|config| {
             config.tx_pool.max_mem_size = 20_000_000;
-            config.tx_pool.max_cycles = 10;
+            config.tx_pool.max_cycles = 60;
         })
     }
 }
