@@ -241,6 +241,7 @@ fn test_rpc() {
             server.server.address().ip(),
             server.server.address().port()
         );
+        let req_message = request.clone();
         let response: JsonResponse = client
             .post(&uri)
             .json(&json!(request))
@@ -249,10 +250,13 @@ fn test_rpc() {
             .json()
             .expect("transform jsonrpc response into json");
         let message = response.clone();
-        let actual = response
-            .result
-            .clone()
-            .unwrap_or_else(|| panic!("jsonrpc does not return result! response: {:?}", message));
+        let actual = response.result.clone().unwrap_or_else(|| {
+            panic!(
+                "jsonrpc does not return result! request {}. response: {:?}",
+                json!(req_message),
+                message
+            )
+        });
         let expect = case.remove("result").expect("get case result");
 
         // Print only at print_mode, otherwise do real testing asserts

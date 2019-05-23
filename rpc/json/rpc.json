@@ -1,22 +1,22 @@
 [
     {
         "description": "Returns the number of blocks in the longest blockchain.",
-        "module": "chain",
         "method": "get_tip_block_number",
+        "module": "chain",
         "params": [],
         "result": "1024"
     },
     {
         "description": "Returns the information about the tip header of the longest.",
-        "module": "chain",
         "method": "get_tip_header",
+        "module": "chain",
         "params": [],
         "result": {
             "difficulty": "0x3e8",
-            "epoch": "1",
-            "hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+            "epoch": "0",
+            "hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
             "number": "1024",
-            "parent_hash": "0xcb518eb7389b7ee64215fe7ab6904898c4c72819cb8fc45e243d726076fc3c0a",
+            "parent_hash": "0xf674b89a0b85be6bf9da0e6d6c53e137293cb21d1a2439e11c376bbe2571c1b4",
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "seal": {
                 "nonce": "0",
@@ -32,29 +32,29 @@
     },
     {
         "description": "Returns the information about the current epoch.",
-        "module": "chain",
         "method": "get_current_epoch",
+        "module": "chain",
         "params": [],
         "result": {
-            "block_reward": "173611111111",
+            "block_reward": "250000000000",
             "difficulty": "0x3e8",
-            "last_block_hash_in_previous_epoch": "0x83f5a78004f6c0d79400fece7fe2a0c15ebb73b25331df08d5ecddefac0e08b3",
-            "length": "2880",
-            "number": "1",
-            "remainder_reward": "320",
-            "start_number": "1000"
+            "last_block_hash_in_previous_epoch": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "length": "2000",
+            "number": "0",
+            "remainder_reward": "0",
+            "start_number": "0"
         }
     },
     {
         "description": "Return the information corresponding the given epoch number.",
-        "module": "chain",
         "method": "get_epoch_by_number",
+        "module": "chain",
         "params": ["0"],
         "result": {
-            "block_reward": "500000000000",
+            "block_reward": "250000000000",
             "difficulty": "0x3e8",
             "last_block_hash_in_previous_epoch": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "length": "1000",
+            "length": "2000",
             "number": "0",
             "remainder_reward": "0",
             "start_number": "0"
@@ -67,8 +67,8 @@
     },
     {
         "description": "Returns the hash of a block in the best-block-chain by block number; block of No.0 is the genesis block.",
-        "module": "chain",
         "method": "get_block_hash",
+        "module": "chain",
         "params": ["2"],
         "result": "0xbd63393483cb066d2fb9f779b20b904020bb599b03fab6e4571990828510d829",
         "types": [
@@ -79,8 +79,8 @@
     },
     {
         "description": "Returns the information about a block by hash.",
-        "module": "chain",
         "method": "get_block",
+        "module": "chain",
         "params": [
             "0xbd63393483cb066d2fb9f779b20b904020bb599b03fab6e4571990828510d829"
         ],
@@ -317,7 +317,7 @@
         "result": {
             "chain": "main",
             "difficulty": "0x3e8",
-            "epoch": "1",
+            "epoch": "0",
             "is_initial_block_download": true,
             "median_time": "1557311762",
             "warnings": ""
@@ -346,8 +346,8 @@
                 "deps": [
                     {
                         "cell": {
-                            "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc",
-                            "index": "0"
+                            "index": "0",
+                            "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc"
                         }
                     }
                 ],
@@ -355,7 +355,7 @@
                     {
                         "args": [],
                         "previous_output": {
-                            "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+                            "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
                             "cell": {
                                 "index": "0",
                                 "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
@@ -394,7 +394,7 @@
                     {
                         "args": [],
                         "previous_output": {
-                            "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+                            "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
                             "cell": {
                                 "index": "0",
                                 "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
@@ -418,7 +418,7 @@
                 "witnesses": []
             }
         ],
-        "result": "0xdec1bb3a1590607796de1fbb8bdf38c4fc777dc96db0807a1d70e6b5b0f0130e",
+        "result": "0x62cd8eab85dbb6989d5b9d18d6eb098bcf202089907b918be8cbee8ec8cc58ec",
         "types": [
             {
                 "transaction": "The transaction object"
@@ -449,8 +449,8 @@
                 "deps": [
                     {
                         "cell": {
-                            "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc",
-                            "index": "0"
+                            "index": "0",
+                            "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc"
                         }
                     }
                 ],
@@ -458,7 +458,7 @@
                     {
                         "args": [],
                         "previous_output": {
-                            "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+                            "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
                             "cell": {
                                 "index": "0",
                                 "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
@@ -482,7 +482,7 @@
                 "witnesses": []
             }
         ],
-        "result": "0x8185ef3bf021f7db49c01dd8677e9b7bb305b078f181b49a412c550a68da4874",
+        "result": "0x8ad1e331e489af86d98078d2d6ac769b5f8d38464d92de61564ba3a49a7f42f8",
         "types": [
             {
                 "transaction": "The transaction object"
@@ -509,36 +509,25 @@
         "method": "get_transaction",
         "module": "chain",
         "params": [
-            "0x8185ef3bf021f7db49c01dd8677e9b7bb305b078f181b49a412c550a68da4874"
+            "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
         ],
         "result": {
             "transaction": {
-                "deps": [
-                    {
-                        "block_hash": null,
-                        "cell": {
-                            "tx_hash": "0xde3f97f9bad32043a4c631d6cf2529f69e82575193208029e0f4bd77df83e4bc",
-                            "index": "0"
-                        }
-                    }
-                ],
-                "hash": "0x8185ef3bf021f7db49c01dd8677e9b7bb305b078f181b49a412c550a68da4874",
+                "deps": [],
+                "hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b",
                 "inputs": [
                     {
-                        "args": [],
+                        "args": ["0x0004000000000000"],
                         "previous_output": {
-                            "block_hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
-                            "cell": {
-                                "index": "0",
-                                "tx_hash": "0x1a98116f150c6f795bc02ebf65fd43ba6b3363c5ea9d2457791bcbc4baaae90b"
-                            }
+                            "block_hash": null,
+                            "cell": null
                         },
                         "since": "0"
                     }
                 ],
                 "outputs": [
                     {
-                        "capacity": "100000000000",
+                        "capacity": "50000000000000",
                         "data": "0x",
                         "lock": {
                             "args": [],
@@ -551,8 +540,8 @@
                 "witnesses": []
             },
             "tx_status": {
-                "block_hash": null,
-                "status": "pending"
+                "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
+                "status": "committed"
             }
         },
         "types": [
@@ -579,15 +568,14 @@
         "description": "Get block by number",
         "method": "get_block_by_number",
         "module": "chain",
-        "types": [{ "block_number": "Number of a block" }],
         "params": ["1024"],
         "result": {
             "header": {
                 "difficulty": "0x3e8",
-                "epoch": "1",
-                "hash": "0xa8edcc07bda685c7d26fbcb9ea50791927941f908ea0d1a186ce77d36108bbbc",
+                "epoch": "0",
+                "hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
                 "number": "1024",
-                "parent_hash": "0xcb518eb7389b7ee64215fe7ab6904898c4c72819cb8fc45e243d726076fc3c0a",
+                "parent_hash": "0xf674b89a0b85be6bf9da0e6d6c53e137293cb21d1a2439e11c376bbe2571c1b4",
                 "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                 "seal": {
                     "nonce": "0",
@@ -631,30 +619,43 @@
                 }
             ],
             "uncles": []
-        }
+        },
+        "types": [
+            {
+                "block_number": "Number of a block"
+            }
+        ]
     },
     {
+        "description": "Returns code hash of given hex encoded data\n\n**Deprecated**: will be removed in a later version",
         "method": "_compute_code_hash",
         "module": "experiment",
-        "description": "Returns code hash of given hex encoded data\n\n**Deprecated**: will be removed in a later version",
-        "types": [{ "data": "Hex encoded data" }],
         "params": ["0x123456"],
-        "result": "0x7dacea2e6ae8131b7f187570135ebb1b217a69458b3eae350104942c06939783"
+        "result": "0x7dacea2e6ae8131b7f187570135ebb1b217a69458b3eae350104942c06939783",
+        "types": [
+            {
+                "data": "Hex encoded data"
+            }
+        ]
     },
     {
+        "description": "Returns script hash of given transaction script\n\n**Deprecated**: will be removed in a later version",
         "method": "_compute_script_hash",
         "module": "experiment",
-        "description": "Returns script hash of given transaction script\n\n**Deprecated**: will be removed in a later version",
-        "types": [
-            { "args": "Hex encoded arguments passed to reference cell" },
-            { "code_hash": "Code hash of referenced cell" }
-        ],
         "params": [
             {
                 "args": ["0x123450", "0x678900"],
                 "code_hash": "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
             }
         ],
-        "result": "0x7c72a3b5705bf5a4e7364fc358e2972f4eb376cf7937bf7ffd319f50f07e27a2"
+        "result": "0x7c72a3b5705bf5a4e7364fc358e2972f4eb376cf7937bf7ffd319f50f07e27a2",
+        "types": [
+            {
+                "args": "Hex encoded arguments passed to reference cell"
+            },
+            {
+                "code_hash": "Code hash of referenced cell"
+            }
+        ]
     }
 ]

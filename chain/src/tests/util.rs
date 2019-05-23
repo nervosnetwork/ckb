@@ -56,7 +56,7 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
-            capacity_bytes!(5000),
+            capacity_bytes!(2_500),
             Bytes::default(),
             always_success_script,
             None,
@@ -106,7 +106,7 @@ pub(crate) fn create_transaction_with_out_point(
 
     TransactionBuilder::default()
         .output(CellOutput::new(
-            capacity_bytes!(5000),
+            capacity_bytes!(2_500),
             Bytes::from(vec![unique_data]),
             always_success_script,
             None,
