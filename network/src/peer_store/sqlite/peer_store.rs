@@ -184,7 +184,7 @@ impl SqlitePeerStore {
             SessionType::Inbound,
             0,
         );
-        db::PeerInfoDB::get_or_insert(&self.conn, &peer)
+        db::PeerInfoDB::get_or_insert(&self.conn, peer)
             .expect("get or insert")
             .expect("must have peer info")
     }

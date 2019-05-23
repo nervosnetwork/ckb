@@ -70,12 +70,12 @@ impl PeerInfoDB {
         .map_err(Into::into)
     }
 
-    pub fn get_or_insert(conn: &Connection, peer: &PeerInfo) -> DBResult<Option<PeerInfo>> {
+    pub fn get_or_insert(conn: &Connection, peer: PeerInfo) -> DBResult<Option<PeerInfo>> {
         match Self::get_by_peer_id(conn, &peer.peer_id)? {
             Some(peer) => Ok(Some(peer)),
             None => {
-                Self::insert_or_update(conn, peer)?;
-                Self::get_by_peer_id(conn, &peer.peer_id)
+                Self::insert_or_update(conn, &peer)?;
+                Ok(Some(peer))
             }
         }
     }
