@@ -182,7 +182,22 @@ impl Cuckoo {
         }
 
         // Check if proof values are in valid range
-        if proof.iter().any(|i| *i >= self.max_edge as u32) {
+        // Should be monotonically increasing
+        let is_monotonous = proof
+            .iter()
+            .rev()
+            .try_fold(
+                self.max_edge as u32,
+                |x, y| {
+                    if x > *y {
+                        Ok(*y)
+                    } else {
+                        Err(())
+                    }
+                },
+            )
+            .is_ok();
+        if !is_monotonous {
             return false;
         }
 
