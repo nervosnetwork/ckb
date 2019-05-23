@@ -6,7 +6,7 @@ TRAVIS_BUILD_NUMBER="${TRAVIS_BUILD_NUMBER:-0}"
 
 CURRENT_FOLD=
 
-if ! type -f travis_fold &> /dev/null; then
+if ! type travis_fold &> /dev/null; then
   travis_fold() {
     local action="$1"
     shift

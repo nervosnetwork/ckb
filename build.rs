@@ -1,11 +1,47 @@
+use std::path::Path;
+
+fn rerun_if_changed(path_str: &str) -> bool {
+    let path = Path::new(path_str);
+
+    if path.starts_with("benches")
+        || path.starts_with("devtools")
+        || path.starts_with("docker")
+        || path.starts_with("docs")
+        || path.starts_with("test")
+    {
+        return false;
+    }
+
+    match path_str {
+        "COPYING" | "Makefile" | "clippy.toml" | "rustfmt.toml" | "rust-toolchain" => false,
+        _ => true,
+    }
+}
+
 fn main() {
-    // forward git repo hashes we build at
-    println!(
-        "cargo:rustc-env=COMMIT_DESCRIBE={}",
-        build_info::get_commit_describe().unwrap_or_default()
-    );
-    println!(
-        "cargo:rustc-env=COMMIT_DATE={}",
-        build_info::get_commit_date().unwrap_or_default()
-    );
+    let files_stdout = std::process::Command::new("git")
+        .args(&["ls-tree", "--name-only", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|r| String::from_utf8(r.stdout).ok());
+
+    if files_stdout.is_some() {
+        println!(
+            "cargo:rustc-env=COMMIT_DESCRIBE={}",
+            build_info::get_commit_describe().unwrap_or_default()
+        );
+        println!(
+            "cargo:rustc-env=COMMIT_DATE={}",
+            build_info::get_commit_date().unwrap_or_default()
+        );
+
+        println!("cargo:rerun-if-changed=build.rs");
+        println!("cargo:rerun-if-changed=.git/HEAD");
+    }
+
+    for file in files_stdout.iter().flat_map(|stdout| stdout.lines()) {
+        if rerun_if_changed(file) {
+            println!("cargo:rerun-if-changed={}", file);
+        }
+    }
 }
