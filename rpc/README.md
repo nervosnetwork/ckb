@@ -1008,7 +1008,7 @@ http://localhost:8114
         "orphan": "0",
         "pending": "1",
         "proposed": "0",
-        "total_tx_cycles": "2",
+        "total_tx_cycles": "12",
         "total_tx_size": "156"
     }
 }
