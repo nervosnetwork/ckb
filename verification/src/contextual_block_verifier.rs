@@ -47,6 +47,14 @@ impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
             .expect("[ForkContext] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }
+
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        self.fork_attached_blocks
+            .iter()
+            .find(|b| b.header().number() == block_number)
+            .and_then(|b| Some(b.header().hash().to_owned()))
+            .or_else(|| self.store.get_block_hash(block_number))
+    }
 }
 
 #[derive(Clone)]

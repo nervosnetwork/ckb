@@ -39,9 +39,7 @@ pub trait BlockMedianTimeContext {
     ///
     /// It's just a convenience way that constructing a BlockMedianContext, to get the
     /// corresponding block_hash when you only know a block_number.
-    /// Most of time we know both the matched block_number and block_hash, so it's ok to give the
-    /// default implementation `unimplemented!()`. Implement it only when you really need it.
-    fn get_block_hash(&self, _block_number: BlockNumber) -> Option<H256> {
-        unimplemented!()
-    }
+    ///
+    /// Often used in verifying "since by block number".
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256>;
 }

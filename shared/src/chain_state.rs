@@ -696,4 +696,8 @@ impl<CS: ChainStore> BlockMedianTimeContext for &ChainState<CS> {
             .expect("[ChainState] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }
+
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        self.store.get_block_hash(block_number)
+    }
 }
