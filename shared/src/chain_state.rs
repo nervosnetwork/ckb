@@ -243,23 +243,34 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tx_pool.borrow().get_tx_with_cycles(short_id)
     }
 
+    pub(crate) fn reach_tx_pool_limit(&self, tx_size: usize, cycles: Cycle) -> bool {
+        let tx_pool = self.tx_pool.borrow();
+        tx_pool.reach_size_limit(tx_size) || tx_pool.reach_cycles_limit(cycles)
+    }
+
     // Add a verified tx into pool
     // this method will handle fork related verifications to make sure we are safe during a fork
     pub fn add_tx_to_pool(&self, tx: Transaction, cycles: Cycle) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
+        let tx_size = tx.serialized_size();
+        if self.reach_tx_pool_limit(tx_size, cycles) {
+            return Err(PoolError::LimitReached);
+        }
         match self.resolve_tx_from_pending_and_proposed(&tx) {
             Ok(rtx) => {
-                self.verify_rtx(&rtx, Some(cycles)).map(|cycles| {
+                self.verify_rtx(&rtx, Some(cycles)).and_then(|cycles| {
                     let mut tx_pool = self.tx_pool.borrow_mut();
                     if self.contains_proposal_id(&short_id) {
                         // if tx is proposed, we resolve from proposed, verify again
-                        if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, Some(cycles), tx) {
-                            debug!(target: "tx_pool", "Failed to add proposed tx {:?}, reason: {:?}", short_id, e)
+                        if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, Some(cycles), tx_size, tx) {
+                            debug!(target: "tx_pool", "Failed to add proposed tx {:?}, reason: {:?}", short_id, e);
+                            return Err(e);
                         }
-                    } else {
-                        tx_pool.enqueue_tx(Some(cycles), tx);
+                        tx_pool.update_statics_for_add_tx(tx_size, cycles);
+                    } else if tx_pool.enqueue_tx(Some(cycles), tx_size, tx) {
+                        tx_pool.update_statics_for_add_tx(tx_size, cycles);
                     }
-                    cycles
+                    Ok(cycles)
                 })
             }
             Err(err) => Err(PoolError::UnresolvableTransaction(err)),
@@ -301,7 +312,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     &self,
                     self.tip_number(),
                     self.current_epoch_ext().number(),
-                    self.consensus().cellbase_maturity,
+                    &self.consensus(),
                 )
                 .verify()
                 .map_err(PoolError::InvalidTx)?;
@@ -311,12 +322,12 @@ impl<CS: ChainStore> ChainState<CS> {
                 let max_cycles = self.consensus.max_block_cycles();
                 let cycles = TransactionVerifier::new(
                     &rtx,
-                    Arc::clone(self.store()),
                     &self,
                     self.tip_number(),
                     self.current_epoch_ext().number(),
-                    self.consensus().cellbase_maturity,
+                    &self.consensus(),
                     &self.script_config,
+                    &self.store,
                 )
                 .verify(max_cycles)
                 .map_err(PoolError::InvalidTx)?;
@@ -331,12 +342,13 @@ impl<CS: ChainStore> ChainState<CS> {
         for entry in entries {
             if self.contains_proposal_id(&tx.proposal_short_id()) {
                 let tx_hash = entry.transaction.hash().to_owned();
-                let ret = self.proposed_tx(tx_pool, entry.cycles, entry.transaction);
+                let ret = self.proposed_tx(tx_pool, entry.cycles, entry.size, entry.transaction);
                 if ret.is_err() {
+                    tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles.unwrap_or(0));
                     trace!(target: "tx_pool", "proposed tx {:x} failed {:?}", tx_hash, ret);
                 }
             } else {
-                tx_pool.enqueue_tx(entry.cycles, entry.transaction);
+                tx_pool.enqueue_tx(entry.cycles, entry.size, entry.transaction);
             }
         }
     }
@@ -345,6 +357,7 @@ impl<CS: ChainStore> ChainState<CS> {
         &self,
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
+        size: usize,
         tx: Transaction,
     ) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
@@ -354,11 +367,15 @@ impl<CS: ChainStore> ChainState<CS> {
             Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
                 Ok(cycles) => {
                     let fee = calculate_transaction_fee(Arc::clone(self.store()), &rtx)
-                        .ok_or(PoolError::TxFee)?;
-                    tx_pool.add_proposed(cycles, fee, tx);
+                        .ok_or_else(|| {
+                            tx_pool.update_statics_for_remove_tx(size, cycles);
+                            PoolError::TxFee
+                        })?;
+                    tx_pool.add_proposed(cycles, fee, size, tx);
                     Ok(cycles)
                 }
                 Err(e) => {
+                    tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                     debug!(target: "tx_pool", "Failed to add proposed tx {:x}, reason: {:?}", tx_hash, e);
                     Err(e)
                 }
@@ -366,21 +383,32 @@ impl<CS: ChainStore> ChainState<CS> {
             Err(err) => {
                 match &err {
                     UnresolvableError::Dead(_) => {
-                        tx_pool
+                        if tx_pool
                             .conflict
-                            .insert(short_id, DefectEntry::new(tx, 0, cycles));
+                            .insert(short_id, DefectEntry::new(tx, 0, cycles, size))
+                            .is_some()
+                        {
+                            tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                        }
                     }
                     UnresolvableError::Unknown(out_points) => {
-                        tx_pool.add_orphan(cycles, tx, out_points.to_owned());
+                        if tx_pool
+                            .add_orphan(cycles, size, tx, out_points.to_owned())
+                            .is_some()
+                        {
+                            tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                        }
                     }
                     // The remaining errors are Empty, UnspecifiedInputCell and
                     // InvalidHeader. They all represent invalid transactions
                     // that should just be discarded.
-                    UnresolvableError::Empty => (),
-                    UnresolvableError::UnspecifiedInputCell(_) => (),
-                    UnresolvableError::InvalidHeader(_) => (),
                     // OutOfOrder should only appear in BlockCellProvider
-                    UnresolvableError::OutOfOrder(_) => (),
+                    UnresolvableError::Empty
+                    | UnresolvableError::UnspecifiedInputCell(_)
+                    | UnresolvableError::InvalidHeader(_)
+                    | UnresolvableError::OutOfOrder(_) => {
+                        tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                    }
                 }
                 Err(PoolError::UnresolvableTransaction(err))
             }
@@ -391,12 +419,14 @@ impl<CS: ChainStore> ChainState<CS> {
         &self,
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
+        size: usize,
         tx: Transaction,
     ) -> Result<Cycle, PoolError> {
-        self.proposed_tx(tx_pool, cycles, tx.clone()).map(|cycles| {
-            self.try_proposed_orphan_by_ancestor(tx_pool, &tx);
-            cycles
-        })
+        self.proposed_tx(tx_pool, cycles, size, tx.clone())
+            .map(|cycles| {
+                self.try_proposed_orphan_by_ancestor(tx_pool, &tx);
+                cycles
+            })
     }
 
     pub fn update_tx_pool_for_reorg<'a>(
@@ -428,18 +458,22 @@ impl<CS: ChainStore> ChainState<CS> {
             let tx_hash = tx.hash().to_owned();
             let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
             let tx_short_id = tx.proposal_short_id();
+            let tx_size = tx.serialized_size();
             if self.contains_proposal_id(&tx_short_id) {
                 if let Ok(cycles) =
-                    self.proposed_tx_and_descendants(&mut tx_pool, cached_cycles, tx)
+                    self.proposed_tx_and_descendants(&mut tx_pool, cached_cycles, tx_size, tx)
                 {
                     if cached_cycles.is_none() {
                         txs_verify_cache.insert(tx_hash, cycles);
                     }
+                    tx_pool.update_statics_for_add_tx(tx_size, cycles);
                 }
             } else if self.contains_gap(&tx_short_id) {
-                tx_pool.add_gap(cached_cycles, tx);
-            } else {
-                tx_pool.enqueue_tx(cached_cycles, tx);
+                if tx_pool.add_gap(cached_cycles, tx_size, tx) {
+                    tx_pool.update_statics_for_add_tx(tx_size, cached_cycles.unwrap_or(0));
+                }
+            } else if tx_pool.enqueue_tx(cached_cycles, tx_size, tx) {
+                tx_pool.update_statics_for_add_tx(tx_size, cached_cycles.unwrap_or(0));
             }
         }
 
@@ -455,7 +489,7 @@ impl<CS: ChainStore> ChainState<CS> {
         for entry in tx_pool.gap.entries() {
             if self.contains_proposal_id(entry.key()) {
                 let entry = entry.remove();
-                entries.push((entry.cycles, entry.transaction));
+                entries.push((entry.cycles, entry.size, entry.transaction));
             }
         }
 
@@ -463,10 +497,10 @@ impl<CS: ChainStore> ChainState<CS> {
         for entry in tx_pool.pending.entries() {
             if self.contains_proposal_id(entry.key()) {
                 let entry = entry.remove();
-                entries.push((entry.cycles, entry.transaction));
+                entries.push((entry.cycles, entry.size, entry.transaction));
             } else if self.contains_gap(entry.key()) {
                 let entry = entry.remove();
-                gaps.push((entry.cycles, entry.transaction));
+                gaps.push((entry.cycles, entry.size, entry.transaction));
             }
         }
 
@@ -474,23 +508,23 @@ impl<CS: ChainStore> ChainState<CS> {
         for entry in tx_pool.conflict.entries() {
             if self.contains_proposal_id(entry.key()) {
                 let entry = entry.remove();
-                entries.push((entry.cycles, entry.transaction));
+                entries.push((entry.cycles, entry.size, entry.transaction));
             } else if self.contains_gap(entry.key()) {
                 let entry = entry.remove();
-                gaps.push((entry.cycles, entry.transaction));
+                gaps.push((entry.cycles, entry.size, entry.transaction));
             }
         }
 
-        for (cycles, tx) in entries {
+        for (cycles, size, tx) in entries {
             let tx_hash = tx.hash().to_owned();
-            if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, cycles, tx) {
+            if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, cycles, size, tx) {
                 debug!(target: "tx_pool", "Failed to add proposed tx {:x}, reason: {:?}", tx_hash, e);
             }
         }
 
-        for (cycles, tx) in gaps {
+        for (cycles, size, tx) in gaps {
             debug!(target: "tx_pool", "tx proposed, add to gap {:x}", tx.hash());
-            tx_pool.add_gap(cycles, tx);
+            tx_pool.add_gap(cycles, size, tx);
         }
     }
 
@@ -522,7 +556,7 @@ impl<CS: ChainStore> ChainState<CS> {
             .txs_iter()
             .take_while(|tx| {
                 cycles += tx.cycles;
-                size += tx.transaction.serialized_size();
+                size += tx.size;
                 (size < txs_size_limit) && (cycles < cycles_limit)
             })
             .cloned()

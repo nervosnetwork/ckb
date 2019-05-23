@@ -71,12 +71,9 @@ modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
 orphan_block_limit = 1024
 
 [tx_pool]
-max_pool_size = 10000
-max_orphan_size = 10000
-max_proposal_size = 10000
-max_cache_size = 1000
-max_pending_size = 10000
-txs_verify_cache_size = 100000
+max_mem_size = 20_000_000 # 20mb
+max_cycles = 200_000_000_000
+max_verfify_cache_size = 100_000
 
 [script]
 runner = "Assembly"

@@ -2,7 +2,7 @@ use ckb_core::{
     BlockNumber as CoreBlockNumber, EpochNumber as CoreEpochNumber, Version as CoreVersion,
 };
 use ckb_util::Mutex;
-use jsonrpc_client_core::{expand_params, jsonrpc_client};
+use jsonrpc_client_core::{expand_params, jsonrpc_client, Result as JsonRpcResult};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{
     Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint, CellWithStatus,
@@ -170,6 +170,10 @@ impl RpcClient {
             .send_transaction(tx)
             .call()
             .expect("rpc call send_transaction")
+    }
+
+    pub fn send_transaction_result(&self, tx: Transaction) -> JsonRpcResult<H256> {
+        self.inner.lock().send_transaction(tx).call()
     }
 
     pub fn tx_pool_info(&self) -> TxPoolInfo {
