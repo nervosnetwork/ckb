@@ -61,7 +61,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             if current_total_difficulty <= *best_known_header.total_difficulty() {
                 debug!(
                     target: "relay",
-                    "Received a compact block({}), total difficulty {} <= {}, ignore it",
+                    "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
                     block_hash,
                     current_total_difficulty,
                     best_known_header.total_difficulty(),
@@ -69,7 +69,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 return Ok(());
             }
         } else {
-            debug!(target: "relay", "UnknownParent: {:x}, send_getheaders_to_peer({})", block_hash, self.peer);
+            debug!(target: "relay", "UnknownParent: {:#x}, send_getheaders_to_peer({})", block_hash, self.peer);
             self.relayer.shared.send_getheaders_to_peer(
                 self.nc.as_ref(),
                 self.peer,
