@@ -96,7 +96,7 @@ mod tests {
             result,
             (
                 10_000_000_000_124_675,
-                Capacity::shannons(500_050_000_123_061)
+                Capacity::shannons(500_050_000_123_062)
             )
         );
     }
@@ -128,7 +128,7 @@ mod tests {
             result,
             (
                 10_000_000_000_303_400,
-                Capacity::shannons(50_050_001_001_645)
+                Capacity::shannons(50_050_000_001_518)
             )
         );
     }
@@ -160,7 +160,7 @@ mod tests {
             result,
             (
                 10_000_000_000_153_795,
-                Capacity::shannons(500_050_001_124_645)
+                Capacity::shannons(500_050_000_124_518)
             )
         );
     }

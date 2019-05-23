@@ -820,20 +820,23 @@ fn test_next_epoch_ext() {
         let consensus = shared.consensus();
 
         let epoch_reward = consensus.epoch_reward();
-        let start_reward = Capacity::shannons(
-            epoch.remainder_reward().as_u64() + epoch_reward.as_u64() / epoch.length(),
-        );
         let block_reward = Capacity::shannons(epoch_reward.as_u64() / epoch.length());
+        let block_reward1 = block_reward.safe_add(Capacity::one()).unwrap();
+        let bound = 400 + epoch.remainder_reward().as_u64();
 
         // block_reward 856164383561
         // remainder_reward 376
         assert_eq!(
             epoch.block_reward(400).unwrap(),
-            start_reward // apacity::shannons(844594594946)
+            block_reward1 // Capacity::shannons(856164383562)
         );
         assert_eq!(
-            epoch.block_reward(401).unwrap(),
-            block_reward // Capacity::shannons(844594594594)
+            epoch.block_reward(bound - 1).unwrap(),
+            block_reward1 // Capacity::shannons(856164383562)
+        );
+        assert_eq!(
+            epoch.block_reward(bound).unwrap(),
+            block_reward // Capacity::shannons(856164383561)
         );
     }
 
