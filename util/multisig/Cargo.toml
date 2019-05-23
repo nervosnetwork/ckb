@@ -1,0 +1,15 @@
+[package]
+name = "multisig"
+version = "0.1.0"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+crypto = { path = "../crypto" }
+failure = "0.1.5"
+log = "0.4"
+
+[dev-dependencies]
+rand = "0.6.5"
+
