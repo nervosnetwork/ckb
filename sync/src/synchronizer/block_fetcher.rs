@@ -4,7 +4,6 @@ use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLO
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
-use ckb_util::try_option;
 use log::{debug, trace};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -48,25 +47,20 @@ where
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
-        self.synchronizer
-            .peers
-            .best_known_headers
-            .read()
-            .get(&self.peer)
-            .cloned()
+        self.synchronizer.peers.get_best_known_header(self.peer)
     }
 
     pub fn last_common_header(&self, best: &HeaderView) -> Option<Header> {
-        let mut guard = self.synchronizer.peers.last_common_headers.write();
-
-        let last_common_header = try_option!(guard.get(&self.peer).cloned().or_else(|| {
-            if best.number() < self.tip_header.number() {
+        let last_common_header = {
+            if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
+                Some(header.clone())
+            } else if best.number() < self.tip_header.number() {
                 let last_common_hash = self.synchronizer.shared.block_hash(best.number())?;
                 self.synchronizer.shared.block_header(&last_common_hash)
             } else {
                 Some(self.tip_header.clone())
             }
-        }));
+        }?;
 
         let fixed_last_common_header = self
             .synchronizer
@@ -74,12 +68,9 @@ where
             .last_common_ancestor(&last_common_header, &best.inner())?;
 
         if fixed_last_common_header != last_common_header {
-            guard
-                .entry(self.peer)
-                .and_modify(|last_common_header| {
-                    *last_common_header = fixed_last_common_header.clone()
-                })
-                .or_insert_with(|| fixed_last_common_header.clone());
+            self.synchronizer
+                .peers()
+                .set_last_common_header(self.peer, fixed_last_common_header.clone());
         }
 
         Some(fixed_last_common_header)
