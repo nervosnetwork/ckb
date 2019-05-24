@@ -12,10 +12,10 @@ pub use exit_code::ExitCode;
 use build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
+use ckb_logger::LoggerInitGuard;
 use ckb_resource::ResourceLocator;
 use clap::{value_t, ArgMatches};
 use log::info;
-use logger::LoggerInitGuard;
 use std::path::PathBuf;
 
 pub struct Setup {
@@ -63,7 +63,7 @@ impl Setup {
         // Initialization of logger must do before sentry, since `logger::init()` and
         // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
         // replaces all hooks previously registered.
-        let logger_guard = logger::init(self.config.logger().to_owned())?;
+        let logger_guard = ckb_logger::init(self.config.logger().to_owned())?;
 
         let sentry_guard = if self.is_sentry_enabled {
             let sentry_config = self.config.sentry();

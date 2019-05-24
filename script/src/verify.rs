@@ -11,6 +11,7 @@ use ckb_core::script::{Script, DAO_CODE_HASH};
 use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{BlockNumber, Capacity};
 use ckb_core::{Bytes, Cycle};
+use ckb_logger::info;
 use ckb_resource::bundled;
 use ckb_store::{ChainStore, LazyLoadCellOutput};
 use ckb_vm::{
@@ -20,7 +21,6 @@ use ckb_vm::{
 };
 use dao::calculate_maximum_withdraw;
 use fnv::FnvHashMap;
-use log::info;
 use numext_fixed_hash::H256;
 use std::cmp::min;
 use std::path::PathBuf;
@@ -225,10 +225,20 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 appended_arguments.extend_from_slice(&witness);
             }
 
-            let cycle = self.verify_script(&output.lock, &prefix, &appended_arguments, max_cycles - cycles).map_err(|e| {
-                info!(target: "script", "Error validating input {} of transaction {:x}: {:?}", i, self.hash, e);
-                e
-            })?;
+            let cycle = self
+                .verify_script(
+                    &output.lock,
+                    &prefix,
+                    &appended_arguments,
+                    max_cycles - cycles,
+                )
+                .map_err(|e| {
+                    info!(
+                        "Error validating input {} of transaction {:x}: {:?}",
+                        i, self.hash, e
+                    );
+                    e
+                })?;
             let current_cycles = cycles
                 .checked_add(cycle)
                 .ok_or(ScriptError::ExceededMaximumCycles)?;
@@ -241,10 +251,15 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             let output = cell_meta.cell_output.as_ref().expect("output already set");
             if let Some(ref type_) = output.type_ {
                 let prefix = format!("Transaction {:x}, output {}", self.hash, i);
-                let cycle = self.verify_script(type_, &prefix, &[], max_cycles - cycles).map_err(|e| {
-                    info!(target: "script", "Error validating output {} of transaction {:x}: {:?}", i, self.hash, e);
-                    e
-                })?;
+                let cycle = self
+                    .verify_script(type_, &prefix, &[], max_cycles - cycles)
+                    .map_err(|e| {
+                        info!(
+                            "Error validating output {} of transaction {:x}: {:?}",
+                            i, self.hash, e
+                        );
+                        e
+                    })?;
                 let current_cycles = cycles
                     .checked_add(cycle)
                     .ok_or(ScriptError::ExceededMaximumCycles)?;

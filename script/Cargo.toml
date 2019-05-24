@@ -16,7 +16,7 @@ ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "5c443bc", fea
 faster-hex = "0.3"
 fnv = "1.0.3"
 flatbuffers = "0.6.0"
-log = "0.4"
+ckb-logger = { path = "../util/logger" }
 ckb-protocol = { path = "../protocol" }
 serde = "1.0"
 serde_derive = "1.0"

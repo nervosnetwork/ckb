@@ -11,6 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
+use ckb_logger::Config as LogConfig;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_miner::MinerConfig;
 use ckb_network::NetworkConfig;
@@ -20,7 +21,6 @@ use ckb_script::ScriptConfig;
 use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_store::StoreConfig;
 use ckb_sync::Config as SyncConfig;
-use logger::Config as LogConfig;
 
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
