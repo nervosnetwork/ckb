@@ -487,9 +487,27 @@ impl ServiceHandle for EventHandler {
                     error,
                 );
             }
-            _ => {
+            ServiceError::ListenError { address, error } => {
+                debug!(target: "network", "ListenError: address={:?}, error={:?}", address, error);
+            }
+            ServiceError::ProtocolSelectError {
+                proto_name,
+                session_context,
+            } => {
+                debug!(
+                    target: "network",
+                    "ProtocolSelectError: proto_name={:?}, session_id={}",
+                    proto_name,
+                    session_context.id,
+                );
+            }
+            ServiceError::SessionBlocked { session_context } => {
+                debug!(target: "network", "SessionBlocked: {}", session_context.id);
+            }
+            err => {
+                debug!(target: "network", "p2p service error: {:?}", err);
                 sentry::capture_message(
-                    &format!("p2p service error: {:?}", error),
+                    &format!("p2p service error: {:?}", err),
                     sentry::Level::Warning,
                 );
             }
