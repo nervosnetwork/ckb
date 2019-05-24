@@ -48,16 +48,13 @@ impl Message {
             match SnapEncoder::new().compress_vec(&input) {
                 Ok(res) => {
                     self.inner.unsplit(BytesMut::from(res));
-                    self.set_compress_flag(true);
+                    self.set_compress_flag();
                 }
                 Err(e) => {
                     debug!(target: "network", "snappy compress error: {}", e);
                     self.inner.unsplit(input);
-                    self.set_compress_flag(false);
                 }
             }
-        } else {
-            self.set_compress_flag(false);
         }
         self.inner.freeze()
     }
@@ -70,7 +67,7 @@ impl Message {
             match SnapDecoder::new().decompress_vec(&self.inner[1..]) {
                 Ok(res) => Ok(Bytes::from(res)),
                 Err(e) => {
-                    debug!(target: "network", "snappy error: {:?}", e);
+                    debug!(target: "network", "snappy decompress error: {:?}", e);
                     Err(io::ErrorKind::InvalidData.into())
                 }
             }
@@ -80,9 +77,8 @@ impl Message {
         }
     }
 
-    fn set_compress_flag(&mut self, flag: bool) {
-        let compress_flag = if flag { COMPRESS_FLAG } else { UNCOMPRESS_FLAG };
-        self.inner[0] = (self.inner[0] & 0b0111_1111) + compress_flag;
+    fn set_compress_flag(&mut self) {
+        self.inner[0] = COMPRESS_FLAG;
     }
 
     fn compress_flag(&self) -> bool {
