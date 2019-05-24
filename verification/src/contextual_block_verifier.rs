@@ -84,8 +84,7 @@ impl<'a, P: ChainProvider> UncleVerifierContext<'a, P> {
         let detached_uncles = fork
             .detached_blocks
             .iter()
-            .map(|b| b.uncles().iter().map(UncleBlock::hash))
-            .flatten()
+            .flat_map(|b| b.uncles().iter().map(UncleBlock::hash))
             .collect();
         UncleVerifierContext {
             epoch,
@@ -105,17 +104,11 @@ impl<'a, P: ChainProvider> UncleProvider for UncleVerifierContext<'a, P> {
 
         // main chain
         if self.provider.store().get_block_number(hash).is_some() {
-            if self.detached.contains(hash) {
-                return false;
-            }
-            return true;
+            return !self.detached.contains(hash);
         }
 
         if self.provider.store().is_uncle(hash) {
-            if self.detached_uncles.contains(hash) {
-                return false;
-            }
-            return true;
+            return !self.detached_uncles.contains(hash);
         }
 
         false

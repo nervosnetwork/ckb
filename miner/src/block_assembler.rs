@@ -441,25 +441,25 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let max_uncles_num = self.shared.consensus().max_uncles_num();
         let mut uncles = FnvHashSet::with_capacity_and_hasher(max_uncles_num, Default::default());
 
-        loop {
-            if candidate_uncles.is_empty() || uncles.len() == max_uncles_num {
+        for entry in candidate_uncles.entries() {
+            if uncles.len() == max_uncles_num {
                 break;
             }
-            let (hash, block) = candidate_uncles
-                .pop_front()
-                .expect("candidate_uncles is not empty");
+            let block = entry.get();
+            let hash = entry.key();
             if block.header().difficulty() != current_epoch_ext.difficulty()
                 || block.header().epoch() != epoch_number
-                || store.get_block_number(&hash).is_some()
-                || store.is_uncle(&hash)
+                || store.get_block_number(hash).is_some()
+                || store.is_uncle(hash)
             {
-                continue;
+                entry.remove();
+            } else {
+                let uncle = UncleBlock {
+                    header: block.header().to_owned(),
+                    proposals: block.proposals().to_vec(),
+                };
+                uncles.insert(uncle);
             }
-            let uncle = UncleBlock {
-                header: block.header().to_owned(),
-                proposals: block.proposals().to_vec(),
-            };
-            uncles.insert(uncle);
         }
         uncles
     }
@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn test_prepare_uncles() {
         let mut consensus = Consensus::default();
-        consensus.genesis_epoch_ext.set_length(4);
+        consensus.genesis_epoch_ext.set_length(5);
         let epoch = consensus.genesis_epoch_ext().clone();
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
@@ -694,7 +694,23 @@ mod tests {
         let block_template = block_assembler_controller
             .get_block_template(None, None, None)
             .unwrap();
-        // block number 4, epoch 1, block_template should not include last epoch uncles
+        // block number 4, epoch 0, uncles should retained
+        assert_eq!(&block_template.uncles[0].hash, block0_0.header().hash());
+
+        let last_epoch = epoch.clone();
+        let epoch = shared
+            .next_epoch_ext(&last_epoch, block2_1.header())
+            .unwrap_or(last_epoch);
+
+        let block3_1 = gen_block(block2_1.header(), 10, &epoch);
+        chain_controller
+            .process_block(Arc::new(block3_1.clone()), false)
+            .unwrap();
+
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        // block number 5, epoch 1, block_template should not include last epoch uncles
         assert!(block_template.uncles.is_empty());
     }
 }
