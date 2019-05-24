@@ -46,6 +46,7 @@ impl Spec for TransactionRelayBasic {
 }
 
 const TXS_NUM: usize = 500;
+const MIN_CAPACITY: u64 = 60;
 
 pub struct TransactionRelayMultiple;
 
@@ -61,12 +62,15 @@ impl Spec for TransactionRelayMultiple {
         });
 
         info!("Use generated block's cellbase as tx input");
+        let reward = block.transactions()[0].outputs()[0].capacity;
+        let txs_num = std::cmp::min(TXS_NUM as u64, reward.as_u64() / MIN_CAPACITY);
+
         let parent_hash = block.transactions()[0].hash().to_owned();
         let temp_transaction = node0.new_transaction(parent_hash);
         let mut output = temp_transaction.outputs()[0].clone();
-        output.capacity = Capacity::shannons(output.capacity.as_u64() / TXS_NUM as u64);
+        output.capacity = Capacity::shannons(reward.as_u64() / txs_num);
         let mut tb = TransactionBuilder::from_transaction(temp_transaction).outputs_clear();
-        for _ in 0..TXS_NUM {
+        for _ in 0..txs_num {
             tb = tb.output(output.clone());
         }
         let transaction = tb.build();
@@ -103,9 +107,12 @@ impl Spec for TransactionRelayMultiple {
         info!("All transactions should be relayed and mined");
         node0.assert_tx_pool_size(0, 0);
 
-        net.nodes
-            .iter()
-            .for_each(|node| assert_eq!(node.get_tip_block().transactions().len(), TXS_NUM + 1));
+        net.nodes.iter().for_each(|node| {
+            assert_eq!(
+                node.get_tip_block().transactions().len() as u64,
+                txs_num + 1
+            )
+        });
     }
 
     fn num_nodes(&self) -> usize {
