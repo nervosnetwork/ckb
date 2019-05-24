@@ -1,7 +1,8 @@
 use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::MAX_HEADERS_LEN;
 use ckb_core::extras::EpochExt;
-use ckb_core::{header::Header, BlockNumber};
+use ckb_core::header::Header;
+use ckb_core::BlockNumber;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
 use ckb_store::ChainStore;
@@ -9,6 +10,7 @@ use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use log::{self, debug, log_enabled, warn};
+use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -74,27 +76,17 @@ impl<'a, CS: ChainStore + 'a> BlockMedianTimeContext for VerifierResolver<'a, CS
             .median_time_block_count() as u64
     }
 
-    fn timestamp(&self, _n: BlockNumber) -> Option<u64> {
-        None
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+        let header = self
+            .synchronizer
+            .shared
+            .get_header(&block_hash)
+            .expect("[VerifierResolver] blocks used for median time exist");
+        (header.timestamp(), header.parent_hash().to_owned())
     }
 
-    fn ancestor_timestamps(&self, block_number: BlockNumber) -> Vec<u64> {
-        if Some(block_number) != self.parent.and_then(|p| Some(p.number())) {
-            return Vec::new();
-        }
-        let parent = self.parent.expect("parent");
-        let count = std::cmp::min(self.median_block_count(), block_number + 1);
-        let mut block_hash = parent.hash().to_owned();
-        let mut timestamps: Vec<u64> = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let header = match self.synchronizer.shared.get_header(&block_hash) {
-                Some(h) => h,
-                None => break,
-            };
-            timestamps.push(header.timestamp());
-            block_hash = header.parent_hash().to_owned();
-        }
-        timestamps
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        self.synchronizer.shared.block_hash(block_number)
     }
 }
 

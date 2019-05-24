@@ -5,7 +5,7 @@ use crate::error::TransactionError;
 use ckb_core::cell::{BlockInfo, CellMeta, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-use ckb_core::{capacity_bytes, Bytes, Capacity};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::{h256, H256};
 
@@ -177,11 +177,26 @@ impl BlockMedianTimeContext for FakeMedianTime {
     fn median_block_count(&self) -> u64 {
         11
     }
-    fn timestamp(&self, n: u64) -> Option<u64> {
-        self.timestamps.get(n as usize).cloned()
+
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+        for i in 0..self.timestamps.len() {
+            if &self.get_block_hash(i as u64).unwrap() == block_hash {
+                if i == 0 {
+                    return (self.timestamps[i], H256::zero());
+                } else {
+                    return (
+                        self.timestamps[i],
+                        self.get_block_hash(i as u64 - 1).unwrap(),
+                    );
+                }
+            }
+        }
+        unreachable!()
     }
-    fn ancestor_timestamps(&self, n: u64) -> Vec<u64> {
-        self.timestamps[0..=(n as usize)].to_vec()
+
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        let vec: Vec<u8> = (0..32).map(|_| block_number as u8).collect();
+        Some(H256::from_slice(vec.as_slice()).unwrap())
     }
 }
 

@@ -27,18 +27,12 @@ struct ForkContext<'a, CS> {
 }
 
 impl<'a, CS: ChainStore> ForkContext<'a, CS> {
-    fn get_header(&self, number: BlockNumber) -> Option<Header> {
-        match self
-            .fork_attached_blocks
+    fn get_header(&self, block_hash: &H256) -> Option<Header> {
+        self.fork_attached_blocks
             .iter()
-            .find(|b| b.header().number() == number)
-        {
-            Some(block) => Some(block.header().to_owned()),
-            None => self
-                .store
-                .get_block_hash(number)
-                .and_then(|hash| self.store.get_header(&hash)),
-        }
+            .find(|b| b.header().hash() == block_hash)
+            .and_then(|b| Some(b.header().to_owned()))
+            .or_else(|| self.store.get_header(block_hash))
     }
 }
 
@@ -47,8 +41,19 @@ impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
         self.consensus.median_time_block_count() as u64
     }
 
-    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
-        self.get_header(number).map(|header| header.timestamp())
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+        let header = self
+            .get_header(block_hash)
+            .expect("[ForkContext] blocks used for median time exist");
+        (header.timestamp(), header.parent_hash().to_owned())
+    }
+
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        self.fork_attached_blocks
+            .iter()
+            .find(|b| b.header().number() == block_number)
+            .and_then(|b| Some(b.header().hash().to_owned()))
+            .or_else(|| self.store.get_block_hash(block_number))
     }
 }
 
@@ -175,8 +180,8 @@ where
 struct BlockTxsVerifier<'a, M, P> {
     provider: &'a P,
     block_median_time_context: &'a M,
-    number: BlockNumber,
-    epoch: EpochNumber,
+    block_number: BlockNumber,
+    epoch_number: EpochNumber,
     resolved: &'a [ResolvedTransaction<'a>],
 }
 
@@ -189,15 +194,15 @@ where
     pub fn new(
         provider: &'a P,
         block_median_time_context: &'a M,
-        number: BlockNumber,
-        epoch: EpochNumber,
+        block_number: BlockNumber,
+        epoch_number: EpochNumber,
         resolved: &'a [ResolvedTransaction<'a>],
     ) -> BlockTxsVerifier<'a, M, P> {
         BlockTxsVerifier {
             provider,
             block_median_time_context,
-            number,
-            epoch,
+            block_number,
+            epoch_number,
             resolved,
         }
     }
@@ -214,8 +219,8 @@ where
                     ContextualTransactionVerifier::new(
                         &tx,
                         self.block_median_time_context,
-                        self.number,
-                        self.epoch,
+                        self.block_number,
+                        self.epoch_number,
                         self.provider.consensus(),
                     )
                     .verify()
@@ -225,8 +230,8 @@ where
                     TransactionVerifier::new(
                         &tx,
                         self.block_median_time_context,
-                        self.number,
-                        self.epoch,
+                        self.block_number,
+                        self.epoch_number,
                         self.provider.consensus(),
                         self.provider.script_config(),
                         self.provider.store(),

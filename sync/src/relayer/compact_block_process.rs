@@ -1,7 +1,8 @@
 use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
-use ckb_core::{header::Header, BlockNumber};
+use ckb_core::header::Header;
+use ckb_core::BlockNumber;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
@@ -95,7 +96,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 );
                 let header_verifier = HeaderVerifier::new(
                     CompactBlockMedianTimeView {
-                        header: &compact_block.header,
+                        anchor_hash: compact_block.header.hash(),
                         pending_compact_blocks: &pending_compact_blocks,
                         shared: self.relayer.shared.shared(),
                     },
@@ -155,7 +156,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 }
 
 struct CompactBlockMedianTimeView<'a, CS> {
-    header: &'a Header,
+    anchor_hash: &'a H256,
     pending_compact_blocks: &'a FnvHashMap<H256, CompactBlock>,
     shared: &'a Shared<CS>,
 }
@@ -180,25 +181,29 @@ where
         self.shared.consensus().median_time_block_count() as u64
     }
 
-    fn timestamp(&self, _n: BlockNumber) -> Option<u64> {
-        None
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+        let header = self
+            .get_header(&block_hash)
+            .expect("[CompactBlockMedianTimeView] blocks used for median time exist");
+        (header.timestamp(), header.parent_hash().to_owned())
     }
 
-    fn ancestor_timestamps(&self, block_number: BlockNumber) -> Vec<u64> {
-        if Some(block_number) != self.header.number().checked_sub(1) {
-            return Vec::new();
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        let mut hash = self.anchor_hash.to_owned();
+        while let Some(header) = self.get_header(&hash) {
+            if header.number() == block_number {
+                return Some(header.hash().to_owned());
+            }
+
+            // The current `hash` is the common ancestor of tip chain and `self.anchor_hash`,
+            // so we can get the target hash via `self.shared.block_hash`, since it is in tip chain
+            if self.shared.block_hash(header.number()).expect("tip chain") == hash {
+                return self.shared.block_hash(block_number);
+            }
+
+            hash = header.parent_hash().to_owned();
         }
-        let count = std::cmp::min(self.median_block_count(), block_number + 1);
-        let mut block_hash = self.header.parent_hash().to_owned();
-        let mut timestamps: Vec<u64> = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let header = match self.get_header(&block_hash) {
-                Some(h) => h,
-                None => break,
-            };
-            timestamps.push(header.timestamp());
-            block_hash = header.parent_hash().to_owned();
-        }
-        timestamps
+
+        unreachable!()
     }
 }
