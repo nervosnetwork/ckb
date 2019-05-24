@@ -1,6 +1,6 @@
 [package]
 name = "ckb-util"
-version = "0.13.0-pre"
+version = "0.14.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
