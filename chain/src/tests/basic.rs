@@ -806,16 +806,18 @@ fn test_next_epoch_ext() {
             .unwrap();
 
         // last_uncles_count 25
-        // last_epoch_length 200
-        // epoch_duration_target 14400000
+        // last_epoch_length 400
+        // epoch_duration_target 28800000
         // target_recip 20
         // last_duration 7980000
 
+        // (Diff_last * o_last) / o
         // (25 * 1000 * 20) / 400
         assert_eq!(epoch.difficulty(), &U256::from(1250u64));
 
-        /// ((25 + 400) * 14400000 * 400) / (( 20 + 1)* 25 * 7980000)
-        assert_eq!(epoch.length(), 584);
+        // ((Cu_last + Cm_last) * L * Cm_last) / ((u + 1) * Cu_last * L_last)
+        // ((25 + 400) * 28800000 * 400) / (( 20 + 1)* 25 * 7980000)
+        assert_eq!(epoch.length(), 1168);
 
         let consensus = shared.consensus();
 
@@ -824,19 +826,23 @@ fn test_next_epoch_ext() {
         let block_reward1 = block_reward.safe_add(Capacity::one()).unwrap();
         let bound = 400 + epoch.remainder_reward().as_u64();
 
-        // block_reward 856164383561
-        // remainder_reward 376
+        // block_reward 428082191780
+        // remainder_reward 960
         assert_eq!(
             epoch.block_reward(400).unwrap(),
-            block_reward1 // Capacity::shannons(856164383562)
+            block_reward1, // Capacity::shannons(428082191781)
+            "block_reward {:?}, remainder_reward{:?}",
+            block_reward,
+            epoch.remainder_reward()
         );
+
         assert_eq!(
             epoch.block_reward(bound - 1).unwrap(),
-            block_reward1 // Capacity::shannons(856164383562)
+            block_reward1 // Capacity::shannons(428082191781)
         );
         assert_eq!(
             epoch.block_reward(bound).unwrap(),
-            block_reward // Capacity::shannons(856164383561)
+            block_reward // Capacity::shannons(428082191780)
         );
     }
 
