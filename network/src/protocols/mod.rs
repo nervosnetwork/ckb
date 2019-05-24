@@ -19,7 +19,10 @@ use tokio::codec::length_delimited;
 
 pub type PeerIndex = SessionId;
 
-use crate::{Behaviour, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FRAME_LENGTH};
+use crate::{
+    compress::{compress, decompress},
+    Behaviour, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FRAME_LENGTH,
+};
 
 pub trait CKBProtocolContext: Send {
     // Interact with underlying p2p service
@@ -137,6 +140,8 @@ impl CKBProtocol {
                     handler: (self.handler)(),
                 }))
             })
+            .before_send(compress)
+            .before_receive(|| Some(Box::new(decompress)))
             .build()
     }
 }
