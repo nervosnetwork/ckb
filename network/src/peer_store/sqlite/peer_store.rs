@@ -175,17 +175,18 @@ impl SqlitePeerStore {
     }
 
     fn fetch_peer_info(&self, peer_id: &PeerId) -> PeerInfo {
-        let blank_addr = &Multiaddr::empty();
-        db::PeerInfoDB::get_or_insert(
-            &self.conn,
-            peer_id,
-            &blank_addr,
-            SessionType::Inbound,
+        let blank_addr = Multiaddr::empty();
+        // Build a default empty peer info record
+        let peer = PeerInfo::new(
+            peer_id.to_owned(),
+            blank_addr,
             self.peer_score_config.default_score,
+            SessionType::Inbound,
             0,
-        )
-        .expect("get or insert")
-        .expect("must have peer info")
+        );
+        db::PeerInfoDB::get_or_insert(&self.conn, peer)
+            .expect("get or insert")
+            .expect("must have peer info")
     }
 
     fn get_peer_info(&self, peer_id: &PeerId) -> Option<PeerInfo> {
@@ -194,7 +195,7 @@ impl SqlitePeerStore {
 }
 
 impl PeerStore for SqlitePeerStore {
-    fn add_connected_peer(&mut self, peer_id: &PeerId, addr: Multiaddr, endpoint: SessionType) {
+    fn add_connected_peer(&mut self, peer_id: &PeerId, addr: Multiaddr, session_type: SessionType) {
         if self.check_store_limit().is_err() {
             return;
         }
@@ -202,18 +203,20 @@ impl PeerStore for SqlitePeerStore {
         let now = unix_time_as_millis();
         let default_peer_score = self.peer_score_config().default_score;
         // upsert peer_info
-        db::PeerInfoDB::update(&self.conn, peer_id, &addr, endpoint, now)
+        db::PeerInfoDB::update(&self.conn, peer_id, &addr, session_type, now)
             .and_then(|affected_lines| {
                 if affected_lines > 0 {
                     Ok(())
                 } else {
-                    db::PeerInfoDB::insert(
+                    db::PeerInfoDB::insert_or_update(
                         &self.conn,
-                        peer_id,
-                        &addr,
-                        endpoint,
-                        default_peer_score,
-                        now,
+                        &PeerInfo::new(
+                            peer_id.to_owned(),
+                            addr.clone(),
+                            default_peer_score,
+                            session_type,
+                            now,
+                        ),
                     )
                     .map(|_| ())
                 }
@@ -221,7 +224,7 @@ impl PeerStore for SqlitePeerStore {
             .expect("update peer failed");
 
         // update peer connected_info if outbound
-        if endpoint.is_outbound() {
+        if session_type.is_outbound() {
             // update peer_addr if addr already exists
             if let Some(mut paddr) =
                 db::PeerAddrDB::get(&self.conn, &peer_id, &addr).expect("get peer addr")
