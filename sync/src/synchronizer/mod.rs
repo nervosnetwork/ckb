@@ -238,7 +238,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
         self.chain.process_block(Arc::clone(&block), true)?;
         self.shared.remove_header_view(block.header().hash());
         self.mark_block_stored(block.header().hash().to_owned());
-        self.peers.set_last_common_header(peer, &block.header());
+        self.peers
+            .set_last_common_header(peer, block.header().clone());
         Ok(())
     }
 
@@ -326,11 +327,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
     pub fn eviction(&self, nc: &CKBProtocolContext) {
-        let mut peer_state = self.peers.state.write();
-        let best_known_headers = self.peers.best_known_headers.read();
+        let mut peer_states = self.peers.state.write();
         let is_initial_block_download = self.shared.is_initial_block_download();
         let mut eviction = Vec::new();
-        for (peer, state) in peer_state.iter_mut() {
+        for (peer, state) in peer_states.iter_mut() {
             let now = unix_time_as_millis();
 
             // headers_sync_timeout
@@ -343,8 +343,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
 
             if state.is_outbound {
-                let best_known_header = best_known_headers.get(peer);
-
+                let best_known_header = state.best_known_header.as_ref();
                 let (tip_header, local_total_difficulty) = {
                     let chain_state = self.shared.lock_chain_state();
                     (
@@ -1114,11 +1113,11 @@ mod tests {
             .execute()
             .expect("Process headers from peer2 failed");
         assert_eq!(
-            synchronizer1.peers.best_known_header(peer1),
-            synchronizer1.peers.best_known_header(peer2)
+            synchronizer1.peers.get_best_known_header(peer1),
+            synchronizer1.peers.get_best_known_header(peer2)
         );
 
-        let best_known_header = synchronizer1.peers.best_known_header(peer1);
+        let best_known_header = synchronizer1.peers.get_best_known_header(peer1);
 
         assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
@@ -1152,9 +1151,7 @@ mod tests {
         assert_eq!(
             synchronizer1
                 .peers
-                .last_common_headers
-                .read()
-                .get(&peer1)
+                .get_last_common_header(peer1)
                 .unwrap()
                 .hash(),
             blocks_to_fetch.last().unwrap()

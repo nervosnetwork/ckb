@@ -87,6 +87,9 @@ pub struct PeerState {
     // The key is a `timeout`, means do not ask the tx before `timeout`.
     tx_ask_for_map: BTreeMap<Instant, Vec<H256>>,
     tx_ask_for_set: HashSet<H256>,
+
+    pub best_known_header: Option<HeaderView>,
+    pub last_common_header: Option<Header>,
 }
 
 impl PeerState {
@@ -104,6 +107,8 @@ impl PeerState {
             chain_sync,
             tx_ask_for_map: BTreeMap::default(),
             tx_ask_for_set: HashSet::default(),
+            best_known_header: None,
+            last_common_header: None,
         }
     }
 
@@ -213,8 +218,6 @@ pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
     pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
     pub blocks_inflight: RwLock<InflightBlocks>,
-    pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
-    pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
     pub known_txs: Mutex<KnownFilter>,
     pub known_blocks: Mutex<KnownFilter>,
 }
@@ -389,23 +392,47 @@ impl Peers {
             });
     }
 
-    pub fn best_known_header(&self, peer: PeerIndex) -> Option<HeaderView> {
-        self.best_known_headers.read().get(&peer).cloned()
+    pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderView> {
+        self.state
+            .read()
+            .get(&pi)
+            .and_then(|peer_state| peer_state.best_known_header.clone())
+    }
+
+    pub fn set_best_known_header(&self, pi: PeerIndex, header_view: HeaderView) {
+        self.state
+            .write()
+            .entry(pi)
+            .and_modify(|peer_state| peer_state.best_known_header = Some(header_view));
+    }
+
+    pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<Header> {
+        self.state
+            .read()
+            .get(&pi)
+            .and_then(|peer_state| peer_state.last_common_header.clone())
+    }
+
+    pub fn set_last_common_header(&self, pi: PeerIndex, header: Header) {
+        self.state
+            .write()
+            .entry(pi)
+            .and_modify(|peer_state| peer_state.last_common_header = Some(header));
     }
 
     pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
-        self.best_known_headers
-            .write()
-            .entry(peer)
-            .and_modify(|hv| {
+        if let Some(peer_state) = self.state.write().get_mut(&peer) {
+            if let Some(ref hv) = peer_state.best_known_header {
                 if header_view.total_difficulty() > hv.total_difficulty()
                     || (header_view.total_difficulty() == hv.total_difficulty()
                         && header_view.hash() < hv.hash())
                 {
-                    *hv = header_view.clone();
+                    peer_state.best_known_header = Some(header_view.clone());
                 }
-            })
-            .or_insert_with(|| header_view.clone());
+            } else {
+                peer_state.best_known_header = Some(header_view.clone());
+            }
+        }
     }
 
     pub fn getheaders_received(&self, _peer: PeerIndex) {
@@ -413,10 +440,8 @@ impl Peers {
     }
 
     pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
-        self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
         self.blocks_inflight.write().remove_by_peer(&peer);
-        self.last_common_headers.write().remove(&peer);
         self.state.write().remove(&peer)
     }
 
@@ -424,14 +449,6 @@ impl Peers {
     pub fn new_block_received(&self, block: &Block) -> bool {
         let mut blocks_inflight = self.blocks_inflight.write();
         blocks_inflight.remove_by_block(block.header().hash())
-    }
-
-    pub fn set_last_common_header(&self, peer: PeerIndex, header: &Header) {
-        let mut last_common_headers = self.last_common_headers.write();
-        last_common_headers
-            .entry(peer)
-            .and_modify(|last_common_header| *last_common_header = header.clone())
-            .or_insert_with(|| header.clone());
     }
 }
 
