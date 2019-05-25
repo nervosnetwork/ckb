@@ -1,6 +1,6 @@
 use crate::module::{
     ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
-    PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    PoolRpcImpl, StatsRpc, StatsRpcImpl, WalletRpcImpl, WalletRpc,
 };
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -30,6 +30,8 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 use test_chain_utils::create_always_success_cell;
+use ckb_wallet::DefaultWalletStore;
+use ckb_db::DBConfig;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
 
@@ -154,6 +156,12 @@ fn setup_node(
         SyncConfig::default(),
     );
 
+    let db_config = DBConfig {
+        path: dir.path().to_path_buf(),
+        ..Default::default()
+    };
+    let wallet_store = DefaultWalletStore::new(&db_config, shared.clone());
+
     // Start rpc services
     let mut io = IoHandler::new();
     io.extend_with(
@@ -180,6 +188,7 @@ fn setup_node(
         }
         .to_delegate(),
     );
+    io.extend_with(WalletRpcImpl { store: wallet_store }.to_delegate());
     io.extend_with(
         ExperimentRpcImpl {
             shared: shared.clone(),
@@ -250,7 +259,6 @@ fn test_rpc() {
             server.server.address().ip(),
             server.server.address().port()
         );
-        let req_message = request.clone();
         let response: JsonResponse = client
             .post(&uri)
             .json(&json!(request))
@@ -258,14 +266,7 @@ fn test_rpc() {
             .expect("send jsonrpc request")
             .json()
             .expect("transform jsonrpc response into json");
-        let message = response.clone();
-        let actual = response.result.clone().unwrap_or_else(|| {
-            panic!(
-                "jsonrpc does not return result! request {}. response: {:?}",
-                json!(req_message),
-                message
-            )
-        });
+        let actual = response.result.clone().unwrap_or_else(|| Value::Null);
         let expect = case.remove("result").expect("get case result");
 
         // Print only at print_mode, otherwise do real testing asserts

@@ -8,6 +8,7 @@ pub enum Module {
     Pool,
     Experiment,
     Stats,
+    Wallet,
     IntegrationTest,
     Alert,
 }
@@ -43,6 +44,10 @@ impl Config {
 
     pub fn stats_enable(&self) -> bool {
         self.modules.contains(&Module::Stats)
+    }
+
+    pub fn wallet_enable(&self) -> bool {
+        self.modules.contains(&Module::Wallet)
     }
 
     pub fn integration_test_enable(&self) -> bool {

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-wallet"
-version = "0.13.0-pre"
+version = "0.14.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -12,6 +12,7 @@ ckb-notify = { path = "../notify" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-traits = { path = "../traits" }
+jsonrpc-types = { path = "../util/jsonrpc-types" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 bincode = "1.1"
 serde = "1.0"
@@ -21,4 +22,6 @@ log = "0.4"
 
 [dev-dependencies]
 tempfile = "3.0"
+ckb-chain =  { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

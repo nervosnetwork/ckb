@@ -1,5 +1,9 @@
 use ckb_core::transaction::{CellOutPoint, CellOutput};
 use ckb_core::BlockNumber;
+use jsonrpc_types::{
+    BlockNumber as JsonBlockNumber, CellTransaction as JsonCellTransaction,
+    LiveCell as JsonLiveCell, TransactionPoint as JsonTransactionPoint, Unsigned,
+};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
@@ -36,7 +40,7 @@ pub struct LockHashCellOutput {
     pub cell_output: Option<CellOutput>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LockHashIndexState {
     pub block_number: BlockNumber,
     pub block_hash: H256,
@@ -54,9 +58,9 @@ impl LockHashIndex {
     pub fn from_slice(slice: &[u8]) -> Self {
         debug_assert!(slice.len() == 76);
         let lock_hash = H256::from_slice(&slice[0..32]).unwrap();
-        let block_number = BlockNumber::from_le_bytes(slice[32..40].try_into().unwrap());
+        let block_number = BlockNumber::from_be_bytes(slice[32..40].try_into().unwrap());
         let tx_hash = H256::from_slice(&slice[40..72]).unwrap();
-        let index = u32::from_le_bytes(slice[72..76].try_into().unwrap());
+        let index = u32::from_be_bytes(slice[72..76].try_into().unwrap());
 
         Self {
             lock_hash,
@@ -67,9 +71,9 @@ impl LockHashIndex {
 
     pub fn to_vec(&self) -> Vec<u8> {
         let mut bytes = self.lock_hash.to_vec();
-        bytes.extend_from_slice(&self.block_number.to_le_bytes());
+        bytes.extend_from_slice(&self.block_number.to_be_bytes());
         bytes.extend_from_slice(self.cell_out_point.tx_hash.as_bytes());
-        bytes.extend_from_slice(&self.cell_out_point.index.to_le_bytes());
+        bytes.extend_from_slice(&self.cell_out_point.index.to_be_bytes());
         bytes.to_vec()
     }
 }
@@ -80,6 +84,47 @@ impl From<LockHashIndex> for TransactionPoint {
             block_number: lock_hash_index.block_number,
             tx_hash: lock_hash_index.cell_out_point.tx_hash,
             index: lock_hash_index.cell_out_point.index,
+        }
+    }
+}
+
+impl From<LiveCell> for JsonLiveCell {
+    fn from(live_cell: LiveCell) -> JsonLiveCell {
+        let LiveCell {
+            created_by,
+            cell_output,
+        } = live_cell;
+        JsonLiveCell {
+            created_by: created_by.into(),
+            cell_output: cell_output.into(),
+        }
+    }
+}
+
+impl From<CellTransaction> for JsonCellTransaction {
+    fn from(cell_transaction: CellTransaction) -> JsonCellTransaction {
+        let CellTransaction {
+            created_by,
+            consumed_by,
+        } = cell_transaction;
+        JsonCellTransaction {
+            created_by: created_by.into(),
+            consumed_by: consumed_by.map(Into::into),
+        }
+    }
+}
+
+impl From<TransactionPoint> for JsonTransactionPoint {
+    fn from(transaction_point: TransactionPoint) -> JsonTransactionPoint {
+        let TransactionPoint {
+            block_number,
+            tx_hash,
+            index,
+        } = transaction_point;
+        JsonTransactionPoint {
+            block_number: JsonBlockNumber(block_number),
+            tx_hash,
+            index: Unsigned(u64::from(index)),
         }
     }
 }

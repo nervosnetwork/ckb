@@ -1,4 +1,4 @@
-use crate::{BlockNumber, CellOutput};
+use crate::{BlockNumber, CellOutput, Unsigned};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
@@ -6,20 +6,26 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct LiveCell {
     pub created_by: TransactionPoint,
-    pub cell: CellOutput,
+    pub cell_output: CellOutput,
 }
 
 // This is used as return value of get_transactions_by_lock_hash RPC
 #[derive(Serialize, Deserialize)]
 pub struct CellTransaction {
     pub created_by: TransactionPoint,
-    pub cell: CellOutput,
-    pub cosumed_by: Option<TransactionPoint>,
+    pub consumed_by: Option<TransactionPoint>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct TransactionPoint {
     pub block_number: BlockNumber,
-    pub hash: H256,
-    pub index: u32,
+    pub tx_hash: H256,
+    pub index: Unsigned,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct LockHashIndexState {
+    pub lock_hash: H256,
+    pub block_number: BlockNumber,
+    pub block_hash: H256,
 }

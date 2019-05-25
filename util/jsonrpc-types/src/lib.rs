@@ -50,6 +50,6 @@ pub use self::net::{Node, NodeAddress};
 pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;
-pub use self::wallet::{CellTransaction, LiveCell, TransactionPoint};
+pub use self::wallet::{CellTransaction, LiveCell, TransactionPoint, LockHashIndexState};
 pub use jsonrpc_core::types::{error, id, params, request, response, version};
 pub use serde_derive::{Deserialize, Serialize};
