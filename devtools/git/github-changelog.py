@@ -30,7 +30,8 @@ logs = _str(subprocess.check_output(
     ['git', 'log', '--reverse', '--merges', '--first-parent', '--pretty=tformat:%s', '{}...HEAD'.format(since)]))
 
 PR_NUMBER_RE = re.compile(r'\s*Merge pull request #(\d+) from')
-PR_TITLE_RE = re.compile(r'(?:\[[^]]+\]\s*)*(?:(\w+)(?:\(([^\)]+)\))?:\s*)?(.*)')
+PR_TITLE_RE = re.compile(
+    r'(?:\[[^]]+\]\s*)*(?:(\w+)(?:\(([^\)]+)\))?:\s*)?(.*)')
 
 Change = namedtuple('Change', ['scope', 'module', 'title', 'text'])
 
@@ -99,7 +100,25 @@ for line in logs.splitlines():
 
         if scope not in changes:
             changes[scope] = []
-        changes[scope].append(Change(scope, module, title, pr['body'] or ""))
+
+        body = pr['body'] or ""
+        labels = [label['name'] for label in pr['labels']]
+        is_breaking = "breaking change" in labels or any(
+            l.startswith('b:') for l in labels)
+        if is_breaking:
+            breaking_banner = ", ".join(
+                l for l in labels if l.startswith('b:'))
+            if "breaking change" not in body.lower():
+                if breaking_banner == "":
+                    breaking_banner = "This is a braking change"
+                else:
+                    breaking_banner = "This is a braking change: " + breaking_banner
+            if body == "":
+                body = breaking_banner
+            elif breaking_banner != "":
+                body = breaking_banner + "\n\n" + body
+
+        changes[scope].append(Change(scope, module, title, body))
 
 out = open("changes/out.md", "w")
 for scope, changes in changes.items():
