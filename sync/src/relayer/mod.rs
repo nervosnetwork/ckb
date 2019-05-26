@@ -23,7 +23,7 @@ use self::get_transaction_process::GetTransactionProcess;
 use self::transaction_hash_process::TransactionHashProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
-use crate::types::{Peers, SyncSharedState};
+use crate::types::{Filter, Peers, SyncSharedState};
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
@@ -456,12 +456,20 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
 }
 
 pub struct RelayState {
+    // CompactBlocks had received but not processed completely yet.
+    // We are waiting for the corresponding missing transactions, once they arrived, we can process
+    // the compact blocks
     pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
+    // Proposal transactions that we have sent requests to peers for, but not got the response yet
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
-    pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
-    pub tx_filter: Mutex<LruCache<H256, ()>>,
+    // Transactions that we have sent requests to peers for, but not got the response yet.
     pub tx_already_asked: Mutex<LruCache<H256, Instant>>,
-    pub compact_block_filter: Mutex<LruCache<H256, ()>>,
+    // Proposal transactions requested from peers, and we have not store locally yet.
+    pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    // CompactBlock filter for checking whether we have already known a block or not
+    pub compact_block_filter: Mutex<Filter<H256>>,
+    // Transaction Filter for checking whether we have already known a transaction or not
+    pub tx_filter: Mutex<Filter<H256>>,
 }
 
 impl Default for RelayState {
@@ -469,29 +477,29 @@ impl Default for RelayState {
         RelayState {
             pending_compact_blocks: Mutex::new(FnvHashMap::default()),
             inflight_proposals: Mutex::new(FnvHashSet::default()),
-            pending_proposals_request: Mutex::new(FnvHashMap::default()),
-            tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
             tx_already_asked: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
-            compact_block_filter: Mutex::new(LruCache::new(COMPACT_BLOCK_FILTER_SIZE)),
+            pending_proposals_request: Mutex::new(FnvHashMap::default()),
+            tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
+            compact_block_filter: Mutex::new(Filter::new(COMPACT_BLOCK_FILTER_SIZE)),
         }
     }
 }
 
 impl RelayState {
-    fn mark_as_known_tx(&self, hash: H256) {
-        self.tx_already_asked.lock().remove(&hash);
-        self.tx_filter.lock().insert(hash, ());
+    fn already_known_tx(&self, hash: &H256) -> bool {
+        self.tx_filter.lock().contains(hash)
     }
 
-    fn already_known_tx(&self, hash: &H256) -> bool {
-        self.tx_filter.lock().contains_key(hash)
+    fn mark_as_known_tx(&self, hash: H256) {
+        self.tx_already_asked.lock().remove(&hash);
+        self.tx_filter.lock().insert(hash);
     }
 
     fn already_known_compact_block(&self, hash: &H256) -> bool {
-        self.compact_block_filter.lock().contains_key(hash)
+        self.compact_block_filter.lock().contains(hash)
     }
 
     fn mark_as_known_compact_block(&self, hash: H256) {
-        self.compact_block_filter.lock().insert(hash, ());
+        self.compact_block_filter.lock().insert(hash);
     }
 }

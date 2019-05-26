@@ -24,12 +24,9 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
-use std::collections::{
-    hash_map::{Entry, HashMap},
-    hash_set::HashSet,
-    BTreeMap,
-};
+use std::collections::{hash_map::HashMap, hash_set::HashSet, BTreeMap};
 use std::fmt;
+use std::hash::Hash;
 use std::time::{Duration, Instant};
 
 const FILTER_SIZE: usize = 20000;
@@ -192,24 +189,40 @@ impl PeerState {
 }
 
 #[derive(Clone, Default)]
-pub struct KnownFilter {
-    inner: FnvHashMap<PeerIndex, LruCache<H256, ()>>,
+pub struct Filter<T: Eq + Hash> {
+    inner: LruCache<T, ()>,
 }
 
-impl KnownFilter {
+impl<T: Eq + Hash> Filter<T> {
+    pub fn new(filter_size: usize) -> Self {
+        Self {
+            inner: LruCache::new(filter_size),
+        }
+    }
+
+    pub fn contains(&self, item: &T) -> bool {
+        self.inner.contains_key(item)
+    }
+
+    pub fn insert(&mut self, item: T) -> bool {
+        self.inner.insert(item, ()).is_none()
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct PeersKnownFilter {
+    inner: FnvHashMap<PeerIndex, Filter<H256>>,
+}
+
+impl PeersKnownFilter {
     /// Adds a value to the filter.
     /// If the filter did not have this value present, `true` is returned.
     /// If the filter did have this value present, `false` is returned.
     pub fn insert(&mut self, index: PeerIndex, hash: H256) -> bool {
-        match self.inner.entry(index) {
-            Entry::Occupied(mut o) => o.get_mut().insert(hash, ()).is_none(),
-            Entry::Vacant(v) => {
-                let mut lru = LruCache::new(FILTER_SIZE);
-                lru.insert(hash, ());
-                v.insert(lru);
-                true
-            }
-        }
+        self.inner
+            .entry(index)
+            .or_insert_with(|| Filter::new(FILTER_SIZE))
+            .insert(hash)
     }
 }
 
@@ -218,8 +231,8 @@ pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
     pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
     pub blocks_inflight: RwLock<InflightBlocks>,
-    pub known_txs: Mutex<KnownFilter>,
-    pub known_blocks: Mutex<KnownFilter>,
+    pub known_txs: Mutex<PeersKnownFilter>,
+    pub known_blocks: Mutex<PeersKnownFilter>,
 }
 
 #[derive(Debug, Clone)]
