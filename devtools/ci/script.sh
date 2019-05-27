@@ -61,15 +61,21 @@ echo "\${FMT} = ${FMT}"
 echo "\${CHECK} = ${CHECK}"
 echo "\${TEST} = ${TEST}"
 
+fold_start install
 if [ "$FMT" = true ]; then
   cargo fmt --version || rustup component add rustfmt
-
-  fold fmt make fmt
 fi
 if [ "$CHECK" = true ]; then
   cargo clippy --version || rustup component add clippy
   cargo audit --version || cargo install cargo-audit
+fi
+fold_end
 
+
+if [ "$FMT" = true ]; then
+  fold fmt make fmt
+fi
+if [ "$CHECK" = true ]; then
   fold check make check
   fold clippy make clippy
   fold security-audit make security-audit
