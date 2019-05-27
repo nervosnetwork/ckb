@@ -114,15 +114,14 @@ impl<CS: ChainStore> ChainState<CS> {
         &self.store
     }
 
-    fn init_proposal_ids(
+    pub(crate) fn init_proposal_ids(
         store: &CS,
         proposal_window: ProposalWindow,
         tip_number: u64,
     ) -> TxProposalTable {
         let mut proposal_ids = TxProposalTable::new(proposal_window);
         let proposal_start = tip_number.saturating_sub(proposal_window.start());
-        let proposal_end = tip_number.saturating_sub(proposal_window.end());
-        for bn in proposal_start..=proposal_end {
+        for bn in proposal_start..=tip_number {
             if let Some(hash) = store.get_block_hash(bn) {
                 let mut ids_set = FnvHashSet::default();
                 if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
