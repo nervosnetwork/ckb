@@ -167,8 +167,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    pub fn peers(&self) -> Arc<Peers> {
-        Arc::clone(&self.peers)
+    pub fn peers(&self) -> &Arc<Peers> {
+        &self.peers
     }
 
     pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
