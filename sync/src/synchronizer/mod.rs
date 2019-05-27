@@ -71,11 +71,11 @@ pub struct Synchronizer<CS: ChainStore> {
     chain: ChainController,
     pub shared: Arc<SyncSharedState<CS>>,
     pub status_map: BlockStatusMap,
-    pub n_sync: Arc<AtomicUsize>,
     pub peers: Arc<Peers>,
     pub config: Arc<Config>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
-    pub outbound_peers_with_protect: Arc<AtomicUsize>,
+    pub n_sync_started: Arc<AtomicUsize>,
+    pub n_protected_outbound_peers: Arc<AtomicUsize>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -85,11 +85,11 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
             chain: self.chain.clone(),
             shared: Arc::clone(&self.shared),
             status_map: Arc::clone(&self.status_map),
-            n_sync: Arc::clone(&self.n_sync),
+            n_sync_started: Arc::clone(&self.n_sync_started),
             peers: Arc::clone(&self.peers),
             config: Arc::clone(&self.config),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
-            outbound_peers_with_protect: Arc::clone(&self.outbound_peers_with_protect),
+            n_protected_outbound_peers: Arc::clone(&self.n_protected_outbound_peers),
         }
     }
 }
@@ -108,8 +108,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
             peers: Arc::new(Peers::default()),
             orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
             status_map: Arc::new(Mutex::new(HashMap::new())),
-            n_sync: Arc::new(AtomicUsize::new(0)),
-            outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
+            n_sync_started: Arc::new(AtomicUsize::new(0)),
+            n_protected_outbound_peers: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -305,11 +305,11 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .map(|peer| peer.is_outbound())
             .unwrap_or(false);
         let protect_outbound = is_outbound
-            && self.outbound_peers_with_protect.load(Ordering::Acquire)
+            && self.n_protected_outbound_peers.load(Ordering::Acquire)
                 < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT;
 
         if protect_outbound {
-            self.outbound_peers_with_protect
+            self.n_protected_outbound_peers
                 .fetch_add(1, Ordering::Release);
         }
 
@@ -440,7 +440,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
-            if self.shared.is_initial_block_download() && self.n_sync.load(Ordering::Acquire) != 0 {
+            if self.shared.is_initial_block_download()
+                && self.n_sync_started.load(Ordering::Acquire) != 0
+            {
                 break;
             }
             {
@@ -449,7 +451,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     if !peer_state.sync_started {
                         let headers_sync_timeout = self.predict_headers_sync_time(&tip);
                         peer_state.start_sync(headers_sync_timeout);
-                        self.n_sync.fetch_add(1, Ordering::Release);
+                        self.n_sync_started.fetch_add(1, Ordering::Release);
                     }
                 }
             }
@@ -547,7 +549,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
             // It shouldn't happen
             // fetch_sub wraps around on overflow, we still check manually
             // panic here to prevent some bug be hidden silently.
-            if peer_state.sync_started && self.n_sync.fetch_sub(1, Ordering::Release) == 0 {
+            if peer_state.sync_started && self.n_sync_started.fetch_sub(1, Ordering::Release) == 0 {
                 panic!("Synchronizer n_sync overflow");
             }
         }
