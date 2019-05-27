@@ -544,8 +544,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
 
     fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         info!(target: "sync", "SyncProtocol.disconnected peer={}", peer_index);
-        let mut state = self.peers.state.write();
-        if let Some(peer_state) = state.get(&peer_index) {
+        if let Some(peer_state) = self.peers.disconnected(peer_index) {
             // It shouldn't happen
             // fetch_sub wraps around on overflow, we still check manually
             // panic here to prevent some bug be hidden silently.
@@ -553,8 +552,6 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
                 panic!("Synchronizer n_sync overflow");
             }
         }
-        state.remove(&peer_index);
-        self.peers.disconnected(peer_index);
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
