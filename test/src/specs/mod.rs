@@ -4,6 +4,7 @@ mod p2p;
 mod relay;
 mod sync;
 mod tx_pool;
+mod wallet;
 
 pub use alert::*;
 pub use mining::*;
@@ -11,6 +12,7 @@ pub use p2p::*;
 pub use relay::*;
 pub use sync::*;
 pub use tx_pool::*;
+pub use wallet::*;
 
 use crate::Net;
 use ckb_app_config::CKBAppConfig;

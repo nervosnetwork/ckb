@@ -1,6 +1,6 @@
 use crate::module::{
     ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
-    PoolRpcImpl, StatsRpc, StatsRpcImpl, WalletRpcImpl, WalletRpc,
+    PoolRpcImpl, StatsRpc, StatsRpcImpl, WalletRpc, WalletRpcImpl,
 };
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -10,6 +10,7 @@ use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConfig};
@@ -18,6 +19,7 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
 use ckb_sync::{Config as SyncConfig, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_wallet::DefaultWalletStore;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -30,8 +32,6 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 use test_chain_utils::create_always_success_cell;
-use ckb_wallet::DefaultWalletStore;
-use ckb_db::DBConfig;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
 
@@ -188,7 +188,12 @@ fn setup_node(
         }
         .to_delegate(),
     );
-    io.extend_with(WalletRpcImpl { store: wallet_store }.to_delegate());
+    io.extend_with(
+        WalletRpcImpl {
+            store: wallet_store,
+        }
+        .to_delegate(),
+    );
     io.extend_with(
         ExperimentRpcImpl {
             shared: shared.clone(),

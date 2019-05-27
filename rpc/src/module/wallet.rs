@@ -1,7 +1,7 @@
 use ckb_wallet::WalletStore;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, Unsigned, LockHashIndexState};
+use jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Unsigned};
 use numext_fixed_hash::H256;
 
 #[rpc]
@@ -23,7 +23,11 @@ pub trait WalletRpc {
     ) -> Result<Vec<CellTransaction>>;
 
     #[rpc(name = "index_lock_hash")]
-    fn index_lock_hash(&self, _lock_hash: H256, _index_from: Option<BlockNumber>) -> Result<LockHashIndexState>;
+    fn index_lock_hash(
+        &self,
+        _lock_hash: H256,
+        _index_from: Option<BlockNumber>,
+    ) -> Result<LockHashIndexState>;
 
     #[rpc(name = "deindex_lock_hash")]
     fn deindex_lock_hash(&self, _lock_hash: H256) -> Result<()>;
@@ -46,7 +50,11 @@ impl<WS: WalletStore + 'static> WalletRpc for WalletRpcImpl<WS> {
         let per_page = (per_page.0 as usize).min(50);
         Ok(self
             .store
-            .get_live_cells(&lock_hash, (page.0 as usize).saturating_mul(per_page), per_page)
+            .get_live_cells(
+                &lock_hash,
+                (page.0 as usize).saturating_mul(per_page),
+                per_page,
+            )
             .into_iter()
             .map(Into::into)
             .collect())
@@ -61,14 +69,23 @@ impl<WS: WalletStore + 'static> WalletRpc for WalletRpcImpl<WS> {
         let per_page = (per_page.0 as usize).min(50);
         Ok(self
             .store
-            .get_transactions(&lock_hash, (page.0 as usize).saturating_mul(per_page), per_page)
+            .get_transactions(
+                &lock_hash,
+                (page.0 as usize).saturating_mul(per_page),
+                per_page,
+            )
             .into_iter()
             .map(Into::into)
             .collect())
     }
 
-    fn index_lock_hash(&self, lock_hash: H256, index_from: Option<BlockNumber>) -> Result<LockHashIndexState> {
-        let state = self.store
+    fn index_lock_hash(
+        &self,
+        lock_hash: H256,
+        index_from: Option<BlockNumber>,
+    ) -> Result<LockHashIndexState> {
+        let state = self
+            .store
             .insert_lock_hash(&lock_hash, index_from.map(|number| number.0));
         Ok(LockHashIndexState {
             lock_hash,
@@ -83,11 +100,16 @@ impl<WS: WalletStore + 'static> WalletRpc for WalletRpcImpl<WS> {
     }
 
     fn get_lock_hash_index_states(&self) -> Result<Vec<LockHashIndexState>> {
-        let states = self.store.get_lock_hash_index_states().into_iter().map(|(lock_hash, state)| LockHashIndexState {
-            lock_hash,
-            block_number: BlockNumber(state.block_number),
-            block_hash: state.block_hash,
-        }).collect();
+        let states = self
+            .store
+            .get_lock_hash_index_states()
+            .into_iter()
+            .map(|(lock_hash, state)| LockHashIndexState {
+                lock_hash,
+                block_number: BlockNumber(state.block_number),
+                block_hash: state.block_hash,
+            })
+            .collect();
         Ok(states)
     }
 }

@@ -15,7 +15,7 @@ use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
 use crossbeam_channel::{self, select};
-use log::{error, trace};
+use log::{error, info, trace};
 use numext_fixed_hash::H256;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -51,7 +51,11 @@ pub trait WalletStore: Sync + Send {
 
     fn get_lock_hash_index_states(&self) -> HashMap<H256, LockHashIndexState>;
 
-    fn insert_lock_hash(&self, lock_hash: &H256, index_from: Option<BlockNumber>) -> LockHashIndexState;
+    fn insert_lock_hash(
+        &self,
+        lock_hash: &H256,
+        index_from: Option<BlockNumber>,
+    ) -> LockHashIndexState;
 
     fn remove_lock_hash(&self, lock_hash: &H256);
 }
@@ -129,7 +133,11 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
             .collect()
     }
 
-    fn insert_lock_hash(&self, lock_hash: &H256, index_from: Option<BlockNumber>) -> LockHashIndexState {
+    fn insert_lock_hash(
+        &self,
+        lock_hash: &H256,
+        index_from: Option<BlockNumber>,
+    ) -> LockHashIndexState {
         // need to lock chain state, avoids inconsistent state in processing
         let chain_state = self.shared.lock_chain_state();
         let index_state = LockHashIndexState {
@@ -138,7 +146,6 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
         };
         self.commit_batch(|batch| {
             if let Some(from_block_number) = index_from {
-                let mut batch_buffer = HashMap::<CellOutPoint, LockHashCellOutput>::new();
                 let mut index_lock_hashes = HashSet::new();
                 index_lock_hashes.insert(lock_hash.to_owned());
                 (from_block_number..=chain_state.tip_number()).for_each(|block_number| {
@@ -147,7 +154,7 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
                         .block_hash(block_number)
                         .and_then(|hash| self.shared.block(&hash))
                         .expect("block exists");
-                    self.attach_block(batch, &mut batch_buffer, &index_lock_hashes, &block);
+                    self.attach_block(batch, &index_lock_hashes, &block);
                 });
             }
             batch.insert_lock_hash_index_state(lock_hash, &index_state);
@@ -223,7 +230,11 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
     {
         match self.db.batch() {
             Ok(batch) => {
-                let mut batch = WalletStoreBatch { batch };
+                let mut batch = WalletStoreBatch {
+                    batch,
+                    insert_buffer: HashMap::new(),
+                    delete_buffer: HashSet::new(),
+                };
                 process(&mut batch);
                 batch.commit();
             }
@@ -234,6 +245,7 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
     }
 
     pub fn sync_index_states(&self) {
+        info!(target: "wallet", "Start sync index states with chain store");
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
         if lock_hash_index_states.is_empty() {
             return;
@@ -282,7 +294,6 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
             .expect("none empty index states")
             .block_number;
         self.commit_batch(|batch| {
-            let mut batch_buffer = HashMap::<CellOutPoint, LockHashCellOutput>::new();
             let index_lock_hashes = lock_hash_index_states.keys().cloned().collect();
             (min_block_number + 1..=chain_state.tip_number()).for_each(|block_number| {
                 let block = self
@@ -290,7 +301,7 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                     .block_hash(block_number)
                     .and_then(|hash| self.shared.block(&hash))
                     .expect("block exists");
-                self.attach_block(batch, &mut batch_buffer, &index_lock_hashes, &block);
+                self.attach_block(batch, &index_lock_hashes, &block);
             });
             let index_state = LockHashIndexState {
                 block_number: chain_state.tip_number(),
@@ -300,6 +311,8 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                 batch.insert_lock_hash_index_state(lock_hash, &index_state);
             })
         });
+
+        info!(target: "wallet", "End sync index states with chain store");
     }
 
     pub(crate) fn update(&self, detached_blocks: &[Block], attached_blocks: &[Block]) {
@@ -309,12 +322,11 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
             self.commit_batch(|batch| {
                 detached_blocks
                     .iter()
+                    .rev()
                     .for_each(|block| self.detach_block(batch, &index_lock_hashes, block));
-                // rocksdb rust binding doesn't support transactional batch read, have to use a batch buffer here.
-                let mut batch_buffer = HashMap::<CellOutPoint, LockHashCellOutput>::new();
-                attached_blocks.iter().for_each(|block| {
-                    self.attach_block(batch, &mut batch_buffer, &index_lock_hashes, block)
-                });
+                attached_blocks
+                    .iter()
+                    .for_each(|block| self.attach_block(batch, &index_lock_hashes, block));
                 if let Some(block) = attached_blocks.last() {
                     let index_state = LockHashIndexState {
                         block_number: block.header().number(),
@@ -336,59 +348,49 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
     ) {
         trace!(target: "wallet", "detach block {:x}", block.header().hash());
         let block_number = block.header().number();
-        block.transactions().iter().for_each(|tx| {
+        block.transactions().iter().rev().for_each(|tx| {
             let tx_hash = tx.hash();
-            if !tx.is_cellbase() {
-                tx.inputs().iter().enumerate().for_each(|(index, input)| {
-                    let index = index as u32;
-                    let cell_out_point = input.previous_output.cell.clone().expect("cell exists");
-                    if let Some(mut lock_hash_cell_output) =
-                        self.get_lock_hash_cell_output(&cell_out_point)
-                    {
-                        if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                            let lock_hash_index = LockHashIndex::new(
-                                lock_hash_cell_output.lock_hash.clone(),
-                                block_number,
-                                tx_hash.clone(),
-                                index,
-                            );
-                            batch.insert_lock_hash_live_cell(
-                                &lock_hash_index,
-                                &lock_hash_cell_output
-                                    .cell_output
-                                    .expect("inconsistent state"),
-                            );
-                            batch.insert_lock_hash_transaction(&lock_hash_index, &None);
-
-                            lock_hash_cell_output.cell_output = None;
-                            batch.insert_cell_out_point_lock_hash(
-                                &cell_out_point,
-                                &lock_hash_cell_output,
-                            );
-                        }
-                    }
-                });
-            }
-
             tx.outputs().iter().enumerate().for_each(|(index, output)| {
                 let index = index as u32;
                 let lock_hash = output.lock.hash();
                 if index_lock_hashes.contains(&lock_hash) {
                     let lock_hash_index =
                         LockHashIndex::new(lock_hash, block_number, tx_hash.clone(), index);
-
                     batch.delete_lock_hash_live_cell(&lock_hash_index);
                     batch.delete_lock_hash_transaction(&lock_hash_index);
                     batch.delete_cell_out_point_lock_hash(&lock_hash_index.cell_out_point);
                 }
             });
+
+            if !tx.is_cellbase() {
+                tx.inputs().iter().for_each(|input| {
+                    let cell_out_point = input.previous_output.cell.clone().expect("cell exists");
+                    if let Some(lock_hash_cell_output) =
+                        batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
+                    {
+                        if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
+                            let lock_hash_index = LockHashIndex::new(
+                                lock_hash_cell_output.lock_hash.clone(),
+                                lock_hash_cell_output.block_number,
+                                cell_out_point.tx_hash.clone(),
+                                cell_out_point.index,
+                            );
+                            batch.generate_live_cell(
+                                lock_hash_index,
+                                lock_hash_cell_output
+                                    .cell_output
+                                    .expect("inconsistent state"),
+                            );
+                        }
+                    }
+                });
+            }
         })
     }
 
     fn attach_block(
         &self,
         batch: &mut WalletStoreBatch,
-        batch_buffer: &mut HashMap<CellOutPoint, LockHashCellOutput>,
         index_lock_hashes: &HashSet<H256>,
         block: &Block,
     ) {
@@ -396,47 +398,14 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
         let block_number = block.header().number();
         block.transactions().iter().for_each(|tx| {
             let tx_hash = tx.hash();
-            tx.outputs().iter().enumerate().for_each(|(index, output)| {
-                let index = index as u32;
-                let lock_hash = output.lock.hash();
-                if index_lock_hashes.contains(&lock_hash) {
-                    let lock_hash_index =
-                        LockHashIndex::new(lock_hash.clone(), block_number, tx_hash.clone(), index);
-                    batch.insert_lock_hash_live_cell(&lock_hash_index, output);
-                    batch.insert_lock_hash_transaction(&lock_hash_index, &None);
-
-                    let mut lock_hash_cell_output = LockHashCellOutput {
-                        lock_hash,
-                        block_number,
-                        cell_output: None,
-                    };
-                    let cell_out_point = CellOutPoint {
-                        tx_hash: tx_hash.clone(),
-                        index,
-                    };
-                    batch.insert_cell_out_point_lock_hash(&cell_out_point, &lock_hash_cell_output);
-
-                    // insert lock_hash_cell_output as a cached value
-                    lock_hash_cell_output.cell_output = Some(output.clone());
-                    batch_buffer.insert(cell_out_point, lock_hash_cell_output);
-                }
-            });
-
             if !tx.is_cellbase() {
                 tx.inputs().iter().enumerate().for_each(|(index, input)| {
-                    // lookup lock_hash in the batch buffer and store
                     let index = index as u32;
                     let cell_out_point = input.previous_output.cell.clone().expect("cell exists");
-                    if let Some(lock_hash_cell_output) = batch_buffer
-                        .get(&cell_out_point)
-                        .cloned()
-                        .or_else(|| self.get_lock_hash_cell_output(&cell_out_point))
+                    if let Some(lock_hash_cell_output) =
+                        batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
                     {
                         if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                            batch.insert_cell_out_point_lock_hash(
-                                &cell_out_point,
-                                &lock_hash_cell_output,
-                            );
                             let lock_hash_index = LockHashIndex::new(
                                 lock_hash_cell_output.lock_hash,
                                 lock_hash_cell_output.block_number,
@@ -448,35 +417,85 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                                 tx_hash: tx_hash.clone(),
                                 index,
                             };
-                            batch.delete_lock_hash_live_cell(&lock_hash_index);
-                            batch
-                                .insert_lock_hash_transaction(&lock_hash_index, &Some(consumed_by));
+                            batch.consume_live_cell(lock_hash_index, consumed_by, &self.db);
                         }
                     }
                 });
             }
-        })
-    }
 
-    fn get_lock_hash_cell_output(
-        &self,
-        cell_out_point: &CellOutPoint,
-    ) -> Option<LockHashCellOutput> {
-        self.db
-            .read(
-                COLUMN_CELL_OUT_POINT_LOCK_HASH,
-                &serialize(cell_out_point).expect("serialize OutPoint should be ok"),
-            )
-            .expect("wallet db read should be ok")
-            .map(|value| deserialize(&value).expect("deserialize LockHashCellOutput should be ok"))
+            tx.outputs().iter().enumerate().for_each(|(index, output)| {
+                let index = index as u32;
+                let lock_hash = output.lock.hash();
+                if index_lock_hashes.contains(&lock_hash) {
+                    let lock_hash_index =
+                        LockHashIndex::new(lock_hash.clone(), block_number, tx_hash.clone(), index);
+                    batch.generate_live_cell(lock_hash_index, output.clone());
+                }
+            });
+        })
     }
 }
 
+// rocksdb rust binding doesn't support transactional batch, have to use batch buffer as tranaction overlay here.
 struct WalletStoreBatch {
     pub batch: RocksdbBatch,
+    pub insert_buffer: HashMap<CellOutPoint, LockHashCellOutput>,
+    pub delete_buffer: HashSet<CellOutPoint>,
 }
 
 impl WalletStoreBatch {
+    fn generate_live_cell(&mut self, lock_hash_index: LockHashIndex, cell_output: CellOutput) {
+        self.insert_lock_hash_live_cell(&lock_hash_index, &cell_output);
+        self.insert_lock_hash_transaction(&lock_hash_index, &None);
+
+        let mut lock_hash_cell_output = LockHashCellOutput {
+            lock_hash: lock_hash_index.lock_hash.clone(),
+            block_number: lock_hash_index.block_number,
+            cell_output: None,
+        };
+        self.insert_cell_out_point_lock_hash(
+            &lock_hash_index.cell_out_point,
+            &lock_hash_cell_output,
+        );
+        lock_hash_cell_output.cell_output = Some(cell_output);
+        self.delete_buffer.remove(&lock_hash_index.cell_out_point);
+        self.insert_buffer
+            .insert(lock_hash_index.cell_out_point, lock_hash_cell_output);
+    }
+
+    fn consume_live_cell(
+        &mut self,
+        lock_hash_index: LockHashIndex,
+        consumed_by: TransactionPoint,
+        db: &RocksDB,
+    ) {
+        self.delete_lock_hash_live_cell(&lock_hash_index);
+        self.insert_lock_hash_transaction(&lock_hash_index, &Some(consumed_by));
+
+        let lock_hash_cell_output = self
+            .insert_buffer
+            .entry(lock_hash_index.cell_out_point.clone())
+            .or_insert_with(|| {
+                let cell_output = db
+                    .read(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
+                    .expect("wallet db read should be ok")
+                    .map(|value| deserialize(&value).expect("deserialize CellOutput should be ok"))
+                    .expect("inconsistent state");
+
+                LockHashCellOutput {
+                    lock_hash: lock_hash_index.lock_hash.clone(),
+                    block_number: lock_hash_index.block_number,
+                    cell_output,
+                }
+            })
+            .clone();
+
+        self.insert_cell_out_point_lock_hash(
+            &lock_hash_index.cell_out_point,
+            &lock_hash_cell_output,
+        );
+    }
+
     fn insert_lock_hash_index_state(&mut self, lock_hash: &H256, index_state: &LockHashIndexState) {
         self.batch
             .insert(
@@ -555,6 +574,29 @@ impl WalletStoreBatch {
                 &serialize(cell_out_point).expect("serialize CellOutPoint should be ok"),
             )
             .expect("batch delete COLUMN_CELL_OUT_POINT_LOCK_HASH failed");
+        self.insert_buffer.remove(cell_out_point);
+        self.delete_buffer.insert(cell_out_point.clone());
+    }
+
+    fn get_lock_hash_cell_output(
+        &self,
+        cell_out_point: &CellOutPoint,
+        db: &RocksDB,
+    ) -> Option<LockHashCellOutput> {
+        if self.delete_buffer.contains(cell_out_point) {
+            None
+        } else {
+            self.insert_buffer.get(cell_out_point).cloned().or_else(|| {
+                db.read(
+                    COLUMN_CELL_OUT_POINT_LOCK_HASH,
+                    &serialize(cell_out_point).expect("serialize OutPoint should be ok"),
+                )
+                .expect("wallet db read should be ok")
+                .map(|value| {
+                    deserialize(&value).expect("deserialize LockHashCellOutput should be ok")
+                })
+            })
+        }
     }
 
     fn commit(self) {
@@ -1014,5 +1056,141 @@ mod tests {
         assert_eq!(2, transactions.len());
         assert_eq!(tx12.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(tx32.hash().to_owned(), transactions[1].created_by.tx_hash);
+    }
+
+    #[test]
+    fn consume_txs_in_same_block() {
+        let (store, _, _) = setup("consume_txs_in_same_block");
+        let script1 = Script::new(Vec::new(), DAO_CODE_HASH);
+        let script2 = Script::default();
+        store.insert_lock_hash(&script1.hash(), None);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        assert_eq!(0, cells.len());
+
+        let tx11 = TransactionBuilder::default()
+            .output(CellOutput::new(
+                capacity_bytes!(1000),
+                Bytes::new(),
+                script1.clone(),
+                None,
+            ))
+            .build();
+
+        let tx12 = TransactionBuilder::default()
+            .input(CellInput::new(
+                OutPoint::new_cell(tx11.hash().to_owned(), 0),
+                0,
+                Vec::new(),
+            ))
+            .output(CellOutput::new(
+                capacity_bytes!(900),
+                Bytes::new(),
+                script1.clone(),
+                None,
+            ))
+            .build();
+
+        let tx13 = TransactionBuilder::default()
+            .input(CellInput::new(
+                OutPoint::new_cell(tx12.hash().to_owned(), 0),
+                0,
+                Vec::new(),
+            ))
+            .output(CellOutput::new(
+                capacity_bytes!(800),
+                Bytes::new(),
+                script2.clone(),
+                None,
+            ))
+            .build();
+
+        let block1 = BlockBuilder::default()
+            .transaction(tx11)
+            .transaction(tx12)
+            .transaction(tx13)
+            .header_builder(HeaderBuilder::default().number(1))
+            .build();
+
+        store.update(&[], &[block1.clone()]);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        assert_eq!(0, cells.len());
+        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
+        assert_eq!(2, cell_transactions.len());
+
+        store.update(&[block1.clone()], &[]);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        assert_eq!(0, cells.len());
+        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
+        assert_eq!(0, cell_transactions.len());
+    }
+
+    #[test]
+    fn detach_blocks() {
+        let (store, _, _) = setup("detach_blocks");
+        let script1 = Script::new(Vec::new(), DAO_CODE_HASH);
+        let script2 = Script::default();
+        store.insert_lock_hash(&script1.hash(), None);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        assert_eq!(0, cells.len());
+
+        let tx11 = TransactionBuilder::default()
+            .output(CellOutput::new(
+                capacity_bytes!(1000),
+                Bytes::new(),
+                script1.clone(),
+                None,
+            ))
+            .build();
+
+        let tx12 = TransactionBuilder::default()
+            .input(CellInput::new(
+                OutPoint::new_cell(tx11.hash().to_owned(), 0),
+                0,
+                Vec::new(),
+            ))
+            .output(CellOutput::new(
+                capacity_bytes!(900),
+                Bytes::new(),
+                script1.clone(),
+                None,
+            ))
+            .build();
+
+        let tx21 = TransactionBuilder::default()
+            .input(CellInput::new(
+                OutPoint::new_cell(tx12.hash().to_owned(), 0),
+                0,
+                Vec::new(),
+            ))
+            .output(CellOutput::new(
+                capacity_bytes!(800),
+                Bytes::new(),
+                script2.clone(),
+                None,
+            ))
+            .build();
+
+        let block1 = BlockBuilder::default()
+            .transaction(tx11)
+            .transaction(tx12)
+            .header_builder(HeaderBuilder::default().number(1))
+            .build();
+
+        let block2 = BlockBuilder::default()
+            .transaction(tx21)
+            .header_builder(HeaderBuilder::default().number(2))
+            .build();
+
+        store.update(&[], &[block1.clone(), block2.clone()]);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        assert_eq!(0, cells.len());
+        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
+        assert_eq!(2, cell_transactions.len());
+
+        store.update(&[block1.clone(), block2.clone()], &[]);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        assert_eq!(0, cells.len());
+        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
+        assert_eq!(0, cell_transactions.len());
     }
 }
