@@ -635,7 +635,7 @@
         "module": "wallet",
         "params": [
             "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
-            "0"
+            "1024"
         ],
         "result": {
             "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
@@ -760,8 +760,7 @@
             {
                 "lock_hash": "Cell lock script hash"
             }
-        ],
-        "skip": true
+        ]
     },
     {
         "description": "Returns code hash of given hex encoded data\n\n**Deprecated**: will be removed in a later version",

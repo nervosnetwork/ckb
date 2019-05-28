@@ -229,7 +229,7 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
         }
     }
 
-    pub(crate) fn sync_index_states(&self) {
+    pub fn sync_index_states(&self) {
         info!(target: "wallet", "Start sync index states with chain store");
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
         if lock_hash_index_states.is_empty() {

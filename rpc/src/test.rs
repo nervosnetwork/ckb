@@ -19,7 +19,7 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
 use ckb_sync::{Config as SyncConfig, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_wallet::DefaultWalletStore;
+use ckb_wallet::{DefaultWalletStore, WalletStore};
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -157,10 +157,13 @@ fn setup_node(
     );
 
     let db_config = DBConfig {
-        path: dir.path().to_path_buf(),
+        path: dir.path().join("wallet").to_path_buf(),
         ..Default::default()
     };
     let wallet_store = DefaultWalletStore::new(&db_config, shared.clone());
+    wallet_store.insert_lock_hash(&always_success_script.hash(), Some(0));
+    // use hardcoded BATCH_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
+    (0..=height/100).for_each(|_| wallet_store.sync_index_states());
 
     // Start rpc services
     let mut io = IoHandler::new();
