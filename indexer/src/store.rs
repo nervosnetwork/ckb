@@ -297,7 +297,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                         .expect("block exists");
                     self.attach_block(batch, &index_lock_hashes, &block);
                     let index_state = LockHashIndexState {
-                        block_number: block_number,
+                        block_number,
                         block_hash: block.header().hash().to_owned(),
                     };
                     index_lock_hashes.into_iter().for_each(|lock_hash| {

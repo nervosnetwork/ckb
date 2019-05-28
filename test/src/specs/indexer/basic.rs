@@ -27,7 +27,8 @@ impl Spec for IndexerBasic {
         rpc_client.index_lock_hash(lock_hash.clone(), Some(0));
         let result = wait_until(5, || {
             let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20);
-            let cell_transactions = rpc_client.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20);
+            let cell_transactions =
+                rpc_client.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20);
             live_cells.len() == 1 && cell_transactions.len() == 1
         });
         if !result {

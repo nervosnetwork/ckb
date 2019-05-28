@@ -630,7 +630,7 @@
         ]
     },
     {
-        "description": "Create index for live cells and transaction by the hash of lock script.",
+        "description": "Create index for live cells and transactions by the hash of lock script.",
         "method": "index_lock_hash",
         "module": "indexer",
         "params": [

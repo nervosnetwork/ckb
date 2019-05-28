@@ -985,7 +985,7 @@ http://localhost:8114
 
 ### `index_lock_hash`
 
-Create index for live cells and transaction by the hash of lock script.
+Create index for live cells and transactions by the hash of lock script.
 
 #### Parameters
 

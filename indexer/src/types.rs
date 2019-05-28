@@ -28,7 +28,7 @@ pub struct CellTransaction {
 pub struct TransactionPoint {
     pub block_number: BlockNumber,
     pub tx_hash: H256,
-    // index of transaction outputs (create cell) or inputs (cosume cell)
+    // index of transaction outputs (create cell) or inputs (consume cell)
     pub index: u32,
 }
 
