@@ -250,7 +250,7 @@ mod tests {
                         .input(CellInput::new(
                             OutPoint::new_cell(cellbase.hash().to_owned(), i),
                             0,
-                            vec![],
+                            0,
                         ))
                         .output(CellOutput::new(
                             capacity_bytes!(50),
@@ -297,7 +297,7 @@ mod tests {
                     .input(CellInput::new(
                         OutPoint::new_cell(last_cellbase.hash().to_owned(), u32::from(i)),
                         0,
-                        vec![],
+                        0,
                     ))
                     .output(CellOutput::new(
                         capacity_bytes!(50),

@@ -305,7 +305,7 @@ impl Node {
                 always_success_script,
                 None,
             ))
-            .input(CellInput::new(OutPoint::new_cell(hash, 0), since, vec![]))
+            .input(CellInput::new(OutPoint::new_cell(hash, 0), since, 0))
             .build()
     }
 

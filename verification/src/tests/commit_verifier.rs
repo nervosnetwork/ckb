@@ -60,7 +60,7 @@ fn create_transaction(
         Some(always_success_script.to_owned()),
     );
     let inputs: Vec<CellInput> = (0..100)
-        .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0, vec![]))
+        .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0, 0))
         .collect();
 
     TransactionBuilder::default()

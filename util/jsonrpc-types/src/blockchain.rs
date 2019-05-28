@@ -135,16 +135,16 @@ impl From<OutPoint> for CoreOutPoint {
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: Unsigned,
-    pub args: Vec<JsonBytes>,
+    pub block_number: BlockNumber,
 }
 
 impl From<CoreCellInput> for CellInput {
     fn from(core: CoreCellInput) -> CellInput {
-        let (previous_output, since, args) = core.destruct();
+        let (previous_output, since, block_number) = core.destruct();
         CellInput {
             previous_output: previous_output.into(),
             since: Unsigned(since),
-            args: args.into_iter().map(JsonBytes::from_bytes).collect(),
+            block_number: BlockNumber(block_number),
         }
     }
 }
@@ -154,13 +154,9 @@ impl From<CellInput> for CoreCellInput {
         let CellInput {
             previous_output,
             since,
-            args,
+            block_number,
         } = json;
-        CoreCellInput::new(
-            previous_output.into(),
-            since.0,
-            args.into_iter().map(JsonBytes::into_bytes).collect(),
-        )
+        CoreCellInput::new(previous_output.into(), since.0, block_number.0)
     }
 }
 
@@ -636,14 +632,14 @@ mod tests {
         )
     }
 
-    fn mock_cell_input(arg: Bytes) -> CoreCellInput {
-        CoreCellInput::new(CoreOutPoint::default(), 0, vec![arg])
+    fn mock_cell_input() -> CoreCellInput {
+        CoreCellInput::new(CoreOutPoint::default(), 0, 0)
     }
 
     fn mock_full_tx(data: Bytes, arg: Bytes) -> CoreTransaction {
         TransactionBuilder::default()
             .deps(vec![CoreOutPoint::default()])
-            .inputs(vec![mock_cell_input(arg.clone())])
+            .inputs(vec![mock_cell_input()])
             .outputs(vec![mock_cell_output(data, arg.clone())])
             .witness(vec![arg])
             .build()

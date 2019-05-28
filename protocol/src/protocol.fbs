@@ -83,8 +83,8 @@ table CellInput {
     block_hash:     H256;
     tx_hash:        H256;
     index:          uint32;
+    block_number:   uint64;
     since:          uint64;
-    args:           [Bytes];
 }
 
 table CellOutput {

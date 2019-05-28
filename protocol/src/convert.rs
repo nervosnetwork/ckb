@@ -308,17 +308,10 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
         };
         let previous_output = ckb_core::transaction::OutPoint { block_hash, cell };
 
-        let args: Option<Vec<Vec<u8>>> = FlatbuffersVectorIterator::new(cast!(cell_input.args())?)
-            .map(|argument| argument.seq().map(|s| s.to_vec()))
-            .collect();
-
         Ok(ckb_core::transaction::CellInput {
             previous_output,
             since: cell_input.since(),
-            args: cast!(args)?
-                .into_iter()
-                .map(ckb_core::Bytes::from)
-                .collect(),
+            block_number: cell_input.block_number(),
         })
     }
 }

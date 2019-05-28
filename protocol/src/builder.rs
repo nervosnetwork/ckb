@@ -198,13 +198,6 @@ impl<'a> FbsCellInput<'a> {
             .clone()
             .map(|hash| (&hash).into());
 
-        let vec = cell_input
-            .args
-            .iter()
-            .map(|argument| FbsBytes::build(fbb, argument))
-            .collect::<Vec<_>>();
-        let args = fbb.create_vector(&vec);
-
         let mut builder = CellInputBuilder::new(fbb);
         if let Some(ref hash) = tx_hash {
             builder.add_tx_hash(hash);
@@ -216,7 +209,7 @@ impl<'a> FbsCellInput<'a> {
             builder.add_block_hash(hash);
         }
         builder.add_since(cell_input.since);
-        builder.add_args(args);
+        builder.add_block_number(cell_input.block_number);
         builder.finish()
     }
 }

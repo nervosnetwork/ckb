@@ -93,7 +93,7 @@ impl Spec for TransactionRelayMultiple {
                     .input(CellInput::new(
                         OutPoint::new_cell(tx_hash.clone(), i as u32),
                         0,
-                        vec![],
+                        0,
                     ))
                     .build();
                 node0.rpc_client().send_transaction((&tx).into());

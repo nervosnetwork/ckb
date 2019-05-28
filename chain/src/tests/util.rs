@@ -111,7 +111,7 @@ pub(crate) fn create_transaction_with_out_point(
             always_success_script,
             None,
         ))
-        .input(CellInput::new(out_point, 0, vec![]))
+        .input(CellInput::new(out_point, 0, 0))
         .dep(always_success_out_point)
         .build()
 }

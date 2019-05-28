@@ -46,7 +46,7 @@ pub fn test_capacity_outofbound() {
 #[test]
 pub fn test_skip_dao_capacity_check() {
     let transaction = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]))
+        .input(CellInput::new(OutPoint::new_issuing_dao(), 0, 0))
         .output(CellOutput::new(
             capacity_bytes!(500),
             Bytes::from(vec![1; 10]),

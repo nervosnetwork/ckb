@@ -4,8 +4,7 @@ use crate::syscalls::{
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::transaction::CellInput;
-use ckb_protocol::CellInput as FbsCellInput;
-use ckb_protocol::{Bytes as FbsBytes, CellInputBuilder, OutPoint as FbsOutPoint};
+use ckb_protocol::{CellInput as FbsCellInput, OutPoint as FbsOutPoint};
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -75,23 +74,11 @@ impl<'a> LoadInput<'a> {
         let field = InputField::parse_from_u64(machine.registers()[A5].to_u64())?;
 
         let result = match field {
-            InputField::Args => {
-                let mut builder = FlatBufferBuilder::new();
-                let vec = input
-                    .args
-                    .iter()
-                    .map(|argument| FbsBytes::build(&mut builder, argument))
-                    .collect::<Vec<_>>();
-                let args = builder.create_vector(&vec);
-                // Since a vector cannot be root FlatBuffer type, we have
-                // to wrap args here inside a CellInput struct.
-                let mut input_builder = CellInputBuilder::new(&mut builder);
-                input_builder.add_args(args);
-                let offset = input_builder.finish();
-                builder.finish(offset, None);
-                let data = builder.finished_data();
-                store_data(machine, data)?;
-                data.len()
+            InputField::BlockNumber => {
+                let mut buffer = vec![];
+                buffer.write_u64::<LittleEndian>(input.block_number)?;
+                store_data(machine, &buffer)?;
+                buffer.len()
             }
             InputField::OutPoint => {
                 let mut builder = FlatBufferBuilder::new();

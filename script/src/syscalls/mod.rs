@@ -63,7 +63,7 @@ impl CellField {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum InputField {
-    Args = 0,
+    BlockNumber = 0,
     OutPoint = 1,
     Since = 2,
 }
@@ -71,7 +71,7 @@ enum InputField {
 impl InputField {
     fn parse_from_u64(i: u64) -> Result<InputField, Error> {
         match i {
-            0 => Ok(InputField::Args),
+            0 => Ok(InputField::BlockNumber),
             1 => Ok(InputField::OutPoint),
             2 => Ok(InputField::Since),
             _ => Err(Error::ParseError),
@@ -147,10 +147,7 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
-    use ckb_protocol::{
-        Bytes as FbsBytes, CellInputBuilder, CellOutput as FbsCellOutput, Header as FbsHeader,
-        Witness as FbsWitness,
-    };
+    use ckb_protocol::{CellOutput as FbsCellOutput, Header as FbsHeader, Witness as FbsWitness};
     use ckb_store::{ChainKVStore, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
@@ -592,7 +589,8 @@ mod tests {
         }
     }
 
-    fn _test_load_input_unlock_args(data: Vec<u8>) -> Result<(), TestCaseError> {
+    #[test]
+    fn test_load_input_block_number() -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -602,58 +600,32 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
         machine.set_register(A4, u64::from(Source::Normal(SourceEntry::Input))); //source: 1 input
-        machine.set_register(A5, InputField::Args as u64); //field: 0 args
+        machine.set_register(A5, InputField::BlockNumber as u64); //field: 0 block number
         machine.set_register(A7, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let args = vec![Bytes::from(data)];
-
-        let mut builder = FlatBufferBuilder::new();
-        let vec = args
-            .iter()
-            .map(|argument| FbsBytes::build(&mut builder, argument))
-            .collect::<Vec<_>>();
-        let fbs_args = builder.create_vector(&vec);
-        let mut input_builder = CellInputBuilder::new(&mut builder);
-        input_builder.add_args(fbs_args);
-        let offset = input_builder.finish();
-        builder.finish(offset, None);
-        let args_data = builder.finished_data();
-
-        let input = CellInput::new(OutPoint::default(), 0, args);
+        let input = CellInput::new(OutPoint::default(), 0, 123);
         let inputs = vec![&input];
         let group_inputs = vec![];
         let mut load_input = LoadInput::new(&inputs, &group_inputs);
 
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(args_data.len() as u64))
-            .is_ok());
+        prop_assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
 
         prop_assert!(load_input.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
-        prop_assert_eq!(
-            machine.memory_mut().load64(&size_addr),
-            Ok(args_data.len() as u64)
-        );
+        prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(8));
 
-        for (i, addr) in (addr..addr + args_data.len() as u64).enumerate() {
-            prop_assert_eq!(
-                machine.memory_mut().load8(&addr),
-                Ok(u64::from(args_data[i]))
-            );
+        let mut buffer = vec![];
+        buffer.write_u64::<LittleEndian>(123).unwrap();
+
+        for (i, addr) in (addr..addr + buffer.len() as u64).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(buffer[i])));
         }
         Ok(())
     }
 
-    proptest! {
-        #[test]
-        fn test_load_input_unlock_args(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_input_unlock_args(data)?;
-        }
-    }
-
-    fn _test_load_missing_output_unlock_args(data: Vec<u8>) -> Result<(), TestCaseError> {
+    #[test]
+    fn test_load_missing_output_block_number() -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
@@ -663,52 +635,25 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
         machine.set_register(A4, u64::from(Source::Normal(SourceEntry::Output))); //source: 2 output
-        machine.set_register(A5, InputField::Args as u64); //field: 0 unlock
+        machine.set_register(A5, InputField::BlockNumber as u64); //field: 0 block number
         machine.set_register(A7, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let args = vec![Bytes::from(data)];
+        prop_assert!(machine.memory_mut().store64(&size_addr, &10).is_ok());
 
-        let mut builder = FlatBufferBuilder::new();
-        let vec = args
-            .iter()
-            .map(|argument| FbsBytes::build(&mut builder, argument))
-            .collect::<Vec<_>>();
-        let fbs_args = builder.create_vector(&vec);
-        let mut input_builder = CellInputBuilder::new(&mut builder);
-        input_builder.add_args(fbs_args);
-        let offset = input_builder.finish();
-        builder.finish(offset, None);
-        let args_data = builder.finished_data();
-
-        let input = CellInput::new(OutPoint::default(), 0, args);
+        let input = CellInput::new(OutPoint::default(), 0, 123);
         let inputs = vec![&input];
         let group_inputs = vec![];
         let mut load_input = LoadInput::new(&inputs, &group_inputs);
 
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(args_data.len() as u64 + 10))
-            .is_ok());
-
         prop_assert!(load_input.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(INDEX_OUT_OF_BOUND));
 
-        prop_assert_eq!(
-            machine.memory_mut().load64(&size_addr),
-            Ok(args_data.len() as u64 + 10)
-        );
+        prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(10));
 
-        for addr in addr..addr + args_data.len() as u64 {
+        for addr in addr..addr + 10 {
             prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(0));
         }
         Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn test_load_missing_output_unlock_args(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_missing_output_unlock_args(data)?;
-        }
     }
 
     fn _test_load_dep_cell_data(data: &[u8]) -> Result<(), TestCaseError> {

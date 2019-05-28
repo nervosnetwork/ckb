@@ -592,30 +592,21 @@ pub mod ckb {
                     }
                 }
 
+                if Self::VT_BLOCK_NUMBER as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_BLOCK_NUMBER) as usize;
+                    if voffset > 0 && object_inline_num_bytes - voffset < 8 {
+                        return Err(Error::OutOfBounds);
+                    }
+                }
+
                 if Self::VT_SINCE as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
                     let voffset = vtab.get(Self::VT_SINCE) as usize;
                     if voffset > 0 && object_inline_num_bytes - voffset < 8 {
                         return Err(Error::OutOfBounds);
-                    }
-                }
-
-                if Self::VT_ARGS as usize + flatbuffers::SIZE_VOFFSET
-                    <= vtab_num_bytes
-                {
-                    let voffset = vtab.get(Self::VT_ARGS) as usize;
-                    if voffset > 0 {
-                        if voffset + 4 > object_inline_num_bytes {
-                            return Err(Error::OutOfBounds);
-                        }
-
-                        let args_verifier = VectorVerifier::follow(
-                            buf,
-                            try_follow_uoffset(buf, tab.loc + voffset)?,
-                        );
-                        args_verifier
-                            .verify_reference_elements::<reader::Bytes>()?;
                     }
                 }
 

@@ -204,17 +204,16 @@ impl OutPoint {
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: u64,
-    // Depends on whether the operation is Transform or Destroy, this is the proof to transform
-    // lock or destroy lock.
-    pub args: Vec<Bytes>,
+    // Only used for cellbase input, normal input doesn't need this field
+    pub block_number: BlockNumber,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, since: u64, args: Vec<Bytes>) -> Self {
+    pub fn new(previous_output: OutPoint, since: u64, block_number: BlockNumber) -> Self {
         CellInput {
             previous_output,
             since,
-            args,
+            block_number,
         }
     }
 
@@ -222,23 +221,21 @@ impl CellInput {
         CellInput {
             previous_output: OutPoint::null(),
             since: 0,
-            args: vec![Bytes::from(block_number.to_le_bytes().to_vec())],
+            block_number,
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, u64, Vec<Bytes>) {
+    pub fn destruct(self) -> (OutPoint, u64, u64) {
         let CellInput {
             previous_output,
             since,
-            args,
+            block_number,
         } = self;
-        (previous_output, since, args)
+        (previous_output, since, block_number)
     }
 
     pub fn serialized_size(&self) -> usize {
-        self.previous_output.serialized_size()
-            + mem::size_of::<u64>()
-            + self.args.iter().map(Bytes::len).sum::<usize>()
+        self.previous_output.serialized_size() + mem::size_of::<u64>() + mem::size_of::<u64>()
     }
 }
 
@@ -806,11 +803,7 @@ mod test {
                 Script::default(),
                 None,
             ))
-            .input(CellInput::new(
-                OutPoint::new_cell(H256::zero(), 0),
-                0,
-                vec![],
-            ))
+            .input(CellInput::new(OutPoint::new_cell(H256::zero(), 0), 0, 0))
             .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
