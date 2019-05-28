@@ -25,10 +25,14 @@ impl Spec for WalletBasic {
 
         info!("Should return live cells and cell transactions after index the lock hash");
         rpc_client.index_lock_hash(lock_hash.clone(), Some(0));
-        let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20);
-        let cell_transactions = rpc_client.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20);
-        assert_eq!(1, live_cells.len());
-        assert_eq!(1, cell_transactions.len());
+        let result = wait_until(5, || {
+            let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20);
+            let cell_transactions = rpc_client.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20);
+            live_cells.len() == 1 && cell_transactions.len() == 1
+        });
+        if !result {
+            panic!("Wrong wallet store index data");
+        }
 
         info!("Generate 6 txs on node0");
         let mut txs_hash = Vec::new();

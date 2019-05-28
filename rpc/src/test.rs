@@ -163,7 +163,7 @@ fn setup_node(
     let wallet_store = DefaultWalletStore::new(&db_config, shared.clone());
     wallet_store.insert_lock_hash(&always_success_script.hash(), Some(0));
     // use hardcoded BATCH_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
-    (0..=height/100).for_each(|_| wallet_store.sync_index_states());
+    (0..=height / 100).for_each(|_| wallet_store.sync_index_states());
 
     // Start rpc services
     let mut io = IoHandler::new();

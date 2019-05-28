@@ -344,18 +344,15 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                         batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
                     {
                         if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                            let lock_hash_index = LockHashIndex::new(
-                                lock_hash_cell_output.lock_hash.clone(),
-                                lock_hash_cell_output.block_number,
-                                cell_out_point.tx_hash.clone(),
-                                cell_out_point.index,
-                            );
-                            batch.generate_live_cell(
-                                lock_hash_index,
-                                lock_hash_cell_output
-                                    .cell_output
-                                    .expect("inconsistent state"),
-                            );
+                            if let Some(cell_output) = lock_hash_cell_output.cell_output {
+                                let lock_hash_index = LockHashIndex::new(
+                                    lock_hash_cell_output.lock_hash.clone(),
+                                    lock_hash_cell_output.block_number,
+                                    cell_out_point.tx_hash.clone(),
+                                    cell_out_point.index,
+                                );
+                                batch.generate_live_cell(lock_hash_index, cell_output);
+                            }
                         }
                     }
                 });
@@ -444,31 +441,28 @@ impl WalletStoreBatch {
         consumed_by: TransactionPoint,
         db: &RocksDB,
     ) {
-        self.delete_lock_hash_live_cell(&lock_hash_index);
-        self.insert_lock_hash_transaction(&lock_hash_index, &Some(consumed_by));
-
-        let lock_hash_cell_output = self
+        if let Some(lock_hash_cell_output) = self
             .insert_buffer
-            .entry(lock_hash_index.cell_out_point.clone())
-            .or_insert_with(|| {
-                let cell_output = db
-                    .read(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
+            .get(&lock_hash_index.cell_out_point)
+            .cloned()
+            .or_else(|| {
+                db.read(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
                     .expect("wallet db read should be ok")
                     .map(|value| deserialize(&value).expect("deserialize CellOutput should be ok"))
-                    .expect("inconsistent state");
-
-                LockHashCellOutput {
-                    lock_hash: lock_hash_index.lock_hash.clone(),
-                    block_number: lock_hash_index.block_number,
-                    cell_output,
-                }
+                    .map(|cell_output| LockHashCellOutput {
+                        lock_hash: lock_hash_index.lock_hash.clone(),
+                        block_number: lock_hash_index.block_number,
+                        cell_output,
+                    })
             })
-            .clone();
-
-        self.insert_cell_out_point_lock_hash(
-            &lock_hash_index.cell_out_point,
-            &lock_hash_cell_output,
-        );
+        {
+            self.delete_lock_hash_live_cell(&lock_hash_index);
+            self.insert_lock_hash_transaction(&lock_hash_index, &Some(consumed_by));
+            self.insert_cell_out_point_lock_hash(
+                &lock_hash_index.cell_out_point,
+                &lock_hash_cell_output,
+            );
+        }
     }
 
     fn insert_lock_hash_index_state(&mut self, lock_hash: &H256, index_state: &LockHashIndexState) {
