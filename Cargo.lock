@@ -2007,6 +2007,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "multisig"
+version = "0.1.0"
+dependencies = [
+ "crypto 0.14.0-pre",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "native-tls"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
