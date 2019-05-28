@@ -61,8 +61,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let wallet_store = if args.config.rpc.wallet_enable() {
         let store = DefaultWalletStore::new(&args.config.wallet_db, shared.clone());
-        store.sync_index_states();
-        store.clone().start(Some("WalletStore"), &notify);
+        store.clone().start(Some("WalletStore"));
         Some(store)
     } else {
         None

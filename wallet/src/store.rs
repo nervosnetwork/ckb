@@ -10,19 +10,18 @@ use ckb_db::{
     rocksdb::{RocksDB, RocksdbBatch},
     Col, DBConfig, DbBatch, IterableKeyValueDB, KeyValueDB,
 };
-use ckb_notify::NotifyController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
-use crossbeam_channel::{self, select};
 use log::{error, info, trace};
 use numext_fixed_hash::H256;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
-const WALLET_STORE_SUBSCRIBER: &str = "wallet_store";
-
+const BATCH_ATTACH_BLOCK_NUMS: usize = 100;
+const SYNC_INTERVAL: Duration = Duration::from_secs(1);
 const COLUMNS: u32 = 4;
 
 /// +---------------------------------+---------------+--------------------------+
@@ -138,25 +137,19 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
         lock_hash: &H256,
         index_from: Option<BlockNumber>,
     ) -> LockHashIndexState {
-        // need to lock chain state, avoids inconsistent state in processing
-        let chain_state = self.shared.lock_chain_state();
-        let index_state = LockHashIndexState {
-            block_number: chain_state.tip_number(),
-            block_hash: chain_state.tip_hash().to_owned(),
+        let index_state = {
+            let chain_state = self.shared.lock_chain_state();
+            let tip_number = chain_state.tip_number();
+            let block_number = index_from.unwrap_or_else(|| tip_number);
+            LockHashIndexState {
+                block_number: block_number.min(tip_number),
+                block_hash: chain_state
+                    .store()
+                    .get_block_hash(block_number)
+                    .expect("block exists"),
+            }
         };
         self.commit_batch(|batch| {
-            if let Some(from_block_number) = index_from {
-                let mut index_lock_hashes = HashSet::new();
-                index_lock_hashes.insert(lock_hash.to_owned());
-                (from_block_number..=chain_state.tip_number()).for_each(|block_number| {
-                    let block = self
-                        .shared
-                        .block_hash(block_number)
-                        .and_then(|hash| self.shared.block(&hash))
-                        .expect("block exists");
-                    self.attach_block(batch, &index_lock_hashes, &block);
-                });
-            }
             batch.insert_lock_hash_index_state(lock_hash, &index_state);
         });
         index_state
@@ -201,24 +194,16 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
         }
     }
 
-    pub fn start<S: ToString>(self, thread_name: Option<S>, notify: &NotifyController) {
+    pub fn start<S: ToString>(self, thread_name: Option<S>) {
         let mut thread_builder = thread::Builder::new();
         if let Some(name) = thread_name {
             thread_builder = thread_builder.name(name.to_string());
         }
 
-        let new_tip_receiver = notify.subscribe_new_tip(WALLET_STORE_SUBSCRIBER);
         thread_builder
             .spawn(move || loop {
-                select! {
-                    recv(new_tip_receiver) -> msg => match msg {
-                        Ok(tip_changes) => self.update(&tip_changes.detached_blocks, &tip_changes.attached_blocks),
-                        _ => {
-                            error!(target: "wallet", "new_tip_receiver closed");
-                            break;
-                        }
-                    },
-                }
+                self.sync_index_states();
+                thread::sleep(SYNC_INTERVAL);
             })
             .expect("start DefaultWalletStore failed");
     }
@@ -244,14 +229,13 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
         }
     }
 
-    pub fn sync_index_states(&self) {
+    pub(crate) fn sync_index_states(&self) {
         info!(target: "wallet", "Start sync index states with chain store");
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
         if lock_hash_index_states.is_empty() {
             return;
         }
-        // need to lock chain state, avoids inconsistent state in processing
-        let chain_state = self.shared.lock_chain_state();
+
         // retains the lock hashes on fork chain and detach blocks
         lock_hash_index_states.retain(|_, index_state| {
             self.shared.block_number(&index_state.block_hash) != Some(index_state.block_number)
@@ -286,58 +270,49 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                 });
             });
 
-        // attach blocks until reach tip
-        let lock_hash_index_states = self.get_lock_hash_index_states();
+        // attach blocks until reach tip or batch limit
+        let mut lock_hash_index_states = self.get_lock_hash_index_states();
         let min_block_number: BlockNumber = lock_hash_index_states
             .values()
             .min_by_key(|index_state| index_state.block_number)
             .expect("none empty index states")
             .block_number;
+
+        // need to lock chain state, avoids inconsistent state in processing
+        let chain_state = self.shared.lock_chain_state();
         self.commit_batch(|batch| {
-            let index_lock_hashes = lock_hash_index_states.keys().cloned().collect();
-            (min_block_number + 1..=chain_state.tip_number()).for_each(|block_number| {
-                let block = self
-                    .shared
-                    .block_hash(block_number)
-                    .and_then(|hash| self.shared.block(&hash))
-                    .expect("block exists");
-                self.attach_block(batch, &index_lock_hashes, &block);
-            });
-            let index_state = LockHashIndexState {
-                block_number: chain_state.tip_number(),
-                block_hash: chain_state.tip_hash().to_owned(),
-            };
-            index_lock_hashes.iter().for_each(|lock_hash| {
-                batch.insert_lock_hash_index_state(lock_hash, &index_state);
-            })
+            (min_block_number + 1..=chain_state.tip_number())
+                .take(BATCH_ATTACH_BLOCK_NUMS)
+                .for_each(|block_number| {
+                    let index_lock_hashes = lock_hash_index_states
+                        .iter()
+                        .filter(|(_, index_state)| index_state.block_number < block_number)
+                        .map(|(lock_hash, _)| lock_hash)
+                        .cloned()
+                        .collect();
+                    let block = self
+                        .shared
+                        .block_hash(block_number)
+                        .and_then(|hash| self.shared.block(&hash))
+                        .expect("block exists");
+                    self.attach_block(batch, &index_lock_hashes, &block);
+                    let index_state = LockHashIndexState {
+                        block_number: block_number,
+                        block_hash: block.header().hash().to_owned(),
+                    };
+                    index_lock_hashes.into_iter().for_each(|lock_hash| {
+                        lock_hash_index_states.insert(lock_hash, index_state.clone());
+                    })
+                });
+
+            lock_hash_index_states
+                .iter()
+                .for_each(|(lock_hash, index_state)| {
+                    batch.insert_lock_hash_index_state(lock_hash, index_state);
+                })
         });
 
         info!(target: "wallet", "End sync index states with chain store");
-    }
-
-    pub(crate) fn update(&self, detached_blocks: &[Block], attached_blocks: &[Block]) {
-        let index_lock_hashes: HashSet<H256> =
-            self.get_lock_hash_index_states().keys().cloned().collect();
-        if !index_lock_hashes.is_empty() {
-            self.commit_batch(|batch| {
-                detached_blocks
-                    .iter()
-                    .rev()
-                    .for_each(|block| self.detach_block(batch, &index_lock_hashes, block));
-                attached_blocks
-                    .iter()
-                    .for_each(|block| self.attach_block(batch, &index_lock_hashes, block));
-                if let Some(block) = attached_blocks.last() {
-                    let index_state = LockHashIndexState {
-                        block_number: block.header().number(),
-                        block_hash: block.header().hash().to_owned(),
-                    };
-                    index_lock_hashes.iter().for_each(|lock_hash| {
-                        batch.insert_lock_hash_index_state(lock_hash, &index_state);
-                    })
-                }
-            });
-        }
     }
 
     fn detach_block(
@@ -664,7 +639,7 @@ mod tests {
 
     #[test]
     fn get_live_cells() {
-        let (store, _, _) = setup("get_live_cells");
+        let (store, chain, shared) = setup("get_live_cells");
         let script1 = Script::new(Vec::new(), DAO_CODE_HASH);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
@@ -691,7 +666,12 @@ mod tests {
         let block1 = BlockBuilder::default()
             .transaction(tx11.clone())
             .transaction(tx12.clone())
-            .header_builder(HeaderBuilder::default().number(1))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(1u64))
+                    .number(1)
+                    .parent_hash(shared.genesis_hash().to_owned()),
+            )
             .build();
 
         let tx21 = TransactionBuilder::default()
@@ -715,7 +695,12 @@ mod tests {
         let block2 = BlockBuilder::default()
             .transaction(tx21.clone())
             .transaction(tx22.clone())
-            .header_builder(HeaderBuilder::default().number(2))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(2u64))
+                    .number(2)
+                    .parent_hash(block1.header().hash().to_owned()),
+            )
             .build();
 
         let tx31 = TransactionBuilder::default()
@@ -746,13 +731,21 @@ mod tests {
             ))
             .build();
 
-        let block3 = BlockBuilder::default()
+        let block2_fork = BlockBuilder::default()
             .transaction(tx31.clone())
             .transaction(tx32.clone())
-            .header_builder(HeaderBuilder::default().number(3))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(20u64))
+                    .number(2)
+                    .parent_hash(block1.header().hash().to_owned()),
+            )
             .build();
 
-        store.update(&[], &[block1, block2.clone()]);
+        chain.process_block(Arc::new(block1), false).unwrap();
+        chain.process_block(Arc::new(block2), false).unwrap();
+        store.sync_index_states();
+
         let cells = store.get_live_cells(&script1.hash(), 0, 100);
         assert_eq!(2, cells.len());
         assert_eq!(capacity_bytes!(1000), cells[0].cell_output.capacity);
@@ -763,7 +756,8 @@ mod tests {
         assert_eq!(capacity_bytes!(2000), cells[0].cell_output.capacity);
         assert_eq!(capacity_bytes!(4000), cells[1].cell_output.capacity);
 
-        store.update(&[block2], &[block3]);
+        chain.process_block(Arc::new(block2_fork), false).unwrap();
+        store.sync_index_states();
         let cells = store.get_live_cells(&script1.hash(), 0, 100);
         assert_eq!(1, cells.len());
         assert_eq!(capacity_bytes!(5000), cells[0].cell_output.capacity);
@@ -782,7 +776,7 @@ mod tests {
 
     #[test]
     fn get_transactions() {
-        let (store, _, _) = setup("get_transactions");
+        let (store, chain, shared) = setup("get_transactions");
         let script1 = Script::new(Vec::new(), DAO_CODE_HASH);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
@@ -809,7 +803,12 @@ mod tests {
         let block1 = BlockBuilder::default()
             .transaction(tx11.clone())
             .transaction(tx12.clone())
-            .header_builder(HeaderBuilder::default().number(1))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(1u64))
+                    .number(1)
+                    .parent_hash(shared.genesis_hash().to_owned()),
+            )
             .build();
 
         let tx21 = TransactionBuilder::default()
@@ -833,7 +832,12 @@ mod tests {
         let block2 = BlockBuilder::default()
             .transaction(tx21.clone())
             .transaction(tx22.clone())
-            .header_builder(HeaderBuilder::default().number(2))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(2u64))
+                    .number(2)
+                    .parent_hash(block1.header().hash().to_owned()),
+            )
             .build();
 
         let tx31 = TransactionBuilder::default()
@@ -864,13 +868,21 @@ mod tests {
             ))
             .build();
 
-        let block3 = BlockBuilder::default()
+        let block2_fork = BlockBuilder::default()
             .transaction(tx31.clone())
             .transaction(tx32.clone())
-            .header_builder(HeaderBuilder::default().number(3))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(20u64))
+                    .number(2)
+                    .parent_hash(block1.header().hash().to_owned()),
+            )
             .build();
 
-        store.update(&[], &[block1, block2.clone()]);
+        chain.process_block(Arc::new(block1), false).unwrap();
+        chain.process_block(Arc::new(block2), false).unwrap();
+        store.sync_index_states();
+
         let transactions = store.get_transactions(&script1.hash(), 0, 100);
         assert_eq!(2, transactions.len());
         assert_eq!(tx11.hash().to_owned(), transactions[0].created_by.tx_hash);
@@ -881,7 +893,8 @@ mod tests {
         assert_eq!(tx12.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(tx22.hash().to_owned(), transactions[1].created_by.tx_hash);
 
-        store.update(&[block2], &[block3]);
+        chain.process_block(Arc::new(block2_fork), false).unwrap();
+        store.sync_index_states();
         let transactions = store.get_transactions(&script1.hash(), 0, 100);
         assert_eq!(2, transactions.len());
         assert_eq!(tx11.hash().to_owned(), transactions[0].created_by.tx_hash);
@@ -1060,7 +1073,7 @@ mod tests {
 
     #[test]
     fn consume_txs_in_same_block() {
-        let (store, _, _) = setup("consume_txs_in_same_block");
+        let (store, chain, shared) = setup("consume_txs_in_same_block");
         let script1 = Script::new(Vec::new(), DAO_CODE_HASH);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
@@ -1108,16 +1121,32 @@ mod tests {
             .transaction(tx11)
             .transaction(tx12)
             .transaction(tx13)
-            .header_builder(HeaderBuilder::default().number(1))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(1u64))
+                    .number(1)
+                    .parent_hash(shared.genesis_hash().to_owned()),
+            )
             .build();
 
-        store.update(&[], &[block1.clone()]);
+        let block1_fork = BlockBuilder::default()
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(20u64))
+                    .number(1)
+                    .parent_hash(shared.genesis_hash().to_owned()),
+            )
+            .build();
+
+        chain.process_block(Arc::new(block1), false).unwrap();
+        store.sync_index_states();
         let cells = store.get_live_cells(&script1.hash(), 0, 100);
         assert_eq!(0, cells.len());
         let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
         assert_eq!(2, cell_transactions.len());
 
-        store.update(&[block1.clone()], &[]);
+        chain.process_block(Arc::new(block1_fork), false).unwrap();
+        store.sync_index_states();
         let cells = store.get_live_cells(&script1.hash(), 0, 100);
         assert_eq!(0, cells.len());
         let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
@@ -1126,7 +1155,7 @@ mod tests {
 
     #[test]
     fn detach_blocks() {
-        let (store, _, _) = setup("detach_blocks");
+        let (store, chain, shared) = setup("detach_blocks");
         let script1 = Script::new(Vec::new(), DAO_CODE_HASH);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
@@ -1173,21 +1202,43 @@ mod tests {
         let block1 = BlockBuilder::default()
             .transaction(tx11)
             .transaction(tx12)
-            .header_builder(HeaderBuilder::default().number(1))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(1u64))
+                    .number(1)
+                    .parent_hash(shared.genesis_hash().to_owned()),
+            )
             .build();
 
         let block2 = BlockBuilder::default()
             .transaction(tx21)
-            .header_builder(HeaderBuilder::default().number(2))
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(2u64))
+                    .number(2)
+                    .parent_hash(block1.header().hash().to_owned()),
+            )
             .build();
 
-        store.update(&[], &[block1.clone(), block2.clone()]);
+        let block1_fork = BlockBuilder::default()
+            .header_builder(
+                HeaderBuilder::default()
+                    .difficulty(U256::from(20u64))
+                    .number(1)
+                    .parent_hash(shared.genesis_hash().to_owned()),
+            )
+            .build();
+
+        chain.process_block(Arc::new(block1), false).unwrap();
+        chain.process_block(Arc::new(block2), false).unwrap();
+        store.sync_index_states();
         let cells = store.get_live_cells(&script1.hash(), 0, 100);
         assert_eq!(0, cells.len());
         let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
         assert_eq!(2, cell_transactions.len());
 
-        store.update(&[block1.clone(), block2.clone()], &[]);
+        chain.process_block(Arc::new(block1_fork), false).unwrap();
+        store.sync_index_states();
         let cells = store.get_live_cells(&script1.hash(), 0, 100);
         assert_eq!(0, cells.len());
         let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
