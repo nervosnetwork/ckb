@@ -412,11 +412,12 @@ impl Peers {
         // TODO:
     }
 
-    pub fn disconnected(&self, peer: PeerIndex) {
+    pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
         self.best_known_headers.write().remove(&peer);
         // self.misbehavior.write().remove(peer);
         self.blocks_inflight.write().remove_by_peer(&peer);
         self.last_common_headers.write().remove(&peer);
+        self.state.write().remove(&peer)
     }
 
     // Return true when the block is that we have requested and received first time.

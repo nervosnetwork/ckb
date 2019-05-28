@@ -383,10 +383,6 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             }
         }
     }
-
-    pub fn peers(&self) -> Arc<Peers> {
-        Arc::clone(&self.peers)
-    }
 }
 
 impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
