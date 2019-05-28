@@ -1,5 +1,5 @@
 [package]
-name = "ckb-wallet"
+name = "ckb-indexer"
 version = "0.14.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]

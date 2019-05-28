@@ -51,7 +51,7 @@ members = [
     "pow",
     "benches",
     "resource",
-    "wallet",
+    "indexer",
 ]
 
 [profile.release]

@@ -2,11 +2,11 @@ use crate::utils::wait_until;
 use crate::{Net, Spec};
 use log::info;
 
-pub struct WalletBasic;
+pub struct IndexerBasic;
 
-impl Spec for WalletBasic {
+impl Spec for IndexerBasic {
     fn run(&self, net: Net) {
-        info!("Running WalletBasic");
+        info!("Running IndexerBasic");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
 
@@ -31,7 +31,7 @@ impl Spec for WalletBasic {
             live_cells.len() == 1 && cell_transactions.len() == 1
         });
         if !result {
-            panic!("Wrong wallet store index data");
+            panic!("Wrong indexer store index data");
         }
 
         info!("Generate 6 txs on node0");
@@ -57,7 +57,7 @@ impl Spec for WalletBasic {
             live_cells.len() == 4 && cell_transactions.len() == 10
         });
         if !result {
-            panic!("Wrong wallet store index data");
+            panic!("Wrong indexer store index data");
         }
 
         info!("Generate 5 blocks on node1 and connect node0 to switch fork");
@@ -72,7 +72,7 @@ impl Spec for WalletBasic {
             live_cells.len() == 5 && cell_transactions.len() == 5
         });
         if !result {
-            panic!("Wrong wallet store index data");
+            panic!("Wrong indexer store index data");
         }
 
         info!("Should remove data after deindex");

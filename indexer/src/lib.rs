@@ -1,5 +1,5 @@
 mod store;
 mod types;
 
-pub use store::{DefaultWalletStore, WalletStore};
+pub use store::{DefaultIndexerStore, IndexerStore};
 pub use types::{CellTransaction, LiveCell, TransactionPoint};

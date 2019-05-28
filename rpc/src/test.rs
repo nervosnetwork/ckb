@@ -1,6 +1,6 @@
 use crate::module::{
-    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
-    PoolRpcImpl, StatsRpc, StatsRpcImpl, WalletRpc, WalletRpcImpl,
+    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl,
+    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -12,6 +12,7 @@ use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, Transa
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
+use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConfig};
 use ckb_notify::NotifyService;
@@ -19,7 +20,6 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
 use ckb_sync::{Config as SyncConfig, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_wallet::{DefaultWalletStore, WalletStore};
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -157,13 +157,13 @@ fn setup_node(
     );
 
     let db_config = DBConfig {
-        path: dir.path().join("wallet").to_path_buf(),
+        path: dir.path().join("indexer").to_path_buf(),
         ..Default::default()
     };
-    let wallet_store = DefaultWalletStore::new(&db_config, shared.clone());
-    wallet_store.insert_lock_hash(&always_success_script.hash(), Some(0));
+    let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
+    indexer_store.insert_lock_hash(&always_success_script.hash(), Some(0));
     // use hardcoded BATCH_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
-    (0..=height / 100).for_each(|_| wallet_store.sync_index_states());
+    (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
 
     // Start rpc services
     let mut io = IoHandler::new();
@@ -192,8 +192,8 @@ fn setup_node(
         .to_delegate(),
     );
     io.extend_with(
-        WalletRpcImpl {
-            store: wallet_store,
+        IndexerRpcImpl {
+            store: indexer_store,
         }
         .to_delegate(),
     );

@@ -43,7 +43,7 @@ pub struct CKBAppConfig {
     #[serde(default)]
     pub db: DBConfig,
     #[serde(skip)]
-    pub wallet_db: DBConfig,
+    pub indexer_db: DBConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
     pub sync: SyncConfig,
@@ -157,7 +157,7 @@ impl CKBAppConfig {
             )?);
         }
         self.db.path = mkdir(self.data_dir.join("db"))?;
-        self.wallet_db.path = mkdir(self.data_dir.join("wallet_db"))?;
+        self.indexer_db.path = mkdir(self.data_dir.join("indexer_db"))?;
         self.network.path = mkdir(self.data_dir.join("network"))?;
         self.chain.spec.absolutize(root_dir);
 

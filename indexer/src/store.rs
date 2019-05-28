@@ -38,7 +38,7 @@ const COLUMN_LOCK_HASH_LIVE_CELL: Col = 1;
 const COLUMN_LOCK_HASH_TRANSACTION: Col = 2;
 const COLUMN_CELL_OUT_POINT_LOCK_HASH: Col = 3;
 
-pub trait WalletStore: Sync + Send {
+pub trait IndexerStore: Sync + Send {
     fn get_live_cells(&self, lock_hash: &H256, skip_num: usize, take_num: usize) -> Vec<LiveCell>;
 
     fn get_transactions(
@@ -59,26 +59,26 @@ pub trait WalletStore: Sync + Send {
     fn remove_lock_hash(&self, lock_hash: &H256);
 }
 
-pub struct DefaultWalletStore<CS> {
+pub struct DefaultIndexerStore<CS> {
     db: Arc<RocksDB>,
     shared: Shared<CS>,
 }
 
-impl<CS: ChainStore> Clone for DefaultWalletStore<CS> {
+impl<CS: ChainStore> Clone for DefaultIndexerStore<CS> {
     fn clone(&self) -> Self {
-        DefaultWalletStore {
+        DefaultIndexerStore {
             db: Arc::clone(&self.db),
             shared: self.shared.clone(),
         }
     }
 }
 
-impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
+impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
     fn get_live_cells(&self, lock_hash: &H256, skip_num: usize, take_num: usize) -> Vec<LiveCell> {
         let iter = self
             .db
             .iter(COLUMN_LOCK_HASH_LIVE_CELL, lock_hash.as_bytes())
-            .expect("wallet db iter should be ok");
+            .expect("indexer db iter should be ok");
         iter.skip(skip_num)
             .take(take_num)
             .take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
@@ -103,7 +103,7 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
         let iter = self
             .db
             .iter(COLUMN_LOCK_HASH_TRANSACTION, lock_hash.as_bytes())
-            .expect("wallet db iter should be ok");
+            .expect("indexer db iter should be ok");
         iter.skip(skip_num)
             .take(take_num)
             .take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
@@ -122,7 +122,7 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
     fn get_lock_hash_index_states(&self) -> HashMap<H256, LockHashIndexState> {
         self.db
             .iter(COLUMN_LOCK_HASH_INDEX_STATE, &[])
-            .expect("wallet db iter should be ok")
+            .expect("indexer db iter should be ok")
             .map(|(key, value)| {
                 (
                     H256::from_slice(&key).expect("db safe access"),
@@ -160,7 +160,7 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
             let iter = self
                 .db
                 .iter(COLUMN_LOCK_HASH_LIVE_CELL, lock_hash.as_bytes())
-                .expect("wallet db iter should be ok");
+                .expect("indexer db iter should be ok");
 
             iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
                 .for_each(|(key, _)| {
@@ -172,7 +172,7 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
             let iter = self
                 .db
                 .iter(COLUMN_LOCK_HASH_TRANSACTION, lock_hash.as_bytes())
-                .expect("wallet db iter should be ok");
+                .expect("indexer db iter should be ok");
 
             iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
                 .for_each(|(key, _)| {
@@ -185,10 +185,10 @@ impl<CS: ChainStore + 'static> WalletStore for DefaultWalletStore<CS> {
     }
 }
 
-impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
+impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
     pub fn new(db_config: &DBConfig, shared: Shared<CS>) -> Self {
         let db = RocksDB::open(db_config, COLUMNS);
-        DefaultWalletStore {
+        DefaultIndexerStore {
             db: Arc::new(db),
             shared,
         }
@@ -205,17 +205,17 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                 self.sync_index_states();
                 thread::sleep(SYNC_INTERVAL);
             })
-            .expect("start DefaultWalletStore failed");
+            .expect("start DefaultIndexerStore failed");
     }
 
     // helper function
     fn commit_batch<F>(&self, process: F)
     where
-        F: FnOnce(&mut WalletStoreBatch),
+        F: FnOnce(&mut IndexerStoreBatch),
     {
         match self.db.batch() {
             Ok(batch) => {
-                let mut batch = WalletStoreBatch {
+                let mut batch = IndexerStoreBatch {
                     batch,
                     insert_buffer: HashMap::new(),
                     delete_buffer: HashSet::new(),
@@ -224,13 +224,13 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                 batch.commit();
             }
             Err(err) => {
-                error!(target: "wallet", "wallet db failed to create new batch, error: {:?}", err);
+                error!(target: "indexer", "indexer db failed to create new batch, error: {:?}", err);
             }
         }
     }
 
     pub fn sync_index_states(&self) {
-        info!(target: "wallet", "Start sync index states with chain store");
+        info!(target: "indexer", "Start sync index states with chain store");
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
         if lock_hash_index_states.is_empty() {
             return;
@@ -312,16 +312,16 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
                 })
         });
 
-        info!(target: "wallet", "End sync index states with chain store");
+        info!(target: "indexer", "End sync index states with chain store");
     }
 
     fn detach_block(
         &self,
-        batch: &mut WalletStoreBatch,
+        batch: &mut IndexerStoreBatch,
         index_lock_hashes: &HashSet<H256>,
         block: &Block,
     ) {
-        trace!(target: "wallet", "detach block {:x}", block.header().hash());
+        trace!(target: "indexer", "detach block {:x}", block.header().hash());
         let block_number = block.header().number();
         block.transactions().iter().rev().for_each(|tx| {
             let tx_hash = tx.hash();
@@ -362,11 +362,11 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
 
     fn attach_block(
         &self,
-        batch: &mut WalletStoreBatch,
+        batch: &mut IndexerStoreBatch,
         index_lock_hashes: &HashSet<H256>,
         block: &Block,
     ) {
-        trace!(target: "wallet", "attach block {:x}", block.header().hash());
+        trace!(target: "indexer", "attach block {:x}", block.header().hash());
         let block_number = block.header().number();
         block.transactions().iter().for_each(|tx| {
             let tx_hash = tx.hash();
@@ -409,13 +409,13 @@ impl<CS: ChainStore + 'static> DefaultWalletStore<CS> {
 }
 
 // rocksdb rust binding doesn't support transactional batch, have to use batch buffer as tranaction overlay here.
-struct WalletStoreBatch {
+struct IndexerStoreBatch {
     pub batch: RocksdbBatch,
     pub insert_buffer: HashMap<CellOutPoint, LockHashCellOutput>,
     pub delete_buffer: HashSet<CellOutPoint>,
 }
 
-impl WalletStoreBatch {
+impl IndexerStoreBatch {
     fn generate_live_cell(&mut self, lock_hash_index: LockHashIndex, cell_output: CellOutput) {
         self.insert_lock_hash_live_cell(&lock_hash_index, &cell_output);
         self.insert_lock_hash_transaction(&lock_hash_index, &None);
@@ -447,7 +447,7 @@ impl WalletStoreBatch {
             .cloned()
             .or_else(|| {
                 db.read(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
-                    .expect("wallet db read should be ok")
+                    .expect("indexer db read should be ok")
                     .map(|value| deserialize(&value).expect("deserialize CellOutput should be ok"))
                     .map(|cell_output| LockHashCellOutput {
                         lock_hash: lock_hash_index.lock_hash.clone(),
@@ -560,7 +560,7 @@ impl WalletStoreBatch {
                     COLUMN_CELL_OUT_POINT_LOCK_HASH,
                     &serialize(cell_out_point).expect("serialize OutPoint should be ok"),
                 )
-                .expect("wallet db read should be ok")
+                .expect("indexer db read should be ok")
                 .map(|value| {
                     deserialize(&value).expect("deserialize LockHashCellOutput should be ok")
                 })
@@ -569,9 +569,9 @@ impl WalletStoreBatch {
     }
 
     fn commit(self) {
-        // only log the error, wallet store commit failure should not causing the thread to panic entirely.
+        // only log the error, indexer store commit failure should not causing the thread to panic entirely.
         if let Err(err) = self.batch.commit() {
-            error!(target: "wallet", "wallet db failed to commit batch, error: {:?}", err)
+            error!(target: "indexer", "indexer db failed to commit batch, error: {:?}", err)
         }
     }
 }
@@ -597,7 +597,7 @@ mod tests {
     fn setup(
         prefix: &str,
     ) -> (
-        DefaultWalletStore<ChainKVStore<MemoryKeyValueDB>>,
+        DefaultIndexerStore<ChainKVStore<MemoryKeyValueDB>>,
         ChainController,
         Shared<ChainKVStore<MemoryKeyValueDB>>,
     ) {
@@ -613,7 +613,7 @@ mod tests {
         let chain_service = ChainService::new(shared.clone(), notify);
         let chain_controller = chain_service.start::<&str>(None);
         (
-            DefaultWalletStore::new(&config, shared.clone()),
+            DefaultIndexerStore::new(&config, shared.clone()),
             chain_controller,
             shared,
         )

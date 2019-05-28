@@ -4,6 +4,7 @@ use ckb_app_config::{ExitCode, RunArgs};
 use ckb_chain::chain::ChainService;
 use ckb_db::RocksDB;
 use ckb_logger::info_target;
+use ckb_indexer::DefaultIndexerStore;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
@@ -59,9 +60,9 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             }
         };
 
-    let wallet_store = if args.config.rpc.wallet_enable() {
-        let store = DefaultWalletStore::new(&args.config.wallet_db, shared.clone());
-        store.clone().start(Some("WalletStore"));
+    let indexer_store = if args.config.rpc.indexer_enable() {
+        let store = DefaultIndexerStore::new(&args.config.indexer_db, shared.clone());
+        store.clone().start(Some("IndexerStore"));
         Some(store)
     } else {
         None

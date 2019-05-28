@@ -1,11 +1,11 @@
-use ckb_wallet::WalletStore;
+use ckb_indexer::IndexerStore;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Unsigned};
 use numext_fixed_hash::H256;
 
 #[rpc]
-pub trait WalletRpc {
+pub trait IndexerRpc {
     #[rpc(name = "get_live_cells_by_lock_hash")]
     fn get_live_cells_by_lock_hash(
         &self,
@@ -36,11 +36,11 @@ pub trait WalletRpc {
     fn get_lock_hash_index_states(&self) -> Result<Vec<LockHashIndexState>>;
 }
 
-pub(crate) struct WalletRpcImpl<WS> {
+pub(crate) struct IndexerRpcImpl<WS> {
     pub store: WS,
 }
 
-impl<WS: WalletStore + 'static> WalletRpc for WalletRpcImpl<WS> {
+impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
     fn get_live_cells_by_lock_hash(
         &self,
         lock_hash: H256,

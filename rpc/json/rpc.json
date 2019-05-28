@@ -632,7 +632,7 @@
     {
         "description": "Create index for live cells and transaction by the hash of lock script.",
         "method": "index_lock_hash",
-        "module": "wallet",
+        "module": "indexer",
         "params": [
             "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
             "1024"
@@ -652,7 +652,7 @@
     {
         "description": "Get lock hash index states",
         "method": "get_lock_hash_index_states",
-        "module": "wallet",
+        "module": "indexer",
         "params": [],
         "result": [
             {
@@ -665,7 +665,7 @@
     {
         "description": "Returns the live cells collection by the hash of lock script.",
         "method": "get_live_cells_by_lock_hash",
-        "module": "wallet",
+        "module": "indexer",
         "params": [
             "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
             "0",
@@ -716,7 +716,7 @@
     {
         "description": "Returns the transactions collection by the hash of lock script.",
         "method": "get_transactions_by_lock_hash",
-        "module": "wallet",
+        "module": "indexer",
         "params": [
             "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
             "0",
@@ -751,7 +751,7 @@
     {
         "description": "Remove index for live cells and transaction by the hash of lock script.",
         "method": "deindex_lock_hash",
-        "module": "wallet",
+        "module": "indexer",
         "params": [
             "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
         ],

@@ -17,6 +17,12 @@
     *   [`_compute_script_hash`](#_compute_script_hash)
     *   [`_compute_transaction_hash`](#_compute_transaction_hash)
     *   [`dry_run_transaction`](#dry_run_transaction)
+*   [`Indexer`](#indexer)
+    *   [`deindex_lock_hash`](#deindex_lock_hash)
+    *   [`get_live_cells_by_lock_hash`](#get_live_cells_by_lock_hash)
+    *   [`get_lock_hash_index_states`](#get_lock_hash_index_states)
+    *   [`get_transactions_by_lock_hash`](#get_transactions_by_lock_hash)
+    *   [`index_lock_hash`](#index_lock_hash)
 *   [`Net`](#net)
     *   [`get_peers`](#get_peers)
     *   [`local_node_info`](#local_node_info)
@@ -26,12 +32,6 @@
 *   [`Stats`](#stats)
     *   [`get_blockchain_info`](#get_blockchain_info)
     *   [`get_peers_state`](#get_peers_state)
-*   [`Wallet`](#wallet)
-    *   [`deindex_lock_hash`](#deindex_lock_hash)
-    *   [`get_live_cells_by_lock_hash`](#get_live_cells_by_lock_hash)
-    *   [`get_lock_hash_index_states`](#get_lock_hash_index_states)
-    *   [`get_transactions_by_lock_hash`](#get_transactions_by_lock_hash)
-    *   [`index_lock_hash`](#index_lock_hash)
 
 ## Chain
 
@@ -794,6 +794,233 @@ http://localhost:8114
 }
 ```
 
+## Indexer
+
+### `deindex_lock_hash`
+
+Remove index for live cells and transaction by the hash of lock script.
+
+#### Parameters
+
+    lock_hash - Cell lock script hash
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "deindex_lock_hash",
+    "params": [
+        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
+}
+```
+
+### `get_live_cells_by_lock_hash`
+
+Returns the live cells collection by the hash of lock script.
+
+#### Parameters
+
+    lock_hash - Cell lock script hash
+    page - Page number
+    per - Page size, max value is 50
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_live_cells_by_lock_hash",
+    "params": [
+        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
+        "0",
+        "2"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "cell_output": {
+                "capacity": "50000000000000",
+                "data": "0x",
+                "lock": {
+                    "args": [],
+                    "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+                },
+                "type": null
+            },
+            "created_by": {
+                "block_number": "1",
+                "index": "0",
+                "tx_hash": "0xabfcad974cda5d6a945eac00dfeeacaf3040a0bbb2e9de36424fc8c0385ff247"
+            }
+        },
+        {
+            "cell_output": {
+                "capacity": "50000000000000",
+                "data": "0x",
+                "lock": {
+                    "args": [],
+                    "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+                },
+                "type": null
+            },
+            "created_by": {
+                "block_number": "2",
+                "index": "0",
+                "tx_hash": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400"
+            }
+        }
+    ]
+}
+```
+
+### `get_lock_hash_index_states`
+
+Get lock hash index states
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_lock_hash_index_states",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
+            "block_number": "1024",
+            "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
+        }
+    ]
+}
+```
+
+### `get_transactions_by_lock_hash`
+
+Returns the transactions collection by the hash of lock script.
+
+#### Parameters
+
+    lock_hash - Cell lock script hash
+    page - Page number
+    per - Page size, max value is 50
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_transactions_by_lock_hash",
+    "params": [
+        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
+        "0",
+        "2"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "consumed_by": null,
+            "created_by": {
+                "block_number": "1",
+                "index": "0",
+                "tx_hash": "0xabfcad974cda5d6a945eac00dfeeacaf3040a0bbb2e9de36424fc8c0385ff247"
+            }
+        },
+        {
+            "consumed_by": null,
+            "created_by": {
+                "block_number": "2",
+                "index": "0",
+                "tx_hash": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400"
+            }
+        }
+    ]
+}
+```
+
+### `index_lock_hash`
+
+Create index for live cells and transaction by the hash of lock script.
+
+#### Parameters
+
+    lock_hash - Cell lock script hash
+    index_from - Create an index from starting block number, an optional parameter, null means starting from tip
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "index_lock_hash",
+    "params": [
+        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
+        "1024"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
+        "block_number": "1024",
+        "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
+    }
+}
+```
+
 ## Net
 
 ### `get_peers`
@@ -1068,233 +1295,6 @@ http://localhost:8114
             "peer": "1"
         }
     ]
-}
-```
-
-## Wallet
-
-### `deindex_lock_hash`
-
-Remove index for live cells and transaction by the hash of lock script.
-
-#### Parameters
-
-    lock_hash - Cell lock script hash
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "deindex_lock_hash",
-    "params": [
-        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": null
-}
-```
-
-### `get_live_cells_by_lock_hash`
-
-Returns the live cells collection by the hash of lock script.
-
-#### Parameters
-
-    lock_hash - Cell lock script hash
-    page - Page number
-    per - Page size, max value is 50
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "get_live_cells_by_lock_hash",
-    "params": [
-        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
-        "0",
-        "2"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": [
-        {
-            "cell_output": {
-                "capacity": "50000000000000",
-                "data": "0x",
-                "lock": {
-                    "args": [],
-                    "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
-                },
-                "type": null
-            },
-            "created_by": {
-                "block_number": "1",
-                "index": "0",
-                "tx_hash": "0xabfcad974cda5d6a945eac00dfeeacaf3040a0bbb2e9de36424fc8c0385ff247"
-            }
-        },
-        {
-            "cell_output": {
-                "capacity": "50000000000000",
-                "data": "0x",
-                "lock": {
-                    "args": [],
-                    "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
-                },
-                "type": null
-            },
-            "created_by": {
-                "block_number": "2",
-                "index": "0",
-                "tx_hash": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400"
-            }
-        }
-    ]
-}
-```
-
-### `get_lock_hash_index_states`
-
-Get lock hash index states
-
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "get_lock_hash_index_states",
-    "params": []
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": [
-        {
-            "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
-            "block_number": "1024",
-            "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
-        }
-    ]
-}
-```
-
-### `get_transactions_by_lock_hash`
-
-Returns the transactions collection by the hash of lock script.
-
-#### Parameters
-
-    lock_hash - Cell lock script hash
-    page - Page number
-    per - Page size, max value is 50
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "get_transactions_by_lock_hash",
-    "params": [
-        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
-        "0",
-        "2"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": [
-        {
-            "consumed_by": null,
-            "created_by": {
-                "block_number": "1",
-                "index": "0",
-                "tx_hash": "0xabfcad974cda5d6a945eac00dfeeacaf3040a0bbb2e9de36424fc8c0385ff247"
-            }
-        },
-        {
-            "consumed_by": null,
-            "created_by": {
-                "block_number": "2",
-                "index": "0",
-                "tx_hash": "0x530204fd06dbe0c831bf1043a6ec758bb4b0db7eca6445793194ffb84ad29400"
-            }
-        }
-    ]
-}
-```
-
-### `index_lock_hash`
-
-Create index for live cells and transaction by the hash of lock script.
-
-#### Parameters
-
-    lock_hash - Cell lock script hash
-    index_from - Create an index from starting block number, an optional parameter, null means starting from tip
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "index_lock_hash",
-    "params": [
-        "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
-        "0"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": {
-        "block_hash": "0x4d381124b9a3a55bad2c45b49efe1ffd6b365d3ea7cf3141d5830b0bb94deeb8",
-        "block_number": "1024",
-        "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
-    }
 }
 ```
 
