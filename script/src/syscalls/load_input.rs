@@ -1,5 +1,5 @@
 use crate::syscalls::{
-    utils::store_data, InputField, Source, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+    utils::store_data, InputField, Source, SourceEntry, INDEX_OUT_OF_BOUND,
     LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER, SUCCESS,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -15,18 +15,36 @@ use flatbuffers::FlatBufferBuilder;
 #[derive(Debug)]
 pub struct LoadInput<'a> {
     inputs: &'a [&'a CellInput],
+    group_inputs: &'a [usize],
 }
 
 impl<'a> LoadInput<'a> {
-    pub fn new(inputs: &'a [&'a CellInput]) -> LoadInput<'a> {
-        LoadInput { inputs }
+    pub fn new(inputs: &'a [&'a CellInput], group_inputs: &'a [usize]) -> LoadInput<'a> {
+        LoadInput {
+            inputs,
+            group_inputs,
+        }
     }
 
     fn fetch_input(&self, source: Source, index: usize) -> Result<&CellInput, u8> {
         match source {
-            Source::Input => self.inputs.get(index).cloned().ok_or(INDEX_OUT_OF_BOUND),
-            Source::Output => Err(ITEM_MISSING),
-            Source::Dep => Err(ITEM_MISSING),
+            Source::Normal(SourceEntry::Input) => {
+                self.inputs.get(index).cloned().ok_or(INDEX_OUT_OF_BOUND)
+            }
+            Source::Normal(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
+            Source::Normal(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::Input) => self
+                .group_inputs
+                .get(index)
+                .ok_or(INDEX_OUT_OF_BOUND)
+                .and_then(|actual_index| {
+                    self.inputs
+                        .get(*actual_index)
+                        .cloned()
+                        .ok_or(INDEX_OUT_OF_BOUND)
+                }),
+            Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
         }
     }
 
