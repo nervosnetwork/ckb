@@ -250,7 +250,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                             .try_fold(Capacity::zero(), |capacity, output| {
                                 capacity.safe_add(output.capacity)
                             })
-                            .unwrap()
+                            .expect("accumulated capacity in genesis block should not overflow")
                     })
                     .unwrap_or_else(Capacity::zero)
                     .as_u64(),
@@ -301,7 +301,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber> {
         self.get(COLUMN_INDEX, hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).unwrap())
+            .map(|raw| deserialize(&raw[..]).expect("deserialize block number should be ok"))
     }
 
     fn get_tip_header(&self) -> Option<Header> {
@@ -367,7 +367,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             COLUMN_CELL_META,
             CellKey::calculate(tx_hash, index).as_ref(),
         )
-        .map(|raw| deserialize(&raw[..]).unwrap())
+        .map(|raw| deserialize(&raw[..]).expect("deserialize cell meta should be ok"))
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
