@@ -30,7 +30,8 @@ impl<'a> LoadWitness<'a> {
                 .group_inputs
                 .get(index)
                 .and_then(|actual_index| self.witnesses.get(*actual_index).cloned()),
-            _ => self.witnesses.get(index).cloned(),
+            Source::Transaction(SourceEntry::Input) => self.witnesses.get(index).cloned(),
+            _ => None,
         }
     }
 }
