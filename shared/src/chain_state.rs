@@ -1,4 +1,4 @@
-use crate::cell_set::{CellSet, CellSetDiff, CellSetOverlay};
+use crate::cell_set::{CellSet, CellSetDiff, CellSetOpr, CellSetOverlay};
 use crate::error::SharedError;
 use crate::tx_pool::types::{DefectEntry, ProposedEntry};
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
@@ -15,13 +15,14 @@ use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_script::ScriptConfig;
-use ckb_store::ChainStore;
+use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_util::LinkedFnvHashSet;
 use ckb_util::{FnvHashMap, FnvHashSet};
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use dao_utils::calculate_transaction_fee;
-use log::{debug, trace};
+use failure::Error as FailureError;
+use log::{debug, info, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -91,7 +92,8 @@ impl<CS: ChainStore> ChainState<CS> {
         let proposal_window = consensus.tx_proposal_window();
         let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
 
-        let cell_set = Self::init_cell_set(&store, tip_number);
+        let cell_set = Self::init_cell_set(&store)
+            .map_err(|e| SharedError::InvalidData(format!("failed to load cell set{:?}", e)))?;
 
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
@@ -141,32 +143,20 @@ impl<CS: ChainStore> ChainState<CS> {
         proposal_ids
     }
 
-    fn init_cell_set(store: &CS, number: u64) -> CellSet {
+    fn init_cell_set(store: &CS) -> Result<CellSet, FailureError> {
         let mut cell_set = CellSet::new();
-
-        for n in 0..=number {
-            let hash = store.get_block_hash(n).unwrap();
-            let epoch_hash = store.get_block_epoch_index(&hash).unwrap();
-            let epoch_ext = store.get_epoch_ext(&epoch_hash).unwrap();
-            for tx in store.get_block_body(&hash).unwrap() {
-                let inputs = tx.input_pts_iter();
-                let output_len = tx.outputs().len();
-
-                for o in inputs {
-                    cell_set.mark_dead(o);
-                }
-
-                cell_set.insert(
-                    tx.hash().to_owned(),
-                    n,
-                    epoch_ext.number(),
-                    tx.is_cellbase(),
-                    output_len,
-                );
+        let mut count = 0;
+        info!(target: "chain", "Start: loading live cells ...");
+        store.traverse_cell_set(|tx_hash, tx_meta| {
+            count += 1;
+            cell_set.put(tx_hash, tx_meta);
+            if count % 10_000 == 0 {
+                info!(target: "chain", "    loading {} transactions which include live cells ...", count);
             }
-        }
-
-        cell_set
+            Ok(())
+        })?;
+        info!(target: "chain", "Done: total {} transactions.", count);
+        Ok(cell_set)
     }
 
     pub fn tip_number(&self) -> BlockNumber {
@@ -230,10 +220,104 @@ impl<CS: ChainStore> ChainState<CS> {
         self.current_epoch_ext = epoch_ext;
     }
 
-    pub fn update_tip(&mut self, header: Header, total_difficulty: U256, txo_diff: CellSetDiff) {
+    pub fn update_tip(
+        &mut self,
+        header: Header,
+        total_difficulty: U256,
+        txo_diff: CellSetDiff,
+    ) -> Result<(), FailureError> {
         self.tip_header = header;
         self.total_difficulty = total_difficulty;
-        self.cell_set.update(txo_diff);
+
+        let CellSetDiff {
+            old_inputs,
+            old_outputs,
+            new_inputs,
+            new_outputs,
+        } = txo_diff;
+
+        // The order is important, do NOT change them, unlese you know them clearly.
+
+        let updated_old_inputs = old_inputs
+            .into_iter()
+            .filter_map(|out_point| {
+                out_point.cell.map(|cell| {
+                    if let Some(tx_meta) = self.cell_set.try_mark_live(&cell) {
+                        (cell.tx_hash, tx_meta)
+                    } else {
+                        let (tx, block_hash) = self
+                            .store
+                            .get_transaction(&cell.tx_hash)
+                            .expect("we should have this transaction");
+                        let block = self
+                            .store
+                            .get_block(&block_hash)
+                            .expect("we should have this block");
+                        let cellbase = block.transactions()[0].hash() == tx.hash();
+                        let tx_meta = self.cell_set.insert_cell(
+                            &cell,
+                            block.header().number(),
+                            block.header().epoch(),
+                            cellbase,
+                            tx.outputs().len(),
+                        );
+                        (cell.tx_hash, tx_meta)
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let removed_old_outputs = old_outputs
+            .into_iter()
+            .filter_map(|tx_hash| self.cell_set.remove(&tx_hash).map(|_| tx_hash))
+            .collect::<Vec<_>>();
+
+        let inserted_new_outputs = new_outputs
+            .into_iter()
+            .map(|(tx_hash, (number, epoch, cellbase, len))| {
+                let tx_meta = self.cell_set.insert_transaction(
+                    tx_hash.to_owned(),
+                    number,
+                    epoch,
+                    cellbase,
+                    len,
+                );
+                (tx_hash, tx_meta)
+            })
+            .collect::<Vec<_>>();
+
+        let mut updated_new_inputs = Vec::new();
+        let mut removed_new_inputs = Vec::new();
+        new_inputs.into_iter().for_each(|out_point| {
+            out_point.cell.and_then(|cell| {
+                self.cell_set.mark_dead(&cell).map(|opr| match opr {
+                    CellSetOpr::Delete => removed_new_inputs.push(cell.tx_hash),
+                    CellSetOpr::Update(tx_meta) => updated_new_inputs.push((cell.tx_hash, tx_meta)),
+                })
+            });
+        });
+
+        {
+            let mut batch = self.store.new_batch()?;
+            for (tx_hash, tx_meta) in updated_old_inputs.iter() {
+                batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            for tx_hash in removed_old_outputs.iter() {
+                batch.delete_cell_set(&tx_hash)?;
+            }
+            for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
+                batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            for (tx_hash, tx_meta) in updated_new_inputs.iter() {
+                batch.update_cell_set(&tx_hash, &tx_meta)?;
+            }
+            for tx_hash in removed_new_inputs.iter() {
+                batch.delete_cell_set(&tx_hash)?;
+            }
+            batch.commit()?;
+        }
+
+        Ok(())
     }
 
     pub fn get_tx_with_cycles_from_pool(

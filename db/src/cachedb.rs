@@ -136,6 +136,13 @@ where
         self.db.partial_read(col, key, range)
     }
 
+    fn traverse<F>(&self, col: Col, callback: F) -> Result<()>
+    where
+        F: FnMut(&[u8], &[u8]) -> Result<()>,
+    {
+        self.db.traverse(col, callback)
+    }
+
     fn batch(&self) -> Result<Self::Batch> {
         Ok(CacheDBBatch::new(self.db.batch()?, Arc::clone(&self.cache)))
     }

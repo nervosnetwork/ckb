@@ -158,24 +158,23 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                 .block(&block_hash)
                 .ok_or_else(Error::internal_error)?;
             for transaction in block.transactions() {
-                let transaction_meta = chain_state
-                    .cell_set()
-                    .get(&transaction.hash())
-                    .ok_or_else(Error::internal_error)?;
-                for (i, output) in transaction.outputs().iter().enumerate() {
-                    if output.lock.hash() == lock_hash && transaction_meta.is_dead(i) == Some(false)
-                    {
-                        result.push(CellOutputWithOutPoint {
-                            out_point: OutPoint {
-                                cell: Some(CellOutPoint {
-                                    tx_hash: transaction.hash().to_owned(),
-                                    index: Unsigned(i as u64),
-                                }),
-                                block_hash: Some(block_hash.to_owned()),
-                            },
-                            capacity: Capacity(output.capacity),
-                            lock: output.lock.clone().into(),
-                        });
+                if let Some(transaction_meta) = chain_state.cell_set().get(&transaction.hash()) {
+                    for (i, output) in transaction.outputs().iter().enumerate() {
+                        if output.lock.hash() == lock_hash
+                            && transaction_meta.is_dead(i) == Some(false)
+                        {
+                            result.push(CellOutputWithOutPoint {
+                                out_point: OutPoint {
+                                    cell: Some(CellOutPoint {
+                                        tx_hash: transaction.hash().to_owned(),
+                                        index: Unsigned(i as u64),
+                                    }),
+                                    block_hash: Some(block_hash.to_owned()),
+                                },
+                                capacity: Capacity(output.capacity),
+                                lock: output.lock.clone().into(),
+                            });
+                        }
                     }
                 }
             }

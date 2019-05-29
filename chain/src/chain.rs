@@ -303,7 +303,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             if new_epoch || fork.has_detached() {
                 chain_state.update_current_epoch_ext(epoch);
             }
-            chain_state.update_tip(tip_header, total_difficulty, cell_set_diff);
+            chain_state.update_tip(tip_header, total_difficulty, cell_set_diff)?;
             chain_state.update_tx_pool_for_reorg(
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),

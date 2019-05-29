@@ -1,6 +1,6 @@
 use crate::{Col, DBConfig, DbBatch, Error, KeyValueDB, Result};
 use log::{info, warn};
-use rocksdb::{ColumnFamily, Error as RdbError, Options, WriteBatch, DB};
+use rocksdb::{ColumnFamily, Error as RdbError, IteratorMode, Options, WriteBatch, DB};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ use std::sync::Arc;
 //      - If the data can be migrated manually: update "x.y1.z" to "x.y2.0".
 //      - If the data can not be migrated: update "x1.y.z" to "x2.0.0".
 pub(crate) const VERSION_KEY: &str = "db-version";
-pub(crate) const VERSION_VALUE: &str = "0.13.0";
+pub(crate) const VERSION_VALUE: &str = "0.14.0";
 
 pub struct RocksDB {
     inner: Arc<DB>,
@@ -137,6 +137,18 @@ impl KeyValueDB for RocksDB {
             .get_pinned_cf(cf, &key)
             .map(|v| v.and_then(|vi| vi.get(range.start..range.end).map(|slice| slice.to_vec())))
             .map_err(Into::into)
+    }
+
+    fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
+    where
+        F: FnMut(&[u8], &[u8]) -> Result<()>,
+    {
+        let cf = cf_handle(&self.inner, col)?;
+        let iter = self.inner.full_iterator_cf(cf, IteratorMode::Start)?;
+        for (key, val) in iter {
+            callback(&key, &val)?;
+        }
+        Ok(())
     }
 
     fn batch(&self) -> Result<Self::Batch> {
