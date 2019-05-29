@@ -31,7 +31,7 @@ pub trait BlockMedianTimeContext {
         }
 
         // return greater one if count is even.
-        timestamps.sort_by(|a, b| a.cmp(b));
+        timestamps.sort();
         timestamps[timestamps.len() / 2]
     }
 
