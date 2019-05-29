@@ -65,9 +65,6 @@ matrix:
       cache: false
       before_script: skip
       addons: { apt: { packages: [] } }
-      language: javascript
-      install:
-        - npm install -g prettier
       script:
         - make cargo-license
         - make check-dirty-doc
