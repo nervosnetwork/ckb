@@ -70,7 +70,8 @@ pub struct TransactionScriptsVerifier<'a, CS> {
 
     binary_index: FnvHashMap<H256, usize>,
     block_data: FnvHashMap<H256, (BlockNumber, BlockExt)>,
-    script_groups: FnvHashMap<H256, ScriptGroup>,
+    lock_groups: FnvHashMap<H256, ScriptGroup>,
+    type_groups: FnvHashMap<H256, ScriptGroup>,
 }
 
 impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
@@ -123,7 +124,8 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             .collect();
 
         let mut block_data = FnvHashMap::<H256, (BlockNumber, BlockExt)>::default();
-        let mut script_groups = FnvHashMap::default();
+        let mut lock_groups = FnvHashMap::default();
+        let mut type_groups = FnvHashMap::default();
         for (i, resolved_input) in resolved_inputs.iter().enumerate() {
             if let Some(header) = &resolved_input.header {
                 if let Some(block_ext) = store.get_block_ext(header.hash()) {
@@ -134,12 +136,12 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             // each input has correct script setup.
             if let Some(cell_meta) = resolved_input.cell.cell_meta() {
                 let output = store.lazy_load_cell_output(cell_meta);
-                let lock_group_entry = script_groups
+                let lock_group_entry = lock_groups
                     .entry(output.lock.hash())
                     .or_insert_with(|| ScriptGroup::new(&output.lock));
                 lock_group_entry.input_indices.push(i);
                 if let Some(t) = output.type_ {
-                    let type_group_entry = script_groups
+                    let type_group_entry = type_groups
                         .entry(t.hash())
                         .or_insert_with(|| ScriptGroup::new(&t));
                     type_group_entry.input_indices.push(i);
@@ -148,7 +150,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         }
         for (i, output) in rtx.transaction.outputs().iter().enumerate() {
             if let Some(t) = &output.type_ {
-                let type_group_entry = script_groups
+                let type_group_entry = type_groups
                     .entry(t.hash())
                     .or_insert_with(|| ScriptGroup::new(&t));
                 type_group_entry.output_indices.push(i);
@@ -172,7 +174,8 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             resolved_deps,
             witnesses,
             config,
-            script_groups,
+            lock_groups,
+            type_groups,
             hash: tx_hash.to_owned(),
         }
     }
@@ -242,7 +245,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         }
 
         // Now run each script group
-        for group in self.script_groups.values() {
+        for group in self.lock_groups.values().chain(self.type_groups.values()) {
             let verify_result = if group.script.code_hash == DAO_CODE_HASH {
                 self.verify_dao(&group, max_cycles)
             } else {
