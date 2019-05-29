@@ -61,9 +61,6 @@ matrix:
       if: 'tag IS NOT present AND (type == pull_request OR repo != nervosnetwork/ckb OR branch = master)'
       cache: false
       addons: { apt: { packages: [] } }
-      language: javascript
-      install:
-        - npm install -g prettier
       script:
         - make cargo-license
         - make check-dirty-doc

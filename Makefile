@@ -3,6 +3,7 @@ SHELL = /bin/sh
 FLATC   := flatc
 CFBC    := cfbc
 VERBOSE := $(if ${CI},--verbose,)
+CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
 ##@ Testing
 test: ## Run all tests.
@@ -11,6 +12,10 @@ test: ## Run all tests.
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
 	rm -rf test/target && ln -snf ../target/ test/target
+
+setup-ckb-tools:
+	cd devtools/jsonfmt && cargo clean
+	cp -f Cargo.lock ./devtools/jsonfmt/
 
 integration: setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build ${VERBOSE}
@@ -60,13 +65,15 @@ docker-publish:
 	docker push nervos/ckb:latest
 
 ##@ Code Quality
-fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
+fmt: setup-ckb-test setup-ckb-tools ## Check Rust source code format to keep to the same style.
 	cargo fmt ${VERBOSE} --all -- --check
 	cd test && cargo fmt ${VERBOSE} --all -- --check
+	cd devtools/jsonfmt && cargo fmt ${VERBOSE} --all -- --check
 
-clippy: setup-ckb-test ## Run linter to examine Rust source codes.
-	cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
-	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+clippy: setup-ckb-test setup-ckb-tools ## Run linter to examine Rust source codes.
+	cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
+	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
+	cd devtools/jsonfmt && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
 	@cargo audit --version || cargo install cargo-audit
@@ -82,10 +89,13 @@ ci: cargo-license fmt check-dirty-doc clippy security-audit test
 cargo-license:
 	FILES="$$(find . -name Cargo.toml | xargs grep -L '^license')"; if [ -n "$$FILES" ]; then echo "Missing license in: $${FILES}"; false; fi
 
-check-dirty-doc:
+check-dirty-doc: jsonfmt
 	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
-	prettier --write rpc/json/rpc.json
+	./devtools/jsonfmt/target/release/ckb-jsonfmt rpc/json/rpc.json
 	git diff --exit-code rpc/README.md rpc/json/rpc.json
+
+jsonfmt: setup-ckb-tools
+	cd devtools/jsonfmt && cargo build ${VERBOSE} --release
 
 ##@ Generates Files
 GEN_FILES := protocol/src/protocol_generated.rs protocol/src/protocol_generated_verifier.rs
@@ -124,3 +134,4 @@ help:  ## Display help message.
 .PHONY: fmt test clippy doc doc-deps gen-doc gen-hashes check stats check-dirty-doc
 .PHONY: ci security-audit
 .PHONY: integration integration-release setup-ckb-test
+.PHONY: setup-ckb-tools jsonfmt
