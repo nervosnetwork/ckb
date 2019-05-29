@@ -50,8 +50,14 @@ prod-docker:
 prod-test:
 	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
 
-docker: ## Build docker image with the bin built from "prod" then push it to Docker Hub as nervos/ckb:latest .
-	docker build -f docker/hub/Dockerfile -t nervos/ckb:latest .
+docker: ## Build docker image
+	docker build -f docker/hub/Dockerfile -t nervos/ckb:$$(git describe) .
+	docker run --rm -it nervos/ckb:$$(git describe) --version
+
+docker-publish:
+	docker push nervos/ckb:$$(git describe)
+	docker tag nervos/ckb:$$(git describe) nervos/ckb:latest
+	docker push nervos/ckb:latest
 
 ##@ Code Quality
 fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
@@ -113,7 +119,7 @@ stats: ## Counting lines of code.
 help:  ## Display help message.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-.PHONY: build prod prod-test docker
+.PHONY: build prod prod-test prod-docker docker docker-publish
 .PHONY: gen gen-clean clean clean-all check-cfbc-version
 .PHONY: fmt test clippy doc doc-deps gen-doc gen-hashes check stats check-dirty-doc
 .PHONY: ci security-audit
