@@ -27,11 +27,11 @@ impl<'a> LoadInput<'a> {
 
     fn fetch_input(&self, source: Source, index: usize) -> Result<&CellInput, u8> {
         match source {
-            Source::Normal(SourceEntry::Input) => {
+            Source::Transaction(SourceEntry::Input) => {
                 self.inputs.get(index).cloned().ok_or(INDEX_OUT_OF_BOUND)
             }
-            Source::Normal(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
-            Source::Normal(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
+            Source::Transaction(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)

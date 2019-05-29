@@ -44,15 +44,15 @@ impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&'a CellMeta, u8> {
         match source {
-            Source::Normal(SourceEntry::Input) => self
+            Source::Transaction(SourceEntry::Input) => self
                 .resolved_inputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
-            Source::Normal(SourceEntry::Output) => {
+            Source::Transaction(SourceEntry::Output) => {
                 self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
-            Source::Normal(SourceEntry::Dep) => self
+            Source::Transaction(SourceEntry::Dep) => self
                 .resolved_deps
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)

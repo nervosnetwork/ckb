@@ -33,13 +33,13 @@ impl<'a> LoadHeader<'a> {
 
     fn fetch_header(&self, source: Source, index: usize) -> Result<&Header, u8> {
         match source {
-            Source::Normal(SourceEntry::Input) => self
+            Source::Transaction(SourceEntry::Input) => self
                 .resolved_inputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|r| r.header().ok_or(ITEM_MISSING)),
-            Source::Normal(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
-            Source::Normal(SourceEntry::Dep) => self
+            Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
+            Source::Transaction(SourceEntry::Dep) => self
                 .resolved_deps
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
