@@ -394,7 +394,7 @@ impl<CS: ChainStore> ChainState<CS> {
                 ContextualTransactionVerifier::new(
                     &rtx,
                     &self,
-                    self.tip_number(),
+                    self.tx_verify_block_number(),
                     self.current_epoch_ext().number(),
                     &self.consensus(),
                 )
@@ -407,7 +407,7 @@ impl<CS: ChainStore> ChainState<CS> {
                 let cycles = TransactionVerifier::new(
                     &rtx,
                     &self,
-                    self.tip_number(),
+                    self.tx_verify_block_number(),
                     self.current_epoch_ext().number(),
                     &self.consensus(),
                     &self.script_config,
@@ -435,6 +435,11 @@ impl<CS: ChainStore> ChainState<CS> {
                 tx_pool.enqueue_tx(entry.cycles, entry.size, entry.transaction);
             }
         }
+    }
+
+    // assume block_number = self.tip_number() + 1 when verify tx in tx_pool
+    pub(crate) fn tx_verify_block_number(&self) -> BlockNumber {
+        self.tip_number() + 1
     }
 
     pub(crate) fn proposed_tx(
