@@ -14,7 +14,7 @@ use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::ChainProvider;
-use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier};
+use ckb_verification::{BlockVerifier, ContextualBlockVerifier, ForkContext, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use dao::calculate_dao_data;
 use failure::Error as FailureError;
@@ -25,8 +25,9 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::sync::Arc;
-use std::{cmp, mem, thread};
+use std::{cmp, thread};
 use stop_handler::{SignalSender, StopHandler};
 
 type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<(), FailureError>>;
@@ -57,21 +58,28 @@ struct ChainReceivers {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ForkChanges {
     // blocks attached to index after forks
-    pub(crate) attached_blocks: Vec<Block>,
+    pub(crate) attached_blocks: VecDeque<Block>,
     // blocks detached from index after forks
-    pub(crate) detached_blocks: Vec<Block>,
+    pub(crate) detached_blocks: VecDeque<Block>,
     // proposal_id detached to index after forks
     pub(crate) detached_proposal_id: FnvHashSet<ProposalShortId>,
     // to be updated exts
-    pub(crate) dirty_exts: Vec<BlockExt>,
+    pub(crate) dirty_exts: VecDeque<BlockExt>,
 }
 
+type VerifyContext<'a, CS> = (
+    CellSetDiff,
+    BlockHeadersProvider,
+    FnvHashMap<H256, &'a [CellOutput]>,
+    ForkContext<'a, Shared<CS>>,
+);
+
 impl ForkChanges {
-    pub fn attached_blocks(&self) -> &[Block] {
+    pub fn attached_blocks(&self) -> &VecDeque<Block> {
         &self.attached_blocks
     }
 
-    pub fn detached_blocks(&self) -> &[Block] {
+    pub fn detached_blocks(&self) -> &VecDeque<Block> {
         &self.detached_blocks
     }
 
@@ -81,6 +89,43 @@ impl ForkChanges {
 
     pub fn has_detached(&self) -> bool {
         !self.detached_blocks.is_empty()
+    }
+
+    pub fn verified_len(&self) -> usize {
+        self.attached_blocks.len() - self.dirty_exts.len()
+    }
+
+    pub fn build_verify_context<'a, CS: ChainStore>(
+        &'a self,
+        shared: &Shared<CS>,
+    ) -> VerifyContext<'a, CS> {
+        let mut cell_set_diff = CellSetDiff::default();
+        let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
+        let mut block_headers_provider = BlockHeadersProvider::default();
+
+        let mut context = ForkContext {
+            attached_blocks: Vec::with_capacity(self.attached_blocks().len()),
+            detached_blocks: self.detached_blocks().iter().collect(),
+            provider: shared.clone(),
+        };
+
+        for b in self.detached_blocks() {
+            cell_set_diff.push_old(b);
+            block_headers_provider.push_detached(b);
+        }
+
+        for b in self.attached_blocks().iter().take(self.verified_len()) {
+            cell_set_diff.push_new(b);
+            outputs.extend(
+                b.transactions()
+                    .iter()
+                    .map(|tx| (tx.hash().to_owned(), tx.outputs())),
+            );
+            block_headers_provider.push_attached(b);
+            context.attached_blocks.push(b);
+        }
+
+        (cell_set_diff, block_headers_provider, outputs, context)
     }
 }
 
@@ -264,7 +309,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 &cannon_total_difficulty - &current_total_difficulty
             );
             self.find_fork(&mut fork, chain_state.tip_number(), &block, ext);
-            self.update_index(&mut batch, &fork.detached_blocks, &fork.attached_blocks)?;
+            self.update_index(
+                &mut batch,
+                fork.detached_blocks.iter(),
+                fork.attached_blocks.iter(),
+            )?;
             // MUST update index before reconcile_main_chain
             cell_set_diff = self.reconcile_main_chain(
                 &mut batch,
@@ -310,6 +359,10 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.detached_proposal_id().iter(),
                 &mut txs_verify_cache,
             );
+            for detached_block in fork.detached_blocks() {
+                self.notify
+                    .notify_new_uncle(Arc::new(detached_block.clone()));
+            }
             if log_enabled!(target: "chain", log::Level::Debug) {
                 self.print_chain(&chain_state, 10);
             }
@@ -337,11 +390,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
     }
 
-    pub(crate) fn update_index(
-        &self,
+    pub(crate) fn update_index<'a>(
+        &'a self,
         batch: &mut StoreBatch,
-        detached_blocks: &[Block],
-        attached_blocks: &[Block],
+        detached_blocks: impl Iterator<Item = &'a Block>,
+        attached_blocks: impl Iterator<Item = &'a Block>,
     ) -> Result<(), FailureError> {
         for block in detached_blocks {
             batch.detach_block(block)?;
@@ -370,7 +423,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     .shared
                     .block(&hash)
                     .expect("block data stored before alignment_fork");
-                fork.detached_blocks.push(old_block);
+                fork.detached_blocks.push_front(old_block);
             }
         } else {
             while index.number > current_tip_number {
@@ -380,7 +433,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .block_ext(&index.hash)
                         .expect("block ext stored before alignment_fork");
                     if ext.txs_verified.is_none() {
-                        fork.dirty_exts.push(ext)
+                        fork.dirty_exts.push_front(ext)
                     } else {
                         index.unseen = false;
                     }
@@ -390,7 +443,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     .block(&index.hash)
                     .expect("block data stored before alignment_fork");
                 index.forward(new_block.header().parent_hash().to_owned());
-                fork.attached_blocks.push(new_block);
+                fork.attached_blocks.push_front(new_block);
             }
         }
     }
@@ -411,7 +464,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 .shared
                 .block(&detached_hash)
                 .expect("detached block stored before find_fork_until_latest_common");
-            fork.detached_blocks.push(detached_blocks);
+            fork.detached_blocks.push_front(detached_blocks);
 
             if index.unseen {
                 let ext = self
@@ -419,7 +472,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     .block_ext(&index.hash)
                     .expect("block ext stored before find_fork_until_latest_common");
                 if ext.txs_verified.is_none() {
-                    fork.dirty_exts.push(ext)
+                    fork.dirty_exts.push_front(ext)
                 } else {
                     index.unseen = false;
                 }
@@ -430,7 +483,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 .block(&index.hash)
                 .expect("attached block stored before find_fork_until_latest_common");
             index.forward(attached_block.header().parent_hash().to_owned());
-            fork.attached_blocks.push(attached_block);
+            fork.attached_blocks.push_front(attached_block);
         }
     }
 
@@ -442,11 +495,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         new_tip_ext: BlockExt,
     ) {
         let new_tip_number = new_tip_block.header().number();
-        fork.dirty_exts.push(new_tip_ext);
+        fork.dirty_exts.push_front(new_tip_ext);
 
         // attached_blocks = forks[latest_common + 1 .. new_tip]
         // detached_blocks = chain[latest_common + 1 .. old_tip]
-        fork.attached_blocks.push(new_tip_block.clone());
+        fork.attached_blocks.push_front(new_tip_block.clone());
 
         let mut index = GlobalIndex::new(
             new_tip_number - 1,
@@ -473,42 +526,27 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         txs_verify_cache: &mut LruCache<H256, Cycle>,
         need_verify: bool,
     ) -> Result<CellSetDiff, FailureError> {
-        let mut cell_set_diff = CellSetDiff::default();
-        let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
-        let mut block_headers_provider = BlockHeadersProvider::default();
+        let verified_len = fork.verified_len();
 
-        let mut dirty_exts = Vec::new();
-        // cause we need borrow outputs from fork, swap `dirty_exts` out to evade from borrow check
-        mem::swap(&mut fork.dirty_exts, &mut dirty_exts);
+        let (mut cell_set_diff, mut block_headers_provider, mut outputs, mut verify_context) =
+            fork.build_verify_context(&self.shared);
 
-        let attached_blocks_iter = fork.attached_blocks().iter().rev();
-        let detached_blocks_iter = fork.detached_blocks().iter().rev();
-
-        let unverified_len = fork.attached_blocks.len() - dirty_exts.len();
-
-        for b in detached_blocks_iter {
-            cell_set_diff.push_old(b);
-            block_headers_provider.push_detached(b);
-        }
-
-        for b in attached_blocks_iter.take(unverified_len) {
-            cell_set_diff.push_new(b);
-            outputs.extend(
-                b.transactions()
-                    .iter()
-                    .map(|tx| (tx.hash().to_owned(), tx.outputs())),
-            );
-            block_headers_provider.push_attached(b);
-        }
-
-        // The verify function
-        let contextual_block_verifier = ContextualBlockVerifier::new(self.shared.clone());
+        let mut verify_results = fork
+            .dirty_exts
+            .iter()
+            .zip(fork.attached_blocks().iter().skip(verified_len))
+            .map(|(ext, b)| (b.header().hash().to_owned(), ext.txs_verified))
+            .collect::<Vec<_>>();
 
         let mut found_error = None;
         // verify transaction
-        for (ext, b) in dirty_exts.iter_mut().zip(fork.attached_blocks.iter()).rev() {
+        for ((_, verified), b) in verify_results
+            .iter_mut()
+            .zip(fork.attached_blocks.iter().skip(verified_len))
+        {
             if need_verify {
                 if found_error.is_none() {
+                    let contextual_block_verifier = ContextualBlockVerifier::new(&verify_context);
                     let mut seen_inputs = FnvHashSet::default();
                     let cell_set_overlay =
                         chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
@@ -539,12 +577,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .collect::<Result<Vec<ResolvedTransaction>, _>>()
                     {
                         Ok(resolved) => {
-                            match contextual_block_verifier.verify(
-                                &resolved,
-                                &fork.attached_blocks,
-                                b,
-                                txs_verify_cache,
-                            ) {
+                            match contextual_block_verifier.verify(&resolved, b, txs_verify_cache) {
                                 Ok(cycles) => {
                                     cell_set_diff.push_new(b);
                                     outputs.extend(
@@ -552,7 +585,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                             .iter()
                                             .map(|tx| (tx.hash().to_owned(), tx.outputs())),
                                     );
-                                    ext.txs_verified = Some(true);
+                                    *verified = Some(true);
                                     let proof_size =
                                         self.shared.consensus().pow_engine().proof_size();
                                     if b.transactions().len() > 1 {
@@ -573,17 +606,17 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                     error!(target: "chain", "block {}", serde_json::to_string(b).unwrap());
                                     found_error =
                                         Some(SharedError::InvalidTransaction(err.to_string()));
-                                    ext.txs_verified = Some(false);
+                                    *verified = Some(false);
                                 }
                             }
                         }
                         Err(err) => {
                             found_error = Some(SharedError::UnresolvableTransaction(err));
-                            ext.txs_verified = Some(false);
+                            *verified = Some(false);
                         }
                     }
                 } else {
-                    ext.txs_verified = Some(false);
+                    *verified = Some(false);
                 }
 
                 if found_error.is_some() {
@@ -596,19 +629,15 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .iter()
                         .map(|tx| (tx.hash().to_owned(), tx.outputs())),
                 );
-                ext.txs_verified = Some(true);
+                *verified = Some(true);
             }
+            verify_context.attached_blocks.push(b);
         }
-        mem::replace(&mut fork.dirty_exts, dirty_exts);
 
         // update exts
-        for (ext, b) in fork
-            .dirty_exts
-            .iter()
-            .zip(fork.attached_blocks().iter())
-            .rev()
-        {
-            batch.insert_block_ext(&b.header().hash(), ext)?;
+        for (ext, (hash, verified)) in fork.dirty_exts.iter_mut().zip(verify_results) {
+            ext.txs_verified = verified;
+            batch.insert_block_ext(&hash, ext)?;
         }
 
         if let Some(err) = found_error {

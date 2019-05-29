@@ -25,7 +25,6 @@ ckb-shared = { path = "../../shared" }
 ckb-sync = { path = "../../sync"}
 ckb-store = { path = "../../store" }
 build-info = { path = "../build-info" }
-ckb-verification = { path = "../../verification" }
 ckb-script = { path = "../../script" }
 
 [dev-dependencies]
