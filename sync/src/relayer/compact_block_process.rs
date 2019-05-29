@@ -43,18 +43,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash().to_owned();
 
-        if self.relayer.state.already_known_compact_block(&block_hash) {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "discarding already known compact block {:x}",
-                block_hash
-            );
-            return Ok(());
-        }
-        self.relayer
-            .state
-            .mark_as_known_compact_block(block_hash.clone());
-
         if let Some(parent_header_view) = self
             .relayer
             .shared
