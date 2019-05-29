@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::difficulty::difficulty_to_target;
-use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
+use ckb_core::header::{BlockNumber, Header, Seal};
 use ckb_core::Bytes;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
@@ -39,11 +39,18 @@ impl Pow {
     }
 }
 
-fn pow_message(pow_hash: &[u8], nonce: u64) -> [u8; 40] {
+fn pow_message(pow_hash: &H256, nonce: u64) -> [u8; 40] {
     let mut message = [0; 40];
-    message[8..40].copy_from_slice(pow_hash);
+    message[8..40].copy_from_slice(&pow_hash[..]);
     LittleEndian::write_u64(&mut message, nonce);
     message
+}
+
+pub struct Work {
+    pub block_number: BlockNumber,
+    pub pow_hash: H256,
+    pub target_difficulty: H256,
+    pub nonce: u64,
 }
 
 pub trait PowEngine: Send + Sync {
@@ -55,17 +62,17 @@ pub trait PowEngine: Send + Sync {
             return false;
         }
 
-        let message = pow_message(&header.pow_hash()[..], header.nonce());
+        let message = pow_message(&header.pow_hash(), header.nonce());
         self.verify(header.number(), &message, &header.proof())
     }
 
-    fn solve_header(&self, header: &RawHeader, nonce: u64) -> Option<Seal> {
-        let message = pow_message(&header.pow_hash()[..], nonce);
+    fn find_seal(&self, work: &Work) -> Option<Seal> {
+        let message = pow_message(&work.pow_hash, work.nonce);
 
-        if let Some(proof) = self.solve(header.number(), &message) {
+        if let Some(proof) = self.solve(work.block_number, &message) {
             let result: H256 = blake2b_256(&proof).into();
-            if result < difficulty_to_target(&header.difficulty()) {
-                return Some(Seal::new(nonce, Bytes::from(proof)));
+            if result < work.target_difficulty {
+                return Some(Seal::new(work.nonce, Bytes::from(proof)));
             }
         }
 
@@ -87,7 +94,7 @@ mod test {
     fn test_pow_message() {
         let zero_hash: H256 = blake2b_256(&[]).into();
         let nonce = u64::max_value();
-        let message = pow_message(zero_hash.as_bytes(), nonce);
+        let message = pow_message(&zero_hash, nonce);
         assert_eq!(
             message.to_vec(),
             [

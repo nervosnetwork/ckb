@@ -1,12 +1,13 @@
 use crate::client::Client;
 use crate::Work;
 use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::difficulty::difficulty_to_target;
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
-use ckb_pow::PowEngine;
+use ckb_pow::{PowEngine, Work as PowWork};
 use crossbeam_channel::Receiver;
 use failure::Error;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
-use log::{debug, error, info};
+use log::{error, info, trace};
 use rand::{thread_rng, Rng};
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -118,17 +119,23 @@ impl Miner {
     }
 
     fn mine_loop(&self, header: &RawHeader) -> Option<Seal> {
-        let mut nonce: u64 = thread_rng().gen();
+        let mut work = PowWork {
+            block_number: header.number(),
+            pow_hash: header.pow_hash(),
+            target_difficulty: difficulty_to_target(&header.difficulty()),
+            nonce: thread_rng().gen(),
+        };
+
         loop {
             if self.new_work_rx.try_recv().is_ok() {
                 break None;
             }
-            debug!(target: "miner", "mining header #{} with nonce {}", header.number(), nonce);
-            if let Some(seal) = self.pow.solve_header(header, nonce) {
-                info!(target: "miner", "found seal: {:?}", seal);
+            trace!(target: "miner", "mining block #{} with nonce {}", work.block_number, work.nonce);
+            if let Some(seal) = self.pow.find_seal(&work) {
+                info!(target: "miner", "found seal {:?} of block #{}", seal, work.block_number);
                 break Some(seal);
             }
-            nonce = nonce.wrapping_add(1);
+            work.nonce = work.nonce.wrapping_add(1);
         }
     }
 }
