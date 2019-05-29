@@ -24,20 +24,19 @@ addons:
       - texinfo
       - libtool
 
-install:
+before_install:
   - cargo sweep --version || cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
   - cargo sweep -s
 
 before_script:
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
-  - export -f travis_nanoseconds travis_fold travis_time_start travis_time_finish
 
-script: ./devtools/ci/script.sh
+script: make test
 
 before_cache:
   - rm -rf ./target/release
   - rm -rf ./target/debug/incremental/
-  - cargo sweep -f || true
+  - cargo sweep -f
 
 deploy:
   provider: releases
@@ -51,16 +50,33 @@ deploy:
 
 matrix:
   include:
+    # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
+    # If you want to see the tests result in CI before submitting PR, name the branch with prefix "test".
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type == pull_request OR repo != nervosnetwork/ckb OR branch = master)'
+      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type == pull_request OR repo != nervosnetwork/ckb OR branch = master)'
+      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
+    - name: Linters
+      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      os: linux
+      install:
+        - cargo fmt --version || rustup component add rustfmt
+        - cargo clippy --version || rustup component add clippy
+        - cargo audit --version || cargo install cargo-audit
+      script:
+        - make security-audit
+        - make fmt
+        - make clippy
+        - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type == pull_request OR repo != nervosnetwork/ckb OR branch = master)'
+      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      os: linux
       cache: false
       addons: { apt: { packages: [] } }
+      before_install: skip
+      before_cache: skip
       script:
         - make cargo-license
         - make check-dirty-doc
@@ -78,7 +94,7 @@ matrix:
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       os: osx
       env: REL_PKG=x86_64-apple-darwin.zip
-      install: skip
+      before_install: skip
       cache:
         directories:
           - $HOME/.cargo
@@ -92,7 +108,8 @@ matrix:
       language: ruby
       addons: { apt: { packages: [] } }
       env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:bionic-rust-1.34.2
-      install: skip
+      before_install: skip
+      before_cache: skip
       cache:
         directories:
           - $HOME/.cargo/git
@@ -105,7 +122,8 @@ matrix:
       language: ruby
       addons: { apt: { packages: [] } }
       env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.34.2
-      install: skip
+      before_install: skip
+      before_cache: skip
       cache:
         directories:
           - $HOME/.cargo/git
