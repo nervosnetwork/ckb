@@ -15,9 +15,7 @@ spec = "specs/dev.toml" # {{
 # }}
 
 [logger]
-filter = "info" # {{
-# integration => filter = "info,ckb-network=trace,ckb-sync=debug,ckb-relay=debug"
-# }}
+filter = "info"
 color = true
 log_to_file = true # {{
 # _ => log_to_file = {log_to_file}
@@ -32,7 +30,7 @@ dsn = "" # {{
 # testnet => dsn = "https://48c6a88d92e246478e2d53b5917a887c@sentry.io/1422795"
 # }}
 
-[miner]
+[miner.client]
 rpc_url = "http://127.0.0.1:8114/" # {{
 # _ => rpc_url = "http://127.0.0.1:{rpc_port}/"
 # }}
@@ -40,3 +38,14 @@ block_on_submit = true
 
 # block template polling interval in milliseconds
 poll_interval = 1000
+
+[[miner.workers]]
+worker_type = "CuckooSimple"
+threads     = "1"
+
+# Below is an example dummy worker configuration for development:
+# [[miner.workers]]
+# worker_type = "Dummy"
+# delay_type  = "Constant"
+# value       = "5000"
+

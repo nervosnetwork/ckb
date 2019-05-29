@@ -38,8 +38,3 @@ cellbase_maturity = 0
 
 [pow]
 func = "Dummy"
-
-# Delay offset (in milliseconds)
-[pow.params.delay]
-type = "constant"
-value = 5000

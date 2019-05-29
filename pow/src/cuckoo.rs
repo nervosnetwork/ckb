@@ -43,7 +43,7 @@ where
 }
 
 pub struct CuckooEngine {
-    cuckoo: Cuckoo,
+    pub cuckoo: Cuckoo,
 }
 
 impl CuckooEngine {
@@ -64,9 +64,6 @@ impl Default for CuckooParams {
 }
 
 impl PowEngine for CuckooEngine {
-    fn init(&self, _number: BlockNumber) {}
-
-    #[inline]
     fn verify(&self, _number: BlockNumber, message: &[u8], proof: &[u8]) -> bool {
         if proof.len() != self.cuckoo.cycle_length << 2 {
             return false;
@@ -74,15 +71,6 @@ impl PowEngine for CuckooEngine {
         let mut proof_u32 = vec![0u32; self.cuckoo.cycle_length];
         LittleEndian::read_u32_into(&proof, &mut proof_u32);
         self.cuckoo.verify(message, &proof_u32)
-    }
-
-    #[inline]
-    fn solve(&self, _number: BlockNumber, message: &[u8]) -> Option<Vec<u8>> {
-        self.cuckoo.solve(message).map(|proof| {
-            let mut proof_u8 = vec![0u8; self.proof_size()];
-            LittleEndian::write_u32_into(&proof, &mut proof_u8);
-            proof_u8
-        })
     }
 
     fn proof_size(&self) -> usize {
@@ -147,22 +135,23 @@ impl CuckooSip {
 
         (upper, lower)
     }
+
+    pub fn message_to_keys(message: &[u8]) -> [u64; 4] {
+        let result = blake2b_256(message);
+        [
+            LittleEndian::read_u64(&result[0..8]).to_le(),
+            LittleEndian::read_u64(&result[8..16]).to_le(),
+            LittleEndian::read_u64(&result[16..24]).to_le(),
+            LittleEndian::read_u64(&result[24..32]).to_le(),
+        ]
+    }
 }
 
-fn message_to_keys(message: &[u8]) -> [u64; 4] {
-    let result = blake2b_256(message);
-    [
-        LittleEndian::read_u64(&result[0..8]).to_le(),
-        LittleEndian::read_u64(&result[8..16]).to_le(),
-        LittleEndian::read_u64(&result[16..24]).to_le(),
-        LittleEndian::read_u64(&result[24..32]).to_le(),
-    ]
-}
-
+#[derive(Clone)]
 pub struct Cuckoo {
-    max_edge: u64,
-    edge_mask: u64,
-    cycle_length: usize,
+    pub max_edge: u64,
+    pub edge_mask: u64,
+    pub cycle_length: usize,
 }
 
 impl Cuckoo {
@@ -176,7 +165,6 @@ impl Cuckoo {
     }
 
     // https://github.com/tromp/cuckoo/blob/master/doc/spec#L19
-    #[inline]
     pub fn verify(&self, message: &[u8], proof: &[u32]) -> bool {
         if proof.len() != self.cycle_length {
             return false;
@@ -191,7 +179,7 @@ impl Cuckoo {
             return false;
         }
 
-        let keys = message_to_keys(message);
+        let keys = CuckooSip::message_to_keys(message);
         let hasher = CuckooSip::new(keys[0], keys[1], keys[2], keys[3]);
 
         let mut from_upper: HashMap<_, Vec<_>> = HashMap::with_capacity(proof.len());
@@ -234,111 +222,11 @@ impl Cuckoo {
         }
         cycle_length == self.cycle_length
     }
-
-    #[inline]
-    pub fn solve(&self, message: &[u8]) -> Option<Vec<u32>> {
-        let mut graph = vec![0; (self.max_edge << 1) as usize].into_boxed_slice();
-        let keys = message_to_keys(message);
-        let hasher = CuckooSip::new(keys[0], keys[1], keys[2], keys[3]);
-
-        for nonce in 0..self.max_edge {
-            let (u, v) = {
-                let edge = hasher.edge(nonce as u32, self.edge_mask);
-                (edge.0 << 1, (edge.1 << 1) + 1)
-            };
-            if u == 0 {
-                continue;
-            }
-            let path_u = Cuckoo::path(&graph, u);
-            let path_v = Cuckoo::path(&graph, v);
-            if path_u.last().is_some() && (path_u.last() == path_v.last()) {
-                let common = path_u
-                    .iter()
-                    .rev()
-                    .zip(path_v.iter().rev())
-                    .take_while(|(u, v)| u == v)
-                    .count();
-                if (path_u.len() - common) + (path_v.len() - common) + 1 == self.cycle_length {
-                    let mut cycle: Vec<_> = {
-                        let list: Vec<_> = path_u
-                            .iter()
-                            .take(path_u.len() - common + 1)
-                            .chain(path_v.iter().rev().skip(common))
-                            .chain(::std::iter::once(&u))
-                            .cloned()
-                            .collect();
-                        list.windows(2).map(|edge| (edge[0], edge[1])).collect()
-                    };
-                    let mut result = Vec::with_capacity(self.cycle_length);
-                    for n in 0..self.max_edge {
-                        let cur_edge = {
-                            let edge = hasher.edge(n as u32, self.edge_mask);
-                            (edge.0 << 1, (edge.1 << 1) + 1)
-                        };
-                        for i in 0..cycle.len() {
-                            let cycle_edge = cycle[i];
-                            if cycle_edge == cur_edge || (cycle_edge.1, cycle_edge.0) == cur_edge {
-                                result.push(n as u32);
-                                cycle.remove(i);
-                                break;
-                            }
-                        }
-                    }
-                    return Some(result);
-                }
-            } else if path_u.len() < path_v.len() {
-                for edge in path_u.windows(2) {
-                    graph[edge[1] as usize] = edge[0];
-                }
-                graph[u as usize] = v;
-            } else {
-                for edge in path_v.windows(2) {
-                    graph[edge[1] as usize] = edge[0];
-                }
-                graph[v as usize] = u;
-            }
-        }
-        None
-    }
-
-    fn path(graph: &[u64], start: u64) -> Vec<u64> {
-        let mut node = start;
-        let mut path = vec![start];
-        loop {
-            node = graph[node as usize];
-            if node != 0 {
-                path.push(node);
-            } else {
-                break;
-            }
-        }
-        path
-    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-
-    use proptest::{collection::size_range, prelude::*};
-
-    fn _cuckoo_solve(message: &[u8]) -> Result<(), TestCaseError> {
-        let engine = CuckooEngine::new(CuckooParams {
-            edge_bits: 6,
-            cycle_length: 8,
-        });
-        if let Some(proof) = engine.solve(0, message) {
-            prop_assert!(engine.verify(0, message, &proof));
-        }
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn cuckoo_solve(ref message in any_with::<Vec<u8>>(size_range(80).lift())) {
-            _cuckoo_solve(message)?;
-        }
-    }
 
     const TESTSET: [([u8; 80], [u32; 8]); 3] = [
         (
@@ -372,14 +260,6 @@ mod test {
             [1, 15, 20, 22, 39, 41, 52, 56],
         ),
     ];
-
-    #[test]
-    fn solve_cuckoo() {
-        let cuckoo = Cuckoo::new(6, 8);
-        for (message, proof) in TESTSET.iter() {
-            assert_eq!(cuckoo.solve(message).unwrap(), proof);
-        }
-    }
 
     #[test]
     fn verify_cuckoo() {
