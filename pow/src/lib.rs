@@ -1,30 +1,31 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::difficulty::difficulty_to_target;
-use ckb_core::header::{BlockNumber, Header, RawHeader, Seal};
-use ckb_core::Bytes;
+use ckb_core::header::{BlockNumber, Header};
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
+use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
 mod cuckoo;
 mod dummy;
 
-pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams};
-pub use crate::dummy::{DummyPowEngine, DummyPowParams};
+pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams, CuckooSip};
+pub use crate::dummy::DummyPowEngine;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
-    Dummy(DummyPowParams),
+    Dummy,
     Cuckoo(CuckooParams),
 }
 
 impl fmt::Display for Pow {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Pow::Dummy(params) => write!(f, "Dummy{}", params),
+            Pow::Dummy => write!(f, "Dummy"),
             Pow::Cuckoo(params) => write!(f, "Cuckoo{}", params),
         }
     }
@@ -33,50 +34,47 @@ impl fmt::Display for Pow {
 impl Pow {
     pub fn engine(&self) -> Arc<dyn PowEngine> {
         match *self {
-            Pow::Dummy(params) => Arc::new(DummyPowEngine::new(params)),
+            Pow::Dummy => Arc::new(DummyPowEngine),
             Pow::Cuckoo(params) => Arc::new(CuckooEngine::new(params)),
         }
     }
 }
 
-fn pow_message(pow_hash: &[u8], nonce: u64) -> [u8; 40] {
+pub fn pow_message(pow_hash: &H256, nonce: u64) -> [u8; 40] {
     let mut message = [0; 40];
-    message[8..40].copy_from_slice(pow_hash);
+    message[8..40].copy_from_slice(&pow_hash[..]);
     LittleEndian::write_u64(&mut message, nonce);
     message
 }
 
-pub trait PowEngine: Send + Sync {
-    fn init(&self, number: BlockNumber);
-
+pub trait PowEngine: Send + Sync + AsAny {
     fn verify_header(&self, header: &Header) -> bool {
-        let proof_hash: H256 = blake2b_256(&header.proof()).into();
-        if proof_hash >= difficulty_to_target(&header.difficulty()) {
-            return false;
+        if self.verify_proof_difficulty(&header.proof(), &header.difficulty()) {
+            let message = pow_message(&header.pow_hash(), header.nonce());
+            self.verify(header.number(), &message, &header.proof())
+        } else {
+            false
         }
-
-        let message = pow_message(&header.pow_hash()[..], header.nonce());
-        self.verify(header.number(), &message, &header.proof())
     }
 
-    fn solve_header(&self, header: &RawHeader, nonce: u64) -> Option<Seal> {
-        let message = pow_message(&header.pow_hash()[..], nonce);
-
-        if let Some(proof) = self.solve(header.number(), &message) {
-            let result: H256 = blake2b_256(&proof).into();
-            if result < difficulty_to_target(&header.difficulty()) {
-                return Some(Seal::new(nonce, Bytes::from(proof)));
-            }
-        }
-
-        None
+    fn verify_proof_difficulty(&self, proof: &[u8], difficulty: &U256) -> bool {
+        let proof_hash: H256 = blake2b_256(proof).into();
+        proof_hash < difficulty_to_target(difficulty)
     }
-
-    fn solve(&self, number: BlockNumber, message: &[u8]) -> Option<Vec<u8>>;
 
     fn verify(&self, number: BlockNumber, message: &[u8], proof: &[u8]) -> bool;
 
     fn proof_size(&self) -> usize;
+}
+
+pub trait AsAny {
+    fn as_any(&self) -> &Any;
+}
+
+impl<T: Any> AsAny for T {
+    fn as_any(&self) -> &Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -87,7 +85,7 @@ mod test {
     fn test_pow_message() {
         let zero_hash: H256 = blake2b_256(&[]).into();
         let nonce = u64::max_value();
-        let message = pow_message(zero_hash.as_bytes(), nonce);
+        let message = pow_message(&zero_hash, nonce);
         assert_eq!(
             message.to_vec(),
             [

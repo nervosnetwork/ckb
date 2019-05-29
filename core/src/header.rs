@@ -33,6 +33,10 @@ impl Seal {
         Seal { nonce, proof }
     }
 
+    pub fn proof(&self) -> &[u8] {
+        &self.proof
+    }
+
     pub fn destruct(self) -> (u64, Bytes) {
         let Seal { nonce, proof } = self;
         (nonce, proof)

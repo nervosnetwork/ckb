@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 ckb-logger = { path = "../util/logger" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
@@ -17,6 +16,7 @@ ckb-util = { path = "../util" }
 ckb-notify = { path = "../notify" }
 faketime = "0.2.0"
 rand = "0.6"
+byteorder = "1.3.1"
 serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.3"
@@ -31,7 +31,6 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 sentry = "^0.15.4"
 ckb-verification = { path = "../verification" }
-dao = { path = "../util/dao" }
 
 [dev-dependencies]
 proptest = "0.9"

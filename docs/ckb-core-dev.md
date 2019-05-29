@@ -60,9 +60,13 @@ cycle_length = 12
 ```
 [pow]
 func = "Dummy"
+```
 
-# Delay offset (in milliseconds)
-[pow.params.delay]
-type = "constant"
-value = 5000
+and don't forget to modify `ckb-miner.toml` miner workers section:
+
+```
+[[miner.workers]]
+worker_type = "Dummy"
+delay_type  = "Constant"
+value       = "5000"
 ```
