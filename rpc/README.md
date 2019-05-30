@@ -678,7 +678,7 @@ echo '{
             "deps": [],
             "inputs": [
                 {
-                    "block_number": "0",
+                    "args": [],
                     "previous_output": {
                         "block_hash": "0x1aaf18b97188c7b2c1d40cead6ce06a3ab4a5a8e90ae908db1da442b98a74b34",
                         "cell": {
@@ -746,6 +746,7 @@ echo '{
             ],
             "inputs": [
                 {
+                    "args": [],
                     "previous_output": {
                         "block_hash": "0x1aaf18b97188c7b2c1d40cead6ce06a3ab4a5a8e90ae908db1da442b98a74b34",
                         "cell": {
@@ -921,7 +922,7 @@ echo '{
             ],
             "inputs": [
                 {
-                    "block_number": "0",
+                    "args": [],
                     "previous_output": {
                         "block_hash": "0x1aaf18b97188c7b2c1d40cead6ce06a3ab4a5a8e90ae908db1da442b98a74b34",
                         "cell": {
