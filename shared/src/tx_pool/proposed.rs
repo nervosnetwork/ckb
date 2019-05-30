@@ -319,7 +319,11 @@ mod tests {
                 inputs
                     .into_iter()
                     .map(|(txid, index)| {
-                        CellInput::new(OutPoint::new_cell(txid.to_owned(), index), 0)
+                        CellInput::new(
+                            OutPoint::new_cell(txid.to_owned(), index),
+                            0,
+                            Default::default(),
+                        )
                     })
                     .collect(),
             )

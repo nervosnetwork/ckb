@@ -173,7 +173,6 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use byteorder::{ByteOrder, LittleEndian};
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
@@ -194,7 +193,7 @@ mod tests {
     fn setup(height: u64) -> (Shared<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
         let (always_success_cell, always_success_script) = create_always_success_cell();
         let always_success_tx = TransactionBuilder::default()
-            .input(CellInput::new(OutPoint::null(), 0))
+            .input(CellInput::new(OutPoint::null(), 0, Default::default()))
             .output(always_success_cell)
             .build();
         let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
@@ -230,21 +229,18 @@ mod tests {
                 .next_epoch_ext(&last_epoch, block.header())
                 .unwrap_or(last_epoch);
 
-            let mut data = [0; 8];
-            LittleEndian::write_u64(&mut data, number);
-
             let outputs = (0..20)
                 .map(|_| {
                     CellOutput::new(
                         capacity_bytes!(50),
-                        (&data[..]).into(),
+                        Bytes::default(),
                         always_success_script.to_owned(),
                         None,
                     )
                 })
                 .collect::<Vec<_>>();
             let cellbase = TransactionBuilder::default()
-                .input(CellInput::new_cellbase_input())
+                .input(CellInput::new_cellbase_input(number))
                 .outputs(outputs)
                 .build();
 
@@ -253,6 +249,7 @@ mod tests {
                     TransactionBuilder::default()
                         .input(CellInput::new(
                             OutPoint::new_cell(cellbase.hash().to_owned(), i),
+                            0,
                             0,
                         ))
                         .output(CellOutput::new(
@@ -299,6 +296,7 @@ mod tests {
                 TransactionBuilder::default()
                     .input(CellInput::new(
                         OutPoint::new_cell(last_cellbase.hash().to_owned(), u32::from(i)),
+                        0,
                         0,
                     ))
                     .output(CellOutput::new(

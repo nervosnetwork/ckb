@@ -1,4 +1,3 @@
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::{Block, BlockBuilder};
@@ -161,7 +160,7 @@ fn new_chain(
     let data_hash = cell_output.data_hash();
 
     let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input())
+        .input(CellInput::new_cellbase_input(0))
         .output(cell_output)
         .build();
 
@@ -171,7 +170,7 @@ fn new_chain(
     let transactions: Vec<Transaction> = (0..txs_size)
         .map(|i| {
             TransactionBuilder::default()
-                .input(CellInput::new(OutPoint::null(), 0))
+                .input(CellInput::new(OutPoint::null(), 0, 0))
                 .output(CellOutput::new(
                     capacity_bytes!(50_000),
                     Bytes::from(i.to_le_bytes().to_vec()),
@@ -226,15 +225,11 @@ fn gen_block(
         p_block.header().difficulty() + U256::from(1u64),
     );
 
-    let mut data = [0; 8];
-    LittleEndian::write_u64(&mut data, number);
-
     let mut cell_output = CellOutput::default();
     cell_output.capacity = cell_output.occupied_capacity().unwrap();
-    cell_output.data = (&data[..]).into();
 
     let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input())
+        .input(CellInput::new_cellbase_input(number))
         .output(cell_output)
         .build();
 
@@ -289,6 +284,7 @@ fn create_transaction(
         ))
         .input(CellInput::new(
             OutPoint::new_cell(parent_hash.to_owned(), 0),
+            0,
             0,
         ))
         .dep(OutPoint::new_cell(system_cell_hash.to_owned(), 0))

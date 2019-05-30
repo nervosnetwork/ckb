@@ -63,15 +63,17 @@ impl CellField {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum InputField {
-    OutPoint = 0,
-    Since = 1,
+    BlockNumber = 0,
+    OutPoint = 1,
+    Since = 2,
 }
 
 impl InputField {
     fn parse_from_u64(i: u64) -> Result<InputField, Error> {
         match i {
-            0 => Ok(InputField::OutPoint),
-            1 => Ok(InputField::Since),
+            0 => Ok(InputField::BlockNumber),
+            1 => Ok(InputField::OutPoint),
+            2 => Ok(InputField::Since),
             _ => Err(Error::ParseError),
         }
     }
@@ -142,7 +144,7 @@ mod tests {
     use ckb_core::cell::{CellMeta, ResolvedOutPoint};
     use ckb_core::header::HeaderBuilder;
     use ckb_core::script::Script;
-    use ckb_core::transaction::{CellOutPoint, CellOutput};
+    use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
     use ckb_protocol::{CellOutput as FbsCellOutput, Header as FbsHeader, Witness as FbsWitness};
@@ -585,6 +587,73 @@ mod tests {
         for addr in addr..addr + 100 {
             assert_eq!(machine.memory_mut().load8(&addr), Ok(0));
         }
+    }
+
+    #[test]
+    fn test_load_input_block_number() -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A3, 0); //index
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
+        machine.set_register(A5, InputField::BlockNumber as u64); //field: 0 block number
+        machine.set_register(A7, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER); // syscall number
+
+        let input = CellInput::new(OutPoint::default(), 0, 123);
+        let inputs = vec![&input];
+        let group_inputs = vec![];
+        let mut load_input = LoadInput::new(&inputs, &group_inputs);
+
+        prop_assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
+
+        prop_assert!(load_input.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(8));
+
+        let mut buffer = vec![];
+        buffer.write_u64::<LittleEndian>(123).unwrap();
+
+        for (i, addr) in (addr..addr + buffer.len() as u64).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(buffer[i])));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_missing_output_block_number() -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A3, 0); //index
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Output))); //source: 2 output
+        machine.set_register(A5, InputField::BlockNumber as u64); //field: 0 block number
+        machine.set_register(A7, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER); // syscall number
+
+        prop_assert!(machine.memory_mut().store64(&size_addr, &10).is_ok());
+
+        let input = CellInput::new(OutPoint::default(), 0, 123);
+        let inputs = vec![&input];
+        let group_inputs = vec![];
+        let mut load_input = LoadInput::new(&inputs, &group_inputs);
+
+        prop_assert!(load_input.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(INDEX_OUT_OF_BOUND));
+
+        prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(10));
+
+        for addr in addr..addr + 10 {
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(0));
+        }
+        Ok(())
     }
 
     fn _test_load_dep_cell_data(data: &[u8]) -> Result<(), TestCaseError> {

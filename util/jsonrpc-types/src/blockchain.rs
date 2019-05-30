@@ -135,14 +135,16 @@ impl From<OutPoint> for CoreOutPoint {
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: Unsigned,
+    pub block_number: BlockNumber,
 }
 
 impl From<CoreCellInput> for CellInput {
     fn from(core: CoreCellInput) -> CellInput {
-        let (previous_output, since) = core.destruct();
+        let (previous_output, since, block_number) = core.destruct();
         CellInput {
             previous_output: previous_output.into(),
             since: Unsigned(since),
+            block_number: BlockNumber(block_number),
         }
     }
 }
@@ -152,8 +154,9 @@ impl From<CellInput> for CoreCellInput {
         let CellInput {
             previous_output,
             since,
+            block_number,
         } = json;
-        CoreCellInput::new(previous_output.into(), since.0)
+        CoreCellInput::new(previous_output.into(), since.0, block_number.0)
     }
 }
 
@@ -630,7 +633,7 @@ mod tests {
     }
 
     fn mock_cell_input() -> CoreCellInput {
-        CoreCellInput::new(CoreOutPoint::default(), 0)
+        CoreCellInput::new(CoreOutPoint::default(), 0, 0)
     }
 
     fn mock_full_tx(data: Bytes, arg: Bytes) -> CoreTransaction {

@@ -3,14 +3,13 @@ use crate::module::{
     PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::RpcServer;
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, BlockNumber, Capacity};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::MemoryKeyValueDB;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_notify::NotifyService;
@@ -42,20 +41,18 @@ pub struct JsonResponse {
 }
 
 fn new_cellbase(number: BlockNumber, always_success_script: &Script) -> Transaction {
-    let mut data = [0; 8];
-    LittleEndian::write_u64(&mut data, number);
     let outputs = (0..1)
         .map(|_| {
             CellOutput::new(
                 capacity_bytes!(500000),
-                (&data[..]).into(),
+                Bytes::default(),
                 always_success_script.to_owned(),
                 None,
             )
         })
         .collect::<Vec<_>>();
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input())
+        .input(CellInput::new_cellbase_input(number))
         .outputs(outputs)
         .build()
 }
@@ -69,7 +66,7 @@ fn setup_node(
 ) {
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .output(always_success_cell)
         .build();
 

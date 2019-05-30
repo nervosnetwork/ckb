@@ -29,10 +29,10 @@ fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transac
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input())
+        .input(CellInput::new_cellbase_input(0))
         .output(CellOutput::new(
             capacity,
-            (&[0; 8][..]).into(),
+            Bytes::default(),
             Script::default(),
             None,
         ))
@@ -45,7 +45,11 @@ fn create_cellbase_transaction() -> Transaction {
 
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0))
+        .input(CellInput::new(
+            OutPoint::new_cell(h256!("0x1"), 0),
+            0,
+            Default::default(),
+        ))
         .output(CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),

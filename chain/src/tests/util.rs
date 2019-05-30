@@ -1,5 +1,4 @@
 use crate::chain::{ChainController, ChainService};
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
@@ -19,7 +18,7 @@ use test_chain_utils::create_always_success_cell;
 fn create_always_success_tx() -> Transaction {
     let (always_success_cell, _) = create_always_success_cell();
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .output(always_success_cell)
         .build()
 }
@@ -54,15 +53,11 @@ pub(crate) fn start_chain(
 
 fn create_cellbase(number: BlockNumber) -> Transaction {
     let (_, always_success_script) = create_always_success_cell();
-
-    let mut data = [0; 8];
-    LittleEndian::write_u64(&mut data, number);
-
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input())
+        .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
             capacity_bytes!(2_500),
-            (&data[..]).into(),
+            Bytes::default(),
             always_success_script,
             None,
         ))
@@ -116,7 +111,7 @@ pub(crate) fn create_transaction_with_out_point(
             always_success_script,
             None,
         ))
-        .input(CellInput::new(out_point, 0))
+        .input(CellInput::new(out_point, 0, 0))
         .dep(always_success_out_point)
         .build()
 }

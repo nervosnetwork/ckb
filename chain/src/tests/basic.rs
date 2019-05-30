@@ -8,7 +8,7 @@ use ckb_core::cell::{BlockInfo, CellMetaBuilder, CellProvider, CellStatus, Unres
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, TransactionBuilder};
-use ckb_core::{capacity_bytes, Capacity};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_shared::error::SharedError;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
@@ -17,11 +17,11 @@ use std::sync::Arc;
 #[test]
 fn test_genesis_transaction_spend() {
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
                 capacity_bytes!(100_000_000),
-                (&[0; 8][..]).into(),
+                Bytes::default(),
                 Script::default(),
                 None
             );
@@ -531,11 +531,11 @@ fn test_invalid_out_point_index_in_different_blocks() {
 #[test]
 fn test_genesis_transaction_fetch() {
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .outputs(vec![
             CellOutput::new(
                 capacity_bytes!(100_000_000),
-                (&[0; 8][..]).into(),
+                Bytes::default(),
                 Script::default(),
                 None
             );

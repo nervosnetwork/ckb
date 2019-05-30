@@ -594,7 +594,6 @@ mod tests {
     use self::headers_process::HeadersProcess;
     use super::*;
     use crate::{SyncSharedState, MAX_TIP_AGE};
-    use byteorder::{ByteOrder, LittleEndian};
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
@@ -663,14 +662,11 @@ mod tests {
     }
 
     fn create_cellbase(number: BlockNumber) -> Transaction {
-        let mut data = [0; 8];
-        LittleEndian::write_u64(&mut data, number);
-
         TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input())
+            .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
                 capacity_bytes!(500),
-                (&data[..]).into(),
+                Bytes::default(),
                 Script::default(),
                 None,
             ))

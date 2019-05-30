@@ -1,7 +1,6 @@
 use crate::error::{CellbaseError, Error};
 use crate::header_verifier::HeaderResolver;
 use crate::Verifier;
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -69,20 +68,8 @@ impl CellbaseVerifier {
         }
 
         let cellbase_input = &cellbase_transaction.inputs()[0];
-        if cellbase_input != &CellInput::new_cellbase_input() {
+        if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
-        }
-
-        let first_output = &cellbase_transaction
-            .outputs()
-            .get(0)
-            .ok_or(Error::Cellbase(CellbaseError::InvalidBlockNumber))?;
-        let mut expected_data = [0; 8];
-        LittleEndian::write_u64(&mut expected_data, block.header().number());
-        if first_output.data.len() < expected_data.len()
-            || first_output.data[0..expected_data.len()] != expected_data
-        {
-            return Err(Error::Cellbase(CellbaseError::InvalidBlockNumber));
         }
 
         Ok(())

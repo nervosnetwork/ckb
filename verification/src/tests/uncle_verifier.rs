@@ -1,7 +1,6 @@
 use crate::contextual_block_verifier::{ForkContext, UncleVerifierContext};
 use crate::error::{Error, UnclesError};
 use crate::uncles_verifier::UnclesVerifier;
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -12,7 +11,7 @@ use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::uncles_hash;
-use ckb_core::{BlockNumber, Capacity};
+use ckb_core::{BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -58,14 +57,11 @@ fn start_chain(
 }
 
 fn create_cellbase(number: BlockNumber) -> Transaction {
-    let mut data = [0; 8];
-    LittleEndian::write_u64(&mut data, number);
-
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input())
+        .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
             Capacity::zero(),
-            (&data[..]).into(),
+            Bytes::default(),
             Script::default(),
             None,
         ))

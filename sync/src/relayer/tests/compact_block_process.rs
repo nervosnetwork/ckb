@@ -1,6 +1,5 @@
 use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
 use crate::{Relayer, SyncSharedState};
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -8,7 +7,7 @@ use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{
     CellInput, CellOutput, IndexTransaction, OutPoint, Transaction, TransactionBuilder,
 };
-use ckb_core::{capacity_bytes, BlockNumber, Capacity};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
@@ -58,7 +57,7 @@ fn new_transaction(
     };
 
     TransactionBuilder::default()
-        .input(CellInput::new(previous_output, 0))
+        .input(CellInput::new(previous_output, 0, Default::default()))
         .output(CellOutput::new(
             Capacity::bytes(500 + index).unwrap(), // use capacity to identify transactions
             Default::default(),
@@ -72,7 +71,7 @@ fn new_transaction(
 fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .output(always_success_cell)
         .build();
     let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
@@ -105,13 +104,11 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
             .block_hash(i)
             .and_then(|block_hash| shared.block(&block_hash))
             .unwrap();
-        let mut data = [0; 8];
-        LittleEndian::write_u64(&mut data, parent.header().number() + 1);
         let cellbase = TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input())
+            .input(CellInput::new_cellbase_input(parent.header().number() + 1))
             .output(CellOutput::new(
                 capacity_bytes!(50000),
-                (&data[..]).into(),
+                Bytes::default(),
                 always_success_script.to_owned(),
                 None,
             ))

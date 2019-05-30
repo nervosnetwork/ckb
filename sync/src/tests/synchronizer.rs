@@ -1,13 +1,12 @@
 use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
 use crate::tests::TestNode;
 use crate::{Config, NetworkProtocol, SyncSharedState, Synchronizer};
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-use ckb_core::{capacity_bytes, Capacity};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
@@ -74,7 +73,7 @@ fn setup_node(
 ) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
+        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
         .output(always_success_cell)
         .build();
 
@@ -108,14 +107,11 @@ fn setup_node(
             .next_epoch_ext(&last_epoch, block.header())
             .unwrap_or(last_epoch);
 
-        let mut data = [0; 8];
-        LittleEndian::write_u64(&mut data, number);
-
         let cellbase = TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input())
+            .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
                 capacity_bytes!(500),
-                (&data[..]).into(),
+                Bytes::default(),
                 always_success_script.to_owned(),
                 None,
             ))
