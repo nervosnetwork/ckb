@@ -167,17 +167,16 @@ where
             return Ok(());
         }
 
-        let best_known_header = self.synchronizer.shared.best_known_header();
+        let shared_best_known = self.synchronizer.shared.best_known_header();
         if headers.len() == 0 {
             // Update peer's best known header
             self.synchronizer
-                .peers
-                .best_known_headers
-                .write()
-                .insert(self.peer, best_known_header);
+                .peers()
+                .set_best_known_header(self.peer, shared_best_known);
+
             // Reset headers sync timeout
             self.synchronizer
-                .peers
+                .peers()
                 .state
                 .write()
                 .get_mut(&self.peer)
@@ -233,7 +232,7 @@ where
 
         if log_enabled!(target: "sync", log::Level::Debug) {
             let chain_state = self.synchronizer.shared.lock_chain_state();
-            let peer_state = self.synchronizer.peers.best_known_header(self.peer);
+            let peer_best_known = self.synchronizer.peers.get_best_known_header(self.peer);
             debug!(
                 target: "sync",
                 "chain: num={}, diff={:#x};",
@@ -242,18 +241,19 @@ where
             );
             debug!(
                 target: "sync",
-                "known: num={}, diff={:#x}, hash={:#x};",
-                best_known_header.number(),
-                best_known_header.total_difficulty(),
-                best_known_header.hash(),
+                "shared best_known_header: num={}, diff={:#x}, hash={:#x};",
+                shared_best_known.number(),
+                shared_best_known.total_difficulty(),
+                shared_best_known.hash(),
             );
-            if let Some(ref state) = peer_state {
+            if let Some(header) = peer_best_known {
                 debug!(
                     target: "sync",
-                    "state: num={}; diff={:#x}, hash={:#x};",
-                    state.number(),
-                    state.total_difficulty(),
-                    state.hash()
+                    "peer's best_known_header: peer: {}, num={}; diff={:#x}, hash={:#x};",
+                    self.peer,
+                    header.number(),
+                    header.total_difficulty(),
+                    header.hash()
                 );
             } else {
                 debug!(target: "sync", "state: null;");
