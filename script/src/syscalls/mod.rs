@@ -981,4 +981,57 @@ mod tests {
             _test_load_witness(data)?;
         }
     }
+
+    fn _test_load_group_witness(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A3, 0); //index
+        machine.set_register(A4, u64::from(Source::Group(SourceEntry::Input))); //source
+        machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
+
+        let witness = vec![data.into()];
+
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsWitness::build(&mut builder, &witness);
+        builder.finish(fbs_offset, None);
+        let witness_correct_data = builder.finished_data();
+
+        let dummy_witness = vec![];
+        let witnesses = vec![&dummy_witness, &witness];
+        let group_inputs = vec![1];
+        let mut load_witness = LoadWitness::new(&witnesses, &group_inputs);
+
+        prop_assert!(machine
+            .memory_mut()
+            .store64(&size_addr, &(witness_correct_data.len() as u64 + 20))
+            .is_ok());
+
+        prop_assert!(load_witness.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(
+            machine.memory_mut().load64(&size_addr),
+            Ok(witness_correct_data.len() as u64)
+        );
+
+        for (i, addr) in (addr..addr + witness_correct_data.len() as u64).enumerate() {
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(witness_correct_data[i]))
+            );
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_group_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_group_witness(data)?;
+        }
+    }
 }

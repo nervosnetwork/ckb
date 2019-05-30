@@ -2,14 +2,30 @@ use super::super::block_verifier::{
     BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier,
 };
 use super::super::error::{CellbaseError, Error as VerifyError};
+use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
-use ckb_core::{capacity_bytes, Bytes, Capacity};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use numext_fixed_hash::{h256, H256};
+
+fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transaction {
+    let mut data = [0; 8];
+    LittleEndian::write_u64(&mut data, number);
+
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input())
+        .output(CellOutput::new(
+            capacity_bytes!(100),
+            (&data[..]).into(),
+            Script::default(),
+            None,
+        ))
+        .build()
+}
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
@@ -62,6 +78,29 @@ pub fn test_block_with_one_cellbase_at_first() {
 
     let verifier = CellbaseVerifier::new();
     assert!(verifier.verify(&block).is_ok());
+}
+
+#[test]
+pub fn test_block_with_correct_cellbase_number() {
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2))
+        .transaction(create_cellbase_transaction_with_block_number(2))
+        .build();
+
+    let verifier = CellbaseVerifier::new();
+    assert!(verifier.verify(&block).is_ok());
+}
+
+#[test]
+pub fn test_block_with_incorrect_cellbase_number() {
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2))
+        .transaction(create_cellbase_transaction_with_block_number(3))
+        .build();
+
+    let verifier = CellbaseVerifier::new();
+    assert_eq!(
+        verifier.verify(&block),
+        Err(VerifyError::Cellbase(CellbaseError::InvalidBlockNumber))
+    );
 }
 
 #[test]

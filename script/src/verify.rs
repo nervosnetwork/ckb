@@ -494,7 +494,7 @@ mod tests {
     use ckb_core::{capacity_bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
     use ckb_store::{ChainKVStore, StoreBatch, COLUMNS};
-    use crypto::secp::Generator;
+    use crypto::secp::{Generator, Privkey};
     use faster_hex::hex_encode;
     use hash::blake2b_256;
 
@@ -1902,5 +1902,87 @@ mod tests {
         );
 
         assert!(verifier.verify(100_000_000).is_err());
+    }
+
+    #[test]
+    fn check_same_lock_and_type_script_are_executed_twice() {
+        let mut file = open_cell_verify();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let privkey = Privkey::from_slice(&[1; 32][..]);
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+
+        let mut bytes = vec![];
+        for argument in &args {
+            bytes.write_all(argument).unwrap();
+        }
+        let hash1 = sha3_256(&bytes);
+        let hash2 = sha3_256(hash1);
+        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
+
+        let pubkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_pubkey = vec![0; pubkey.len() * 2];
+        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
+        args.push(Bytes::from(hex_pubkey));
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
+
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
+        let script = Script::new(args, code_hash.to_owned());
+
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
+        let output = CellOutput::new(
+            Capacity::bytes(buffer.len()).unwrap(),
+            Bytes::from(buffer),
+            Script::default(),
+            None,
+        );
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_info(BlockInfo::new(1, 0))
+                .data_hash(code_hash.to_owned())
+                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .build(),
+        );
+
+        let transaction = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::null(), 0))
+            .dep(dep_out_point)
+            .build();
+
+        // The lock and type scripts here are both executed.
+        let output = CellOutput::new(
+            capacity_bytes!(100),
+            Bytes::default(),
+            script.clone(),
+            Some(script.clone()),
+        );
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_info(BlockInfo::new(1, 0))
+                .build(),
+        );
+
+        let rtx = ResolvedTransaction {
+            transaction: &transaction,
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
+        };
+        let store = Arc::new(new_memory_store());
+
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
+
+        // Cycles can tell that both lock and type scripts are executed
+        assert_eq!(verifier.verify(100_000_000), Ok(2_818_104));
     }
 }
