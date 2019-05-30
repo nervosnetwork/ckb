@@ -43,13 +43,11 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash().to_owned();
 
-        if self.relayer.state.already_known_compact_block(&block_hash) {
+        if self.relayer.already_known_compact_block(&block_hash) {
             debug!(target: "relay", "discarding already known compact block {:x}", block_hash);
             return Ok(());
         }
-        self.relayer
-            .state
-            .mark_as_known_compact_block(block_hash.clone());
+        self.relayer.mark_as_known_compact_block(block_hash.clone());
 
         if let Some(parent_header_view) = self
             .relayer
@@ -83,7 +81,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let mut missing_indexes: Vec<usize> = Vec::new();
         {
             // Verify compact block
-            let mut pending_compact_blocks = self.relayer.state.pending_compact_blocks.lock();
+            let mut pending_compact_blocks = self.relayer.pending_compact_blocks.lock();
             if pending_compact_blocks.get(&block_hash).is_some()
                 || self.relayer.shared.get_block(&block_hash).is_some()
             {

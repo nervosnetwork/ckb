@@ -33,7 +33,6 @@ impl<'a, CS: ChainStore + 'static> BlockTransactionsProcess<'a, CS> {
         let block_hash = cast!(self.message.block_hash())?.try_into()?;
         if let Some(compact_block) = self
             .relayer
-            .state
             .pending_compact_blocks
             .lock()
             .remove(&block_hash)

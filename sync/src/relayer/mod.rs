@@ -27,7 +27,7 @@ use crate::types::SyncSharedState;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::transaction::Transaction;
 use ckb_core::uncle::UncleBlock;
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_protocol::{
@@ -36,13 +36,11 @@ use ckb_protocol::{
 use ckb_shared::chain_state::ChainState;
 use ckb_store::ChainStore;
 use ckb_tx_pool_executor::TxPoolExecutor;
-use ckb_util::Mutex;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashMap;
 use log::{debug, info, trace};
-use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
@@ -53,14 +51,10 @@ pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const ASK_FOR_TXS_TOKEN: u64 = 1;
 
 pub const MAX_RELAY_PEERS: usize = 128;
-pub const TX_FILTER_SIZE: usize = 50000;
-pub const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
-pub const COMPACT_BLOCK_FILTER_SIZE: usize = 8192;
 
 pub struct Relayer<CS> {
     chain: ChainController,
     pub(crate) shared: Arc<SyncSharedState<CS>>,
-    pub(crate) state: Arc<RelayState>,
     pub(crate) tx_pool_executor: Arc<TxPoolExecutor<CS>>,
 }
 
@@ -83,7 +77,6 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
         Relayer {
             chain: self.chain.clone(),
             shared: Arc::clone(&self.shared),
-            state: Arc::clone(&self.state),
             tx_pool_executor: Arc::clone(&self.tx_pool_executor),
         }
     }
@@ -92,10 +85,9 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
 impl<CS: ChainStore + 'static> Relayer<CS> {
     pub fn new(chain: ChainController, shared: Arc<SyncSharedState<CS>>) -> Self {
         let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.shared().clone()));
-        Relayer {
+        Self {
             chain,
             shared,
-            state: Arc::new(RelayState::default()),
             tx_pool_executor,
         }
     }
@@ -200,7 +192,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         peer: PeerIndex,
         block: &CompactBlock,
     ) {
-        let mut inflight = self.state.inflight_proposals.lock();
+        let mut inflight = self.inflight_proposals.lock();
         let unknown_ids = block
             .proposals
             .iter()
@@ -327,26 +319,20 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         }
     }
 
-    fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
-        let mut pending_proposals_request = self.state.pending_proposals_request.lock();
+    fn prune_get_block_proposals(&self, nc: &CKBProtocolContext) {
+        let get_block_proposals = self.clear_get_block_proposals();
         let mut peer_txs = FnvHashMap::default();
-        let mut remove_ids = Vec::new();
         {
             let chain_state = self.shared.lock_chain_state();
             let tx_pool = chain_state.tx_pool();
-            for (id, peer_indexs) in pending_proposals_request.iter() {
-                if let Some(tx) = tx_pool.get_tx(id) {
-                    for peer_index in peer_indexs {
-                        let tx_set = peer_txs.entry(*peer_index).or_insert_with(Vec::new);
+            for (id, peer_indices) in get_block_proposals.into_iter() {
+                if let Some(tx) = tx_pool.get_tx(&id) {
+                    for peer_index in peer_indices {
+                        let tx_set = peer_txs.entry(peer_index).or_insert_with(Vec::new);
                         tx_set.push(tx.clone());
                     }
                 }
-                remove_ids.push(*id);
             }
-        }
-
-        for id in remove_ids {
-            pending_proposals_request.remove(&id);
         }
 
         for (peer_index, txs) in peer_txs {
@@ -365,7 +351,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 .pop_ask_for_txs()
                 .into_iter()
                 .filter(|tx_hash| {
-                    let already_known = self.state.already_known_tx(&tx_hash);
+                    let already_known = self.already_known_tx(&tx_hash);
                     if already_known {
                         // Remove tx_hash from `tx_ask_for_set`
                         peer_state.remove_ask_for_tx(&tx_hash);
@@ -389,6 +375,23 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 nc.send_message_to(*peer, data);
             }
         }
+    }
+
+    fn mark_as_known_tx(&self, hash: H256) {
+        self.tx_already_asked.lock().remove(&hash);
+        self.tx_filter.lock().insert(hash, ());
+    }
+
+    fn already_known_tx(&self, hash: &H256) -> bool {
+        self.tx_filter.lock().contains_key(hash)
+    }
+
+    fn already_known_compact_block(&self, hash: &H256) -> bool {
+        self.compact_block_filter.lock().contains_key(hash)
+    }
+
+    fn mark_as_known_compact_block(&self, hash: H256) {
+        self.compact_block_filter.lock().insert(hash, ());
     }
 }
 
@@ -454,51 +457,10 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
         let start_time = Instant::now();
         trace!(target: "relay", "start notify token={}", token);
         match token {
-            TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
+            TX_PROPOSAL_TOKEN => self.prune_get_block_proposals(nc.as_ref()),
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
             _ => unreachable!(),
         }
         trace!(target: "relay", "finished notify token={} cost={:?}", token, start_time.elapsed());
-    }
-}
-
-pub struct RelayState {
-    pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
-    pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
-    pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
-    pub tx_filter: Mutex<LruCache<H256, ()>>,
-    pub tx_already_asked: Mutex<LruCache<H256, Instant>>,
-    pub compact_block_filter: Mutex<LruCache<H256, ()>>,
-}
-
-impl Default for RelayState {
-    fn default() -> Self {
-        RelayState {
-            pending_compact_blocks: Mutex::new(FnvHashMap::default()),
-            inflight_proposals: Mutex::new(FnvHashSet::default()),
-            pending_proposals_request: Mutex::new(FnvHashMap::default()),
-            tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
-            tx_already_asked: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
-            compact_block_filter: Mutex::new(LruCache::new(COMPACT_BLOCK_FILTER_SIZE)),
-        }
-    }
-}
-
-impl RelayState {
-    fn mark_as_known_tx(&self, hash: H256) {
-        self.tx_already_asked.lock().remove(&hash);
-        self.tx_filter.lock().insert(hash, ());
-    }
-
-    fn already_known_tx(&self, hash: &H256) -> bool {
-        self.tx_filter.lock().contains_key(hash)
-    }
-
-    fn already_known_compact_block(&self, hash: &H256) -> bool {
-        self.compact_block_filter.lock().contains_key(hash)
-    }
-
-    fn mark_as_known_compact_block(&self, hash: H256) {
-        self.compact_block_filter.lock().insert(hash, ());
     }
 }

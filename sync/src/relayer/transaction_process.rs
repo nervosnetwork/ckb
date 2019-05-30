@@ -40,14 +40,14 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
         let (tx, relay_cycles): (Transaction, Cycle) = (*self.message).try_into()?;
         let tx_hash = tx.hash();
 
-        if self.relayer.state.already_known_tx(&tx_hash) {
+        if self.relayer.already_known_tx(&tx_hash) {
             debug!(target: "relay", "discarding already known transaction {:#x}", tx_hash);
             return Ok(());
         }
 
         // Insert tx_hash into `already_known`
         // Remove tx_hash from `tx_already_asked`
-        self.relayer.state.mark_as_known_tx(tx_hash.clone());
+        self.relayer.mark_as_known_tx(tx_hash.clone());
         // Remove tx_hash from `tx_ask_for_set`
         if let Some(peer_state) = self.relayer.peers().state.write().get_mut(&self.peer) {
             peer_state.remove_ask_for_tx(&tx_hash);

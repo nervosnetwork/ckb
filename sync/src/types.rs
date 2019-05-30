@@ -1,3 +1,4 @@
+use crate::relayer::compact_block::CompactBlock;
 use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
@@ -8,6 +9,7 @@ use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::transaction::ProposalShortId;
 use ckb_core::Cycle;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
@@ -31,6 +33,8 @@ use std::collections::{
     BTreeMap,
 };
 use std::fmt;
+use std::mem::swap;
+use std::ops::DerefMut;
 use std::sync::atomic::AtomicUsize;
 use std::time::{Duration, Instant};
 
@@ -38,6 +42,9 @@ const FILTER_SIZE: usize = 20000;
 const MAX_ASK_MAP_SIZE: usize = 50000;
 const MAX_ASK_SET_SIZE: usize = MAX_ASK_MAP_SIZE * 2;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
+const TX_FILTER_SIZE: usize = 50000;
+const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
+const COMPACT_BLOCK_FILTER_SIZE: usize = 8192;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -541,14 +548,41 @@ bitflags! {
 
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
+
+    // the count of peers which has started synchronizing with us
+    n_sync_started: AtomicUsize,
+    // the count of peers which is protected outbound
+    n_protected_outbound_peers: AtomicUsize,
+
+    /* global status irrelevant to peers */
     epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
     best_known_header: RwLock<HeaderView>,
-    get_headers_cache: RwLock<LruCache<(PeerIndex, H256), Instant>>,
+
+    /* global cache */
+    /* Received but not completly handle */
+    pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
+    // Proposal transactions requests from peers, but we have not response yet, since
+    // we don't have the corresponding proposal transactions in pool
+    pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    // CompactBlocks had received but not processed completely yet.
+    // We are waiting for the corresponding fresh transactions, once they arrived, we can
+    // reconstruct and process the complete block
+    pub(crate) pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
+
+    pub(crate) inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
+
+    // Records the processed result of blocks, so that avoid re-process same blocks
     block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
+
     peers: Peers,
-    n_sync_started: AtomicUsize,
-    n_protected_outbound_peers: AtomicUsize,
+
+    // Transaction Filter for checking whether we have already known a transaction or not
+    pub(crate) tx_filter: Mutex<LruCache<H256, ()>>,
+    // Transactions that we have sent requests to peers for, but not got the response yet.
+    pub(crate) tx_already_asked: Mutex<LruCache<H256, Instant>>,
+    // CompactBlock filter for checking whether we have already known a block or not
+    pub(crate) compact_block_filter: Mutex<LruCache<H256, ()>>,
 }
 
 impl<CS: ChainStore> SyncSharedState<CS> {
@@ -570,7 +604,13 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             total_uncles_count,
         ));
         let header_map = RwLock::new(HashMap::new());
-        let get_headers_cache = RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE));
+        let pending_get_headers = RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE));
+        let pending_get_block_proposals = Mutex::new(FnvHashMap::default());
+        let pending_compact_blocks = Mutex::new(FnvHashMap::default());
+        let inflight_proposals = Mutex::new(FnvHashSet::default());
+        let tx_filter = Mutex::new(LruCache::new(TX_FILTER_SIZE));
+        let tx_already_asked = Mutex::new(LruCache::new(TX_ASKED_SIZE));
+        let compact_block_filter = Mutex::new(LruCache::new(COMPACT_BLOCK_FILTER_SIZE));
         let epoch_map = RwLock::new(EpochIndices::default());
         let block_status_map = Mutex::new(hashbrown::HashMap::new());
         let peers = Peers::default();
@@ -582,7 +622,13 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             header_map,
             epoch_map,
             best_known_header,
-            get_headers_cache,
+            pending_get_headers,
+            pending_get_block_proposals,
+            pending_compact_blocks,
+            inflight_proposals,
+            tx_filter,
+            tx_already_asked,
+            compact_block_filter,
             block_status_map,
             peers,
             n_sync_started,
@@ -843,7 +889,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         header: &Header,
     ) {
         if let Some(last_time) = self
-            .get_headers_cache
+            .pending_get_headers
             .write()
             .get_refresh(&(peer, header.hash().to_owned()))
         {
@@ -864,7 +910,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 );
             }
         }
-        self.get_headers_cache
+        self.pending_get_headers
             .write()
             .insert((peer, header.hash().to_owned()), Instant::now());
 
@@ -897,5 +943,20 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn insert_block_status(&self, block_hash: H256, status: BlockStatus) {
         self.block_status_map.lock().insert(block_hash, status);
+    }
+
+    pub fn clear_get_block_proposals(&self) -> FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>> {
+        let mut locked = self.pending_get_block_proposals.lock();
+        let old = locked.deref_mut();
+        let mut ret = FnvHashMap::default();
+        swap(old, &mut ret);
+        ret
+    }
+
+    pub fn insert_get_block_proposals(&self, ids: Vec<ProposalShortId>, pi: PeerIndex) {
+        let mut locked = self.pending_get_block_proposals.lock();
+        for id in ids.into_iter() {
+            locked.entry(id).or_default().insert(pi);
+        }
     }
 }
