@@ -72,7 +72,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
                 .cloned();
             if let Some(next_ask_timeout) = self
                 .relayer
-                .peers
+                .peers()
                 .state
                 .write()
                 .get_mut(&self.peer)

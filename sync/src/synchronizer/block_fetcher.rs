@@ -1,5 +1,5 @@
-use crate::synchronizer::{BlockStatus, Synchronizer};
-use crate::types::HeaderView;
+use crate::synchronizer::Synchronizer;
+use crate::types::{BlockStatus, HeaderView};
 use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 use ckb_core::header::Header;
 use ckb_network::PeerIndex;
@@ -36,7 +36,7 @@ where
         }
     }
     pub fn reached_inflight_limit(&self) -> bool {
-        let inflight = self.synchronizer.peers.blocks_inflight.read();
+        let inflight = self.synchronizer.peers().blocks_inflight.read();
 
         // Can't download any more from this peer
         inflight.peer_inflight_count(&self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
@@ -47,7 +47,7 @@ where
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
-        self.synchronizer.peers.get_best_known_header(self.peer)
+        self.synchronizer.peers().get_best_known_header(self.peer)
     }
 
     pub fn last_common_header(&self, best: &HeaderView) -> Option<Header> {
@@ -76,7 +76,7 @@ where
         Some(fixed_last_common_header)
     }
 
-    // this peer's tip is wherethe the ancestor of global_best_known_header
+    // this peer's tip is where the the ancestor of global_best_known_header
     pub fn is_known_best(&self, header: &HeaderView) -> bool {
         let global_best_known_header = self.synchronizer.shared.best_known_header();
         if let Some(ancestor) = self
@@ -166,7 +166,7 @@ where
         let mut fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
 
         {
-            let mut inflight = self.synchronizer.peers.blocks_inflight.write();
+            let mut inflight = self.synchronizer.peers().blocks_inflight.write();
             let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
                 .saturating_sub(inflight.peer_inflight_count(&self.peer));
 

@@ -23,7 +23,7 @@ use self::get_transaction_process::GetTransactionProcess;
 use self::transaction_hash_process::TransactionHashProcess;
 use self::transaction_process::TransactionProcess;
 use crate::relayer::compact_block::ShortTransactionID;
-use crate::types::{Peers, SyncSharedState};
+use crate::types::SyncSharedState;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
@@ -45,6 +45,7 @@ use log::{debug, info, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -60,9 +61,21 @@ pub struct Relayer<CS> {
     chain: ChainController,
     pub(crate) shared: Arc<SyncSharedState<CS>>,
     pub(crate) state: Arc<RelayState>,
-    // TODO refactor shared Peers struct with Synchronizer
-    peers: Arc<Peers>,
     pub(crate) tx_pool_executor: Arc<TxPoolExecutor<CS>>,
+}
+
+impl<CS: ChainStore> Deref for Relayer<CS> {
+    type Target = Arc<SyncSharedState<CS>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.shared
+    }
+}
+
+impl<CS: ChainStore> DerefMut for Relayer<CS> {
+    fn deref_mut(&mut self) -> &mut Arc<SyncSharedState<CS>> {
+        &mut self.shared
+    }
 }
 
 impl<CS: ChainStore> Clone for Relayer<CS> {
@@ -71,24 +84,18 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
             chain: self.chain.clone(),
             shared: Arc::clone(&self.shared),
             state: Arc::clone(&self.state),
-            peers: Arc::clone(&self.peers),
             tx_pool_executor: Arc::clone(&self.tx_pool_executor),
         }
     }
 }
 
 impl<CS: ChainStore + 'static> Relayer<CS> {
-    pub fn new(
-        chain: ChainController,
-        shared: Arc<SyncSharedState<CS>>,
-        peers: Arc<Peers>,
-    ) -> Self {
+    pub fn new(chain: ChainController, shared: Arc<SyncSharedState<CS>>) -> Self {
         let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.shared().clone()));
         Relayer {
             chain,
             shared,
             state: Arc::new(RelayState::default()),
-            peers,
             tx_pool_executor,
         }
     }
@@ -224,7 +231,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             fbb.finish(message, None);
             let data = fbb.finished_data().into();
 
-            let mut known_blocks = self.peers.known_blocks.lock();
+            let mut known_blocks = self.peers().known_blocks.lock();
             let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
                 .into_iter()
@@ -353,7 +360,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
     // Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &CKBProtocolContext) {
-        for (peer, peer_state) in self.peers.state.write().iter_mut() {
+        for (peer, peer_state) in self.peers().state.write().iter_mut() {
             let tx_hashes = peer_state
                 .pop_ask_for_txs()
                 .into_iter()

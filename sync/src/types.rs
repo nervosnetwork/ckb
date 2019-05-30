@@ -2,6 +2,7 @@ use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
+use bitflags::bitflags;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::BlockExt;
@@ -30,6 +31,7 @@ use std::collections::{
     BTreeMap,
 };
 use std::fmt;
+use std::sync::atomic::AtomicUsize;
 use std::time::{Duration, Instant};
 
 const FILTER_SIZE: usize = 20000;
@@ -517,12 +519,36 @@ impl EpochIndices {
     }
 }
 
+bitflags! {
+    pub struct BlockStatus: u32 {
+        const UNKNOWN            = 0;
+        const VALID_HEADER       = 1;
+        const VALID_TREE         = 2;
+        const VALID_TRANSACTIONS = 3;
+        const VALID_CHAIN        = 4;
+        const VALID_SCRIPTS      = 5;
+
+        const VALID_MASK         = Self::VALID_HEADER.bits | Self::VALID_TREE.bits | Self::VALID_TRANSACTIONS.bits |
+                                   Self::VALID_CHAIN.bits | Self::VALID_SCRIPTS.bits;
+        const BLOCK_HAVE_DATA    = 8;
+        const BLOCK_HAVE_UNDO    = 16;
+        const BLOCK_HAVE_MASK    = Self::BLOCK_HAVE_DATA.bits | Self::BLOCK_HAVE_UNDO.bits;
+        const FAILED_VALID       = 32;
+        const FAILED_CHILD       = 64;
+        const FAILED_MASK        = Self::FAILED_VALID.bits | Self::FAILED_CHILD.bits;
+    }
+}
+
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
     epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
     best_known_header: RwLock<HeaderView>,
     get_headers_cache: RwLock<LruCache<(PeerIndex, H256), Instant>>,
+    block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
+    peers: Peers,
+    n_sync_started: AtomicUsize,
+    n_protected_outbound_peers: AtomicUsize,
 }
 
 impl<CS: ChainStore> SyncSharedState<CS> {
@@ -546,6 +572,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let header_map = RwLock::new(HashMap::new());
         let get_headers_cache = RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE));
         let epoch_map = RwLock::new(EpochIndices::default());
+        let block_status_map = Mutex::new(hashbrown::HashMap::new());
+        let peers = Peers::default();
+        let n_sync_started = AtomicUsize::new(0);
+        let n_protected_outbound_peers = AtomicUsize::new(0);
 
         SyncSharedState {
             shared,
@@ -553,11 +583,24 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             epoch_map,
             best_known_header,
             get_headers_cache,
+            block_status_map,
+            peers,
+            n_sync_started,
+            n_protected_outbound_peers,
         }
     }
 
     pub fn shared(&self) -> &Shared<CS> {
         &self.shared
+    }
+    pub fn peers(&self) -> &Peers {
+        &self.peers
+    }
+    pub fn n_sync_started(&self) -> &AtomicUsize {
+        &self.n_sync_started
+    }
+    pub fn n_protected_outbound_peers(&self) -> &AtomicUsize {
+        &self.n_protected_outbound_peers
     }
     pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
         self.shared.lock_chain_state()
@@ -835,5 +878,24 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             peer,
             fbb.finished_data().into(),
         );
+    }
+
+    pub fn get_block_status(&self, block_hash: &H256) -> BlockStatus {
+        let mut guard = self.block_status_map.lock();
+        match guard.get(block_hash).cloned() {
+            Some(status) => status,
+            None => {
+                if self.shared.block_header(block_hash).is_some() {
+                    guard.insert(block_hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
+                    BlockStatus::BLOCK_HAVE_MASK
+                } else {
+                    BlockStatus::UNKNOWN
+                }
+            }
+        }
+    }
+
+    pub fn insert_block_status(&self, block_hash: H256, status: BlockStatus) {
+        self.block_status_map.lock().insert(block_hash, status);
     }
 }

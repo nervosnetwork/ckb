@@ -1,4 +1,5 @@
-use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::synchronizer::Synchronizer;
+use crate::types::BlockStatus;
 use crate::MAX_HEADERS_LEN;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -162,7 +163,7 @@ where
         let headers = cast!(self.message.headers())?;
 
         if headers.len() > MAX_HEADERS_LEN {
-            self.synchronizer.peers.misbehavior(self.peer, 20);
+            self.synchronizer.peers().misbehavior(self.peer, 20);
             warn!(target: "sync", "HeadersProcess is_oversize");
             return Ok(());
         }
@@ -191,7 +192,7 @@ where
             .collect::<Result<Vec<Header>, FailureError>>()?;
 
         if !self.is_continuous(&headers) {
-            self.synchronizer.peers.misbehavior(self.peer, 20);
+            self.synchronizer.peers().misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is not continuous");
             return Ok(());
         }
@@ -200,7 +201,7 @@ where
         if !result.is_valid() {
             if result.misbehavior > 0 {
                 self.synchronizer
-                    .peers
+                    .peers()
                     .misbehavior(self.peer, result.misbehavior);
             }
             debug!(target: "sync", "HeadersProcess accept_first is_valid {:?} headers = {:?}", result, headers[0]);
@@ -221,7 +222,7 @@ where
                 if !result.is_valid() {
                     if result.misbehavior > 0 {
                         self.synchronizer
-                            .peers
+                            .peers()
                             .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
@@ -232,7 +233,7 @@ where
 
         if log_enabled!(target: "sync", log::Level::Debug) {
             let chain_state = self.synchronizer.shared.lock_chain_state();
-            let peer_best_known = self.synchronizer.peers.get_best_known_header(self.peer);
+            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
             debug!(
                 target: "sync",
                 "chain: num={}, diff={:#x};",
@@ -277,7 +278,7 @@ where
         // chain. Disconnect peers that are on chains with insufficient work.
         let (is_outbound, is_protected) = self
             .synchronizer
-            .peers
+            .peers()
             .state
             .read()
             .get(&self.peer)

@@ -61,11 +61,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         args.config.sync,
     );
 
-    let relayer = Relayer::new(
-        chain_controller.clone(),
-        sync_shared_state,
-        Arc::clone(synchronizer.peers()),
-    );
+    let relayer = Relayer::new(chain_controller.clone(), sync_shared_state);
     let net_timer = NetTimeProtocol::default();
 
     let synchronizer_clone = synchronizer.clone();

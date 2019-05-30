@@ -49,7 +49,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
         // Remove tx_hash from `tx_already_asked`
         self.relayer.state.mark_as_known_tx(tx_hash.clone());
         // Remove tx_hash from `tx_ask_for_set`
-        if let Some(peer_state) = self.relayer.peers.state.write().get_mut(&self.peer) {
+        if let Some(peer_state) = self.relayer.peers().state.write().get_mut(&self.peer) {
             peer_state.remove_ask_for_tx(&tx_hash);
         }
 
@@ -58,7 +58,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
             let nc = Arc::clone(&self.nc);
             let self_peer = self.peer;
             let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
-            let peers = Arc::clone(&self.relayer.peers);
+            let shared = Arc::clone(&self.relayer.shared);
             let tx_hash = tx_hash.clone();
             let tx = tx.to_owned();
             Box::new(
@@ -70,7 +70,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                         match tx_result {
                             Ok(cycles) if cycles == relay_cycles => {
                                 let selected_peers: Vec<PeerIndex> = {
-                                    let mut known_txs = peers.known_txs.lock();
+                                    let mut known_txs = shared.peers().known_txs.lock();
                                     nc.connected_peers()
                                         .into_iter()
                                         .filter(|target_peer| {
