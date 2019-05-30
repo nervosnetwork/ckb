@@ -76,6 +76,19 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             return Ok(());
         }
 
+        if let Some(flight) = self
+            .relayer
+            .peers
+            .blocks_inflight
+            .read()
+            .inflight_state_by_block(&block_hash)
+        {
+            if flight.peers.contains(&self.peer) {
+                debug!(target: "relay", "discarding already in-flight compact block {:x}", block_hash);
+                return Ok(());
+            }
+        }
+
         // The new arrived has greater difficulty than local best known chain
         let mut missing_indexes: Vec<usize> = Vec::new();
         {
@@ -143,6 +156,21 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             }
         }
         if !missing_indexes.is_empty() {
+            if !self
+                .relayer
+                .peers
+                .blocks_inflight
+                .write()
+                .insert(self.peer, block_hash.to_owned())
+            {
+                debug!(
+                    target: "relay",
+                    "BlockInFlight reach limit or had requested, peer: {}, block: {:x}",
+                    self.peer, block_hash,
+                );
+                return Ok(());
+            }
+
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_get_block_transactions(
                 fbb,
