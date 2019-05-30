@@ -490,8 +490,12 @@ impl Transaction {
         &self.witnesses
     }
 
+    // one-in one-out one-wit
     pub fn is_cellbase(&self) -> bool {
-        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
+        self.inputs.len() == 1
+            && self.outputs.len() == 1
+            && self.witnesses.len() == 1
+            && self.inputs[0].previous_output.is_null()
     }
 
     pub fn is_withdrawing_from_dao(&self) -> bool {

@@ -1,22 +1,21 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_core::block::Block;
-use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{
-    Capacity, CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
+    CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
+use ckb_core::BlockNumber;
 use ckb_core::{Bytes, Cycle, Version};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_verification::ScriptVerifier;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -316,16 +315,15 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .collect();
 
         let cellbase_lock = Script::new(cellbase_lock_args, self.config.code_hash.clone());
-        let (dummy_cellbase, cellbase_size, cellbase_cycle) =
-            self.dummy_cellbase_transaction(&header, cellbase_lock, None)?;
+
+        let (cellbase, cellbase_size) = self.build_cellbase(&header, cellbase_lock)?;
 
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
         let proposals = chain_state.get_proposals(proposals_limit as usize);
         let txs_size_limit =
             self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
-        let txs_cycles_limit = cycles_limit - cellbase_cycle;
-        let (entries, size, cycles) =
-            chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
+
+        let (entries, size, cycles) = chain_state.get_proposed_txs(txs_size_limit, cycles_limit);
         if !entries.is_empty() {
             info!(
                 "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
@@ -333,13 +331,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 size,
                 txs_size_limit,
                 cycles,
-                txs_cycles_limit
+                cycles_limit
             );
         }
+
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
-
-        let cellbase = self.rebuild_cellbase(&header, &dummy_cellbase, &current_epoch, &entries)?;
 
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
@@ -376,58 +373,57 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         Ok(template)
     }
 
-    fn dummy_cellbase_transaction(
+    fn build_cellbase(
         &self,
         tip: &Header,
         lock: Script,
-        type_: Option<Script>,
-    ) -> Result<(Transaction, usize, Cycle), FailureError> {
-        // NOTE: To generate different cellbase txid, we put header number in the input script
-        let input = CellInput::new_cellbase_input(tip.number() + 1);
-        // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
-        // but the truth is we will modify this after we designed lock script anyway, so let's
-        // stick to the simpler way and just convert everything to a single string, then to UTF8
-        // bytes, they really serve the same purpose at the moment
+    ) -> Result<(Transaction, usize), FailureError> {
+        let candidate_number = tip.number() + 1;
 
-        let output = CellOutput::new(Capacity::zero(), Bytes::new(), lock, type_);
+        let tx = if candidate_number > (self.shared.consensus().foundation_reserve_number()) {
+            self.ordinary_cellbase(tip, lock)
+        } else {
+            self.foundation_cellbase(candidate_number, lock)
+        }?;
 
-        let tx = TransactionBuilder::default()
-            .input(input)
-            .output(output)
-            .build();
-
-        let rtx = ResolvedTransaction {
-            transaction: &tx,
-            resolved_deps: vec![],
-            resolved_inputs: vec![],
-        };
-
-        let script_verifier =
-            ScriptVerifier::new(&rtx, self.shared.store(), self.shared.script_config());
-        let cycle = script_verifier.verify(self.shared.consensus().max_block_cycles())?;
         let serialized_size = tx.serialized_size();
-        Ok((tx, serialized_size, cycle))
+        Ok((tx, serialized_size))
     }
 
-    fn rebuild_cellbase(
+    fn foundation_cellbase(
         &self,
-        tip: &Header,
-        dummy_cellbase: &Transaction,
-        current_epoch: &EpochExt,
-        pes: &[ProposedEntry],
+        candidate_number: BlockNumber,
+        lock: Script,
     ) -> Result<Transaction, FailureError> {
-        let block_reward = current_epoch.block_reward(tip.number() + 1)?;
-        let mut fee = Capacity::zero();
-        for pe in pes {
-            fee = fee.safe_add(pe.fee)?;
-        }
-        let input = dummy_cellbase.inputs()[0].clone();
-        let mut output = dummy_cellbase.outputs()[0].clone();
-        output.capacity = block_reward.safe_add(fee)?;
-
+        let witness = lock.into_witness();
+        let input = CellInput::new_cellbase_input(candidate_number);
+        let output = CellOutput::new(
+            self.shared
+                .consensus()
+                .genesis_epoch_ext()
+                .block_reward(candidate_number)?,
+            Bytes::default(),
+            self.shared.consensus().foundation().lock.clone(),
+            None,
+        );
         Ok(TransactionBuilder::default()
             .input(input)
             .output(output)
+            .witness(witness)
+            .build())
+    }
+
+    fn ordinary_cellbase(&self, tip: &Header, lock: Script) -> Result<Transaction, FailureError> {
+        let candidate_number = tip.number() + 1;
+        let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
+
+        let witness = lock.into_witness();
+        let input = CellInput::new_cellbase_input(candidate_number);
+        let output = CellOutput::new(block_reward, Bytes::default(), target_lock, None);
+        Ok(TransactionBuilder::default()
+            .input(input)
+            .output(output)
+            .witness(witness)
             .build())
     }
 

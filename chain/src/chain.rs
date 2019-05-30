@@ -259,7 +259,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             current_total_difficulty, cannon_total_difficulty,
         );
 
-        if parent_ext.txs_verified == Some(false) {
+        if parent_ext.verified == Some(false) {
             Err(SharedError::InvalidParentBlock)?;
         }
 
@@ -289,7 +289,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             received_at: unix_time_as_millis(),
             total_difficulty: cannon_total_difficulty.clone(),
             total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
-            txs_verified: None,
+            verified: None,
+            txs_fees: vec![],
             dao_stats: DaoStats {
                 accumulated_rate: ar,
                 accumulated_capacity: c.as_u64(),
@@ -437,7 +438,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                         .store()
                         .get_block_ext(&index.hash)
                         .expect("block ext stored before alignment_fork");
-                    if ext.txs_verified.is_none() {
+                    if ext.verified.is_none() {
                         fork.dirty_exts.push_front(ext)
                     } else {
                         index.unseen = false;
@@ -480,7 +481,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     .store()
                     .get_block_ext(&index.hash)
                     .expect("block ext stored before find_fork_until_latest_common");
-                if ext.txs_verified.is_none() {
+                if ext.verified.is_none() {
                     fork.dirty_exts.push_front(ext)
                 } else {
                     index.unseen = false;
@@ -545,12 +546,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             .dirty_exts
             .iter()
             .zip(fork.attached_blocks().iter().skip(verified_len))
-            .map(|(ext, b)| (b.header().hash().to_owned(), ext.txs_verified))
+            .map(|(ext, b)| (b.header().hash().to_owned(), ext.verified, vec![]))
             .collect::<Vec<_>>();
 
         let mut found_error = None;
         // verify transaction
-        for ((_, verified), b) in verify_results
+        for ((_, verified, l_txs_fees), b) in verify_results
             .iter_mut()
             .zip(fork.attached_blocks.iter().skip(verified_len))
         {
@@ -588,7 +589,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     {
                         Ok(resolved) => {
                             match contextual_block_verifier.verify(&resolved, b, txs_verify_cache) {
-                                Ok(cycles) => {
+                                Ok((cycles, txs_fees)) => {
                                     cell_set_diff.push_new(b);
                                     outputs.extend(
                                         b.transactions()
@@ -596,6 +597,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                             .map(|tx| (tx.hash().to_owned(), tx.outputs())),
                                     );
                                     *verified = Some(true);
+                                    l_txs_fees.extend(txs_fees);
                                     let proof_size =
                                         self.shared.consensus().pow_engine().proof_size();
                                     if b.transactions().len() > 1 {
@@ -650,8 +652,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         // update exts
-        for (ext, (hash, verified)) in fork.dirty_exts.iter_mut().zip(verify_results) {
-            ext.txs_verified = verified;
+        for (ext, (hash, verified, txs_fees)) in fork.dirty_exts.iter_mut().zip(verify_results) {
+            ext.verified = verified;
+            ext.txs_fees = txs_fees;
             batch.insert_block_ext(&hash, ext)?;
         }
 

@@ -52,6 +52,10 @@ impl CellbaseVerifier {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        if block.is_genesis() {
+            return Ok(());
+        }
+
         let cellbase_len = block
             .transactions()
             .iter()
@@ -61,6 +65,14 @@ impl CellbaseVerifier {
         // empty checked, block must contain cellbase
         if cellbase_len != 1 {
             return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
+        }
+
+        if Script::from_witness(&self.witnesses[0]).is_none() {
+            return Err(Error::Cellbase(CellbaseError::InvalidWitness));
+        }
+
+        if self.outputs().iter().any(|output| output.type_.is_some()) {
+            return Err(Error::Cellbase(CellbaseError::InvalidTypeScript));
         }
 
         let cellbase_transaction = &block.transactions()[0];

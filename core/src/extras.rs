@@ -11,8 +11,9 @@ pub struct BlockExt {
     pub received_at: u64,
     pub total_difficulty: U256,
     pub total_uncles_count: u64,
-    pub txs_verified: Option<bool>,
+    pub verified: Option<bool>,
     pub dao_stats: DaoStats,
+    pub txs_fees: Vec<Capacity>,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]

@@ -64,7 +64,8 @@ fn test_find_fork_case1() {
         total_difficulty: U256::zero(),
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
-        txs_verified: None,
+        verified: None,
+        txs_fees: vec![],
         dao_stats: DaoStats {
             accumulated_rate: DEFAULT_ACCUMULATED_RATE,
             accumulated_capacity: 0,
@@ -137,7 +138,8 @@ fn test_find_fork_case2() {
         total_difficulty: U256::zero(),
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
-        txs_verified: None,
+        verified: None,
+        txs_fees: vec![],
         dao_stats: DaoStats {
             accumulated_rate: DEFAULT_ACCUMULATED_RATE,
             accumulated_capacity: 0,
@@ -211,7 +213,8 @@ fn test_find_fork_case3() {
         total_difficulty: U256::zero(),
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
-        txs_verified: None,
+        verified: None,
+        txs_fees: vec![],
         dao_stats: DaoStats {
             accumulated_rate: DEFAULT_ACCUMULATED_RATE,
             accumulated_capacity: 0,
@@ -284,7 +287,8 @@ fn test_find_fork_case4() {
         total_difficulty: U256::zero(),
         total_uncles_count: 0,
         // if txs in parent is invalid, txs in block is also invalid
-        txs_verified: None,
+        verified: None,
+        txs_fees: vec![],
         dao_stats: DaoStats {
             accumulated_rate: DEFAULT_ACCUMULATED_RATE,
             accumulated_capacity: 0,

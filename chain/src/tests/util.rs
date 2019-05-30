@@ -1,5 +1,5 @@
 use crate::chain::{ChainController, ChainService};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::{consensus::Consensus, Foundation};
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::{Header, HeaderBuilder};
@@ -18,10 +18,10 @@ use numext_fixed_uint::U256;
 use test_chain_utils::create_always_success_cell;
 
 fn create_always_success_tx() -> Transaction {
-    let (always_success_cell, _) = create_always_success_cell();
+    let (ref always_success_cell, _) = create_always_success_cell();
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
-        .output(always_success_cell)
+        .output(always_success_cell.clone())
         .build()
 }
 
@@ -39,17 +39,20 @@ pub(crate) fn start_chain(
     Header,
 ) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder
-        .consensus(consensus.unwrap_or_else(|| {
-            let genesis_block = BlockBuilder::default()
-                .transaction(create_always_success_tx())
-                .build();
-            Consensus::default()
-                .set_cellbase_maturity(0)
-                .set_genesis_block(genesis_block)
-        }))
-        .build()
-        .unwrap();
+    let (_, ref always_success_script) = create_always_success_cell();
+
+    let consensus = consensus.unwrap_or_else(|| {
+        let genesis_block = BlockBuilder::default()
+            .transaction(create_always_success_tx())
+            .build();
+        Consensus::default()
+            .set_cellbase_maturity(0)
+            .set_foundation(Foundation {
+                lock: always_success_script.clone(),
+            })
+            .set_genesis_block(genesis_block)
+    });
+    let shared = builder.consensus(consensus).build().unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainService::new(shared.clone(), notify);
@@ -69,9 +72,10 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
         .output(CellOutput::new(
             capacity_bytes!(2_500),
             Bytes::default(),
-            always_success_script,
+            always_success_script.clone(),
             None,
         ))
+        .witness(always_success_script.clone().into_witness())
         .build()
 }
 
@@ -119,7 +123,7 @@ pub(crate) fn create_transaction_with_out_point(
         .output(CellOutput::new(
             capacity_bytes!(2_500),
             Bytes::from(vec![unique_data]),
-            always_success_script,
+            always_success_script.clone(),
             None,
         ))
         .input(CellInput::new(out_point, 0))

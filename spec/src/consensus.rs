@@ -1,3 +1,4 @@
+use crate::Foundation;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -44,6 +45,10 @@ impl ProposalWindow {
     pub fn start(&self) -> BlockNumber {
         self.1
     }
+
+    pub fn length(&self) -> BlockNumber {
+        self.1 - self.0 + 1
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -73,6 +78,8 @@ pub struct Consensus {
     // block version number supported
     pub max_block_proposals_limit: u64,
     pub genesis_epoch_ext: EpochExt,
+    // foundation lock
+    pub foundation: Foundation,
 }
 
 // genesis difficulty should not be zero
@@ -114,6 +121,9 @@ impl Default for Consensus {
             genesis_epoch_ext,
             block_version: BLOCK_VERSION,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
+            foundation: Foundation {
+                lock: Default::default(),
+            },
         }
     }
 }
@@ -161,6 +171,12 @@ impl Consensus {
         self
     }
 
+    #[must_use]
+    pub fn set_foundation(mut self, foundation: Foundation) -> Self {
+        self.foundation = foundation;
+        self
+    }
+
     pub fn set_tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.tx_proposal_window = proposal_window;
         self
@@ -173,6 +189,14 @@ impl Consensus {
 
     pub fn genesis_block(&self) -> &Block {
         &self.genesis_block
+    }
+
+    pub fn foundation(&self) -> &Foundation {
+        &self.foundation
+    }
+
+    pub fn foundation_reserve_number(&self) -> BlockNumber {
+        self.tx_proposal_window.start() + 1
     }
 
     pub fn genesis_hash(&self) -> &H256 {
@@ -356,5 +380,14 @@ impl Consensus {
         };
 
         Some(epoch_ext)
+    }
+
+    pub fn finalize_target(&self, block_number: BlockNumber) -> Option<BlockNumber> {
+        let finalize_target = block_number.checked_sub(self.foundation_reserve_number())?;
+        // we should not reward genesis
+        if finalize_target < 1 {
+            return None;
+        }
+        Some(finalize_target)
     }
 }

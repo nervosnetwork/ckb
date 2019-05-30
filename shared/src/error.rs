@@ -1,4 +1,5 @@
 use ckb_core::cell::UnresolvableError;
+use ckb_core::BlockNumber;
 use ckb_db::Error as DBError;
 use failure::Fail;
 
@@ -14,4 +15,6 @@ pub enum SharedError {
     InvalidData(String),
     #[fail(display = "DB error: {}", _0)]
     DB(DBError),
+    #[fail(display = "FinalizeTarget error: {}", _0)]
+    FinalizeTarget(BlockNumber),
 }

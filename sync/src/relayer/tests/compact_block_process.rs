@@ -4,6 +4,7 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, IndexTransaction, OutPoint, Transaction, TransactionBuilder,
 };
@@ -73,7 +74,8 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
-        .output(always_success_cell)
+        .output(always_success_cell.clone())
+        .witness(Script::default().into_witness())
         .build();
     let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
 
@@ -114,6 +116,7 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
                 always_success_script.to_owned(),
                 None,
             ))
+            .witness(Script::default().into_witness())
             .build();
         let block = BlockBuilder::from_header_builder(new_header_builder(&shared, &parent))
             .transaction(cellbase)

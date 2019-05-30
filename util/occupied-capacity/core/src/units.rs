@@ -70,6 +70,14 @@ impl Capacity {
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }
+
+    pub fn safe_mul_ratio(self, numer: u64, denom: u64) -> Result<Self> {
+        self.0
+            .checked_mul(numer)
+            .and_then(|ret| ret.checked_div(denom))
+            .map(Capacity::shannons)
+            .ok_or(Error::Overflow)
+    }
 }
 
 impl ::std::str::FromStr for Capacity {

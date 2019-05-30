@@ -124,11 +124,12 @@ pub trait ChainStore: Sync + Send {
     fn get_epoch_index(&self, number: EpochNumber) -> Option<H256>;
     // Get epoch index by block hash
     fn get_block_epoch_index(&self, h256: &H256) -> Option<H256>;
-
     fn traverse_cell_set<F>(&self, callback: F) -> Result<(), Error>
     where
         F: FnMut(H256, TransactionMeta) -> Result<(), Error>;
     fn is_uncle(&self, hash: &H256) -> bool;
+    // Get cellbase by block hash
+    fn get_cellbase(&self, hash: &H256) -> Option<Transaction>;
 }
 
 pub trait StoreBatch {
@@ -259,7 +260,8 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             received_at: genesis.header().timestamp(),
             total_difficulty: genesis.header().difficulty().clone(),
             total_uncles_count: 0,
-            txs_verified: Some(true),
+            verified: Some(true),
+            txs_fees: vec![],
             dao_stats: DaoStats {
                 accumulated_rate: DEFAULT_ACCUMULATED_RATE,
                 accumulated_capacity: genesis
@@ -392,6 +394,27 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             CellKey::calculate(tx_hash, index).as_ref(),
         )
         .map(|raw| deserialize(&raw[..]).expect("deserialize cell meta should be ok"))
+    }
+
+    fn get_cellbase(&self, h: &H256) -> Option<Transaction> {
+        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
+            .and_then(|serialized_addresses| {
+                let addresses: Vec<TransactionAddressInner> =
+                    deserialize(&serialized_addresses).expect("deserialize address should be ok");
+                let cellbase_address = addresses.get(0).expect("cellbase address should exist");
+                self.partial_get(
+                    COLUMN_BLOCK_BODY,
+                    h.as_bytes(),
+                    &(cellbase_address.offset..(cellbase_address.offset + cellbase_address.length)),
+                )
+                .map(|ref serialized_transaction| {
+                    deserialize_transaction(
+                        &serialized_transaction,
+                        &cellbase_address.outputs_addresses,
+                    )
+                    .expect("deserialize tx should be ok")
+                })
+            })
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
@@ -665,7 +688,8 @@ mod tests {
             received_at: block.header().timestamp(),
             total_difficulty: block.header().difficulty().to_owned(),
             total_uncles_count: block.uncles().len() as u64,
-            txs_verified: Some(true),
+            verified: Some(true),
+            txs_fees: vec![],
             dao_stats: DaoStats {
                 accumulated_rate: DEFAULT_ACCUMULATED_RATE,
                 accumulated_capacity: block.outputs_capacity().unwrap().as_u64(),
