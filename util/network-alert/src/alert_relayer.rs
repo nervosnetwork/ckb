@@ -14,25 +14,20 @@ use ckb_core::alert::Alert;
 use ckb_logger::{debug, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_protocol::{get_root, AlertMessage};
+use ckb_util::Mutex;
 use flatbuffers::FlatBufferBuilder;
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashSet;
 use lru_cache::LruCache;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-const CANCEL_FILTER_SIZE: usize = 128;
 const KNOWN_LIST_SIZE: usize = 64;
 
 /// AlertRelayer
 /// relay alert messages
 #[derive(Clone)]
 pub struct AlertRelayer {
-    /// cancelled alerts
-    cancel_filter: LruCache<u32, ()>,
-    /// unexpired alerts we received
-    received_alerts: FnvHashMap<u32, Arc<Alert>>,
-    /// alerts that self node should notice
-    notifier: Arc<Notifier>,
+    notifier: Arc<Mutex<Notifier>>,
     verifier: Arc<Verifier>,
     known_lists: LruCache<PeerIndex, FnvHashSet<u32>>,
 }
@@ -40,15 +35,13 @@ pub struct AlertRelayer {
 impl AlertRelayer {
     pub fn new(client_version: String, config: Config) -> Self {
         AlertRelayer {
-            cancel_filter: LruCache::new(CANCEL_FILTER_SIZE),
-            received_alerts: Default::default(),
-            notifier: Arc::new(Notifier::new(client_version)),
+            notifier: Arc::new(Mutex::new(Notifier::new(client_version))),
             verifier: Arc::new(Verifier::new(config)),
             known_lists: LruCache::new(KNOWN_LIST_SIZE),
         }
     }
 
-    pub fn notifier(&self) -> Arc<Notifier> {
+    pub fn notifier(&self) -> Arc<Mutex<Notifier>> {
         Arc::clone(&self.notifier)
     }
 
@@ -56,24 +49,9 @@ impl AlertRelayer {
         Arc::clone(&self.verifier)
     }
 
-    fn receive_new_alert(&mut self, alert: Arc<Alert>) {
-        // checkout cancel_id
-        if alert.cancel > 0 {
-            self.cancel_filter.insert(alert.cancel, ());
-            self.received_alerts.remove(&alert.cancel);
-            self.notifier.cancel(alert.cancel);
-        }
-        // add to received alerts
-        self.received_alerts.insert(alert.id, Arc::clone(&alert));
-        // set self node notice
-        self.notifier.add(alert);
-    }
-
     fn clear_expired_alerts(&mut self) {
         let now = faketime::unix_time_as_millis();
-        self.received_alerts
-            .retain(|_id, alert| alert.notice_until > now);
-        self.notifier.clear_expired_alerts(now);
+        self.notifier.lock().clear_expired_alerts(now);
     }
 
     // return true if it this first time the peer know this alert
@@ -100,7 +78,7 @@ impl CKBProtocolHandler for AlertRelayer {
         _version: &str,
     ) {
         self.clear_expired_alerts();
-        for alert in self.received_alerts.values() {
+        for alert in self.notifier.lock().received_alerts() {
             trace!("send alert {} to peer {}", alert.id, peer_index);
             let fbb = &mut FlatBufferBuilder::new();
             let msg = AlertMessage::build_alert(fbb, &alert);
@@ -129,9 +107,7 @@ impl CKBProtocolHandler for AlertRelayer {
         };
         trace!("receive alert {} from peer {}", alert.id, peer_index);
         // ignore alert
-        if self.received_alerts.contains_key(&alert.id)
-            || self.cancel_filter.contains_key(&alert.id)
-        {
+        if self.notifier.lock().has_received(alert.id) {
             return;
         }
         // verify
@@ -157,6 +133,6 @@ impl CKBProtocolHandler for AlertRelayer {
             .collect();
         nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data);
         // add to received alerts
-        self.receive_new_alert(alert);
+        self.notifier.lock().add(alert);
     }
 }

@@ -5,5 +5,5 @@ pub(crate) mod server;
 #[cfg(test)]
 mod test;
 
-pub use crate::config::Config;
+pub use crate::config::{Config, Module};
 pub use crate::server::RpcServer;

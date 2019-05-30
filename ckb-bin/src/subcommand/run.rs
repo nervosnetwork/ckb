@@ -6,7 +6,7 @@ use ckb_db::RocksDB;
 use ckb_logger::info_target;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
-use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConfig};
+use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_rpc::RpcServer;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -75,7 +75,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         Arc::clone(synchronizer.peers()),
     );
     let net_timer = NetTimeProtocol::default();
-    let alert_relayer = AlertRelayer::new(version.to_string(), AlertConfig::default());
+    let alert_config = args.config.alert.unwrap_or_default();
+    let alert_relayer = AlertRelayer::new(version.to_string(), alert_config);
 
     let alert_notifier = alert_relayer.notifier();
     let alert_verifier = alert_relayer.verifier();

@@ -3,6 +3,7 @@ use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_sync::Synchronizer;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_util::Mutex;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{ChainInfo, EpochNumber, PeerState, Timestamp};
@@ -23,7 +24,7 @@ where
 {
     pub shared: Shared<CS>,
     pub synchronizer: Synchronizer<CS>,
-    pub alert_notifier: Arc<AlertNotifier>,
+    pub alert_notifier: Arc<Mutex<AlertNotifier>>,
 }
 
 impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
@@ -41,7 +42,8 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
         let is_initial_block_download = self.synchronizer.shared.is_initial_block_download();
         let warnings = self
             .alert_notifier
-            .alerts()
+            .lock()
+            .noticed_alerts()
             .into_iter()
             .map(|alert| alert.message.clone())
             .collect::<Vec<String>>()

@@ -4,7 +4,7 @@ use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Alert {
     pub id: u32,
     // cancel id if cancel is greater than 0

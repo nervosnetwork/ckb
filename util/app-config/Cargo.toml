@@ -23,6 +23,7 @@ ckb-instrument = { path = "../instrument", features = ["progress_bar"] }
 ckb-shared = { path = "../../shared" }
 ckb-sync = { path = "../../sync"}
 ckb-store = { path = "../../store" }
+ckb-network-alert = { path = "../network-alert" }
 build-info = { path = "../build-info" }
 ckb-script = { path = "../../script" }
 

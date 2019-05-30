@@ -7,7 +7,7 @@ use secp256k1::Message as SecpMessage;
 use std::str::FromStr;
 use std::{fmt, ops};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Privkey {
     /// ECDSA key.
     inner: H256,

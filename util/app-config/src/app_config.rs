@@ -15,6 +15,7 @@ use ckb_logger::Config as LogConfig;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_miner::MinerConfig;
 use ckb_network::NetworkConfig;
+use ckb_network_alert::config::Config as AlertConfig;
 use ckb_resource::{Resource, ResourceLocator};
 use ckb_rpc::Config as RpcConfig;
 use ckb_script::ScriptConfig;
@@ -52,6 +53,7 @@ pub struct CKBAppConfig {
     pub tx_pool: TxPoolConfig,
     pub script: ScriptConfig,
     pub store: StoreConfig,
+    pub alert: Option<AlertConfig>,
 }
 
 // change the order of fields will break integration test, see module doc.

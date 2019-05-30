@@ -11,6 +11,7 @@ use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier 
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_sync::Synchronizer;
+use ckb_util::Mutex;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -30,7 +31,7 @@ impl RpcServer {
         synchronizer: Synchronizer<CS>,
         chain: ChainController,
         block_assembler: Option<BlockAssemblerController>,
-        alert_notifier: Arc<AlertNotifier>,
+        alert_notifier: Arc<Mutex<AlertNotifier>>,
         alert_verifier: Arc<AlertVerifier>,
     ) -> RpcServer
     where

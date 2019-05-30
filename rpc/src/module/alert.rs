@@ -5,6 +5,7 @@ use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_protocol::AlertMessage;
 use ckb_sync::NetworkProtocol;
+use ckb_util::Mutex;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -21,13 +22,13 @@ pub trait AlertRpc {
 pub(crate) struct AlertRpcImpl {
     network_controller: NetworkController,
     verifier: Arc<AlertVerifier>,
-    notifier: Arc<AlertNotifier>,
+    notifier: Arc<Mutex<AlertNotifier>>,
 }
 
 impl AlertRpcImpl {
     pub fn new(
         verifier: Arc<AlertVerifier>,
-        notifier: Arc<AlertNotifier>,
+        notifier: Arc<Mutex<AlertNotifier>>,
         network_controller: NetworkController,
     ) -> Self {
         AlertRpcImpl {
@@ -57,7 +58,7 @@ impl AlertRpc for AlertRpcImpl {
                     error!("Broadcast alert failed: {:?}", err);
                 }
                 // set self node notifier
-                self.notifier.add(Arc::new(alert));
+                self.notifier.lock().add(Arc::new(alert));
                 Ok(())
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
