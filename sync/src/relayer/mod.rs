@@ -487,7 +487,7 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
 }
 
 pub struct RelayState {
-    pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
+    pub pending_compact_blocks: Mutex<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>>,
     pub inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     pub pending_proposals_request: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
     pub tx_filter: Mutex<LruCache<H256, ()>>,
