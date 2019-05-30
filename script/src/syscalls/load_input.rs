@@ -74,12 +74,6 @@ impl<'a> LoadInput<'a> {
         let field = InputField::parse_from_u64(machine.registers()[A5].to_u64())?;
 
         let result = match field {
-            InputField::BlockNumber => {
-                let mut buffer = vec![];
-                buffer.write_u64::<LittleEndian>(input.block_number)?;
-                store_data(machine, &buffer)?;
-                buffer.len()
-            }
             InputField::OutPoint => {
                 let mut builder = FlatBufferBuilder::new();
                 let offset = FbsOutPoint::build(&mut builder, &input.previous_output);

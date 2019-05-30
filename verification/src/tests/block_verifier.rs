@@ -13,10 +13,10 @@ use numext_fixed_hash::{h256, H256};
 
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
+        .input(CellInput::new_cellbase_input())
         .output(CellOutput::new(
             capacity,
-            Bytes::default(),
+            (&[0; 8][..]).into(),
             Script::default(),
             None,
         ))
@@ -29,11 +29,7 @@ fn create_cellbase_transaction() -> Transaction {
 
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new(
-            OutPoint::new_cell(h256!("0x1"), 0),
-            0,
-            Default::default(),
-        ))
+        .input(CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0))
         .output(CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),

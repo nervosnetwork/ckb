@@ -1,5 +1,6 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
+use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::block::Block;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
@@ -10,7 +11,7 @@ use ckb_core::transaction::{
     Capacity, CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{Bytes, Cycle, Version};
+use ckb_core::{Cycle, Version};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
@@ -382,14 +383,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         lock: Script,
         type_: Option<Script>,
     ) -> Result<(Transaction, usize, Cycle), FailureError> {
-        // NOTE: To generate different cellbase txid, we put header number in the input script
-        let input = CellInput::new_cellbase_input(tip.number() + 1);
-        // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
-        // but the truth is we will modify this after we designed lock script anyway, so let's
-        // stick to the simpler way and just convert everything to a single string, then to UTF8
-        // bytes, they really serve the same purpose at the moment
+        let input = CellInput::new_cellbase_input();
+        // NOTE: To generate different cellbase txid, we put header number output data
+        let mut data = [0; 8];
+        LittleEndian::write_u64(&mut data, tip.number() + 1);
 
-        let output = CellOutput::new(Capacity::zero(), Bytes::new(), lock, type_);
+        let output = CellOutput::new(Capacity::zero(), (&data[..]).into(), lock, type_);
 
         let tx = TransactionBuilder::default()
             .input(input)
@@ -469,6 +468,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 mod tests {
     use super::*;
     use crate::{block_assembler::BlockAssembler, config::BlockAssemblerConfig};
+    use byteorder::{ByteOrder, LittleEndian};
     use ckb_chain::chain::ChainController;
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
@@ -480,7 +480,7 @@ mod tests {
     use ckb_core::transaction::{
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
-    use ckb_core::{BlockNumber, Bytes};
+    use ckb_core::BlockNumber;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
@@ -626,11 +626,14 @@ mod tests {
     }
 
     fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> Transaction {
+        let mut data = [0; 8];
+        LittleEndian::write_u64(&mut data, number);
+
         TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input(number))
+            .input(CellInput::new_cellbase_input())
             .output(CellOutput::new(
                 epoch.block_reward(number).unwrap(),
-                Bytes::new(),
+                (&data[..]).into(),
                 Script::default(),
                 None,
             ))

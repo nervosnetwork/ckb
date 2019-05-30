@@ -241,7 +241,7 @@ impl Genesis {
 
         Ok(TransactionBuilder::default()
             .outputs(outputs)
-            .input(CellInput::new_cellbase_input(0))
+            .input(CellInput::new_cellbase_input())
             .build())
     }
 }
@@ -249,7 +249,8 @@ impl Genesis {
 impl GenesisCell {
     fn build_output(&self) -> Result<CellOutput, Box<dyn Error>> {
         let mut cell = CellOutput::default();
-        cell.data = self.message.as_bytes().into();
+        // First 8 bytes contains the genesis block number 0
+        cell.data = [&[0; 8][..], self.message.as_bytes()].concat().into();
         cell.lock.clone_from(&self.lock);
         cell.capacity = cell.occupied_capacity()?;
         Ok(cell)

@@ -1,5 +1,6 @@
 use super::super::contextual_block_verifier::CommitVerifier;
 use super::super::error::{CommitError, Error};
+use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -60,7 +61,7 @@ fn create_transaction(
         Some(always_success_script.to_owned()),
     );
     let inputs: Vec<CellInput> = (0..100)
-        .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0, 0))
+        .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0))
         .collect();
 
     TransactionBuilder::default()
@@ -86,11 +87,14 @@ fn start_chain(
 }
 
 fn create_cellbase(number: BlockNumber) -> Transaction {
+    let mut data = [0; 8];
+    LittleEndian::write_u64(&mut data, number);
+
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(number))
+        .input(CellInput::new_cellbase_input())
         .outputs(vec![CellOutput::new(
             Capacity::zero(),
-            Bytes::default(),
+            (&data[..]).into(),
             Script::default(),
             None,
         )])
@@ -106,7 +110,7 @@ fn setup_env() -> (
 ) {
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell)
         .outputs(vec![
             CellOutput::new(
