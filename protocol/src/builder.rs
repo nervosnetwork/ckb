@@ -209,7 +209,6 @@ impl<'a> FbsCellInput<'a> {
             builder.add_block_hash(hash);
         }
         builder.add_since(cell_input.since);
-        builder.add_block_number(cell_input.block_number);
         builder.finish()
     }
 }

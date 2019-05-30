@@ -170,7 +170,7 @@ fn new_chain(
     let transactions: Vec<Transaction> = (0..txs_size)
         .map(|i| {
             TransactionBuilder::default()
-                .input(CellInput::new(OutPoint::null(), 0, 0))
+                .input(CellInput::new(OutPoint::null(), 0))
                 .output(CellOutput::new(
                     capacity_bytes!(50_000),
                     Bytes::from(i.to_le_bytes().to_vec()),
@@ -284,7 +284,6 @@ fn create_transaction(
         ))
         .input(CellInput::new(
             OutPoint::new_cell(parent_hash.to_owned(), 0),
-            0,
             0,
         ))
         .dep(OutPoint::new_cell(system_cell_hash.to_owned(), 0))

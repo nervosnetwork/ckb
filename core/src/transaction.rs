@@ -204,34 +204,29 @@ impl OutPoint {
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: u64,
-    // Only used for cellbase input, normal input doesn't need this field
-    pub block_number: BlockNumber,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, since: u64, block_number: BlockNumber) -> Self {
+    pub fn new(previous_output: OutPoint, since: u64) -> Self {
         CellInput {
             previous_output,
             since,
-            block_number,
         }
     }
 
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            since: 0,
-            block_number,
+            since: block_number,
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, u64, u64) {
+    pub fn destruct(self) -> (OutPoint, u64) {
         let CellInput {
             previous_output,
             since,
-            block_number,
         } = self;
-        (previous_output, since, block_number)
+        (previous_output, since)
     }
 
     pub fn serialized_size(&self) -> usize {
@@ -496,9 +491,7 @@ impl Transaction {
     }
 
     pub fn is_cellbase(&self) -> bool {
-        self.inputs.len() == 1
-            && self.inputs[0].previous_output.is_null()
-            && self.inputs[0].since == 0
+        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
     }
 
     pub fn is_withdrawing_from_dao(&self) -> bool {
@@ -803,17 +796,17 @@ mod test {
                 Script::default(),
                 None,
             ))
-            .input(CellInput::new(OutPoint::new_cell(H256::zero(), 0), 0, 0))
+            .input(CellInput::new(OutPoint::new_cell(H256::zero(), 0), 0))
             .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "d5af472fc9cae95c8c3fe440ad72b83ea3e1b1f150aaf5dd19742c0acebace89"
+            "572dfb5f543d43c9a411c36d733655f0a4c2ea729f260d9b3d3085b84834bb4f"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "01da42e3575e48f2f40b63b598bd97ffcb3d089049308a676cad2cb791422f2c"
+            "816db0491b8dfa92ec7a77e07d98c47105fe5a33ddb05ef9f2b24132ac3cc793"
         );
     }
 }

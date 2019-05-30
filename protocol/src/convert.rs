@@ -311,7 +311,6 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
         Ok(ckb_core::transaction::CellInput {
             previous_output,
             since: cell_input.since(),
-            block_number: cell_input.block_number(),
         })
     }
 }

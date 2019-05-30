@@ -60,7 +60,7 @@ fn create_transaction(
         Some(always_success_script.to_owned()),
     );
     let inputs: Vec<CellInput> = (0..100)
-        .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0, 0))
+        .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0))
         .collect();
 
     TransactionBuilder::default()
@@ -106,7 +106,7 @@ fn setup_env() -> (
 ) {
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell)
         .outputs(vec![
             CellOutput::new(

@@ -1746,7 +1746,6 @@ impl<'a> CellInput<'a> {
         args: &'args CellInputArgs<'args>) -> flatbuffers::WIPOffset<CellInput<'bldr>> {
       let mut builder = CellInputBuilder::new(_fbb);
       builder.add_since(args.since);
-      builder.add_block_number(args.block_number);
       builder.add_index(args.index);
       if let Some(x) = args.tx_hash { builder.add_tx_hash(x); }
       if let Some(x) = args.block_hash { builder.add_block_hash(x); }
@@ -1756,8 +1755,7 @@ impl<'a> CellInput<'a> {
     pub const VT_BLOCK_HASH: flatbuffers::VOffsetT = 4;
     pub const VT_TX_HASH: flatbuffers::VOffsetT = 6;
     pub const VT_INDEX: flatbuffers::VOffsetT = 8;
-    pub const VT_BLOCK_NUMBER: flatbuffers::VOffsetT = 10;
-    pub const VT_SINCE: flatbuffers::VOffsetT = 12;
+    pub const VT_SINCE: flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub fn block_hash(&self) -> Option<&'a H256> {
@@ -1772,10 +1770,6 @@ impl<'a> CellInput<'a> {
     self._tab.get::<u32>(CellInput::VT_INDEX, Some(0)).unwrap()
   }
   #[inline]
-  pub fn block_number(&self) -> u64 {
-    self._tab.get::<u64>(CellInput::VT_BLOCK_NUMBER, Some(0)).unwrap()
-  }
-  #[inline]
   pub fn since(&self) -> u64 {
     self._tab.get::<u64>(CellInput::VT_SINCE, Some(0)).unwrap()
   }
@@ -1785,7 +1779,6 @@ pub struct CellInputArgs<'a> {
     pub block_hash: Option<&'a  H256>,
     pub tx_hash: Option<&'a  H256>,
     pub index: u32,
-    pub block_number: u64,
     pub since: u64,
 }
 impl<'a> Default for CellInputArgs<'a> {
@@ -1795,7 +1788,6 @@ impl<'a> Default for CellInputArgs<'a> {
             block_hash: None,
             tx_hash: None,
             index: 0,
-            block_number: 0,
             since: 0,
         }
     }
@@ -1816,10 +1808,6 @@ impl<'a: 'b, 'b> CellInputBuilder<'a, 'b> {
   #[inline]
   pub fn add_index(&mut self, index: u32) {
     self.fbb_.push_slot::<u32>(CellInput::VT_INDEX, index, 0);
-  }
-  #[inline]
-  pub fn add_block_number(&mut self, block_number: u64) {
-    self.fbb_.push_slot::<u64>(CellInput::VT_BLOCK_NUMBER, block_number, 0);
   }
   #[inline]
   pub fn add_since(&mut self, since: u64) {

@@ -2,7 +2,6 @@ use super::super::block_verifier::{
     BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier,
 };
 use super::super::error::{CellbaseError, Error as VerifyError};
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
@@ -13,14 +12,11 @@ use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use numext_fixed_hash::{h256, H256};
 
 fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transaction {
-    let mut data = [0; 8];
-    LittleEndian::write_u64(&mut data, number);
-
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input())
+        .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
             capacity_bytes!(100),
-            (&data[..]).into(),
+            Bytes::default(),
             Script::default(),
             None,
         ))
@@ -45,11 +41,7 @@ fn create_cellbase_transaction() -> Transaction {
 
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new(
-            OutPoint::new_cell(h256!("0x1"), 0),
-            0,
-            Default::default(),
-        ))
+        .input(CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0))
         .output(CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
@@ -103,7 +95,7 @@ pub fn test_block_with_incorrect_cellbase_number() {
     let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidBlockNumber))
+        Err(VerifyError::Cellbase(CellbaseError::InvalidInput))
     );
 }
 

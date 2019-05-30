@@ -18,7 +18,7 @@ use test_chain_utils::create_always_success_cell;
 fn create_always_success_tx() -> Transaction {
     let (always_success_cell, _) = create_always_success_cell();
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell)
         .build()
 }
@@ -111,7 +111,7 @@ pub(crate) fn create_transaction_with_out_point(
             always_success_script,
             None,
         ))
-        .input(CellInput::new(out_point, 0, 0))
+        .input(CellInput::new(out_point, 0))
         .dep(always_success_out_point)
         .build()
 }

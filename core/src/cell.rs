@@ -810,7 +810,7 @@ mod tests {
 
         let out_point = OutPoint::new_block_hash(header_hash.clone());
         let transaction = TransactionBuilder::default()
-            .input(CellInput::new(out_point, 0, 0))
+            .input(CellInput::new(out_point, 0))
             .build();
 
         let mut seen_inputs = FnvHashSet::default();
@@ -927,7 +927,7 @@ mod tests {
         let out_point = OutPoint::new_cell(h256!("0x2"), 3);
 
         let tx1 = TransactionBuilder::default()
-            .input(CellInput::new(out_point.clone(), 0, 0))
+            .input(CellInput::new(out_point.clone(), 0))
             .output(CellOutput::new(
                 capacity_bytes!(2),
                 Bytes::default(),
@@ -939,7 +939,6 @@ mod tests {
         let tx2 = TransactionBuilder::default()
             .input(CellInput::new(
                 OutPoint::new_cell(tx1.hash().to_owned(), 0),
-                0,
                 0,
             ))
             .build();
@@ -1011,7 +1010,7 @@ mod tests {
         // dep's outpoint consumed by input
         {
             let tx = TransactionBuilder::default()
-                .input(CellInput::new(out_point.clone(), 0, 0))
+                .input(CellInput::new(out_point.clone(), 0))
                 .dep(out_point.clone())
                 .build();
 
@@ -1031,7 +1030,7 @@ mod tests {
         {
             let tx1 = TransactionBuilder::default().dep(out_point.clone()).build();
             let tx2 = TransactionBuilder::default()
-                .input(CellInput::new(out_point.clone(), 0, 0))
+                .input(CellInput::new(out_point.clone(), 0))
                 .build();
 
             let mut seen_inputs = FnvHashSet::default();
@@ -1049,7 +1048,7 @@ mod tests {
         // tx2 resolve err
         {
             let tx1 = TransactionBuilder::default()
-                .input(CellInput::new(out_point.clone(), 0, 0))
+                .input(CellInput::new(out_point.clone(), 0))
                 .build();
 
             let tx2 = TransactionBuilder::default().dep(out_point.clone()).build();

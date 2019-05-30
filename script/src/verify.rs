@@ -526,7 +526,7 @@ mod tests {
             always_success_script,
             None,
         );
-        let input = CellInput::new(OutPoint::null(), 0, 0);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
 
@@ -605,7 +605,7 @@ mod tests {
         );
 
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, 0);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -682,7 +682,7 @@ mod tests {
         );
 
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, 0);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -759,7 +759,7 @@ mod tests {
         );
 
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, 0);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -839,7 +839,7 @@ mod tests {
         );
 
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, 0);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -903,7 +903,7 @@ mod tests {
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, 0);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -963,7 +963,7 @@ mod tests {
         hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.push(Bytes::from(hex_signature));
 
-        let input = CellInput::new(OutPoint::null(), 0, 0);
+        let input = CellInput::new(OutPoint::null(), 0);
         let (always_success_cell, always_success_script) = create_always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
@@ -1061,7 +1061,7 @@ mod tests {
         hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
         args.push(Bytes::from(hex_signature));
 
-        let input = CellInput::new(OutPoint::null(), 0, 0);
+        let input = CellInput::new(OutPoint::null(), 0);
         let (always_success_cell, always_success_script) = create_always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
@@ -1130,7 +1130,7 @@ mod tests {
 
     #[test]
     fn check_invalid_tx_with_only_dao_issuing_input_but_no_dao_input() {
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, 0);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
@@ -1175,11 +1175,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, 0);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            0,
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1286,11 +1285,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, 0);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            0,
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1397,11 +1395,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, 0);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            0,
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1495,11 +1492,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, 0);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            0,
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1606,11 +1602,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, 0);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            0,
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1705,11 +1700,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, 0);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            0,
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1816,11 +1810,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, 0);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1060,
-            0,
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
