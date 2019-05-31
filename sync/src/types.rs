@@ -570,7 +570,7 @@ pub struct SyncSharedState<CS> {
     // reconstruct and process the complete block
     pub(crate) pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
 
-    pub(crate) inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
+    inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
 
     // Records the processed result of blocks, so that avoid re-process same blocks
     block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
@@ -958,5 +958,15 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         for id in ids.into_iter() {
             locked.entry(id).or_default().insert(pi);
         }
+    }
+
+    pub fn remove_inflight_proposal(&self, ids: &[ProposalShortId]) -> Vec<bool> {
+        let mut locked = self.inflight_proposals.lock();
+        ids.iter().map(|id| locked.remove(id)).collect()
+    }
+
+    pub fn insert_inflight_proposals(&self, ids: Vec<ProposalShortId>) -> Vec<bool> {
+        let mut locked = self.inflight_proposals.lock();
+        ids.into_iter().map(|id| locked.insert(id)).collect()
     }
 }
