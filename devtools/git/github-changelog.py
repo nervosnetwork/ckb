@@ -108,11 +108,11 @@ for line in logs.splitlines():
         if is_breaking:
             breaking_banner = ", ".join(
                 l for l in labels if l.startswith('b:'))
-            if "breaking change" not in body.lower():
+            if breaking_banner != "" or "breaking change" not in body.lower():
                 if breaking_banner == "":
-                    breaking_banner = "This is a braking change"
+                    breaking_banner = "This is a breaking change"
                 else:
-                    breaking_banner = "This is a braking change: " + breaking_banner
+                    breaking_banner = "This is a breaking change: " + breaking_banner
             if body == "":
                 body = breaking_banner
             elif breaking_banner != "":
