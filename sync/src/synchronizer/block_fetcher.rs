@@ -36,7 +36,7 @@ where
         }
     }
     pub fn reached_inflight_limit(&self) -> bool {
-        let inflight = self.synchronizer.peers().blocks_inflight.read();
+        let inflight = self.synchronizer.inflight_blocks.read();
 
         // Can't download any more from this peer
         inflight.peer_inflight_count(&self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
@@ -47,12 +47,12 @@ where
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
-        self.synchronizer.peers().get_best_known_header(self.peer)
+        self.synchronizer.get_best_known_header(self.peer)
     }
 
     pub fn last_common_header(&self, best: &HeaderView) -> Option<Header> {
         let last_common_header = {
-            if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
+            if let Some(header) = self.synchronizer.get_last_common_header(self.peer) {
                 Some(header)
             } else if best.number() < self.tip_header.number() {
                 let last_common_hash = self.synchronizer.shared.block_hash(best.number())?;
@@ -69,7 +69,6 @@ where
 
         if fixed_last_common_header != last_common_header {
             self.synchronizer
-                .peers()
                 .set_last_common_header(self.peer, fixed_last_common_header.clone());
         }
 
@@ -78,7 +77,7 @@ where
 
     // this peer's tip is where the the ancestor of global_best_known_header
     pub fn is_known_best(&self, header: &HeaderView) -> bool {
-        let global_best_known_header = self.synchronizer.shared.best_known_header();
+        let global_best_known_header = self.synchronizer.shared.shared_best_header();
         if let Some(ancestor) = self
             .synchronizer
             .shared
@@ -166,7 +165,7 @@ where
         let mut fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
 
         {
-            let mut inflight = self.synchronizer.peers().blocks_inflight.write();
+            let mut inflight = self.synchronizer.inflight_blocks.write();
             let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
                 .saturating_sub(inflight.peer_inflight_count(&self.peer));
 

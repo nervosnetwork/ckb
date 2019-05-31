@@ -34,7 +34,7 @@ where
         let block: Block = (*self.message).try_into()?;
         debug!(target: "sync", "BlockProcess received block {} {:x}", block.header().number(), block.header().hash());
 
-        if self.synchronizer.peers().new_block_received(&block) {
+        if self.synchronizer.new_block_received(&block) {
             self.synchronizer.process_new_block(self.peer, block);
         }
         Ok(())

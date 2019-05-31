@@ -66,8 +66,7 @@ impl<'a, CS: ChainStore + 'static> TransactionHashProcess<'a, CS> {
             let last_ask_timeout = self.relayer.tx_already_asked.lock().get(&tx_hash).cloned();
             if let Some(next_ask_timeout) = self
                 .relayer
-                .peers()
-                .state
+                .peers_state
                 .write()
                 .get_mut(&self.peer)
                 .and_then(|peer_state| peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout))

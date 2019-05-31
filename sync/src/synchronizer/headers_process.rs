@@ -163,22 +163,20 @@ where
         let headers = cast!(self.message.headers())?;
 
         if headers.len() > MAX_HEADERS_LEN {
-            self.synchronizer.peers().misbehavior(self.peer, 20);
+            self.synchronizer.misbehavior(self.peer, 20);
             warn!(target: "sync", "HeadersProcess is_oversize");
             return Ok(());
         }
 
-        let shared_best_known = self.synchronizer.shared.best_known_header();
+        let shared_best_known = self.synchronizer.shared.shared_best_header();
         if headers.len() == 0 {
             // Update peer's best known header
             self.synchronizer
-                .peers()
                 .set_best_known_header(self.peer, shared_best_known);
 
             // Reset headers sync timeout
-            self.synchronizer
-                .peers()
-                .state
+            let peers_state = &self.synchronizer.peers_state;
+            peers_state
                 .write()
                 .get_mut(&self.peer)
                 .expect("Peer must exists")
@@ -192,7 +190,7 @@ where
             .collect::<Result<Vec<Header>, FailureError>>()?;
 
         if !self.is_continuous(&headers) {
-            self.synchronizer.peers().misbehavior(self.peer, 20);
+            self.synchronizer.misbehavior(self.peer, 20);
             debug!(target: "sync", "HeadersProcess is not continuous");
             return Ok(());
         }
@@ -200,9 +198,7 @@ where
         let result = self.accept_first(&headers[0]);
         if !result.is_valid() {
             if result.misbehavior > 0 {
-                self.synchronizer
-                    .peers()
-                    .misbehavior(self.peer, result.misbehavior);
+                self.synchronizer.misbehavior(self.peer, result.misbehavior);
             }
             debug!(target: "sync", "HeadersProcess accept_first is_valid {:?} headers = {:?}", result, headers[0]);
             return Ok(());
@@ -221,9 +217,7 @@ where
 
                 if !result.is_valid() {
                     if result.misbehavior > 0 {
-                        self.synchronizer
-                            .peers()
-                            .misbehavior(self.peer, result.misbehavior);
+                        self.synchronizer.misbehavior(self.peer, result.misbehavior);
                     }
                     debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
                     return Ok(());
@@ -233,7 +227,7 @@ where
 
         if log_enabled!(target: "sync", log::Level::Debug) {
             let chain_state = self.synchronizer.shared.lock_chain_state();
-            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
+            let peer_best_known = self.synchronizer.get_best_known_header(self.peer);
             debug!(
                 target: "sync",
                 "chain: num={}, diff={:#x};",
@@ -278,8 +272,7 @@ where
         // chain. Disconnect peers that are on chains with insufficient work.
         let (is_outbound, is_protected) = self
             .synchronizer
-            .peers()
-            .state
+            .peers_state
             .read()
             .get(&self.peer)
             .map(|state| (state.is_outbound, state.chain_sync.protect))

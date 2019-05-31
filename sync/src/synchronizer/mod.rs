@@ -146,20 +146,20 @@ impl<CS: ChainStore> Synchronizer<CS> {
             let total_uncles_count =
                 parent_view.total_uncles_count() + u64::from(header.uncles_count());
             let header_view = {
-                let best_known_header = self.shared.best_known_header();
+                let shared_best_header = self.shared.shared_best_header();
                 let header_view =
                     HeaderView::new(header.clone(), total_difficulty.clone(), total_uncles_count);
 
-                if total_difficulty.gt(best_known_header.total_difficulty())
-                    || (&total_difficulty == best_known_header.total_difficulty()
-                        && header.hash() < best_known_header.hash())
+                if total_difficulty.gt(shared_best_header.total_difficulty())
+                    || (&total_difficulty == shared_best_header.total_difficulty()
+                        && header.hash() < shared_best_header.hash())
                 {
-                    self.shared.set_best_known_header(header_view.clone());
+                    self.shared.set_shared_best_header(header_view.clone());
                 }
                 header_view
             };
 
-            self.peers().new_header_received(peer, &header_view);
+            self.new_header_received(peer, &header_view);
             self.shared
                 .insert_header_view(header.hash().to_owned(), header_view);
         }
@@ -186,8 +186,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         self.chain.process_block(Arc::clone(&block), true)?;
         self.shared.remove_header_view(block.header().hash());
         self.mark_block_stored(block.header().hash().to_owned());
-        self.peers()
-            .set_last_common_header(peer, block.header().clone());
+        self.set_last_common_header(peer, block.header().clone());
         Ok(())
     }
 
@@ -262,7 +261,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 .fetch_add(1, Ordering::Release);
         }
 
-        self.peers()
+        self.shared
             .on_connected(peer, None, protect_outbound, is_outbound);
     }
 
@@ -275,7 +274,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
     pub fn eviction(&self, nc: &CKBProtocolContext) {
-        let mut peer_states = self.peers().state.write();
+        let mut peer_states = self.peers_state.write();
         let is_initial_block_download = self.shared.is_initial_block_download();
         let mut eviction = Vec::new();
         for (peer, state) in peer_states.iter_mut() {
@@ -360,8 +359,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     fn start_sync_headers(&self, nc: &CKBProtocolContext) {
         let now = unix_time_as_millis();
         let peers: Vec<PeerIndex> = self
-            .peers()
-            .state
+            .peers_state
             .read()
             .iter()
             .filter(|(_, state)| state.can_sync(now))
@@ -377,7 +375,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     chain_state.total_difficulty().to_owned(),
                 )
             };
-            let best_known = self.shared.best_known_header();
+            let best_known = self.shared.shared_best_header();
             if total_difficulty > *best_known.total_difficulty()
                 || (&total_difficulty == best_known.total_difficulty()
                     && header.hash() < best_known.hash())
@@ -396,7 +394,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 break;
             }
             {
-                let mut state = self.peers().state.write();
+                let mut state = self.peers_state.write();
                 if let Some(peer_state) = state.get_mut(&peer) {
                     if !peer_state.sync_started {
                         let headers_sync_timeout = self.predict_headers_sync_time(&tip);
@@ -413,8 +411,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
         let peers: Vec<PeerIndex> = {
-            self.peers()
-                .state
+            self.peers_state
                 .read()
                 .iter()
                 .filter(|(_, state)| state.sync_started)
@@ -425,7 +422,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         trace!(target: "sync", "poll find_blocks_to_fetch select peers");
         {
-            self.peers().blocks_inflight.write().prune();
+            self.inflight_blocks.write().prune();
         }
         for peer in peers {
             if let Some(fetch) = self.get_blocks_to_fetch(peer) {
@@ -494,7 +491,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
 
     fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         info!(target: "sync", "SyncProtocol.disconnected peer={}", peer_index);
-        if let Some(peer_state) = self.peers().disconnected(peer_index) {
+        if let Some(peer_state) = self.shared.disconnected(peer_index) {
             // It shouldn't happen
             // fetch_sub wraps around on overflow, we still check manually
             // panic here to prevent some bug be hidden silently.
@@ -506,7 +503,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
-        if !self.peers().state.read().is_empty() {
+        if !self.peers_state.read().is_empty() {
             let start_time = Instant::now();
             trace!(target: "sync", "start notify token={}", token);
 
@@ -1064,11 +1061,11 @@ mod tests {
             .execute()
             .expect("Process headers from peer2 failed");
         assert_eq!(
-            synchronizer1.peers().get_best_known_header(peer1),
-            synchronizer1.peers().get_best_known_header(peer2)
+            synchronizer1.get_best_known_header(peer1),
+            synchronizer1.get_best_known_header(peer2)
         );
 
-        let best_known_header = synchronizer1.peers().get_best_known_header(peer1);
+        let best_known_header = synchronizer1.get_best_known_header(peer1);
 
         assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
@@ -1100,11 +1097,7 @@ mod tests {
         }
 
         assert_eq!(
-            synchronizer1
-                .peers()
-                .get_last_common_header(peer1)
-                .unwrap()
-                .hash(),
+            synchronizer1.get_last_common_header(peer1).unwrap().hash(),
             blocks_to_fetch.last().unwrap()
         );
     }
@@ -1123,11 +1116,11 @@ mod tests {
         let network_context = mock_network_context(5);
         faketime::write_millis(&faketime_file, MAX_TIP_AGE * 2).expect("write millis");
         assert!(synchronizer.shared.is_initial_block_download());
-        let peers = synchronizer.peers();
+        let sync_shared = Arc::clone(&synchronizer.shared);
         // protect should not effect headers_timeout
-        peers.on_connected(0.into(), Some(0), true, true);
-        peers.on_connected(1.into(), Some(0), false, true);
-        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), false, true);
+        sync_shared.on_connected(0.into(), Some(0), true, true);
+        sync_shared.on_connected(1.into(), Some(0), false, true);
+        sync_shared.on_connected(2.into(), Some(MAX_TIP_AGE * 2), false, true);
         synchronizer.eviction(&network_context);
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
@@ -1158,26 +1151,27 @@ mod tests {
         );
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
+        let sync_shared = Arc::clone(&synchronizer.shared);
+        let peers_state = &synchronizer.peers_state;
 
         let network_context = mock_network_context(6);
-        let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
         let headers_sync_timeout = MAX_TIP_AGE * 2;
         let sync_protected_peer = 0.into();
-        peers.on_connected(0.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(1.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(2.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(3.into(), Some(headers_sync_timeout), false, true);
-        peers.on_connected(4.into(), Some(headers_sync_timeout), false, true);
-        peers.on_connected(5.into(), Some(headers_sync_timeout), false, true);
-        peers.new_header_received(0.into(), &mock_header_view(1));
-        peers.new_header_received(2.into(), &mock_header_view(3));
-        peers.new_header_received(3.into(), &mock_header_view(1));
-        peers.new_header_received(5.into(), &mock_header_view(3));
+        sync_shared.on_connected(0.into(), Some(headers_sync_timeout), true, true);
+        sync_shared.on_connected(1.into(), Some(headers_sync_timeout), true, true);
+        sync_shared.on_connected(2.into(), Some(headers_sync_timeout), true, true);
+        sync_shared.on_connected(3.into(), Some(headers_sync_timeout), false, true);
+        sync_shared.on_connected(4.into(), Some(headers_sync_timeout), false, true);
+        sync_shared.on_connected(5.into(), Some(headers_sync_timeout), false, true);
+        sync_shared.new_header_received(0.into(), &mock_header_view(1));
+        sync_shared.new_header_received(2.into(), &mock_header_view(3));
+        sync_shared.new_header_received(3.into(), &mock_header_view(1));
+        sync_shared.new_header_received(5.into(), &mock_header_view(3));
         {
             // Protected peer 0 start sync
-            peers
-                .state
+            synchronizer
+                .peers_state
                 .write()
                 .get_mut(&sync_protected_peer)
                 .unwrap()
@@ -1188,7 +1182,7 @@ mod tests {
         }
         synchronizer.eviction(&network_context);
         {
-            let peer_state = peers.state.read();
+            let peer_state = peers_state.read();
             // Protected peer 0 still in sync state
             assert_eq!(
                 peer_state.get(&sync_protected_peer).unwrap().sync_started,
@@ -1253,7 +1247,7 @@ mod tests {
         faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
         synchronizer.eviction(&network_context);
         {
-            let peer_state = peers.state.read();
+            let peer_state = peers_state.read();
             // No evidence yet that our peer has synced to a chain with work equal to that
             // of our tip, when we first detected it was behind. Send a single getheaders
             // message to give the peer a chance to update us.
@@ -1274,7 +1268,7 @@ mod tests {
         .expect("write millis");
         synchronizer.eviction(&network_context);
         {
-            let peer_state = peers.state.read();
+            let peer_state = peers_state.read();
             // Protected peer 0 chain_sync timeout
             assert_eq!(
                 peer_state.get(&sync_protected_peer).unwrap().sync_started,

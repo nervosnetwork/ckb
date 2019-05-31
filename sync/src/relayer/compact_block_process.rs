@@ -54,16 +54,16 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             .shared
             .get_header_view(&compact_block.header.parent_hash())
         {
-            let best_known_header = self.relayer.shared.best_known_header();
+            let shared_best_header = self.relayer.shared.shared_best_header();
             let current_total_difficulty =
                 parent_header_view.total_difficulty() + compact_block.header.difficulty();
-            if current_total_difficulty <= *best_known_header.total_difficulty() {
+            if current_total_difficulty <= *shared_best_header.total_difficulty() {
                 debug!(
                     target: "relay",
                     "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
                     block_hash,
                     current_total_difficulty,
-                    best_known_header.total_difficulty(),
+                    shared_best_header.total_difficulty(),
                 );
                 return Ok(());
             }

@@ -232,7 +232,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             fbb.finish(message, None);
             let data = fbb.finished_data().into();
 
-            let mut known_blocks = self.peers().known_blocks.lock();
+            let mut known_blocks = self.known_blocks.lock();
             let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
                 .into_iter()
@@ -355,7 +355,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
     // Ask for relay transaction by hash from all peers
     pub fn ask_for_txs(&self, nc: &CKBProtocolContext) {
-        for (peer, peer_state) in self.peers().state.write().iter_mut() {
+        for (peer, peer_state) in self.peers_state.write().iter_mut() {
             let tx_hashes = peer_state
                 .pop_ask_for_txs()
                 .into_iter()
