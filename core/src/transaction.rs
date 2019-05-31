@@ -230,7 +230,7 @@ impl CellInput {
     }
 
     pub fn serialized_size(&self) -> usize {
-        self.previous_output.serialized_size() + mem::size_of::<u64>() + mem::size_of::<u64>()
+        self.previous_output.serialized_size() + mem::size_of::<u64>()
     }
 }
 
