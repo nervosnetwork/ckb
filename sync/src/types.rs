@@ -447,46 +447,36 @@ bitflags! {
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
 
-    // the count of peers which has started synchronizing with us
     n_sync_started: AtomicUsize,
-    // the count of peers which is protected outbound
     n_protected_outbound_peers: AtomicUsize,
 
     /* Status irrelevant to peers */
+    shared_best_header: RwLock<HeaderView>,
     epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
-    shared_best_header: RwLock<HeaderView>,
-    // Records the processed result of blocks, so that avoid re-process same blocks
     block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
+    tx_filter: Mutex<LruCache<H256, ()>>,
 
-    /* Global LruCache cache */
-    /* Received but not completely handle */
-    pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
-    // Proposal transactions requests from peers, but we have not response yet, since
-    // we don't have the corresponding proposal transactions in pool
-    pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
-    // CompactBlocks had received but not processed completely yet.
-    // We are waiting for the corresponding fresh transactions, once they arrived, we can
-    // reconstruct and process the complete block
-    // TODO: private it after #919 merged
-    pub(crate) pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
-
-    inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
-    pub inflight_blocks: RwLock<InflightBlocks>,
-
+    /* Status relevant to peers */
     pub peers_state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
-
-    pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
     pub known_txs: Mutex<KnownFilter>,
     pub known_blocks: Mutex<KnownFilter>,
+    misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
 
-    // Transaction Filter for checking whether we have already known a transaction or not
-    pub(crate) tx_filter: Mutex<LruCache<H256, ()>>,
-    // Transactions that we have sent requests to peers for, but not got the response yet.
-    pub(crate) tx_already_asked: Mutex<LruCache<H256, Instant>>,
+    /* Cached items which we had received but not completely process */
+    pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
+    pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    // TODO: private it after #919 merged
+    pub pending_compact_blocks: Mutex<FnvHashMap<H256, CompactBlock>>,
+
+    /* In-flight items for which we request to peers, but not got the responses yet */
+    inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
+    pub inflight_transactions: Mutex<LruCache<H256, Instant>>,
+    pub inflight_blocks: RwLock<InflightBlocks>,
+
     // CompactBlock filter for checking whether we have already known a block or not
-    // * Deprecated *
-    pub(crate) compact_block_filter: Mutex<LruCache<H256, ()>>,
+    // TODO: already removed in #919
+    pub compact_block_filter: Mutex<LruCache<H256, ()>>,
 }
 
 impl<CS: ChainStore> SyncSharedState<CS> {
@@ -518,7 +508,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let known_txs = Mutex::new(KnownFilter::default());
         let known_blocks = Mutex::new(KnownFilter::default());
         let tx_filter = Mutex::new(LruCache::new(TX_FILTER_SIZE));
-        let tx_already_asked = Mutex::new(LruCache::new(TX_ASKED_SIZE));
+        let inflight_transactions = Mutex::new(LruCache::new(TX_ASKED_SIZE));
         let compact_block_filter = Mutex::new(LruCache::new(COMPACT_BLOCK_FILTER_SIZE));
         let epoch_map = RwLock::new(EpochIndices::default());
         let block_status_map = Mutex::new(hashbrown::HashMap::new());
@@ -540,7 +530,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             known_txs,
             known_blocks,
             tx_filter,
-            tx_already_asked,
+            inflight_transactions,
             compact_block_filter,
             block_status_map,
             n_sync_started,
@@ -974,5 +964,22 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn new_block_received(&self, block: &Block) -> bool {
         let mut locked = self.inflight_blocks.write();
         locked.remove_by_block(block.header().hash())
+    }
+
+    pub fn mark_as_known_tx(&self, hash: H256) {
+        self.inflight_transactions.lock().remove(&hash);
+        self.tx_filter.lock().insert(hash, ());
+    }
+
+    pub fn already_known_tx(&self, hash: &H256) -> bool {
+        self.tx_filter.lock().contains_key(hash)
+    }
+
+    pub fn already_known_compact_block(&self, hash: &H256) -> bool {
+        self.compact_block_filter.lock().contains_key(hash)
+    }
+
+    pub fn mark_as_known_compact_block(&self, hash: H256) {
+        self.compact_block_filter.lock().insert(hash, ());
     }
 }

@@ -41,7 +41,6 @@ use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
 use log::{debug, info, trace};
-use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -384,23 +383,6 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 nc.send_message_to(*peer, data);
             }
         }
-    }
-
-    fn mark_as_known_tx(&self, hash: H256) {
-        self.tx_already_asked.lock().remove(&hash);
-        self.tx_filter.lock().insert(hash, ());
-    }
-
-    fn already_known_tx(&self, hash: &H256) -> bool {
-        self.tx_filter.lock().contains_key(hash)
-    }
-
-    fn already_known_compact_block(&self, hash: &H256) -> bool {
-        self.compact_block_filter.lock().contains_key(hash)
-    }
-
-    fn mark_as_known_compact_block(&self, hash: H256) {
-        self.compact_block_filter.lock().insert(hash, ());
     }
 }
 

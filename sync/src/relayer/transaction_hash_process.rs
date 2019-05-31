@@ -63,7 +63,12 @@ impl<'a, CS: ChainStore + 'static> TransactionHashProcess<'a, CS> {
                 tx_hash,
                 self.peer,
             );
-            let last_ask_timeout = self.relayer.tx_already_asked.lock().get(&tx_hash).cloned();
+            let last_ask_timeout = self
+                .relayer
+                .inflight_transactions
+                .lock()
+                .get(&tx_hash)
+                .cloned();
             if let Some(next_ask_timeout) = self
                 .relayer
                 .peers_state
@@ -72,7 +77,7 @@ impl<'a, CS: ChainStore + 'static> TransactionHashProcess<'a, CS> {
                 .and_then(|peer_state| peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout))
             {
                 self.relayer
-                    .tx_already_asked
+                    .inflight_transactions
                     .lock()
                     .insert(tx_hash.clone(), next_ask_timeout);
             }
