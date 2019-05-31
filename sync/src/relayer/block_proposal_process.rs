@@ -1,11 +1,11 @@
 use crate::relayer::Relayer;
 use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_logger::warn_target;
 use ckb_network::CKBProtocolContext;
 use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use futures::{self, future::FutureResult, lazy};
-use log::warn;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -68,7 +68,11 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
             Box::new(lazy(move || -> FutureResult<(), ()> {
                 let ret = tx_pool_executor.verify_and_add_txs_to_pool(asked_txs);
                 if ret.is_err() {
-                    warn!(target: "relay", "BlockProposal add_tx_to_pool error {:?}", ret)
+                    warn_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "BlockProposal add_tx_to_pool error {:?}",
+                        ret
+                    )
                 }
                 futures::future::ok(())
             }))

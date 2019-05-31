@@ -3,13 +3,13 @@ use crate::MAX_HEADERS_LEN;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::BlockNumber;
+use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::{Error as VerifyError, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
-use log::{self, debug, log_enabled, warn};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -127,7 +127,6 @@ where
             if let [parent, header] = &window {
                 if header.parent_hash() != parent.hash() {
                     debug!(
-                        target: "sync",
                         "header.parent_hash {:x} parent.hash {:x}",
                         header.parent_hash(),
                         parent.hash()
@@ -157,13 +156,13 @@ where
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        debug!(target: "sync", "HeadersProcess begin");
+        debug!("HeadersProcess begin");
 
         let headers = cast!(self.message.headers())?;
 
         if headers.len() > MAX_HEADERS_LEN {
             self.synchronizer.peers.misbehavior(self.peer, 20);
-            warn!(target: "sync", "HeadersProcess is_oversize");
+            warn!("HeadersProcess is_oversize");
             return Ok(());
         }
 
@@ -182,7 +181,7 @@ where
                 .get_mut(&self.peer)
                 .expect("Peer must exists")
                 .headers_sync_timeout = None;
-            debug!(target: "sync", "HeadersProcess is_empty (synchronized)");
+            debug!("HeadersProcess is_empty (synchronized)");
             return Ok(());
         }
 
@@ -192,7 +191,7 @@ where
 
         if !self.is_continuous(&headers) {
             self.synchronizer.peers.misbehavior(self.peer, 20);
-            debug!(target: "sync", "HeadersProcess is not continuous");
+            debug!("HeadersProcess is not continuous");
             return Ok(());
         }
 
@@ -203,7 +202,10 @@ where
                     .peers
                     .misbehavior(self.peer, result.misbehavior);
             }
-            debug!(target: "sync", "HeadersProcess accept_first is_valid {:?} headers = {:?}", result, headers[0]);
+            debug!(
+                "HeadersProcess accept_first is_valid {:?} headers = {:?}",
+                result, headers[0]
+            );
             return Ok(());
         }
 
@@ -224,23 +226,21 @@ where
                             .peers
                             .misbehavior(self.peer, result.misbehavior);
                     }
-                    debug!(target: "sync", "HeadersProcess accept is invalid {:?}", result);
+                    debug!("HeadersProcess accept is invalid {:?}", result);
                     return Ok(());
                 }
             }
         }
 
-        if log_enabled!(target: "sync", log::Level::Debug) {
+        if log_enabled!(Level::Debug) {
             let chain_state = self.synchronizer.shared.lock_chain_state();
             let peer_best_known = self.synchronizer.peers.get_best_known_header(self.peer);
             debug!(
-                target: "sync",
                 "chain: num={}, diff={:#x};",
                 chain_state.tip_number(),
                 chain_state.total_difficulty()
             );
             debug!(
-                target: "sync",
                 "shared best_known_header: num={}, diff={:#x}, hash={:#x};",
                 shared_best_known.number(),
                 shared_best_known.total_difficulty(),
@@ -248,7 +248,6 @@ where
             );
             if let Some(header) = peer_best_known {
                 debug!(
-                    target: "sync",
                     "peer's best_known_header: peer: {}, num={}; diff={:#x}, hash={:#x};",
                     self.peer,
                     header.number(),
@@ -256,9 +255,9 @@ where
                     header.hash()
                 );
             } else {
-                debug!(target: "sync", "state: null;");
+                debug!("state: null;");
             }
-            debug!(target: "sync", "peer: {}", self.peer);
+            debug!("peer: {}", self.peer);
         }
 
         if self.received_new_header(&headers) {
@@ -287,7 +286,7 @@ where
             && headers.len() != MAX_HEADERS_LEN
             && (is_outbound && !is_protected)
         {
-            debug!(target: "sync", "Disconnect peer({}) is unprotected outbound", self.peer);
+            debug!("Disconnect peer({}) is unprotected outbound", self.peer);
             self.nc.disconnect(self.peer);
         }
 
@@ -351,23 +350,34 @@ where
     }
 
     pub fn non_contextual_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        self.verifier.verify(&self.resolver).map_err(|error| match error {
-            VerifyError::Pow(e) => {
-                debug!(target: "sync", "HeadersProcess accept {:?} pow error {:?}", self.header.number(), e);
-                state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);
-            }
-            VerifyError::Epoch(e) => {
-                debug!(target: "sync", "HeadersProcess accept {:?} epoch error {:?}", self.header.number(), e);
-                state.dos(
-                    Some(ValidationError::Verify(VerifyError::Epoch(e))),
-                    50,
-                );
-            }
-            error => {
-                debug!(target: "sync", "HeadersProcess accept {:?} {:?}", self.header.number(), error);
-                state.invalid(Some(ValidationError::Verify(error)));
-            }
-        })
+        self.verifier
+            .verify(&self.resolver)
+            .map_err(|error| match error {
+                VerifyError::Pow(e) => {
+                    debug!(
+                        "HeadersProcess accept {:?} pow error {:?}",
+                        self.header.number(),
+                        e
+                    );
+                    state.dos(Some(ValidationError::Verify(VerifyError::Pow(e))), 100);
+                }
+                VerifyError::Epoch(e) => {
+                    debug!(
+                        "HeadersProcess accept {:?} epoch error {:?}",
+                        self.header.number(),
+                        e
+                    );
+                    state.dos(Some(ValidationError::Verify(VerifyError::Epoch(e))), 50);
+                }
+                error => {
+                    debug!(
+                        "HeadersProcess accept {:?} {:?}",
+                        self.header.number(),
+                        error
+                    );
+                    state.invalid(Some(ValidationError::Verify(error)));
+                }
+            })
     }
 
     pub fn version_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
@@ -382,26 +392,32 @@ where
     pub fn accept(&self) -> ValidationResult {
         let mut result = ValidationResult::default();
         if self.duplicate_check(&mut result).is_err() {
-            debug!(target: "sync", "HeadersProcess accept {:?} duplicate", self.header.number());
+            debug!("HeadersProcess accept {:?} duplicate", self.header.number());
             return result;
         }
 
         if self.prev_block_check(&mut result).is_err() {
-            debug!(target: "sync", "HeadersProcess accept {:?} prev_block", self.header.number());
+            debug!(
+                "HeadersProcess accept {:?} prev_block",
+                self.header.number()
+            );
             self.synchronizer
                 .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
-            debug!(target: "sync", "HeadersProcess accept {:?} non_contextual", self.header.number());
+            debug!(
+                "HeadersProcess accept {:?} non_contextual",
+                self.header.number()
+            );
             self.synchronizer
                 .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
-            debug!(target: "sync", "HeadersProcess accept {:?} version", self.header.number());
+            debug!("HeadersProcess accept {:?} version", self.header.number());
             self.synchronizer
                 .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
             return result;

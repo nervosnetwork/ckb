@@ -1,12 +1,12 @@
 use crate::synchronizer::Synchronizer;
 use crate::{MAX_LOCATOR_SIZE, SYNC_USELESS_BAN_TIME};
 use ckb_core::header::Header;
+use ckb_logger::{debug, info, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, info, warn};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 
@@ -37,14 +37,20 @@ where
 
     pub fn execute(self) -> Result<(), FailureError> {
         if self.synchronizer.shared.is_initial_block_download() {
-            info!(target: "sync", "Ignoring getheaders from peer={} because node is in initial block download", self.peer);
+            info!(
+                "Ignoring getheaders from peer={} because node is in initial block download",
+                self.peer
+            );
             return Ok(());
         }
 
         let locator = cast!(self.message.block_locator_hashes())?;
         let locator_size = locator.len();
         if locator_size > MAX_LOCATOR_SIZE {
-            warn!(target: "sync", " getheaders locator size {} from peer={}", locator_size, self.peer);
+            warn!(
+                " getheaders locator size {} from peer={}",
+                locator_size, self.peer
+            );
             cast!(None)?;
         }
 
@@ -60,7 +66,6 @@ where
             .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
         {
             debug!(
-                target: "sync",
                 "headers latest_common={} tip={} begin",
                 block_number,
                 self.synchronizer.shared.tip_header().number(),
@@ -73,7 +78,7 @@ where
                 .get_locator_response(block_number, &hash_stop);
             // response headers
 
-            debug!(target: "sync", "headers len={}", headers.len());
+            debug!("headers len={}", headers.len());
 
             let fbb = &mut FlatBufferBuilder::new();
             let message = SyncMessage::build_headers(fbb, &headers);
@@ -82,7 +87,7 @@ where
                 .send_message_to(self.peer, fbb.finished_data().into());
         } else {
             for hash in &block_locator_hashes[..] {
-                warn!(target: "sync", "unknown block headers from peer {} {:#x}", self.peer, hash);
+                warn!("unknown block headers from peer {} {:#x}", self.peer, hash);
             }
             // Got 'headers' message without known blocks
             self.nc.ban_peer(self.peer, SYNC_USELESS_BAN_TIME);

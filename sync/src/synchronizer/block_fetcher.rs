@@ -2,9 +2,9 @@ use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::types::HeaderView;
 use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 use ckb_core::header::Header;
+use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
-use log::{debug, trace};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
@@ -86,7 +86,6 @@ where
         {
             if &ancestor != header.inner() {
                 debug!(
-                    target: "sync",
                     "[block downloader] peer best_known_header is not ancestor of global_best_known_header"
                 );
                 return false;
@@ -98,11 +97,10 @@ where
     }
 
     pub fn fetch(self) -> Option<Vec<H256>> {
-        trace!(target: "sync", "[block downloader] BlockFetcher process");
+        trace!("[block downloader] BlockFetcher process");
 
         if self.reached_inflight_limit() {
             trace!(
-                target: "sync",
                 "[block downloader] inflight count reach limit, can't download any more from peer {}",
                 self.peer
             );
@@ -113,7 +111,6 @@ where
             Some(best_known_header) => best_known_header,
             _ => {
                 trace!(
-                    target: "sync",
                     "[block downloader] peer_best_known_header not found peer={}",
                     self.peer
                 );
@@ -124,7 +121,6 @@ where
         // This peer has nothing interesting.
         if !self.is_better_chain(&best_known_header) {
             trace!(
-                target: "sync",
                 "[block downloader] best_known_header {} chain {}",
                 best_known_header.total_difficulty(),
                 self.total_difficulty
@@ -141,15 +137,11 @@ where
         let fixed_last_common_header = self.last_common_header(&best_known_header)?;
 
         if &fixed_last_common_header == best_known_header.inner() {
-            trace!(
-                target: "sync",
-                "[block downloader] fixed_last_common_header == best_known_header"
-            );
+            trace!("[block downloader] fixed_last_common_header == best_known_header");
             return None;
         }
 
         debug!(
-            target: "sync",
             "[block downloader] fixed_last_common_header = {} best_known_header = {}",
             fixed_last_common_header.number(),
             best_known_header.number()
@@ -183,7 +175,7 @@ where
                     && inflight.insert(self.peer, to_fetch_hash.to_owned())
                 {
                     trace!(
-                        target: "sync", "[Synchronizer] inflight insert {:?}------------{:x}",
+                        "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),
                         to_fetch_hash
                     );

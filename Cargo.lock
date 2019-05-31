@@ -778,6 +778,7 @@ dependencies = [
  "ckb-chain-spec 0.14.0-pre",
  "ckb-core 0.14.0-pre",
  "ckb-db 0.14.0-pre",
+ "ckb-logger 0.14.0-pre",
  "ckb-network 0.14.0-pre",
  "ckb-notify 0.14.0-pre",
  "ckb-protocol 0.14.0-pre",

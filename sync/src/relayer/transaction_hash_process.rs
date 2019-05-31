@@ -1,10 +1,10 @@
 use crate::relayer::Relayer;
 use ckb_core::transaction::ProposalShortId;
+use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::RelayTransactionHash as FbsRelayTransactionHash;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
-use log::{debug, trace};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -35,8 +35,8 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
         let tx_hash: H256 = (*self.message).try_into()?;
         let short_id = ProposalShortId::from_tx_hash(&tx_hash);
         if self.relayer.state.already_known_tx(&tx_hash) {
-            debug!(
-                target: "relay",
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
                 "transaction({:#x}) from {} already known, ignore it",
                 tx_hash,
                 self.peer,
@@ -49,16 +49,16 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
             .get_tx_with_cycles(&short_id)
             .is_some()
         {
-            trace!(
-                target: "relay",
+            trace_target!(
+                crate::LOG_TARGET_RELAY,
                 "transaction({:#x}) from {} already in transaction pool, ignore it",
                 tx_hash,
                 self.peer,
             );
             self.relayer.state.mark_as_known_tx(tx_hash.clone());
         } else {
-            debug!(
-                target: "relay",
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
                 "transaction({:#x}) from {} not known, get it from the peer",
                 tx_hash,
                 self.peer,
