@@ -1,5 +1,6 @@
 use crate::{MinerConfig, Work};
 use ckb_core::block::Block;
+use ckb_logger::{debug, error, warn};
 use crossbeam_channel::Sender;
 use futures::sync::{mpsc, oneshot};
 use hyper::error::Error as HyperError;
@@ -12,7 +13,6 @@ use jsonrpc_types::{
     error::Error as RpcFail, id::Id, params::Params, request::MethodCall, response::Output,
     version::Version, Block as JsonBlock,
 };
-use log::{debug, error, warn};
 use numext_fixed_hash::H256;
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
@@ -141,11 +141,14 @@ impl Client {
             match ret {
                 Ok(hash) => {
                     if hash.is_none() {
-                        warn!(target: "miner", "submit_block failed {}", serde_json::to_string(block).unwrap());
+                        warn!(
+                            "submit_block failed {}",
+                            serde_json::to_string(block).unwrap()
+                        );
                     }
                 }
                 Err(e) => {
-                    error!(target: "miner", "rpc call submit_block error: {:?}", e);
+                    error!("rpc call submit_block error: {:?}", e);
                     sentry::capture_message(
                         &format!("rpc call submit_block error: {:?}", e),
                         sentry::Level::Error,
@@ -157,7 +160,7 @@ impl Client {
 
     pub fn poll_block_template(&self) {
         loop {
-            debug!(target: "miner", "poll block template...");
+            debug!("poll block template...");
             self.try_update_block_template();
             thread::sleep(time::Duration::from_millis(self.config.poll_interval));
         }
@@ -175,7 +178,7 @@ impl Client {
                 }
             }
             Err(e) => {
-                error!(target: "miner", "rpc call get_block_template error: {:?}", e);
+                error!("rpc call get_block_template error: {:?}", e);
             }
         }
         updated
