@@ -380,7 +380,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
                         if state.chain_sync.protect {
-                            state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
+                            if state.sync_started {
+                                state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
+                                self.n_sync.fetch_sub(1, Ordering::Release);
+                            }
                         } else {
                             eviction.push(*peer);
                             state.disconnect = true;
