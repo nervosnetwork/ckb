@@ -220,6 +220,10 @@ impl KnownFilter {
             }
         }
     }
+
+    pub fn clear(&mut self, index: PeerIndex) {
+        self.inner.remove(&index);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -957,6 +961,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
         // self.misbehavior.write().remove(peer);
         self.inflight_blocks.write().remove_by_peer(&peer);
+        self.known_txs.lock().clear(peer);
+        self.known_blocks.lock().clear(peer);
         self.peers_state.write().remove(&peer)
     }
 
