@@ -16,7 +16,7 @@ def _str(s):
     return s
 
 
-os.makedirs("changes", exist_ok=True)
+os.makedirs(".git/changes", exist_ok=True)
 
 if len(sys.argv) > 1:
     since = sys.argv[1]
@@ -62,7 +62,7 @@ for line in logs.splitlines():
 
     if pr_number_match:
         pr_number = pr_number_match.group(1)
-        cache_file = "changes/{}.json".format(pr_number)
+        cache_file = ".git/changes/{}.json".format(pr_number)
         if os.path.exists(cache_file):
             print("read pr #" + pr_number, file=sys.stderr)
             with open(cache_file) as fd:
@@ -120,7 +120,18 @@ for line in logs.splitlines():
 
         changes[scope].append(Change(scope, module, title, body))
 
-out = open("changes/out.md", "w")
+if os.path.exists(".git/changes/extra.json"):
+    with open(".git/changes/extra.json") as fin:
+        extra = json.load(fin)
+    for (scope, extra_changes) in extra.items():
+        if scope not in changes:
+            changes[scope] = []
+
+        for change in extra_changes:
+            changes[scope].append(
+                Change(scope, change.get('module'), change['title'], change.get('text', '')))
+
+out = open(".git/changes/out.md", "w")
 for scope, changes in changes.items():
     if len(changes) == 0:
         continue
