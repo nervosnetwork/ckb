@@ -4,6 +4,7 @@ use ckb_core::script::Script as CoreScript;
 use ckb_core::transaction::{
     CellOutput as CoreCellOutput, OutPoint as CoreOutPoint, Transaction as CoreTransaction,
 };
+use ckb_logger::error;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -12,7 +13,6 @@ use dao::calculate_maximum_withdraw;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Capacity, Cycle, DryRunResult, JsonBytes, OutPoint, Script, Transaction};
-use log::error;
 use numext_fixed_hash::H256;
 use serde_derive::Serialize;
 
@@ -69,7 +69,7 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
         match DaoWithdrawCalculator::new(&chain_state).calculate(out_point.clone().into(), hash) {
             Ok(capacity) => Ok(capacity),
             Err(err) => {
-                error!(target: "rpc-server", "calculate_dao_maximum_withdraw error {:?}", err);
+                error!("calculate_dao_maximum_withdraw error {:?}", err);
                 Err(Error::internal_error())
             }
         }

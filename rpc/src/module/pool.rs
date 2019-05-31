@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use ckb_core::transaction::Transaction as CoreTransaction;
+use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
@@ -57,7 +58,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                     .network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data)
                 {
-                    log::error!(target: "rpc-server", "Broadcast transaction failed: {:?}", err);
+                    error!("Broadcast transaction failed: {:?}", err);
                 }
                 Ok(tx.hash().to_owned())
             }

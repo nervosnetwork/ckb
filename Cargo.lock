@@ -601,9 +601,9 @@ name = "ckb-notify"
 version = "0.14.0-pre"
 dependencies = [
  "ckb-core 0.14.0-pre",
+ "ckb-logger 0.14.0-pre",
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "stop-handler 0.14.0-pre",
 ]
 
@@ -659,6 +659,7 @@ dependencies = [
  "ckb-chain-spec 0.14.0-pre",
  "ckb-core 0.14.0-pre",
  "ckb-db 0.14.0-pre",
+ "ckb-logger 0.14.0-pre",
  "ckb-miner 0.14.0-pre",
  "ckb-network 0.14.0-pre",
  "ckb-notify 0.14.0-pre",
@@ -682,7 +683,6 @@ dependencies = [
  "jsonrpc-http-server 10.0.1 (git+https://github.com/nervosnetwork/jsonrpc?rev=7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0)",
  "jsonrpc-server-utils 10.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "jsonrpc-types 0.14.0-pre",
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "num_cpus 1.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",

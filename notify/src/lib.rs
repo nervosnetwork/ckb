@@ -2,9 +2,9 @@
 
 use ckb_core::block::Block;
 use ckb_core::service::Request;
+use ckb_logger::{debug, trace, warn};
 use crossbeam_channel::{select, Receiver, Sender};
 use fnv::FnvHashMap;
-use log::{debug, trace, warn};
 use std::sync::Arc;
 use std::thread;
 use stop_handler::{SignalSender, StopHandler};
@@ -134,12 +134,12 @@ impl NotifyService {
     //             responder,
     //             arguments: (name, capacity),
     //         }) => {
-    //             debug!(target: "notify", "Register new_transaction {:?}", name);
+    //             debug!("Register new_transaction {:?}", name);
     //             let (sender, receiver) = crossbeam_channel::bounded::<MsgNewTransaction>(capacity);
     //             subscribers.insert(name, sender);
     //             let _ = responder.send(receiver);
     //         }
-    //         _ => warn!(target: "notify", "Register new_transaction channel is closed"),
+    //         _ => warn!("Register new_transaction channel is closed"),
     //     }
     // }
 
@@ -152,12 +152,12 @@ impl NotifyService {
     //             responder,
     //             arguments: (name, capacity),
     //         }) => {
-    //             debug!(target: "notify", "Register new_tip {:?}", name);
+    //             debug!("Register new_tip {:?}", name);
     //             let (sender, receiver) = crossbeam_channel::bounded::<MsgNewTip>(capacity);
     //             subscribers.insert(name, sender);
     //             let _ = responder.send(receiver);
     //         }
-    //         _ => warn!(target: "notify", "Register new_tip channel is closed"),
+    //         _ => warn!("Register new_tip channel is closed"),
     //     }
     // }
 
@@ -170,12 +170,12 @@ impl NotifyService {
                 responder,
                 arguments: (name, capacity),
             }) => {
-                debug!(target: "notify", "Register new_uncle {:?}", name);
+                debug!("Register new_uncle {:?}", name);
                 let (sender, receiver) = crossbeam_channel::bounded::<MsgNewUncle>(capacity);
                 subscribers.insert(name, sender);
                 let _ = responder.send(receiver);
             }
-            _ => warn!(target: "notify", "Register new_uncle channel is closed"),
+            _ => warn!("Register new_uncle channel is closed"),
         }
     }
 
@@ -191,12 +191,12 @@ impl NotifyService {
     //             responder,
     //             arguments: (name, capacity),
     //         }) => {
-    //             debug!(target: "notify", "Register switch_fork {:?}", name);
+    //             debug!("Register switch_fork {:?}", name);
     //             let (sender, receiver) = crossbeam_channel::bounded::<MsgSwitchFork>(capacity);
     //             subscribers.insert(name, sender);
     //             let _ = responder.send(receiver);
     //         }
-    //         _ => warn!(target: "notify", "Register switch_fork channel is closed"),
+    //         _ => warn!("Register switch_fork channel is closed"),
     //     }
     // }
 
@@ -206,12 +206,12 @@ impl NotifyService {
     // ) {
     //     match msg {
     //         Ok(()) => {
-    //             trace!(target: "notify", "event new transaction {:?}", msg);
+    //             trace!("event new transaction {:?}", msg);
     //             for subscriber in subscribers.values() {
     //                 let _ = subscriber.send(());
     //             }
     //         }
-    //         _ => warn!(target: "notify", "new transaction channel is closed"),
+    //         _ => warn!("new transaction channel is closed"),
     //     }
     // }
 
@@ -221,12 +221,12 @@ impl NotifyService {
     // ) {
     //     match msg {
     //         Ok(msg) => {
-    //             trace!(target: "notify", "event new tip {:?}", msg);
+    //             trace!("event new tip {:?}", msg);
     //             for subscriber in subscribers.values() {
     //                 let _ = subscriber.send(Arc::clone(&msg));
     //             }
     //         }
-    //         _ => warn!(target: "notify", "new tip channel is closed"),
+    //         _ => warn!("new tip channel is closed"),
     //     }
     // }
 
@@ -236,12 +236,12 @@ impl NotifyService {
     ) {
         match msg {
             Ok(msg) => {
-                trace!(target: "notify", "event new uncle {:?}", msg);
+                trace!("event new uncle {:?}", msg);
                 for subscriber in subscribers.values() {
                     let _ = subscriber.send(Arc::clone(&msg));
                 }
             }
-            _ => warn!(target: "notify", "new uncle channel is closed"),
+            _ => warn!("new uncle channel is closed"),
         }
     }
 
@@ -251,12 +251,12 @@ impl NotifyService {
     // ) {
     //     match msg {
     //         Ok(msg) => {
-    //             trace!(target: "notify", "event switch fork {:?}", msg);
+    //             trace!("event switch fork {:?}", msg);
     //             for subscriber in subscribers.values() {
     //                 let _ = subscriber.send(Arc::clone(&msg));
     //             }
     //         }
-    //         _ => warn!(target: "notify", "event 3 channel is closed"),
+    //         _ => warn!("event 3 channel is closed"),
     //     }
     // }
 }
