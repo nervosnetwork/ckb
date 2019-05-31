@@ -6,7 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4"
+ckb-logger = { path = "../util/logger" }
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
 ckb-chain-spec = { path = "../spec" }
