@@ -1,6 +1,6 @@
 use crate::error::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
+use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
     BlockNumber, Cycle, EpochNumber,
@@ -302,14 +302,10 @@ impl<'a> CapacityVerifier<'a> {
             }
         }
 
-        if self
-            .resolved_transaction
-            .transaction
-            .outputs()
-            .iter()
-            .any(CellOutput::is_occupied_capacity_overflow)
-        {
-            return Err(TransactionError::CapacityOverflow);
+        for output in self.resolved_transaction.transaction.outputs().iter() {
+            if output.is_lack_of_capacity()? {
+                return Err(TransactionError::InsufficientCellCapacity);
+            }
         }
 
         Ok(())

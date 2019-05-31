@@ -39,7 +39,7 @@ pub fn test_capacity_outofbound() {
 
     assert_eq!(
         verifier.verify().err(),
-        Some(TransactionError::CapacityOverflow)
+        Some(TransactionError::InsufficientCellCapacity)
     );
 }
 

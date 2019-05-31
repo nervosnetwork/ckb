@@ -8,7 +8,7 @@ use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::{h256, H256};
-use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity};
+use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity, Result as CapacityResult};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt;
@@ -300,11 +300,8 @@ impl CellOutput {
         (capacity, data, lock, type_)
     }
 
-    pub fn is_occupied_capacity_overflow(&self) -> bool {
-        if let Ok(cap) = self.occupied_capacity() {
-            return cap > self.capacity;
-        }
-        true
+    pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
+        self.occupied_capacity().map(|cap| cap > self.capacity)
     }
 }
 
