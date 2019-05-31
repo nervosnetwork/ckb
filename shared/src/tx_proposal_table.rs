@@ -1,8 +1,8 @@
 use ckb_chain_spec::consensus::ProposalWindow;
 use ckb_core::header::BlockNumber;
 use ckb_core::transaction::ProposalShortId;
+use ckb_logger::trace_target;
 use ckb_util::FnvHashSet;
-use log::trace;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 
@@ -57,7 +57,11 @@ impl TxProposalTable {
         let mut left = self.table.split_off(&proposal_start);
         ::std::mem::swap(&mut self.table, &mut left);
 
-        trace!(target: "chain", "[proposal_finalize] table {:?}", self.table);
+        trace_target!(
+            crate::LOG_TARGET_CHAIN,
+            "[proposal_finalize] table {:?}",
+            self.table
+        );
         let new_ids = self
             .table
             .range((Bound::Unbounded, Bound::Included(&proposal_end)))
@@ -76,8 +80,20 @@ impl TxProposalTable {
 
         let removed_ids: FnvHashSet<ProposalShortId> =
             self.set.difference(&new_ids).cloned().collect();
-        trace!(target: "chain", "[proposal_finalize] number {} proposal_start {}----proposal_end {}", number , proposal_start, proposal_end);
-        trace!(target: "chain", "[proposal_finalize] number {} new_ids {:?}----removed_ids {:?}", number, new_ids, removed_ids);
+        trace_target!(
+            crate::LOG_TARGET_CHAIN,
+            "[proposal_finalize] number {} proposal_start {}----proposal_end {}",
+            number,
+            proposal_start,
+            proposal_end
+        );
+        trace_target!(
+            crate::LOG_TARGET_CHAIN,
+            "[proposal_finalize] number {} new_ids {:?}----removed_ids {:?}",
+            number,
+            new_ids,
+            removed_ids
+        );
         self.set = new_ids;
         removed_ids
     }

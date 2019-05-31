@@ -5,10 +5,10 @@ use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
     BlockNumber, Cycle, EpochNumber,
 };
+use ckb_logger::info_target;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
-use log;
 use lru_cache::LruCache;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -402,7 +402,12 @@ where
                             .block_median_time(n, &block_hash)
                     })
                     .unwrap_or(0);
-                log::info!("median_time {}, number {}", median_time, n);
+                info_target!(
+                    crate::LOG_TARGET,
+                    "median_time {}, number {}",
+                    median_time,
+                    n
+                );
                 self.median_timestamps_cache
                     .borrow_mut()
                     .insert(n, median_time);
