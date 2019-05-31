@@ -1,6 +1,6 @@
 use crate::error::{Error, ErrorKind};
+use ckb_logger::{debug, trace};
 pub use crypto::secp::{Error as Secp256k1Error, Message, Privkey, Pubkey, Signature};
-use log::{debug, trace};
 use std::collections::HashSet;
 use std::hash::BuildHasher;
 
@@ -27,7 +27,6 @@ where
         .iter()
         .filter_map(|sig| {
             trace!(
-                target: "multisig",
                 "recover sig {:x?} with message {:x?}",
                 &sig.serialize()[..],
                 &message[..]
@@ -35,7 +34,7 @@ where
             match sig.recover(&message) {
                 Ok(pubkey) => Some(pubkey),
                 Err(err) => {
-                    debug!(target: "multisig", "recover secp256k1 sig error: {}", err);
+                    debug!("recover secp256k1 sig error: {}", err);
                     None
                 }
             }

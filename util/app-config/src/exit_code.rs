@@ -30,8 +30,8 @@ impl From<toml::de::Error> for ExitCode {
     }
 }
 
-impl From<log::SetLoggerError> for ExitCode {
-    fn from(err: log::SetLoggerError) -> ExitCode {
+impl From<ckb_logger::SetLoggerError> for ExitCode {
+    fn from(err: ckb_logger::SetLoggerError) -> ExitCode {
         eprintln!("Config Error: {:?}", err);
         ExitCode::Config
     }

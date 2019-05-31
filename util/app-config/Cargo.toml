@@ -10,7 +10,6 @@ clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
 toml = "0.5"
-log = "0.4"
 ckb-logger = { path = "../../util/logger" }
 sentry = "^0.15.4"
 ckb-chain-spec = {path = "../../spec"}
