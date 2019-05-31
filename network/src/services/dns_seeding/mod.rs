@@ -2,9 +2,9 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use ckb_logger::{debug, error, info, trace, warn};
 use faster_hex::hex_decode;
 use futures::{Async, Future, Poll, Stream};
-use log::{debug, error, info, trace, warn};
 use p2p::{multiaddr::Protocol, secio::PeerId};
 use resolve::record::Txt;
 use resolve::{DnsConfig, DnsResolver};
@@ -31,7 +31,7 @@ impl DnsSeedingService {
     pub(crate) fn new(network_state: Arc<NetworkState>, seeds: Vec<String>) -> DnsSeedingService {
         let wait_until =
             if network_state.with_peer_store(|peer_store| peer_store.random_peers(1).is_empty()) {
-                info!(target: "network", "No peer in peer store, start seeding...");
+                info!("No peer in peer store, start seeding...");
                 Instant::now()
             } else {
                 Instant::now() + Duration::from_secs(11)
@@ -59,7 +59,7 @@ impl DnsSeedingService {
                 >= 2
         });
         if enough_outbound {
-            debug!(target: "network", "Enough outbound peers");
+            debug!("Enough outbound peers");
             return Ok(());
         }
 
@@ -78,7 +78,7 @@ impl DnsSeedingService {
 
         let mut addrs = Vec::new();
         for seed in &self.seeds {
-            debug!(target: "network", "query txt records from: {}", seed);
+            debug!("query txt records from: {}", seed);
             match resolver.resolve_record::<Txt>(seed) {
                 Ok(records) => {
                     for record in records {
@@ -86,26 +86,26 @@ impl DnsSeedingService {
                             Ok(record) => match SeedRecord::decode_with_pubkey(&record, &pubkey) {
                                 Ok(seed_record) => {
                                     let address = seed_record.address();
-                                    trace!(target: "network", "got dns txt address: {}", address);
+                                    trace!("got dns txt address: {}", address);
                                     addrs.push(address);
                                 }
                                 Err(err) => {
-                                    debug!(target: "network", "decode dns txt record failed: {:?}, {:?}", err, record);
+                                    debug!("decode dns txt record failed: {:?}, {:?}", err, record);
                                 }
                             },
                             Err(err) => {
-                                debug!(target: "network", "get dns txt record error: {:?}", err);
+                                debug!("get dns txt record error: {:?}", err);
                             }
                         }
                     }
                 }
                 Err(_) => {
-                    warn!(target: "network", "Invalid domain name: {}", seed);
+                    warn!("Invalid domain name: {}", seed);
                 }
             }
         }
 
-        debug!(target: "network", "DNS seeding got {} address", addrs.len());
+        debug!("DNS seeding got {} address", addrs.len());
         self.network_state.with_peer_store_mut(|peer_store| {
             for mut addr in addrs {
                 match addr.pop() {
@@ -115,7 +115,7 @@ impl DnsSeedingService {
                         }
                     }
                     _ => {
-                        debug!(target: "network", "Got addr without peer_id: {}, ignore it", addr);
+                        debug!("Got addr without peer_id: {}, ignore it", addr);
                     }
                 }
             }
@@ -134,21 +134,21 @@ impl Future for DnsSeedingService {
                 Ok(Async::Ready(Some(_))) => {
                     if self.wait_until < Instant::now() {
                         if let Err(err) = self.seeding() {
-                            error!(target: "network", "seeding error: {:?}", err);
+                            error!("seeding error: {:?}", err);
                         }
-                        debug!(target: "network", "DNS seeding finished");
+                        debug!("DNS seeding finished");
                         return Ok(Async::Ready(()));
                     } else {
-                        trace!(target: "network", "DNS check interval");
+                        trace!("DNS check interval");
                     }
                 }
                 Ok(Async::Ready(None)) => {
-                    warn!(target: "network", "Poll DnsSeedingService interval return None");
+                    warn!("Poll DnsSeedingService interval return None");
                     return Err(());
                 }
                 Ok(Async::NotReady) => break,
                 Err(err) => {
-                    warn!(target: "network", "Poll DnsSeedingService interval error: {:?}", err);
+                    warn!("Poll DnsSeedingService interval error: {:?}", err);
                     return Err(());
                 }
             }

@@ -1,5 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use log::debug;
+use ckb_logger::debug;
 use snap::{Decoder as SnapDecoder, Encoder as SnapEncoder};
 
 use std::io;
@@ -51,7 +51,7 @@ impl Message {
                     self.set_compress_flag();
                 }
                 Err(e) => {
-                    debug!(target: "network", "snappy compress error: {}", e);
+                    debug!("snappy compress error: {}", e);
                     self.inner.unsplit(input);
                 }
             }
@@ -67,7 +67,7 @@ impl Message {
             match SnapDecoder::new().decompress_vec(&self.inner[1..]) {
                 Ok(res) => Ok(Bytes::from(res)),
                 Err(e) => {
-                    debug!(target: "network", "snappy decompress error: {:?}", e);
+                    debug!("snappy decompress error: {:?}", e);
                     Err(io::ErrorKind::InvalidData.into())
                 }
             }
