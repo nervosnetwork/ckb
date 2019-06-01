@@ -109,12 +109,21 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                                 tx_hash,
                                 err
                             );
-                            sentry::capture_message(
-                                &format!(
-                                    "ban peer {} {:?}, reason: relay invalid tx: {:?}, error: {:?}",
-                                    self_peer, DEFAULT_BAN_TIME, tx, err
-                                ),
-                                sentry::Level::Info,
+                            use sentry::{capture_message, with_scope, Level};
+                            with_scope(
+                                |scope| {
+                                    scope.set_fingerprint(Some(&["ckb-sync", "relay-invalid-tx"]))
+                                },
+                                || {
+                                    capture_message(
+                                        &format!(
+                                            "ban peer {} {:?}, reason: \
+                                             relay invalid tx: {:?}, error: {:?}",
+                                            self_peer, DEFAULT_BAN_TIME, tx, err
+                                        ),
+                                        Level::Info,
+                                    )
+                                },
                             );
                             nc.ban_peer(self_peer, DEFAULT_BAN_TIME);
                         } else {
