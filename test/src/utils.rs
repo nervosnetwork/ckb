@@ -38,6 +38,14 @@ pub fn build_compact_block(block: &Block) -> Bytes {
     fbb.finished_data().into()
 }
 
+pub fn build_block_transactions(block: &Block) -> Bytes {
+    let fbb = &mut FlatBufferBuilder::new();
+    let message =
+        RelayMessage::build_block_transactions(fbb, block.header().hash(), block.transactions());
+    fbb.finish(message, None);
+    fbb.finished_data().into()
+}
+
 pub fn build_header(header: &Header) -> Bytes {
     let headers = vec![header.clone()];
     let fbb = &mut FlatBufferBuilder::new();

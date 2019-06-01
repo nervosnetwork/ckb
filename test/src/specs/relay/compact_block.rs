@@ -9,6 +9,7 @@ use ckb_protocol::{get_root, RelayMessage, RelayPayload, SyncMessage, SyncPayloa
 use ckb_sync::NetworkProtocol;
 use log::info;
 use numext_fixed_hash::{h256, H256};
+use std::thread::sleep;
 use std::time::Duration;
 
 pub struct CompactBlockBasic;
@@ -193,6 +194,35 @@ impl CompactBlockBasic {
         node1.submit_block(&block);
         node1.waiting_for_sync(node0, node1.get_tip_block().header().number(), 20);
     }
+
+    pub fn test_invalid_compact_block(&self, net: &Net, node: &Node, peer_id: PeerIndex) {
+        node.generate_block();
+        let _ = net.receive();
+
+        // Construct a new block contains a invalid transaction
+        let tip_block = node.get_tip_block();
+        let new_tx = node.new_transaction(tip_block.transactions()[0].hash().clone());
+        let new_block = node
+            .new_block_builder(None, None, None)
+            .transaction(new_tx)
+            .build();
+
+        // Net send the invalid compact block to node.
+        // And then, we should be banned by node
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            peer_id,
+            build_compact_block_with_prefilled(&new_block, vec![0, 1]),
+        );
+
+        // Let's attempt to confirm that we were baned by node
+        sleep(Duration::from_secs(5));
+        node.generate_block();
+        assert!(
+            net.receive_timeout(Duration::from_secs(5)).is_err(),
+            "Node should ban us, so we cannot receive node's new block"
+        );
+    }
 }
 
 impl Spec for CompactBlockBasic {
@@ -210,6 +240,10 @@ impl Spec for CompactBlockBasic {
             .collect::<Vec<PeerIndex>>();
 
         clear_messages(&net);
+
+        // We were banned by node2 in this case
+        self.test_invalid_compact_block(&net, &net.nodes[2], peer_ids[2]);
+
         self.test_empty_compact_block(&net, &net.nodes[0], peer_ids[0]);
         self.test_empty_parent_unknown_compact_block(&net, &net.nodes[0], peer_ids[0]);
         self.test_all_prefilled_compact_block(&net, &net.nodes[0], peer_ids[0]);
