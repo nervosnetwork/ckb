@@ -10,8 +10,8 @@ use hyper::Uri;
 use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
 use jsonrpc_types::BlockTemplate;
 use jsonrpc_types::{
-    error::Error as RpcFail, id::Id, params::Params, request::MethodCall, response::Output,
-    version::Version, Block as JsonBlock,
+    error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
+    request::MethodCall, response::Output, version::Version, Block as JsonBlock,
 };
 use numext_fixed_hash::H256;
 use serde_json::error::Error as JsonError;
@@ -177,8 +177,23 @@ impl Client {
                     let _ = self.new_work.send(());
                 }
             }
-            Err(e) => {
-                error!("rpc call get_block_template error: {:?}", e);
+            Err(ref err) => {
+                let is_method_not_found = if let RpcError::Fail(RpcFail { code, .. }) = err {
+                    *code == RpcFailCode::MethodNotFound
+                } else {
+                    false
+                };
+                if is_method_not_found {
+                    error!(
+                        "RPC Method Not Found: \
+                         please do checks as follow: \
+                         1. if the CKB server has enabled the Miner API module; \
+                         2. if the CKB server has set `block_assembler`; \
+                         3. If the RPC URL for CKB miner is right.",
+                    );
+                } else {
+                    error!("rpc call get_block_template error: {:?}", err);
+                }
             }
         }
         updated
