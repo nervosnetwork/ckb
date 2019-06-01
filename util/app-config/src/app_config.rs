@@ -264,6 +264,7 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
+            runner: "Assembly",
         };
         {
             locator.export_ckb(&context).expect("export config files");
@@ -300,6 +301,7 @@ mod tests {
             p2p_port: "8000",
             log_to_file: false,
             log_to_stdout: true,
+            runner: "Assembly",
         };
         {
             locator.export_ckb(&context).expect("export config files");
@@ -331,6 +333,7 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
+            runner: "Assembly",
         };
         locator.export_ckb(&context).expect("export config files");
         {
@@ -367,6 +370,7 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
+            runner: "Assembly",
         };
         locator.export_ckb(&context).expect("export config files");
         {

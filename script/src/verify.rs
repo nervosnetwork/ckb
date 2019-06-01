@@ -3,7 +3,7 @@ use crate::{
     syscalls::{
         Debugger, LoadCell, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash, LoadWitness,
     },
-    Runner, ScriptConfig, ScriptError,
+    ScriptConfig, ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::extras::BlockExt;
@@ -15,7 +15,6 @@ use ckb_logger::info;
 use ckb_resource::bundled;
 use ckb_store::{ChainStore, LazyLoadCellOutput};
 use ckb_vm::{
-    machine::asm::{AsmCoreMachine, AsmMachine},
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
     WXorXMemory,
 };
@@ -25,6 +24,11 @@ use numext_fixed_hash::H256;
 use std::cmp::min;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[cfg(all(unix, target_pointer_width = "64"))]
+use crate::Runner;
+#[cfg(all(unix, target_pointer_width = "64"))]
+use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 
 pub const SYSTEM_DAO_CYCLES: u64 = 5000;
 
@@ -57,7 +61,6 @@ impl ScriptGroup {
 // future, we might refactor this to share buffer to achive zero-copy
 pub struct TransactionScriptsVerifier<'a, CS> {
     store: Arc<CS>,
-    config: &'a ScriptConfig,
 
     // TODO: those are all cached data directly from ResolvedTransaction,
     // should we change the code to include ResolvedTransaction directly?
@@ -72,6 +75,12 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     block_data: FnvHashMap<H256, (BlockNumber, BlockExt)>,
     lock_groups: FnvHashMap<H256, ScriptGroup>,
     type_groups: FnvHashMap<H256, ScriptGroup>,
+
+    // On windows we won't need this config right now, but removing it
+    // on windows alone is too much effort comparing to simply allowing
+    // it here.
+    #[allow(dead_code)]
+    config: &'a ScriptConfig,
 }
 
 impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
@@ -390,6 +399,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         self.run(&program.into_owned().into(), &script_group, max_cycles)
     }
 
+    #[cfg(all(unix, target_pointer_width = "64"))]
     fn run(
         &self,
         program: &Bytes,
@@ -464,6 +474,55 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         };
         if code == 0 {
             Ok(cycles)
+        } else {
+            Err(ScriptError::ValidationFailure(code))
+        }
+    }
+
+    #[cfg(not(all(unix, target_pointer_width = "64")))]
+    fn run(
+        &self,
+        program: &Bytes,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<Cycle, ScriptError> {
+        let current_script_hash = script_group.script.hash();
+        let prefix = format!("script group: {:x}", current_script_hash);
+        let current_script_hash_bytes = current_script_hash.as_bytes();
+        let mut args = vec!["verify".into()];
+        args.extend_from_slice(&script_group.script.args);
+        let core_machine =
+            DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
+                max_cycles,
+            );
+        let machine = DefaultMachineBuilder::<
+            DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>,
+        >::new(core_machine)
+        .instruction_cycle_func(Box::new(instruction_cycles))
+        .syscall(Box::new(
+            self.build_load_script_hash(current_script_hash_bytes),
+        ))
+        .syscall(Box::new(self.build_load_tx_hash()))
+        .syscall(Box::new(self.build_load_cell(
+            &script_group.input_indices,
+            &script_group.output_indices,
+        )))
+        .syscall(Box::new(self.build_load_input(&script_group.input_indices)))
+        .syscall(Box::new(
+            self.build_load_header(&script_group.input_indices),
+        ))
+        .syscall(Box::new(
+            self.build_load_witness(&script_group.input_indices),
+        ))
+        .syscall(Box::new(Debugger::new(&prefix)))
+        .build();
+        let mut machine = TraceMachine::new(machine);
+        machine
+            .load_program(&program, &args)
+            .map_err(ScriptError::VMError)?;
+        let code = machine.run().map_err(ScriptError::VMError)?;
+        if code == 0 {
+            Ok(machine.machine.cycles())
         } else {
             Err(ScriptError::ValidationFailure(code))
         }

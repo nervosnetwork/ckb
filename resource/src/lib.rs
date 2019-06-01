@@ -169,7 +169,10 @@ impl ResourceLocator {
     }
 
     pub fn export<'a>(&self, name: &str, context: &TemplateContext<'a>) -> Result<()> {
-        let target = self.root_dir.join(name);
+        // We need to do the join one part at a time to handle Windows paths.
+        let target = name
+            .split('/')
+            .fold(self.root_dir.clone(), |path, name| path.join(name));
         let resource = Resource::Bundled(name.to_string());
         let template = Template::new(from_utf8(resource.get()?)?);
         let mut out = NamedTempFile::new_in(&self.root_dir)?;
