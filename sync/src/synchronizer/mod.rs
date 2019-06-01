@@ -22,6 +22,7 @@ use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
+use ckb_logger::{debug, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use ckb_store::ChainStore;
@@ -30,7 +31,6 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use hashbrown::HashMap;
-use log::{debug, info, trace};
 use numext_fixed_hash::H256;
 use std::cmp::min;
 use std::sync::atomic::AtomicUsize;
@@ -147,7 +147,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         if let Err(err) = self.try_process(nc, peer, message) {
-            debug!(target: "sync", "try_process error: {}", err);
+            debug!("try_process error: {}", err);
             nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
@@ -220,7 +220,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //TODO: process block which we don't request
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
         if self.orphan_block_pool.contains(&block) {
-            debug!(target: "sync", "block {:x} already in orphan pool", block.header().hash());
+            debug!("block {:x} already in orphan pool", block.header().hash());
             return;
         }
 
@@ -229,7 +229,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 self.insert_new_block(peer, block);
             }
             status => {
-                debug!(target: "sync", "[Synchronizer] process_new_block unexpect status {:?}", status);
+                debug!(
+                    "[Synchronizer] process_new_block unexpect status {:?}",
+                    status
+                );
             }
         }
     }
@@ -255,7 +258,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         // Insert the given block into orphan_block_pool if its parent is not found
         if !known_parent(&block) {
             debug!(
-                target: "sync", "insert new orphan block {} {:x}",
+                "insert new orphan block {} {:x}",
                 block.header().number(),
                 block.header().hash()
             );
@@ -266,7 +269,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         // Attempt to accept the given block if its parent already exist in database
         let block = Arc::new(block);
         if let Err(err) = self.accept_block(peer, &block) {
-            debug!(target: "sync", "accept block {:?} error {:?}", block, err);
+            debug!("accept block {:?} error {:?}", block, err);
             return;
         }
 
@@ -282,7 +285,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             // its parent, so we treat it as a invalid block as well.
             if !known_parent(&block) {
                 debug!(
-                    target: "sync", "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
+                    "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
                     block.header().number(),
                     block.header().hash(),
                     block.header().parent_hash(),
@@ -291,7 +294,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
 
             if let Err(err) = self.accept_block(peer, &block) {
-                debug!(target: "sync", "accept descendant orphan block {:?} error {:?}", block, err);
+                debug!("accept descendant orphan block {:?} error {:?}", block, err);
             }
         }
     }
@@ -404,7 +407,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
         }
         for peer in eviction {
-            info!(target: "sync", "timeout eviction peer={}", peer);
+            info!("timeout eviction peer={}", peer);
             nc.disconnect(peer);
         }
     }
@@ -458,7 +461,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 }
             }
 
-            debug!(target: "sync", "start sync peer={}", peer);
+            debug!("start sync peer={}", peer);
             self.shared.send_getheaders_to_peer(nc, peer, &tip);
         }
     }
@@ -475,7 +478,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 .collect()
         };
 
-        trace!(target: "sync", "poll find_blocks_to_fetch select peers");
+        trace!("poll find_blocks_to_fetch select peers");
         {
             self.peers.blocks_inflight.write().prune();
         }
@@ -493,7 +496,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
         nc.send_message_to(peer, fbb.finished_data().into());
-        debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
+        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
     }
 }
 
@@ -515,18 +518,17 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         let msg = match get_root::<SyncMessage>(&data) {
             Ok(msg) => msg,
             _ => {
-                info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
+                info!("Peer {} sends us a malformed message", peer_index);
                 nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
 
-        debug!(target: "sync", "received msg {:?} from {}", msg.payload_type(), peer_index);
+        debug!("received msg {:?} from {}", msg.payload_type(), peer_index);
 
         let start_time = Instant::now();
         self.process(nc.as_ref(), peer_index, msg);
         debug!(
-            target: "sync",
             "process message={:?}, peer={}, cost={:?}",
             msg.payload_type(),
             peer_index,
@@ -540,12 +542,12 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         peer_index: PeerIndex,
         _version: &str,
     ) {
-        info!(target: "sync", "SyncProtocol.connected peer={}", peer_index);
+        info!("SyncProtocol.connected peer={}", peer_index);
         self.on_connected(nc.as_ref(), peer_index);
     }
 
     fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
-        info!(target: "sync", "SyncProtocol.disconnected peer={}", peer_index);
+        info!("SyncProtocol.disconnected peer={}", peer_index);
         if let Some(peer_state) = self.peers.disconnected(peer_index) {
             // It shouldn't happen
             // fetch_sub wraps around on overflow, we still check manually
@@ -559,7 +561,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         if !self.peers.state.read().is_empty() {
             let start_time = Instant::now();
-            trace!(target: "sync", "start notify token={}", token);
+            trace!("start notify token={}", token);
 
             match token {
                 SEND_GET_HEADERS_TOKEN => {
@@ -575,9 +577,13 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
                 _ => {}
             }
 
-            trace!(target: "sync", "finished notify token={} cost={:?}", token, start_time.elapsed());
+            trace!(
+                "finished notify token={} cost={:?}",
+                token,
+                start_time.elapsed()
+            );
         } else if token == NO_PEER_CHECK_TOKEN {
-            debug!(target: "sync", "no peers connected");
+            debug!("no peers connected");
         }
     }
 }

@@ -7,6 +7,7 @@ use ckb_core::extras::{BlockExt, DaoStats};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
 use ckb_core::{BlockNumber, Cycle};
+use ckb_logger::{self, debug, error, info, log_enabled, warn};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
@@ -20,7 +21,6 @@ use dao::calculate_dao_data;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::{self, debug, error, info, log_enabled, warn};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -186,7 +186,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                             let _ = responder.send(self.process_block(block, verify));
                         },
                         _ => {
-                            error!(target: "chain", "process_block_receiver closed");
+                            error!("process_block_receiver closed");
                             break;
                         },
                     }
@@ -208,12 +208,16 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         block: Arc<Block>,
         need_verify: bool,
     ) -> Result<(), FailureError> {
-        debug!(target: "chain", "begin processing block: {:x}", block.header().hash());
+        debug!("begin processing block: {:x}", block.header().hash());
         if block.header().number() < 1 {
-            warn!(target: "chain", "receive 0 number block: {}-{:x}", block.header().number(), block.header().hash());
+            warn!(
+                "receive 0 number block: {}-{:x}",
+                block.header().number(),
+                block.header().hash()
+            );
         }
         self.insert_block(block, need_verify)?;
-        debug!(target: "chain", "finish processing block");
+        debug!("finish processing block");
         Ok(())
     }
 
@@ -221,7 +225,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         if need_verify {
             let block_verifier = BlockVerifier::new(self.shared.clone());
             block_verifier.verify(&block).map_err(|e| {
-                debug!(target: "chain", "[process_block] verification error {:?}", e);
+                debug!("[process_block] verification error {:?}", e);
                 e
             })?
         }
@@ -249,10 +253,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let current_total_difficulty = chain_state.total_difficulty().to_owned();
 
         debug!(
-            target: "chain",
             "difficulty current = {:#x}, cannon = {:#x}",
-            current_total_difficulty,
-            cannon_total_difficulty,
+            current_total_difficulty, cannon_total_difficulty,
         );
 
         if parent_ext.txs_verified == Some(false) {
@@ -303,9 +305,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 && (block.header().hash() < chain_state.tip_hash()))
         {
             debug!(
-                target: "chain",
                 "new best block found: {} => {:#x}, difficulty diff = {:#x}",
-                block.header().number(), block.header().hash(),
+                block.header().number(),
+                block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
             );
             self.find_fork(&mut fork, chain_state.tip_number(), &block, ext);
@@ -338,7 +340,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         if new_best_block {
             let tip_header = block.header().to_owned();
             info!(
-                target: "chain",
                 "block: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
                 tip_header.number(),
                 tip_header.hash(),
@@ -363,12 +364,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 self.notify
                     .notify_new_uncle(Arc::new(detached_block.clone()));
             }
-            if log_enabled!(target: "chain", log::Level::Debug) {
+            if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(&chain_state, 10);
             }
         } else {
             info!(
-                target: "chain",
                 "uncle: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
                 block.header().number(),
                 block.header().hash(),
@@ -590,7 +590,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                         self.shared.consensus().pow_engine().proof_size();
                                     if b.transactions().len() > 1 {
                                         info!(
-                                            target: "chain",
                                             "[block_verifier] block number: {}, hash: {:#x}, size:{}/{}, cycles: {}/{}",
                                             b.header().number(),
                                             b.header().hash(),
@@ -602,8 +601,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                     }
                                 }
                                 Err(err) => {
-                                    error!(target: "chain", "cell_set_diff {}", serde_json::to_string(&cell_set_diff).unwrap());
-                                    error!(target: "chain", "block {}", serde_json::to_string(b).unwrap());
+                                    error!(
+                                        "cell_set_diff {}",
+                                        serde_json::to_string(&cell_set_diff).unwrap()
+                                    );
+                                    error!("block {}", serde_json::to_string(b).unwrap());
                                     found_error =
                                         Some(SharedError::InvalidTransaction(err.to_string()));
                                     *verified = Some(false);
@@ -620,7 +622,10 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 }
 
                 if found_error.is_some() {
-                    error!(target: "chain", "cell_set {}", serde_json::to_string(&chain_state.cell_set()).unwrap());
+                    error!(
+                        "cell_set {}",
+                        serde_json::to_string(&chain_state.cell_set()).unwrap()
+                    );
                 }
             } else {
                 cell_set_diff.push_new(b);
@@ -641,7 +646,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         if let Some(err) = found_error {
-            error!(target: "chain", "fork {}", serde_json::to_string(&fork).unwrap());
+            error!("fork {}", serde_json::to_string(&fork).unwrap());
             Err(err)?
         } else {
             Ok(cell_set_diff)
@@ -650,7 +655,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
     // TODO: beatify
     fn print_chain(&self, chain_state: &ChainState<CS>, len: u64) {
-        debug!(target: "chain", "Chain {{");
+        debug!("Chain {{");
 
         let tip = chain_state.tip_number();
         let bottom = tip - cmp::min(tip, len);
@@ -659,9 +664,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             let hash = self.shared.block_hash(number).unwrap_or_else(|| {
                 panic!(format!("invaild block number({}), tip={}", number, tip))
             });
-            debug!(target: "chain", "   {} => {:x}", number, hash);
+            debug!("   {} => {:x}", number, hash);
         }
 
-        debug!(target: "chain", "}}");
+        debug!("}}");
     }
 }

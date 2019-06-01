@@ -1,13 +1,13 @@
 use crate::relayer::Relayer;
 use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
+use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex, TargetSession};
 use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use futures::{self, future::FutureResult, lazy};
-use log::debug;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,7 +41,11 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
         let tx_hash = tx.hash();
 
         if self.relayer.state.already_known_tx(&tx_hash) {
-            debug!(target: "relay", "discarding already known transaction {:#x}", tx_hash);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "discarding already known transaction {:#x}",
+                tx_hash
+            );
             return Ok(());
         }
 
@@ -61,59 +65,71 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
             let peers = Arc::clone(&self.relayer.peers);
             let tx_hash = tx_hash.clone();
             let tx = tx.to_owned();
-            Box::new(
-                lazy(
-                    move|| -> FutureResult<(), ()> {
-                        let tx_pool_executor = Arc::clone(&tx_pool_executor);
-                        let tx_result = tx_pool_executor.verify_and_add_tx_to_pool(tx.to_owned());
-                        // disconnect peer if cycles mismatch
-                        match tx_result {
-                            Ok(cycles) if cycles == relay_cycles => {
-                                let selected_peers: Vec<PeerIndex> = {
-                                    let mut known_txs = peers.known_txs.lock();
-                                    nc.connected_peers()
-                                        .into_iter()
-                                        .filter(|target_peer| {
-                                            known_txs.insert(*target_peer, tx_hash.clone())
-                                                && (self_peer != *target_peer)
-                                        })
-                                    .take(MAX_RELAY_PEERS)
-                                        .collect()
-                                };
+            Box::new(lazy(move || -> FutureResult<(), ()> {
+                let tx_pool_executor = Arc::clone(&tx_pool_executor);
+                let tx_result = tx_pool_executor.verify_and_add_tx_to_pool(tx.to_owned());
+                // disconnect peer if cycles mismatch
+                match tx_result {
+                    Ok(cycles) if cycles == relay_cycles => {
+                        let selected_peers: Vec<PeerIndex> = {
+                            let mut known_txs = peers.known_txs.lock();
+                            nc.connected_peers()
+                                .into_iter()
+                                .filter(|target_peer| {
+                                    known_txs.insert(*target_peer, tx_hash.clone())
+                                        && (self_peer != *target_peer)
+                                })
+                                .take(MAX_RELAY_PEERS)
+                                .collect()
+                        };
 
-                                let fbb = &mut FlatBufferBuilder::new();
-                                let message = RelayMessage::build_transaction_hash(fbb, &tx_hash);
-                                fbb.finish(message, None);
-                                let data = fbb.finished_data().into();
-                                nc.filter_broadcast(TargetSession::Multi(selected_peers), data);
-                            }
-                            Ok(cycles) => {
-                                debug!(
-                                    target: "relay",
-                                    "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",
-                                    self_peer, tx, cycles, relay_cycles,
-                                    );
-                                nc.ban_peer(self_peer, DEFAULT_BAN_TIME);
-                            }
-                            Err(err) => {
-                                if err.is_bad_tx() {
-                                    debug!(target: "relay", "peer {} relay a invalid tx: {:x}, error: {:?}", self_peer, tx_hash, err);
-                                    sentry::capture_message(
-                                        &format!(
-                                            "ban peer {} {:?}, reason: relay invalid tx: {:?}, error: {:?}",
-                                            self_peer, DEFAULT_BAN_TIME, tx, err
-                                        ),
-                                        sentry::Level::Info,
-                                        );
-                                    nc.ban_peer(self_peer, DEFAULT_BAN_TIME);
-                                } else {
-                                    debug!(target: "relay", "peer {} relay a conflict or missing input tx: {:x}, error: {:?}", self_peer, tx_hash, err);
-                                }
-                            }
+                        let fbb = &mut FlatBufferBuilder::new();
+                        let message = RelayMessage::build_transaction_hash(fbb, &tx_hash);
+                        fbb.finish(message, None);
+                        let data = fbb.finished_data().into();
+                        nc.filter_broadcast(TargetSession::Multi(selected_peers), data);
+                    }
+                    Ok(cycles) => {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",
+                            self_peer,
+                            tx,
+                            cycles,
+                            relay_cycles,
+                        );
+                        nc.ban_peer(self_peer, DEFAULT_BAN_TIME);
+                    }
+                    Err(err) => {
+                        if err.is_bad_tx() {
+                            debug_target!(
+                                crate::LOG_TARGET_RELAY,
+                                "peer {} relay a invalid tx: {:x}, error: {:?}",
+                                self_peer,
+                                tx_hash,
+                                err
+                            );
+                            sentry::capture_message(
+                                &format!(
+                                    "ban peer {} {:?}, reason: relay invalid tx: {:?}, error: {:?}",
+                                    self_peer, DEFAULT_BAN_TIME, tx, err
+                                ),
+                                sentry::Level::Info,
+                            );
+                            nc.ban_peer(self_peer, DEFAULT_BAN_TIME);
+                        } else {
+                            debug_target!(
+                                crate::LOG_TARGET_RELAY,
+                                "peer {} relay a conflict or missing input tx: {:x}, error: {:?}",
+                                self_peer,
+                                tx_hash,
+                                err
+                            );
                         }
-                        futures::future::ok(())
-                    })
-            )
+                    }
+                }
+                futures::future::ok(())
+            }))
         });
         Ok(())
     }

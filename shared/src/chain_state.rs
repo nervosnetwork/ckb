@@ -14,6 +14,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
+use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::BlockMedianTimeContext;
@@ -22,7 +23,6 @@ use ckb_util::{FnvHashMap, FnvHashSet};
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use dao_utils::calculate_transaction_fee;
 use failure::Error as FailureError;
-use log::{debug, info, trace};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -146,16 +146,24 @@ impl<CS: ChainStore> ChainState<CS> {
     fn init_cell_set(store: &CS) -> Result<CellSet, FailureError> {
         let mut cell_set = CellSet::new();
         let mut count = 0;
-        info!(target: "chain", "Start: loading live cells ...");
+        info_target!(crate::LOG_TARGET_CHAIN, "Start: loading live cells ...");
         store.traverse_cell_set(|tx_hash, tx_meta| {
             count += 1;
             cell_set.put(tx_hash, tx_meta);
             if count % 10_000 == 0 {
-                info!(target: "chain", "    loading {} transactions which include live cells ...", count);
+                info_target!(
+                    crate::LOG_TARGET_CHAIN,
+                    "    loading {} transactions which include live cells ...",
+                    count
+                );
             }
             Ok(())
         })?;
-        info!(target: "chain", "Done: total {} transactions.", count);
+        info_target!(
+            crate::LOG_TARGET_CHAIN,
+            "Done: total {} transactions.",
+            count
+        );
         Ok(cell_set)
     }
 
@@ -346,8 +354,18 @@ impl<CS: ChainStore> ChainState<CS> {
                     let mut tx_pool = self.tx_pool.borrow_mut();
                     if self.contains_proposal_id(&short_id) {
                         // if tx is proposed, we resolve from proposed, verify again
-                        if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, Some(cycles), tx_size, tx) {
-                            debug!(target: "tx_pool", "Failed to add proposed tx {:?}, reason: {:?}", short_id, e);
+                        if let Err(e) = self.proposed_tx_and_descendants(
+                            &mut tx_pool,
+                            Some(cycles),
+                            tx_size,
+                            tx,
+                        ) {
+                            debug_target!(
+                                crate::LOG_TARGET_TX_POOL,
+                                "Failed to add proposed tx {:?}, reason: {:?}",
+                                short_id,
+                                e
+                            );
                             return Err(e);
                         }
                         tx_pool.update_statics_for_add_tx(tx_size, cycles);
@@ -429,7 +447,12 @@ impl<CS: ChainStore> ChainState<CS> {
                 let ret = self.proposed_tx(tx_pool, entry.cycles, entry.size, entry.transaction);
                 if ret.is_err() {
                     tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles.unwrap_or(0));
-                    trace!(target: "tx_pool", "proposed tx {:x} failed {:?}", tx_hash, ret);
+                    trace_target!(
+                        crate::LOG_TARGET_TX_POOL,
+                        "proposed tx {:x} failed {:?}",
+                        tx_hash,
+                        ret
+                    );
                 }
             } else {
                 tx_pool.enqueue_tx(entry.cycles, entry.size, entry.transaction);
@@ -465,7 +488,12 @@ impl<CS: ChainStore> ChainState<CS> {
                 }
                 Err(e) => {
                     tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
-                    debug!(target: "tx_pool", "Failed to add proposed tx {:x}, reason: {:?}", tx_hash, e);
+                    debug_target!(
+                        crate::LOG_TARGET_TX_POOL,
+                        "Failed to add proposed tx {:x}, reason: {:?}",
+                        tx_hash,
+                        e
+                    );
                     Err(e)
                 }
             },
@@ -607,12 +635,21 @@ impl<CS: ChainStore> ChainState<CS> {
         for (cycles, size, tx) in entries {
             let tx_hash = tx.hash().to_owned();
             if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, cycles, size, tx) {
-                debug!(target: "tx_pool", "Failed to add proposed tx {:x}, reason: {:?}", tx_hash, e);
+                debug_target!(
+                    crate::LOG_TARGET_TX_POOL,
+                    "Failed to add proposed tx {:x}, reason: {:?}",
+                    tx_hash,
+                    e
+                );
             }
         }
 
         for (cycles, size, tx) in gaps {
-            debug!(target: "tx_pool", "tx proposed, add to gap {:x}", tx.hash());
+            debug_target!(
+                crate::LOG_TARGET_TX_POOL,
+                "tx proposed, add to gap {:x}",
+                tx.hash()
+            );
             tx_pool.add_gap(cycles, size, tx);
         }
     }

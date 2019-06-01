@@ -1,10 +1,10 @@
 use crate::relayer::Relayer;
+use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockTransactions, RelayMessage};
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::debug;
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -32,7 +32,11 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block_hash = cast!(self.message.block_hash())?.try_into()?;
-        debug!(target: "relay", "get_block_transactions {:x}", block_hash);
+        debug_target!(
+            crate::LOG_TARGET_RELAY,
+            "get_block_transactions {:x}",
+            block_hash
+        );
 
         let indexes = cast!(self.message.indexes())?;
 

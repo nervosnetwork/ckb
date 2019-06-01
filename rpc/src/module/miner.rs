@@ -1,5 +1,6 @@
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
+use ckb_logger::{debug, error};
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
@@ -13,7 +14,6 @@ use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
-use log::{debug, error};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -61,7 +61,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         self.block_assembler
             .get_block_template(bytes_limit, proposals_limit, max_version.map(|v| v.0))
             .map_err(|err| {
-                error!(target: "rpc-server", "get_block_template error {}", err);
+                error!("get_block_template error {}", err);
                 Error::internal_error()
             })
     }
@@ -73,7 +73,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         let _scope_guard = sentry::Hub::current().push_scope();
         sentry::configure_scope(|scope| scope.set_extra("work_id", work_id.clone().into()));
 
-        debug!(target: "rpc-server", "[{}] submit block", work_id);
+        debug!("[{}] submit block", work_id);
         let block: Arc<CoreBlock> = Arc::new(data.into());
         let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
         let header_verify_ret = {
@@ -87,7 +87,12 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
         if header_verify_ret.is_ok() {
             let ret = self.chain.process_block(Arc::clone(&block), true);
             if ret.is_ok() {
-                debug!(target: "rpc-server", "[block_relay] announce new block {} {:x} {}", block.header().number(), block.header().hash(), unix_time_as_millis());
+                debug!(
+                    "[block_relay] announce new block {} {:x} {}",
+                    block.header().number(),
+                    block.header().hash(),
+                    unix_time_as_millis()
+                );
                 // announce new block
 
                 let fbb = &mut FlatBufferBuilder::new();
@@ -98,11 +103,11 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                     .network_controller
                     .quick_broadcast(NetworkProtocol::RELAY.into(), data)
                 {
-                    error!(target: "rpc-server", "Broadcast block failed: {:?}", err);
+                    error!("Broadcast block failed: {:?}", err);
                 }
                 Ok(Some(block.header().hash().to_owned()))
             } else {
-                error!(target: "rpc-server", "[{}] submit_block process_block {:?}", work_id, ret);
+                error!("[{}] submit_block process_block {:?}", work_id, ret);
                 sentry::capture_event(sentry::protocol::Event {
                     message: Some(format!("submit_block process_block {:?}", ret)),
                     level: sentry::Level::Error,
@@ -111,7 +116,10 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 Ok(None)
             }
         } else {
-            error!(target: "rpc-server", "[{}] submit_block header verifier {:?}", work_id, header_verify_ret);
+            error!(
+                "[{}] submit_block header verifier {:?}",
+                work_id, header_verify_ret
+            );
             Ok(None)
         }
     }

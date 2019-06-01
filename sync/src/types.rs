@@ -8,6 +8,7 @@ use ckb_core::extras::BlockExt;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::Cycle;
+use ckb_logger::{debug, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
@@ -19,7 +20,6 @@ use ckb_util::{Mutex, MutexGuard};
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::debug;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -144,16 +144,28 @@ impl PeerState {
         last_ask_timeout: Option<Instant>,
     ) -> Option<Instant> {
         if self.tx_ask_for_map.len() > MAX_ASK_MAP_SIZE {
-            debug!(target: "relay", "this peer tx_ask_for_map is full, ignore {:#x}", tx_hash);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "this peer tx_ask_for_map is full, ignore {:#x}",
+                tx_hash
+            );
             return None;
         }
         if self.tx_ask_for_set.len() > MAX_ASK_SET_SIZE {
-            debug!(target: "relay", "this peer tx_ask_for_set is full, ignore {:#x}", tx_hash);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "this peer tx_ask_for_set is full, ignore {:#x}",
+                tx_hash
+            );
             return None;
         }
         // This peer already register asked for this tx
         if self.tx_ask_for_set.contains(&tx_hash) {
-            debug!(target: "relay", "this peer already register ask tx({:#x})", tx_hash);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "this peer already register ask tx({:#x})",
+                tx_hash
+            );
             return None;
         }
 
@@ -806,18 +818,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
-                    target: "sync",
                     "last send get headers from {} less than {:?} ago, ignore it",
-                    peer,
-                    GET_HEADERS_TIMEOUT,
+                    peer, GET_HEADERS_TIMEOUT,
                 );
                 return;
             } else {
                 debug!(
-                    target: "sync",
                     "Can not get headers from {} in {:?}, retry",
-                    peer,
-                    GET_HEADERS_TIMEOUT,
+                    peer, GET_HEADERS_TIMEOUT,
                 );
             }
         }
@@ -825,7 +833,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .write()
             .insert((peer, header.hash().to_owned()), Instant::now());
 
-        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={:x}", peer, header.hash());
+        debug!(
+            "send_getheaders_to_peer peer={}, hash={:x}",
+            peer,
+            header.hash()
+        );
         let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);

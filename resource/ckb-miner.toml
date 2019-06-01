@@ -16,7 +16,7 @@ spec = "specs/dev.toml" # {{
 
 [logger]
 filter = "info" # {{
-# integration => filter = "info,network=trace,sync=debug,relay=debug"
+# integration => filter = "info,ckb-network=trace,ckb-sync=debug,ckb-relay=debug"
 # }}
 color = true
 log_to_file = true # {{

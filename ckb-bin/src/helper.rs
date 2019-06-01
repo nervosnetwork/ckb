@@ -1,5 +1,5 @@
+use ckb_logger::warn;
 use ckb_util::{parking_lot::deadlock, Condvar, Mutex};
-use log::warn;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;

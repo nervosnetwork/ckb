@@ -1,9 +1,9 @@
 use crate::syscalls::DEBUG_PRINT_SYSCALL_NUMBER;
+use ckb_logger::debug;
 use ckb_vm::{
     registers::{A0, A7},
     Error as VMError, Memory, Register, SupportMachine, Syscalls,
 };
-use log::debug;
 
 pub struct Debugger<'a> {
     prefix: &'a str,
@@ -43,7 +43,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for Debugger<'a> {
 
         machine.add_cycles(buffer.len() as u64 * 10)?;
         let s = String::from_utf8(buffer).map_err(|_| VMError::ParseError)?;
-        debug!(target: "script", "{} DEBUG OUTPUT: {}", self.prefix, s);
+        debug!("{} DEBUG OUTPUT: {}", self.prefix, s);
         Ok(true)
     }
 }

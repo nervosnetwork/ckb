@@ -1,6 +1,6 @@
 use crate::errors::{ConfigError, Error};
 use crate::PeerId;
-use log::info;
+use ckb_logger::info;
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio,
@@ -87,9 +87,9 @@ impl NetworkConfig {
 
     fn write_secret_key_to_file(&self) -> Result<(), Error> {
         let path = self.secret_key_path();
-        info!(target: "network", "Generate random key");
+        info!("Generate random key");
         let random_key_pair = generate_random_key();
-        info!(target: "network", "write random secret key to {:?}", path);
+        info!("write random secret key to {:?}", path);
         fs::OpenOptions::new()
             .create(true)
             .write(true)

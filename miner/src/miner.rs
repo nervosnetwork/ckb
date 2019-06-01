@@ -2,11 +2,11 @@ use crate::client::Client;
 use crate::Work;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, RawHeader, Seal};
+use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
 use crossbeam_channel::Receiver;
 use failure::Error;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
-use log::{debug, error, info};
 use rand::{thread_rng, Rng};
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -41,7 +41,7 @@ impl Miner {
                         self.client.try_update_block_template();
                     }
                 }
-                Err(e) => error!(target: "miner", "mining error encountered: {:?}", e),
+                Err(e) => error!("mining error encountered: {:?}", e),
             };
         }
     }
@@ -123,9 +123,9 @@ impl Miner {
             if self.new_work_rx.try_recv().is_ok() {
                 break None;
             }
-            debug!(target: "miner", "mining header #{} with nonce {}", header.number(), nonce);
+            debug!("mining header #{} with nonce {}", header.number(), nonce);
             if let Some(seal) = self.pow.solve_header(header, nonce) {
-                info!(target: "miner", "found seal: {:?}", seal);
+                info!("found seal: {:?}", seal);
                 break Some(seal);
             }
             nonce = nonce.wrapping_add(1);

@@ -18,7 +18,7 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 faketime = "0.2"
-log = "0.4"
+ckb-logger = { path = "../util/logger" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }

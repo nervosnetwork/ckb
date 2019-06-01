@@ -1,6 +1,6 @@
 // use crate::peer_store::Behaviour;
 use crate::NetworkState;
-use log::{debug, trace};
+use ckb_logger::{debug, trace};
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
     secio::PeerId,
@@ -49,7 +49,6 @@ impl Callback for IdentifyCallback {
 
     fn add_remote_listen_addrs(&mut self, peer_id: &PeerId, addrs: Vec<Multiaddr>) {
         trace!(
-            target: "network",
             "got remote listen addrs from peer_id={:?}, addrs={:?}",
             peer_id,
             addrs,
@@ -70,11 +69,8 @@ impl Callback for IdentifyCallback {
         ty: SessionType,
     ) -> MisbehaveResult {
         debug!(
-            target: "network",
             "peer({:?}, {:?}) reported observed addr {}",
-            peer_id,
-            ty,
-            addr,
+            peer_id, ty, addr,
         );
 
         if ty.is_inbound() {
@@ -99,7 +95,7 @@ impl Callback for IdentifyCallback {
                     .collect::<Multiaddr>()
             })
         {
-            debug!(target: "network", "identify add transformed addr: {:?}", transformed_addr);
+            debug!("identify add transformed addr: {:?}", transformed_addr);
             let local_peer_id = self.network_state.local_peer_id();
             self.network_state.with_peer_store_mut(|peer_store| {
                 peer_store.add_discovered_addr(local_peer_id, transformed_addr);

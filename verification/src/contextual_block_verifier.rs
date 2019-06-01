@@ -9,11 +9,11 @@ use ckb_core::transaction::Transaction;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber, Capacity, EpochNumber};
+use ckb_logger::error_target;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use dao_utils::calculate_transaction_fee;
 use fnv::FnvHashSet;
-use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -184,10 +184,23 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
         let difference: Vec<_> = committed_ids.difference(&proposal_txs_ids).collect();
 
         if !difference.is_empty() {
-            error!(target: "chain",  "Block {} {:x}", self.block.header().number(), self.block.header().hash());
-            error!(target: "chain",  "proposal_window {:?}", proposal_window);
-            error!(target: "chain",  "committed_ids {} ", serde_json::to_string(&committed_ids).unwrap());
-            error!(target: "chain",  "proposal_txs_ids {} ", serde_json::to_string(&proposal_txs_ids).unwrap());
+            error_target!(
+                crate::LOG_TARGET,
+                "Block {} {:x}",
+                self.block.header().number(),
+                self.block.header().hash()
+            );
+            error_target!(crate::LOG_TARGET, "proposal_window {:?}", proposal_window);
+            error_target!(
+                crate::LOG_TARGET,
+                "committed_ids {} ",
+                serde_json::to_string(&committed_ids).unwrap()
+            );
+            error_target!(
+                crate::LOG_TARGET,
+                "proposal_txs_ids {} ",
+                serde_json::to_string(&proposal_txs_ids).unwrap()
+            );
             return Err(Error::Commit(CommitError::Invalid));
         }
         Ok(())

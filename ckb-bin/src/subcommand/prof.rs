@@ -2,11 +2,11 @@ use ckb_app_config::{ExitCode, ProfArgs};
 use ckb_chain::chain::ChainController;
 use ckb_chain::chain::ChainService;
 use ckb_db::{DBConfig, RocksDB};
+use ckb_logger::info;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use log::info;
 use std::sync::Arc;
 
 pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {

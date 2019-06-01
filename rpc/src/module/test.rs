@@ -1,12 +1,12 @@
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
+use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use jsonrpc_types::Block;
-use log::error;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 
@@ -51,7 +51,7 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
         if ret.is_ok() {
             Ok(Some(block.header().hash().to_owned()))
         } else {
-            error!(target: "rpc-server", "process_block_without_verify error: {:?}", ret);
+            error!("process_block_without_verify error: {:?}", ret);
             Ok(None)
         }
     }

@@ -12,11 +12,12 @@ pub use exit_code::ExitCode;
 use build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
+use ckb_logger::{info_target, LoggerInitGuard};
 use ckb_resource::ResourceLocator;
 use clap::{value_t, ArgMatches};
-use log::info;
-use logger::LoggerInitGuard;
 use std::path::PathBuf;
+
+pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
 pub struct Setup {
     subcommand_name: String,
@@ -63,15 +64,19 @@ impl Setup {
         // Initialization of logger must do before sentry, since `logger::init()` and
         // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
         // replaces all hooks previously registered.
-        let logger_guard = logger::init(self.config.logger().to_owned())?;
+        let logger_guard = ckb_logger::init(self.config.logger().to_owned())?;
 
         let sentry_guard = if self.is_sentry_enabled {
             let sentry_config = self.config.sentry();
 
-            info!(target: "sentry", "**Notice**: \
-                The ckb process will send stack trace to sentry on Rust panics. \
-                This is enabled by default before mainnet, which can be opted out by setting \
-                the option `dsn` to empty in the config file. The DSN is now {}", sentry_config.dsn);
+            info_target!(
+                crate::LOG_TARGET_SENTRY,
+                "**Notice**: \
+                 The ckb process will send stack trace to sentry on Rust panics. \
+                 This is enabled by default before mainnet, which can be opted out by setting \
+                 the option `dsn` to empty in the config file. The DSN is now {}",
+                sentry_config.dsn
+            );
 
             let guard = sentry_config.init(&version);
 
@@ -81,7 +86,7 @@ impl Setup {
 
             Some(guard)
         } else {
-            info!(target: "sentry", "sentry is disabled");
+            info_target!(crate::LOG_TARGET_SENTRY, "sentry is disabled");
             None
         };
 

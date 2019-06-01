@@ -1,5 +1,5 @@
 use crate::NetworkState;
-use log::{debug, info};
+use ckb_logger::{debug, info};
 use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef},
     secio::PublicKey,
@@ -35,9 +35,9 @@ impl ServiceProtocol for Feeler {
         self.network_state.with_peer_store_mut(|peer_store| {
             peer_store.add_connected_peer(&peer_id, session.address.clone(), session.ty);
         });
-        info!(target: "network", "peer={} FeelerProtocol.connected", session.address);
+        info!("peer={} FeelerProtocol.connected", session.address);
         if let Err(err) = context.disconnect(session.id) {
-            debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session.id, err);
+            debug!("Disconnect failed {:?}, error: {:?}", session.id, err);
         }
     }
 
@@ -51,6 +51,6 @@ impl ServiceProtocol for Feeler {
         self.network_state.with_peer_registry_mut(|reg| {
             reg.remove_feeler(&peer_id);
         });
-        info!(target: "network", "peer={} FeelerProtocol.disconnected", session.address);
+        info!("peer={} FeelerProtocol.disconnected", session.address);
     }
 }

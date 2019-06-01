@@ -11,6 +11,7 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Bytes, Cycle, Version};
+use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
@@ -25,7 +26,6 @@ use jsonrpc_types::{
     EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
     UncleTemplate, Unsigned, Version as JsonVersion,
 };
-use log;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cmp;
@@ -147,7 +147,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                                     .store(unix_time_as_millis(), Ordering::SeqCst);
                             }
                             _ => {
-                                log::error!(target: "miner", "new_uncle_receiver closed");
+                                error!("new_uncle_receiver closed");
                                 break;
                             }
                         },
@@ -163,7 +163,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                                 );
                             },
                             _ => {
-                                log::error!(target: "miner", "get_block_template_receiver closed");
+                                error!("get_block_template_receiver closed");
                                 break;
                             },
                         }
@@ -327,7 +327,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let (entries, size, cycles) =
             chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
         if !entries.is_empty() {
-            log::info!(
+            info!(
                 "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
                 entries.len(),
                 size,

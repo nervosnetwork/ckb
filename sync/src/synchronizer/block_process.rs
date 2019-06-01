@@ -1,10 +1,10 @@
 use crate::synchronizer::Synchronizer;
 use ckb_core::block::Block;
+use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::Block as PBlock;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
-use log::debug;
 use std::convert::TryInto;
 
 pub struct BlockProcess<'a, CS: ChainStore + 'a> {
@@ -32,7 +32,11 @@ where
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block: Block = (*self.message).try_into()?;
-        debug!(target: "sync", "BlockProcess received block {} {:x}", block.header().number(), block.header().hash());
+        debug!(
+            "BlockProcess received block {} {:x}",
+            block.header().number(),
+            block.header().hash()
+        );
 
         if self.synchronizer.peers.new_block_received(&block) {
             self.synchronizer.process_new_block(self.peer, block);

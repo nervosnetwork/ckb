@@ -13,13 +13,13 @@ use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
 use build_info::Version;
+use ckb_logger::{debug, error, info, trace, warn};
 use ckb_util::{Mutex, RwLock};
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
 use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use futures::Stream;
-use log::{debug, error, info, trace, warn};
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     bytes::Bytes,
@@ -139,7 +139,7 @@ impl NetworkState {
         {
             self.report_peer(p2p_control, &peer_id, behaviour);
         } else {
-            debug!(target: "network", "Report {} failed: not in peer registry", session_id);
+            debug!("Report {} failed: not in peer registry", session_id);
         }
     }
 
@@ -149,19 +149,19 @@ impl NetworkState {
         peer_id: &PeerId,
         behaviour: Behaviour,
     ) {
-        trace!(target: "network", "report {:?} because {:?}", peer_id, behaviour);
+        trace!("report {:?} because {:?}", peer_id, behaviour);
         if self
             .peer_store
             .lock()
             .report(peer_id, behaviour)
             .is_banned()
         {
-            info!(target: "network", "peer {:?} banned", peer_id);
+            info!("peer {:?} banned", peer_id);
             self.with_peer_registry_mut(|reg| {
                 if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
                     reg.remove_peer(session_id);
                     if let Err(err) = p2p_control.disconnect(session_id) {
-                        debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_id, err);
+                        debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
             })
@@ -179,7 +179,7 @@ impl NetworkState {
         {
             self.ban_peer(p2p_control, &peer_id, timeout);
         } else {
-            debug!(target: "network", "Ban session({}) failed: not in peer registry", session_id);
+            debug!("Ban session({}) failed: not in peer registry", session_id);
         }
     }
 
@@ -189,12 +189,12 @@ impl NetworkState {
         peer_id: &PeerId,
         timeout: Duration,
     ) {
-        info!(target: "network", "ban peer {:?} with {:?}", peer_id, timeout);
+        info!("ban peer {:?} with {:?}", peer_id, timeout);
         let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer_opt {
             self.peer_store.lock().ban_addr(&peer.address, timeout);
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
-                debug!(target: "network", "Disconnect failed {:?}, error: {:?}", peer.session_id, err);
+                debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
             }
         }
     }
@@ -336,11 +336,15 @@ impl NetworkState {
 
     pub(crate) fn can_dial(&self, peer_id: &PeerId, addr: &Multiaddr) -> bool {
         if self.local_peer_id() == peer_id {
-            trace!(target: "network", "Do not dial self: {:?}, {}", peer_id, addr);
+            trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
         if self.listened_addresses.read().contains_key(&addr) {
-            trace!(target: "network", "Do not dial listened address(self): {:?}, {}", peer_id, addr);
+            trace!(
+                "Do not dial listened address(self): {:?}, {}",
+                peer_id,
+                addr
+            );
             return false;
         }
 
@@ -348,12 +352,16 @@ impl NetworkState {
             reg.get_key_by_peer_id(peer_id).is_some() || reg.is_feeler(peer_id)
         });
         if peer_in_registry {
-            trace!(target: "network", "Do not dial peer in registry: {:?}, {}", peer_id, addr);
+            trace!("Do not dial peer in registry: {:?}, {}", peer_id, addr);
             return false;
         }
 
         if let Some(dial_started) = self.dialing_addrs.read().get(peer_id) {
-            trace!(target: "network", "Do not repeat send dial command to network service: {:?}, {}", peer_id, addr);
+            trace!(
+                "Do not repeat send dial command to network service: {:?}, {}",
+                peer_id,
+                addr
+            );
             if dial_started.elapsed() > DIAL_HANG_TIMEOUT {
                 sentry::capture_message(
                     &format!(
@@ -396,9 +404,9 @@ impl NetworkState {
         match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
             Ok(peer_id_hash) => {
                 addr.push(multiaddr::Protocol::P2p(peer_id_hash));
-                debug!(target: "network", "dialing {} with {:?}", addr, target);
+                debug!("dialing {} with {:?}", addr, target);
                 if let Err(err) = p2p_control.dial(addr.clone(), target) {
-                    debug!(target: "network", "dial failed: {:?}", err);
+                    debug!("dial failed: {:?}", err);
                 } else {
                     self.dialing_addrs
                         .write()
@@ -406,7 +414,7 @@ impl NetworkState {
                 }
             }
             Err(err) => {
-                error!(target: "network", "failed to convert peer_id to addr: {}", err);
+                error!("failed to convert peer_id to addr: {}", err);
             }
         }
     }
@@ -439,9 +447,9 @@ impl ServiceHandle for EventHandler {
                 ref address,
                 ref error,
             } => {
-                debug!(target: "network", "DialerError({}) {}", address, error);
+                debug!("DialerError({}) {}", address, error);
                 if error == &P2pError::ConnectSelf {
-                    debug!(target: "network", "add self address: {:?}", address);
+                    debug!("add self address: {:?}", address);
                     let addr = address
                         .iter()
                         .filter(|proto| match proto {
@@ -462,17 +470,15 @@ impl ServiceHandle for EventHandler {
                 proto_id,
                 error,
             } => {
-                debug!(target: "network", "ProtocolError({}, {}) {}", id, proto_id, error);
+                debug!("ProtocolError({}, {}) {}", id, proto_id, error);
                 if let Err(err) = context.disconnect(id) {
-                    debug!(target: "network", "Disconnect failed {:?}, error {:?}", id, err);
+                    debug!("Disconnect failed {:?}, error {:?}", id, err);
                 }
             }
             ServiceError::SessionTimeout { session_context } => {
                 warn!(
-                    target: "network",
                     "SessionTimeout({}, {})",
-                    session_context.id,
-                    session_context.address,
+                    session_context.id, session_context.address,
                 );
             }
             ServiceError::MuxerError {
@@ -480,32 +486,27 @@ impl ServiceHandle for EventHandler {
                 error,
             } => {
                 debug!(
-                    target: "network",
                     "MuxerError({}, {}), substream error {}, disconnect it",
-                    session_context.id,
-                    session_context.address,
-                    error,
+                    session_context.id, session_context.address, error,
                 );
             }
             ServiceError::ListenError { address, error } => {
-                debug!(target: "network", "ListenError: address={:?}, error={:?}", address, error);
+                debug!("ListenError: address={:?}, error={:?}", address, error);
             }
             ServiceError::ProtocolSelectError {
                 proto_name,
                 session_context,
             } => {
                 debug!(
-                    target: "network",
                     "ProtocolSelectError: proto_name={:?}, session_id={}",
-                    proto_name,
-                    session_context.id,
+                    proto_name, session_context.id,
                 );
             }
             ServiceError::SessionBlocked { session_context } => {
-                debug!(target: "network", "SessionBlocked: {}", session_context.id);
+                debug!("SessionBlocked: {}", session_context.id);
             }
             err => {
-                debug!(target: "network", "p2p service error: {:?}", err);
+                debug!("p2p service error: {:?}", err);
                 sentry::capture_message(
                     &format!("p2p service error: {:?}", err),
                     sentry::Level::Warning,
@@ -519,10 +520,8 @@ impl ServiceHandle for EventHandler {
         match event {
             ServiceEvent::SessionOpen { session_context } => {
                 debug!(
-                    target: "network",
                     "SessionOpen({}, {})",
-                    session_context.id,
-                    session_context.address,
+                    session_context.id, session_context.address,
                 );
                 let peer_id = session_context
                     .remote_pubkey
@@ -537,40 +536,37 @@ impl ServiceHandle for EventHandler {
                     .with_peer_registry(|reg| reg.is_feeler(&peer_id))
                 {
                     debug!(
-                        target: "network",
                         "feeler connected {} => {}",
-                        session_context.id,
-                        session_context.address,
+                        session_context.id, session_context.address,
                     );
                 } else {
                     match self.network_state.accept_peer(&session_context) {
                         Ok(Some(evicted_peer)) => {
                             debug!(
-                                target: "network",
                                 "evict peer (disonnect it), {} => {}",
-                                evicted_peer.session_id,
-                                evicted_peer.address,
+                                evicted_peer.session_id, evicted_peer.address,
                             );
                             if let Err(err) = context.disconnect(evicted_peer.session_id) {
-                                debug!(target: "network", "Disconnect failed {:?}, error: {:?}", evicted_peer.session_id, err);
+                                debug!(
+                                    "Disconnect failed {:?}, error: {:?}",
+                                    evicted_peer.session_id, err
+                                );
                             }
                         }
                         Ok(None) => debug!(
-                            target: "network",
                             "{} open, registry {} success",
-                            session_context.id,
-                            session_context.address,
+                            session_context.id, session_context.address,
                         ),
                         Err(err) => {
                             debug!(
-                                target: "network",
                                 "registry peer failed {:?} disconnect it, {} => {}",
-                                err,
-                                session_context.id,
-                                session_context.address,
+                                err, session_context.id, session_context.address,
                             );
                             if let Err(err) = context.disconnect(session_context.id) {
-                                debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_context.id, err);
+                                debug!(
+                                    "Disconnect failed {:?}, error: {:?}",
+                                    session_context.id, err
+                                );
                             }
                         }
                     }
@@ -578,10 +574,8 @@ impl ServiceHandle for EventHandler {
             }
             ServiceEvent::SessionClose { session_context } => {
                 debug!(
-                    target: "network",
                     "SessionClose({}, {})",
-                    session_context.id,
-                    session_context.address,
+                    session_context.id, session_context.address,
                 );
                 let peer_id = session_context
                     .remote_pubkey
@@ -604,10 +598,8 @@ impl ServiceHandle for EventHandler {
                     .is_some();
                 if peer_exists {
                     debug!(
-                        target: "network",
                         "{} closed, remove {} from peer_registry",
-                        session_context.id,
-                        session_context.address,
+                        session_context.id, session_context.address,
                     );
                     self.network_state.with_peer_store_mut(|peer_store| {
                         peer_store.update_status(&peer_id, Status::Disconnected);
@@ -615,7 +607,7 @@ impl ServiceHandle for EventHandler {
                 }
             }
             _ => {
-                info!(target: "network", "p2p service event: {:?}", event);
+                info!("p2p service event: {:?}", event);
             }
         }
     }
@@ -646,10 +638,8 @@ impl ServiceHandle for EventHandler {
                         .with_peer_registry(|reg| reg.is_feeler(&peer_id))
                     {
                         warn!(
-                            target: "network",
                             "Invalid session {}, protocol id {}",
-                            session_context.id,
-                            proto_id,
+                            session_context.id, proto_id,
                         );
                     }
                 }
@@ -676,7 +666,6 @@ impl ServiceHandle for EventHandler {
                         .contains(&session_id)
                 {
                     debug!(
-                        target: "network",
                         "disconnect peer({}) already removed from registry",
                         session_context.id
                     );
@@ -685,7 +674,7 @@ impl ServiceHandle for EventHandler {
                         .write()
                         .insert(session_id);
                     if let Err(err) = context.disconnect(session_id) {
-                        debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_id, err);
+                        debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
             }
@@ -820,7 +809,6 @@ impl NetworkService {
             match self.p2p_service.listen(addr.to_owned()) {
                 Ok(listen_address) => {
                     info!(
-                        target: "network",
                         "Listen on address: {}",
                         self.network_state.to_external_url(&listen_address)
                     );
@@ -831,7 +819,6 @@ impl NetworkService {
                 }
                 Err(err) => {
                     warn!(
-                        target: "network",
                         "listen on address {} failed, due to error: {}",
                         addr.clone(),
                         err
@@ -843,7 +830,7 @@ impl NetworkService {
 
         // dial reserved_nodes
         for (peer_id, addr) in config.reserved_peers()? {
-            debug!(target: "network", "dial reserved_peers {:?} {:?}", peer_id, addr);
+            debug!("dial reserved_peers {:?} {:?}", peer_id, addr);
             self.network_state
                 .dial_all(self.p2p_service.control(), &peer_id, addr);
         }
@@ -853,7 +840,7 @@ impl NetworkService {
         });
         // dial half bootnodes
         for (peer_id, addr) in bootnodes {
-            debug!(target: "network", "dial bootnode {:?} {:?}", peer_id, addr);
+            debug!("dial bootnode {:?} {:?}", peer_id, addr);
             self.network_state
                 .dial_all(self.p2p_service.control(), &peer_id, addr);
         }
@@ -893,25 +880,25 @@ impl NetworkService {
                     })
                     .collect::<Vec<_>>();
 
-                debug!(target: "network", "receiving shutdown signal ...");
+                debug!("receiving shutdown signal ...");
 
                 // Recevied stop signal, doing cleanup
                 let _ = receiver.recv();
                 for peer in self.network_state.peer_registry.read().peers().values() {
-                    info!(target: "network", "Disconnect peer {}", peer.address);
+                    info!("Disconnect peer {}", peer.address);
                     if let Err(err) = inner_p2p_control.disconnect(peer.session_id) {
-                        debug!(target: "network", "Disconnect failed {:?}, error: {:?}", peer.session_id, err);
+                        debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
                     }
                 }
                 // Drop senders to stop all corresponding background task
                 drop(bg_signals);
                 if let Err(err) = inner_p2p_control.shutdown() {
-                    warn!(target: "network", "send shutdown message to p2p error: {:?}", err);
+                    warn!("send shutdown message to p2p error: {:?}", err);
                 }
 
-                debug!(target: "network", "Waiting tokio runtime to finish ...");
+                debug!("Waiting tokio runtime to finish ...");
                 runtime.shutdown_on_idle().wait().unwrap();
-                debug!(target: "network", "Shutdown network service finished!");
+                debug!("Shutdown network service finished!");
             })
             .expect("Start NetworkService failed");
         let stop = StopHandler::new(SignalSender::Crossbeam(sender), thread);
@@ -955,10 +942,10 @@ impl NetworkController {
             if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
                 reg.remove_peer(session_id);
                 if let Err(err) = self.p2p_control.disconnect(session_id) {
-                    debug!(target: "network", "Disconnect failed {:?}, error: {:?}", session_id, err);
+                    debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                 }
             } else {
-                error!(target: "network", "Cannot find peer {:?}", peer_id);
+                error!("Cannot find peer {:?}", peer_id);
             }
         })
     }
@@ -1011,13 +998,13 @@ impl NetworkController {
                 }
                 Err(P2pError::IoError(ref err)) if err.kind() == io::ErrorKind::WouldBlock => {
                     if now.elapsed() > P2P_SEND_TIMEOUT {
-                        warn!(target: "network", "broadcast message to {} timeout", proto_id);
+                        warn!("broadcast message to {} timeout", proto_id);
                         return Err(P2pError::IoError(io::ErrorKind::TimedOut.into()));
                     }
                     thread::sleep(P2P_TRY_SEND_INTERVAL);
                 }
                 Err(err) => {
-                    warn!(target: "network", "broadcast message to {} failed: {:?}", proto_id, err);
+                    warn!("broadcast message to {} failed: {:?}", proto_id, err);
                     return Err(err);
                 }
             }

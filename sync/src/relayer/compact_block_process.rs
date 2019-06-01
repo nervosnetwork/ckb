@@ -3,6 +3,7 @@ use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
 use ckb_core::header::Header;
 use ckb_core::BlockNumber;
+use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
@@ -12,7 +13,6 @@ use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
-use log::debug;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -44,7 +44,11 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let block_hash = compact_block.header.hash().to_owned();
 
         if self.relayer.state.already_known_compact_block(&block_hash) {
-            debug!(target: "relay", "discarding already known compact block {:x}", block_hash);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "discarding already known compact block {:x}",
+                block_hash
+            );
             return Ok(());
         }
         self.relayer
@@ -60,8 +64,8 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             let current_total_difficulty =
                 parent_header_view.total_difficulty() + compact_block.header.difficulty();
             if current_total_difficulty <= *best_known_header.total_difficulty() {
-                debug!(
-                    target: "relay",
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
                     "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
                     block_hash,
                     current_total_difficulty,
@@ -70,7 +74,12 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 return Ok(());
             }
         } else {
-            debug!(target: "relay", "UnknownParent: {:#x}, send_getheaders_to_peer({})", block_hash, self.peer);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "UnknownParent: {:#x}, send_getheaders_to_peer({})",
+                block_hash,
+                self.peer
+            );
             self.relayer.shared.send_getheaders_to_peer(
                 self.nc.as_ref(),
                 self.peer,
@@ -87,7 +96,11 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             if pending_compact_blocks.get(&block_hash).is_some()
                 || self.relayer.shared.get_block(&block_hash).is_some()
             {
-                debug!(target: "relay", "already processed compact block {:x}", block_hash);
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "already processed compact block {:x}",
+                    block_hash
+                );
                 return Ok(());
             } else {
                 let resolver = HeaderResolverWrapper::new(
@@ -104,7 +117,11 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 );
                 let compact_block_verifier = CompactBlockVerifier::new();
                 if let Err(err) = header_verifier.verify(&resolver) {
-                    debug!(target: "relay", "unexpected header verify failed: {}", err);
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "unexpected header verify failed: {}",
+                        err
+                    );
                     return Ok(());
                 }
                 compact_block_verifier.verify(&compact_block)?;
