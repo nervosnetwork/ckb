@@ -163,6 +163,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             // into database
             match ret {
                 Ok(block) => {
+                    pending_compact_blocks.remove(&block_hash);
                     self.relayer
                         .accept_block(self.nc.as_ref(), self.peer, &Arc::new(block))
                 }
