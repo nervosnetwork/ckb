@@ -108,11 +108,16 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
                 Ok(Some(block.header().hash().to_owned()))
             } else {
                 error!("[{}] submit_block process_block {:?}", work_id, ret);
-                sentry::capture_event(sentry::protocol::Event {
-                    message: Some(format!("submit_block process_block {:?}", ret)),
-                    level: sentry::Level::Error,
-                    ..Default::default()
-                });
+                use sentry::{capture_message, with_scope, Level};
+                with_scope(
+                    |scope| scope.set_fingerprint(Some(&["ckb-rpc", "miner", "submit_block"])),
+                    || {
+                        capture_message(
+                            &format!("submit_block process_block {:?}", ret),
+                            Level::Error,
+                        )
+                    },
+                );
                 Ok(None)
             }
         } else {
