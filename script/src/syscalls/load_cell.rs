@@ -1,5 +1,5 @@
 use crate::syscalls::{
-    utils::store_data, CellField, Source, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+    utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
     LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -19,6 +19,8 @@ pub struct LoadCell<'a, CS> {
     outputs: &'a [CellMeta],
     resolved_inputs: &'a [&'a ResolvedOutPoint],
     resolved_deps: &'a [&'a ResolvedOutPoint],
+    group_inputs: &'a [usize],
+    group_outputs: &'a [usize],
 }
 
 impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
@@ -27,28 +29,50 @@ impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
         outputs: &'a [CellMeta],
         resolved_inputs: &'a [&'a ResolvedOutPoint],
         resolved_deps: &'a [&'a ResolvedOutPoint],
+        group_inputs: &'a [usize],
+        group_outputs: &'a [usize],
     ) -> LoadCell<'a, CS> {
         LoadCell {
             store,
             outputs,
             resolved_inputs,
             resolved_deps,
+            group_inputs,
+            group_outputs,
         }
     }
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&'a CellMeta, u8> {
         match source {
-            Source::Input => self
+            Source::Transaction(SourceEntry::Input) => self
                 .resolved_inputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
-            Source::Output => self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND),
-            Source::Dep => self
+            Source::Transaction(SourceEntry::Output) => {
+                self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
+            }
+            Source::Transaction(SourceEntry::Dep) => self
                 .resolved_deps
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+            Source::Group(SourceEntry::Input) => self
+                .group_inputs
+                .get(index)
+                .ok_or(INDEX_OUT_OF_BOUND)
+                .and_then(|actual_index| {
+                    self.resolved_inputs
+                        .get(*actual_index)
+                        .ok_or(INDEX_OUT_OF_BOUND)
+                })
+                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+            Source::Group(SourceEntry::Output) => self
+                .group_outputs
+                .get(index)
+                .ok_or(INDEX_OUT_OF_BOUND)
+                .and_then(|actual_index| self.outputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
+            Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
         }
     }
 

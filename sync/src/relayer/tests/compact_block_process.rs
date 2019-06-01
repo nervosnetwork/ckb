@@ -57,7 +57,7 @@ fn new_transaction(
     };
 
     TransactionBuilder::default()
-        .input(CellInput::new(previous_output, 0, Default::default()))
+        .input(CellInput::new(previous_output, 0))
         .output(CellOutput::new(
             Capacity::bytes(500 + index).unwrap(), // use capacity to identify transactions
             Default::default(),
@@ -71,7 +71,7 @@ fn new_transaction(
 fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell)
         .build();
     let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);

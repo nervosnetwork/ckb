@@ -20,10 +20,11 @@ pub fn calculate_transaction_fee<CS: ChainStore>(
     rtx.transaction
         .inputs()
         .iter()
+        .enumerate()
         .zip(rtx.resolved_inputs.iter())
         .try_fold(
             Capacity::zero(),
-            |input_capacities, (input, resolved_input)| {
+            |input_capacities, ((i, input), resolved_input)| {
                 let capacity = match &resolved_input.cell {
                     ResolvedCell::IssuingDaoInput => Some(Capacity::zero()),
                     ResolvedCell::Null => None,
@@ -35,14 +36,19 @@ pub fn calculate_transaction_fee<CS: ChainStore>(
                                 .block_hash
                                 .as_ref()
                                 .and_then(|block_hash| store.get_block_ext(&block_hash));
-                            // The first argument of DAO input should contain withdraw
+                            // The last item of matched witness should contain withdraw
                             // block hash.
-                            let withdraw_ext = input.args.get(0).and_then(|arg: &Bytes| {
-                                H256::from_slice(&arg)
-                                    .ok()
-                                    .as_ref()
-                                    .and_then(|block_hash| store.get_block_ext(block_hash))
-                            });
+                            let withdraw_ext = rtx
+                                .transaction
+                                .witnesses()
+                                .get(i)
+                                .and_then(|witness| witness.get(2))
+                                .and_then(|arg: &Bytes| {
+                                    H256::from_slice(&arg)
+                                        .ok()
+                                        .as_ref()
+                                        .and_then(|block_hash| store.get_block_ext(block_hash))
+                                });
                             match (deposit_ext, withdraw_ext) {
                                 (Some(deposit_ext), Some(withdraw_ext)) => {
                                     calculate_maximum_withdraw(

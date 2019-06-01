@@ -17,7 +17,7 @@ use std::sync::Arc;
 #[test]
 fn test_genesis_transaction_spend() {
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutput::new(
                 capacity_bytes!(100_000_000),
@@ -531,7 +531,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
 #[test]
 fn test_genesis_transaction_fetch() {
     let tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutput::new(
                 capacity_bytes!(100_000_000),

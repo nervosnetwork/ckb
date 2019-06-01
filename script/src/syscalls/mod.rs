@@ -63,36 +63,74 @@ impl CellField {
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum InputField {
-    Args = 0,
-    OutPoint = 1,
-    Since = 2,
+    OutPoint = 0,
+    Since = 1,
 }
 
 impl InputField {
     fn parse_from_u64(i: u64) -> Result<InputField, Error> {
         match i {
-            0 => Ok(InputField::Args),
-            1 => Ok(InputField::OutPoint),
-            2 => Ok(InputField::Since),
+            0 => Ok(InputField::OutPoint),
+            1 => Ok(InputField::Since),
             _ => Err(Error::ParseError),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
+enum SourceEntry {
+    Input,
+    Output,
+    Dep,
+}
+
+impl From<SourceEntry> for u64 {
+    fn from(s: SourceEntry) -> u64 {
+        match s {
+            SourceEntry::Input => 1,
+            SourceEntry::Output => 2,
+            SourceEntry::Dep => 3,
+        }
+    }
+}
+
+impl SourceEntry {
+    fn parse_from_u64(i: u64) -> Result<SourceEntry, Error> {
+        match i {
+            1 => Ok(SourceEntry::Input),
+            2 => Ok(SourceEntry::Output),
+            3 => Ok(SourceEntry::Dep),
+            _ => Err(Error::ParseError),
+        }
+    }
+}
+
+const SOURCE_GROUP_FLAG: u64 = 0x0100_0000_0000_0000;
+const SOURCE_GROUP_MASK: u64 = 0xFF00_0000_0000_0000;
+const SOURCE_ENTRY_MASK: u64 = 0x00FF_FFFF_FFFF_FFFF;
+
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
 enum Source {
-    Input = 1,
-    Output = 2,
-    Dep = 3,
+    Transaction(SourceEntry),
+    Group(SourceEntry),
+}
+
+impl From<Source> for u64 {
+    fn from(s: Source) -> u64 {
+        match s {
+            Source::Transaction(e) => u64::from(e),
+            Source::Group(e) => SOURCE_GROUP_FLAG | u64::from(e),
+        }
+    }
 }
 
 impl Source {
     fn parse_from_u64(i: u64) -> Result<Source, Error> {
-        match i {
-            1 => Ok(Source::Input),
-            2 => Ok(Source::Output),
-            3 => Ok(Source::Dep),
-            _ => Err(Error::ParseError),
+        let entry = SourceEntry::parse_from_u64(i & SOURCE_ENTRY_MASK)?;
+        if i & SOURCE_GROUP_MASK == SOURCE_GROUP_FLAG {
+            Ok(Source::Group(entry))
+        } else {
+            Ok(Source::Transaction(entry))
         }
     }
 }
@@ -104,13 +142,10 @@ mod tests {
     use ckb_core::cell::{CellMeta, ResolvedOutPoint};
     use ckb_core::header::HeaderBuilder;
     use ckb_core::script::Script;
-    use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint};
+    use ckb_core::transaction::{CellOutPoint, CellOutput};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
-    use ckb_protocol::{
-        Bytes as FbsBytes, CellInputBuilder, CellOutput as FbsCellOutput, Header as FbsHeader,
-        Witness as FbsWitness,
-    };
+    use ckb_protocol::{CellOutput as FbsCellOutput, Header as FbsHeader, Witness as FbsWitness};
     use ckb_store::{ChainKVStore, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
@@ -154,7 +189,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 1); //index
-        machine.set_register(A4, Source::Input as u64); //source: 1 input
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
         prop_assert!(machine
@@ -178,7 +213,16 @@ mod tests {
         let outputs = vec![output];
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![];
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         prop_assert!(load_cell.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(INDEX_OUT_OF_BOUND));
@@ -201,7 +245,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Input as u64); //source: 1 input
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
         let output = build_cell_meta(CellOutput::new(
@@ -220,7 +264,16 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         let mut builder = FlatBufferBuilder::new();
         let fbs_offset = FbsCellOutput::build(
@@ -262,7 +315,7 @@ mod tests {
         // test output
         machine.set_register(A0, addr); // addr
         machine.set_register(A1, size_addr); // size_addr
-        machine.set_register(A4, Source::Output as u64); //source: 2 output
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Output))); //source: 2 output
         prop_assert!(machine
             .memory_mut()
             .store64(&size_addr, &(output_correct_data.len() as u64 + 10))
@@ -301,7 +354,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Input as u64); //source: 1 input
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
         let output = build_cell_meta(CellOutput::new(
@@ -320,7 +373,16 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         let mut builder = FlatBufferBuilder::new();
         let fbs_offset = FbsCellOutput::build(
@@ -359,7 +421,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, offset); // offset
         machine.set_register(A3, 0); // index
-        machine.set_register(A4, Source::Input as u64); // source: 1 input
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); // source: 1 input
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
         let output = build_cell_meta(CellOutput::new(
@@ -378,7 +440,16 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         let mut builder = FlatBufferBuilder::new();
         let fbs_offset = FbsCellOutput::build(
@@ -421,7 +492,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Input as u64); //source: 1 input
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
         machine.set_register(A5, CellField::Capacity as u64); //field: 0 capacity
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
@@ -435,7 +506,16 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &16).is_ok());
 
@@ -470,7 +550,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Output as u64); //source: 2 output
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Output))); //source: 2 output
         machine.set_register(A5, CellField::Type as u64); //field: 4 type
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
@@ -484,7 +564,16 @@ mod tests {
         let resolved_inputs = vec![];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         assert!(machine.memory_mut().store64(&size_addr, &100).is_ok());
 
@@ -498,123 +587,6 @@ mod tests {
         }
     }
 
-    fn _test_load_input_unlock_args(data: Vec<u8>) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
-        let size_addr: u64 = 0;
-        let addr: u64 = 100;
-
-        machine.set_register(A0, addr); // addr
-        machine.set_register(A1, size_addr); // size_addr
-        machine.set_register(A2, 0); // offset
-        machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Input as u64); //source: 1 input
-        machine.set_register(A5, InputField::Args as u64); //field: 0 args
-        machine.set_register(A7, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER); // syscall number
-
-        let args = vec![Bytes::from(data)];
-
-        let mut builder = FlatBufferBuilder::new();
-        let vec = args
-            .iter()
-            .map(|argument| FbsBytes::build(&mut builder, argument))
-            .collect::<Vec<_>>();
-        let fbs_args = builder.create_vector(&vec);
-        let mut input_builder = CellInputBuilder::new(&mut builder);
-        input_builder.add_args(fbs_args);
-        let offset = input_builder.finish();
-        builder.finish(offset, None);
-        let args_data = builder.finished_data();
-
-        let input = CellInput::new(OutPoint::default(), 0, args);
-        let inputs = vec![&input];
-        let mut load_input = LoadInput::new(&inputs);
-
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(args_data.len() as u64))
-            .is_ok());
-
-        prop_assert!(load_input.ecall(&mut machine).is_ok());
-        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
-
-        prop_assert_eq!(
-            machine.memory_mut().load64(&size_addr),
-            Ok(args_data.len() as u64)
-        );
-
-        for (i, addr) in (addr..addr + args_data.len() as u64).enumerate() {
-            prop_assert_eq!(
-                machine.memory_mut().load8(&addr),
-                Ok(u64::from(args_data[i]))
-            );
-        }
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn test_load_input_unlock_args(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_input_unlock_args(data)?;
-        }
-    }
-
-    fn _test_load_missing_output_unlock_args(data: Vec<u8>) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
-        let size_addr: u64 = 0;
-        let addr: u64 = 100;
-
-        machine.set_register(A0, addr); // addr
-        machine.set_register(A1, size_addr); // size_addr
-        machine.set_register(A2, 0); // offset
-        machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Output as u64); //source: 2 output
-        machine.set_register(A5, InputField::Args as u64); //field: 0 unlock
-        machine.set_register(A7, LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER); // syscall number
-
-        let args = vec![Bytes::from(data)];
-
-        let mut builder = FlatBufferBuilder::new();
-        let vec = args
-            .iter()
-            .map(|argument| FbsBytes::build(&mut builder, argument))
-            .collect::<Vec<_>>();
-        let fbs_args = builder.create_vector(&vec);
-        let mut input_builder = CellInputBuilder::new(&mut builder);
-        input_builder.add_args(fbs_args);
-        let offset = input_builder.finish();
-        builder.finish(offset, None);
-        let args_data = builder.finished_data();
-
-        let input = CellInput::new(OutPoint::default(), 0, args);
-        let inputs = vec![&input];
-        let mut load_input = LoadInput::new(&inputs);
-
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(args_data.len() as u64 + 10))
-            .is_ok());
-
-        prop_assert!(load_input.ecall(&mut machine).is_ok());
-        prop_assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
-
-        prop_assert_eq!(
-            machine.memory_mut().load64(&size_addr),
-            Ok(args_data.len() as u64 + 10)
-        );
-
-        for addr in addr..addr + args_data.len() as u64 {
-            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(0));
-        }
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn test_load_missing_output_unlock_args(data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_missing_output_unlock_args(data)?;
-        }
-    }
-
     fn _test_load_dep_cell_data(data: &[u8]) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
@@ -624,7 +596,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Dep as u64); //source: 3 dep
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Dep))); //source: 3 dep
         machine.set_register(A5, CellField::Data as u64); //field: 1 data
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
@@ -644,7 +616,16 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![&dep_cell];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         prop_assert!(machine
             .memory_mut()
@@ -681,7 +662,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Dep as u64); //source: 3 dep
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Dep))); //source: 3 dep
         machine.set_register(A5, CellField::DataHash as u64); //field: 2 data hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
@@ -701,7 +682,16 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![&dep_cell];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         let data_hash = blake2b_256(&data);
 
@@ -743,7 +733,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Dep as u64); //source: 3 dep
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Dep))); //source: 3 dep
         machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
 
         let data_hash = blake2b_256(&data);
@@ -759,7 +749,8 @@ mod tests {
         let dep_cell = ResolvedOutPoint::header_only(header);
         let resolved_inputs = vec![];
         let resolved_deps = vec![&dep_cell];
-        let mut load_cell = LoadHeader::new(&resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let mut load_cell = LoadHeader::new(&resolved_inputs, &resolved_deps, &group_inputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -887,7 +878,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, Source::Input as u64); //source: 1 input
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source: 1 input
         machine.set_register(A5, CellField::LockHash as u64); //field: 2 lock hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
@@ -905,7 +896,16 @@ mod tests {
         let resolved_inputs = vec![&input_cell];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
-        let mut load_cell = LoadCell::new(store, &outputs, &resolved_inputs, &resolved_deps);
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_cell = LoadCell::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &64).is_ok());
 
@@ -939,6 +939,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
         let witness = vec![data.into()];
@@ -949,7 +950,8 @@ mod tests {
         let witness_correct_data = builder.finished_data();
 
         let witnesses = vec![&witness];
-        let mut load_witness = LoadWitness::new(&witnesses);
+        let group_inputs = vec![];
+        let mut load_witness = LoadWitness::new(&witnesses, &group_inputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -977,6 +979,59 @@ mod tests {
         #[test]
         fn test_load_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_witness(data)?;
+        }
+    }
+
+    fn _test_load_group_witness(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A3, 0); //index
+        machine.set_register(A4, u64::from(Source::Group(SourceEntry::Input))); //source
+        machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
+
+        let witness = vec![data.into()];
+
+        let mut builder = FlatBufferBuilder::new();
+        let fbs_offset = FbsWitness::build(&mut builder, &witness);
+        builder.finish(fbs_offset, None);
+        let witness_correct_data = builder.finished_data();
+
+        let dummy_witness = vec![];
+        let witnesses = vec![&dummy_witness, &witness];
+        let group_inputs = vec![1];
+        let mut load_witness = LoadWitness::new(&witnesses, &group_inputs);
+
+        prop_assert!(machine
+            .memory_mut()
+            .store64(&size_addr, &(witness_correct_data.len() as u64 + 20))
+            .is_ok());
+
+        prop_assert!(load_witness.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(
+            machine.memory_mut().load64(&size_addr),
+            Ok(witness_correct_data.len() as u64)
+        );
+
+        for (i, addr) in (addr..addr + witness_correct_data.len() as u64).enumerate() {
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(witness_correct_data[i]))
+            );
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_group_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_group_witness(data)?;
         }
     }
 }

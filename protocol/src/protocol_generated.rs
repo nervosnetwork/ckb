@@ -1746,7 +1746,6 @@ impl<'a> CellInput<'a> {
         args: &'args CellInputArgs<'args>) -> flatbuffers::WIPOffset<CellInput<'bldr>> {
       let mut builder = CellInputBuilder::new(_fbb);
       builder.add_since(args.since);
-      if let Some(x) = args.args { builder.add_args(x); }
       builder.add_index(args.index);
       if let Some(x) = args.tx_hash { builder.add_tx_hash(x); }
       if let Some(x) = args.block_hash { builder.add_block_hash(x); }
@@ -1757,7 +1756,6 @@ impl<'a> CellInput<'a> {
     pub const VT_TX_HASH: flatbuffers::VOffsetT = 6;
     pub const VT_INDEX: flatbuffers::VOffsetT = 8;
     pub const VT_SINCE: flatbuffers::VOffsetT = 10;
-    pub const VT_ARGS: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub fn block_hash(&self) -> Option<&'a H256> {
@@ -1775,10 +1773,6 @@ impl<'a> CellInput<'a> {
   pub fn since(&self) -> u64 {
     self._tab.get::<u64>(CellInput::VT_SINCE, Some(0)).unwrap()
   }
-  #[inline]
-  pub fn args(&self) -> Option<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(CellInput::VT_ARGS, None)
-  }
 }
 
 pub struct CellInputArgs<'a> {
@@ -1786,7 +1780,6 @@ pub struct CellInputArgs<'a> {
     pub tx_hash: Option<&'a  H256>,
     pub index: u32,
     pub since: u64,
-    pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
 }
 impl<'a> Default for CellInputArgs<'a> {
     #[inline]
@@ -1796,7 +1789,6 @@ impl<'a> Default for CellInputArgs<'a> {
             tx_hash: None,
             index: 0,
             since: 0,
-            args: None,
         }
     }
 }
@@ -1820,10 +1812,6 @@ impl<'a: 'b, 'b> CellInputBuilder<'a, 'b> {
   #[inline]
   pub fn add_since(&mut self, since: u64) {
     self.fbb_.push_slot::<u64>(CellInput::VT_SINCE, since, 0);
-  }
-  #[inline]
-  pub fn add_args(&mut self, args: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CellInput::VT_ARGS, args);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> CellInputBuilder<'a, 'b> {

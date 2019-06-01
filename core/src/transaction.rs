@@ -204,41 +204,33 @@ impl OutPoint {
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: u64,
-    // Depends on whether the operation is Transform or Destroy, this is the proof to transform
-    // lock or destroy lock.
-    pub args: Vec<Bytes>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, since: u64, args: Vec<Bytes>) -> Self {
+    pub fn new(previous_output: OutPoint, since: u64) -> Self {
         CellInput {
             previous_output,
             since,
-            args,
         }
     }
 
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            since: 0,
-            args: vec![Bytes::from(block_number.to_le_bytes().to_vec())],
+            since: block_number,
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, u64, Vec<Bytes>) {
+    pub fn destruct(self) -> (OutPoint, u64) {
         let CellInput {
             previous_output,
             since,
-            args,
         } = self;
-        (previous_output, since, args)
+        (previous_output, since)
     }
 
     pub fn serialized_size(&self) -> usize {
-        self.previous_output.serialized_size()
-            + mem::size_of::<u64>()
-            + self.args.iter().map(Bytes::len).sum::<usize>()
+        self.previous_output.serialized_size() + mem::size_of::<u64>()
     }
 }
 
@@ -499,9 +491,7 @@ impl Transaction {
     }
 
     pub fn is_cellbase(&self) -> bool {
-        self.inputs.len() == 1
-            && self.inputs[0].previous_output.is_null()
-            && self.inputs[0].since == 0
+        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
     }
 
     pub fn is_withdrawing_from_dao(&self) -> bool {
@@ -806,21 +796,17 @@ mod test {
                 Script::default(),
                 None,
             ))
-            .input(CellInput::new(
-                OutPoint::new_cell(H256::zero(), 0),
-                0,
-                vec![],
-            ))
+            .input(CellInput::new(OutPoint::new_cell(H256::zero(), 0), 0))
             .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "d5af472fc9cae95c8c3fe440ad72b83ea3e1b1f150aaf5dd19742c0acebace89"
+            "572dfb5f543d43c9a411c36d733655f0a4c2ea729f260d9b3d3085b84834bb4f"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "01da42e3575e48f2f40b63b598bd97ffcb3d089049308a676cad2cb791422f2c"
+            "816db0491b8dfa92ec7a77e07d98c47105fe5a33ddb05ef9f2b24132ac3cc793"
         );
     }
 }

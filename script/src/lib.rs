@@ -43,4 +43,5 @@ pub enum ScriptError {
     InvalidPubkeyHash,
     Secp,
     ArgumentNumber,
+    NoWitness,
 }

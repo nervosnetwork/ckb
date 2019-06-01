@@ -193,7 +193,7 @@ mod tests {
     fn setup(height: u64) -> (Shared<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
         let (always_success_cell, always_success_script) = create_always_success_cell();
         let always_success_tx = TransactionBuilder::default()
-            .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+            .input(CellInput::new(OutPoint::null(), 0))
             .output(always_success_cell)
             .build();
         let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
@@ -250,7 +250,6 @@ mod tests {
                         .input(CellInput::new(
                             OutPoint::new_cell(cellbase.hash().to_owned(), i),
                             0,
-                            vec![],
                         ))
                         .output(CellOutput::new(
                             capacity_bytes!(50),
@@ -297,7 +296,6 @@ mod tests {
                     .input(CellInput::new(
                         OutPoint::new_cell(last_cellbase.hash().to_owned(), u32::from(i)),
                         0,
-                        vec![],
                     ))
                     .output(CellOutput::new(
                         capacity_bytes!(50),
