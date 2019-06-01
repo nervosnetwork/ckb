@@ -167,6 +167,7 @@ pub struct Cuckoo {
 
 impl Cuckoo {
     pub fn new(edge_bits: u8, cycle_length: usize) -> Self {
+        assert!(cycle_length > 0, "cycle_length must be larger than 0");
         Self {
             max_edge: 1 << edge_bits,
             edge_mask: (1 << edge_bits) - 1,
@@ -181,8 +182,12 @@ impl Cuckoo {
             return false;
         }
 
-        // Check if proof values are in valid range
-        if proof.iter().any(|i| *i >= self.max_edge as u32) {
+        if u64::from(proof[self.cycle_length - 1]) > self.max_edge {
+            return false;
+        }
+
+        let is_monotonous = proof.windows(2).all(|w| w[0] < w[1]);
+        if !is_monotonous {
             return false;
         }
 
