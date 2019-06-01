@@ -15,7 +15,6 @@ use jsonrpc_types::{Capacity, Cycle, DryRunResult, JsonBytes, OutPoint, Script, 
 use log::error;
 use numext_fixed_hash::H256;
 use serde_derive::Serialize;
-use std::sync::Arc;
 
 #[rpc]
 pub trait ExperimentRpc {
@@ -70,7 +69,7 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
         match DaoWithdrawCalculator::new(&chain_state).calculate(out_point.clone().into(), hash) {
             Ok(capacity) => Ok(capacity),
             Err(err) => {
-                error!(target: "rpc", "calculate_dao_maximum_withdraw error {:?}", err);
+                error!(target: "rpc-server", "calculate_dao_maximum_withdraw error {:?}", err);
                 Err(Error::internal_error())
             }
         }
@@ -170,9 +169,7 @@ impl<'a, CS: ChainStore> DryRunner<'a, CS> {
                 let max_cycles = consensus.max_block_cycles;
                 let script_config = self.chain_state.script_config();
                 let store = self.chain_state.store();
-                match ScriptVerifier::new(&resolved, Arc::clone(store), script_config)
-                    .verify(max_cycles)
-                {
+                match ScriptVerifier::new(&resolved, &store, script_config).verify(max_cycles) {
                     Ok(cycles) => Ok(DryRunResult {
                         cycles: Cycle(cycles),
                     }),

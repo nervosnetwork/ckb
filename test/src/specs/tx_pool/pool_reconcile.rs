@@ -22,8 +22,6 @@ impl Spec for PoolReconcile {
         assert!(node0
             .rpc_client()
             .get_transaction(hash.clone())
-            .call()
-            .unwrap()
             .unwrap()
             .tx_status
             .block_hash
@@ -41,8 +39,6 @@ impl Spec for PoolReconcile {
         assert!(node0
             .rpc_client()
             .get_transaction(hash.clone())
-            .call()
-            .unwrap()
             .unwrap()
             .tx_status
             .block_hash

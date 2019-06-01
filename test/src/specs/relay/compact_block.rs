@@ -1,4 +1,6 @@
-use crate::utils::{build_compact_block, build_compact_block_with_prefilled, wait_until};
+use crate::utils::{
+    build_compact_block, build_compact_block_with_prefilled, clear_messages, wait_until,
+};
 use crate::{Net, Spec, TestProtocol};
 use ckb_chain_spec::ChainSpec;
 use ckb_core::header::HeaderBuilder;
@@ -7,7 +9,6 @@ use ckb_protocol::{get_root, RelayMessage, RelayPayload, SyncMessage, SyncPayloa
 use ckb_sync::NetworkProtocol;
 use log::info;
 use numext_fixed_hash::{h256, H256};
-use std::time::Duration;
 
 pub struct CompactBlockBasic;
 
@@ -62,7 +63,7 @@ impl CompactBlockBasic {
         let ret = wait_until(10, move || node0.get_tip_block() == new_empty_block);
         assert!(ret, "Node0 should reconstruct empty block successfully");
 
-        self.clear_messages(net);
+        clear_messages(net);
     }
 
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
@@ -96,13 +97,13 @@ impl CompactBlockBasic {
             peer_id0,
             build_compact_block_with_prefilled(&new_block, vec![1]),
         );
-        let ret = wait_until(50, move || node0.get_tip_block() == new_block);
+        let ret = wait_until(10, move || node0.get_tip_block() == new_block);
         assert!(
             ret,
             "Node0 should reconstruct all-prefilled block successfully"
         );
 
-        self.clear_messages(net);
+        clear_messages(net);
     }
 
     // Case: Send to node0 a block which missing a tx, node0 should send `GetBlockTransactions`
@@ -149,12 +150,7 @@ impl CompactBlockBasic {
             "Node0 should send GetBlockTransactions message for missing transactions",
         );
 
-        self.clear_messages(net);
-    }
-
-    // Clear net message channel
-    fn clear_messages(&self, net: &Net) {
-        while let Ok(_) = net.receive_timeout(Duration::new(0, 100)) {}
+        clear_messages(net);
     }
 }
 
@@ -173,7 +169,7 @@ impl Spec for CompactBlockBasic {
             })
             .collect::<Vec<PeerIndex>>();
 
-        self.clear_messages(&net);
+        clear_messages(&net);
         self.test_empty_compact_block(&net, &peer_ids);
         self.test_empty_parent_unknown_compact_block(&net, &peer_ids);
         self.test_all_prefilled_compact_block(&net, &peer_ids);
@@ -189,7 +185,7 @@ impl Spec for CompactBlockBasic {
     }
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
-        Box::new(|spec_config| {
+        Box::new(|mut spec_config| {
             spec_config.params.cellbase_maturity = 5;
         })
     }

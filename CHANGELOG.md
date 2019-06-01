@@ -1,6 +1,148 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [v0.13.0](https://github.com/nervosnetwork/ckb/compare/v0.12.2...v0.13.0) (2019-06-01) rylai-v2
+
+### Features
+
+* #762: Live cell block hash (@keroro520)
+
+    This is a breaking change: b:rpc
+
+    * Return `block_hash` for `get_cells_by_lock_hash`
+    * Add `make gen-doc` command
+
+* #841: Apply `tx_pool` limit (@zhangsoledad)
+
+    This is a breaking change: b:cli, b:rpc
+
+    1. apply `tx_pool` limit
+    2. tx size verify, enforce tx size below block size limit
+
+    **BREAKING CHANGES:**
+
+    **config** `ckb.toml`
+
+    ```diff
+    [tx_pool]
+    - max_pool_size = 10000
+    - max_orphan_size = 10000
+    - max_proposal_size = 10000
+    - max_cache_size = 1000
+    - max_pending_size = 10000
+    - txs_verify_cache_size = 100000
+    + max_mem_size = 20_000_000 # 20mb
+    + max_cycles = 200_000_000_000
+    + max_verfify_cache_size = 100_000
+    ```
+
+    **rpc** `tx_pool_info`
+
+    ```diff
+    + "total_tx_cycles": "2",
+    + "total_tx_size": "156",
+    ```
+
+* #890: Revise remainder reward rule (@zhangsoledad)
+
+    This is a breaking change: b:consensus
+
+* #876: Tweak consensus params (@zhangsoledad)
+
+    This is a breaking change: b:consensus
+
+* #889: Add codename in version (@doitian)
+* #854: Calculate median time by tracing parents (@keroro520)
+
+    At present, the way calculating the passed median time is that collects block timestamps one by one by block_number. This PR change to collects blocks timestamps by tracing parents. The new way is more robust.
+
+    In addition to this, I use assert-style to rewrite the calculation of passed median time.
+
+* #859: Use snappy to compress large messages (@driftluo)
+
+    This is a breaking change: b:p2p
+
+    On the test net monitoring, the bandwidth usage is often in a full state. We try to use the snappy compression algorithm to reduce network transmission consumption.
+
+    After testing, the compression yield of flatbuffer format is very high, cpu consumption is relatively acceptable.
+
+    The following is the data transmission on the test net:
+
+    ```
+    2019-05-20 16:27:41.875 +08:00 tokio-runtime-worker-7 DEBUG compress  raw_data len: 625400, compress used time: 3.635121ms, compress_data size: 335401, compression ratio: 0.536298369043812, decompress used time: 1.496667ms
+    2019-05-20 16:27:42.128 +08:00 tokio-runtime-worker-6 DEBUG compress  raw_data len: 633544, compress used time: 3.789752ms, compress_data size: 335462, compression ratio: 0.5295007134468955, decompress used time: 1.490144ms
+    2019-05-20 16:27:42.340 +08:00 tokio-runtime-worker-6 DEBUG compress  raw_data len: 633216, compress used time: 3.998678ms, compress_data size: 333458, compression ratio: 0.5266101930462906, decompress used time: 1.593165ms
+    2019-05-20 16:27:42.558 +08:00 tokio-runtime-worker-5 DEBUG compress  raw_data len: 632992, compress used time: 3.453616ms, compress_data size: 333552, compression ratio: 0.5269450482786512, decompress used time: 1.052606ms
+    2019-05-20 16:27:42.740 +08:00 tokio-runtime-worker-2 DEBUG compress  raw_data len: 633760, compress used time: 1.256847ms, compress_data size: 340022, compression ratio: 0.5365154001514769, decompress used time: 545.473µs
+    2019-05-20 16:37:43.934 +08:00 tokio-runtime-worker-1 DEBUG compress  raw_data len: 186912, compress used time: 659.317µs, compress_data size: 42640, compression ratio: 0.22812874507789763, decompress used time: 515.287µs
+    2019-05-20 16:37:47.338 +08:00 tokio-runtime-worker-3 DEBUG compress  raw_data len: 186520, compress used time: 189.079µs, compress_data size: 42334, compression ratio: 0.22696761741368218, decompress used time: 150.644µs
+    2019-05-20 16:37:50.729 +08:00 tokio-runtime-worker-3 DEBUG compress  raw_data len: 186520, compress used time: 197.656µs, compress_data size: 42336, compression ratio: 0.22697834012438345, decompress used time: 145.5µs
+    2019-05-20 16:38:52.549 +08:00 tokio-runtime-worker-4 DEBUG compress  raw_data len: 95904, compress used time: 217.968µs, compress_data size: 33801, compression ratio: 0.3524461961961962, decompress used time: 95.818µs
+    2019-05-20 16:39:32.522 +08:00 tokio-runtime-worker-0 DEBUG compress  raw_data len: 47320, compress used time: 418.183µs, compress_data size: 17183, compression ratio: 0.363123415046492, decompress used time: 252.148µs
+    ```
+
+    Note that this is a **break change**, the data is modified as follows:
+
+    By default, data above 40k enters compressed mode.
+
+    From the current point of view, the high bit 1 is the compressed format and the high bit 0 is the uncompressed format.
+
+    If you want to support multiple compression formats in the future, you can simply think that 0b1000 is in snappy format and 0b0000 is in uncompressed format.
+
+    ```
+     # Message in Bytes:
+
+     +---------------------------------------------------------------+
+     | Bytes | Type | Function                                       |
+     |-------+------+------------------------------------------------|
+     |   0   |  u1  | Compress: true 1, false 0                      |
+     |       |  u7  | Reserved                                       |
+     +-------+------+------------------------------------------------+
+     |  1~   |      | Payload (Serialized Data with Compress)        |
+     +-------+------+------------------------------------------------+
+    ```
+
+* #921: Upgrade CKB VM to latest version (@xxuejie)
+
+    This upgrade contains the following changes:
+
+    Refactors
+
+    * nervosnetwork/ckb-vm#57 calculate address first before cond operation @xxuejie
+
+    Bug fixes
+
+    * nervosnetwork/ckb-vm#60 fix broken bench tests @mohanson
+    * nervosnetwork/ckb-vm#61 VM panics when ELF uses invalid file offset @xxuejie
+    * nervosnetwork/ckb-vm#63 out of bound read check in assembly VM
+
+    Chore
+
+    * nervosnetwork/ckb-vm#59 fix a bad way to using machine @mohanson
+    * nervosnetwork/ckb-vm#61 add an example named is13 @mohanson
+
+
+### Bug Fixes
+
+* #812: Prof should respect script config (@xxuejie)
+* #810: Discard invalid orphan blocks (@keroro520)
+
+    When accepts a new block, its descendants should be accepted too if valid. So if an error occurs when we try to accept its descendants, the descendants are invalid.
+
+* #850: Ensure EBREAK has proper cycle set (@xxuejie)
+
+    This is a breaking change: b:consensus
+
+    This is a bug reported by @yangby-cryptape. Right now we didn't assign proper cycles for EBREAK, which might lead to potential bugs.
+
+* #886: Integration test cycle calc (@zhangsoledad)
+* fix: Cuckoo cycle verification bug (@yangby-cryptape)
+
+### Improvements
+
+* #832: `peer_store` db::PeerInfoDB interface (@jjyr)
+
+
 # [v0.12.2](https://github.com/nervosnetwork/ckb/compare/v0.12.1...v0.12.2) (2019-05-20)
 
 ### Features
@@ -42,7 +184,7 @@ See [Conventional Commits](https://conventionalcommits.org) for commit guideline
     - bind rpc on 0.0.0.0 in docker
     - fix docker files permissions
 
-# [v0.12.0](https://github.com/nervosnetwork/ckb/compare/v0.11.0...v0.12.0) (2019-05-18) rylai
+# [v0.12.0](https://github.com/nervosnetwork/ckb/compare/v0.11.0...v0.12.0) (2019-05-18) rylai-v1
 
 ### Features
 

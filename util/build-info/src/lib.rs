@@ -5,6 +5,7 @@ pub struct Version {
     pub minor: u8,
     pub patch: u16,
     pub dash_pre: String,
+    pub code_name: Option<String>,
     pub commit_describe: Option<String>,
     pub commit_date: Option<String>,
 }
@@ -18,7 +19,7 @@ impl Version {
     }
 
     pub fn long(&self) -> String {
-        format!("{}", self)
+        self.to_string()
     }
 
     pub fn is_pre(&self) -> bool {
@@ -36,19 +37,21 @@ impl Version {
 
 impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.commit_describe.is_some() {
-            write!(
-                f,
-                "{}.{}.{}{} ({} {})",
-                self.major,
-                self.minor,
-                self.patch,
-                self.dash_pre,
-                self.commit_describe.clone().unwrap_or_default(),
-                self.commit_date.clone().unwrap_or_default(),
-            )?;
-        } else {
-            write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
+        write!(
+            f,
+            "{}.{}.{}{}",
+            self.major, self.minor, self.patch, self.dash_pre
+        )?;
+
+        let extra_parts: Vec<_> = self
+            .code_name
+            .iter()
+            .chain(self.commit_describe.iter())
+            .chain(self.commit_date.iter())
+            .map(String::as_str)
+            .collect();
+        if !extra_parts.is_empty() {
+            write!(f, " ({})", extra_parts.as_slice().join(" "))?;
         }
 
         Ok(())

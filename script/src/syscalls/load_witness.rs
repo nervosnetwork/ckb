@@ -33,7 +33,6 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadWitness<'a> {
         if machine.registers()[A7].to_u64() != LOAD_WITNESS_SYSCALL_NUMBER {
             return Ok(false);
         }
-        machine.add_cycles(10)?;
 
         let index = machine.registers()[A3].to_usize();
         let witness = self.fetch_witness(index);

@@ -1,4 +1,5 @@
 use crate::error::TransactionError;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
@@ -24,11 +25,11 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         tip_number: BlockNumber,
-        tip_epoch_number: BlockNumber,
-        cellbase_maturity: BlockNumber,
+        tip_epoch_number: EpochNumber,
+        consensus: &'a Consensus,
     ) -> Self {
         ContextualTransactionVerifier {
-            maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
+            maturity: MaturityVerifier::new(&rtx, tip_number, consensus.cellbase_maturity()),
             since: SinceVerifier::new(rtx, median_time_context, tip_number, tip_epoch_number),
         }
     }
@@ -42,6 +43,7 @@ where
 
 pub struct TransactionVerifier<'a, M, CS> {
     pub version: VersionVerifier<'a>,
+    pub size: SizeVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub maturity: MaturityVerifier<'a>,
     pub capacity: CapacityVerifier<'a>,
@@ -50,25 +52,27 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub since: SinceVerifier<'a, M>,
 }
 
-impl<'a, M, CS: ChainStore> TransactionVerifier<'a, M, CS>
+impl<'a, M, CS> TransactionVerifier<'a, M, CS>
 where
     M: BlockMedianTimeContext,
+    CS: ChainStore,
 {
     pub fn new(
         rtx: &'a ResolvedTransaction,
-        store: Arc<CS>,
         median_time_context: &'a M,
         tip_number: BlockNumber,
-        tip_epoch_number: BlockNumber,
-        cellbase_maturity: BlockNumber,
+        tip_epoch_number: EpochNumber,
+        consensus: &'a Consensus,
         script_config: &'a ScriptConfig,
+        chain_store: &'a Arc<CS>,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
+            size: SizeVerifier::new(&rtx.transaction, consensus.max_block_bytes()),
             empty: EmptyVerifier::new(&rtx.transaction),
-            maturity: MaturityVerifier::new(&rtx, tip_number, cellbase_maturity),
+            maturity: MaturityVerifier::new(&rtx, tip_number, consensus.cellbase_maturity()),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(rtx, Arc::clone(&store), script_config),
+            script: ScriptVerifier::new(rtx, chain_store, script_config),
             capacity: CapacityVerifier::new(rtx),
             since: SinceVerifier::new(rtx, median_time_context, tip_number, tip_epoch_number),
         }
@@ -76,6 +80,7 @@ where
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
         self.version.verify()?;
+        self.size.verify()?;
         self.empty.verify()?;
         self.maturity.verify()?;
         self.capacity.verify()?;
@@ -103,8 +108,31 @@ impl<'a> VersionVerifier<'a> {
     }
 }
 
+pub struct SizeVerifier<'a> {
+    transaction: &'a Transaction,
+    block_bytes_limit: u64,
+}
+
+impl<'a> SizeVerifier<'a> {
+    pub fn new(transaction: &'a Transaction, block_bytes_limit: u64) -> Self {
+        SizeVerifier {
+            transaction,
+            block_bytes_limit,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        let size = self.transaction.serialized_size() as u64;
+        if size <= self.block_bytes_limit {
+            Ok(())
+        } else {
+            Err(TransactionError::ExceededMaximumBlockBytes)
+        }
+    }
+}
+
 pub struct ScriptVerifier<'a, CS> {
-    store: Arc<CS>,
+    chain_store: &'a Arc<CS>,
     resolved_transaction: &'a ResolvedTransaction<'a>,
     script_config: &'a ScriptConfig,
 }
@@ -112,11 +140,11 @@ pub struct ScriptVerifier<'a, CS> {
 impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
     pub fn new(
         resolved_transaction: &'a ResolvedTransaction,
-        store: Arc<CS>,
+        chain_store: &'a Arc<CS>,
         script_config: &'a ScriptConfig,
     ) -> Self {
         ScriptVerifier {
-            store,
+            chain_store,
             resolved_transaction,
             script_config,
         }
@@ -125,7 +153,7 @@ impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
         TransactionScriptsVerifier::new(
             &self.resolved_transaction,
-            Arc::clone(&self.store),
+            Arc::clone(&self.chain_store),
             &self.script_config,
         )
         .verify(max_cycles)
@@ -337,7 +365,7 @@ pub struct SinceVerifier<'a, M> {
     block_median_time_context: &'a M,
     tip_number: BlockNumber,
     tip_epoch_number: EpochNumber,
-    median_timestamps_cache: RefCell<LruCache<BlockNumber, Option<u64>>>,
+    median_timestamps_cache: RefCell<LruCache<BlockNumber, u64>>,
 }
 
 impl<'a, M> SinceVerifier<'a, M>
@@ -360,16 +388,23 @@ where
         }
     }
 
-    fn block_median_time(&self, n: BlockNumber) -> Option<u64> {
+    fn block_median_time(&self, n: BlockNumber) -> u64 {
         let result = self.median_timestamps_cache.borrow().get(&n).cloned();
         match result {
-            Some(r) => r,
+            Some(median_time) => median_time,
             None => {
-                let timestamp = self.block_median_time_context.block_median_time(n);
+                let median_time = self
+                    .block_median_time_context
+                    .get_block_hash(n)
+                    .map(|block_hash| {
+                        self.block_median_time_context
+                            .block_median_time(n, &block_hash)
+                    })
+                    .unwrap_or(0);
                 self.median_timestamps_cache
                     .borrow_mut()
-                    .insert(n, timestamp);
-                timestamp
+                    .insert(n, median_time);
+                median_time
             }
         }
     }
@@ -388,9 +423,7 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self
-                        .block_median_time(self.tip_number.saturating_sub(1))
-                        .unwrap_or_else(|| 0);
+                    let tip_timestamp = self.block_median_time(self.tip_number.saturating_sub(1));
                     if tip_timestamp < timestamp {
                         return Err(TransactionError::Immature);
                     }
@@ -426,12 +459,9 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self
-                        .block_median_time(self.tip_number.saturating_sub(1))
-                        .unwrap_or_else(|| 0);
-                    let median_timestamp = self
-                        .block_median_time(cell_block_number.saturating_sub(1))
-                        .unwrap_or_else(|| 0);
+                    let tip_timestamp = self.block_median_time(self.tip_number.saturating_sub(1));
+                    let median_timestamp =
+                        self.block_median_time(cell_block_number.saturating_sub(1));
                     if tip_timestamp < median_timestamp + timestamp {
                         return Err(TransactionError::Immature);
                     }

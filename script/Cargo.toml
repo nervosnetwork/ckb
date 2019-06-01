@@ -1,6 +1,6 @@
 [package]
 name = "ckb-script"
-version = "0.12.2"
+version = "0.13.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -12,7 +12,7 @@ crypto = {path = "../util/crypto"}
 ckb-core = { path = "../core" }
 ckb-store = { path = "../store" }
 hash = {path = "../util/hash"}
-ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "5c443bc", features = ["asm"] }
+ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "85e38f0", features = ["asm"] }
 faster-hex = "0.3"
 fnv = "1.0.3"
 flatbuffers = "0.6.0"
@@ -27,3 +27,4 @@ ckb-resource = { path = "../resource" }
 proptest = "0.9"
 ckb-db = { path = "../db" }
 test-chain-utils = { path = "../util/test-chain-utils" }
+tiny-keccak = "1.4"

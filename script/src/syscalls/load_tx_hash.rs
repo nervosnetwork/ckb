@@ -28,7 +28,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadTxHash<'a> {
         store_data(machine, &self.tx_hash)?;
 
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-        machine.add_cycles((self.tx_hash.len() as u64 + 1) * 10)?;
+        machine.add_cycles(self.tx_hash.len() as u64 * 10)?;
         Ok(true)
     }
 }

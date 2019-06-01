@@ -1,13 +1,8 @@
 pub use blake2b_rs::{Blake2b, Blake2bBuilder};
-pub use tiny_keccak::Keccak as Sha3;
 
 pub const BLAKE2B_KEY: &[u8] = &[];
 pub const BLAKE2B_LEN: usize = 32;
 pub const CKB_HASH_PERSONALIZATION: &[u8] = b"ckb-default-hash";
-
-pub fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
-    tiny_keccak::sha3_256(s.as_ref())
-}
 
 pub fn new_blake2b() -> Blake2b {
     Blake2bBuilder::new(32)

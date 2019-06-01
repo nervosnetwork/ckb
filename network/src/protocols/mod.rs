@@ -19,7 +19,10 @@ use tokio::codec::length_delimited;
 
 pub type PeerIndex = SessionId;
 
-use crate::{Behaviour, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FRAME_LENGTH};
+use crate::{
+    compress::{compress, decompress},
+    Behaviour, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FRAME_LENGTH,
+};
 
 pub trait CKBProtocolContext: Send {
     // Interact with underlying p2p service
@@ -137,6 +140,8 @@ impl CKBProtocol {
                     handler: (self.handler)(),
                 }))
             })
+            .before_send(compress)
+            .before_receive(|| Some(Box::new(decompress)))
             .build()
     }
 }
@@ -225,7 +230,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .p2p_control
             .set_service_notify(self.proto_id, interval, token)
         {
-            error!(target: "network", "send message to p2p service error: {:?}", err);
+            debug!(target: "network", "p2p service set_notify error: {:?}", err);
         }
     }
     fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
@@ -234,7 +239,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .p2p_control
             .quick_send_message_to(peer_index, proto_id, data)
         {
-            error!(target: "network", "send message to p2p service error: {:?}", err);
+            debug!(target: "network", "p2p service quick_send_message error: {:?}", err);
         }
     }
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
@@ -243,7 +248,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .p2p_control
             .quick_send_message_to(peer_index, self.proto_id, data)
         {
-            error!(target: "network", "send message to p2p service error: {:?}", err);
+            debug!(target: "network", "p2p service quick_send_message_to error: {:?}", err);
         }
     }
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) {
@@ -251,7 +256,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .p2p_control
             .quick_filter_broadcast(target, self.proto_id, data)
         {
-            error!(target: "network", "send message to p2p service error: {:?}", err);
+            debug!(target: "network", "p2p service quick_filter_broadcast error: {:?}", err);
         }
     }
     fn future_task(&self, task: Box<Future<Item = (), Error = ()> + 'static + Send>) {
@@ -262,7 +267,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
         trace!(target: "network", "[send message]: {}, to={}, length={}", proto_id, peer_index, data.len());
         if let Err(err) = self.p2p_control.send_message_to(peer_index, proto_id, data) {
-            error!(target: "network", "send message to p2p service error: {:?}", err);
+            debug!(target: "network", "p2p service send_message error: {:?}", err);
         }
     }
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
@@ -271,7 +276,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .p2p_control
             .send_message_to(peer_index, self.proto_id, data)
         {
-            error!(target: "network", "send message to p2p service error: {:?}", err);
+            debug!(target: "network", "p2p service send_message_to error: {:?}", err);
         }
     }
     fn filter_broadcast(&self, target: TargetSession, data: Bytes) {
@@ -279,7 +284,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .p2p_control
             .filter_broadcast(target, self.proto_id, data)
         {
-            error!(target: "network", "send message to p2p service error: {:?}", err);
+            debug!(target: "network", "p2p service filter_broadcast error: {:?}", err);
         }
     }
     fn disconnect(&self, peer_index: PeerIndex) {

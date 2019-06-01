@@ -25,10 +25,12 @@ impl PendingQueue {
     pub(crate) fn add_tx(
         &mut self,
         cycles: Option<Cycle>,
+        size: usize,
         tx: Transaction,
     ) -> Option<PendingEntry> {
         let short_id = tx.proposal_short_id();
-        self.inner.insert(short_id, PendingEntry::new(tx, cycles))
+        self.inner
+            .insert(short_id, PendingEntry::new(tx, cycles, size))
     }
 
     pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {

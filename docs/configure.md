@@ -73,9 +73,10 @@ ckb -C node1 init
 ckb -C node2 init
 # Change listen ports 8114/8115 to 8116/8117 in node2/ckb.toml.
 # Change `rpc_url` in node2/ckb.toml to use 8116.
-# You may also want to add each other as a boot node in the configuration file.
 # start node1
 ckb -C node1 run
+# If you want node2 connects node1, copy the P2P address of node1 in its log.
+# Add the address into the section `bootnodes` in `node2/ckb.toml`.
 # start node2
 ckb -C node2 run
 ```

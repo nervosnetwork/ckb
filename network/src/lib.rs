@@ -1,4 +1,5 @@
 mod behaviour;
+mod compress;
 mod config;
 pub mod errors;
 pub mod network;

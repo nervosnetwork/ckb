@@ -10,12 +10,12 @@ is listed there, you can download the package directory.
 There is also a repository [ckb-builds](https://github.com/ckb-builds/ckb-builds/releases) containing the nightly builds from the develop
 branch.
 
-CentOS users please use the `x86_64-unknown-centos-gnu` package. Both Linux
-and CentOS builds require OpenSSL 1.0 to run.
+CentOS users please use the `x86_64-unknown-centos-gnu` package, which also
+requires OpenSSL 1.0 to run:
 
-- Ubuntu and Debian: `sudo apt-get install libssl1.0.0`
-- Arch Linux: `sudo pacman -Sy openssl-1.0`
-- CentOS: `sudo yum install openssl-libs`
+```shell
+sudo yum install openssl-libs
+```
 
 We also provides docker images, see [how to run CKB with docker](run-ckb-with-docker.md).
 

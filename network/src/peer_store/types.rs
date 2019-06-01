@@ -9,9 +9,29 @@ pub struct PeerInfo {
     pub connected_addr: Multiaddr,
     pub score: Score,
     pub status: Status,
-    pub endpoint: SessionType,
+    pub session_type: SessionType,
     pub ban_time_ms: u64,
     pub last_connected_at_ms: u64,
+}
+
+impl PeerInfo {
+    pub fn new(
+        peer_id: PeerId,
+        connected_addr: Multiaddr,
+        score: Score,
+        session_type: SessionType,
+        last_connected_at_ms: u64,
+    ) -> Self {
+        PeerInfo {
+            peer_id,
+            connected_addr,
+            score,
+            status: Status::Unknown,
+            session_type,
+            last_connected_at_ms,
+            ban_time_ms: 0,
+        }
+    }
 }
 
 #[derive(Debug)]

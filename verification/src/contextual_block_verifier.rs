@@ -9,7 +9,6 @@ use ckb_core::transaction::Capacity;
 use ckb_core::transaction::Transaction;
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber, EpochNumber};
-use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use dao_utils::calculate_transaction_fee;
@@ -28,18 +27,12 @@ struct ForkContext<'a, CS> {
 }
 
 impl<'a, CS: ChainStore> ForkContext<'a, CS> {
-    fn get_header(&self, number: BlockNumber) -> Option<Header> {
-        match self
-            .fork_attached_blocks
+    fn get_header(&self, block_hash: &H256) -> Option<Header> {
+        self.fork_attached_blocks
             .iter()
-            .find(|b| b.header().number() == number)
-        {
-            Some(block) => Some(block.header().to_owned()),
-            None => self
-                .store
-                .get_block_hash(number)
-                .and_then(|hash| self.store.get_header(&hash)),
-        }
+            .find(|b| b.header().hash() == block_hash)
+            .and_then(|b| Some(b.header().to_owned()))
+            .or_else(|| self.store.get_header(block_hash))
     }
 }
 
@@ -48,8 +41,19 @@ impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
         self.consensus.median_time_block_count() as u64
     }
 
-    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
-        self.get_header(number).map(|header| header.timestamp())
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+        let header = self
+            .get_header(block_hash)
+            .expect("[ForkContext] blocks used for median time exist");
+        (header.timestamp(), header.parent_hash().to_owned())
+    }
+
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        self.fork_attached_blocks
+            .iter()
+            .find(|b| b.header().number() == block_number)
+            .and_then(|b| Some(b.header().hash().to_owned()))
+            .or_else(|| self.store.get_block_hash(block_number))
     }
 }
 
@@ -173,41 +177,32 @@ where
     }
 }
 
-struct BlockTxsVerifier<'a, M, CS> {
-    cellbase_maturity: BlockNumber,
-    script_config: &'a ScriptConfig,
-    max_cycles: Cycle,
+struct BlockTxsVerifier<'a, M, P> {
+    provider: &'a P,
     block_median_time_context: &'a M,
-    number: BlockNumber,
-    epoch: EpochNumber,
-    store: &'a Arc<CS>,
+    block_number: BlockNumber,
+    epoch_number: EpochNumber,
     resolved: &'a [ResolvedTransaction<'a>],
 }
 
-impl<'a, M, CS> BlockTxsVerifier<'a, M, CS>
+impl<'a, M, P> BlockTxsVerifier<'a, M, P>
 where
     M: BlockMedianTimeContext + Sync,
-    CS: ChainStore,
+    P: ChainProvider,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        cellbase_maturity: BlockNumber,
-        script_config: &'a ScriptConfig,
-        max_cycles: Cycle,
+        provider: &'a P,
         block_median_time_context: &'a M,
-        number: BlockNumber,
-        epoch: EpochNumber,
-        store: &'a Arc<CS>,
+        block_number: BlockNumber,
+        epoch_number: EpochNumber,
         resolved: &'a [ResolvedTransaction<'a>],
-    ) -> BlockTxsVerifier<'a, M, CS> {
+    ) -> BlockTxsVerifier<'a, M, P> {
         BlockTxsVerifier {
-            cellbase_maturity,
-            script_config,
-            max_cycles,
+            provider,
             block_median_time_context,
-            number,
-            epoch,
-            store,
+            block_number,
+            epoch_number,
             resolved,
         }
     }
@@ -224,9 +219,9 @@ where
                     ContextualTransactionVerifier::new(
                         &tx,
                         self.block_median_time_context,
-                        self.number,
-                        self.epoch,
-                        self.cellbase_maturity,
+                        self.block_number,
+                        self.epoch_number,
+                        self.provider.consensus(),
                     )
                     .verify()
                     .map_err(|e| Error::Transactions((index, e)))
@@ -234,14 +229,14 @@ where
                 } else {
                     TransactionVerifier::new(
                         &tx,
-                        Arc::clone(self.store),
                         self.block_median_time_context,
-                        self.number,
-                        self.epoch,
-                        self.cellbase_maturity,
-                        self.script_config,
+                        self.block_number,
+                        self.epoch_number,
+                        self.provider.consensus(),
+                        self.provider.script_config(),
+                        self.provider.store(),
                     )
-                    .verify(self.max_cycles)
+                    .verify(self.provider.consensus().max_block_cycles())
                     .map_err(|e| Error::Transactions((index, e)))
                     .map(|cycles| (tx_hash, cycles))
                 }
@@ -254,7 +249,7 @@ where
             txs_verify_cache.insert(hash, cycles);
         }
 
-        if sum > self.max_cycles {
+        if sum > self.provider.consensus().max_block_cycles() {
             Err(Error::ExceededMaximumCycles)
         } else {
             Ok(sum)
@@ -303,13 +298,7 @@ where
 
         CommitVerifier::new(self.provider.clone(), block).verify()?;
         UnclesVerifier::new(self.provider.clone(), &epoch_ext, block).verify()?;
-        RewardVerifier::new(
-            self.provider.store(),
-            resolved,
-            &epoch_ext,
-            block.header().number(),
-        )
-        .verify()?;
+        RewardVerifier::new(store, resolved, &epoch_ext, block.header().number()).verify()?;
 
         let block_median_time_context = ForkContext {
             fork_attached_blocks,
@@ -318,13 +307,10 @@ where
         };
 
         BlockTxsVerifier::new(
-            consensus.cellbase_maturity(),
-            self.provider.script_config(),
-            consensus.max_block_cycles(),
+            &self.provider,
             &block_median_time_context,
             block.header().number(),
             block.header().epoch(),
-            self.provider.store(),
             resolved,
         )
         .verify(txs_verify_cache)

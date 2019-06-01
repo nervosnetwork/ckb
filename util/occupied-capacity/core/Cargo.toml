@@ -1,6 +1,6 @@
 [package]
 name = "occupied-capacity-core"
-version = "0.12.2"
+version = "0.13.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"

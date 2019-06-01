@@ -1,7 +1,8 @@
 use crate::{
     multiaddr::Multiaddr,
     peer_store::{
-        sqlite::db, PeerStore, SqlitePeerStore, Status, ADDR_TIMEOUT_MS, PEER_STORE_LIMIT,
+        sqlite::db, types::PeerInfo, PeerStore, SqlitePeerStore, Status, ADDR_TIMEOUT_MS,
+        PEER_STORE_LIMIT,
     },
     Behaviour, PeerId, SessionType,
 };
@@ -142,18 +143,20 @@ fn test_random_peers() {
 #[test]
 fn test_delete_peer_info() {
     let mut peer_store = new_peer_store();
-    let addr1 = "/ip4/127.0.0.1".parse().unwrap();
-    let addr2 = "/ip4/192.163.1.1".parse().unwrap();
+    let addr1: Multiaddr = "/ip4/127.0.0.1".parse().unwrap();
+    let addr2: Multiaddr = "/ip4/192.163.1.1".parse().unwrap();
     let now = faketime::unix_time_as_millis();
     // prepare peer_info records
     for _ in 0..(PEER_STORE_LIMIT - 2) {
-        db::PeerInfoDB::insert(
+        db::PeerInfoDB::insert_or_update(
             &peer_store.conn,
-            &PeerId::random(),
-            &addr1,
-            SessionType::Inbound,
-            peer_store.peer_score_config().default_score,
-            now,
+            &PeerInfo::new(
+                PeerId::random(),
+                addr1.clone(),
+                peer_store.peer_score_config().default_score,
+                SessionType::Inbound,
+                now,
+            ),
         )
         .expect("insert peer infos");
     }

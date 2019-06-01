@@ -78,7 +78,7 @@ impl ServiceProtocol for DiscoveryProtocol {
             peer_id: session.remote_pubkey.clone().map(|pubkey| pubkey.peer_id()),
         };
         if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
+            debug!(target: "network", "receiver maybe dropped! (ServiceProtocol::connected)");
             return;
         }
 
@@ -100,7 +100,7 @@ impl ServiceProtocol for DiscoveryProtocol {
         let session = context.session;
         let event = DiscoveryEvent::Disconnected(session.id);
         if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
+            debug!(target: "network", "receiver maybe dropped! (ServiceProtocol::disconnected)");
             return;
         }
         self.discovery_senders.remove(&session.id);
@@ -273,7 +273,7 @@ impl AddressManager for DiscoveryAddressManager {
     fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>) {
         let event = DiscoveryEvent::AddNewAddrs { session_id, addrs };
         if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
+            debug!(target: "network", "receiver maybe dropped! (DiscoveryAddressManager::add_new_addrs)");
         }
     }
 
@@ -285,7 +285,7 @@ impl AddressManager for DiscoveryAddressManager {
             result: sender,
         };
         if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
+            debug!(target: "network", "receiver maybe dropped! (DiscoveryAddressManager::misbehave)");
             MisbehaveResult::Disconnect
         } else {
             receiver.wait().unwrap_or(MisbehaveResult::Disconnect)
@@ -296,7 +296,7 @@ impl AddressManager for DiscoveryAddressManager {
         let (sender, receiver) = oneshot::channel();
         let event = DiscoveryEvent::GetRandom { n, result: sender };
         if self.event_sender.unbounded_send(event).is_err() {
-            warn!(target: "network", "receiver maybe dropped!");
+            debug!(target: "network", "receiver maybe dropped! (DiscoveryAddressManager::get_random)");
             Vec::new()
         } else {
             receiver.wait().ok().unwrap_or_else(Vec::new)

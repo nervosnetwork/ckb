@@ -398,11 +398,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             resolved_inputs: vec![],
         };
 
-        let script_verifier = ScriptVerifier::new(
-            &rtx,
-            Arc::clone(self.shared.store()),
-            self.shared.script_config(),
-        );
+        let script_verifier =
+            ScriptVerifier::new(&rtx, self.shared.store(), self.shared.script_config());
         let cycle = script_verifier.verify(self.shared.consensus().max_block_cycles())?;
         let serialized_size = tx.serialized_size();
         Ok((tx, serialized_size, cycle))

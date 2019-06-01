@@ -37,7 +37,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
         if self.relayer.state.already_known_tx(&tx_hash) {
             debug!(
                 target: "relay",
-                "transaction({}) from {} already known, ignore it",
+                "transaction({:#x}) from {} already known, ignore it",
                 tx_hash,
                 self.peer,
             );
@@ -51,7 +51,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
         {
             trace!(
                 target: "relay",
-                "transaction({}) from {} already in transaction pool, ignore it",
+                "transaction({:#x}) from {} already in transaction pool, ignore it",
                 tx_hash,
                 self.peer,
             );
@@ -59,7 +59,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
         } else {
             debug!(
                 target: "relay",
-                "transaction({}) from {} not known, get it from the peer",
+                "transaction({:#x}) from {} not known, get it from the peer",
                 tx_hash,
                 self.peer,
             );

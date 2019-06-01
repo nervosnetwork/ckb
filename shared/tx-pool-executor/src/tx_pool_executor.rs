@@ -19,12 +19,16 @@ impl<CS: ChainStore> BlockMedianTimeContext for StoreBlockMedianTimeContext<CS> 
         self.median_time_block_count
     }
 
-    fn timestamp(&self, number: BlockNumber) -> Option<u64> {
-        self.store.get_block_hash(number).and_then(|hash| {
-            self.store
-                .get_header(&hash)
-                .map(|header| header.timestamp())
-        })
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+        let header = self
+            .store
+            .get_header(block_hash)
+            .expect("[StoreBlockMedianTimeContext] blocks used for median time exist");
+        (header.timestamp(), header.parent_hash().to_owned())
+    }
+
+    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        self.store.get_block_hash(block_number)
     }
 }
 
@@ -97,18 +101,19 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
             store: Arc::clone(&store),
             median_time_block_count: consensus.median_time_block_count() as u64,
         };
+
         // parallet verify txs
         let cycles_vec = resolved_txs
             .iter()
             .map(|(tx_hash, tx)| {
                 let verified_result = TransactionVerifier::new(
                     &tx,
-                    Arc::clone(&store),
                     &block_median_time_context,
                     tip_number,
                     epoch_number,
-                    consensus.cellbase_maturity(),
+                    &consensus,
                     self.shared.script_config(),
+                    &store,
                 )
                 .verify(max_block_cycles)
                 .map(|cycles| (tx, cycles))
@@ -311,7 +316,7 @@ mod tests {
         let result = tx_pool_executor
             .verify_and_add_txs_to_pool(txs[1..=5].to_vec())
             .expect("verify relay tx");
-        assert_eq!(result, vec![2; 5]);
+        assert_eq!(result, vec![12; 5]);
         // spent conflict cell
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[10..15].to_vec());
         assert_eq!(
@@ -332,7 +337,7 @@ mod tests {
         let result = tx_pool_executor
             .verify_and_add_tx_to_pool(txs[1].to_owned())
             .expect("verify relay tx");
-        assert_eq!(result, 2);
+        assert_eq!(result, 12);
         // spent one conflict cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[13].to_owned());
         assert_eq!(

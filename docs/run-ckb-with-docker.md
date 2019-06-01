@@ -12,7 +12,6 @@ listed in DockerHub.
 
 -   Tag `latest` is always the latest release, which is built from the latest
     master branch.
--   Tag `develop` is built from the latest develop branch.
 -   Tags `vx.y.z` are history releases.
 -   Tags `vx.y.z-rc` are the preview of the release candidates.
 
@@ -39,6 +38,7 @@ Create a container `ckb-testnet-node` to run a node:
 ```bash
 docker create -it \
   -v ckb-testnet:/var/lib/ckb \
+  --name ckb-testnet-node \
   nervos/ckb:latest run
 ```
 

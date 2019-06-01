@@ -16,7 +16,7 @@ spec = "specs/dev.toml" # {{
 
 [logger]
 filter = "info" # {{
-# integration => filter = "info,network=trace,rpc=debug,sync=debug,relay=debug,tx_pool=debug"
+# integration => filter = "info,network=trace,rpc-server=debug,sync=debug,relay=debug,tx_pool=debug"
 # }}
 color = true
 log_to_file = true # {{
@@ -64,20 +64,16 @@ max_request_body_size = 10485760
 
 # List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"]
 modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
-# integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "IntegrationTest"]
+# integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "IntegrationTest"]
 # }}
 
 [sync]
-verification_level = "Full"
 orphan_block_limit = 1024
 
 [tx_pool]
-max_pool_size = 10000
-max_orphan_size = 10000
-max_proposal_size = 10000
-max_cache_size = 1000
-max_pending_size = 10000
-txs_verify_cache_size = 100000
+max_mem_size = 20_000_000 # 20mb
+max_cycles = 200_000_000_000
+max_verfify_cache_size = 100_000
 
 [script]
 runner = "Assembly"

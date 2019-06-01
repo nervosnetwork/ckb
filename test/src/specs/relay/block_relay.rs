@@ -19,16 +19,12 @@ impl Spec for BlockRelayBasic {
         info!("Generate new block on node1");
         let hash = node1.generate_block();
 
-        let mut rpc_client = node0.rpc_client();
-        let ret = wait_until(10, || {
-            rpc_client.get_block(hash.clone()).call().unwrap().is_some()
-        });
+        let rpc_client = node0.rpc_client();
+        let ret = wait_until(10, || rpc_client.get_block(hash.clone()).is_some());
         assert!(ret, "Block should be relayed to node0");
 
-        let mut rpc_client = node2.rpc_client();
-        let ret = wait_until(10, || {
-            rpc_client.get_block(hash.clone()).call().unwrap().is_some()
-        });
+        let rpc_client = node2.rpc_client();
+        let ret = wait_until(10, || rpc_client.get_block(hash.clone()).is_some());
         assert!(ret, "Block should be relayed to node2");
     }
 }

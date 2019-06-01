@@ -30,24 +30,12 @@ impl Spec for InvalidLocatorSize {
             fbb.finished_data().into(),
         );
 
-        let mut rpc_client = net.nodes[0].rpc_client();
-        let ret = wait_until(10, || {
-            rpc_client
-                .get_peers()
-                .call()
-                .expect("rpc call get_peers failed")
-                .is_empty()
-        });
+        let rpc_client = net.nodes[0].rpc_client();
+        let ret = wait_until(10, || rpc_client.get_peers().is_empty());
         assert!(ret, "Node0 should disconnect test node");
 
         net.connect(node0);
-        let ret = wait_until(10, || {
-            !rpc_client
-                .get_peers()
-                .call()
-                .expect("rpc call get_peers failed")
-                .is_empty()
-        });
+        let ret = wait_until(10, || !rpc_client.get_peers().is_empty());
         assert!(!ret, "Node0 should ban test node");
     }
 

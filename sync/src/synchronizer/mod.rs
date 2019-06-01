@@ -242,59 +242,57 @@ impl<CS: ChainStore> Synchronizer<CS> {
         Ok(())
     }
 
-    //FIXME: guarantee concurrent block process
+    // FIXME: guarantee concurrent block process
+    // TODO: limit and prune orphan pool
     fn insert_new_block(&self, peer: PeerIndex, block: Block) {
-        let block = Arc::new(block);
-        if self
-            .shared
-            .block_header(&block.header().parent_hash())
-            .is_some()
-        {
-            let accept_ret = self.accept_block(peer, &block);
-            if accept_ret.is_ok() {
-                let pre_orphan_block = self
-                    .orphan_block_pool
-                    .remove_blocks_by_parent(&block.header().hash());
-                for block in pre_orphan_block {
-                    let block = Arc::new(block);
-                    if self
-                        .shared
-                        .block_header(&block.header().parent_hash())
-                        .is_some()
-                    {
-                        if let Err(e) = self.accept_block(peer, &block) {
-                            debug!(
-                                target: "sync", "[Synchronizer] accept_block {:?} error {:?}",
-                                block,
-                                e
-                            );
-                        }
-                    } else {
-                        debug!(
-                            target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:x}",
-                            block.header().number(),
-                            block.header().hash()
-                        );
-                        self.orphan_block_pool.insert(Block::clone(&block));
-                    }
-                }
-            } else {
-                debug!(
-                    target: "sync", "[Synchronizer] accept_block {:?} error {}",
-                    block,
-                    accept_ret.unwrap_err()
-                )
-            }
-        } else {
+        let known_parent = |block: &Block| {
+            self.shared
+                .block_header(block.header().parent_hash())
+                .is_some()
+        };
+
+        // Insert the given block into orphan_block_pool if its parent is not found
+        if !known_parent(&block) {
             debug!(
-                target: "sync", "[Synchronizer] insert_orphan_block {:?}------------{:x}",
+                target: "sync", "insert new orphan block {} {:x}",
                 block.header().number(),
                 block.header().hash()
             );
-            self.orphan_block_pool.insert(Block::clone(&block));
+            self.orphan_block_pool.insert(block);
+            return;
         }
 
-        debug!(target: "sync", "[Synchronizer] insert_new_block finish");
+        // Attempt to accept the given block if its parent already exist in database
+        let block = Arc::new(block);
+        if let Err(err) = self.accept_block(peer, &block) {
+            debug!(target: "sync", "accept block {:?} error {:?}", block, err);
+            return;
+        }
+
+        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
+        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
+        let descendants = self
+            .orphan_block_pool
+            .remove_blocks_by_parent(&block.header().hash());
+        for block in descendants {
+            let block = Arc::new(block);
+
+            // If we can not find the block's parent in database, that means it was failed to accept
+            // its parent, so we treat it as a invalid block as well.
+            if !known_parent(&block) {
+                debug!(
+                    target: "sync", "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
+                    block.header().number(),
+                    block.header().hash(),
+                    block.header().parent_hash(),
+                );
+                continue;
+            }
+
+            if let Err(err) = self.accept_block(peer, &block) {
+                debug!(target: "sync", "accept descendant orphan block {:?} error {:?}", block, err);
+            }
+        }
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
@@ -382,7 +380,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
                         if state.chain_sync.protect {
-                            state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
+                            if state.sync_started {
+                                state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
+                                self.n_sync.fetch_sub(1, Ordering::Release);
+                            }
                         } else {
                             eviction.push(*peer);
                             state.disconnect = true;
@@ -1217,23 +1218,40 @@ mod tests {
         let network_context = mock_network_context(6);
         let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
-        peers.on_connected(0.into(), Some(MAX_TIP_AGE * 2), true, true);
-        peers.on_connected(1.into(), Some(MAX_TIP_AGE * 2), true, true);
-        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), true, true);
-        peers.on_connected(3.into(), Some(MAX_TIP_AGE * 2), false, true);
-        peers.on_connected(4.into(), Some(MAX_TIP_AGE * 2), false, true);
-        peers.on_connected(5.into(), Some(MAX_TIP_AGE * 2), false, true);
+        let headers_sync_timeout = MAX_TIP_AGE * 2;
+        let sync_protected_peer = 0.into();
+        peers.on_connected(0.into(), Some(headers_sync_timeout), true, true);
+        peers.on_connected(1.into(), Some(headers_sync_timeout), true, true);
+        peers.on_connected(2.into(), Some(headers_sync_timeout), true, true);
+        peers.on_connected(3.into(), Some(headers_sync_timeout), false, true);
+        peers.on_connected(4.into(), Some(headers_sync_timeout), false, true);
+        peers.on_connected(5.into(), Some(headers_sync_timeout), false, true);
         peers.new_header_received(0.into(), &mock_header_view(1));
         peers.new_header_received(2.into(), &mock_header_view(3));
         peers.new_header_received(3.into(), &mock_header_view(1));
         peers.new_header_received(5.into(), &mock_header_view(3));
+        {
+            // Protected peer 0 start sync
+            peers
+                .state
+                .write()
+                .get_mut(&sync_protected_peer)
+                .unwrap()
+                .start_sync(headers_sync_timeout);
+            synchronizer.n_sync.fetch_add(1, Ordering::Release);
+        }
         synchronizer.eviction(&network_context);
         {
-            assert!({ network_context.disconnected.lock().is_empty() });
             let peer_state = peers.state.read();
-            assert_eq!(peer_state.get(&0.into()).unwrap().chain_sync.protect, true);
-            assert_eq!(peer_state.get(&1.into()).unwrap().chain_sync.protect, true);
-            assert_eq!(peer_state.get(&2.into()).unwrap().chain_sync.protect, true);
+            // Protected peer 0 still in sync state
+            assert_eq!(
+                peer_state.get(&sync_protected_peer).unwrap().sync_started,
+                true
+            );
+            assert_eq!(synchronizer.n_sync.load(Ordering::Acquire), 1);
+
+            assert!({ network_context.disconnected.lock().is_empty() });
+            // start sync with protected peer
             //protect peer is protected from disconnection
             assert!(peer_state
                 .get(&2.into())
@@ -1241,9 +1259,6 @@ mod tests {
                 .chain_sync
                 .work_header
                 .is_none());
-            assert_eq!(peer_state.get(&3.into()).unwrap().chain_sync.protect, false);
-            assert_eq!(peer_state.get(&4.into()).unwrap().chain_sync.protect, false);
-            assert_eq!(peer_state.get(&5.into()).unwrap().chain_sync.protect, false);
             // Our best block known by this peer is behind our tip, and we're either noticing
             // that for the first time, OR this peer was able to catch up to some earlier point
             // where we checked against our tip.
@@ -1278,14 +1293,16 @@ mod tests {
                     .total_difficulty,
                 Some(total_difficulty)
             );
-            assert_eq!(
-                peer_state.get(&3.into()).unwrap().chain_sync.timeout,
-                CHAIN_SYNC_TIMEOUT
-            );
-            assert_eq!(
-                peer_state.get(&4.into()).unwrap().chain_sync.timeout,
-                CHAIN_SYNC_TIMEOUT
-            );
+            for proto_id in &[0usize, 1, 3, 4] {
+                assert_eq!(
+                    peer_state
+                        .get(&(*proto_id).into())
+                        .unwrap()
+                        .chain_sync
+                        .timeout,
+                    CHAIN_SYNC_TIMEOUT
+                );
+            }
         }
         faketime::write_millis(&faketime_file, CHAIN_SYNC_TIMEOUT + 1).expect("write millis");
         synchronizer.eviction(&network_context);
@@ -1311,6 +1328,14 @@ mod tests {
         .expect("write millis");
         synchronizer.eviction(&network_context);
         {
+            let peer_state = peers.state.read();
+            // Protected peer 0 chain_sync timeout
+            assert_eq!(
+                peer_state.get(&sync_protected_peer).unwrap().sync_started,
+                false
+            );
+            assert_eq!(synchronizer.n_sync.load(Ordering::Acquire), 0);
+
             // Peer(3,4) run out of time to catch up!
             let disconnected = network_context.disconnected.lock();
             assert_eq!(

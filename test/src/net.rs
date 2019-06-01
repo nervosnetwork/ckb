@@ -97,14 +97,10 @@ impl Net {
     }
 
     pub fn connect(&self, node: &Node) {
-        let node_info = node
-            .rpc_client()
-            .local_node_info()
-            .call()
-            .expect("rpc call local_node_info failed");
+        let node_info = node.rpc_client().local_node_info();
         self.controller.as_ref().unwrap().0.add_node(
             &node_info.node_id.parse().expect("invalid peer_id"),
-            format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port)
+            format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port())
                 .parse()
                 .expect("invalid address"),
         );
@@ -119,7 +115,7 @@ impl Net {
     pub fn disconnect_all(&self) {
         self.nodes.iter().for_each(|node_a| {
             self.nodes.iter().for_each(|node_b| {
-                if node_a.node_id != node_b.node_id {
+                if node_a.node_id() != node_b.node_id() {
                     node_a.disconnect(node_b)
                 }
             })
@@ -127,18 +123,12 @@ impl Net {
     }
 
     pub fn waiting_for_sync(&self, target: BlockNumber, timeout: u64) {
-        let mut rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
+        let rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
         let mut tip_numbers: HashSet<BlockNumber> = HashSet::with_capacity(self.nodes.len());
         let result = wait_until(timeout, || {
             tip_numbers = rpc_clients
-                .iter_mut()
-                .map(|rpc_client| {
-                    rpc_client
-                        .get_tip_block_number()
-                        .call()
-                        .expect("rpc call get_tip_block_number failed")
-                        .0
-                })
+                .iter()
+                .map(|rpc_client| rpc_client.get_tip_block_number())
                 .collect();
             tip_numbers.len() == 1 && tip_numbers.iter().next().cloned().unwrap() == target
         });

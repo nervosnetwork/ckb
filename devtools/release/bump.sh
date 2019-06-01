@@ -12,6 +12,8 @@ main() {
   local v="$1"
   find . -name 'Cargo.toml' -print0 | xargs -0 sed -i.bak 's/^version = .*/version = "'"$v"'"/'
   find . -name 'Cargo.toml.bak' -exec rm -f {} \;
+  sed -i.bak 's/badge\/version-.*-orange/badge\/version-'"$(echo "$v" | sed s/-/--/g)"'-orange/' README.md
+  rm -f README.md.bak
   cargo check
 }
 

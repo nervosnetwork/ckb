@@ -51,9 +51,11 @@ impl EpochExt {
     }
 
     pub fn block_reward(&self, number: BlockNumber) -> Result<Capacity, FailureError> {
-        if self.start_number() == number {
+        if number >= self.start_number()
+            && number < self.start_number() + self.remainder_reward.as_u64()
+        {
             self.block_reward
-                .safe_add(self.remainder_reward)
+                .safe_add(Capacity::one())
                 .map_err(Into::into)
         } else {
             Ok(self.block_reward)
