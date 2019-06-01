@@ -52,7 +52,7 @@ impl<'a, CS: ChainStore + 'static> BlockTransactionsProcess<'a, CS> {
                 if let Ok(block) = ret {
                     pending.remove();
                     self.relayer
-                        .accept_block(self.nc.as_ref(), self.peer, &Arc::new(block));
+                        .accept_block(self.nc.as_ref(), self.peer, &Arc::new(block))?;
                 }
             }
         }

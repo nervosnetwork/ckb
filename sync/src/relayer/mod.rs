@@ -211,7 +211,12 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         }
     }
 
-    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
+    pub fn accept_block(
+        &self,
+        nc: &CKBProtocolContext,
+        peer: PeerIndex,
+        block: &Arc<Block>,
+    ) -> Result<(), FailureError> {
         let ret = self.chain.process_block(Arc::clone(&block), true);
 
         if ret.is_ok() {
@@ -245,6 +250,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 ret
             );
         }
+        ret
     }
 
     pub fn reconstruct_block(
