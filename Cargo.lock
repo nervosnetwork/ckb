@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "blake2b-rs"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cc 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -375,6 +375,7 @@ dependencies = [
  "ckb-pow 0.15.0-pre",
  "ckb-resource 0.15.0-pre",
  "ckb-rpc 0.15.0-pre",
+ "ckb-script 0.15.0-pre",
  "ckb-shared 0.15.0-pre",
  "ckb-store 0.15.0-pre",
  "ckb-sync 0.15.0-pre",
@@ -705,7 +706,7 @@ dependencies = [
  "ckb-protocol 0.15.0-pre",
  "ckb-resource 0.15.0-pre",
  "ckb-store 0.15.0-pre",
- "ckb-vm 0.13.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=85e38f0)",
+ "ckb-vm 0.13.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=d926277)",
  "crypto 0.15.0-pre",
  "dao 0.15.0-pre",
  "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -879,12 +880,12 @@ dependencies = [
 [[package]]
 name = "ckb-vm"
 version = "0.13.0-pre"
-source = "git+https://github.com/nervosnetwork/ckb-vm?rev=85e38f0#85e38f07ed3de5334ebc06d74b18702d0ec87bdc"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=d926277#d9262775dbffdf4e5cbb894e1ea9ea7555be094f"
 dependencies = [
  "byteorder 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.26 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-vm-definitions 0.13.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=85e38f0)",
+ "ckb-vm-definitions 0.13.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=d926277)",
  "goblin 0.0.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.54 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -892,7 +893,7 @@ dependencies = [
 [[package]]
 name = "ckb-vm-definitions"
 version = "0.13.0-pre"
-source = "git+https://github.com/nervosnetwork/ckb-vm?rev=85e38f0#85e38f07ed3de5334ebc06d74b18702d0ec87bdc"
+source = "git+https://github.com/nervosnetwork/ckb-vm?rev=d926277#d9262775dbffdf4e5cbb894e1ea9ea7555be094f"
 
 [[package]]
 name = "clang-sys"
@@ -1489,7 +1490,7 @@ dependencies = [
 name = "hash"
 version = "0.15.0-pre"
 dependencies = [
- "blake2b-rs 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "blake2b-rs 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -3713,7 +3714,7 @@ dependencies = [
 "checksum bit-vec 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f59bbe95d4e52a6398ec21238d31577f2b28a9d86807f06ca59d191d8440d0bb"
 "checksum bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "228047a76f468627ca71776ecdebd732a3423081fcf5125585bcd7c49886ce12"
 "checksum blake2 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "91721a6330935673395a0607df4d49a9cb90ae12d259f1b3e0a3f6e1d486872e"
-"checksum blake2b-rs 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "895ae726056ce2ab1b19854be889ca43a4a2c0b02c355bee90aa9e8ee6d0379b"
+"checksum blake2b-rs 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "9527b166a2d75fc95f72e09bc57030cd115960a5357cf55f6b7af7bffe678aab"
 "checksum block-buffer 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "49665c62e0e700857531fa5d3763e91b539ff1abeebd56808d378b495870d60d"
 "checksum block-cipher-trait 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1c924d49bd09e7c06003acda26cd9742e796e34282ec6c1189404dee0c1f4774"
 "checksum block-padding 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "d75255892aeb580d3c566f213a2b6fdc1c66667839f45719ee1d30ebf2aea591"
@@ -3728,8 +3729,8 @@ dependencies = [
 "checksum cexpr 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "a7fa24eb00d5ffab90eaeaf1092ac85c04c64aaf358ea6f84505b8116d24c6af"
 "checksum cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "11d43355396e872eefb45ce6342e4374ed7bc2b3a502d1b28e36d6e23c05d1f4"
 "checksum chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "45912881121cb26fad7c38c17ba7daa18764771836b34fab7d3fbd93ed633878"
-"checksum ckb-vm 0.13.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=85e38f0)" = "<none>"
-"checksum ckb-vm-definitions 0.13.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=85e38f0)" = "<none>"
+"checksum ckb-vm 0.13.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=d926277)" = "<none>"
+"checksum ckb-vm-definitions 0.13.0-pre (git+https://github.com/nervosnetwork/ckb-vm?rev=d926277)" = "<none>"
 "checksum clang-sys 0.26.4 (registry+https://github.com/rust-lang/crates.io-index)" = "6ef0c1bcf2e99c649104bd7a7012d8f8802684400e03db0ec0af48583c6fa0e4"
 "checksum clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5067f5bb2d80ef5d68b4c87db81601f0b75bca627bc2ef76b141d7b846a3c6d9"
 "checksum clicolors-control 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "73abfd4c73d003a674ce5d2933fca6ce6c42480ea84a5ffe0a2dc39ed56300f9"

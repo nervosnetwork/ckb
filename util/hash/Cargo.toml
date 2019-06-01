@@ -6,7 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-blake2b-rs = "0.1.0"
+blake2b-rs = "0.1.4"
 
 [dev-dependencies]
 faster-hex = "0.3"

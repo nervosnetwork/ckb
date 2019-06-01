@@ -1,7 +1,9 @@
 use crate::{Col, DBConfig, DbBatch, Error, KeyValueDB, Result};
 use log::{info, warn};
 use rocksdb::{ColumnFamily, Error as RdbError, IteratorMode, Options, WriteBatch, DB};
+use std::ffi::OsString;
 use std::ops::Range;
+use std::path::{Component, PathBuf};
 use std::sync::Arc;
 
 // If any data format in database was changed, we have to update this constant manually.
@@ -13,6 +15,50 @@ pub(crate) const VERSION_VALUE: &str = "0.1301.0";
 
 pub struct RocksDB {
     inner: Arc<DB>,
+}
+
+// This is a windows-specific fix. Even though we are using correct path joins
+// throughout this project, rocksdb has a quirk where it would uses unix paths:
+// https://github.com/facebook/rocksdb/blob/000b9ec217663faad1d0196b28c623149e01e024/file/filename.cc#L159
+// The result here is that we might have paths like \\?\C:\ckb\node\data\db/LOCK,
+// which would be rejected by windows. This method would process pathes such as
+// \\?\C:\ckb\node\data\db into //?/C:/ckb/node/data/db, making the final LOCK path
+// as //?/C:/ckb/node/data/db/LOCK and it should work here.
+// The same code also works on UNIX systems, so we are keeping it in both cases
+// to detect build errors earlier.
+fn normalize_path(path: &PathBuf) -> OsString {
+    let mut s = OsString::new();
+    for c in path.components() {
+        match c {
+            Component::Prefix(prefix_component) => {
+                // Prefix component is a windows-specific path prefix, such as
+                // C: or \\server\share. Since OsString does not have a replace
+                // method, we have to cast it to a normal str, do the replacement
+                // and convert it back. This might bring a problem when we have
+                // a prefix that is not UTF-8. Let's revisit it later when it indeed
+                // is an issue.
+                let prefix: OsString = prefix_component
+                    .as_os_str()
+                    .to_str()
+                    .expect("invalid prefix on windows!")
+                    .replace("\\", "/")
+                    .to_string()
+                    .into();
+                if !s.is_empty() {
+                    s.push("/");
+                }
+                s.push(prefix);
+            }
+            Component::Normal(part) => {
+                if !s.is_empty() {
+                    s.push("/");
+                }
+                s.push(part.to_os_string());
+            }
+            _ => (),
+        }
+    }
+    s
 }
 
 impl RocksDB {
@@ -29,14 +75,16 @@ impl RocksDB {
         let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
         let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
 
-        let db = DB::open_cf(&opts, &config.path, &cf_options).or_else(|err| {
+        let path = normalize_path(&config.path);
+
+        let db = DB::open_cf(&opts, &path, &cf_options).or_else(|err| {
             let err_str = err.as_ref();
             if err_str.starts_with("Invalid argument:")
                 && err_str.ends_with("does not exist (create_if_missing is false)")
             {
                 info!("Initialize a new database");
                 opts.create_if_missing(true);
-                let db = DB::open_cf(&opts, &config.path, &cf_options).map_err(|err| {
+                let db = DB::open_cf(&opts, &path, &cf_options).map_err(|err| {
                     Error::DBError(format!("failed to open a new created database: {}", err))
                 })?;
                 db.put(ver_key, ver_val).map_err(|err| {
@@ -48,11 +96,11 @@ impl RocksDB {
                 let mut repair_opts = Options::default();
                 repair_opts.create_if_missing(false);
                 repair_opts.create_missing_column_families(false);
-                DB::repair(repair_opts, &config.path).map_err(|err| {
+                DB::repair(repair_opts, &path).map_err(|err| {
                     Error::DBError(format!("failed to repair the database: {}", err))
                 })?;
                 warn!("Opening the repaired rocksdb ...");
-                DB::open_cf(&opts, &config.path, &cf_options).map_err(|err| {
+                DB::open_cf(&opts, &path, &cf_options).map_err(|err| {
                     Error::DBError(format!("failed to open the repaired database: {}", err))
                 })
             } else {
