@@ -20,7 +20,7 @@ fn rerun_if_changed(path_str: &str) -> bool {
 
 fn main() {
     let files_stdout = std::process::Command::new("git")
-        .args(&["ls-tree", "--name-only", "HEAD"])
+        .args(&["ls-tree", "-r", "--name-only", "HEAD"])
         .output()
         .ok()
         .and_then(|r| String::from_utf8(r.stdout).ok());
@@ -37,6 +37,11 @@ fn main() {
 
         println!("cargo:rerun-if-changed=build.rs");
         println!("cargo:rerun-if-changed=.git/HEAD");
+
+        let head = std::fs::read_to_string(".git/HEAD").expect("read .git/HEAD");
+        if head.starts_with("ref: ") {
+            println!("cargo:rerun-if-changed=.git/{}", head[5..].trim());
+        }
     }
 
     for file in files_stdout.iter().flat_map(|stdout| stdout.lines()) {
