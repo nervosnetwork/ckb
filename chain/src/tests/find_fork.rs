@@ -120,7 +120,7 @@ fn test_find_fork_case2() {
         parent = new_block.header().to_owned();
     }
 
-    // fork2 total_difficulty 400
+    // fork1 total_difficulty 400
     for blk in &fork1 {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
@@ -136,6 +136,7 @@ fn test_find_fork_case2() {
 
     let tip_number = { shared.lock_chain_state().tip_number() };
 
+    // fork2 total_difficulty 480
     let difficulty = parent.difficulty().to_owned();
     let new_block = gen_block(
         &parent,
@@ -204,7 +205,7 @@ fn test_find_fork_case3() {
         parent = new_block.header().to_owned();
     }
 
-    // fork2 total_difficulty 240
+    // fork1 total_difficulty 240
     for blk in &fork1 {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
@@ -220,6 +221,7 @@ fn test_find_fork_case3() {
 
     let tip_number = { shared.lock_chain_state().tip_number() };
 
+    // fork2 total_difficulty 300
     let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
 
@@ -280,7 +282,7 @@ fn test_find_fork_case4() {
         parent = new_block.header().to_owned();
     }
 
-    // fork2 total_difficulty 200
+    // fork1 total_difficulty 200
     for blk in &fork1 {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
@@ -296,6 +298,7 @@ fn test_find_fork_case4() {
 
     let tip_number = { shared.lock_chain_state().tip_number() };
 
+    // fork2 total_difficulty 260
     let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
     fork2.push(new_block.clone());
 
