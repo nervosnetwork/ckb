@@ -694,7 +694,7 @@ impl TransactionBuilder {
     ///
     /// When using this method, the caller should ensure the input hashes is right, or the caller
     /// will get a incorrect Transaction.
-    pub unsafe fn build_unchecked(self, hash: H256, witness_hash: H256) -> Transaction {
+    pub fn build_unchecked(self, hash: H256, witness_hash: H256) -> Transaction {
         let Self {
             version,
             deps,

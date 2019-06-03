@@ -139,15 +139,13 @@ pub(crate) fn deserialize_transaction(
     let witnesses: Vec<Witness> = config.deserialize(&tx[header[5]..])?;
     let hash: H256 = config.deserialize(&tx[header[6]..])?;
     let witness_hash: H256 = config.deserialize(&tx[header[7]..])?;
-    unsafe {
-        Ok(TransactionBuilder::default()
-            .version(version)
-            .deps(deps)
-            .inputs(inputs)
-            .outputs(outputs)
-            .witnesses(witnesses)
-            .build_unchecked(hash, witness_hash))
-    }
+    Ok(TransactionBuilder::default()
+        .version(version)
+        .deps(deps)
+        .inputs(inputs)
+        .outputs(outputs)
+        .witnesses(witnesses)
+        .build_unchecked(hash, witness_hash))
 }
 
 pub(crate) fn serialize_block_body_size(
