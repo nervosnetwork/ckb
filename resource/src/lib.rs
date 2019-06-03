@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn test_resource_locator_resolve() {
         let dir = mkdir();
-        let spec_dev_path = touch(dir.path().join("specs/dev.toml"));
+        let spec_dev_path = touch(dir.path().join("specs").join("dev.toml"));
 
         let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf())
             .expect("resource root dir exists");
@@ -257,11 +257,11 @@ mod tests {
         );
 
         assert_eq!(
-            locator.resolve("specs/testnet.toml".into()),
+            locator.resolve(PathBuf::from("specs").join("testnet.toml")),
             Some(Resource::Bundled("specs/testnet.toml".into()))
         );
         assert_eq!(
-            locator.resolve("specs/dev.toml".into()),
+            locator.resolve(PathBuf::from("specs").join("dev.toml")),
             Some(Resource::FileSystem(spec_dev_path.clone()))
         );
 
