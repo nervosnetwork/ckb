@@ -132,8 +132,7 @@ impl ResourceLocator {
         match relative_to {
             Resource::Bundled(key) => {
                 // Bundled file can only refer to bundled files.
-                let relative_start_dir = parent_dir(PathBuf::from(key)).join(&path);
-                bundled(relative_start_dir)
+                bundled(parent_dir(PathBuf::from(key)).join(&path))
             }
             Resource::FileSystem(relative_to_path) => {
                 if path.is_absolute() {
