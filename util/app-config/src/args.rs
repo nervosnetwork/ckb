@@ -3,7 +3,6 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_instrument::Format;
 use ckb_miner::MinerConfig;
 use ckb_pow::PowEngine;
-use ckb_resource::ResourceLocator;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -39,7 +38,7 @@ pub struct MinerArgs {
 }
 
 pub struct InitArgs {
-    pub locator: ResourceLocator,
+    pub root_dir: PathBuf,
     pub chain: String,
     pub rpc_port: String,
     pub p2p_port: String,

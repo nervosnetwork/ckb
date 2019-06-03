@@ -13,7 +13,6 @@ use build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
 use ckb_logger::{info_target, LoggerInitGuard};
-use ckb_resource::ResourceLocator;
 use clap::{value_t, ArgMatches};
 use std::path::PathBuf;
 
@@ -21,7 +20,6 @@ pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
 pub struct Setup {
     subcommand_name: String,
-    resource_locator: ResourceLocator,
     config: AppConfig,
     is_sentry_enabled: bool,
 }
@@ -43,18 +41,12 @@ impl Setup {
             }
         };
 
-        let resource_locator = Self::locator_from_matches(matches)?;
-        let config = AppConfig::load_for_subcommand(&resource_locator, subcommand_name)?;
-        if config.is_bundled() {
-            eprintln!("Not a CKB directory, initialize one with `ckb init`.");
-            return Err(ExitCode::Config);
-        }
-
+        let root_dir = Self::root_dir_from_matches(matches)?;
+        let config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
         let is_sentry_enabled = is_daemon(&subcommand_name) && config.sentry().is_enabled();
 
         Ok(Setup {
             subcommand_name: subcommand_name.to_string(),
-            resource_locator,
             config,
             is_sentry_enabled,
         })
@@ -169,7 +161,7 @@ impl Setup {
             eprintln!("Deprecated: Option `--export-specs` is deprecated");
         }
 
-        let locator = Self::locator_from_matches(matches)?;
+        let root_dir = Self::root_dir_from_matches(matches)?;
         let list_chains =
             matches.is_present(cli::ARG_LIST_CHAINS) || matches.is_present("list-specs");
         let force = matches.is_present(cli::ARG_FORCE);
@@ -188,7 +180,7 @@ impl Setup {
         };
 
         Ok(InitArgs {
-            locator,
+            root_dir,
             chain,
             rpc_port,
             p2p_port,
@@ -199,16 +191,17 @@ impl Setup {
         })
     }
 
-    pub fn locator_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<ResourceLocator, ExitCode> {
+    pub fn root_dir_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<PathBuf, ExitCode> {
         let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
             Some(arg_config_dir) => PathBuf::from(arg_config_dir),
             None => ::std::env::current_dir()?,
         };
-        ResourceLocator::with_root_dir(config_dir).map_err(Into::into)
+        std::fs::create_dir_all(&config_dir)?;
+        Ok(config_dir)
     }
 
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
-        let result = self.config.chain_spec(&self.resource_locator);
+        let result = self.config.chain_spec();
         if let Ok(spec) = &result {
             if self.is_sentry_enabled {
                 sentry::configure_scope(|scope| {

@@ -18,14 +18,13 @@ use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::{BlockNumber, Bytes, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
-use ckb_resource::{Resource, ResourceLocator};
+use ckb_resource::Resource;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 pub mod consensus;
@@ -68,9 +67,7 @@ pub struct Seal {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SystemCells {
-    pub files: Vec<PathBuf>,
-    #[serde(skip)]
-    pub resources: Vec<Resource>,
+    pub files: Vec<Resource>,
     pub lock: Script,
 }
 
@@ -128,15 +125,10 @@ impl fmt::Display for SpecLoadError {
 }
 
 impl ChainSpec {
-    pub fn resolve_relative_to(
-        locator: &ResourceLocator,
-        spec_path: PathBuf,
-        config_file: &Resource,
-    ) -> Result<ChainSpec, Box<dyn Error>> {
-        let resource = match locator.resolve_relative_to(spec_path, config_file) {
-            Some(r) => r,
-            None => return Err(SpecLoadError::file_not_found()),
-        };
+    pub fn load_from(resource: &Resource) -> Result<ChainSpec, Box<dyn Error>> {
+        if !resource.exists() {
+            return Err(SpecLoadError::file_not_found());
+        }
         let config_bytes = resource.get()?;
         let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
         if !(resource.is_bundled() || spec.name == "ckb_dev" || spec.name == "ckb_integration_test")
@@ -144,19 +136,11 @@ impl ChainSpec {
             return Err(SpecLoadError::chain_name_not_allowed(spec.name.clone()));
         }
 
-        let system_cells_resources = spec
-            .genesis
-            .system_cells
-            .files
-            .iter()
-            .map(|path| {
-                locator
-                    .resolve_relative_to(path.clone(), &resource)
-                    .ok_or(SpecLoadError::FileNotFound)
-            })
-            .collect::<Result<Vec<_>, SpecLoadError>>()?;
-
-        spec.genesis.system_cells.resources = system_cells_resources;
+        if let Some(parent) = resource.parent() {
+            for r in spec.genesis.system_cells.files.iter_mut() {
+                r.absolutize(parent)
+            }
+        }
 
         Ok(spec)
     }
@@ -271,8 +255,7 @@ impl SystemCells {
     }
 
     fn build_outputs_into(&self, outputs: &mut Vec<CellOutput>) -> Result<(), Box<dyn Error>> {
-        assert_eq!(self.files.len(), self.resources.len());
-        for res in &self.resources {
+        for res in &self.files {
             let data = res.get()?;
             let mut cell = CellOutput::default();
             cell.data = data.into_owned().into();
@@ -308,15 +291,13 @@ pub mod test {
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
-        let spec_path = match name {
-            "ckb_dev" => PathBuf::from("specs/dev.toml"),
-            "ckb_testnet" => PathBuf::from("specs/testnet.toml"),
+        let res = match name {
+            "ckb_dev" => Resource::bundled("specs/dev.toml".to_string()),
+            "ckb_testnet" => Resource::bundled("specs/testnet.toml".to_string()),
             _ => panic!("Unknown spec name {}", name),
         };
 
-        let locator = ResourceLocator::current_dir().unwrap();
-        let ckb = Resource::Bundled("ckb.toml".to_string());
-        ChainSpec::resolve_relative_to(&locator, spec_path, &ckb).expect("load spec by name")
+        ChainSpec::load_from(&res).expect("load spec by name")
     }
 
     #[test]

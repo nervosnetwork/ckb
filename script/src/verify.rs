@@ -12,7 +12,7 @@ use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{BlockNumber, Capacity};
 use ckb_core::{Bytes, Cycle};
 use ckb_logger::info;
-use ckb_resource::bundled;
+use ckb_resource::Resource;
 use ckb_store::{ChainStore, LazyLoadCellOutput};
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
@@ -22,7 +22,6 @@ use dao::calculate_maximum_withdraw;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
 use std::cmp::min;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(all(unix, target_pointer_width = "64"))]
@@ -391,8 +390,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         // TODO: this is a temporary solution for now, later NervosDAO will be
         // implemented as a type script, while the default lock remains a lock
         // script.
-        let program = bundled(PathBuf::from("specs/cells/secp256k1_blake160_sighash_all"))
-            .ok_or(ScriptError::NoScript)?
+        let program = Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
             .get()
             .map_err(|_| ScriptError::IOError)?;
 

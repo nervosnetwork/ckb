@@ -29,10 +29,6 @@ specs/cells/secp256k1_sighash_all
 Then `ckb.toml` refers `dev.toml` as `specs/dev.toml`, while
 `specs/dev.toml` refers `secp256k1_sighash_all` as `cells/secp256k1_sighash_all`.
 
-For security reason, there is a limitation of the file reference. The bundled
-file can only refer to bundled files, while a file located in the file system
-can either refer to another file in the file system or a bundled one.
-
 ## How to Change Config
 
 First export the bundled config files into current directory using subcommand `init`.

@@ -1,8 +1,8 @@
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DBConfig {
     #[serde(default)]
     pub path: PathBuf,
