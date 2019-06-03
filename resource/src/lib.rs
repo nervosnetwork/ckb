@@ -198,7 +198,11 @@ fn path_as_key(path: &PathBuf) -> Cow<str> {
 }
 
 fn file_system(path: PathBuf) -> Option<Resource> {
-    path.canonicalize().ok().map(Resource::FileSystem)
+    if path.exists() {
+        Some(Resource::FileSystem(path))
+    } else {
+        None
+    }
 }
 
 pub fn bundled(path: PathBuf) -> Option<Resource> {
