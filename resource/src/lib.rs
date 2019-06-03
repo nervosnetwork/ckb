@@ -82,16 +82,13 @@ impl ResourceLocator {
     pub fn with_root_dir(root_dir: PathBuf) -> Result<ResourceLocator> {
         fs::create_dir_all(&root_dir)?;
 
-        root_dir
-            .canonicalize()
-            .map(|root_dir| ResourceLocator { root_dir })
+        Ok(ResourceLocator { root_dir })
     }
 
     pub fn current_dir() -> Result<ResourceLocator> {
         let root_dir = ::std::env::current_dir()?;
-        root_dir
-            .canonicalize()
-            .map(|root_dir| ResourceLocator { root_dir })
+
+        Ok(ResourceLocator { root_dir })
     }
 
     pub fn ckb(&self) -> Resource {
@@ -169,10 +166,7 @@ impl ResourceLocator {
     }
 
     pub fn export<'a>(&self, name: &str, context: &TemplateContext<'a>) -> Result<()> {
-        // We need to do the join one part at a time to handle Windows paths.
-        let target = name
-            .split('/')
-            .fold(self.root_dir.clone(), |path, name| path.join(name));
+        let target = self.root_dir.join(name);
         let resource = Resource::Bundled(name.to_string());
         let template = Template::new(from_utf8(resource.get()?)?);
         let mut out = NamedTempFile::new_in(&self.root_dir)?;
@@ -244,13 +238,13 @@ mod tests {
             .open(&path)
             .expect("touch file in test");
 
-        path.as_ref().canonicalize().expect("touch file in test")
+        path.as_ref().to_path_buf()
     }
 
     #[test]
     fn test_resource_locator_resolve() {
         let dir = mkdir();
-        let spec_dev_path = touch(dir.path().join("specs").join("dev.toml"));
+        let spec_dev_path = touch(dir.path().join("specs/dev.toml"));
 
         let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf())
             .expect("resource root dir exists");
@@ -261,11 +255,11 @@ mod tests {
         );
 
         assert_eq!(
-            locator.resolve(PathBuf::from("specs").join("testnet.toml")),
+            locator.resolve("specs/testnet.toml".into()),
             Some(Resource::Bundled("specs/testnet.toml".into()))
         );
         assert_eq!(
-            locator.resolve(PathBuf::from("specs").join("dev.toml")),
+            locator.resolve("specs/dev.toml".into()),
             Some(Resource::FileSystem(spec_dev_path.clone()))
         );
 

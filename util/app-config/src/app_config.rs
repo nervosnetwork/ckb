@@ -197,7 +197,10 @@ fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> Result<PathBuf, 
 
 fn mkdir(dir: PathBuf) -> Result<PathBuf, ExitCode> {
     fs::create_dir_all(&dir)?;
-    dir.canonicalize().map_err(Into::into)
+    // TODO: Use https://github.com/danreeves/path-clean to clean the
+    // path if needed. std::fs::canonicalize will bring windows compatibility
+    // problems
+    Ok(dir)
 }
 
 fn touch(path: PathBuf) -> Result<PathBuf, ExitCode> {
