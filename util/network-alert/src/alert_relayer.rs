@@ -41,12 +41,12 @@ impl AlertRelayer {
         }
     }
 
-    pub fn notifier(&self) -> Arc<Mutex<Notifier>> {
-        Arc::clone(&self.notifier)
+    pub fn notifier(&self) -> &Arc<Mutex<Notifier>> {
+        &self.notifier
     }
 
-    pub fn verifier(&self) -> Arc<Verifier> {
-        Arc::clone(&self.verifier)
+    pub fn verifier(&self) -> &Arc<Verifier> {
+        &self.verifier
     }
 
     fn clear_expired_alerts(&mut self) {

@@ -78,8 +78,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let alert_config = args.config.alert.unwrap_or_default();
     let alert_relayer = AlertRelayer::new(version.to_string(), alert_config);
 
-    let alert_notifier = alert_relayer.notifier();
-    let alert_verifier = alert_relayer.verifier();
+    let alert_notifier = Arc::clone(alert_relayer.notifier());
+    let alert_verifier = Arc::clone(alert_relayer.verifier());
 
     let synchronizer_clone = synchronizer.clone();
     let protocols = vec![
