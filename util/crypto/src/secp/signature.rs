@@ -50,15 +50,6 @@ impl Signature {
         Signature(sig)
     }
 
-    /// Check if this is a "low" signature.
-    pub fn is_low_s(&self) -> bool {
-        if let Ok(h_s) = H256::from_slice(self.s()) {
-            h_s <= HALF_N
-        } else {
-            false
-        }
-    }
-
     /// Check if each component of the signature is in range.
     pub fn is_valid(&self) -> bool {
         let h_r = match H256::from_slice(self.r()) {
