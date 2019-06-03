@@ -50,7 +50,7 @@ impl Spec for AlertPropagation {
         // send alert
         node0.rpc_client().send_alert(alert.clone().into());
         info!("Waiting for alert relay");
-        let ret = wait_until(10, || {
+        let ret = wait_until(20, || {
             net.nodes
                 .iter()
                 .all(|node| !node.rpc_client().get_blockchain_info().warnings.is_empty())
@@ -81,7 +81,7 @@ impl Spec for AlertPropagation {
             .collect();
         node0.rpc_client().send_alert(alert2.into());
         info!("Waiting for alert relay");
-        let ret = wait_until(10, || {
+        let ret = wait_until(20, || {
             net.nodes
                 .iter()
                 .all(|node| node.rpc_client().get_blockchain_info().warnings != warning1)
