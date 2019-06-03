@@ -28,7 +28,14 @@ impl Verifier {
             .signatures
             .iter()
             .filter_map(|sig_data| match Signature::from_slice(sig_data) {
-                Ok(sig) => Some(sig),
+                Ok(sig) => {
+                    if sig.is_valid() {
+                        Some(sig)
+                    } else {
+                        debug!("invalid signature: {:?}", sig);
+                        None
+                    }
+                }
                 Err(err) => {
                     debug!("signature error: {}", err);
                     None
