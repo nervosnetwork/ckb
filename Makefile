@@ -21,6 +21,11 @@ integration: setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build ${VERBOSE}
 	cd test && cargo run ../target/debug/ckb
 
+integration-windows:
+	cp -f Cargo.lock test/Cargo.lock
+	cargo build ${VERBOSE}
+	cd test && cargo run ../target/debug/ckb
+
 integration-release: setup-ckb-test
 	cargo build ${VERBOSE} --release
 	cd test && cargo run --release -- ../target/release/ckb
