@@ -15,6 +15,40 @@ impl OccupiedCapacity for Capacity {
     }
 }
 
+pub trait AsCapacity {
+    fn as_capacity(self) -> Capacity;
+}
+
+impl AsCapacity for Capacity {
+    fn as_capacity(self) -> Capacity {
+        self
+    }
+}
+
+impl AsCapacity for u64 {
+    fn as_capacity(self) -> Capacity {
+        Capacity::shannons(self)
+    }
+}
+
+impl AsCapacity for u32 {
+    fn as_capacity(self) -> Capacity {
+        Capacity::shannons(u64::from(self))
+    }
+}
+
+impl AsCapacity for u16 {
+    fn as_capacity(self) -> Capacity {
+        Capacity::shannons(u64::from(self))
+    }
+}
+
+impl AsCapacity for u8 {
+    fn as_capacity(self) -> Capacity {
+        Capacity::shannons(u64::from(self))
+    }
+}
+
 // A `Byte` contains how many `Shannons`.
 const BYTE_SHANNONS: u64 = 100_000_000;
 
@@ -57,16 +91,23 @@ impl Capacity {
         self.0
     }
 
-    pub fn safe_add(self, rhs: Self) -> Result<Self> {
+    pub fn safe_add<C: AsCapacity>(self, rhs: C) -> Result<Self> {
         self.0
-            .checked_add(rhs.0)
+            .checked_add(rhs.as_capacity().0)
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }
 
-    pub fn safe_sub(self, rhs: Self) -> Result<Self> {
+    pub fn safe_sub<C: AsCapacity>(self, rhs: C) -> Result<Self> {
         self.0
-            .checked_sub(rhs.0)
+            .checked_sub(rhs.as_capacity().0)
+            .map(Capacity::shannons)
+            .ok_or(Error::Overflow)
+    }
+
+    pub fn safe_mul<C: AsCapacity>(self, rhs: C) -> Result<Self> {
+        self.0
+            .checked_mul(rhs.as_capacity().0)
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }

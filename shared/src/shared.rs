@@ -206,11 +206,11 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
 
         let mut index = parent.to_owned();
         for (id, tx_fee) in store
-            .get_block_body(index.hash())
+            .get_block_txs_hashes(index.hash())
             .expect("block body stored")
             .iter()
             .skip(1)
-            .map(Transaction::proposal_short_id)
+            .map(ProposalShortId::from_tx_hash)
             .zip(
                 store
                     .get_block_ext(index.hash())
@@ -236,11 +236,11 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
                 .flat_map(|(_, ids)| ids.iter().cloned())
                 .collect();
             for (id, tx_fee) in store
-                .get_block_body(index.hash())
+                .get_block_txs_hashes(index.hash())
                 .expect("block body stored")
                 .iter()
                 .skip(1)
-                .map(Transaction::proposal_short_id)
+                .map(ProposalShortId::from_tx_hash)
                 .zip(
                     store
                         .get_block_ext(index.hash())

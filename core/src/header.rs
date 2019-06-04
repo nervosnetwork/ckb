@@ -326,10 +326,21 @@ impl PartialEq for Header {
     }
 }
 
-#[derive(Default)]
 pub struct HeaderBuilder {
     raw: RawHeader,
     seal: Seal,
+}
+
+impl Default for HeaderBuilder {
+    fn default() -> Self {
+        HeaderBuilder {
+            raw: RawHeader {
+                difficulty: U256::one(),
+                ..Default::default()
+            },
+            seal: Seal::default(),
+        }
+    }
 }
 
 impl HeaderBuilder {

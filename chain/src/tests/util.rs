@@ -17,7 +17,7 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use test_chain_utils::create_always_success_cell;
 
-fn create_always_success_tx() -> Transaction {
+pub(crate) fn create_always_success_tx() -> Transaction {
     let (ref always_success_cell, _) = create_always_success_cell();
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
@@ -27,7 +27,7 @@ fn create_always_success_tx() -> Transaction {
 
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+
 // invocations, let's stick to this way till this becomes a real problem
-fn create_always_success_out_point() -> OutPoint {
+pub(crate) fn create_always_success_out_point() -> OutPoint {
     OutPoint::new_cell(create_always_success_tx().hash().to_owned(), 0)
 }
 
@@ -65,7 +65,7 @@ pub(crate) fn start_chain(
     (chain_controller, shared, parent)
 }
 
-fn create_cellbase(number: BlockNumber) -> Transaction {
+pub(crate) fn create_cellbase(number: BlockNumber) -> Transaction {
     let (_, always_success_script) = create_always_success_cell();
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
