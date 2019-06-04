@@ -9,7 +9,7 @@ jobs:
       - script: make test
         displayName: Run unit tests
   - job: IntegrationTest
-    condition: eq(variables['Build.Reason'], 'PullRequest')
+    condition: ne(variables['Build.Reason'], 'PullRequest')
     pool:
       vmImage: 'VS2017-Win2016'
     steps:
