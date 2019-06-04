@@ -29,11 +29,13 @@ impl Spec for AlertPropagation {
 
         let node0 = &net.nodes[0];
         let warning1 = "pretend we are in dangerous status";
+        let notice_until = faketime::unix_time_as_millis() + 100_000;
 
         // send alert
         let mut alert = AlertBuilder::default()
             .id(42)
             .message(warning1.to_string())
+            .notice_until(notice_until)
             .build();
         let msg: Message = alert.hash();
         let signatures = self
@@ -67,6 +69,7 @@ impl Spec for AlertPropagation {
             .id(2)
             .cancel(42)
             .message(warning2.to_string())
+            .notice_until(notice_until)
             .build();
         let msg: Message = alert2.hash();
         let signatures = self

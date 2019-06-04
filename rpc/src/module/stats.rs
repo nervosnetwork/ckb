@@ -40,14 +40,17 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
         let epoch = tip_header.epoch();
         let difficulty = tip_header.difficulty().clone();
         let is_initial_block_download = self.synchronizer.shared.is_initial_block_download();
-        let warnings = self
-            .alert_notifier
-            .lock()
-            .noticed_alerts()
-            .into_iter()
-            .map(|alert| alert.message.clone())
-            .collect::<Vec<String>>()
-            .join("\n");
+        let warnings = {
+            let now = faketime::unix_time_as_millis();
+            let mut notifier = self.alert_notifier.lock();
+            notifier.clear_expired_alerts(now);
+            notifier
+                .noticed_alerts()
+                .into_iter()
+                .map(|alert| alert.message.clone())
+                .collect::<Vec<String>>()
+                .join("\n")
+        };
 
         Ok(ChainInfo {
             chain,

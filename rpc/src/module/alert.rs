@@ -42,6 +42,16 @@ impl AlertRpcImpl {
 impl AlertRpc for AlertRpcImpl {
     fn send_alert(&self, alert: Alert) -> Result<()> {
         let alert: CoreAlert = alert.into();
+        let now_ms = faketime::unix_time_as_millis();
+        if alert.notice_until < now_ms {
+            Err(RPCError::custom(
+                RPCError::Invalid,
+                format!(
+                    "expired alert, notice_until: {} server: {}",
+                    alert.notice_until, now_ms
+                ),
+            ))?;
+        }
 
         let result = self.verifier.verify_signatures(&alert);
 
