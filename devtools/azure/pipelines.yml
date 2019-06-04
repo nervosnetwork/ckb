@@ -1,5 +1,6 @@
 jobs:
   - job: UnitTest
+    condition: eq(variables['Build.Reason'], 'PullRequest')
     pool:
       vmImage: 'VS2017-Win2016'
     steps:
