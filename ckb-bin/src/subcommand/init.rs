@@ -3,6 +3,7 @@ use ckb_resource::{
     TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
     SPEC_DEV_FILE_NAME,
 };
+use ckb_script::Runner;
 
 pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     if args.list_chains {
@@ -12,12 +13,14 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         return Ok(());
     }
 
+    let runner = Runner::default().to_string();
     let context = TemplateContext {
         spec: &args.chain,
         rpc_port: &args.rpc_port,
         p2p_port: &args.p2p_port,
         log_to_file: args.log_to_file,
         log_to_stdout: args.log_to_stdout,
+        runner: &runner,
     };
 
     let exported = args.locator.exported();

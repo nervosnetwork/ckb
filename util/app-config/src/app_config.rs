@@ -197,7 +197,10 @@ fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> Result<PathBuf, 
 
 fn mkdir(dir: PathBuf) -> Result<PathBuf, ExitCode> {
     fs::create_dir_all(&dir)?;
-    dir.canonicalize().map_err(Into::into)
+    // TODO: Use https://github.com/danreeves/path-clean to clean the
+    // path if needed. std::fs::canonicalize will bring windows compatibility
+    // problems
+    Ok(dir)
 }
 
 fn touch(path: PathBuf) -> Result<PathBuf, ExitCode> {
@@ -221,6 +224,7 @@ mod tests {
             .unwrap()
     }
 
+    #[cfg(all(unix, target_pointer_width = "64"))]
     #[test]
     fn test_ckb_toml() {
         let dir = mkdir();
@@ -240,6 +244,7 @@ mod tests {
         );
     }
 
+    #[cfg(all(unix, target_pointer_width = "64"))]
     #[test]
     fn test_miner_toml() {
         let dir = mkdir();
@@ -264,6 +269,7 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
+            runner: "Rust",
         };
         {
             locator.export_ckb(&context).expect("export config files");
@@ -300,6 +306,7 @@ mod tests {
             p2p_port: "8000",
             log_to_file: false,
             log_to_stdout: true,
+            runner: "Rust",
         };
         {
             locator.export_ckb(&context).expect("export config files");
@@ -331,6 +338,7 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
+            runner: "Rust",
         };
         locator.export_ckb(&context).expect("export config files");
         {
@@ -367,6 +375,7 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
+            runner: "Rust",
         };
         locator.export_ckb(&context).expect("export config files");
         {
@@ -392,6 +401,44 @@ mod tests {
                 miner_config.chain.spec,
                 PathBuf::from("specs/integration.toml")
             );
+            assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
+        }
+    }
+
+    #[cfg(all(unix, target_pointer_width = "64"))]
+    #[test]
+    fn test_export_dev_config_files_assembly() {
+        let dir = mkdir();
+        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
+        let context = TemplateContext {
+            spec: "dev",
+            rpc_port: "7000",
+            p2p_port: "8000",
+            log_to_file: true,
+            log_to_stdout: true,
+            runner: "Assembly",
+        };
+        {
+            locator.export_ckb(&context).expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+                .unwrap_or_else(|err| panic!(err));
+            let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
+            assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
+            assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/dev.toml"));
+            assert_eq!(
+                ckb_config.network.listen_addresses,
+                vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
+            );
+            assert_eq!(ckb_config.network.connect_outbound_interval_secs, 15);
+            assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
+        }
+        {
+            locator.export_miner(&context).expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+                .unwrap_or_else(|err| panic!(err));
+            let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
+            assert_eq!(miner_config.logger.filter, Some("info".to_string()));
+            assert_eq!(miner_config.chain.spec, PathBuf::from("specs/dev.toml"));
             assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
         }
     }

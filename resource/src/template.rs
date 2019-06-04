@@ -17,18 +17,7 @@ pub struct TemplateContext<'a> {
     pub p2p_port: &'a str,
     pub log_to_file: bool,
     pub log_to_stdout: bool,
-}
-
-impl<'a> Default for TemplateContext<'a> {
-    fn default() -> Self {
-        TemplateContext {
-            spec: DEFAULT_SPEC,
-            rpc_port: DEFAULT_RPC_PORT,
-            p2p_port: DEFAULT_P2P_PORT,
-            log_to_file: true,
-            log_to_stdout: true,
-        }
-    }
+    pub runner: &'a str,
 }
 
 impl<T> Template<T> {
@@ -48,6 +37,7 @@ fn writeln<W: io::Write>(w: &mut W, s: &str, context: &TemplateContext) -> io::R
             .replace("{p2p_port}", context.p2p_port)
             .replace("{log_to_file}", &format!("{}", context.log_to_file))
             .replace("{log_to_stdout}", &format!("{}", context.log_to_stdout))
+            .replace("{runner}", &context.runner.to_string())
     )
 }
 
