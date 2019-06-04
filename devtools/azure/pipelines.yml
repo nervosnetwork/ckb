@@ -1,6 +1,6 @@
 jobs:
   - job: UnitTest
-    condition: eq(variables['Build.Reason'], 'PullRequest')
+    condition: or(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranchName'], 'master'), startsWith(variables['Build.SourceBranchName'], 'test'))
     pool:
       vmImage: 'VS2017-Win2016'
     steps:
