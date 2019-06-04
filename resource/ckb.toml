@@ -76,7 +76,9 @@ max_cycles = 200_000_000_000
 max_verfify_cache_size = 100_000
 
 [script]
-runner = "Assembly"
+runner = "Assembly" # {{
+# _ => runner = "{runner}"
+# }}
 
 [store]
 header_cache_size       = 4096

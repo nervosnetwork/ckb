@@ -82,16 +82,13 @@ impl ResourceLocator {
     pub fn with_root_dir(root_dir: PathBuf) -> Result<ResourceLocator> {
         fs::create_dir_all(&root_dir)?;
 
-        root_dir
-            .canonicalize()
-            .map(|root_dir| ResourceLocator { root_dir })
+        Ok(ResourceLocator { root_dir })
     }
 
     pub fn current_dir() -> Result<ResourceLocator> {
         let root_dir = ::std::env::current_dir()?;
-        root_dir
-            .canonicalize()
-            .map(|root_dir| ResourceLocator { root_dir })
+
+        Ok(ResourceLocator { root_dir })
     }
 
     pub fn ckb(&self) -> Resource {
@@ -195,7 +192,11 @@ fn path_as_key(path: &PathBuf) -> Cow<str> {
 }
 
 fn file_system(path: PathBuf) -> Option<Resource> {
-    path.canonicalize().ok().map(Resource::FileSystem)
+    if path.exists() {
+        Some(Resource::FileSystem(path))
+    } else {
+        None
+    }
 }
 
 pub fn bundled(path: PathBuf) -> Option<Resource> {
@@ -237,7 +238,7 @@ mod tests {
             .open(&path)
             .expect("touch file in test");
 
-        path.as_ref().canonicalize().expect("touch file in test")
+        path.as_ref().to_path_buf()
     }
 
     #[test]
