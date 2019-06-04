@@ -4,7 +4,7 @@ jobs:
     pool:
       vmImage: 'VS2017-Win2016'
     steps:
-      - template: windows-dependencies.yml
+      - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.34.2-x86_64-pc-windows-msvc'
       - script: make test
@@ -14,7 +14,7 @@ jobs:
     pool:
       vmImage: 'VS2017-Win2016'
     steps:
-      - template: windows-dependencies.yml
+      - template: devtools/azure/windows-dependencies.yml
         parameters:
           rustup_toolchain: '1.34.2-x86_64-pc-windows-msvc'
       - script: make integration-windows
