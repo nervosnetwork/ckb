@@ -26,4 +26,4 @@ test_script:
   # and integration tests in one run, so we have to separate them to
   # run unit in branches, and integration tests in PRs
   - if NOT defined APPVEYOR_PULL_REQUEST_NUMBER make test
-  - if defined APPVEYOR_PULL_REQUEST_NUMBER make integration
+  - if defined APPVEYOR_PULL_REQUEST_NUMBER make integration-windows
