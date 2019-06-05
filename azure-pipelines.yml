@@ -53,7 +53,7 @@ jobs:
         displayName: Build
       - powershell: |
           mkdir ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
-          cp -r target/release/ckb,README.md,CHANGELOG.md,COPYING,devtools/init,docs ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
+          cp -r target/release/ckb.exe,README.md,CHANGELOG.md,COPYING,devtools/init,docs ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
           cp rpc/README.md ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc/docs/rpc.md
         displayName: Prepare archive
       - task: ArchiveFiles@2
