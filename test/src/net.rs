@@ -122,10 +122,11 @@ impl Net {
         });
     }
 
-    pub fn waiting_for_sync(&self, target: BlockNumber, timeout: u64) {
+    pub fn waiting_for_sync(&self, target: BlockNumber) {
         let rpc_clients: Vec<_> = self.nodes.iter().map(Node::rpc_client).collect();
         let mut tip_numbers: HashSet<BlockNumber> = HashSet::with_capacity(self.nodes.len());
-        let result = wait_until(timeout, || {
+        // 60 seconds is a reasonable timeout to sync, even for poor CI server
+        let result = wait_until(60, || {
             tip_numbers = rpc_clients
                 .iter()
                 .map(|rpc_client| rpc_client.get_tip_block_number())

@@ -145,12 +145,12 @@ impl Node {
         }
     }
 
-    pub fn waiting_for_sync(&self, node: &Node, target: BlockNumber, timeout: u64) {
+    pub fn waiting_for_sync(&self, node: &Node, target: BlockNumber) {
         let self_rpc_client = self.rpc_client();
         let node_rpc_client = node.rpc_client();
         let (mut self_tip_number, mut node_tip_number) = (0, 0);
-
-        let result = wait_until(timeout, || {
+        // 60 seconds is a reasonable timeout to sync, even for poor CI server
+        let result = wait_until(60, || {
             self_tip_number = self_rpc_client.get_tip_block_number();
             node_tip_number = node_rpc_client.get_tip_block_number();
             self_tip_number == node_tip_number && target == self_tip_number

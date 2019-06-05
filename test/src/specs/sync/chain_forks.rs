@@ -23,7 +23,7 @@ impl Spec for ChainFork1 {
 
         info!("Connect node0 to node1");
         node0.connect(node1);
-        node0.waiting_for_sync(node1, 2, 10);
+        node0.waiting_for_sync(node1, 2);
         info!("Disconnect node1");
         node0.disconnect(node1);
 
@@ -34,7 +34,7 @@ impl Spec for ChainFork1 {
 
         info!("Reconnect node0 to node1");
         node0.connect(node1);
-        net.waiting_for_sync(4, 10);
+        net.waiting_for_sync(4);
     }
 
     fn num_nodes(&self) -> usize {
@@ -66,14 +66,14 @@ impl Spec for ChainFork2 {
         info!("Connect all nodes");
         node0.connect(node1);
         node0.connect(node2);
-        net.waiting_for_sync(2, 10);
+        net.waiting_for_sync(2);
         info!("Disconnect all nodes");
         net.disconnect_all();
 
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3, 10);
+        node0.waiting_for_sync(node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -81,14 +81,14 @@ impl Spec for ChainFork2 {
         node1.generate_blocks(2);
         info!("Reconnect node1");
         node0.connect(node1);
-        node0.waiting_for_sync(node1, 4, 10);
+        node0.waiting_for_sync(node1, 4);
 
         info!("Generate 2 blocks (F, G) on node2");
         node2.generate_blocks(2);
         info!("Reconnect node2");
         node0.connect(node2);
         node1.connect(node2);
-        net.waiting_for_sync(5, 10);
+        net.waiting_for_sync(5);
     }
 
     fn num_nodes(&self) -> usize {
@@ -125,7 +125,7 @@ impl Spec for ChainFork3 {
         info!("Connect all nodes");
         node0.connect(node1);
         node0.connect(node2);
-        net.waiting_for_sync(2, 10);
+        net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -133,7 +133,7 @@ impl Spec for ChainFork3 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3, 10);
+        node0.waiting_for_sync(node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -160,7 +160,7 @@ impl Spec for ChainFork3 {
         info!("Reconnect node2");
         node0.connect(node2);
         node1.connect(node2);
-        node0.waiting_for_sync(node2, 4, 10);
+        node0.waiting_for_sync(node2, 4);
     }
 
     fn num_nodes(&self) -> usize {
@@ -197,7 +197,7 @@ impl Spec for ChainFork4 {
         info!("Connect all nodes");
         node0.connect(node1);
         node0.connect(node2);
-        net.waiting_for_sync(2, 10);
+        net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -205,7 +205,7 @@ impl Spec for ChainFork4 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3, 10);
+        node0.waiting_for_sync(node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -232,7 +232,7 @@ impl Spec for ChainFork4 {
         info!("Reconnect node2");
         node0.connect(node2);
         node1.connect(node2);
-        node0.waiting_for_sync(node2, 4, 10);
+        node0.waiting_for_sync(node2, 4);
     }
 
     fn num_nodes(&self) -> usize {
@@ -272,7 +272,7 @@ impl Spec for ChainFork5 {
         info!("Connect all nodes");
         node0.connect(node1);
         node0.connect(node2);
-        net.waiting_for_sync(2, 10);
+        net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -280,7 +280,7 @@ impl Spec for ChainFork5 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3, 10);
+        node0.waiting_for_sync(node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -308,7 +308,7 @@ impl Spec for ChainFork5 {
         info!("Reconnect node2");
         node0.connect(node2);
         node1.connect(node2);
-        node0.waiting_for_sync(node2, 4, 10);
+        node0.waiting_for_sync(node2, 4);
     }
 
     fn num_nodes(&self) -> usize {
@@ -345,7 +345,7 @@ impl Spec for ChainFork6 {
         info!("Connect all nodes");
         node0.connect(node1);
         node0.connect(node2);
-        net.waiting_for_sync(2, 10);
+        net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -353,7 +353,7 @@ impl Spec for ChainFork6 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3, 10);
+        node0.waiting_for_sync(node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -376,7 +376,7 @@ impl Spec for ChainFork6 {
         info!("Reconnect node2");
         node0.connect(node2);
         node1.connect(node2);
-        node0.waiting_for_sync(node2, 4, 10);
+        node0.waiting_for_sync(node2, 4);
     }
 
     fn num_nodes(&self) -> usize {
@@ -413,7 +413,7 @@ impl Spec for ChainFork7 {
         info!("Connect all nodes");
         node0.connect(node1);
         node0.connect(node2);
-        net.waiting_for_sync(2, 10);
+        net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -421,7 +421,7 @@ impl Spec for ChainFork7 {
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3, 10);
+        node0.waiting_for_sync(node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -452,7 +452,7 @@ impl Spec for ChainFork7 {
         info!("Reconnect node2");
         node0.connect(node2);
         node1.connect(node2);
-        node0.waiting_for_sync(node2, 4, 10);
+        node0.waiting_for_sync(node2, 4);
     }
 
     fn num_nodes(&self) -> usize {
