@@ -363,14 +363,21 @@ impl NetworkState {
                 addr
             );
             if dial_started.elapsed() > DIAL_HANG_TIMEOUT {
-                sentry::capture_message(
-                    &format!(
-                        "Dialing {:?}, {:?} for more than {} seconds, something is wrong in network service",
-                        peer_id,
-                        addr,
-                        DIAL_HANG_TIMEOUT.as_secs(),
-                    ),
-                    sentry::Level::Warning,
+                use sentry::{capture_message, with_scope, Level};
+                with_scope(
+                    |scope| scope.set_fingerprint(Some(&["ckb-network", "dialing-timeout"])),
+                    || {
+                        capture_message(
+                            &format!(
+                                "Dialing {:?}, {:?} for more than {} seconds, \
+                                 something is wrong in network service",
+                                peer_id,
+                                addr,
+                                DIAL_HANG_TIMEOUT.as_secs(),
+                            ),
+                            Level::Warning,
+                        )
+                    },
                 );
             }
             return false;
@@ -507,9 +514,10 @@ impl ServiceHandle for EventHandler {
             }
             err => {
                 debug!("p2p service error: {:?}", err);
-                sentry::capture_message(
-                    &format!("p2p service error: {:?}", err),
-                    sentry::Level::Warning,
+                use sentry::{capture_message, with_scope, Level};
+                with_scope(
+                    |scope| scope.set_fingerprint(Some(&["ckb-network", "p2p-service-error"])),
+                    || capture_message(&format!("p2p service error: {:?}", err), Level::Warning),
                 );
             }
         }

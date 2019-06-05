@@ -149,10 +149,6 @@ impl Client {
                 }
                 Err(e) => {
                     error!("rpc call submit_block error: {:?}", e);
-                    sentry::capture_message(
-                        &format!("rpc call submit_block error: {:?}", e),
-                        sentry::Level::Error,
-                    );
                 }
             }
         }
