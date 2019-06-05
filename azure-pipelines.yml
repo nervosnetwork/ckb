@@ -1,6 +1,22 @@
+trigger:
+  branches:
+    include:
+    - '*'
+  tags:
+    include:
+    - '*'
+
 jobs:
   - job: UnitTest
-    condition: or(eq(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranchName'], 'master'), startsWith(variables['Build.SourceBranchName'], 'test'))
+    condition: |
+      and(
+        not(startsWith(variables['Build.SourceBranch'], 'refs/tags/')),
+        or(
+          eq(variables['Build.Reason'], 'PullRequest'),
+          eq(variables['Build.SourceBranch'], 'refs/heads/master'),
+          startsWith(variables['Build.SourceBranch'], 'refs/heads/test')
+        )
+      )
     pool:
       vmImage: 'VS2017-Win2016'
     steps:
@@ -9,8 +25,13 @@ jobs:
           rustup_toolchain: '1.34.2-x86_64-pc-windows-msvc'
       - script: make test
         displayName: Run unit tests
+
   - job: IntegrationTest
-    condition: ne(variables['Build.Reason'], 'PullRequest')
+    condition: |
+      and(
+        not(startsWith(variables['Build.SourceBranch'], 'refs/tags/')),
+        ne(variables['Build.Reason'], 'PullRequest')
+      )
     pool:
       vmImage: 'VS2017-Win2016'
     steps:
@@ -19,3 +40,32 @@ jobs:
           rustup_toolchain: '1.34.2-x86_64-pc-windows-msvc'
       - script: make integration-windows
         displayName: Run integration tests
+
+  - job: Package
+    condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/')
+    pool:
+      vmImage: 'VS2017-Win2016'
+    steps:
+      - template: devtools/azure/windows-dependencies.yml
+        parameters:
+          rustup_toolchain: '1.34.2-x86_64-pc-windows-msvc'
+      - script: make prod
+        displayName: Build
+      - powershell: |
+          mkdir ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
+          cp -r target/release/ckb,README.md,CHANGELOG.md,COPYING,devtools/init,docs ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
+          cp rpc/README.md ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc/docs/rpc.md
+        displayName: Prepare archive
+      - task: ArchiveFiles@2
+        inputs:
+          rootFolderOrFile: 'ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc'
+          archiveFile: '$(Build.ArtifactStagingDirectory)/ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc.zip'
+      - task: GitHubRelease@0
+        inputs:
+          gitHubConnection: nervos-bot
+          repositoryName: nervosnetwork/ckb
+          action: edit
+          tag: $(Build.SourceBranchName)
+          assets: '$(Build.ArtifactStagingDirectory)/*.zip'
+          assetUploadMode: replace
+          isPreRelease: true
