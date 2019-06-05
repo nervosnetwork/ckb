@@ -1,6 +1,7 @@
 use crate::flat_block_body::{
-    deserialize_block_body, deserialize_transaction, serialize_block_body,
-    serialize_block_body_size, TransactionAddressInner, TransactionAddressStored,
+    deserialize_block_body, deserialize_block_body_for_hashes_only, deserialize_transaction,
+    serialize_block_body, serialize_block_body_size, TransactionAddressInner,
+    TransactionAddressStored,
 };
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
@@ -94,6 +95,8 @@ pub trait ChainStore: Sync + Send {
     fn get_header(&self, block_hash: &H256) -> Option<Header>;
     /// Get block body by block header hash
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
+    /// Get all transaction-hashes in block body by block header hash
+    fn get_block_txs_hashes(&self, block_hash: &H256) -> Option<Vec<H256>>;
     /// Get proposal short id by block header hash
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
     /// Get block uncles by block header hash
@@ -224,6 +227,20 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 self.get(COLUMN_BLOCK_BODY, h.as_bytes())
                     .map(|serialized_body| {
                         deserialize_block_body(&serialized_body, &tx_addresses[..])
+                            .expect("deserialize block body should be ok")
+                    })
+            })
+    }
+
+    fn get_block_txs_hashes(&self, block_hash: &H256) -> Option<Vec<H256>> {
+        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, block_hash.as_bytes())
+            .and_then(|serialized_addresses| {
+                let tx_addresses: Vec<TransactionAddressInner> = deserialize(&serialized_addresses)
+                    .expect("flat deserialize address should be ok");
+                self.get(COLUMN_BLOCK_BODY, block_hash.as_bytes())
+                    .map(|serialized_body| {
+                        deserialize_block_body_for_hashes_only(&serialized_body, &tx_addresses[..])
+                            .expect("deserialize block body hashes should be ok")
                     })
             })
     }

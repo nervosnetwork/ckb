@@ -24,6 +24,7 @@ const TRANSACTION_FIELDS_SIZE: usize = 9;
 
 const TRANSACTION_TOTAL_SIZE_INDEX: usize = 0;
 const TRANSACTION_OUTPUTS_INDEX: usize = 4;
+const TRANSACTION_HASH_INDEX: usize = 6;
 
 type TransactionHeader = [usize; 9];
 
@@ -137,7 +138,7 @@ pub(crate) fn deserialize_transaction(
         outputs.push(output);
     }
     let witnesses: Vec<Witness> = config.deserialize(&tx[header[5]..])?;
-    let hash: H256 = config.deserialize(&tx[header[6]..])?;
+    let hash: H256 = config.deserialize(&tx[header[TRANSACTION_HASH_INDEX]..])?;
     let witness_hash: H256 = config.deserialize(&tx[header[7]..])?;
     unsafe {
         Ok(TransactionBuilder::default()
@@ -148,6 +149,12 @@ pub(crate) fn deserialize_transaction(
             .witnesses(witnesses)
             .build_unchecked(hash, witness_hash))
     }
+}
+
+pub(crate) fn deserialize_transaction_hash(tx: &[u8]) -> Result<H256> {
+    let config = bincode::config();
+    let header: [usize; TRANSACTION_FIELDS_SIZE] = config.deserialize(tx)?;
+    config.deserialize(&tx[header[TRANSACTION_HASH_INDEX]..])
 }
 
 pub(crate) fn serialize_block_body_size(
@@ -201,8 +208,8 @@ pub(crate) fn serialize_block_body(
 pub(crate) fn deserialize_block_body(
     bytes: &[u8],
     tx_addresses: &[TransactionAddressInner],
-) -> Vec<Transaction> {
-    let txs = tx_addresses
+) -> Result<Vec<Transaction>> {
+    tx_addresses
         .iter()
         .map(|addr| {
             deserialize_transaction(
@@ -210,6 +217,15 @@ pub(crate) fn deserialize_block_body(
                 &addr.outputs_addresses,
             )
         })
-        .collect::<Result<Vec<Transaction>>>();
-    txs.unwrap()
+        .collect()
+}
+
+pub(crate) fn deserialize_block_body_for_hashes_only(
+    bytes: &[u8],
+    tx_addresses: &[TransactionAddressInner],
+) -> Result<Vec<H256>> {
+    tx_addresses
+        .iter()
+        .map(|addr| deserialize_transaction_hash(&bytes[addr.offset..(addr.offset + addr.length)]))
+        .collect()
 }
