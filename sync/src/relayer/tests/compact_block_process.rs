@@ -12,7 +12,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
+use ckb_store::{ChainKVStore, ChainStore};
 use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
 use numext_fixed_uint::U256;
@@ -47,7 +47,8 @@ fn new_transaction(
         let block = relayer
             .shared
             .shared()
-            .block(&tip_hash)
+            .store()
+            .get_block(&tip_hash)
             .expect("getting tip block");
         let cellbase = block
             .transactions()
@@ -101,8 +102,9 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
     // Build 1 ~ (tip-1) heights
     for i in 0..tip {
         let parent = shared
-            .block_hash(i)
-            .and_then(|block_hash| shared.block(&block_hash))
+            .store()
+            .get_block_hash(i)
+            .and_then(|block_hash| shared.store().get_block(&block_hash))
             .unwrap();
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))

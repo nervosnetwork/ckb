@@ -40,7 +40,7 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
 
         let indexes = cast!(self.message.indexes())?;
 
-        if let Some(block) = self.relayer.shared.get_block(&block_hash) {
+        if let Some(block) = self.relayer.shared.store().get_block(&block_hash) {
             let transactions = indexes
                 .safe_slice()
                 .iter()

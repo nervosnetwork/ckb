@@ -5,6 +5,7 @@ use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::transaction::CellInput;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use std::collections::HashSet;
 
@@ -134,7 +135,7 @@ impl<'a> HeaderResolverWrapper<'a> {
     where
         CP: ChainProvider,
     {
-        let parent = provider.block_header(&header.parent_hash());
+        let parent = provider.store().get_block_header(&header.parent_hash());
         let epoch = parent
             .as_ref()
             .and_then(|parent| {

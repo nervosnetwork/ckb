@@ -55,8 +55,15 @@ where
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
                 Some(header)
             } else if best.number() < self.tip_header.number() {
-                let last_common_hash = self.synchronizer.shared.block_hash(best.number())?;
-                self.synchronizer.shared.block_header(&last_common_hash)
+                let last_common_hash = self
+                    .synchronizer
+                    .shared
+                    .store()
+                    .get_block_hash(best.number())?;
+                self.synchronizer
+                    .shared
+                    .store()
+                    .get_block_header(&last_common_hash)
             } else {
                 Some(self.tip_header.clone())
             }

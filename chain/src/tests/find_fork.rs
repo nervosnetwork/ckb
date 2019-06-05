@@ -6,6 +6,7 @@ use ckb_core::extras::{BlockExt, DaoStats, DEFAULT_ACCUMULATED_RATE};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use faketime::unix_time_as_millis;
 use numext_fixed_uint::U256;
@@ -23,7 +24,10 @@ fn test_find_fork_case1() {
     let shared = builder.consensus(Consensus::default()).build().unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainService::new(shared.clone(), notify);
-    let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
 
     let mut fork1: Vec<Block> = Vec::new();
     let mut fork2: Vec<Block> = Vec::new();
@@ -101,7 +105,10 @@ fn test_find_fork_case2() {
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainService::new(shared.clone(), notify);
 
-    let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
 
     let mut fork1: Vec<Block> = Vec::new();
     let mut fork2: Vec<Block> = Vec::new();
@@ -186,7 +193,10 @@ fn test_find_fork_case3() {
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainService::new(shared.clone(), notify);
 
-    let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
 
     let mut fork1: Vec<Block> = Vec::new();
     let mut fork2: Vec<Block> = Vec::new();
@@ -263,7 +273,10 @@ fn test_find_fork_case4() {
     let notify = NotifyService::default().start::<&str>(None);
     let mut chain_service = ChainService::new(shared.clone(), notify);
 
-    let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
 
     let mut fork1: Vec<Block> = Vec::new();
     let mut fork2: Vec<Block> = Vec::new();

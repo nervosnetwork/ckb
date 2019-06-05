@@ -157,7 +157,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         match guard.get(hash).cloned() {
             Some(s) => s,
             None => {
-                if self.shared.block_header(hash).is_some() {
+                if self.shared.store().get_block_header(hash).is_some() {
                     guard.insert(hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
                     BlockStatus::BLOCK_HAVE_MASK
                 } else {
@@ -251,7 +251,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
     fn insert_new_block(&self, peer: PeerIndex, block: Block) {
         let known_parent = |block: &Block| {
             self.shared
-                .block_header(block.header().parent_hash())
+                .store()
+                .get_block_header(block.header().parent_hash())
                 .is_some()
         };
 
@@ -698,7 +699,8 @@ mod tests {
         number: BlockNumber,
     ) {
         let parent = shared
-            .block_header(&shared.block_hash(number - 1).unwrap())
+            .store()
+            .get_block_header(&shared.store().get_block_hash(number - 1).unwrap())
             .unwrap();
         let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
@@ -734,7 +736,7 @@ mod tests {
         let mut expect = Vec::new();
 
         for i in index.iter() {
-            expect.push(shared.block_hash(*i).unwrap());
+            expect.push(shared.store().get_block_hash(*i).unwrap());
         }
         //genesis_hash must be the last one
         expect.push(shared.genesis_hash().to_owned());
@@ -839,13 +841,16 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            shared1.block_hash(fork).unwrap(),
-            shared2.block_hash(fork).unwrap()
+            shared1.store().get_block_hash(fork).unwrap(),
+            shared2.store().get_block_hash(fork).unwrap()
         );
-        assert!(shared1.block_hash(fork + 1).unwrap() != shared2.block_hash(fork + 1).unwrap());
+        assert!(
+            shared1.store().get_block_hash(fork + 1).unwrap()
+                != shared2.store().get_block_hash(fork + 1).unwrap()
+        );
         assert_eq!(
-            shared1.block_hash(latest_common).unwrap(),
-            shared1.block_hash(fork).unwrap()
+            shared1.store().get_block_hash(latest_common).unwrap(),
+            shared1.store().get_block_hash(fork).unwrap()
         );
     }
 
@@ -880,7 +885,8 @@ mod tests {
         assert_eq!(
             header.unwrap(),
             shared
-                .block_header(&shared.block_hash(100).unwrap())
+                .store()
+                .get_block_header(&shared.store().get_block_hash(100).unwrap())
                 .unwrap()
         );
     }
@@ -895,7 +901,8 @@ mod tests {
 
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = shared1
-            .block_header(&shared1.block_hash(0).unwrap())
+            .store()
+            .get_block_header(&shared1.store().get_block_hash(0).unwrap())
             .unwrap();
         for i in 1..block_number {
             let parent_epoch = shared1.get_block_epoch(&parent.hash()).unwrap();
@@ -928,7 +935,10 @@ mod tests {
         let block_number = 200;
 
         let mut blocks: Vec<Block> = Vec::new();
-        let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+        let mut parent = shared
+            .store()
+            .get_block_header(&shared.store().get_block_hash(0).unwrap())
+            .unwrap();
         for i in 1..=block_number {
             let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared
@@ -1078,26 +1088,12 @@ mod tests {
 
         assert_eq!(
             headers.first().unwrap().hash(),
-            &shared2.block_hash(193).unwrap()
+            &shared2.store().get_block_hash(193).unwrap()
         );
         assert_eq!(
             headers.last().unwrap().hash(),
-            &shared2.block_hash(200).unwrap()
+            &shared2.store().get_block_hash(200).unwrap()
         );
-
-        // println!(
-        //     "headers\n {:#?}",
-        //     headers
-        //         .iter()
-        //         .map(|h| format!(
-        //             "{} hash({}) timestamp({}) parent({})",
-        //             h.number(),
-        //             h.hash(),
-        //             h.timestamp(),
-        //             h.parent_hash(),
-        //         ))
-        //         .collect::<Vec<_>>()
-        // );
 
         let fbb = &mut FlatBufferBuilder::new();
         let fbs_headers = FbsHeaders::build(fbb, &headers);
@@ -1134,16 +1130,16 @@ mod tests {
 
         assert_eq!(
             blocks_to_fetch.first().unwrap(),
-            &shared2.block_hash(193).unwrap()
+            &shared2.store().get_block_hash(193).unwrap()
         );
         assert_eq!(
             blocks_to_fetch.last().unwrap(),
-            &shared2.block_hash(200).unwrap()
+            &shared2.store().get_block_hash(200).unwrap()
         );
 
         let mut fetched_blocks = Vec::new();
         for block_hash in &blocks_to_fetch {
-            fetched_blocks.push(shared2.block(block_hash).unwrap());
+            fetched_blocks.push(shared2.store().get_block(block_hash).unwrap());
         }
 
         for block in &fetched_blocks {

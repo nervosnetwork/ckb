@@ -105,7 +105,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 .get(&block_hash)
                 .map(|(_, peers_set)| peers_set.contains(&self.peer))
                 .unwrap_or(false)
-                || self.relayer.shared.get_block(&block_hash).is_some()
+                || self.relayer.shared.store().get_block(&block_hash).is_some()
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -222,7 +222,8 @@ where
     CS: ChainStore,
 {
     fn get_header(&self, hash: &H256) -> Option<Header> {
-        (self.fn_get_pending_header)(hash.to_owned()).or_else(|| self.shared.block_header(hash))
+        (self.fn_get_pending_header)(hash.to_owned())
+            .or_else(|| self.shared.store().get_block_header(hash))
     }
 }
 
@@ -249,9 +250,15 @@ where
             }
 
             // The current `hash` is the common ancestor of tip chain and `self.anchor_hash`,
-            // so we can get the target hash via `self.shared.block_hash`, since it is in tip chain
-            if self.shared.block_hash(header.number()).expect("tip chain") == hash {
-                return self.shared.block_hash(block_number);
+            // so we can get the target hash via `self.shared.store().get_block_hash`, since it is in tip chain
+            if self
+                .shared
+                .store()
+                .get_block_hash(header.number())
+                .expect("tip chain")
+                == hash
+            {
+                return self.shared.store().get_block_hash(block_number);
             }
 
             hash = header.parent_hash().to_owned();

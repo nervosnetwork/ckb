@@ -240,12 +240,14 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let parent_ext = self
             .shared
-            .block_ext(&block.header().parent_hash())
+            .store()
+            .get_block_ext(&block.header().parent_hash())
             .expect("parent already store");
 
         let parent_header = self
             .shared
-            .block_header(&block.header().parent_hash())
+            .store()
+            .get_block_header(&block.header().parent_hash())
             .expect("parent already store");
 
         let cannon_total_difficulty =
@@ -417,11 +419,13 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             for bn in new_tip_number..=current_tip_number {
                 let hash = self
                     .shared
-                    .block_hash(bn)
+                    .store()
+                    .get_block_hash(bn)
                     .expect("block hash stored before alignment_fork");
                 let old_block = self
                     .shared
-                    .block(&hash)
+                    .store()
+                    .get_block(&hash)
                     .expect("block data stored before alignment_fork");
                 fork.detached_blocks.push_front(old_block);
             }
@@ -430,7 +434,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 if index.unseen {
                     let ext = self
                         .shared
-                        .block_ext(&index.hash)
+                        .store()
+                        .get_block_ext(&index.hash)
                         .expect("block ext stored before alignment_fork");
                     if ext.txs_verified.is_none() {
                         fork.dirty_exts.push_front(ext)
@@ -440,7 +445,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 }
                 let new_block = self
                     .shared
-                    .block(&index.hash)
+                    .store()
+                    .get_block(&index.hash)
                     .expect("block data stored before alignment_fork");
                 index.forward(new_block.header().parent_hash().to_owned());
                 fork.attached_blocks.push_front(new_block);
@@ -455,21 +461,24 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             }
             let detached_hash = self
                 .shared
-                .block_hash(index.number)
+                .store()
+                .get_block_hash(index.number)
                 .expect("detached hash stored before find_fork_until_latest_common");
             if detached_hash == index.hash {
                 break;
             }
             let detached_blocks = self
                 .shared
-                .block(&detached_hash)
+                .store()
+                .get_block(&detached_hash)
                 .expect("detached block stored before find_fork_until_latest_common");
             fork.detached_blocks.push_front(detached_blocks);
 
             if index.unseen {
                 let ext = self
                     .shared
-                    .block_ext(&index.hash)
+                    .store()
+                    .get_block_ext(&index.hash)
                     .expect("block ext stored before find_fork_until_latest_common");
                 if ext.txs_verified.is_none() {
                     fork.dirty_exts.push_front(ext)
@@ -480,7 +489,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
             let attached_block = self
                 .shared
-                .block(&index.hash)
+                .store()
+                .get_block(&index.hash)
                 .expect("attached block stored before find_fork_until_latest_common");
             index.forward(attached_block.header().parent_hash().to_owned());
             fork.attached_blocks.push_front(attached_block);
@@ -661,9 +671,13 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let bottom = tip - cmp::min(tip, len);
 
         for number in (bottom..=tip).rev() {
-            let hash = self.shared.block_hash(number).unwrap_or_else(|| {
-                panic!(format!("invaild block number({}), tip={}", number, tip))
-            });
+            let hash = self
+                .shared
+                .store()
+                .get_block_hash(number)
+                .unwrap_or_else(|| {
+                    panic!(format!("invaild block number({}), tip={}", number, tip))
+                });
             debug!("   {} => {:x}", number, hash);
         }
 

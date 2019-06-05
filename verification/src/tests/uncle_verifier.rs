@@ -16,6 +16,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 #[cfg(not(disable_faketime))]
 use faketime;
@@ -92,7 +93,10 @@ fn test_uncle_verifier() {
 
     faketime::write_millis(&faketime_file, 10).expect("write millis");
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for i in 1..number {
         let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
@@ -106,7 +110,10 @@ fn test_uncle_verifier() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
 
     // if block_number < 11 { chain1 == chain2 } else { chain1 != chain2 }
     for i in 1..number {
@@ -457,7 +464,10 @@ fn test_uncle_verifier_with_fork_context() {
 
     faketime::write_millis(&faketime_file, 10).expect("write millis");
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for i in 1..20 {
         let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
@@ -471,7 +481,10 @@ fn test_uncle_verifier_with_fork_context() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
 
     // if block_number < 11 { chain1 == chain2 } else { chain1 != chain2 }
     for i in 1..19 {

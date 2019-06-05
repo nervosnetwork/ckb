@@ -2,14 +2,14 @@ use crate::tests::util::{
     create_transaction, create_transaction_with_out_point, gen_block, start_chain,
 };
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::Block;
-use ckb_core::block::BlockBuilder;
+use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMetaBuilder, CellProvider, CellStatus, UnresolvableError};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_shared::error::SharedError;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -44,7 +44,10 @@ fn test_genesis_transaction_spend() {
     let end = 21;
 
     let mut blocks1: Vec<Block> = vec![];
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for i in 1..end {
         let difficulty = parent.difficulty().to_owned();
         let tx = create_transaction(&root_hash, i as u8);
@@ -78,7 +81,10 @@ fn test_genesis_transaction_spend() {
 fn test_transaction_spend_in_same_block() {
     let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -185,7 +191,10 @@ fn test_transaction_spend_in_same_block() {
 fn test_transaction_conflict_in_same_block() {
     let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -265,7 +274,10 @@ fn test_transaction_conflict_in_same_block() {
 fn test_transaction_conflict_in_different_blocks() {
     let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -357,7 +369,10 @@ fn test_transaction_conflict_in_different_blocks() {
 fn test_invalid_out_point_index_in_same_block() {
     let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -438,7 +453,10 @@ fn test_invalid_out_point_index_in_same_block() {
 fn test_invalid_out_point_index_in_different_blocks() {
     let (chain_controller, shared) = start_chain(None);
     let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -566,7 +584,10 @@ fn test_chain_fork_by_total_difficulty() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -580,7 +601,10 @@ fn test_chain_fork_by_total_difficulty() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for i in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let j = if i > 10 { 110 } else { 99 };
@@ -607,7 +631,7 @@ fn test_chain_fork_by_total_difficulty() {
             .expect("process block ok");
     }
     assert_eq!(
-        shared.block_hash(8),
+        shared.store().get_block_hash(8),
         chain2.get(7).map(|b| b.header().hash().to_owned())
     );
 }
@@ -620,7 +644,10 @@ fn test_chain_fork_by_hash() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -634,7 +661,10 @@ fn test_chain_fork_by_hash() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -674,11 +704,11 @@ fn test_chain_fork_by_hash() {
         chain2
     };
     assert_eq!(
-        shared.block_hash(8),
+        shared.store().get_block_hash(8),
         best.get(7).map(|b| b.header().hash().to_owned())
     );
     assert_eq!(
-        shared.block_hash(19),
+        shared.store().get_block_hash(19),
         best.get(18).map(|b| b.header().hash().to_owned())
     );
 }
@@ -691,7 +721,10 @@ fn test_chain_get_ancestor() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -705,7 +738,10 @@ fn test_chain_get_ancestor() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -761,7 +797,10 @@ fn test_next_epoch_ext() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     let mut last_epoch = epoch.clone();
 
     for _ in 1..final_number - 1 {
@@ -777,7 +816,10 @@ fn test_next_epoch_ext() {
         last_epoch = epoch;
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     let mut last_epoch = epoch.clone();
     for i in 1..final_number {
         let epoch = shared
@@ -798,7 +840,11 @@ fn test_next_epoch_ext() {
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
         assert_eq!(total_uncles_count, 25);
 
         let epoch = shared
@@ -854,7 +900,10 @@ fn test_next_epoch_ext() {
             .expect("process block ok");
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for i in 1..final_number {
         let epoch = shared
             .next_epoch_ext(&last_epoch, &parent)
@@ -875,7 +924,11 @@ fn test_next_epoch_ext() {
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
         assert_eq!(total_uncles_count, 10);
 
         let epoch = shared
@@ -893,7 +946,10 @@ fn test_next_epoch_ext() {
             .expect("process block ok");
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     let mut last_epoch = epoch.clone();
     for i in 1..final_number {
         let epoch = shared
@@ -915,7 +971,11 @@ fn test_next_epoch_ext() {
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
         assert_eq!(total_uncles_count, 150);
 
         let epoch = shared
