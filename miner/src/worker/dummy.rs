@@ -2,6 +2,7 @@ use super::{Worker, WorkerConfig, WorkerMessage};
 use ckb_core::header::Seal;
 use ckb_logger::error;
 use crossbeam_channel::{Receiver, Sender};
+use indicatif::ProgressBar;
 use numext_fixed_hash::H256;
 use rand::{
     distributions::{self as dist, Distribution as _},
@@ -104,7 +105,7 @@ impl Dummy {
 }
 
 impl Worker for Dummy {
-    fn run(&mut self) {
+    fn run(&mut self, _progress_bar: ProgressBar) {
         loop {
             self.poll_worker_message();
             if self.start {

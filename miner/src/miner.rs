@@ -4,7 +4,7 @@ use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::Seal;
-use ckb_logger::{error, info};
+use ckb_logger::{debug, error};
 use ckb_pow::PowEngine;
 use ckb_util::Mutex;
 use crossbeam_channel::{select, unbounded, Receiver};
@@ -80,7 +80,7 @@ impl Miner {
                 .verify_proof_difficulty(&seal.proof(), &block.header().difficulty())
             {
                 self.notify_workers(WorkerMessage::Stop);
-                info!(
+                debug!(
                     "found seal {:?} of block #{}",
                     seal,
                     block.header().number()

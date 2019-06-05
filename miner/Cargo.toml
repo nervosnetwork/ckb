@@ -31,6 +31,7 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 sentry = "^0.15.4"
 ckb-verification = { path = "../verification" }
+indicatif = "0.11"
 
 [dev-dependencies]
 proptest = "0.9"
