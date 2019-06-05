@@ -60,12 +60,27 @@ jobs:
         inputs:
           rootFolderOrFile: 'ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc'
           archiveFile: '$(Build.ArtifactStagingDirectory)/ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc.zip'
+      - script: choco install -y gpg4win
+        displayName: Install GPG4Win
+      - task: DownloadSecureFile@1
+        inputs:
+          secureFile: azure-secret.asc
+      - script: |
+          set PATH=%PATH%;%ProgramFiles(x86)%/GnuPG/bin
+          gpg --import %DOWNLOADSECUREFILE_SECUREFILEPATH%
+          echo "##vso[task.setvariable variable=PATH;]%PATH%;%ProgramFiles(x86)%/GnuPG/bin"
+        displayName: Setup GPG
+      - script: |
+          gpg -u "Nervos Azure Builder <bot@nervos.org>" -ab "$(Build.ArtifactStagingDirectory)/ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc.zip"
+        displayName: Sign Archive
       - task: GitHubRelease@0
         inputs:
           gitHubConnection: nervos-bot
           repositoryName: nervosnetwork/ckb
           action: edit
           tag: $(Build.SourceBranchName)
-          assets: '$(Build.ArtifactStagingDirectory)/*.zip'
+          assets: |
+            $(Build.ArtifactStagingDirectory)/*.zip
+            $(Build.ArtifactStagingDirectory)/*.asc
           assetUploadMode: replace
           isPreRelease: true
