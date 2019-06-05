@@ -4,10 +4,11 @@ use ckb_core::header::Seal;
 use ckb_logger::{debug, error};
 use ckb_pow::{pow_message, Cuckoo, CuckooSip};
 use crossbeam_channel::{Receiver, Sender};
+use indicatif::ProgressBar;
 use numext_fixed_hash::H256;
 use rand::random;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 pub struct CuckooSimple {
     start: bool,
@@ -15,6 +16,7 @@ pub struct CuckooSimple {
     cuckoo: Cuckoo,
     seal_tx: Sender<(H256, Seal)>,
     worker_rx: Receiver<WorkerMessage>,
+    seal_candidates_found: u64,
 }
 
 impl CuckooSimple {
@@ -26,6 +28,7 @@ impl CuckooSimple {
         Self {
             start: true,
             pow_hash: None,
+            seal_candidates_found: 0,
             cuckoo,
             seal_tx,
             worker_rx,
@@ -35,7 +38,9 @@ impl CuckooSimple {
     fn poll_worker_message(&mut self) {
         if let Ok(msg) = self.worker_rx.try_recv() {
             match msg {
-                WorkerMessage::NewWork(pow_hash) => self.pow_hash = Some(pow_hash),
+                WorkerMessage::NewWork(pow_hash) => {
+                    self.pow_hash = Some(pow_hash);
+                }
                 WorkerMessage::Stop => {
                     self.start = false;
                 }
@@ -46,7 +51,7 @@ impl CuckooSimple {
         }
     }
 
-    fn solve(&self, pow_hash: &H256, nonce: u64) {
+    fn solve(&mut self, pow_hash: &H256, nonce: u64) {
         debug!("solve, pow_hash {:x}, nonce {:?}", pow_hash, nonce);
         let mut graph = vec![0; (self.cuckoo.max_edge << 1) as usize].into_boxed_slice();
         let keys = CuckooSip::message_to_keys(&pow_message(pow_hash, nonce));
@@ -107,6 +112,7 @@ impl CuckooSimple {
                     if let Err(err) = self.seal_tx.send((pow_hash.clone(), seal)) {
                         error!("seal_tx send error {:?}", err);
                     }
+                    self.seal_candidates_found += 1;
                 }
             } else if path_u.len() < path_v.len() {
                 for edge in path_u.windows(2) {
@@ -138,12 +144,24 @@ fn path(graph: &[u64], start: u64) -> Vec<u64> {
 }
 
 impl Worker for CuckooSimple {
-    fn run(&mut self) {
+    fn run(&mut self, progress_bar: ProgressBar) {
         loop {
             self.poll_worker_message();
             if self.start {
-                if let Some(pow_hash) = &self.pow_hash {
-                    self.solve(pow_hash, random());
+                if let Some(pow_hash) = self.pow_hash.clone() {
+                    let start = SystemTime::now();
+                    self.solve(&pow_hash, random());
+                    let elapsed = SystemTime::now().duration_since(start).unwrap();
+                    let elapsed_nanos: f64 = (elapsed.as_secs() * 1_000_000_000
+                        + u64::from(elapsed.subsec_nanos()))
+                        as f64
+                        / 1_000_000_000.0;
+                    progress_bar.set_message(&format!(
+                        "Graphs per second: {:>10.3} / Total seal candidates found: {:>10}",
+                        1.0 / elapsed_nanos,
+                        self.seal_candidates_found,
+                    ));
+                    progress_bar.inc(1);
                 }
             } else {
                 thread::sleep(Duration::from_millis(100));
@@ -163,7 +181,7 @@ mod test {
         let (seal_tx, seal_rx) = unbounded();
         let (_worker_tx, worker_rx) = unbounded();
         let cuckoo = Cuckoo::new(6, 8);
-        let worker = CuckooSimple::new(cuckoo.clone(), seal_tx, worker_rx);
+        let mut worker = CuckooSimple::new(cuckoo.clone(), seal_tx, worker_rx);
         worker.solve(pow_hash, nonce);
         let engine = CuckooEngine { cuckoo };
         while let Ok((pow_hash, seal)) = seal_rx.try_recv() {

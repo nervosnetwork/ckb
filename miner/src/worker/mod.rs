@@ -8,6 +8,7 @@ use ckb_pow::{CuckooEngine, DummyPowEngine, PowEngine};
 use crossbeam_channel::{unbounded, Sender};
 use cuckoo_simple::CuckooSimple;
 use dummy::Dummy;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 use std::thread;
@@ -42,16 +43,26 @@ pub fn start_worker(
     config: &WorkerConfig,
     seal_tx: Sender<(H256, Seal)>,
 ) -> WorkerController {
+    let mp = MultiProgress::new();
+    let spinner_style = ProgressStyle::default_spinner()
+        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+        .template("{prefix:.bold.dim} {spinner} {wide_msg}");
+
     match config.worker_type {
         WorkerType::Dummy => {
             if let Some(_dummy_engine) = pow.as_any().downcast_ref::<DummyPowEngine>() {
-                let (worker_tx, worker_rx) = unbounded();
+                let worker_name = "Dummy-Worker";
+                let pb = mp.add(ProgressBar::new(100));
+                pb.set_style(spinner_style.clone());
+                pb.set_prefix(&worker_name);
 
+                let (worker_tx, worker_rx) = unbounded();
                 let mut worker = Dummy::new(config, seal_tx, worker_rx);
+
                 thread::Builder::new()
-                    .name("Dummy-Worker".to_string())
+                    .name(worker_name.to_string())
                     .spawn(move || {
-                        worker.run();
+                        worker.run(pb);
                     })
                     .expect("Start `Dummy` worker thread failed");
                 WorkerController::new(vec![worker_tx])
@@ -65,18 +76,29 @@ pub fn start_worker(
 
                 let worker_txs = (0..threads)
                     .map(|i| {
+                        let worker_name = format!("CuckooSimple-Worker-{}", i);
+                        let pb = mp.add(ProgressBar::new(100));
+                        pb.set_style(spinner_style.clone());
+                        pb.set_prefix(&worker_name);
+                        pb.set_draw_delta(10);
+
                         let (worker_tx, worker_rx) = unbounded();
                         let (cuckoo, seal_tx) = (cuckoo_engine.cuckoo.clone(), seal_tx.clone());
                         thread::Builder::new()
-                            .name(format!("CuckooSimple-Worker-{}", i))
+                            .name(worker_name)
                             .spawn(move || {
                                 let mut worker = CuckooSimple::new(cuckoo, seal_tx, worker_rx);
-                                worker.run();
+                                worker.run(pb);
                             })
                             .expect("Start `CuckooSimple` worker thread failed");
                         worker_tx
                     })
                     .collect();
+
+                thread::spawn(move || {
+                    mp.join().expect("MultiProgress join failed");
+                });
+
                 WorkerController::new(worker_txs)
             } else {
                 panic!("incompatible pow engine and worker type");
@@ -86,5 +108,5 @@ pub fn start_worker(
 }
 
 pub trait Worker {
-    fn run(&mut self);
+    fn run(&mut self, progress_bar: ProgressBar);
 }
