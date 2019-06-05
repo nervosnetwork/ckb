@@ -58,6 +58,12 @@ matrix:
     - name: Tests on Linux
       if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
+      install:
+        - cargo tarpaulin --version || cargo install cargo-tarpaulin
+      script:
+        - make cov
+        - bash <(curl -s https://codecov.io/bash)
+
     - name: Linters
       if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
