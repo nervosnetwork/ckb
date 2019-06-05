@@ -5,10 +5,9 @@
 We will publish binaries for each release via [Github Releases]. If your system
 is listed there, you can download the package directory.
 
-[Github Releases]: https://github.com/nervosnetwork/ckb/releases
+CKB releases are signed. It is wise and more secure to check out for their [integrity](integrity-check.md).
 
-There is also a repository [ckb-builds](https://github.com/ckb-builds/ckb-builds/releases) containing the nightly builds from the develop
-branch.
+[Github Releases]: https://github.com/nervosnetwork/ckb/releases
 
 CentOS users please use the `x86_64-unknown-centos-gnu` package, which also
 requires OpenSSL 1.0 to run:
