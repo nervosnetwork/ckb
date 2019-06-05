@@ -701,7 +701,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
-                vec![],
             ))
             .output(CellOutput::new(
                 capacity_bytes!(5000),
@@ -715,7 +714,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
-                vec![],
             ))
             .output(CellOutput::new(
                 capacity_bytes!(6000),
@@ -838,7 +836,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
-                vec![],
             ))
             .output(CellOutput::new(
                 capacity_bytes!(5000),
@@ -852,7 +849,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
-                vec![],
             ))
             .output(CellOutput::new(
                 capacity_bytes!(6000),
@@ -984,7 +980,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
-                vec![],
             ))
             .output(CellOutput::new(
                 capacity_bytes!(5000),
@@ -998,7 +993,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
-                vec![],
             ))
             .output(CellOutput::new(
                 capacity_bytes!(6000),
@@ -1087,7 +1081,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
-                Vec::new(),
             ))
             .output(CellOutput::new(
                 capacity_bytes!(900),
@@ -1101,7 +1094,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
-                Vec::new(),
             ))
             .output(CellOutput::new(
                 capacity_bytes!(800),
@@ -1169,7 +1161,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
-                Vec::new(),
             ))
             .output(CellOutput::new(
                 capacity_bytes!(900),
@@ -1183,7 +1174,6 @@ mod tests {
             .input(CellInput::new(
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
-                Vec::new(),
             ))
             .output(CellOutput::new(
                 capacity_bytes!(800),
