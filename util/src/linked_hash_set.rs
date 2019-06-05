@@ -192,7 +192,6 @@ impl<K> ExactSizeIterator for IntoIter<K> {
 mod tests {
     use super::*;
     use numext_fixed_hash::{h256, H256};
-    use std::collections::HashSet as StdHashSet;
 
     #[test]
     fn insertion_order() {
@@ -204,12 +203,6 @@ mod tests {
         let tx6 = h256!("0x1df1e5f580c6c10b858960504f14fca4d178cbb54425d021cb2361de1079b174");
 
         let txs = vec![tx1, tx2, tx3, tx4, tx5, tx6];
-
-        let mut std_set = StdHashSet::new();
-        std_set.extend(txs.iter().cloned());
-        // std hashset do not keep insertion order
-        let diff: Vec<H256> = std_set.difference(&StdHashSet::new()).cloned().collect();
-        assert!(txs != diff);
 
         let mut set = LinkedHashSet::default();
         set.extend(txs.iter().cloned());
