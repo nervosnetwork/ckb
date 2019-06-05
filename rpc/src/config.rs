@@ -6,7 +6,6 @@ pub enum Module {
     Chain,
     Miner,
     Pool,
-    Trace,
     Experiment,
     Stats,
     IntegrationTest,
