@@ -21,7 +21,7 @@ impl Spec for SyncTimeout {
         node0.connect(node2);
         node0.connect(node3);
         node0.connect(node4);
-        net.waiting_for_sync(2, 10);
+        net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -30,9 +30,8 @@ impl Spec for SyncTimeout {
         node0.generate_blocks(200);
 
         node0.connect(node1);
-        // 60 seconds is a reasonable timeout to sync, even for poor CI server
         info!("Waiting for node0 and node1 sync");
-        node0.waiting_for_sync(node1, 202, 60);
+        node0.waiting_for_sync(node1, 202);
 
         info!("Generate 200 blocks on node1");
         node1.generate_blocks(200);
@@ -43,9 +42,8 @@ impl Spec for SyncTimeout {
         node3.connect(node1);
         node4.connect(node0);
         node4.connect(node1);
-        // 60 seconds is a reasonable timeout to sync, even for poor CI server
         info!("Waiting for all nodes sync");
-        net.waiting_for_sync(402, 60);
+        net.waiting_for_sync(402);
     }
 
     fn num_nodes(&self) -> usize {
