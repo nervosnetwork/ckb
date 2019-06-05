@@ -5,20 +5,17 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
-use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainKVStore, ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
-use ckb_util::FnvHashSet;
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use failure::Error as FailureError;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use std::cmp;
-use std::collections::BTreeMap;
+use reward_calculator::RewardCalculator;
 use std::sync::Arc;
 
 const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
@@ -77,20 +74,6 @@ impl<CS: ChainStore> Shared<CS> {
 
     pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
         lock_or_panic(&self.txs_verify_cache)
-    }
-
-    fn get_proposal_ids_by_hash(&self, hash: &H256) -> FnvHashSet<ProposalShortId> {
-        let store = self.store();
-        let mut ids_set = FnvHashSet::default();
-        if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
-            ids_set.extend(ids)
-        }
-        if let Some(us) = store.get_block_uncles(&hash) {
-            for u in us {
-                ids_set.extend(u.proposals);
-            }
-        }
-        ids_set
     }
 }
 
@@ -163,134 +146,7 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
     }
 
     fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
-        let current_number = parent.number() + 1;
-        let proposal_window = self.consensus().tx_proposal_window();
-        let target_number = self
-            .consensus()
-            .finalize_target(current_number)
-            .ok_or_else(|| SharedError::FinalizeTarget(current_number))?;
-
-        let store = self.store();
-
-        let target = self
-            .get_ancestor(parent.hash(), target_number)
-            .ok_or_else(|| SharedError::FinalizeTarget(current_number))?;
-
-        let mut target_proposals = self.get_proposal_ids_by_hash(target.hash());
-
-        let target_ext = store
-            .get_block_ext(target.hash())
-            .expect("block body stored");
-
-        let target_lock = Script::from_witness(
-            &store
-                .get_cellbase(target.hash())
-                .expect("target cellbase exist")
-                .witnesses()[0],
-        )
-        .expect("cellbase checked");
-
-        let mut reward = Capacity::zero();
-        // tx commit start at least number 2
-        let commit_start = cmp::max(current_number.saturating_sub(proposal_window.length()), 2);
-        let proposal_start = cmp::max(commit_start.saturating_sub(proposal_window.start()), 1);
-
-        let mut proposal_table = BTreeMap::new();
-        for bn in proposal_start..target_number {
-            let proposals = store
-                .get_block_hash(bn)
-                .map(|hash| self.get_proposal_ids_by_hash(&hash))
-                .expect("finalize target exist");
-            proposal_table.insert(bn, proposals);
-        }
-
-        let mut index = parent.to_owned();
-        for (id, tx_fee) in store
-            .get_block_txs_hashes(index.hash())
-            .expect("block body stored")
-            .iter()
-            .skip(1)
-            .map(ProposalShortId::from_tx_hash)
-            .zip(
-                store
-                    .get_block_ext(index.hash())
-                    .expect("block body stored")
-                    .txs_fees
-                    .iter(),
-            )
-        {
-            if target_proposals.remove(&id) {
-                reward = reward.safe_add(tx_fee.safe_mul_ratio(4, 10)?)?;
-            }
-        }
-
-        index = store
-            .get_block_header(index.parent_hash())
-            .expect("header stored");
-
-        while index.number() >= commit_start {
-            let proposal_start =
-                cmp::max(index.number().saturating_sub(proposal_window.start()), 1);
-            let previous_ids: FnvHashSet<ProposalShortId> = proposal_table
-                .range(proposal_start..)
-                .flat_map(|(_, ids)| ids.iter().cloned())
-                .collect();
-            for (id, tx_fee) in store
-                .get_block_txs_hashes(index.hash())
-                .expect("block body stored")
-                .iter()
-                .skip(1)
-                .map(ProposalShortId::from_tx_hash)
-                .zip(
-                    store
-                        .get_block_ext(index.hash())
-                        .expect("block body stored")
-                        .txs_fees
-                        .iter(),
-                )
-            {
-                if target_proposals.remove(&id) && !previous_ids.contains(&id) {
-                    reward = reward.safe_add(tx_fee.safe_mul_ratio(4, 10)?)?;
-                }
-            }
-
-            index = store
-                .get_block_header(index.parent_hash())
-                .expect("header stored");
-        }
-
-        let txs_fees: Capacity =
-            target_ext
-                .txs_fees
-                .iter()
-                .try_fold(Capacity::zero(), |acc, tx_fee| {
-                    tx_fee.safe_mul_ratio(4, 10).and_then(|proposer| {
-                        tx_fee
-                            .safe_sub(proposer)
-                            .and_then(|miner| acc.safe_add(miner))
-                    })
-                })?;
-        reward = reward.safe_add(txs_fees)?;
-
-        let target_parent_hash = target.parent_hash();
-        let target_parent_epoch = self
-            .get_block_epoch(target_parent_hash)
-            .expect("target parent exist");
-        let target_parent = self
-            .store
-            .get_block_header(target_parent_hash)
-            .expect("target parent exist");
-        let epoch = self
-            .next_epoch_ext(&target_parent_epoch, &target_parent)
-            .unwrap_or(target_parent_epoch);
-
-        let block_reward = epoch
-            .block_reward(target.number())
-            .expect("target block reward");
-
-        reward = reward.safe_add(block_reward)?;
-
-        Ok((target_lock, reward))
+        RewardCalculator::new(self).block_reward(parent)
     }
 
     fn consensus(&self) -> &Consensus {

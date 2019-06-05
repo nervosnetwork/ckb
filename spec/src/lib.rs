@@ -108,10 +108,6 @@ impl SpecLoadError {
     fn genesis_mismatch(expect: H256, actual: H256) -> Box<Self> {
         Box::new(SpecLoadError::GenesisMismatch { expect, actual })
     }
-
-    // fn consensus_params(reason: String) -> Box<Self> {
-    //     Box::new(SpecLoadError::ConsensusParams(reason))
-    // }
 }
 
 impl Error for SpecLoadError {}

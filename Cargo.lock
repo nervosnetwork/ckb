@@ -794,6 +794,7 @@ dependencies = [
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "occupied-capacity 0.15.0-pre",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "reward-calculator 0.15.0-pre",
  "serde 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2762,6 +2763,23 @@ dependencies = [
  "libc 0.2.54 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.3.23 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "reward-calculator"
+version = "0.15.0-pre"
+dependencies = [
+ "ckb-chain-spec 0.15.0-pre",
+ "ckb-core 0.15.0-pre",
+ "ckb-protocol 0.15.0-pre",
+ "ckb-script 0.15.0-pre",
+ "ckb-store 0.15.0-pre",
+ "ckb-traits 0.15.0-pre",
+ "ckb-verification 0.15.0-pre",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

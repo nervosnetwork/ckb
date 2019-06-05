@@ -97,7 +97,6 @@ fn finalize_reward() {
         .transaction(tx.clone())
         .build();
 
-    let mut parent = genesis_block.header().clone();
     let consensus = Consensus::default()
         .set_cellbase_maturity(0)
         .set_foundation(Foundation {
@@ -105,7 +104,7 @@ fn finalize_reward() {
         })
         .set_genesis_block(genesis_block);
 
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain_controller, shared, mut parent) = start_chain(Some(consensus));
 
     let mut txs = Vec::with_capacity(16);
     let mut tx_parent = tx;

@@ -8,7 +8,6 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::{consensus::Consensus, Foundation};
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
-// use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::Bytes;
 use ckb_db::memorydb::MemoryKeyValueDB;
