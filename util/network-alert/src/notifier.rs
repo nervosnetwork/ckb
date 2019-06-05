@@ -60,6 +60,9 @@ impl Notifier {
         }
         warn!("receive a new alert: {}", alert.message);
         self.noticed_alerts.push(alert);
+        // sort by priority
+        self.noticed_alerts
+            .sort_by_key(|a| std::u32::MAX - a.priority);
     }
 
     pub fn cancel(&mut self, cancel_id: u32) {

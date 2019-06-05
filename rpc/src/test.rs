@@ -167,7 +167,7 @@ fn setup_node(
     );
     let alert_relayer = AlertRelayer::new("0".to_string(), AlertConfig::default());
 
-    let alert_notifier = alert_relayer.notifier();
+    let alert_notifier = Arc::clone(alert_relayer.notifier());
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),

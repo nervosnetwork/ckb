@@ -29,11 +29,12 @@ impl Spec for AlertPropagation {
 
         let node0 = &net.nodes[0];
         let warning1 = "pretend we are in dangerous status";
+        let id1 = 42;
         let notice_until = faketime::unix_time_as_millis() + 100_000;
 
         // send alert
         let mut alert = AlertBuilder::default()
-            .id(42)
+            .id(id1)
             .message(warning1.to_string())
             .notice_until(notice_until)
             .build();
@@ -55,19 +56,20 @@ impl Spec for AlertPropagation {
         let ret = wait_until(20, || {
             net.nodes
                 .iter()
-                .all(|node| !node.rpc_client().get_blockchain_info().warnings.is_empty())
+                .all(|node| !node.rpc_client().get_blockchain_info().alerts.is_empty())
         });
         assert!(ret, "alert is relayed");
         for node in net.nodes.iter() {
-            let received = node.rpc_client().get_blockchain_info().warnings;
-            assert_eq!(&received, warning1);
+            let alerts = node.rpc_client().get_blockchain_info().alerts;
+            assert_eq!(alerts.len(), 1);
+            assert_eq!(alerts[0].message, warning1);
         }
 
         // cancel previous alert
         let warning2 = "alert is canceled";
         let mut alert2 = AlertBuilder::default()
             .id(2)
-            .cancel(42)
+            .cancel(id1)
             .message(warning2.to_string())
             .notice_until(notice_until)
             .build();
@@ -85,20 +87,26 @@ impl Spec for AlertPropagation {
         node0.rpc_client().send_alert(alert2.into());
         info!("Waiting for alert relay");
         let ret = wait_until(20, || {
-            net.nodes
-                .iter()
-                .all(|node| node.rpc_client().get_blockchain_info().warnings != warning1)
+            net.nodes.iter().all(|node| {
+                node.rpc_client()
+                    .get_blockchain_info()
+                    .alerts
+                    .iter()
+                    .all(|a| a.id.0 != id1)
+            })
         });
         assert!(ret, "alert is relayed");
         for node in net.nodes.iter() {
-            let received = node.rpc_client().get_blockchain_info().warnings;
-            assert_eq!(&received, warning2);
+            let alerts = node.rpc_client().get_blockchain_info().alerts;
+            assert_eq!(alerts.len(), 1);
+            assert_eq!(alerts[0].message, warning2);
         }
 
         // send canceled alert again, should ignore by all nodes
         node0.rpc_client().send_alert(alert.into());
-        let received = node0.rpc_client().get_blockchain_info().warnings;
-        assert_eq!(&received, warning2);
+        let alerts = node0.rpc_client().get_blockchain_info().alerts;
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].message, warning2);
     }
 
     fn num_nodes(&self) -> usize {

@@ -6,7 +6,7 @@ use ckb_traits::BlockMedianTimeContext;
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{ChainInfo, EpochNumber, PeerState, Timestamp};
+use jsonrpc_types::{AlertMessage, ChainInfo, EpochNumber, PeerState, Timestamp};
 use std::sync::Arc;
 
 #[rpc]
@@ -40,16 +40,15 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
         let epoch = tip_header.epoch();
         let difficulty = tip_header.difficulty().clone();
         let is_initial_block_download = self.synchronizer.shared.is_initial_block_download();
-        let warnings = {
+        let alerts: Vec<AlertMessage> = {
             let now = faketime::unix_time_as_millis();
             let mut notifier = self.alert_notifier.lock();
             notifier.clear_expired_alerts(now);
             notifier
                 .noticed_alerts()
-                .into_iter()
-                .map(|alert| alert.message.clone())
-                .collect::<Vec<String>>()
-                .join("\n")
+                .iter()
+                .map(|alert| AlertMessage::from(alert.as_ref()))
+                .collect()
         };
 
         Ok(ChainInfo {
@@ -58,7 +57,7 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
             epoch: EpochNumber(epoch),
             difficulty,
             is_initial_block_download,
-            warnings,
+            alerts,
         })
     }
 

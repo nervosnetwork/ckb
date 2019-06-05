@@ -20,6 +20,14 @@ pub struct Alert {
     pub signatures: Vec<JsonBytes>,
 }
 
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct AlertMessage {
+    pub id: AlertId,
+    pub priority: AlertPriority,
+    pub notice_until: Timestamp,
+    pub message: String,
+}
+
 impl From<Alert> for CoreAlert {
     fn from(json: Alert) -> Self {
         let Alert {
@@ -72,6 +80,24 @@ impl From<CoreAlert> for Alert {
             notice_until: Timestamp(notice_until),
             message,
             signatures: signatures.into_iter().map(JsonBytes::from_bytes).collect(),
+        }
+    }
+}
+
+impl From<&CoreAlert> for AlertMessage {
+    fn from(core: &CoreAlert) -> Self {
+        let CoreAlert {
+            id,
+            priority,
+            notice_until,
+            message,
+            ..
+        } = core;
+        AlertMessage {
+            id: AlertId(*id),
+            priority: AlertPriority(*priority),
+            notice_until: Timestamp(*notice_until),
+            message: message.to_owned(),
         }
     }
 }

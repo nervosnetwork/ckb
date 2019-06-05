@@ -126,7 +126,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             block_assembler_controller,
         )
         .enable_net(network_controller.clone())
-        .enable_stats(shared.clone(), synchronizer, alert_notifier.clone())
+        .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
         .enable_experiment(shared.clone())
         .enable_integration_test(
             shared.clone(),
