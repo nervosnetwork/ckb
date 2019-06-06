@@ -3,7 +3,6 @@ use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
 use ckb_chain::chain::ChainService;
 use ckb_db::RocksDB;
-use ckb_indexer::DefaultIndexerStore;
 use ckb_logger::info_target;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
@@ -59,14 +58,6 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
                 None
             }
         };
-
-    let indexer_store = if args.config.rpc.indexer_enable() {
-        let store = DefaultIndexerStore::new(&args.config.indexer_db, shared.clone());
-        store.clone().start(Some("IndexerStore"));
-        Some(store)
-    } else {
-        None
-    };
 
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
@@ -142,7 +133,8 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             network_controller.clone(),
             chain_controller.clone(),
         )
-        .enable_alert(alert_verifier, alert_notifier, network_controller);
+        .enable_alert(alert_verifier, alert_notifier, network_controller)
+        .enable_indexer(&args.config.indexer_db, shared.clone());
     let io_handler = builder.build();
 
     let rpc_server = RpcServer::new(args.config.rpc, io_handler);
