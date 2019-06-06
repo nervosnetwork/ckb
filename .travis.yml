@@ -53,19 +53,13 @@ matrix:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
     # If you want to see the tests result in CI before submitting PR, name the branch with prefix "test".
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
-      install:
-        - cargo tarpaulin --version || cargo install cargo-tarpaulin
-      script:
-        - make cov
-        - bash <(curl -s https://codecov.io/bash)
-
     - name: Linters
-      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
       install:
         - cargo fmt --version || rustup component add rustfmt
@@ -77,7 +71,7 @@ matrix:
         - make clippy
         - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
       cache: false
       addons: { apt: { packages: [] } }
@@ -95,6 +89,15 @@ matrix:
       if: 'tag IS NOT present AND type != pull_request'
       os: linux
       script: make integration
+    - name: Code Coverage
+      if: 'tag IS NOT present AND branch = master'
+      os: linux
+      install:
+        - cargo tarpaulin --version || cargo install cargo-tarpaulin
+      script:
+        - make cov
+      after_success:
+        - bash <(curl -s https://codecov.io/bash)
 
     - name: Package for macOS
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
