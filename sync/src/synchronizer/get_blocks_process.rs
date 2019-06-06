@@ -41,7 +41,7 @@ where
         for fbs_h256 in block_hashes.iter().take(n_limit) {
             let block_hash = fbs_h256.try_into()?;
             debug!("get_blocks {:x} from peer {:?}", block_hash, self.peer);
-            if let Some(block) = self.synchronizer.shared.get_block(&block_hash) {
+            if let Some(block) = self.synchronizer.shared.store().get_block(&block_hash) {
                 debug!(
                     "respond_block {} {:x} to peer {:?}",
                     block.header().number(),

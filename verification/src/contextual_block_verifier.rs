@@ -27,12 +27,12 @@ pub struct ForkContext<'a, P> {
 }
 
 impl<'a, P: ChainProvider> ForkContext<'a, P> {
-    fn get_header(&self, block_hash: &H256) -> Option<Header> {
+    fn get_block_header(&self, block_hash: &H256) -> Option<Header> {
         self.attached_blocks
             .iter()
             .find(|b| b.header().hash() == block_hash)
             .and_then(|b| Some(b.header().to_owned()))
-            .or_else(|| self.provider.store().get_header(block_hash))
+            .or_else(|| self.provider.store().get_block_header(block_hash))
     }
 }
 
@@ -43,7 +43,7 @@ impl<'a, P: ChainProvider> BlockMedianTimeContext for ForkContext<'a, P> {
 
     fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
         let header = self
-            .get_header(block_hash)
+            .get_block_header(block_hash)
             .expect("[ForkContext] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }
@@ -154,16 +154,21 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
         while proposal_end >= proposal_start {
             let header = self
                 .provider
-                .block_header(&block_hash)
+                .store()
+                .get_block_header(&block_hash)
                 .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
             if header.is_genesis() {
                 break;
             }
 
-            if let Some(ids) = self.provider.block_proposal_txs_ids(&block_hash) {
+            if let Some(ids) = self
+                .provider
+                .store()
+                .get_block_proposal_txs_ids(&block_hash)
+            {
                 proposal_txs_ids.extend(ids);
             }
-            if let Some(uncles) = self.provider.uncles(&block_hash) {
+            if let Some(uncles) = self.provider.store().get_block_uncles(&block_hash) {
                 uncles
                     .iter()
                     .for_each(|uncle| proposal_txs_ids.extend(uncle.proposals()));
@@ -341,7 +346,8 @@ fn prepare_epoch_ext<P: ChainProvider>(provider: &P, block: &Block) -> Result<Ep
         .get_block_epoch(parent_hash)
         .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
     let parent = provider
-        .block_header(parent_hash)
+        .store()
+        .get_block_header(parent_hash)
         .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
     Ok(provider
         .next_epoch_ext(&parent_ext, &parent)

@@ -746,7 +746,7 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
 impl<CS: ChainStore> HeaderProvider for ChainState<CS> {
     fn header(&self, out_point: &OutPoint) -> HeaderStatus {
         if let Some(block_hash) = &out_point.block_hash {
-            match self.store.get_header(&block_hash) {
+            match self.store.get_block_header(&block_hash) {
                 Some(header) => {
                     if let Some(cell_out_point) = &out_point.cell {
                         self.store
@@ -817,7 +817,7 @@ impl<CS: ChainStore> BlockMedianTimeContext for &ChainState<CS> {
     fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
         let header = self
             .store
-            .get_header(&block_hash)
+            .get_block_header(&block_hash)
             .expect("[ChainState] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }

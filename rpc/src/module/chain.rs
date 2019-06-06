@@ -58,14 +58,26 @@ pub(crate) struct ChainRpcImpl<CS> {
 
 impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     fn get_block(&self, hash: H256) -> Result<Option<BlockView>> {
-        Ok(self.shared.block(&hash).as_ref().map(Into::into))
+        Ok(self
+            .shared
+            .store()
+            .get_block(&hash)
+            .as_ref()
+            .map(Into::into))
     }
 
     fn get_block_by_number(&self, number: BlockNumber) -> Result<Option<BlockView>> {
         Ok(self
             .shared
-            .block_hash(number.0)
-            .and_then(|hash| self.shared.block(&hash).as_ref().map(Into::into)))
+            .store()
+            .get_block_hash(number.0)
+            .and_then(|hash| {
+                self.shared
+                    .store()
+                    .get_block(&hash)
+                    .as_ref()
+                    .map(Into::into)
+            }))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithStatus>> {
@@ -87,13 +99,14 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
 
         Ok(tx.or_else(|| {
             self.shared
+                .store()
                 .get_transaction(&hash)
                 .map(|(tx, block_hash)| TransactionWithStatus::with_committed(tx, block_hash))
         }))
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
-        Ok(self.shared.block_hash(number.0))
+        Ok(self.shared.store().get_block_hash(number.0))
     }
 
     fn get_tip_header(&self) -> Result<HeaderView> {
@@ -147,7 +160,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         }
 
         for block_number in from..=to {
-            let block_hash = self.shared.block_hash(block_number);
+            let block_hash = self.shared.store().get_block_hash(block_number);
             if block_hash.is_none() {
                 break;
             }
@@ -155,7 +168,8 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             let block_hash = block_hash.unwrap();
             let block = self
                 .shared
-                .block(&block_hash)
+                .store()
+                .get_block(&block_hash)
                 .ok_or_else(Error::internal_error)?;
             for transaction in block.transactions() {
                 if let Some(transaction_meta) = chain_state.cell_set().get(&transaction.hash()) {

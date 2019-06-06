@@ -14,6 +14,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -154,7 +155,10 @@ fn test_proposal() {
 
     let proposal_window = shared.consensus().tx_proposal_window();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
 
     //proposal in block(1)
     let proposed = 1;
@@ -224,7 +228,10 @@ fn test_uncle_proposal() {
 
     let proposal_window = shared.consensus().tx_proposal_window();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
 
     //proposal in block(1)
     let proposed = 1;

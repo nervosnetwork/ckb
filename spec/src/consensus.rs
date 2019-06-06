@@ -271,7 +271,7 @@ impl Consensus {
         &self,
         last_epoch: &EpochExt,
         header: &Header,
-        get_header: A,
+        get_block_header: A,
         total_uncles_count: B,
     ) -> Option<EpochExt>
     where
@@ -292,7 +292,7 @@ impl Consensus {
         let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {
             self.genesis_block().header().clone()
         } else {
-            get_header(last_epoch.last_block_hash_in_previous_epoch())?
+            get_block_header(last_epoch.last_block_hash_in_previous_epoch())?
         };
 
         let start_total_uncles_count =

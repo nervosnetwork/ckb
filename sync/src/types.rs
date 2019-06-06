@@ -4,7 +4,6 @@ use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
-use ckb_core::extras::BlockExt;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::Cycle;
@@ -30,6 +29,7 @@ use std::collections::{
     BTreeMap,
 };
 use std::fmt;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const FILTER_SIZE: usize = 20000;
@@ -542,7 +542,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let (total_difficulty, header, total_uncles_count) = {
             let chain_state = shared.lock_chain_state();
             let block_ext = shared
-                .block_ext(&chain_state.tip_hash())
+                .store()
+                .get_block_ext(&chain_state.tip_hash())
                 .expect("tip block_ext must exist");
             (
                 chain_state.total_difficulty().to_owned(),
@@ -571,23 +572,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn shared(&self) -> &Shared<CS> {
         &self.shared
     }
+    pub fn store(&self) -> &Arc<CS> {
+        self.shared.store()
+    }
     pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
         self.shared.lock_chain_state()
     }
     pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
         self.shared.lock_txs_verify_cache()
-    }
-    pub fn block_header(&self, hash: &H256) -> Option<Header> {
-        self.shared.block_header(hash)
-    }
-    pub fn block_ext(&self, hash: &H256) -> Option<BlockExt> {
-        self.shared.block_ext(hash)
-    }
-    pub fn block_hash(&self, number: BlockNumber) -> Option<H256> {
-        self.shared.block_hash(number)
-    }
-    pub fn get_block(&self, hash: &H256) -> Option<Block> {
-        self.shared.block(hash)
     }
     pub fn tip_header(&self) -> Header {
         self.shared.lock_chain_state().tip_header().to_owned()
@@ -616,15 +608,18 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
     pub fn get_header_view(&self, hash: &H256) -> Option<HeaderView> {
         self.header_map.read().get(hash).cloned().or_else(|| {
-            self.shared.block_header(hash).and_then(|header| {
-                self.shared.block_ext(&hash).map(|block_ext| {
-                    HeaderView::new(
-                        header,
-                        block_ext.total_difficulty,
-                        block_ext.total_uncles_count,
-                    )
+            self.shared
+                .store()
+                .get_block_header(hash)
+                .and_then(|header| {
+                    self.shared.store().get_block_ext(&hash).map(|block_ext| {
+                        HeaderView::new(
+                            header,
+                            block_ext.total_difficulty,
+                            block_ext.total_uncles_count,
+                        )
+                    })
                 })
-            })
         })
     }
     pub fn get_header(&self, hash: &H256) -> Option<Header> {
@@ -633,7 +628,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .get(hash)
             .map(HeaderView::inner)
             .cloned()
-            .or_else(|| self.shared.block_header(hash))
+            .or_else(|| self.shared.store().get_block_header(hash))
     }
 
     pub fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
@@ -758,7 +753,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let (index, latest_common) = locator
             .iter()
             .enumerate()
-            .map(|(index, hash)| (index, self.shared.block_number(hash)))
+            .map(|(index, hash)| (index, self.shared.store().get_block_number(hash)))
             .find(|(_index, number)| number.is_some())
             .expect("locator last checked");
 
@@ -768,16 +763,16 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
         if let Some(header) = locator
             .get(index - 1)
-            .and_then(|hash| self.shared.block_header(hash))
+            .and_then(|hash| self.shared.store().get_block_header(hash))
         {
             let mut block_hash = header.parent_hash().to_owned();
             loop {
-                let block_header = match self.shared.block_header(&block_hash) {
+                let block_header = match self.shared.store().get_block_header(&block_hash) {
                     None => break latest_common,
                     Some(block_header) => block_header,
                 };
 
-                if let Some(block_number) = self.shared.block_number(&block_hash) {
+                if let Some(block_number) = self.shared.store().get_block_number(&block_hash) {
                     return Some(block_number);
                 }
 
@@ -799,9 +794,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             tip_number + 1,
         );
         (block_number + 1..max_height)
-            .filter_map(|block_number| self.shared.block_hash(block_number))
+            .filter_map(|block_number| self.shared.store().get_block_hash(block_number))
             .take_while(|block_hash| block_hash != hash_stop)
-            .filter_map(|block_hash| self.shared.block_header(&block_hash))
+            .filter_map(|block_hash| self.shared.store().get_block_header(&block_hash))
             .collect()
     }
 

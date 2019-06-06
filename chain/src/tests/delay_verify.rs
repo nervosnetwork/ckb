@@ -5,6 +5,7 @@ use ckb_core::block::Block;
 use ckb_core::cell::UnresolvableError;
 use ckb_core::transaction::OutPoint;
 use ckb_shared::error::SharedError;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -18,7 +19,10 @@ fn test_dead_cell_in_same_block() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -32,7 +36,10 @@ fn test_dead_cell_in_same_block() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..switch_fork_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -116,7 +123,10 @@ fn test_dead_cell_in_different_block() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -130,7 +140,10 @@ fn test_dead_cell_in_different_block() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..switch_fork_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -222,7 +235,10 @@ fn test_invalid_out_point_index_in_same_block() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -236,7 +252,10 @@ fn test_invalid_out_point_index_in_same_block() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..switch_fork_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -321,7 +340,10 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(
@@ -335,7 +357,10 @@ fn test_invalid_out_point_index_in_different_blocks() {
         parent = new_block.header().to_owned();
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
     for _ in 1..switch_fork_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = gen_block(

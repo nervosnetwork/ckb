@@ -652,7 +652,10 @@ mod tests {
         let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");
         let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
 
-        let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+        let genesis = shared
+            .store()
+            .get_block_header(&shared.store().get_block_hash(0).unwrap())
+            .unwrap();
 
         let block0_0 = gen_block(&genesis, 11, &epoch);
         let block0_1 = gen_block(&genesis, 10, &epoch);

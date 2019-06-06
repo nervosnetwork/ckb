@@ -92,7 +92,7 @@ pub trait ChainStore: Sync + Send {
     /// Get block by block header hash
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
     /// Get header by block header hash
-    fn get_header(&self, block_hash: &H256) -> Option<Header>;
+    fn get_block_header(&self, block_hash: &H256) -> Option<Header>;
     /// Get block body by block header hash
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
     /// Get all transaction-hashes in block body by block header hash
@@ -162,7 +162,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_block(&self, h: &H256) -> Option<Block> {
-        self.get_header(h).map(|header| {
+        self.get_block_header(h).map(|header| {
             let transactions = self
                 .get_block_body(h)
                 .expect("block transactions must be stored");
@@ -185,7 +185,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.get(COLUMN_UNCLES, hash.as_bytes()).is_some()
     }
 
-    fn get_header(&self, hash: &H256) -> Option<Header> {
+    fn get_block_header(&self, hash: &H256) -> Option<Header> {
         let mut header_cache_unlocked = self
             .header_cache
             .lock()
@@ -328,7 +328,9 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_tip_header(&self) -> Option<Header> {
         self.get(COLUMN_META, META_TIP_HEADER_KEY)
-            .and_then(|raw| self.get_header(&H256::from_slice(&raw[..]).expect("db safe access")))
+            .and_then(|raw| {
+                self.get_block_header(&H256::from_slice(&raw[..]).expect("db safe access"))
+            })
             .map(Into::into)
     }
 

@@ -86,7 +86,10 @@ impl<'a, CS: ChainStore + 'a> BlockMedianTimeContext for VerifierResolver<'a, CS
     }
 
     fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.synchronizer.shared.block_hash(block_number)
+        self.synchronizer
+            .shared
+            .store()
+            .get_block_hash(block_number)
     }
 }
 
