@@ -11,6 +11,7 @@ if [ -z "${REL_PKG:-}" ]; then
 fi
 
 PKG_NAME="ckb_${TRAVIS_TAG}_${REL_PKG%%.*}"
+ARCHIVE_NAME="ckb_${TRAVIS_TAG}_${REL_PKG}"
 
 rm -rf releases
 mkdir releases
@@ -27,5 +28,8 @@ if [ "${REL_PKG#*.}" = "tar.gz" ]; then
   tar -czf $PKG_NAME.tar.gz $PKG_NAME
 else
   zip -r $PKG_NAME.zip $PKG_NAME
+fi
+if [ -n "${GPG_SIGNER:-}" ]; then
+  gpg -u "$GPG_SIGNER" -ab "$ARCHIVE_NAME"
 fi
 popd

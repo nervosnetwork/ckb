@@ -161,7 +161,7 @@ impl CompactBlockBasic {
         // Make node0 and node1 reach the same height
         node1.generate_block();
         node0.connect(node1);
-        node0.waiting_for_sync(node1, node0.get_tip_block().header().number(), 20);
+        node0.waiting_for_sync(node1, node0.get_tip_block().header().number());
 
         // Net consume and ignore the recent blocks
         clear_messages(net);
@@ -191,7 +191,7 @@ impl CompactBlockBasic {
 
         // Submit the new block to node1. We expect node1 will relay the new block to node0.
         node1.submit_block(&block);
-        node1.waiting_for_sync(node0, node1.get_tip_block().header().number(), 20);
+        node1.waiting_for_sync(node0, node1.get_tip_block().header().number());
     }
 }
 
