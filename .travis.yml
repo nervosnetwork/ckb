@@ -90,7 +90,7 @@ matrix:
       os: linux
       script: make integration
     - name: Code Coverage
-      if: 'tag IS NOT present AND (branch = master OR (type != pull_request AND branch = develop))'
+      if: 'tag IS NOT present AND branch = master'
       os: linux
       install:
         - cargo tarpaulin --version || cargo install cargo-tarpaulin
