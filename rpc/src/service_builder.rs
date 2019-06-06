@@ -58,7 +58,7 @@ impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
         block_assembler: Option<BlockAssemblerController>,
     ) -> Self {
         if let Some(block_assembler) = block_assembler {
-            if self.config.pool_enable() {
+            if self.config.miner_enable() {
                 self.io_handler.extend_with(
                     MinerRpcImpl {
                         shared: shared.clone(),
@@ -87,7 +87,7 @@ impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
         synchronizer: Synchronizer<CS>,
         alert_notifier: Arc<Mutex<AlertNotifier>>,
     ) -> Self {
-        if self.config.net_enable() {
+        if self.config.stats_enable() {
             self.io_handler.extend_with(
                 StatsRpcImpl {
                     shared,
