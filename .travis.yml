@@ -64,9 +64,7 @@ matrix:
       install:
         - cargo fmt --version || rustup component add rustfmt
         - cargo clippy --version || rustup component add clippy
-        - cargo audit --version || cargo install cargo-audit
       script:
-        - make security-audit
         - make fmt
         - make clippy
         - git diff --exit-code Cargo.lock
