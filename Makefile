@@ -13,7 +13,7 @@ cov: ## Run code coverage.
 	# Tarpaulin only supports x86_64 processors running Linux.
 	# https://github.com/xd009642/tarpaulin/issues/161
 	# https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
-	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --all -v --out Xml
+	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --exclude-files protocol/src/protocol_generated* test/* */tests/ --all -v --out Xml
 
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
