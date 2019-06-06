@@ -1,5 +1,5 @@
 use crate::chain::{ChainService, ForkChanges};
-use crate::tests::util::gen_block;
+use crate::tests::util::MockChain;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::{BlockExt, DaoStats, DEFAULT_ACCUMULATED_RATE};
@@ -29,32 +29,26 @@ fn test_find_fork_case1() {
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
         .unwrap();
 
-    let mut fork1: Vec<Block> = Vec::new();
-    let mut fork2: Vec<Block> = Vec::new();
-
-    let mut parent = genesis.clone();
+    let parent = genesis.clone();
+    let mut fork1 = MockChain::new(parent.clone());
+    let mut fork2 = MockChain::new(parent.clone());
     for _ in 0..4 {
-        let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
-        fork1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        fork1.gen_empty_block_with_difficulty(100u64);
     }
 
-    let mut parent = genesis.clone();
     for _ in 0..3 {
-        let new_block = gen_block(&parent, U256::from(90u64), vec![], vec![], vec![]);
-        fork2.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        fork2.gen_empty_block_with_difficulty(90u64);
     }
 
     // fork1 total_difficulty 400
-    for blk in &fork1 {
+    for blk in fork1.blocks() {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
             .unwrap();
     }
 
     // fork2 total_difficulty 270
-    for blk in &fork2 {
+    for blk in fork2.blocks() {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
             .unwrap();
@@ -63,8 +57,7 @@ fn test_find_fork_case1() {
     let tip_number = { shared.lock_chain_state().tip_number() };
 
     // fork2 total_difficulty 470
-    let new_block = gen_block(&parent, U256::from(200u64), vec![], vec![], vec![]);
-    fork2.push(new_block.clone());
+    fork2.gen_empty_block_with_difficulty(200u64);
 
     let ext = BlockExt {
         received_at: unix_time_as_millis(),
@@ -80,10 +73,10 @@ fn test_find_fork_case1() {
 
     let mut fork = ForkChanges::default();
 
-    chain_service.find_fork(&mut fork, tip_number, &new_block, ext);
+    chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
-    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
+    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.blocks().clone().into_iter());
+    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.blocks().clone().into_iter());
     assert_eq!(
         detached_blocks,
         HashSet::from_iter(fork.detached_blocks.iter().cloned())
@@ -109,33 +102,26 @@ fn test_find_fork_case2() {
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
         .unwrap();
+    let mut fork1 = MockChain::new(genesis.clone());
 
-    let mut fork1: Vec<Block> = Vec::new();
-    let mut fork2: Vec<Block> = Vec::new();
-
-    let mut parent = genesis.clone();
     for _ in 0..4 {
-        let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
-        fork1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        fork1.gen_empty_block_with_difficulty(100u64);
     }
 
-    let mut parent = fork1[0].header().to_owned();
+    let mut fork2 = MockChain::new(fork1.blocks()[0].header().to_owned());
     for _ in 0..2 {
-        let new_block = gen_block(&parent, U256::from(90u64), vec![], vec![], vec![]);
-        fork2.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        fork2.gen_empty_block_with_difficulty(90u64);
     }
 
     // fork1 total_difficulty 400
-    for blk in &fork1 {
+    for blk in fork1.blocks() {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
             .unwrap();
     }
 
     // fork2 total_difficulty 280
-    for blk in &fork2 {
+    for blk in fork2.blocks() {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
             .unwrap();
@@ -143,16 +129,8 @@ fn test_find_fork_case2() {
 
     let tip_number = { shared.lock_chain_state().tip_number() };
 
-    // fork2 total_difficulty 480
-    let difficulty = parent.difficulty().to_owned();
-    let new_block = gen_block(
-        &parent,
-        difficulty + U256::from(200u64),
-        vec![],
-        vec![],
-        vec![],
-    );
-    fork2.push(new_block.clone());
+    // fork2 total_difficulty 570
+    fork2.gen_empty_block(200u64);
 
     let ext = BlockExt {
         received_at: unix_time_as_millis(),
@@ -168,10 +146,10 @@ fn test_find_fork_case2() {
 
     let mut fork = ForkChanges::default();
 
-    chain_service.find_fork(&mut fork, tip_number, &new_block, ext);
+    chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1[1..].iter().cloned());
-    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
+    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.blocks()[1..].iter().cloned());
+    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.blocks().clone().into_iter());
     assert_eq!(
         detached_blocks,
         HashSet::from_iter(fork.detached_blocks.iter().cloned())
@@ -198,32 +176,26 @@ fn test_find_fork_case3() {
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
         .unwrap();
 
-    let mut fork1: Vec<Block> = Vec::new();
-    let mut fork2: Vec<Block> = Vec::new();
+    let mut fork1 = MockChain::new(genesis.clone());
+    let mut fork2 = MockChain::new(genesis.clone());
 
-    let mut parent = genesis.clone();
     for _ in 0..3 {
-        let new_block = gen_block(&parent, U256::from(80u64), vec![], vec![], vec![]);
-        fork1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        fork1.gen_empty_block_with_difficulty(80u64)
     }
 
-    let mut parent = genesis.clone();
     for _ in 0..5 {
-        let new_block = gen_block(&parent, U256::from(40u64), vec![], vec![], vec![]);
-        fork2.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        fork2.gen_empty_block_with_difficulty(40u64)
     }
 
     // fork1 total_difficulty 240
-    for blk in &fork1 {
+    for blk in fork1.blocks() {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
             .unwrap();
     }
 
     // fork2 total_difficulty 200
-    for blk in &fork2 {
+    for blk in fork2.blocks() {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
             .unwrap();
@@ -232,8 +204,7 @@ fn test_find_fork_case3() {
     let tip_number = { shared.lock_chain_state().tip_number() };
 
     // fork2 total_difficulty 300
-    let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
-    fork2.push(new_block.clone());
+    fork2.gen_empty_block_with_difficulty(100u64);
 
     let ext = BlockExt {
         received_at: unix_time_as_millis(),
@@ -248,10 +219,10 @@ fn test_find_fork_case3() {
     };
     let mut fork = ForkChanges::default();
 
-    chain_service.find_fork(&mut fork, tip_number, &new_block, ext);
+    chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
-    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
+    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.blocks().clone().into_iter());
+    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.blocks().clone().into_iter());
     assert_eq!(
         detached_blocks,
         HashSet::from_iter(fork.detached_blocks.iter().cloned())
@@ -278,32 +249,26 @@ fn test_find_fork_case4() {
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
         .unwrap();
 
-    let mut fork1: Vec<Block> = Vec::new();
-    let mut fork2: Vec<Block> = Vec::new();
+    let mut fork1 = MockChain::new(genesis.clone());
+    let mut fork2 = MockChain::new(genesis.clone());
 
-    let mut parent = genesis.clone();
     for _ in 0..5 {
-        let new_block = gen_block(&parent, U256::from(40u64), vec![], vec![], vec![]);
-        fork1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        fork1.gen_empty_block_with_difficulty(40u64);
     }
 
-    let mut parent = genesis.clone();
     for _ in 0..2 {
-        let new_block = gen_block(&parent, U256::from(80u64), vec![], vec![], vec![]);
-        fork2.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        fork2.gen_empty_block_with_difficulty(80u64);
     }
 
     // fork1 total_difficulty 200
-    for blk in &fork1 {
+    for blk in fork1.blocks() {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
             .unwrap();
     }
 
     // fork2 total_difficulty 160
-    for blk in &fork2 {
+    for blk in fork2.blocks() {
         chain_service
             .process_block(Arc::new(blk.clone()), false)
             .unwrap();
@@ -312,8 +277,7 @@ fn test_find_fork_case4() {
     let tip_number = { shared.lock_chain_state().tip_number() };
 
     // fork2 total_difficulty 260
-    let new_block = gen_block(&parent, U256::from(100u64), vec![], vec![], vec![]);
-    fork2.push(new_block.clone());
+    fork2.gen_empty_block_with_difficulty(100u64);
 
     let ext = BlockExt {
         received_at: unix_time_as_millis(),
@@ -329,10 +293,10 @@ fn test_find_fork_case4() {
 
     let mut fork = ForkChanges::default();
 
-    chain_service.find_fork(&mut fork, tip_number, &new_block, ext);
+    chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.into_iter());
-    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.into_iter());
+    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.blocks().clone().into_iter());
+    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.blocks().clone().into_iter());
     assert_eq!(
         detached_blocks,
         HashSet::from_iter(fork.detached_blocks.iter().cloned())
