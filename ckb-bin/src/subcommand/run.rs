@@ -6,8 +6,9 @@ use ckb_db::RocksDB;
 use ckb_logger::info_target;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
+use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_rpc::RpcServer;
+use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
@@ -74,6 +75,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         Arc::clone(synchronizer.peers()),
     );
     let net_timer = NetTimeProtocol::default();
+    let alert_config = args.config.alert.unwrap_or_default();
+    let alert_relayer = AlertRelayer::new(version.to_string(), alert_config);
+
+    let alert_notifier = Arc::clone(alert_relayer.notifier());
+    let alert_verifier = Arc::clone(alert_relayer.verifier());
 
     let synchronizer_clone = synchronizer.clone();
     let protocols = vec![
@@ -98,19 +104,39 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             move || Box::new(net_timer.clone()),
             Arc::clone(&network_state),
         ),
+        CKBProtocol::new(
+            "alt".to_string(),
+            NetworkProtocol::ALERT.into(),
+            &["1".to_string()][..],
+            move || Box::new(alert_relayer.clone()),
+            Arc::clone(&network_state),
+        ),
     ];
     let network_controller = NetworkService::new(Arc::clone(&network_state), protocols)
         .start(version, Some("NetworkService"))
         .expect("Start network service failed");
 
-    let rpc_server = RpcServer::new(
-        args.config.rpc,
-        network_controller,
-        shared,
-        synchronizer,
-        chain_controller,
-        block_assembler_controller,
-    );
+    let builder = ServiceBuilder::new(&args.config.rpc)
+        .enable_chain(shared.clone())
+        .enable_pool(shared.clone(), network_controller.clone())
+        .enable_miner(
+            shared.clone(),
+            network_controller.clone(),
+            chain_controller.clone(),
+            block_assembler_controller,
+        )
+        .enable_net(network_controller.clone())
+        .enable_stats(shared.clone(), synchronizer, Arc::clone(&alert_notifier))
+        .enable_experiment(shared.clone())
+        .enable_integration_test(
+            shared.clone(),
+            network_controller.clone(),
+            chain_controller.clone(),
+        )
+        .enable_alert(alert_verifier, alert_notifier, network_controller);
+    let io_handler = builder.build();
+
+    let rpc_server = RpcServer::new(args.config.rpc, io_handler);
 
     wait_for_exit();
 

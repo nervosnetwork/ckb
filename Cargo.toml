@@ -17,6 +17,7 @@ ckb-bin = { path = "ckb-bin" }
 
 [workspace]
 members = [
+    "util/network-alert",
     "util/multisig",
     "util/logger",
     "util/hash",

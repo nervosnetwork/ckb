@@ -1,3 +1,4 @@
+mod alert;
 mod block_template;
 mod blockchain;
 mod bytes;
@@ -31,6 +32,7 @@ pub struct Timestamp(#[serde(with = "string")] pub u64);
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Unsigned(#[serde(with = "string")] pub u64);
 
+pub use self::alert::{Alert, AlertMessage};
 pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };

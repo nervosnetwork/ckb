@@ -1,9 +1,11 @@
+mod alert;
 mod mining;
 mod p2p;
 mod relay;
 mod sync;
 mod tx_pool;
 
+pub use alert::*;
 pub use mining::*;
 pub use p2p::*;
 pub use relay::*;

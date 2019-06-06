@@ -5,7 +5,7 @@ use ckb_util::Mutex;
 use jsonrpc_client_core::{expand_params, jsonrpc_client, Result as JsonRpcResult};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{
-    Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint, CellWithStatus,
+    Alert, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint, CellWithStatus,
     ChainInfo, DryRunResult, EpochExt, EpochNumber, HeaderView, Node, OutPoint, PeerState,
     Transaction, TransactionWithStatus, TxPoolInfo, Unsigned, Version,
 };
@@ -176,6 +176,14 @@ impl RpcClient {
         self.inner.lock().send_transaction(tx).call()
     }
 
+    pub fn send_alert(&self, alert: Alert) {
+        self.inner
+            .lock()
+            .send_alert(alert)
+            .call()
+            .expect("rpc call send_alert")
+    }
+
     pub fn tx_pool_info(&self) -> TxPoolInfo {
         self.inner
             .lock()
@@ -240,6 +248,8 @@ jsonrpc_client!(pub struct Inner {
     pub fn dry_run_transaction(&mut self, _tx: Transaction) -> RpcRequest<DryRunResult>;
     pub fn send_transaction(&mut self, tx: Transaction) -> RpcRequest<H256>;
     pub fn tx_pool_info(&mut self) -> RpcRequest<TxPoolInfo>;
+
+    pub fn send_alert(&mut self, alert: Alert) -> RpcRequest<()>;
 
     pub fn add_node(&mut self, peer_id: String, address: String) -> RpcRequest<()>;
     pub fn remove_node(&mut self, peer_id: String) -> RpcRequest<()>;

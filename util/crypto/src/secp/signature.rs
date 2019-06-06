@@ -50,6 +50,15 @@ impl Signature {
         Signature(sig)
     }
 
+    pub fn from_slice(data: &[u8]) -> Result<Self, Error> {
+        if data.len() != 65 {
+            Err(Error::InvalidSignature)?;
+        }
+        let mut sig = [0u8; 65];
+        sig[..].copy_from_slice(data);
+        Ok(Signature(sig))
+    }
+
     /// Check if each component of the signature is in range.
     pub fn is_valid(&self) -> bool {
         let h_r = match H256::from_slice(self.r()) {

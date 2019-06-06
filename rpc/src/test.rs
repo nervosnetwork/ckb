@@ -12,6 +12,7 @@ use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, Transa
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::MemoryKeyValueDB;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
+use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConfig};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
@@ -164,10 +165,14 @@ fn setup_node(
         }
         .to_delegate(),
     );
+    let alert_relayer = AlertRelayer::new("0".to_string(), AlertConfig::default());
+
+    let alert_notifier = Arc::clone(alert_relayer.notifier());
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),
             synchronizer: synchronizer.clone(),
+            alert_notifier,
         }
         .to_delegate(),
     );

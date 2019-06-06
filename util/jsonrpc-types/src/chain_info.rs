@@ -1,4 +1,4 @@
-use crate::{EpochNumber, Timestamp};
+use crate::{AlertMessage, EpochNumber, Timestamp};
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
 
@@ -15,5 +15,5 @@ pub struct ChainInfo {
     // estimate of whether this node is in InitialBlockDownload mode
     pub is_initial_block_download: bool,
     // any network and blockchain warnings
-    pub warnings: String,
+    pub alerts: Vec<AlertMessage>,
 }
