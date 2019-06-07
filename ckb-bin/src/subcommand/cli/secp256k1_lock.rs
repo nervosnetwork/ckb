@@ -27,13 +27,13 @@ pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
         "block_assembler" => {
             println!("[block_assembler]");
             println!("# secp256k1_sighash_all");
-            println!("code_hash = \"0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08\"");
+            println!("code_hash = \"0xf1951123466e4479842387a66fabfd6b65fc87fd84ae8e6cd3053edb27fff2fd\"");
             println!("# args = [ \"blake160(compressed_pubkey)\" ]");
             println!("args = [ \"{:#x}\" ]", pubkey_blake160);
         }
         "json" => {
             println!("{{");
-            println!("    \"code_hash\": \"0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08\",");
+            println!("    \"code_hash\": \"0xf1951123466e4479842387a66fabfd6b65fc87fd84ae8e6cd3053edb27fff2fd\",");
             println!("    \"args\": [");
             println!("        \"{:#x}\"", pubkey_blake160);
             println!("    ]");
