@@ -170,7 +170,7 @@ impl Cuckoo {
             return false;
         }
 
-        if u64::from(proof[self.cycle_length - 1]) > self.max_edge {
+        if u64::from(proof[self.cycle_length - 1]) > self.edge_mask {
             return false;
         }
 
