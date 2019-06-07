@@ -41,11 +41,10 @@ poll_interval = 1000
 
 [[miner.workers]]
 worker_type = "CuckooSimple"
-threads     = "1"
+threads     = 1
 
 # Below is an example dummy worker configuration for development:
 # [[miner.workers]]
 # worker_type = "Dummy"
 # delay_type  = "Constant"
-# value       = "5000"
-
+# value       = 5000

@@ -1,7 +1,7 @@
 mod cuckoo_simple;
 mod dummy;
 
-use crate::config::{WorkerConfig, WorkerType};
+use crate::config::WorkerConfig;
 use ckb_core::header::Seal;
 use ckb_logger::error;
 use ckb_pow::{CuckooEngine, DummyPowEngine, PowEngine};
@@ -12,6 +12,9 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 use std::thread;
+
+pub use cuckoo_simple::CuckooSimpleConfig;
+pub use dummy::DummyConfig;
 
 #[derive(Clone)]
 pub enum WorkerMessage {
@@ -46,9 +49,8 @@ pub fn start_worker(
     let mp = MultiProgress::new();
     let spinner_style = ProgressStyle::default_bar()
         .template("{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] {wide_msg}");
-
-    match config.worker_type {
-        WorkerType::Dummy => {
+    match config {
+        WorkerConfig::Dummy(config) => {
             if let Some(_dummy_engine) = pow.as_any().downcast_ref::<DummyPowEngine>() {
                 let worker_name = "Dummy-Worker";
                 let pb = mp.add(ProgressBar::new(100));
@@ -69,11 +71,9 @@ pub fn start_worker(
                 panic!("incompatible pow engine and worker type");
             }
         }
-        WorkerType::CuckooSimple => {
+        WorkerConfig::CuckooSimple(config) => {
             if let Some(cuckoo_engine) = pow.as_any().downcast_ref::<CuckooEngine>() {
-                let threads: usize = config.get_value("threads", 1);
-
-                let worker_txs = (0..threads)
+                let worker_txs = (0..config.threads)
                     .map(|i| {
                         let worker_name = format!("CuckooSimple-Worker-{}", i);
                         // `100` is the len of progress bar, we can use any dummy value here, since we only show the spinner in console.

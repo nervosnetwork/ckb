@@ -68,5 +68,5 @@ and don't forget to modify `ckb-miner.toml` miner workers section:
 [[miner.workers]]
 worker_type = "Dummy"
 delay_type  = "Constant"
-value       = "5000"
+value       = 5000
 ```

@@ -1,4 +1,4 @@
-use super::{Worker, WorkerConfig, WorkerMessage};
+use super::{Worker, WorkerMessage};
 use ckb_core::header::Seal;
 use ckb_logger::error;
 use crossbeam_channel::{Receiver, Sender};
@@ -8,8 +8,18 @@ use rand::{
     distributions::{self as dist, Distribution as _},
     random, thread_rng,
 };
+use serde_derive::{Deserialize, Serialize};
 use std::thread;
 use std::time::Duration;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "delay_type")]
+pub enum DummyConfig {
+    Constant { value: u64 },
+    Uniform { low: u64, high: u64 },
+    Normal { mean: f64, std_dev: f64 },
+    Poisson { lambda: f64 },
+}
 
 pub struct Dummy {
     delay: Delay,
@@ -26,23 +36,15 @@ pub enum Delay {
     Poisson(dist::Poisson),
 }
 
-impl From<&WorkerConfig> for Delay {
-    fn from(config: &WorkerConfig) -> Self {
-        match config
-            .get_value("delay_type", "Constant".to_owned())
-            .as_ref()
-        {
-            "Constant" => Delay::Constant(config.get_value("value", 5000)),
-            "Uniform" => Delay::Uniform(dist::Uniform::new(
-                config.get_value("low", 2500),
-                config.get_value("high", 7500),
-            )),
-            "Normal" => Delay::Normal(dist::Normal::new(
-                config.get_value("mean", 5000.0),
-                config.get_value("std_dev", 1000.0),
-            )),
-            "Poisson" => Delay::Poisson(dist::Poisson::new(config.get_value("lambda", 5000.0))),
-            _ => Delay::default(),
+impl From<&DummyConfig> for Delay {
+    fn from(config: &DummyConfig) -> Self {
+        match config {
+            DummyConfig::Constant { value } => Delay::Constant(*value),
+            DummyConfig::Uniform { low, high } => Delay::Uniform(dist::Uniform::new(*low, *high)),
+            DummyConfig::Normal { mean, std_dev } => {
+                Delay::Normal(dist::Normal::new(*mean, *std_dev))
+            }
+            DummyConfig::Poisson { lambda } => Delay::Poisson(dist::Poisson::new(*lambda)),
         }
     }
 }
@@ -68,7 +70,7 @@ impl Delay {
 
 impl Dummy {
     pub fn new(
-        config: &WorkerConfig,
+        config: &DummyConfig,
         seal_tx: Sender<(H256, Seal)>,
         worker_rx: Receiver<WorkerMessage>,
     ) -> Self {

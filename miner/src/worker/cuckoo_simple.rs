@@ -7,8 +7,14 @@ use crossbeam_channel::{Receiver, Sender};
 use indicatif::ProgressBar;
 use numext_fixed_hash::H256;
 use rand::random;
+use serde_derive::{Deserialize, Serialize};
 use std::thread;
 use std::time::{Duration, SystemTime};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CuckooSimpleConfig {
+    pub threads: usize,
+}
 
 pub struct CuckooSimple {
     start: bool,
