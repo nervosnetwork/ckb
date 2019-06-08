@@ -899,3 +899,82 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use ckb_core::header::HeaderBuilder;
+    use rand::{thread_rng, Rng};
+
+    const SKIPLIST_LENGTH: u64 = 500_000;
+
+    #[test]
+    fn test_get_ancestor_use_skip_list() {
+        let mut header_map: HashMap<H256, HeaderView> = HashMap::default();
+        let mut hashes: BTreeMap<BlockNumber, H256> = BTreeMap::default();
+
+        let mut parent_hash = None;
+        for number in 0..SKIPLIST_LENGTH {
+            let mut header_builder = HeaderBuilder::default().number(number);
+            if let Some(parent_hash) = parent_hash.take() {
+                header_builder = header_builder.parent_hash(parent_hash);
+            }
+            let header = header_builder.build();
+            hashes.insert(number, header.hash().clone());
+            parent_hash = Some(header.hash().clone());
+
+            let mut view = HeaderView::new(header, U256::zero(), 0);
+            view.build_skip(|hash| header_map.get(hash).cloned());
+            header_map.insert(view.hash().clone(), view);
+        }
+
+        for (number, hash) in &hashes {
+            if *number > 0 {
+                let skip_view = header_map
+                    .get(hash)
+                    .and_then(|view| header_map.get(view.skip_hash.as_ref().unwrap()))
+                    .unwrap();
+                assert_eq!(Some(skip_view.hash()), hashes.get(&skip_view.number()));
+                assert!(skip_view.number() < *number);
+            } else {
+                assert!(header_map[hash].skip_hash.is_none());
+            }
+        }
+
+        let mut rng = thread_rng();
+        let a_to_b = |a, b, limit| {
+            let mut count = 0;
+            let header = header_map
+                .get(&hashes[&a])
+                .cloned()
+                .unwrap()
+                .get_ancestor(b, |hash| {
+                    count += 1;
+                    header_map.get(hash).cloned()
+                })
+                .unwrap();
+
+            // Search must finished in <limit> steps
+            assert!(count <= limit);
+
+            header
+        };
+        for _ in 0..1000 {
+            let from: u64 = rng.gen_range(0, SKIPLIST_LENGTH);
+            let to: u64 = rng.gen_range(0, from);
+            let view_from = &header_map[&hashes[&from]];
+            let view_to = &header_map[&hashes[&to]];
+            let view_0 = &header_map[&hashes[&0]];
+
+            let found_from_header = a_to_b(SKIPLIST_LENGTH - 1, from, 120);
+            assert_eq!(found_from_header.hash(), view_from.hash());
+
+            let found_to_header = a_to_b(from, to, 120);
+            assert_eq!(found_to_header.hash(), view_to.hash());
+
+            let found_0_header = a_to_b(from, 0, 120);
+            assert_eq!(found_0_header.hash(), view_0.hash());
+        }
+    }
+}
