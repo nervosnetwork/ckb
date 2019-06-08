@@ -515,8 +515,46 @@ impl HeaderView {
         self.inner
     }
 
-    pub fn set_skip_hash(&mut self, hash: Option<H256>) {
-        self.skip_hash = hash;
+    pub fn build_skip<F>(&mut self, mut get_header_view: F)
+    where
+        F: FnMut(&H256) -> Option<HeaderView>,
+    {
+        self.skip_hash = get_header_view(self.parent_hash())
+            .and_then(|parent| parent.get_ancestor(get_skip_height(self.number()), get_header_view))
+            .map(|header| header.hash().clone());
+    }
+
+    // NOTE: get_header_view may change source state, for cache or for tests
+    pub fn get_ancestor<F>(self, number: BlockNumber, mut get_header_view: F) -> Option<Header>
+    where
+        F: FnMut(&H256) -> Option<HeaderView>,
+    {
+        let mut current = self;
+        if number > current.number() {
+            return None;
+        }
+        let mut number_walk = current.number();
+        while number_walk > number {
+            let number_skip = get_skip_height(number_walk);
+            let number_skip_prev = get_skip_height(number_walk - 1);
+            match current.skip_hash {
+                Some(ref hash)
+                    if number_skip == number
+                        || (number_skip > number
+                            && !(number_skip_prev + 2 < number_skip
+                                && number_skip_prev >= number)) =>
+                {
+                    // Only follow skip if parent->skip isn't better than skip->parent
+                    current = get_header_view(hash)?;
+                    number_walk = number_skip;
+                }
+                _ => {
+                    current = get_header_view(current.parent_hash())?;
+                    number_walk -= 1;
+                }
+            }
+        }
+        Some(current.clone()).map(HeaderView::into_inner)
     }
 }
 
@@ -641,10 +679,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn insert_header_view(&self, hash: H256, mut view: HeaderView) {
-        let skip_hash = self
-            .get_ancestor(view.parent_hash(), get_skip_height(view.number()))
-            .map(|header| header.hash().clone());
-        view.set_skip_hash(skip_hash);
+        view.build_skip(|hash| self.get_header_view(hash));
         self.header_map.write().insert(hash, view);
     }
     pub fn remove_header_view(&self, hash: &H256) {
@@ -703,32 +738,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
-        let mut current = self.get_header_view(base)?;
-        if number > current.number() {
-            return None;
-        }
-        let mut number_walk = current.number();
-        while number_walk > number {
-            let number_skip = get_skip_height(number_walk);
-            let number_skip_prev = get_skip_height(number_walk - 1);
-            match current.skip_hash {
-                Some(ref hash)
-                    if number_skip == number
-                        || (number_skip > number
-                            && !(number_skip_prev + 2 < number_skip
-                                && number_skip_prev >= number)) =>
-                {
-                    // Only follow skip if parent->skip isn't better than skip->parent
-                    current = self.get_header_view(hash)?;
-                    number_walk = number_skip;
-                }
-                _ => {
-                    current = self.get_header_view(current.parent_hash())?;
-                    number_walk -= 1;
-                }
-            }
-        }
-        Some(current).map(HeaderView::into_inner)
+        self.get_header_view(base)?
+            .get_ancestor(number, |hash| self.get_header_view(hash))
     }
 
     pub fn get_locator(&self, start: &Header) -> Vec<H256> {
