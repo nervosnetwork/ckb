@@ -8,6 +8,9 @@ use std::fmt;
 
 pub use crate::verify::TransactionScriptsVerifier;
 
+/// re-export DataLoader
+pub use ckb_script_data_loader::DataLoader;
+
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub enum Runner {
     #[cfg(all(unix, target_pointer_width = "64"))]

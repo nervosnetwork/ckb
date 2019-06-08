@@ -16,7 +16,7 @@ use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
-use ckb_store::{ChainStore, StoreBatch};
+use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore, StoreBatch};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_util::LinkedFnvHashSet;
 use ckb_util::{FnvHashMap, FnvHashSet};
@@ -477,11 +477,14 @@ impl<CS: ChainStore> ChainState<CS> {
         match self.resolve_tx_from_proposed(&tx, tx_pool) {
             Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
                 Ok(cycles) => {
-                    let fee = calculate_transaction_fee(Arc::clone(self.store()), &rtx)
-                        .ok_or_else(|| {
-                            tx_pool.update_statics_for_remove_tx(size, cycles);
-                            PoolError::TxFee
-                        })?;
+                    let fee = calculate_transaction_fee(
+                        &DataLoaderWrapper::new(Arc::clone(self.store())),
+                        &rtx,
+                    )
+                    .ok_or_else(|| {
+                        tx_pool.update_statics_for_remove_tx(size, cycles);
+                        PoolError::TxFee
+                    })?;
                     tx_pool.add_proposed(cycles, fee, size, tx);
                     Ok(cycles)
                 }

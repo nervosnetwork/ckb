@@ -14,6 +14,7 @@ ckb-db = { path = "../db" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-chain-spec = { path = "../spec" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
+ckb-script-data-loader = { path = "../script/data-loader" }
 
 [dev-dependencies]
 tempfile = "3.0"

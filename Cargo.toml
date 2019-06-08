@@ -29,6 +29,7 @@ members = [
     "util/occupied-capacity",
     "util/stop-handler",
     "util/app-config",
+    "script/data-loader",
     "shared/tx-pool-executor",
     "ckb-bin",
     "traits",
