@@ -469,6 +469,8 @@ pub struct HeaderView {
     inner: Header,
     total_difficulty: U256,
     total_uncles_count: u64,
+    // pointer to the index of some further predecessor of this block
+    skip_hash: Option<H256>,
 }
 
 impl HeaderView {
@@ -477,6 +479,7 @@ impl HeaderView {
             inner,
             total_difficulty,
             total_uncles_count,
+            skip_hash: None,
         }
     }
 
@@ -486,6 +489,10 @@ impl HeaderView {
 
     pub fn hash(&self) -> &H256 {
         self.inner.hash()
+    }
+
+    pub fn parent_hash(&self) -> &H256 {
+        self.inner.parent_hash()
     }
 
     pub fn timestamp(&self) -> u64 {
@@ -506,6 +513,31 @@ impl HeaderView {
 
     pub fn into_inner(self) -> Header {
         self.inner
+    }
+
+    pub fn set_skip_hash(&mut self, hash: Option<H256>) {
+        self.skip_hash = hash;
+    }
+}
+
+// Compute what height to jump back to with the skip pointer.
+fn get_skip_height(height: BlockNumber) -> BlockNumber {
+    // Turn the lowest '1' bit in the binary representation of a number into a '0'.
+    fn invert_lowest_one(n: i64) -> i64 {
+        n & (n - 1)
+    }
+
+    if height < 2 {
+        return 0;
+    }
+
+    // Determine which height to jump back to. Any number strictly lower than height is acceptable,
+    // but the following expression seems to perform well in simulations (max 110 steps to go back
+    // up to 2**18 blocks).
+    if (height & 1) > 0 {
+        invert_lowest_one(invert_lowest_one(height as i64 - 1)) as u64 + 1
+    } else {
+        invert_lowest_one(height as i64) as u64
     }
 }
 
@@ -608,8 +640,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         *self.best_known_header.write() = header;
     }
 
-    pub fn insert_header_view(&self, hash: H256, header: HeaderView) {
-        self.header_map.write().insert(hash, header);
+    pub fn insert_header_view(&self, hash: H256, mut view: HeaderView) {
+        let skip_hash = self
+            .get_ancestor(view.parent_hash(), get_skip_height(view.number()))
+            .map(|header| header.hash().clone());
+        view.set_skip_hash(skip_hash);
+        self.header_map.write().insert(hash, view);
     }
     pub fn remove_header_view(&self, hash: &H256) {
         self.header_map.write().remove(hash);
@@ -667,24 +703,32 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
-        if let Some(header) = self.get_header(base) {
-            let mut n_number = header.number();
-            let mut index_walk = header;
-            if number > n_number {
-                return None;
-            }
-
-            while n_number > number {
-                if let Some(header) = self.get_header(&index_walk.parent_hash()) {
-                    index_walk = header;
-                    n_number -= 1;
-                } else {
-                    return None;
+        let mut current = self.get_header_view(base)?;
+        if number > current.number() {
+            return None;
+        }
+        let mut number_walk = current.number();
+        while number_walk > number {
+            let number_skip = get_skip_height(number_walk);
+            let number_skip_prev = get_skip_height(number_walk - 1);
+            match current.skip_hash {
+                Some(ref hash)
+                    if number_skip == number
+                        || (number_skip > number
+                            && !(number_skip_prev + 2 < number_skip
+                                && number_skip_prev >= number)) =>
+                {
+                    // Only follow skip if parent->skip isn't better than skip->parent
+                    current = self.get_header_view(hash)?;
+                    number_walk = number_skip;
+                }
+                _ => {
+                    current = self.get_header_view(current.parent_hash())?;
+                    number_walk -= 1;
                 }
             }
-            return Some(index_walk);
         }
-        None
+        Some(current).map(HeaderView::into_inner)
     }
 
     pub fn get_locator(&self, start: &Header) -> Vec<H256> {
