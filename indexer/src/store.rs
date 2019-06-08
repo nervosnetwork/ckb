@@ -238,7 +238,10 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
 
         // retains the lock hashes on fork chain and detach blocks
         lock_hash_index_states.retain(|_, index_state| {
-            self.shared.block_number(&index_state.block_hash) != Some(index_state.block_number)
+            self.shared
+                .store()
+                .get_block_number(&index_state.block_hash)
+                != Some(index_state.block_number)
         });
         lock_hash_index_states
             .iter()
@@ -248,17 +251,22 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
 
                 let mut block = self
                     .shared
-                    .block(&index_state.block_hash)
+                    .store()
+                    .get_block(&index_state.block_hash)
                     .expect("block exists");
                 // detach blocks until reach a block on main chain
                 self.commit_batch(|batch| {
                     self.detach_block(batch, &index_lock_hashes, &block);
-                    while self.shared.block_hash(block.header().number() - 1)
+                    while self
+                        .shared
+                        .store()
+                        .get_block_hash(block.header().number() - 1)
                         != Some(block.header().parent_hash().to_owned())
                     {
                         block = self
                             .shared
-                            .block(block.header().parent_hash())
+                            .store()
+                            .get_block(block.header().parent_hash())
                             .expect("block exists");
                         self.detach_block(batch, &index_lock_hashes, &block);
                     }
@@ -292,8 +300,9 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                         .collect();
                     let block = self
                         .shared
-                        .block_hash(block_number)
-                        .and_then(|hash| self.shared.block(&hash))
+                        .store()
+                        .get_block_hash(block_number)
+                        .and_then(|hash| self.shared.store().get_block(&hash))
                         .expect("block exists");
                     self.attach_block(batch, &index_lock_hashes, &block);
                     let index_state = LockHashIndexState {
