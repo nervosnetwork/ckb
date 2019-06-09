@@ -5,9 +5,10 @@ use ckb_util::Mutex;
 use jsonrpc_client_core::{expand_params, jsonrpc_client, Result as JsonRpcResult};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{
-    Alert, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint, CellWithStatus,
-    ChainInfo, DryRunResult, EpochExt, EpochNumber, HeaderView, Node, OutPoint, PeerState,
-    Transaction, TransactionWithStatus, TxPoolInfo, Unsigned, Version,
+    Alert, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint, CellTransaction,
+    CellWithStatus, ChainInfo, DryRunResult, EpochExt, EpochNumber, HeaderView, LiveCell,
+    LockHashIndexState, Node, OutPoint, PeerState, Transaction, TransactionWithStatus, TxPoolInfo,
+    Unsigned, Version,
 };
 use numext_fixed_hash::H256;
 
