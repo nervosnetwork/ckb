@@ -149,27 +149,39 @@ fn path(graph: &[u64], start: u64) -> Vec<u64> {
     path
 }
 
+const STATE_UPDATE_INTERVAL: usize = 16;
+
 impl Worker for CuckooSimple {
     fn run(&mut self, progress_bar: ProgressBar) {
+        let mut state_update_counter = 0usize;
+        let mut start = SystemTime::now();
         loop {
             self.poll_worker_message();
             if self.start {
                 if let Some(pow_hash) = self.pow_hash.clone() {
-                    let start = SystemTime::now();
                     self.solve(&pow_hash, random());
-                    let elapsed = SystemTime::now().duration_since(start).unwrap();
-                    let elapsed_nanos: f64 = (elapsed.as_secs() * 1_000_000_000
-                        + u64::from(elapsed.subsec_nanos()))
-                        as f64
-                        / 1_000_000_000.0;
-                    progress_bar.set_message(&format!(
-                        "Graphs per second: {:>10.3} / Total seal candidates found: {:>10}",
-                        1.0 / elapsed_nanos,
-                        self.seal_candidates_found,
-                    ));
-                    progress_bar.inc(1);
+                    state_update_counter += 1;
+
+                    if state_update_counter == STATE_UPDATE_INTERVAL {
+                        let elapsed = SystemTime::now().duration_since(start).unwrap();
+                        let elapsed_nanos: f64 = (elapsed.as_secs() * 1_000_000_000
+                            + u64::from(elapsed.subsec_nanos()))
+                            as f64
+                            / 1_000_000_000.0;
+                        progress_bar.set_message(&format!(
+                            "Graphs per second: {:>10.3} / Total seal candidates found: {:>10}",
+                            STATE_UPDATE_INTERVAL as f64 / elapsed_nanos,
+                            self.seal_candidates_found,
+                        ));
+                        progress_bar.inc(1);
+                        state_update_counter = 0;
+                        start = SystemTime::now();
+                    }
                 }
             } else {
+                // reset state and sleep
+                state_update_counter = 0;
+                start = SystemTime::now();
                 thread::sleep(Duration::from_millis(100));
             }
         }

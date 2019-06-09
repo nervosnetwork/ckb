@@ -47,6 +47,7 @@ pub fn start_worker(
     seal_tx: Sender<(H256, Seal)>,
 ) -> WorkerController {
     let mp = MultiProgress::new();
+    mp.set_move_cursor(true);
     let spinner_style = ProgressStyle::default_bar()
         .template("{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] {wide_msg}");
     match config {
@@ -77,9 +78,7 @@ pub fn start_worker(
                     .map(|i| {
                         let worker_name = format!("CuckooSimple-Worker-{}", i);
                         // `100` is the len of progress bar, we can use any dummy value here, since we only show the spinner in console.
-                        // `17` is a prime number, it will draw each spinner char in different ticks.
                         let pb = mp.add(ProgressBar::new(100));
-                        pb.set_draw_delta(17);
                         pb.set_style(spinner_style.clone());
                         pb.set_prefix(&worker_name);
 
