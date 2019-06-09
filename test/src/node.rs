@@ -39,6 +39,7 @@ impl Drop for ProcessGuard {
             Err(e) => info!("Could not kill ckb process: {}", e),
             Ok(_) => info!("Successfully killed ckb process"),
         }
+        let _ = self.0.wait();
     }
 }
 
