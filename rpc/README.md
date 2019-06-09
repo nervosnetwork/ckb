@@ -989,8 +989,8 @@ Create index for live cells and transactions by the hash of lock script.
 
 #### Parameters
 
-    lock_hash - Cell lock script hash
     index_from - Create an index from starting block number, an optional parameter, null means starting from tip
+    lock_hash - Cell lock script hash
 
 #### Examples
 
