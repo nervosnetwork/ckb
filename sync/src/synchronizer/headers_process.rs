@@ -143,7 +143,7 @@ where
 
     fn received_new_header(&self, headers: &[Header]) -> bool {
         let last = headers.last().expect("empty checked");
-        self.synchronizer.get_block_status(&last.hash()) == BlockStatus::UNKNOWN
+        self.synchronizer.shared().get_block_status(&last.hash()) == BlockStatus::UNKNOWN
     }
 
     pub fn accept_first(&self, first: &Header) -> ValidationResult {
@@ -343,6 +343,7 @@ where
     pub fn prev_block_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
         let status = self
             .synchronizer
+            .shared()
             .get_block_status(&self.header.parent_hash());
 
         if (status & BlockStatus::FAILED_MASK) == status {

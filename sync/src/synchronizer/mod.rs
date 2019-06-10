@@ -116,27 +116,12 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    pub fn get_block_status(&self, hash: &H256) -> BlockStatus {
-        let mut guard = self.shared().block_status_map();
-        match guard.get(hash).cloned() {
-            Some(s) => s,
-            None => {
-                if self.shared.store().get_block_header(hash).is_some() {
-                    guard.insert(hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
-                    BlockStatus::BLOCK_HAVE_MASK
-                } else {
-                    BlockStatus::UNKNOWN
-                }
-            }
-        }
-    }
-
     pub fn peers(&self) -> &Peers {
         self.shared().peers()
     }
 
     pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
-        self.shared().block_status_map().insert(hash, status);
+        self.shared().insert_block_status(hash, status);
     }
 
     pub fn predict_headers_sync_time(&self, header: &Header) -> u64 {
@@ -150,10 +135,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     pub fn mark_block_stored(&self, hash: H256) {
         self.shared()
-            .block_status_map()
-            .entry(hash)
-            .and_modify(|status| *status = BlockStatus::BLOCK_HAVE_MASK)
-            .or_insert_with(|| BlockStatus::BLOCK_HAVE_MASK);
+            .insert_block_status(hash, BlockStatus::BLOCK_HAVE_MASK);
     }
 
     pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
@@ -188,13 +170,13 @@ impl<CS: ChainStore> Synchronizer<CS> {
             return;
         }
 
-        match self.get_block_status(&block.header().hash()) {
+        match self.shared().get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
                 self.insert_new_block(peer, block);
             }
             status => {
                 debug!(
-                    "[Synchronizer] process_new_block unexpect status {:?}",
+                    "[Synchronizer] process_new_block unexpected status {:?}",
                     status
                 );
             }
