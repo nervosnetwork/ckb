@@ -106,7 +106,7 @@ impl Default for Consensus {
             epoch_duration_target: EPOCH_DURATION_TARGET,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
-            pow: Pow::Dummy(Default::default()),
+            pow: Pow::Dummy,
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
             max_block_cycles: MAX_BLOCK_CYCLES,

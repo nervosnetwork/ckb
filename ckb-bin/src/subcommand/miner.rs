@@ -1,18 +1,14 @@
 use ckb_app_config::{ExitCode, MinerArgs};
-use ckb_miner::{Client, Miner};
-use ckb_util::Mutex;
+use ckb_miner::{Client, Miner, MinerConfig};
 use crossbeam_channel::unbounded;
-use std::sync::Arc;
 use std::thread;
 
 pub fn miner(args: MinerArgs) -> Result<(), ExitCode> {
     let (new_work_tx, new_work_rx) = unbounded();
+    let MinerConfig { client, workers } = args.config;
 
-    let work = Arc::new(Mutex::new(None));
-
-    let client = Client::new(Arc::clone(&work), new_work_tx, args.config);
-
-    let miner = Miner::new(work, args.pow_engine, new_work_rx, client.clone());
+    let mut client = Client::new(new_work_tx, client);
+    let mut miner = Miner::new(args.pow_engine, client.clone(), new_work_rx, &workers);
 
     thread::Builder::new()
         .name("client".to_string())
