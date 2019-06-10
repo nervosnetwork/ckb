@@ -237,7 +237,7 @@ where
 
         if log_enabled!(Level::Debug) {
             let chain_state = self.synchronizer.shared.lock_chain_state();
-            let peer_best_known = self.synchronizer.peers.get_best_known_header(self.peer);
+            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
             debug!(
                 "chain: num={}, diff={:#x};",
                 chain_state.tip_number(),
@@ -279,7 +279,7 @@ where
         // chain. Disconnect peers that are on chains with insufficient work.
         let (is_outbound, is_protected) = self
             .synchronizer
-            .peers
+            .peers()
             .state
             .read()
             .get(&self.peer)

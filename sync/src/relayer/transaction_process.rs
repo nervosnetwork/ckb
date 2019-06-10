@@ -53,7 +53,14 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
         // Remove tx_hash from `tx_already_asked`
         self.relayer.shared().mark_as_known_tx(tx_hash.clone());
         // Remove tx_hash from `tx_ask_for_set`
-        if let Some(peer_state) = self.relayer.peers.state.write().get_mut(&self.peer) {
+        if let Some(peer_state) = self
+            .relayer
+            .shared()
+            .peers()
+            .state
+            .write()
+            .get_mut(&self.peer)
+        {
             peer_state.remove_ask_for_tx(&tx_hash);
         }
 

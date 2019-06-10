@@ -45,7 +45,6 @@ const BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(400);
 pub struct Synchronizer<CS: ChainStore> {
     chain: ChainController,
     pub shared: Arc<SyncSharedState<CS>>,
-    pub peers: Arc<Peers>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
 }
 
@@ -55,7 +54,6 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
         Synchronizer {
             chain: self.chain.clone(),
             shared: Arc::clone(&self.shared),
-            peers: Arc::clone(&self.peers),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
         }
     }
@@ -71,7 +69,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
         Synchronizer {
             chain,
             shared,
-            peers: Arc::new(Peers::default()),
             orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
         }
     }
@@ -134,8 +131,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    pub fn peers(&self) -> &Arc<Peers> {
-        &self.peers
+    pub fn peers(&self) -> &Peers {
+        self.shared().peers()
     }
 
     pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
@@ -178,7 +175,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 header_view
             };
 
-            self.peers.new_header_received(peer, &header_view);
+            self.peers().new_header_received(peer, &header_view);
             self.shared
                 .insert_header_view(header.hash().to_owned(), header_view);
         }
@@ -208,7 +205,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         self.chain.process_block(Arc::clone(&block), true)?;
         self.shared.remove_header_view(block.header().hash());
         self.mark_block_stored(block.header().hash().to_owned());
-        self.peers
+        self.peers()
             .set_last_common_header(peer, block.header().clone());
         Ok(())
     }
@@ -289,7 +286,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 .fetch_add(1, Ordering::Release);
         }
 
-        self.peers
+        self.peers()
             .on_connected(peer, None, protect_outbound, is_outbound);
     }
 
@@ -302,7 +299,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
     pub fn eviction(&self, nc: &CKBProtocolContext) {
-        let mut peer_states = self.peers.state.write();
+        let mut peer_states = self.peers().state.write();
         let is_initial_block_download = self.shared.is_initial_block_download();
         let mut eviction = Vec::new();
         for (peer, state) in peer_states.iter_mut() {
@@ -389,7 +386,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     fn start_sync_headers(&self, nc: &CKBProtocolContext) {
         let now = unix_time_as_millis();
         let peers: Vec<PeerIndex> = self
-            .peers
+            .peers()
             .state
             .read()
             .iter()
@@ -425,7 +422,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 break;
             }
             {
-                let mut state = self.peers.state.write();
+                let mut state = self.peers().state.write();
                 if let Some(peer_state) = state.get_mut(&peer) {
                     if !peer_state.sync_started {
                         let headers_sync_timeout = self.predict_headers_sync_time(&tip);
@@ -444,7 +441,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn find_blocks_to_fetch(&self, nc: &CKBProtocolContext) {
         let peers: Vec<PeerIndex> = {
-            self.peers
+            self.peers()
                 .state
                 .read()
                 .iter()
@@ -530,7 +527,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
             .write_inflight_blocks()
             .remove_by_peer(&peer_index);
 
-        if let Some(peer_state) = self.peers.disconnected(peer_index) {
+        if let Some(peer_state) = self.peers().disconnected(peer_index) {
             // It shouldn't happen
             // fetch_sub wraps around on overflow, we still check manually
             // panic here to prevent some bug be hidden silently.
@@ -547,7 +544,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
-        if !self.peers.state.read().is_empty() {
+        if !self.peers().state.read().is_empty() {
             let start_time = Instant::now();
             trace!("start notify token={}", token);
 
@@ -1105,11 +1102,11 @@ mod tests {
             .execute()
             .expect("Process headers from peer2 failed");
         assert_eq!(
-            synchronizer1.peers.get_best_known_header(peer1),
-            synchronizer1.peers.get_best_known_header(peer2)
+            synchronizer1.peers().get_best_known_header(peer1),
+            synchronizer1.peers().get_best_known_header(peer2)
         );
 
-        let best_known_header = synchronizer1.peers.get_best_known_header(peer1);
+        let best_known_header = synchronizer1.peers().get_best_known_header(peer1);
 
         assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
@@ -1142,7 +1139,7 @@ mod tests {
 
         assert_eq!(
             synchronizer1
-                .peers
+                .peers()
                 .get_last_common_header(peer1)
                 .unwrap()
                 .hash(),

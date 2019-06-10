@@ -546,20 +546,20 @@ pub struct SyncSharedState<CS> {
     tx_filter: Mutex<LruCache<H256, ()>>,
 
     /* Status relevant to peers */
+    peers: Peers,
     misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
     known_blocks: Mutex<KnownFilter>,
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
     pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
     pending_compact_blocks: Mutex<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>>,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
     inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     inflight_transactions: Mutex<LruCache<H256, Instant>>,
     inflight_blocks: RwLock<InflightBlocks>,
-
-    get_headers_cache: RwLock<LruCache<(PeerIndex, H256), Instant>>,
 }
 
 impl<CS: ChainStore> SyncSharedState<CS> {
@@ -581,17 +581,17 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             total_difficulty,
             total_uncles_count,
         ));
-        let header_map = RwLock::new(HashMap::new());
-        let get_headers_cache = RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE));
-        let epoch_map = RwLock::new(EpochIndices::default());
 
         SyncSharedState {
             shared,
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
             shared_best_header,
+            header_map: RwLock::new(HashMap::new()),
+            epoch_map: RwLock::new(EpochIndices::default()),
             block_status_map: Mutex::new(hashbrown::HashMap::new()),
             tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+            peers: Peers::default(),
             misbehavior: RwLock::new(FnvHashMap::default()),
             known_blocks: Mutex::new(KnownFilter::default()),
             known_txs: Mutex::new(KnownFilter::default()),
@@ -600,9 +600,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             inflight_proposals: Mutex::new(FnvHashSet::default()),
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
-            header_map,
-            epoch_map,
-            get_headers_cache,
+            pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
         }
     }
 
@@ -620,6 +618,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
     pub fn tx_filter(&self) -> MutexGuard<LruCache<H256, ()>> {
         self.tx_filter.lock()
+    }
+    pub fn peers(&self) -> &Peers {
+        &self.peers
     }
     pub fn misbehavior(&self, pi: PeerIndex, score: u32) {
         if score != 0 {
@@ -893,7 +894,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         header: &Header,
     ) {
         if let Some(last_time) = self
-            .get_headers_cache
+            .pending_get_headers
             .write()
             .get_refresh(&(peer, header.hash().to_owned()))
         {
@@ -910,7 +911,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 );
             }
         }
-        self.get_headers_cache
+        self.pending_get_headers
             .write()
             .insert((peer, header.hash().to_owned()), Instant::now());
 

@@ -47,7 +47,7 @@ where
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
-        self.synchronizer.peers.get_best_known_header(self.peer)
+        self.synchronizer.peers().get_best_known_header(self.peer)
     }
 
     pub fn last_common_header(&self, best: &HeaderView) -> Option<Header> {
