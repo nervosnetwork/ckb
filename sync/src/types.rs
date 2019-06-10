@@ -977,4 +977,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             locked.entry(id).or_default().insert(pi);
         }
     }
+
+    pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
+        self.known_txs.lock().inner.remove(&pi);
+        self.known_blocks.lock().inner.remove(&pi);
+        self.inflight_blocks.write().remove_by_peer(&pi);
+        self.peers().disconnected(pi)
+    }
 }
