@@ -1,7 +1,8 @@
 use crate::{
     cost_model::instruction_cycles,
     syscalls::{
-        Debugger, LoadCell, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash, LoadWitness,
+        Debugger, LoadCell, LoadCode, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash,
+        LoadWitness,
     },
     ScriptConfig, ScriptError,
 };
@@ -199,6 +200,21 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         group_outputs: &'a [usize],
     ) -> LoadCell<'a, CS> {
         LoadCell::new(
+            Arc::clone(&self.store),
+            &self.outputs,
+            &self.resolved_inputs,
+            &self.resolved_deps,
+            group_inputs,
+            group_outputs,
+        )
+    }
+
+    fn build_load_code(
+        &'a self,
+        group_inputs: &'a [usize],
+        group_outputs: &'a [usize],
+    ) -> LoadCode<'a, CS> {
+        LoadCode::new(
             Arc::clone(&self.store),
             &self.outputs,
             &self.resolved_inputs,
@@ -431,6 +447,10 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     .syscall(Box::new(
                         self.build_load_witness(&script_group.input_indices),
                     ))
+                    .syscall(Box::new(self.build_load_code(
+                        &script_group.input_indices,
+                        &script_group.output_indices,
+                    )))
                     .syscall(Box::new(Debugger::new(&prefix)))
                     .build();
                 let mut machine = AsmMachine::new(machine);
@@ -462,6 +482,10 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 .syscall(Box::new(
                     self.build_load_witness(&script_group.input_indices),
                 ))
+                .syscall(Box::new(self.build_load_code(
+                    &script_group.input_indices,
+                    &script_group.output_indices,
+                )))
                 .syscall(Box::new(Debugger::new(&prefix)))
                 .build();
                 let mut machine = TraceMachine::new(machine);
@@ -514,6 +538,10 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         .syscall(Box::new(
             self.build_load_witness(&script_group.input_indices),
         ))
+        .syscall(Box::new(self.build_load_code(
+            &script_group.input_indices,
+            &script_group.output_indices,
+        )))
         .syscall(Box::new(Debugger::new(&prefix)))
         .build();
         let mut machine = TraceMachine::new(machine);
