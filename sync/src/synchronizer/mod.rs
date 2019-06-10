@@ -503,13 +503,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
 
     fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         info!("SyncProtocol.disconnected peer={}", peer_index);
-
-        // self.misbehavior.write().remove(peer);
-        self.shared()
-            .write_inflight_blocks()
-            .remove_by_peer(&peer_index);
-
-        if let Some(peer_state) = self.peers().disconnected(peer_index) {
+        if let Some(peer_state) = self.shared().disconnected(peer_index) {
             // It shouldn't happen
             // fetch_sub wraps around on overflow, we still check manually
             // panic here to prevent some bug be hidden silently.
