@@ -32,6 +32,7 @@ pub struct NetworkConfig {
     pub public_addresses: Vec<Multiaddr>,
     pub bootnodes: Vec<Multiaddr>,
     pub reserved_peers: Vec<Multiaddr>,
+    pub upnp: bool,
 }
 
 fn generate_random_key() -> [u8; 32] {
