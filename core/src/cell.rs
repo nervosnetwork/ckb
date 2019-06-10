@@ -810,7 +810,7 @@ mod tests {
 
         let out_point = OutPoint::new_block_hash(header_hash.clone());
         let transaction = TransactionBuilder::default()
-            .input(CellInput::new(out_point, 0))
+            .input(CellInput::new(out_point.clone(), 0))
             .build();
 
         let mut seen_inputs = FnvHashSet::default();
@@ -821,7 +821,10 @@ mod tests {
             &header_provider,
         );
 
-        assert!(result.is_err());
+        assert_eq!(
+            result.err(),
+            Some(UnresolvableError::UnspecifiedInputCell(out_point))
+        );
     }
 
     #[test]
@@ -872,7 +875,7 @@ mod tests {
         );
         header_provider.insert_header(header.clone());
 
-        let transaction = TransactionBuilder::default().dep(out_point).build();
+        let transaction = TransactionBuilder::default().dep(out_point.clone()).build();
 
         let mut seen_inputs = FnvHashSet::default();
         let result = resolve_transaction(
@@ -882,7 +885,10 @@ mod tests {
             &header_provider,
         );
 
-        assert!(result.is_err());
+        assert_eq!(
+            result.err(),
+            Some(UnresolvableError::InvalidHeader(out_point))
+        );
     }
 
     #[test]
@@ -915,7 +921,7 @@ mod tests {
             &header_provider,
         );
 
-        assert!(result.is_err());
+        assert_eq!(result.err(), Some(UnresolvableError::Empty));
     }
 
     fn generate_block(txs: Vec<Transaction>) -> Block {
