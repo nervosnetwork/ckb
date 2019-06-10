@@ -62,7 +62,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
             let nc = Arc::clone(&self.nc);
             let self_peer = self.peer;
             let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
-            let peers = Arc::clone(&self.relayer.peers);
+            let shared = Arc::clone(self.relayer.shared());
             let tx_hash = tx_hash.clone();
             let tx = tx.to_owned();
             Box::new(lazy(move || -> FutureResult<(), ()> {
@@ -72,7 +72,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                 match tx_result {
                     Ok(cycles) if cycles == relay_cycles => {
                         let selected_peers: Vec<PeerIndex> = {
-                            let mut known_txs = peers.known_txs.lock();
+                            let mut known_txs = shared.known_txs();
                             nc.connected_peers()
                                 .into_iter()
                                 .filter(|target_peer| {

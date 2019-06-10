@@ -165,15 +165,15 @@ impl<CS: ChainStore> Synchronizer<CS> {
             let total_uncles_count =
                 parent_view.total_uncles_count() + u64::from(header.uncles_count());
             let header_view = {
-                let best_known_header = self.shared.best_known_header();
+                let shared_best_header = self.shared.shared_best_header();
                 let header_view =
                     HeaderView::new(header.clone(), total_difficulty.clone(), total_uncles_count);
 
-                if total_difficulty.gt(best_known_header.total_difficulty())
-                    || (&total_difficulty == best_known_header.total_difficulty()
-                        && header.hash() < best_known_header.hash())
+                if total_difficulty.gt(shared_best_header.total_difficulty())
+                    || (&total_difficulty == shared_best_header.total_difficulty()
+                        && header.hash() < shared_best_header.hash())
                 {
-                    self.shared.set_best_known_header(header_view.clone());
+                    self.shared.set_shared_best_header(header_view.clone());
                 }
                 header_view
             };
@@ -406,7 +406,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     chain_state.total_difficulty().to_owned(),
                 )
             };
-            let best_known = self.shared.best_known_header();
+            let best_known = self.shared.shared_best_header();
             if total_difficulty > *best_known.total_difficulty()
                 || (&total_difficulty == best_known.total_difficulty()
                     && header.hash() < best_known.hash())
@@ -456,7 +456,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         trace!("poll find_blocks_to_fetch select peers");
         {
-            self.peers.blocks_inflight.write().prune();
+            self.shared().write_inflight_blocks().prune();
         }
         for peer in peers {
             if let Some(fetch) = self.get_blocks_to_fetch(peer) {
@@ -524,6 +524,12 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
 
     fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
         info!("SyncProtocol.disconnected peer={}", peer_index);
+
+        // self.misbehavior.write().remove(peer);
+        self.shared()
+            .write_inflight_blocks()
+            .remove_by_peer(&peer_index);
+
         if let Some(peer_state) = self.peers.disconnected(peer_index) {
             // It shouldn't happen
             // fetch_sub wraps around on overflow, we still check manually

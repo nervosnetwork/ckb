@@ -17,8 +17,8 @@ use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_util::RwLock;
 use ckb_util::{Mutex, MutexGuard};
+use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -234,10 +234,6 @@ impl KnownFilter {
 #[derive(Default)]
 pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
-    pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
-    pub blocks_inflight: RwLock<InflightBlocks>,
-    pub known_txs: Mutex<KnownFilter>,
-    pub known_blocks: Mutex<KnownFilter>,
 }
 
 #[derive(Debug, Clone)]
@@ -378,17 +374,6 @@ impl InflightBlocks {
 }
 
 impl Peers {
-    pub fn misbehavior(&self, peer: PeerIndex, score: u32) {
-        if score == 0 {
-            return;
-        }
-
-        let mut map = self.misbehavior.write();
-        map.entry(peer)
-            .and_modify(|e| *e += score)
-            .or_insert_with(|| score);
-    }
-
     pub fn on_connected(
         &self,
         peer: PeerIndex,
@@ -458,15 +443,7 @@ impl Peers {
     }
 
     pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
-        // self.misbehavior.write().remove(peer);
-        self.blocks_inflight.write().remove_by_peer(&peer);
         self.state.write().remove(&peer)
-    }
-
-    // Return true when the block is that we have requested and received first time.
-    pub fn new_block_received(&self, block: &Block) -> bool {
-        let mut blocks_inflight = self.blocks_inflight.write();
-        blocks_inflight.remove_by_block(block.header().hash())
     }
 }
 
@@ -562,8 +539,16 @@ pub struct SyncSharedState<CS> {
     n_protected_outbound_peers: AtomicUsize,
 
     /* Status irrelevant to peers */
+    shared_best_header: RwLock<HeaderView>,
+    epoch_map: RwLock<EpochIndices>,
+    header_map: RwLock<HashMap<H256, HeaderView>>,
     block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
     tx_filter: Mutex<LruCache<H256, ()>>,
+
+    /* Status relevant to peers */
+    misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
+    known_blocks: Mutex<KnownFilter>,
+    known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
     pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
@@ -572,10 +557,8 @@ pub struct SyncSharedState<CS> {
     /* In-flight items for which we request to peers, but not got the responses yet */
     inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     inflight_transactions: Mutex<LruCache<H256, Instant>>,
+    inflight_blocks: RwLock<InflightBlocks>,
 
-    epoch_map: RwLock<EpochIndices>,
-    header_map: RwLock<HashMap<H256, HeaderView>>,
-    best_known_header: RwLock<HeaderView>,
     get_headers_cache: RwLock<LruCache<(PeerIndex, H256), Instant>>,
 }
 
@@ -593,7 +576,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 block_ext.total_uncles_count,
             )
         };
-        let best_known_header = RwLock::new(HeaderView::new(
+        let shared_best_header = RwLock::new(HeaderView::new(
             header,
             total_difficulty,
             total_uncles_count,
@@ -606,15 +589,19 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             shared,
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
+            shared_best_header,
             block_status_map: Mutex::new(hashbrown::HashMap::new()),
             tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+            misbehavior: RwLock::new(FnvHashMap::default()),
+            known_blocks: Mutex::new(KnownFilter::default()),
+            known_txs: Mutex::new(KnownFilter::default()),
             pending_get_block_proposals: Mutex::new(FnvHashMap::default()),
             pending_compact_blocks: Mutex::new(FnvHashMap::default()),
             inflight_proposals: Mutex::new(FnvHashSet::default()),
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
+            inflight_blocks: RwLock::new(InflightBlocks::default()),
             header_map,
             epoch_map,
-            best_known_header,
             get_headers_cache,
         }
     }
@@ -634,6 +621,21 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn tx_filter(&self) -> MutexGuard<LruCache<H256, ()>> {
         self.tx_filter.lock()
     }
+    pub fn misbehavior(&self, pi: PeerIndex, score: u32) {
+        if score != 0 {
+            self.misbehavior
+                .write()
+                .entry(pi)
+                .and_modify(|s| *s += score)
+                .or_insert_with(|| score);
+        }
+    }
+    pub fn known_blocks(&self) -> MutexGuard<KnownFilter> {
+        self.known_blocks.lock()
+    }
+    pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
+        self.known_txs.lock()
+    }
     pub fn pending_get_block_proposals(
         &self,
     ) -> MutexGuard<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>> {
@@ -649,6 +651,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
     pub fn inflight_transactions(&self) -> MutexGuard<LruCache<H256, Instant>> {
         self.inflight_transactions.lock()
+    }
+    pub fn read_inflight_blocks(&self) -> RwLockReadGuard<InflightBlocks> {
+        self.inflight_blocks.read()
+    }
+    pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<InflightBlocks> {
+        self.inflight_blocks.write()
     }
     pub fn store(&self) -> &Arc<CS> {
         self.shared.store()
@@ -671,11 +679,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             > MAX_TIP_AGE
     }
 
-    pub fn best_known_header(&self) -> HeaderView {
-        self.best_known_header.read().to_owned()
+    pub fn shared_best_header(&self) -> HeaderView {
+        self.shared_best_header.read().to_owned()
     }
-    pub fn set_best_known_header(&self, header: HeaderView) {
-        *self.best_known_header.write() = header;
+    pub fn set_shared_best_header(&self, header: HeaderView) {
+        *self.shared_best_header.write() = header;
     }
 
     pub fn insert_header_view(&self, hash: H256, header: HeaderView) {
@@ -929,5 +937,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn already_known_tx(&self, hash: &H256) -> bool {
         self.tx_filter().contains_key(hash)
+    }
+
+    // Return true when the block is that we have requested and received first time.
+    pub fn new_block_received(&self, block: &Block) -> bool {
+        self.write_inflight_blocks()
+            .remove_by_block(block.header().hash())
     }
 }

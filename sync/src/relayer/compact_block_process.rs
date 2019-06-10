@@ -64,16 +64,16 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 
         {
             let parent = parent.unwrap();
-            let best_known_header = self.relayer.shared.best_known_header();
+            let shared_best_header = self.relayer.shared.shared_best_header();
             let current_total_difficulty =
                 parent.total_difficulty() + compact_block.header.difficulty();
-            if current_total_difficulty <= *best_known_header.total_difficulty() {
+            if current_total_difficulty <= *shared_best_header.total_difficulty() {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
                     block_hash,
                     current_total_difficulty,
-                    best_known_header.total_difficulty(),
+                    shared_best_header.total_difficulty(),
                 );
                 return Ok(());
             }
@@ -81,9 +81,8 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 
         if let Some(flight) = self
             .relayer
-            .peers
-            .blocks_inflight
-            .read()
+            .shared()
+            .read_inflight_blocks()
             .inflight_state_by_block(&block_hash)
         {
             if flight.peers.contains(&self.peer) {
@@ -180,9 +179,8 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         if !missing_indexes.is_empty() {
             if !self
                 .relayer
-                .peers
-                .blocks_inflight
-                .write()
+                .shared()
+                .write_inflight_blocks()
                 .insert(self.peer, block_hash.to_owned())
             {
                 debug_target!(

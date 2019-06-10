@@ -224,7 +224,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             fbb.finish(message, None);
             let data = fbb.finished_data().into();
 
-            let mut known_blocks = self.peers.known_blocks.lock();
+            let mut known_blocks = self.shared().known_blocks();
             let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
                 .into_iter()
