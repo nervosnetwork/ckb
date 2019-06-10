@@ -1,3 +1,4 @@
+use crate::relayer::compact_block::CompactBlock;
 use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
@@ -7,6 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::transaction::ProposalShortId;
 use ckb_core::Cycle;
 use ckb_logger::{debug, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -40,6 +42,8 @@ const MAX_ASK_SET_SIZE: usize = MAX_ASK_MAP_SIZE * 2;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
+const TX_FILTER_SIZE: usize = 50000;
+const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with
@@ -559,6 +563,15 @@ pub struct SyncSharedState<CS> {
 
     /* Status irrelevant to peers */
     block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
+    tx_filter: Mutex<LruCache<H256, ()>>,
+
+    /* Cached items which we had received but not completely process */
+    pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    pending_compact_blocks: Mutex<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>>,
+
+    /* In-flight items for which we request to peers, but not got the responses yet */
+    inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
+    inflight_transactions: Mutex<LruCache<H256, Instant>>,
 
     epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
@@ -594,6 +607,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
             block_status_map: Mutex::new(hashbrown::HashMap::new()),
+            tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+            pending_get_block_proposals: Mutex::new(FnvHashMap::default()),
+            pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            inflight_proposals: Mutex::new(FnvHashSet::default()),
+            inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             header_map,
             epoch_map,
             best_known_header,
@@ -612,6 +630,25 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
     pub fn block_status_map(&self) -> MutexGuard<hashbrown::HashMap<H256, BlockStatus>> {
         self.block_status_map.lock()
+    }
+    pub fn tx_filter(&self) -> MutexGuard<LruCache<H256, ()>> {
+        self.tx_filter.lock()
+    }
+    pub fn pending_get_block_proposals(
+        &self,
+    ) -> MutexGuard<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>> {
+        self.pending_get_block_proposals.lock()
+    }
+    pub fn pending_compact_blocks(
+        &self,
+    ) -> MutexGuard<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>> {
+        self.pending_compact_blocks.lock()
+    }
+    pub fn inflight_proposals(&self) -> MutexGuard<FnvHashSet<ProposalShortId>> {
+        self.inflight_proposals.lock()
+    }
+    pub fn inflight_transactions(&self) -> MutexGuard<LruCache<H256, Instant>> {
+        self.inflight_transactions.lock()
     }
     pub fn store(&self) -> &Arc<CS> {
         self.shared.store()
@@ -883,5 +920,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             peer,
             fbb.finished_data().into(),
         );
+    }
+
+    pub fn mark_as_known_tx(&self, hash: H256) {
+        self.inflight_transactions().remove(&hash);
+        self.tx_filter().insert(hash, ());
+    }
+
+    pub fn already_known_tx(&self, hash: &H256) -> bool {
+        self.tx_filter().contains_key(hash)
     }
 }

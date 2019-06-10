@@ -32,8 +32,12 @@ impl<'a, CS: ChainStore + 'static> BlockTransactionsProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block_hash = cast!(self.message.block_hash())?.try_into()?;
-        let pending_compact_blocks = &self.relayer.state.pending_compact_blocks;
-        if let Entry::Occupied(mut pending) = pending_compact_blocks.lock().entry(block_hash) {
+        if let Entry::Occupied(mut pending) = self
+            .relayer
+            .shared()
+            .pending_compact_blocks()
+            .entry(block_hash)
+        {
             let (compact_block, peers_set) = pending.get_mut();
             if peers_set.remove(&self.peer) {
                 let transactions: Vec<Transaction> =

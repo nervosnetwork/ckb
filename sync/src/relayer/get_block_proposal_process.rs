@@ -15,7 +15,7 @@ pub struct GetBlockProposalProcess<'a, CS> {
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
+impl<'a, CS: ChainStore + 'static> GetBlockProposalProcess<'a, CS> {
     pub fn new(
         message: &'a GetBlockProposal,
         relayer: &'a Relayer<CS>,
@@ -31,7 +31,7 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let mut pending_proposals_request = self.relayer.state.pending_proposals_request.lock();
+        let mut pending_get_block_proposals = self.relayer.shared().pending_get_block_proposals();
         let proposals = cast!(self.message.proposals())?;
 
         let transactions = {
@@ -47,7 +47,7 @@ impl<'a, CS: ChainStore> GetBlockProposalProcess<'a, CS> {
                 .into_iter()
                 .filter_map(|short_id| {
                     tx_pool.get_tx(&short_id).or({
-                        pending_proposals_request
+                        pending_get_block_proposals
                             .entry(short_id)
                             .or_insert_with(Default::default)
                             .insert(self.peer);

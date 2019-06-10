@@ -100,7 +100,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let mut missing_indexes: Vec<usize> = Vec::new();
         {
             // Verify compact block
-            let mut pending_compact_blocks = self.relayer.state.pending_compact_blocks.lock();
+            let mut pending_compact_blocks = self.relayer.shared().pending_compact_blocks();
             if pending_compact_blocks
                 .get(&block_hash)
                 .map(|(_, peers_set)| peers_set.contains(&self.peer))
