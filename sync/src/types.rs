@@ -2,6 +2,7 @@ use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
+use bitflags::bitflags;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
@@ -29,6 +30,7 @@ use std::collections::{
     BTreeMap,
 };
 use std::fmt;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -529,8 +531,35 @@ impl EpochIndices {
     }
 }
 
+bitflags! {
+    pub struct BlockStatus: u32 {
+        const UNKNOWN            = 0;
+        const VALID_HEADER       = 1;
+        const VALID_TREE         = 2;
+        const VALID_TRANSACTIONS = 3;
+        const VALID_CHAIN        = 4;
+        const VALID_SCRIPTS      = 5;
+
+        const VALID_MASK         = Self::VALID_HEADER.bits | Self::VALID_TREE.bits | Self::VALID_TRANSACTIONS.bits |
+                                   Self::VALID_CHAIN.bits | Self::VALID_SCRIPTS.bits;
+        const BLOCK_HAVE_DATA    = 8;
+        const BLOCK_HAVE_UNDO    = 16;
+        const BLOCK_HAVE_MASK    = Self::BLOCK_HAVE_DATA.bits | Self::BLOCK_HAVE_UNDO.bits;
+        const FAILED_VALID       = 32;
+        const FAILED_CHILD       = 64;
+        const FAILED_MASK        = Self::FAILED_VALID.bits | Self::FAILED_CHILD.bits;
+    }
+}
+
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
+
+    n_sync_started: AtomicUsize,
+    n_protected_outbound_peers: AtomicUsize,
+
+    /* Status irrelevant to peers */
+    block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
+
     epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
     best_known_header: RwLock<HeaderView>,
@@ -562,6 +591,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
         SyncSharedState {
             shared,
+            n_sync_started: AtomicUsize::new(0),
+            n_protected_outbound_peers: AtomicUsize::new(0),
+            block_status_map: Mutex::new(hashbrown::HashMap::new()),
             header_map,
             epoch_map,
             best_known_header,
@@ -571,6 +603,15 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn shared(&self) -> &Shared<CS> {
         &self.shared
+    }
+    pub fn n_sync_started(&self) -> &AtomicUsize {
+        &self.n_sync_started
+    }
+    pub fn n_protected_outbound_peers(&self) -> &AtomicUsize {
+        &self.n_protected_outbound_peers
+    }
+    pub fn block_status_map(&self) -> MutexGuard<hashbrown::HashMap<H256, BlockStatus>> {
+        self.block_status_map.lock()
     }
     pub fn store(&self) -> &Arc<CS> {
         self.shared.store()
