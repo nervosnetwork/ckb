@@ -419,7 +419,7 @@ fn test_chain_get_ancestor() {
     }
 
     for _ in 1..final_number {
-        chain2.gen_empty_block(100u64);
+        chain2.gen_empty_block(90u64);
     }
 
     for block in chain1.blocks() {
@@ -434,6 +434,8 @@ fn test_chain_get_ancestor() {
             .expect("process block ok");
     }
 
+    assert!(chain1.tip_header().hash() != chain2.tip_header().hash());
+
     assert_eq!(
         *chain1.blocks()[9].header(),
         shared
@@ -441,7 +443,6 @@ fn test_chain_get_ancestor() {
             .unwrap()
     );
 
-    // TODO: chain1 is always equals to chain2
     assert_eq!(
         *chain2.blocks()[9].header(),
         shared
