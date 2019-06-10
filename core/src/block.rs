@@ -79,6 +79,10 @@ impl Block {
         &self.transactions
     }
 
+    pub fn cellbase(&self) -> &Transaction {
+        &self.transactions.get(0).expect("get cellbase transaction")
+    }
+
     pub fn proposals(&self) -> &[ProposalShortId] {
         &self.proposals
     }

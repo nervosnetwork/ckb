@@ -11,6 +11,8 @@ use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainKVStore;
+use ckb_store::ChainStore;
+use ckb_traits::chain_provider::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use test_chain_utils::create_always_success_cell;
@@ -31,7 +33,11 @@ fn create_always_success_out_point() -> OutPoint {
 
 pub(crate) fn start_chain(
     consensus: Option<Consensus>,
-) -> (ChainController, Shared<ChainKVStore<MemoryKeyValueDB>>) {
+) -> (
+    ChainController,
+    Shared<ChainKVStore<MemoryKeyValueDB>>,
+    Header,
+) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
     let shared = builder
         .consensus(consensus.unwrap_or_else(|| {
@@ -48,7 +54,12 @@ pub(crate) fn start_chain(
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainService::new(shared.clone(), notify);
     let chain_controller = chain_service.start::<&str>(None);
-    (chain_controller, shared)
+    let parent = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
+
+    (chain_controller, shared, parent)
 }
 
 fn create_cellbase(number: BlockNumber) -> Transaction {
@@ -114,4 +125,81 @@ pub(crate) fn create_transaction_with_out_point(
         .input(CellInput::new(out_point, 0))
         .dep(always_success_out_point)
         .build()
+}
+
+pub struct MockChain {
+    blocks: Vec<Block>,
+    parent: Header,
+}
+
+impl MockChain {
+    pub fn new(parent: Header) -> Self {
+        Self {
+            blocks: vec![],
+            parent,
+        }
+    }
+
+    pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<Transaction>) {
+        let difficulty = self.difficulty();
+        let new_block = gen_block(
+            self.tip_header(),
+            difficulty + U256::from(100u64),
+            vec![],
+            txs.clone(),
+            vec![],
+        );
+        self.blocks.push(new_block);
+    }
+
+    pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64) {
+        let new_block = gen_block(
+            self.tip_header(),
+            U256::from(difficulty),
+            vec![],
+            vec![],
+            vec![],
+        );
+        self.blocks.push(new_block);
+    }
+
+    pub fn gen_empty_block(&mut self, diff: u64) {
+        let difficulty = self.difficulty();
+        let new_block = gen_block(
+            self.tip_header(),
+            difficulty + U256::from(diff),
+            vec![],
+            vec![],
+            vec![],
+        );
+        self.blocks.push(new_block);
+    }
+
+    pub fn gen_block_with_commit_txs(&mut self, txs: Vec<Transaction>) {
+        let difficulty = self.difficulty();
+        let new_block = gen_block(
+            self.tip_header(),
+            difficulty + U256::from(100u64),
+            txs.clone(),
+            vec![],
+            vec![],
+        );
+        self.blocks.push(new_block);
+    }
+
+    pub fn tip_header(&self) -> &Header {
+        self.blocks.last().map_or(&self.parent, |b| b.header())
+    }
+
+    pub fn tip(&self) -> &Block {
+        self.blocks.last().expect("should have tip")
+    }
+
+    pub fn difficulty(&self) -> U256 {
+        self.tip_header().difficulty().to_owned()
+    }
+
+    pub fn blocks(&self) -> &Vec<Block> {
+        &self.blocks
+    }
 }
