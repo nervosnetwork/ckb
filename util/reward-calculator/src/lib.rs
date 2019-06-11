@@ -30,7 +30,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     }
 
     /// `RewardCalculator` is used to calculate block reward according to the parent header.
-    /// block reward 
+    /// block reward
     pub fn block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
         let consensus = self.provider.consensus();
         let store = self.provider.store();
@@ -86,7 +86,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
             .map_err(Into::into)
     }
 
-    /// Earliest proposer get 40% of tx fee as reward when tx committed 
+    /// Earliest proposer get 40% of tx fee as reward when tx committed
     pub fn proposal_reward(
         &self,
         parent: &Header,
@@ -100,7 +100,6 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
         let store = self.provider.store();
 
         let mut reward = Capacity::zero();
-
 
         let commit_start = cmp::max(
             block_number.saturating_sub(proposal_window.length()),

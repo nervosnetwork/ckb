@@ -207,7 +207,20 @@ impl Consensus {
     }
 
     pub fn foundation_reserve_number(&self) -> BlockNumber {
+        self.finalization_delay_length()
+    }
+
+    pub fn finalization_delay_length(&self) -> BlockNumber {
         self.tx_proposal_window.farthest() + 1
+    }
+
+    pub fn finalize_target(&self, block_number: BlockNumber) -> Option<BlockNumber> {
+        let finalize_target = block_number.checked_sub(self.finalization_delay_length())?;
+        // we should not reward genesis
+        if finalize_target < 1 {
+            return None;
+        }
+        Some(finalize_target)
     }
 
     pub fn genesis_hash(&self) -> &H256 {
@@ -391,14 +404,5 @@ impl Consensus {
         };
 
         Some(epoch_ext)
-    }
-
-    pub fn finalize_target(&self, block_number: BlockNumber) -> Option<BlockNumber> {
-        let finalize_target = block_number.checked_sub(self.foundation_reserve_number())?;
-        // we should not reward genesis
-        if finalize_target < 1 {
-            return None;
-        }
-        Some(finalize_target)
     }
 }
