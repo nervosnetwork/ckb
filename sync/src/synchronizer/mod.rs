@@ -39,11 +39,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const SEND_GET_HEADERS_TOKEN: u64 = 0;
-pub const BLOCK_FETCH_TOKEN: u64 = 1;
-pub const TIMEOUT_EVICTION_TOKEN: u64 = 2;
+pub const IBD_BLOCK_FETCH_TOKEN: u64 = 1;
+pub const NOT_IBD_BLOCK_FETCH_TOKEN: u64 = 2;
+pub const TIMEOUT_EVICTION_TOKEN: u64 = 3;
 pub const NO_PEER_CHECK_TOKEN: u64 = 255;
+
 const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
-const BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(400);
+const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
+const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
 bitflags! {
     pub struct BlockStatus: u32 {
@@ -506,7 +509,8 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         // NOTE: 100ms is what bitcoin use.
         nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN);
         nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN);
-        nc.set_notify(BLOCK_FETCH_INTERVAL, BLOCK_FETCH_TOKEN);
+        nc.set_notify(IBD_BLOCK_FETCH_INTERVAL, IBD_BLOCK_FETCH_TOKEN);
+        nc.set_notify(NOT_IBD_BLOCK_FETCH_INTERVAL, NOT_IBD_BLOCK_FETCH_TOKEN);
         nc.set_notify(Duration::from_secs(2), NO_PEER_CHECK_TOKEN);
     }
 
@@ -568,8 +572,15 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
                 SEND_GET_HEADERS_TOKEN => {
                     self.start_sync_headers(nc.as_ref());
                 }
-                BLOCK_FETCH_TOKEN => {
-                    self.find_blocks_to_fetch(nc.as_ref());
+                IBD_BLOCK_FETCH_TOKEN => {
+                    if self.shared.is_initial_block_download() {
+                        self.find_blocks_to_fetch(nc.as_ref());
+                    }
+                }
+                NOT_IBD_BLOCK_FETCH_TOKEN => {
+                    if !self.shared.is_initial_block_download() {
+                        self.find_blocks_to_fetch(nc.as_ref());
+                    }
                 }
                 TIMEOUT_EVICTION_TOKEN => {
                     self.eviction(nc.as_ref());

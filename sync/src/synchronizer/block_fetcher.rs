@@ -168,13 +168,17 @@ where
             let mut inflight = self.synchronizer.peers.blocks_inflight.write();
             let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
                 .saturating_sub(inflight.peer_inflight_count(&self.peer));
+            let max_height_header = self
+                .synchronizer
+                .shared
+                .get_ancestor(&best_known_header.hash(), max_height)?;
 
             while index_height < max_height && fetch.len() < count {
                 index_height += 1;
                 let to_fetch = self
                     .synchronizer
                     .shared
-                    .get_ancestor(&best_known_header.hash(), index_height)?;
+                    .get_ancestor(max_height_header.hash(), index_height)?;
                 let to_fetch_hash = to_fetch.hash();
 
                 let block_status = self.synchronizer.get_block_status(to_fetch_hash);
