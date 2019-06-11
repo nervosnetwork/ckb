@@ -56,7 +56,7 @@ pub struct Genesis {
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: SystemCells,
-    pub foundation: Foundation,
+    pub bootstrap_lock: Script,
     pub seal: Seal,
 }
 
@@ -75,11 +75,6 @@ pub struct SystemCells {
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct GenesisCell {
     pub message: String,
-    pub lock: Script,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct Foundation {
     pub lock: Script,
 }
 
@@ -195,7 +190,7 @@ impl ChainSpec {
             .set_epoch_reward(self.params.epoch_reward)
             .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
-            .set_foundation(self.genesis.foundation.clone())
+            .set_bootstrap_lock(self.genesis.bootstrap_lock.clone())
             .set_pow(self.pow.clone());
 
         Ok(consensus)
@@ -229,7 +224,7 @@ impl Genesis {
         // - issued cells
         outputs.push(self.genesis_cell.build_output()?);
         self.system_cells.build_outputs_into(&mut outputs)?;
-        outputs.push(self.foundation.build_output()?);
+        outputs.push(build_bootstrap_output(&self.bootstrap_lock)?);
         outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
 
         Ok(TransactionBuilder::default()
@@ -249,13 +244,11 @@ impl GenesisCell {
     }
 }
 
-impl Foundation {
-    fn build_output(&self) -> Result<CellOutput, Box<dyn Error>> {
-        let mut cell = CellOutput::default();
-        cell.lock = self.lock.clone();
-        cell.capacity = cell.occupied_capacity()?;
-        Ok(cell)
-    }
+fn build_bootstrap_output(lock: &Script) -> Result<CellOutput, Box<dyn Error>> {
+    let mut cell = CellOutput::default();
+    cell.lock.clone_from(lock);
+    cell.capacity = cell.occupied_capacity()?;
+    Ok(cell)
 }
 
 impl IssuedCell {

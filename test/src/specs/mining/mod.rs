@@ -1,7 +1,7 @@
 mod basic;
-mod foundation;
+mod bootstrap;
 mod size_limit;
 
 pub use basic::MiningBasic;
-pub use foundation::FoundationCellbase;
+pub use bootstrap::BootstrapCellbase;
 pub use size_limit::TemplateSizeLimit;

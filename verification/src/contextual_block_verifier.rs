@@ -232,7 +232,7 @@ where
 
     pub fn verify(&self) -> Result<Vec<Capacity>, Error> {
         let cellbase = &self.resolved[0];
-        if (self.parent.number() + 1) > self.provider.consensus().foundation_reserve_number() {
+        if (self.parent.number() + 1) > self.provider.consensus().reserve_number() {
             let (target_lock, block_reward) = self
                 .provider
                 .finalize_block_reward(self.parent)
@@ -254,7 +254,7 @@ where
             {
                 return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
             }
-            if cellbase.transaction.outputs()[0].lock != self.provider.consensus().foundation().lock
+            if &cellbase.transaction.outputs()[0].lock != self.provider.consensus().bootstrap_lock()
             {
                 return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
             }

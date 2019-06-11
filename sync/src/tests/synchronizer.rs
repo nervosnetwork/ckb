@@ -5,7 +5,7 @@ use crate::synchronizer::{
 use crate::tests::TestNode;
 use crate::{Config, NetworkProtocol, SyncSharedState, Synchronizer};
 use ckb_chain::chain::ChainService;
-use ckb_chain_spec::{consensus::Consensus, Foundation};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
@@ -91,9 +91,7 @@ fn setup_node(
 
     let consensus = Consensus::default()
         .set_genesis_block(block.clone())
-        .set_foundation(Foundation {
-            lock: always_success_script.clone(),
-        })
+        .set_bootstrap_lock(always_success_script.clone())
         .set_cellbase_maturity(0);
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
@@ -113,7 +111,7 @@ fn setup_node(
             .next_epoch_ext(&last_epoch, block.header())
             .unwrap_or(last_epoch);
 
-        let reward = if number > shared.consensus().foundation_reserve_number() {
+        let reward = if number > shared.consensus().reserve_number() {
             let (_, block_reward) = shared.finalize_block_reward(block.header()).unwrap();
             block_reward
         } else {

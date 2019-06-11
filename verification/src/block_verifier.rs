@@ -4,6 +4,7 @@ use crate::Verifier;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
+use ckb_core::script::Script;
 use ckb_core::transaction::CellInput;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
@@ -67,17 +68,27 @@ impl CellbaseVerifier {
             return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
         }
 
-        if Script::from_witness(&self.witnesses[0]).is_none() {
+        let cellbase_transaction = &block.transactions()[0];
+
+        if !cellbase_transaction.is_cellbase() {
+            return Err(Error::Cellbase(CellbaseError::InvalidPosition));
+        }
+
+        if cellbase_transaction
+            .witnesses()
+            .get(0)
+            .and_then(|witness| Script::from_witness(witness))
+            .is_none()
+        {
             return Err(Error::Cellbase(CellbaseError::InvalidWitness));
         }
 
-        if self.outputs().iter().any(|output| output.type_.is_some()) {
+        if cellbase_transaction
+            .outputs()
+            .iter()
+            .any(|output| output.type_.is_some())
+        {
             return Err(Error::Cellbase(CellbaseError::InvalidTypeScript));
-        }
-
-        let cellbase_transaction = &block.transactions()[0];
-        if !cellbase_transaction.is_cellbase() {
-            return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
         let cellbase_input = &cellbase_transaction.inputs()[0];

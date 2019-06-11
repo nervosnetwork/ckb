@@ -1,5 +1,5 @@
 use crate::chain::{ChainController, ChainService};
-use ckb_chain_spec::{consensus::Consensus, Foundation};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::{Header, HeaderBuilder};
@@ -47,9 +47,7 @@ pub(crate) fn start_chain(
             .build();
         Consensus::default()
             .set_cellbase_maturity(0)
-            .set_foundation(Foundation {
-                lock: always_success_script.clone(),
-            })
+            .set_bootstrap_lock(always_success_script.clone())
             .set_genesis_block(genesis_block)
     });
     let shared = builder.consensus(consensus).build().unwrap();

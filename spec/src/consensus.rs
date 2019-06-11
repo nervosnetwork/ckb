@@ -1,8 +1,8 @@
-use crate::Foundation;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
 use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
@@ -84,8 +84,7 @@ pub struct Consensus {
     // block version number supported
     pub max_block_proposals_limit: u64,
     pub genesis_epoch_ext: EpochExt,
-    // foundation lock
-    pub foundation: Foundation,
+    pub bootstrap_lock: Script,
 }
 
 // genesis difficulty should not be zero
@@ -128,9 +127,7 @@ impl Default for Consensus {
             block_version: BLOCK_VERSION,
             proposer_reward_ratio: PROPOSER_REWARD_RATIO,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
-            foundation: Foundation {
-                lock: Default::default(),
-            },
+            bootstrap_lock: Default::default(),
         }
     }
 }
@@ -179,9 +176,13 @@ impl Consensus {
     }
 
     #[must_use]
-    pub fn set_foundation(mut self, foundation: Foundation) -> Self {
-        self.foundation = foundation;
+    pub fn set_bootstrap_lock(mut self, lock: Script) -> Self {
+        self.bootstrap_lock = lock;
         self
+    }
+
+    pub fn bootstrap_lock(&self) -> &Script {
+        &self.bootstrap_lock
     }
 
     pub fn set_tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
@@ -198,15 +199,11 @@ impl Consensus {
         &self.genesis_block
     }
 
-    pub fn foundation(&self) -> &Foundation {
-        &self.foundation
-    }
-
     pub fn proposer_reward_ratio(&self) -> Ratio {
         self.proposer_reward_ratio
     }
 
-    pub fn foundation_reserve_number(&self) -> BlockNumber {
+    pub fn reserve_number(&self) -> BlockNumber {
         self.finalization_delay_length()
     }
 

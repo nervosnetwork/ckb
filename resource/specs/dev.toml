@@ -33,7 +33,7 @@ code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
 
 
-[genesis.foundation.lock]
+[genesis.bootstrap_lock]
 code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
 args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
 

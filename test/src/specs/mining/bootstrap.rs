@@ -6,18 +6,18 @@ use ckb_core::script::Script;
 use log::info;
 use numext_fixed_hash::{h256, H256};
 
-pub struct FoundationCellbase;
+pub struct BootstrapCellbase;
 
-impl Spec for FoundationCellbase {
+impl Spec for BootstrapCellbase {
     fn run(&self, net: Net) {
-        info!("Running FoundationCellbase");
+        info!("Running BootstrapCellbase");
         let node = &net.nodes[0];
 
         let blk_hashes: Vec<_> = (0..=DEFAULT_TX_PROPOSAL_WINDOW.1)
             .map(|_| node.generate_block())
             .collect();
 
-        let foundation = Script {
+        let bootstrap_lock = Script {
             args: vec![],
             code_hash: h256!("0xa1"),
         };
@@ -27,17 +27,17 @@ impl Spec for FoundationCellbase {
             code_hash: h256!("0xa2"),
         };
 
-        let is_foundation_cellbase = |blk_hash: &H256| {
+        let is_bootstrap_cellbase = |blk_hash: &H256| {
             let blk: Block = node
                 .rpc_client()
                 .get_block(blk_hash.clone())
                 .unwrap()
                 .into();
             blk.transactions()[0].is_cellbase()
-                && blk.transactions()[0].outputs()[0].lock == foundation
+                && blk.transactions()[0].outputs()[0].lock == bootstrap_lock
         };
 
-        assert!(blk_hashes.iter().all(is_foundation_cellbase));
+        assert!(blk_hashes.iter().all(is_bootstrap_cellbase));
 
         let hash = node.generate_block();
 
@@ -53,7 +53,7 @@ impl Spec for FoundationCellbase {
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
-            spec_config.genesis.foundation.lock = Script {
+            spec_config.genesis.bootstrap_lock = Script {
                 args: vec![],
                 code_hash: h256!("0xa1"),
             };

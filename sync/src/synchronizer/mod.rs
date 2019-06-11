@@ -608,7 +608,6 @@ mod tests {
     use crate::{SyncSharedState, MAX_TIP_AGE};
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_chain_spec::Foundation;
     use ckb_core::block::BlockBuilder;
     use ckb_core::extras::EpochExt;
     use ckb_core::header::BlockNumber;
@@ -648,9 +647,7 @@ mod tests {
         let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
 
         let consensus = consensus.unwrap_or_else(Default::default);
-        builder = builder.consensus(consensus.set_foundation(Foundation {
-            lock: Script::default(),
-        }));
+        builder = builder.consensus(consensus.set_bootstrap_lock(Script::default()));
 
         let shared = builder.build().unwrap();
 
@@ -666,7 +663,7 @@ mod tests {
         parent_header: &Header,
         number: BlockNumber,
     ) -> Transaction {
-        let reward = if number > shared.consensus().foundation_reserve_number() {
+        let reward = if number > shared.consensus().reserve_number() {
             let (_, block_reward) = shared.finalize_block_reward(parent_header).unwrap();
             block_reward
         } else {

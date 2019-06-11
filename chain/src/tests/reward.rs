@@ -1,6 +1,5 @@
 use crate::tests::util::{create_always_success_out_point, create_always_success_tx, start_chain};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_chain_spec::Foundation;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
@@ -99,9 +98,7 @@ fn finalize_reward() {
 
     let consensus = Consensus::default()
         .set_cellbase_maturity(0)
-        .set_foundation(Foundation {
-            lock: always_success_script.clone(),
-        })
+        .set_bootstrap_lock(always_success_script.clone())
         .set_genesis_block(genesis_block);
 
     let (chain_controller, shared, mut parent) = start_chain(Some(consensus));

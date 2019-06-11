@@ -10,7 +10,6 @@ use failure::{Error as FailureError, Fail};
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use std::cmp;
-use std::collections::BTreeMap;
 
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
 pub enum Error {
@@ -29,8 +28,8 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
         RewardCalculator { provider }
     }
 
-    /// `RewardCalculator` is used to calculate block reward according to the parent header.
-    /// block reward
+    /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
+    /// block reward consists of three parts: base block reward, tx fee, proposal reward.
     pub fn block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
         let consensus = self.provider.consensus();
         let store = self.provider.store();
@@ -63,6 +62,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
         Ok((target_lock, reward))
     }
 
+    /// Miner get 60% of tx fee for tx commitment.
     pub fn txs_fees(&self, target: &Header) -> Result<Capacity, FailureError> {
         let consensus = self.provider.consensus();
         let target_ext = self
@@ -101,21 +101,13 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
 
         let mut reward = Capacity::zero();
 
-        let commit_start = cmp::max(
+        // Transaction can be committed at height H(c): H(c) > H(w_close)
+        let competing_commit_start = cmp::max(
             block_number.saturating_sub(proposal_window.length()),
             1 + proposal_window.closest(),
         );
-        let proposal_start = cmp::max(commit_start.saturating_sub(proposal_window.farthest()), 1);
 
-        let mut proposal_table = BTreeMap::new();
-        for bn in proposal_start..target.number() {
-            let proposals = store
-                .get_block_hash(bn)
-                .map(|hash| self.get_proposal_ids_by_hash(&hash))
-                .expect("finalize target exist");
-            proposal_table.insert(bn, proposals);
-        }
-
+        let mut proposed = FnvHashSet::default();
         let mut index = parent.to_owned();
         for (id, tx_fee) in store
             .get_block_txs_hashes(index.hash())
@@ -131,22 +123,28 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
                     .iter(),
             )
         {
+            // target block is the earliest block with effective proposals for the parent block
             if target_proposals.remove(&id) {
                 reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
             }
         }
 
-        index = store
-            .get_block_header(index.parent_hash())
-            .expect("header stored");
+        while index.number() > competing_commit_start {
+            index = store
+                .get_block_header(index.parent_hash())
+                .expect("header stored");
 
-        while index.number() >= commit_start {
-            let proposal_start =
+            // Transaction can be proposed at height H(p): H(p) > H(0)
+            let competing_proposal_start =
                 cmp::max(index.number().saturating_sub(proposal_window.farthest()), 1);
-            let previous_ids: FnvHashSet<ProposalShortId> = proposal_table
-                .range(proposal_start..)
-                .flat_map(|(_, ids)| ids.iter().cloned())
-                .collect();
+
+            let previous_ids = store
+                .get_block_hash(competing_proposal_start)
+                .map(|hash| self.get_proposal_ids_by_hash(&hash))
+                .expect("finalize target exist");
+
+            proposed.extend(previous_ids);
+
             for (id, tx_fee) in store
                 .get_block_txs_hashes(index.hash())
                 .expect("block body stored")
@@ -161,14 +159,10 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
                         .iter(),
                 )
             {
-                if target_proposals.remove(&id) && !previous_ids.contains(&id) {
+                if target_proposals.remove(&id) && !proposed.contains(&id) {
                     reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
                 }
             }
-
-            index = store
-                .get_block_header(index.parent_hash())
-                .expect("header stored");
         }
         Ok(reward)
     }

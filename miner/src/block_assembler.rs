@@ -373,6 +373,11 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         Ok(template)
     }
 
+    /// Miner mined block H(c), the block reward will be finalized at H(c + w_far + 1).
+    /// Miner specify own lock in cellbase witness.
+    /// The cellbase have only one output,
+    /// if H(c) > reserve_number, miner should collect the block reward for finalize target H(c - w_far - 1)
+    /// otherwise miner create a output with bootstrap lock.
     fn build_cellbase(
         &self,
         tip: &Header,
@@ -380,17 +385,17 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     ) -> Result<(Transaction, usize), FailureError> {
         let candidate_number = tip.number() + 1;
 
-        let tx = if candidate_number > (self.shared.consensus().foundation_reserve_number()) {
+        let tx = if candidate_number > (self.shared.consensus().reserve_number()) {
             self.ordinary_cellbase(tip, lock)
         } else {
-            self.foundation_cellbase(candidate_number, lock)
+            self.bootstrap_cellbase(candidate_number, lock)
         }?;
 
         let serialized_size = tx.serialized_size();
         Ok((tx, serialized_size))
     }
 
-    fn foundation_cellbase(
+    fn bootstrap_cellbase(
         &self,
         candidate_number: BlockNumber,
         lock: Script,
@@ -403,7 +408,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 .genesis_epoch_ext()
                 .block_reward(candidate_number)?,
             Bytes::default(),
-            self.shared.consensus().foundation().lock.clone(),
+            self.shared.consensus().bootstrap_lock().clone(),
             None,
         );
         Ok(TransactionBuilder::default()
