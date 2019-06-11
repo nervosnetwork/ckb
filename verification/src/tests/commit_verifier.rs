@@ -170,7 +170,7 @@ fn test_proposal() {
     parent = block.header().to_owned();
 
     //commit in proposal gap is invalid
-    for _ in (proposed + 1)..(proposed + proposal_window.end()) {
+    for _ in (proposed + 1)..(proposed + proposal_window.closest()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         assert_eq!(
             CommitVerifier::new(&shared, &block).verify(),
@@ -186,7 +186,7 @@ fn test_proposal() {
     }
 
     //commit in proposal window
-    for _ in 0..(proposal_window.start() - proposal_window.end()) {
+    for _ in 0..(proposal_window.farthest() - proposal_window.closest()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(&shared, &block);
         assert_eq!(verifier.verify(), Ok(()));
@@ -244,7 +244,7 @@ fn test_uncle_proposal() {
     parent = block.header().to_owned();
 
     //commit in proposal gap is invalid
-    for _ in (proposed + 1)..(proposed + proposal_window.end()) {
+    for _ in (proposed + 1)..(proposed + proposal_window.closest()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(&shared, &block);
         assert_eq!(verifier.verify(), Err(Error::Commit(CommitError::Invalid)));
@@ -258,7 +258,7 @@ fn test_uncle_proposal() {
     }
 
     //commit in proposal window
-    for _ in 0..(proposal_window.start() - proposal_window.end()) {
+    for _ in 0..(proposal_window.farthest() - proposal_window.closest()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(&shared, &block);
         assert_eq!(verifier.verify(), Ok(()));

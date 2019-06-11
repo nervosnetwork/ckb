@@ -140,8 +140,8 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
         }
         let block_number = self.block.header().number();
         let proposal_window = self.provider.consensus().tx_proposal_window();
-        let proposal_start = block_number.saturating_sub(proposal_window.start());
-        let mut proposal_end = block_number.saturating_sub(proposal_window.end());
+        let proposal_start = block_number.saturating_sub(proposal_window.farthest());
+        let mut proposal_end = block_number.saturating_sub(proposal_window.closest());
 
         let mut block_hash = self
             .provider

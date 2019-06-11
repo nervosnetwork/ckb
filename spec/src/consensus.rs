@@ -39,12 +39,15 @@ pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
+/// A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
+/// 1) it is proposed at height h_p of the same chain, where w_close ≤ h_c − h_p ≤ w_far ;
+/// 2) it is in the commitment zone of the main chain block with height h_c ;
 impl ProposalWindow {
-    pub fn end(&self) -> BlockNumber {
+    pub fn closest(&self) -> BlockNumber {
         self.0
     }
 
-    pub fn start(&self) -> BlockNumber {
+    pub fn farthest(&self) -> BlockNumber {
         self.1
     }
 
@@ -204,7 +207,7 @@ impl Consensus {
     }
 
     pub fn foundation_reserve_number(&self) -> BlockNumber {
-        self.tx_proposal_window.start() + 1
+        self.tx_proposal_window.farthest() + 1
     }
 
     pub fn genesis_hash(&self) -> &H256 {

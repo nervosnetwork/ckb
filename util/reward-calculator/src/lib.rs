@@ -104,9 +104,9 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
 
         let commit_start = cmp::max(
             block_number.saturating_sub(proposal_window.length()),
-            1 + proposal_window.end(),
+            1 + proposal_window.closest(),
         );
-        let proposal_start = cmp::max(commit_start.saturating_sub(proposal_window.start()), 1);
+        let proposal_start = cmp::max(commit_start.saturating_sub(proposal_window.farthest()), 1);
 
         let mut proposal_table = BTreeMap::new();
         for bn in proposal_start..target.number() {
@@ -143,7 +143,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
 
         while index.number() >= commit_start {
             let proposal_start =
-                cmp::max(index.number().saturating_sub(proposal_window.start()), 1);
+                cmp::max(index.number().saturating_sub(proposal_window.farthest()), 1);
             let previous_ids: FnvHashSet<ProposalShortId> = proposal_table
                 .range(proposal_start..)
                 .flat_map(|(_, ids)| ids.iter().cloned())
