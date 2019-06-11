@@ -10,6 +10,7 @@ use ckb_core::transaction::{
     Capacity, CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
+use ckb_core::BlockNumber;
 use ckb_core::{Bytes, Cycle, Version};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
@@ -269,10 +270,10 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // try get cache
         // this attempt will not touch chain_state lock which mean it should be fast
         let store = self.shared.store();
-        let header = store.get_tip_header().to_owned().expect("get tip header");
-        let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
+        let tip_header = store.get_tip_header().to_owned().expect("get tip header");
+        let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
         if let Some(template_cache) = self.template_caches.get(&(
-            header.hash().to_owned(),
+            tip_header.hash().to_owned(),
             cycles_limit,
             bytes_limit,
             version,
@@ -286,13 +287,13 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // lock chain_store to make sure data consistency
         let chain_state = self.shared.lock_chain_state();
         // refetch tip header, tip may changed after we get the lock
-        let header = chain_state.tip_header().to_owned();
-        let hash = header.hash();
-        let number = header.number() + 1;
+        let tip_header = chain_state.tip_header().to_owned();
+        let tip_hash = tip_header.hash();
+        let candidate_number = tip_header.number() + 1;
         // check cache again, return cache if we have no modify
         if let Some(template_cache) =
             self.template_caches
-                .get(&(hash.to_owned(), cycles_limit, bytes_limit, version))
+                .get(&(tip_hash.to_owned(), cycles_limit, bytes_limit, version))
         {
             let last_txs_updated_at = chain_state.get_last_txs_updated_at();
             // check our tx_pool wether is modified
@@ -303,9 +304,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         }
 
         let last_epoch = store.get_current_epoch_ext().expect("current epoch ext");
-        let next_epoch_ext = self.shared.next_epoch_ext(&last_epoch, &header);
+        let next_epoch_ext = self.shared.next_epoch_ext(&last_epoch, &tip_header);
         let current_epoch = next_epoch_ext.unwrap_or(last_epoch);
-        let uncles = self.prepare_uncles(&current_epoch, candidate_uncles);
+        let uncles = self.prepare_uncles(candidate_number, &current_epoch, candidate_uncles);
 
         let cellbase_lock_args = self
             .config
@@ -317,7 +318,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         let cellbase_lock = Script::new(cellbase_lock_args, self.config.code_hash.clone());
         let (dummy_cellbase, cellbase_size, cellbase_cycle) =
-            self.dummy_cellbase_transaction(&header, cellbase_lock, None)?;
+            self.dummy_cellbase_transaction(&tip_header, cellbase_lock, None)?;
 
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
         let proposals = chain_state.get_proposals(proposals_limit as usize);
@@ -339,17 +340,18 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
 
-        let cellbase = self.rebuild_cellbase(&header, &dummy_cellbase, &current_epoch, &entries)?;
+        let cellbase =
+            self.rebuild_cellbase(&tip_header, &dummy_cellbase, &current_epoch, &entries)?;
 
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
-        let current_time = cmp::max(unix_time_as_millis(), header.timestamp() + 1);
+        let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
         let template = BlockTemplate {
             version: JsonVersion(version),
             difficulty: current_epoch.difficulty().clone(),
             current_time: JsonTimestamp(current_time),
-            number: JsonBlockNumber(number),
+            number: JsonBlockNumber(candidate_number),
             epoch: JsonEpochNumber(current_epoch.number()),
-            parent_hash: hash.to_owned(),
+            parent_hash: tip_hash.to_owned(),
             cycles_limit: JsonCycle(cycles_limit),
             bytes_limit: Unsigned(bytes_limit),
             uncles_count_limit: Unsigned(uncles_count_limit.into()),
@@ -364,7 +366,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         };
 
         self.template_caches.insert(
-            (hash.to_owned(), cycles_limit, bytes_limit, version),
+            (tip_hash.to_owned(), cycles_limit, bytes_limit, version),
             TemplateCache {
                 time: current_time,
                 uncles_updated_at: last_uncles_updated_at,
@@ -431,8 +433,14 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .build())
     }
 
+    /// A block B1 is considered to be the uncle of
+    /// another block B2 if all of the following conditions are met:
+    /// (1) they are in the same epoch, sharing the same difficulty;
+    /// (2) height(B2) > height(B1);
+    /// (3) B2 is the first block in its chain to refer to B1
     fn prepare_uncles(
         &self,
+        candidate_number: BlockNumber,
         current_epoch_ext: &EpochExt,
         candidate_uncles: &mut LruCache<H256, Arc<Block>>,
     ) -> FnvHashSet<UncleBlock> {
@@ -451,6 +459,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 || block.header().epoch() != epoch_number
                 || store.get_block_number(hash).is_some()
                 || store.is_uncle(hash)
+                || block.header().number() >= candidate_number
             {
                 entry.remove();
             } else {

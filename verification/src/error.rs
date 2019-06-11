@@ -109,6 +109,7 @@ pub enum UnclesError {
         expected: H256,
         actual: H256,
     },
+    InvalidNumber,
     InvalidDifficulty,
     InvalidDifficultyEpoch,
     InvalidProof,
