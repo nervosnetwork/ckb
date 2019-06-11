@@ -769,6 +769,7 @@ impl NetworkService {
         };
         let p2p_service = service_builder
             .key_pair(network_state.local_private_key.clone())
+            .upnp(config.upnp)
             .forever(true)
             .build(event_handler);
 
