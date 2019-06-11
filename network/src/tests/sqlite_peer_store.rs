@@ -59,7 +59,7 @@ fn test_ban_peer() {
 }
 
 #[test]
-fn test_attepmt_ban() {
+fn test_attempt_ban() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
