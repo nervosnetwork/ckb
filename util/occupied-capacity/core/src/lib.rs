@@ -4,4 +4,4 @@ mod traits;
 mod units;
 
 pub use traits::OccupiedCapacity;
-pub use units::{Capacity, Error, Result};
+pub use units::{Capacity, Error, Ratio, Result};

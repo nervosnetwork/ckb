@@ -8,6 +8,19 @@ use crate::OccupiedCapacity;
 )]
 pub struct Capacity(u64);
 
+#[derive(Clone, PartialEq, Debug, Eq, Copy)]
+pub struct Ratio(pub u64, pub u64);
+
+impl Ratio {
+    pub fn numer(&self) -> u64 {
+        self.0
+    }
+
+    pub fn denom(&self) -> u64 {
+        self.1
+    }
+}
+
 // Be careful: if the inner type of `Capacity` was changed, update this!
 impl OccupiedCapacity for Capacity {
     fn occupied_capacity(&self) -> Result<Capacity> {
@@ -112,10 +125,10 @@ impl Capacity {
             .ok_or(Error::Overflow)
     }
 
-    pub fn safe_mul_ratio(self, numer: u64, denom: u64) -> Result<Self> {
+    pub fn safe_mul_ratio(self, ratio: Ratio) -> Result<Self> {
         self.0
-            .checked_mul(numer)
-            .and_then(|ret| ret.checked_div(denom))
+            .checked_mul(ratio.numer())
+            .and_then(|ret| ret.checked_div(ratio.denom()))
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }

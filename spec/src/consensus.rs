@@ -7,6 +7,7 @@ use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use occupied_capacity::Ratio;
 use std::cmp;
 use std::sync::Arc;
 
@@ -33,6 +34,7 @@ pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * 200 * 8;
 pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
 pub(crate) const BLOCK_VERSION: u32 = 0;
+pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
@@ -62,6 +64,7 @@ pub struct Consensus {
     pub orphan_rate_target_recip: u64,
     pub epoch_duration_target: u64,
     pub tx_proposal_window: ProposalWindow,
+    pub proposer_reward_ratio: Ratio,
     pub pow: Pow,
     // For each input, if the referenced output transaction is cellbase,
     // it must have at least `cellbase_maturity` confirmations;
@@ -120,6 +123,7 @@ impl Default for Consensus {
             max_block_bytes: MAX_BLOCK_BYTES,
             genesis_epoch_ext,
             block_version: BLOCK_VERSION,
+            proposer_reward_ratio: PROPOSER_REWARD_RATIO,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
             foundation: Foundation {
                 lock: Default::default(),
@@ -193,6 +197,10 @@ impl Consensus {
 
     pub fn foundation(&self) -> &Foundation {
         &self.foundation
+    }
+
+    pub fn proposer_reward_ratio(&self) -> Ratio {
+        self.proposer_reward_ratio
     }
 
     pub fn foundation_reserve_number(&self) -> BlockNumber {

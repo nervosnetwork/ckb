@@ -173,7 +173,7 @@ fn finalize_reward() {
     // bob proposed 8 txs in 12, committed in 22
     // get all proposal reward
     let bob_reward = TX_FEE
-        .safe_mul_ratio(4, 10)
+        .safe_mul_ratio(shared.consensus().proposer_reward_ratio())
         .unwrap()
         .safe_mul(8u8) // 8 txs
         .unwrap()
@@ -204,7 +204,7 @@ fn finalize_reward() {
     // but bob proposed 8 txs earlier
     // get 8 proposal reward
     let alice_reward = TX_FEE
-        .safe_mul_ratio(4, 10)
+        .safe_mul_ratio(shared.consensus().proposer_reward_ratio())
         .unwrap()
         .safe_mul(8u8)
         .unwrap()

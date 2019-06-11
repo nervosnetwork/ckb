@@ -1,3 +1,5 @@
+//! This mod implemented a ckb block reward calculator
+
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
 use ckb_core::transaction::ProposalShortId;
@@ -27,6 +29,8 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
         RewardCalculator { provider }
     }
 
+    /// `RewardCalculator` is used to calculate block reward according to the parent header.
+    /// block reward 
     pub fn block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
         let consensus = self.provider.consensus();
         let store = self.provider.store();
@@ -60,6 +64,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     }
 
     pub fn txs_fees(&self, target: &Header) -> Result<Capacity, FailureError> {
+        let consensus = self.provider.consensus();
         let target_ext = self
             .provider
             .store()
@@ -70,15 +75,18 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
             .txs_fees
             .iter()
             .try_fold(Capacity::zero(), |acc, tx_fee| {
-                tx_fee.safe_mul_ratio(4, 10).and_then(|proposer| {
-                    tx_fee
-                        .safe_sub(proposer)
-                        .and_then(|miner| acc.safe_add(miner))
-                })
+                tx_fee
+                    .safe_mul_ratio(consensus.proposer_reward_ratio())
+                    .and_then(|proposer| {
+                        tx_fee
+                            .safe_sub(proposer)
+                            .and_then(|miner| acc.safe_add(miner))
+                    })
             })
             .map_err(Into::into)
     }
 
+    /// Earliest proposer get 40% of tx fee as reward when tx committed 
     pub fn proposal_reward(
         &self,
         parent: &Header,
@@ -87,11 +95,17 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
         let mut target_proposals = self.get_proposal_ids_by_hash(target.hash());
 
         let proposal_window = self.provider.consensus().tx_proposal_window();
+        let proposer_ratio = self.provider.consensus().proposer_reward_ratio();
         let block_number = parent.number() + 1;
         let store = self.provider.store();
 
         let mut reward = Capacity::zero();
-        let commit_start = cmp::max(block_number.saturating_sub(proposal_window.length()), 2);
+
+
+        let commit_start = cmp::max(
+            block_number.saturating_sub(proposal_window.length()),
+            1 + proposal_window.end(),
+        );
         let proposal_start = cmp::max(commit_start.saturating_sub(proposal_window.start()), 1);
 
         let mut proposal_table = BTreeMap::new();
@@ -119,7 +133,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
             )
         {
             if target_proposals.remove(&id) {
-                reward = reward.safe_add(tx_fee.safe_mul_ratio(4, 10)?)?;
+                reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
             }
         }
 
@@ -149,7 +163,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
                 )
             {
                 if target_proposals.remove(&id) && !previous_ids.contains(&id) {
-                    reward = reward.safe_add(tx_fee.safe_mul_ratio(4, 10)?)?;
+                    reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
                 }
             }
 
