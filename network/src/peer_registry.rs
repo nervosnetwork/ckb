@@ -157,7 +157,7 @@ impl PeerRegistry {
             peer2.connected_time.cmp(&peer1.connected_time)
         });
 
-        // Grop peers by network group
+        // Group peers by network group
         let evict_group = candidate_peers
             .into_iter()
             .fold(FnvHashMap::default(), |mut groups, peer| {
