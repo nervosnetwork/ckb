@@ -469,6 +469,8 @@ pub struct HeaderView {
     inner: Header,
     total_difficulty: U256,
     total_uncles_count: u64,
+    // pointer to the index of some further predecessor of this block
+    skip_hash: Option<H256>,
 }
 
 impl HeaderView {
@@ -477,6 +479,7 @@ impl HeaderView {
             inner,
             total_difficulty,
             total_uncles_count,
+            skip_hash: None,
         }
     }
 
@@ -486,6 +489,10 @@ impl HeaderView {
 
     pub fn hash(&self) -> &H256 {
         self.inner.hash()
+    }
+
+    pub fn parent_hash(&self) -> &H256 {
+        self.inner.parent_hash()
     }
 
     pub fn timestamp(&self) -> u64 {
@@ -506,6 +513,69 @@ impl HeaderView {
 
     pub fn into_inner(self) -> Header {
         self.inner
+    }
+
+    pub fn build_skip<F>(&mut self, mut get_header_view: F)
+    where
+        F: FnMut(&H256) -> Option<HeaderView>,
+    {
+        self.skip_hash = get_header_view(self.parent_hash())
+            .and_then(|parent| parent.get_ancestor(get_skip_height(self.number()), get_header_view))
+            .map(|header| header.hash().clone());
+    }
+
+    // NOTE: get_header_view may change source state, for cache or for tests
+    pub fn get_ancestor<F>(self, number: BlockNumber, mut get_header_view: F) -> Option<Header>
+    where
+        F: FnMut(&H256) -> Option<HeaderView>,
+    {
+        let mut current = self;
+        if number > current.number() {
+            return None;
+        }
+        let mut number_walk = current.number();
+        while number_walk > number {
+            let number_skip = get_skip_height(number_walk);
+            let number_skip_prev = get_skip_height(number_walk - 1);
+            match current.skip_hash {
+                Some(ref hash)
+                    if number_skip == number
+                        || (number_skip > number
+                            && !(number_skip_prev + 2 < number_skip
+                                && number_skip_prev >= number)) =>
+                {
+                    // Only follow skip if parent->skip isn't better than skip->parent
+                    current = get_header_view(hash)?;
+                    number_walk = number_skip;
+                }
+                _ => {
+                    current = get_header_view(current.parent_hash())?;
+                    number_walk -= 1;
+                }
+            }
+        }
+        Some(current.clone()).map(HeaderView::into_inner)
+    }
+}
+
+// Compute what height to jump back to with the skip pointer.
+fn get_skip_height(height: BlockNumber) -> BlockNumber {
+    // Turn the lowest '1' bit in the binary representation of a number into a '0'.
+    fn invert_lowest_one(n: i64) -> i64 {
+        n & (n - 1)
+    }
+
+    if height < 2 {
+        return 0;
+    }
+
+    // Determine which height to jump back to. Any number strictly lower than height is acceptable,
+    // but the following expression seems to perform well in simulations (max 110 steps to go back
+    // up to 2**18 blocks).
+    if (height & 1) > 0 {
+        invert_lowest_one(invert_lowest_one(height as i64 - 1)) as u64 + 1
+    } else {
+        invert_lowest_one(height as i64) as u64
     }
 }
 
@@ -608,8 +678,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         *self.best_known_header.write() = header;
     }
 
-    pub fn insert_header_view(&self, hash: H256, header: HeaderView) {
-        self.header_map.write().insert(hash, header);
+    pub fn insert_header_view(&self, hash: H256, mut view: HeaderView) {
+        view.build_skip(|hash| self.get_header_view(hash));
+        self.header_map.write().insert(hash, view);
     }
     pub fn remove_header_view(&self, hash: &H256) {
         self.header_map.write().remove(hash);
@@ -667,24 +738,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
-        if let Some(header) = self.get_header(base) {
-            let mut n_number = header.number();
-            let mut index_walk = header;
-            if number > n_number {
-                return None;
-            }
-
-            while n_number > number {
-                if let Some(header) = self.get_header(&index_walk.parent_hash()) {
-                    index_walk = header;
-                    n_number -= 1;
-                } else {
-                    return None;
-                }
-            }
-            return Some(index_walk);
-        }
-        None
+        self.get_header_view(base)?
+            .get_ancestor(number, |hash| self.get_header_view(hash))
     }
 
     pub fn get_locator(&self, start: &Header) -> Vec<H256> {
@@ -847,5 +902,84 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             peer,
             fbb.finished_data().into(),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use ckb_core::header::HeaderBuilder;
+    use rand::{thread_rng, Rng};
+
+    const SKIPLIST_LENGTH: u64 = 500_000;
+
+    #[test]
+    fn test_get_ancestor_use_skip_list() {
+        let mut header_map: HashMap<H256, HeaderView> = HashMap::default();
+        let mut hashes: BTreeMap<BlockNumber, H256> = BTreeMap::default();
+
+        let mut parent_hash = None;
+        for number in 0..SKIPLIST_LENGTH {
+            let mut header_builder = HeaderBuilder::default().number(number);
+            if let Some(parent_hash) = parent_hash.take() {
+                header_builder = header_builder.parent_hash(parent_hash);
+            }
+            let header = header_builder.build();
+            hashes.insert(number, header.hash().clone());
+            parent_hash = Some(header.hash().clone());
+
+            let mut view = HeaderView::new(header, U256::zero(), 0);
+            view.build_skip(|hash| header_map.get(hash).cloned());
+            header_map.insert(view.hash().clone(), view);
+        }
+
+        for (number, hash) in &hashes {
+            if *number > 0 {
+                let skip_view = header_map
+                    .get(hash)
+                    .and_then(|view| header_map.get(view.skip_hash.as_ref().unwrap()))
+                    .unwrap();
+                assert_eq!(Some(skip_view.hash()), hashes.get(&skip_view.number()));
+                assert!(skip_view.number() < *number);
+            } else {
+                assert!(header_map[hash].skip_hash.is_none());
+            }
+        }
+
+        let mut rng = thread_rng();
+        let a_to_b = |a, b, limit| {
+            let mut count = 0;
+            let header = header_map
+                .get(&hashes[&a])
+                .cloned()
+                .unwrap()
+                .get_ancestor(b, |hash| {
+                    count += 1;
+                    header_map.get(hash).cloned()
+                })
+                .unwrap();
+
+            // Search must finished in <limit> steps
+            assert!(count <= limit);
+
+            header
+        };
+        for _ in 0..1000 {
+            let from: u64 = rng.gen_range(0, SKIPLIST_LENGTH);
+            let to: u64 = rng.gen_range(0, from);
+            let view_from = &header_map[&hashes[&from]];
+            let view_to = &header_map[&hashes[&to]];
+            let view_0 = &header_map[&hashes[&0]];
+
+            let found_from_header = a_to_b(SKIPLIST_LENGTH - 1, from, 120);
+            assert_eq!(found_from_header.hash(), view_from.hash());
+
+            let found_to_header = a_to_b(from, to, 120);
+            assert_eq!(found_to_header.hash(), view_to.hash());
+
+            let found_0_header = a_to_b(from, 0, 120);
+            assert_eq!(found_0_header.hash(), view_0.hash());
+        }
     }
 }
