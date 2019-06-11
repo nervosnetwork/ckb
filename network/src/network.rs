@@ -318,7 +318,7 @@ impl NetworkState {
         peer_id: &PeerId,
         address: Multiaddr,
     ) {
-        self.dial_all(p2p_control, peer_id, address.clone());
+        self.dial_identify(p2p_control, peer_id, address.clone());
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -426,8 +426,8 @@ impl NetworkState {
         }
     }
 
-    /// Dial all protocol except feeler
-    pub fn dial_all(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
+    /// Dial just identify protocol
+    pub fn dial_identify(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
         self.dial(
             p2p_control,
             peer_id,
@@ -849,7 +849,7 @@ impl NetworkService {
         for (peer_id, addr) in config.reserved_peers()? {
             debug!("dial reserved_peers {:?} {:?}", peer_id, addr);
             self.network_state
-                .dial_all(self.p2p_service.control(), &peer_id, addr);
+                .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }
 
         let bootnodes = self.network_state.with_peer_store(|peer_store| {
@@ -859,7 +859,7 @@ impl NetworkService {
         for (peer_id, addr) in bootnodes {
             debug!("dial bootnode {:?} {:?}", peer_id, addr);
             self.network_state
-                .dial_all(self.p2p_service.control(), &peer_id, addr);
+                .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }
         let p2p_control = self.p2p_service.control().to_owned();
         let network_state = Arc::clone(&self.network_state);
