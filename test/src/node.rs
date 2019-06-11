@@ -1,13 +1,12 @@
 use crate::rpc::RpcClient;
 use crate::utils::wait_until;
-use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig, MinerAppConfig};
+use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
-use ckb_resource::Resource;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
 use log::info;
 use numext_fixed_hash::H256;
@@ -311,7 +310,6 @@ impl Node {
 
     fn prepare_chain_spec(
         &mut self,
-        config_path: &str,
         modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
@@ -323,7 +321,9 @@ impl Node {
 
         let mut spec: ChainSpec =
             toml::from_slice(&integration_spec[..]).expect("chain spec config");
-        spec.genesis.system_cells.resources = vec![Resource::FileSystem(always_success_path)];
+        for r in spec.genesis.system_cells.files.iter_mut() {
+            r.absolutize(Path::new(&self.dir).join("specs"));
+        }
         modify_chain_spec(&mut spec);
 
         let consensus = spec.build_consensus().expect("build consensus");
@@ -334,21 +334,19 @@ impl Node {
 
         // write to dir
         fs::write(
-            &config_path,
+            Path::new(&self.dir).join("specs/integration.toml"),
             toml::to_string(&spec).expect("chain spec serialize"),
         )
     }
 
     fn rewrite_spec(
         &self,
-        config_path: &str,
         modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
     ) -> Result<(), Error> {
         // rewrite ckb.toml
         let ckb_config_path = format!("{}/ckb.toml", self.dir);
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
-        ckb_config.chain.spec = config_path.into();
         ckb_config.block_assembler = Some(BlockAssemblerConfig {
             code_hash: self.always_success_code_hash.clone(),
             args: Default::default(),
@@ -357,15 +355,6 @@ impl Node {
         fs::write(
             &ckb_config_path,
             toml::to_string(&ckb_config).expect("ckb config serialize"),
-        )?;
-        // rewrite ckb-miner.toml
-        let miner_config_path = format!("{}/ckb-miner.toml", self.dir);
-        let mut miner_config: MinerAppConfig =
-            toml::from_slice(&fs::read(&miner_config_path)?).expect("miner config");
-        miner_config.chain.spec = config_path.into();
-        fs::write(
-            &miner_config_path,
-            toml::to_string(&miner_config).expect("miner config serialize"),
         )
     }
 
@@ -392,9 +381,8 @@ impl Node {
             .output()
             .map(|_| ())?;
 
-        let spec_config_path = format!("{}/specs/integration.toml", self.dir);
-        self.prepare_chain_spec(&spec_config_path, modify_chain_spec)?;
-        self.rewrite_spec(&spec_config_path, modify_ckb_config)?;
+        self.prepare_chain_spec(modify_chain_spec)?;
+        self.rewrite_spec(modify_ckb_config)?;
         Ok(())
     }
 

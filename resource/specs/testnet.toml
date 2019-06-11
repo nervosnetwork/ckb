@@ -25,7 +25,7 @@ args = []
 # the directory containing this config file.
 [genesis.system_cells]
 files = [
-  "cells/secp256k1_blake160_sighash_all"
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
 ]
 
 [genesis.system_cells.lock]

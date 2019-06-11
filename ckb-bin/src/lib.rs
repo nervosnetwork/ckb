@@ -21,7 +21,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
                     subcommand::cli::secp256k1_lock(sub_matches)
                 }
                 (cli::CMD_HASHES, Some(sub_matches)) => {
-                    subcommand::cli::hashes(Setup::locator_from_matches(&matches)?, sub_matches)
+                    subcommand::cli::hashes(Setup::root_dir_from_matches(&matches)?, sub_matches)
                 }
                 _ => unreachable!(),
             };

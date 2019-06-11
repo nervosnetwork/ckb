@@ -16,7 +16,7 @@ use ckb_miner::BlockAssemblerConfig;
 use ckb_miner::MinerConfig;
 use ckb_network::NetworkConfig;
 use ckb_network_alert::config::Config as AlertConfig;
-use ckb_resource::{Resource, ResourceLocator};
+use ckb_resource::Resource;
 use ckb_rpc::Config as RpcConfig;
 use ckb_script::ScriptConfig;
 use ckb_shared::tx_pool::TxPoolConfig;
@@ -26,12 +26,7 @@ use ckb_sync::Config as SyncConfig;
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
 
-pub struct AppConfig {
-    resource: Resource,
-    content: AppConfigContent,
-}
-
-pub enum AppConfigContent {
+pub enum AppConfig {
     CKB(Box<CKBAppConfig>),
     Miner(Box<MinerAppConfig>),
 }
@@ -45,7 +40,7 @@ pub struct CKBAppConfig {
     pub chain: ChainConfig,
 
     pub block_assembler: Option<BlockAssemblerConfig>,
-    #[serde(skip)]
+    #[serde(default)]
     pub db: DBConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
@@ -69,71 +64,61 @@ pub struct MinerAppConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChainConfig {
-    pub spec: PathBuf,
+    pub spec: Resource,
 }
 
 impl AppConfig {
-    pub fn is_bundled(&self) -> bool {
-        self.resource.is_bundled()
-    }
-
-    pub fn load_for_subcommand(
-        locator: &ResourceLocator,
+    pub fn load_for_subcommand<P: AsRef<Path>>(
+        root_dir: P,
         subcommand_name: &str,
     ) -> Result<AppConfig, ExitCode> {
         match subcommand_name {
             cli::CMD_MINER => {
-                let resource = locator.miner();
+                let resource = ensure_ckb_dir(Resource::miner_config(root_dir.as_ref()))?;
                 let config: MinerAppConfig = toml::from_slice(&resource.get()?)?;
 
-                Ok(AppConfig {
-                    resource,
-                    content: AppConfigContent::with_miner(
-                        config.derive_options(locator.root_dir())?,
-                    ),
-                })
+                Ok(AppConfig::with_miner(
+                    config.derive_options(root_dir.as_ref())?,
+                ))
             }
             _ => {
-                let resource = locator.ckb();
+                let resource = ensure_ckb_dir(Resource::ckb_config(root_dir.as_ref()))?;
                 let config: CKBAppConfig = toml::from_slice(&resource.get()?)?;
-                Ok(AppConfig {
-                    resource,
-                    content: AppConfigContent::with_ckb(
-                        config.derive_options(locator.root_dir(), subcommand_name)?,
-                    ),
-                })
+                Ok(AppConfig::with_ckb(
+                    config.derive_options(root_dir.as_ref(), subcommand_name)?,
+                ))
             }
         }
     }
 
     pub fn logger(&self) -> &LogConfig {
-        match &self.content {
-            AppConfigContent::CKB(config) => &config.logger,
-            AppConfigContent::Miner(config) => &config.logger,
+        match self {
+            AppConfig::CKB(config) => &config.logger,
+            AppConfig::Miner(config) => &config.logger,
         }
     }
 
     pub fn sentry(&self) -> &SentryConfig {
-        match &self.content {
-            AppConfigContent::CKB(config) => &config.sentry,
-            AppConfigContent::Miner(config) => &config.sentry,
+        match self {
+            AppConfig::CKB(config) => &config.sentry,
+            AppConfig::Miner(config) => &config.sentry,
         }
     }
 
-    pub fn chain_spec(&self, locator: &ResourceLocator) -> Result<ChainSpec, ExitCode> {
-        let spec_path = PathBuf::from(match &self.content {
-            AppConfigContent::CKB(config) => &config.chain.spec,
-            AppConfigContent::Miner(config) => &config.chain.spec,
-        });
-        ChainSpec::resolve_relative_to(locator, spec_path, &self.resource).map_err(|err| {
+    pub fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
+        let spec_resource = match self {
+            AppConfig::CKB(config) => &config.chain.spec,
+            AppConfig::Miner(config) => &config.chain.spec,
+        };
+        ChainSpec::load_from(spec_resource).map_err(|err| {
             eprintln!("{}", err);
             ExitCode::Config
         })
     }
 
     pub fn into_ckb(self) -> Result<Box<CKBAppConfig>, ExitCode> {
-        match self.content {
-            AppConfigContent::CKB(config) => Ok(config),
+        match self {
+            AppConfig::CKB(config) => Ok(config),
             _ => {
                 eprintln!("unmatched config file");
                 Err(ExitCode::Failure)
@@ -142,8 +127,8 @@ impl AppConfig {
     }
 
     pub fn into_miner(self) -> Result<Box<MinerAppConfig>, ExitCode> {
-        match self.content {
-            AppConfigContent::Miner(config) => Ok(config),
+        match self {
+            AppConfig::Miner(config) => Ok(config),
             _ => {
                 eprintln!("unmatched config file");
                 Err(ExitCode::Failure)
@@ -152,12 +137,12 @@ impl AppConfig {
     }
 }
 
-impl AppConfigContent {
-    fn with_ckb(config: CKBAppConfig) -> AppConfigContent {
-        AppConfigContent::CKB(Box::new(config))
+impl AppConfig {
+    fn with_ckb(config: CKBAppConfig) -> AppConfig {
+        AppConfig::CKB(Box::new(config))
     }
-    fn with_miner(config: MinerAppConfig) -> AppConfigContent {
-        AppConfigContent::Miner(Box::new(config))
+    fn with_miner(config: MinerAppConfig) -> AppConfig {
+        AppConfig::Miner(Box::new(config))
     }
 }
 
@@ -171,6 +156,7 @@ impl CKBAppConfig {
         }
         self.db.path = mkdir(self.data_dir.join("db"))?;
         self.network.path = mkdir(self.data_dir.join("network"))?;
+        self.chain.spec.absolutize(root_dir);
 
         Ok(self)
     }
@@ -182,6 +168,7 @@ impl MinerAppConfig {
         if self.logger.log_to_file {
             self.logger.file = Some(touch(mkdir(self.data_dir.join("logs"))?.join("miner.log"))?);
         }
+        self.chain.spec.absolutize(root_dir);
 
         Ok(self)
     }
@@ -214,6 +201,15 @@ fn touch(path: PathBuf) -> Result<PathBuf, ExitCode> {
     Ok(path)
 }
 
+fn ensure_ckb_dir(r: Resource) -> Result<Resource, ExitCode> {
+    if r.exists() {
+        Ok(r)
+    } else {
+        eprintln!("Not a CKB directory, initialize one with `ckb init`.");
+        Err(ExitCode::Config)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,45 +222,9 @@ mod tests {
             .unwrap()
     }
 
-    #[cfg(all(unix, target_pointer_width = "64"))]
-    #[test]
-    fn test_ckb_toml() {
-        let dir = mkdir();
-        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
-        let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
-            .unwrap_or_else(|err| panic!(err));
-        let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
-        assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/dev.toml"));
-        assert_eq!(
-            ckb_config.logger.file,
-            Some(locator.root_dir().join("data/logs/run.log"))
-        );
-        assert_eq!(ckb_config.db.path, locator.root_dir().join("data/db"));
-        assert_eq!(
-            ckb_config.network.path,
-            locator.root_dir().join("data/network")
-        );
-    }
-
-    #[cfg(all(unix, target_pointer_width = "64"))]
-    #[test]
-    fn test_miner_toml() {
-        let dir = mkdir();
-        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
-        let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
-            .unwrap_or_else(|err| panic!(err));
-        let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
-        assert_eq!(miner_config.chain.spec, PathBuf::from("specs/dev.toml"));
-        assert_eq!(
-            miner_config.logger.file,
-            Some(locator.root_dir().join("data/logs/miner.log"))
-        );
-    }
-
     #[test]
     fn test_export_dev_config_files() {
         let dir = mkdir();
-        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
         let context = TemplateContext {
             spec: "dev",
             rpc_port: "7000",
@@ -274,12 +234,17 @@ mod tests {
             runner: "Rust",
         };
         {
-            locator.export_ckb(&context).expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+            Resource::bundled_ckb_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
-            assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/dev.toml"));
+            assert_eq!(
+                ckb_config.chain.spec,
+                Resource::file_system(dir.path().join("specs").join("dev.toml"))
+            );
             assert_eq!(
                 ckb_config.network.listen_addresses,
                 vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
@@ -288,12 +253,17 @@ mod tests {
             assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
         }
         {
-            locator.export_miner(&context).expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+            Resource::bundled_miner_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));
-            assert_eq!(miner_config.chain.spec, PathBuf::from("specs/dev.toml"));
+            assert_eq!(
+                miner_config.chain.spec,
+                Resource::file_system(dir.path().join("specs").join("dev.toml"))
+            );
             assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
         }
     }
@@ -301,7 +271,6 @@ mod tests {
     #[test]
     fn test_log_to_stdout_only() {
         let dir = mkdir();
-        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
         let context = TemplateContext {
             spec: "dev",
             rpc_port: "7000",
@@ -311,8 +280,10 @@ mod tests {
             runner: "Rust",
         };
         {
-            locator.export_ckb(&context).expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+            Resource::bundled_ckb_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(ckb_config.logger.file, None);
@@ -320,8 +291,10 @@ mod tests {
             assert_eq!(ckb_config.logger.log_to_stdout, true);
         }
         {
-            locator.export_miner(&context).expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+            Resource::bundled_miner_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(miner_config.logger.file, None);
@@ -333,7 +306,6 @@ mod tests {
     #[test]
     fn test_export_testnet_config_files() {
         let dir = mkdir();
-        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
         let context = TemplateContext {
             spec: "testnet",
             rpc_port: "7000",
@@ -342,13 +314,18 @@ mod tests {
             log_to_stdout: true,
             runner: "Rust",
         };
-        locator.export_ckb(&context).expect("export config files");
         {
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+            Resource::bundled_ckb_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
-            assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/testnet.toml"));
+            assert_eq!(
+                ckb_config.chain.spec,
+                Resource::bundled("specs/testnet.toml".to_string())
+            );
             assert_eq!(
                 ckb_config.network.listen_addresses,
                 vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
@@ -357,12 +334,17 @@ mod tests {
             assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
         }
         {
-            locator.export_miner(&context).expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+            Resource::bundled_miner_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));
-            assert_eq!(miner_config.chain.spec, PathBuf::from("specs/testnet.toml"));
+            assert_eq!(
+                miner_config.chain.spec,
+                Resource::bundled("specs/testnet.toml".to_string())
+            );
             assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
         }
     }
@@ -370,7 +352,6 @@ mod tests {
     #[test]
     fn test_export_integration_config_files() {
         let dir = mkdir();
-        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
         let context = TemplateContext {
             spec: "integration",
             rpc_port: "7000",
@@ -379,14 +360,16 @@ mod tests {
             log_to_stdout: true,
             runner: "Rust",
         };
-        locator.export_ckb(&context).expect("export config files");
         {
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+            Resource::bundled_ckb_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(
                 ckb_config.chain.spec,
-                PathBuf::from("specs/integration.toml")
+                Resource::file_system(dir.path().join("specs").join("integration.toml"))
             );
             assert_eq!(
                 ckb_config.network.listen_addresses,
@@ -395,13 +378,15 @@ mod tests {
             assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
         }
         {
-            locator.export_miner(&context).expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+            Resource::bundled_miner_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(
                 miner_config.chain.spec,
-                PathBuf::from("specs/integration.toml")
+                Resource::file_system(dir.path().join("specs").join("integration.toml"))
             );
             assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
         }
@@ -411,7 +396,6 @@ mod tests {
     #[test]
     fn test_export_dev_config_files_assembly() {
         let dir = mkdir();
-        let locator = ResourceLocator::with_root_dir(dir.path().to_path_buf()).unwrap();
         let context = TemplateContext {
             spec: "dev",
             rpc_port: "7000",
@@ -421,12 +405,17 @@ mod tests {
             runner: "Assembly",
         };
         {
-            locator.export_ckb(&context).expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_RUN)
+            Resource::bundled_ckb_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
-            assert_eq!(ckb_config.chain.spec, PathBuf::from("specs/dev.toml"));
+            assert_eq!(
+                ckb_config.chain.spec,
+                Resource::file_system(dir.path().join("specs").join("dev.toml"))
+            );
             assert_eq!(
                 ckb_config.network.listen_addresses,
                 vec!["/ip4/0.0.0.0/tcp/8000".parse().unwrap()]
@@ -435,12 +424,17 @@ mod tests {
             assert_eq!(ckb_config.rpc.listen_address, "127.0.0.1:7000");
         }
         {
-            locator.export_miner(&context).expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(&locator, cli::CMD_MINER)
+            Resource::bundled_miner_config()
+                .export(&context, dir.path())
+                .expect("export config files");
+            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));
-            assert_eq!(miner_config.chain.spec, PathBuf::from("specs/dev.toml"));
+            assert_eq!(
+                miner_config.chain.spec,
+                Resource::file_system(dir.path().join("specs").join("dev.toml"))
+            );
             assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
         }
     }

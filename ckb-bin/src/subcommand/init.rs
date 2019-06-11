@@ -1,7 +1,7 @@
 use ckb_app_config::{ExitCode, InitArgs};
 use ckb_resource::{
-    TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
-    SPEC_DEV_FILE_NAME,
+    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC,
+    MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
 use ckb_script::Runner;
 
@@ -23,7 +23,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         runner: &runner,
     };
 
-    let exported = args.locator.exported();
+    let exported = Resource::exported_in(&args.root_dir);
     if !args.force && exported {
         eprintln!("Config files already exists, use --force to overwrite.");
         return Err(ExitCode::Failure);
@@ -36,17 +36,17 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         } else {
             "Reinitialized"
         },
-        args.locator.root_dir().display()
+        args.root_dir.display()
     );
 
     println!("create {}", CKB_CONFIG_FILE_NAME);
-    args.locator.export_ckb(&context)?;
+    Resource::bundled_ckb_config().export(&context, &args.root_dir)?;
     println!("create {}", MINER_CONFIG_FILE_NAME);
-    args.locator.export_miner(&context)?;
+    Resource::bundled_miner_config().export(&context, &args.root_dir)?;
 
     if args.chain == DEFAULT_SPEC {
         println!("create {}", SPEC_DEV_FILE_NAME);
-        args.locator.export(SPEC_DEV_FILE_NAME, &context)?;
+        Resource::bundled(SPEC_DEV_FILE_NAME.to_string()).export(&context, &args.root_dir)?;
     }
 
     Ok(())

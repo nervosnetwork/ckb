@@ -7,11 +7,11 @@ data_dir = "data"
 
 [chain]
 # Choose the kind of chains to run, possible values:
-# - specs/dev.toml
-# - specs/testnet.toml
-spec = "specs/dev.toml" # {{
-# testnet => spec = "specs/testnet.toml"
-# integration => spec = "specs/integration.toml"
+# - { file = "specs/dev.toml" }
+# - { bundled = "specs/testnet.toml" }
+spec = { file = "specs/dev.toml" } # {{
+# testnet => spec = { bundled = "specs/testnet.toml" }
+# integration => spec = { file = "specs/integration.toml" }
 # }}
 
 [logger]

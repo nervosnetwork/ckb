@@ -23,7 +23,7 @@ args = []
 # the directory containing this config file.
 [genesis.system_cells]
 files = [
-  "cells/always_success"
+  { file = "cells/always_success" }
 ]
 
 [genesis.system_cells.lock]
