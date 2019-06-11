@@ -38,7 +38,6 @@ build-info = {path = "../util/build-info"}
 num_cpus = "1.10"
 snap = "0.2"
 ckb-protocol = { path = "../protocol" }
-ckb-chain-spec = {path = "../spec"}
 
 [dev-dependencies]
 criterion = "0.2"

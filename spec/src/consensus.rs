@@ -357,4 +357,9 @@ impl Consensus {
 
         Some(epoch_ext)
     }
+
+    pub fn identify_name(&self) -> String {
+        let genesis_hash = format!("{:x}", &self.genesis_hash);
+        format!("/{}/{}", self.id, &genesis_hash[..8])
+    }
 }

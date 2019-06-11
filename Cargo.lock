@@ -579,7 +579,6 @@ dependencies = [
  "bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "build-info 0.15.0-pre",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-chain-spec 0.15.0-pre",
  "ckb-logger 0.15.0-pre",
  "ckb-protocol 0.15.0-pre",
  "ckb-util 0.15.0-pre",

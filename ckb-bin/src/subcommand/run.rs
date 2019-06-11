@@ -112,10 +112,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             Arc::clone(&network_state),
         ),
     ];
-    let network_controller =
-        NetworkService::new(Arc::clone(&network_state), protocols, shared.consensus())
-            .start(version, Some("NetworkService"))
-            .expect("Start network service failed");
+    let network_controller = NetworkService::new(
+        Arc::clone(&network_state),
+        protocols,
+        shared.consensus().identify_name(),
+    )
+    .start(version, Some("NetworkService"))
+    .expect("Start network service failed");
 
     let builder = ServiceBuilder::new(&args.config.rpc)
         .enable_chain(shared.clone())

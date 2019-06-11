@@ -1,6 +1,5 @@
 // use crate::peer_store::Behaviour;
 use crate::{network::FEELER_PROTOCOL_ID, NetworkState};
-use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, trace};
 use ckb_protocol::{
     flatbuffers::FlatBufferBuilder, get_root, Identify as FbsIdentify,
@@ -28,9 +27,7 @@ pub(crate) struct IdentifyCallback {
 }
 
 impl IdentifyCallback {
-    pub(crate) fn new(network_state: Arc<NetworkState>, consensus: &Consensus) -> IdentifyCallback {
-        let genesis_hash = format!("{:x}", &consensus.genesis_hash);
-        let name = format!("/{}/{}", consensus.id, &genesis_hash[..8]);
+    pub(crate) fn new(network_state: Arc<NetworkState>, name: String) -> IdentifyCallback {
         let flags = Flags(Flag::FullNode as u64);
 
         IdentifyCallback {

@@ -13,7 +13,6 @@ use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
 use build_info::Version;
-use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_util::{Mutex, RwLock};
 use fnv::{FnvHashMap, FnvHashSet};
@@ -706,7 +705,7 @@ impl NetworkService {
     pub fn new(
         network_state: Arc<NetworkState>,
         protocols: Vec<CKBProtocol>,
-        consensus: &Consensus,
+        name: String,
     ) -> NetworkService {
         let config = &network_state.config;
 
@@ -739,7 +738,7 @@ impl NetworkService {
             .build();
 
         // Identify protocol
-        let identify_callback = IdentifyCallback::new(Arc::clone(&network_state), consensus);
+        let identify_callback = IdentifyCallback::new(Arc::clone(&network_state), name);
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
             .service_handle(move || {
