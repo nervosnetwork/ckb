@@ -579,7 +579,9 @@ dependencies = [
  "bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "build-info 0.15.0-pre",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-chain-spec 0.15.0-pre",
  "ckb-logger 0.15.0-pre",
+ "ckb-protocol 0.15.0-pre",
  "ckb-util 0.15.0-pre",
  "criterion 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -603,7 +605,7 @@ dependencies = [
  "tempfile 3.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle-discovery 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "tentacle-identify 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tentacle-identify 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "tentacle-ping 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -3150,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "tentacle-identify"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -4025,7 +4027,7 @@ dependencies = [
 "checksum tempfile 3.0.8 (registry+https://github.com/rust-lang/crates.io-index)" = "7dc4738f2e68ed2855de5ac9cdbe05c9216773ecde4739b2f095002ab03a13ef"
 "checksum tentacle 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "8dcddd2761682b538db6c0d20723a031d6beeac74d73656e5e9b54ff6cd25bed"
 "checksum tentacle-discovery 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "66079c177dba4f89cc882d74a16b037774059cf5be4fe9179b12937d7b4ffe40"
-"checksum tentacle-identify 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "510f23842a73416bf478515081c49e6ba09d9d4d75d71b0892ffeb496612395e"
+"checksum tentacle-identify 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "0f13bf5f9f87cb2fa5d1a8096e5bcb6d44d2129cf4267589253218999e1c0595"
 "checksum tentacle-ping 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "7ad0c0e23ab0c103ce91f6d5c19554fce95f82abc542739360b273e1bc46edbe"
 "checksum tentacle-secio 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "1f7e6cfc62a132bec2b68c0827dcbfbe7b54744783aeaf15219acaeb8e07e8cd"
 "checksum termcolor 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "4096add70612622289f2fdcdbd5086dc81c1e2675e6ae58d6c4f62a16c6d7f2f"

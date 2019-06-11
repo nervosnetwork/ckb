@@ -13,6 +13,7 @@ use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
 use build_info::Version;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_util::{Mutex, RwLock};
 use fnv::{FnvHashMap, FnvHashSet};
@@ -50,7 +51,7 @@ use tokio::runtime;
 const PING_PROTOCOL_ID: usize = 0;
 const DISCOVERY_PROTOCOL_ID: usize = 1;
 const IDENTIFY_PROTOCOL_ID: usize = 2;
-const FEELER_PROTOCOL_ID: usize = 3;
+pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
 
 const ADDR_LIMIT: u32 = 3;
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
@@ -428,8 +429,12 @@ impl NetworkState {
 
     /// Dial all protocol except feeler
     pub fn dial_all(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
-        let ids = self.get_protocol_ids(|id| id != FEELER_PROTOCOL_ID.into());
-        self.dial(p2p_control, peer_id, addr, DialProtocol::Multi(ids));
+        self.dial(
+            p2p_control,
+            peer_id,
+            addr,
+            DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+        );
     }
 
     /// Dial just feeler protocol
@@ -698,7 +703,11 @@ pub struct NetworkService {
 }
 
 impl NetworkService {
-    pub fn new(network_state: Arc<NetworkState>, protocols: Vec<CKBProtocol>) -> NetworkService {
+    pub fn new(
+        network_state: Arc<NetworkState>,
+        protocols: Vec<CKBProtocol>,
+        consensus: &Consensus,
+    ) -> NetworkService {
         let config = &network_state.config;
 
         // == Build special protocols
@@ -730,7 +739,7 @@ impl NetworkService {
             .build();
 
         // Identify protocol
-        let identify_callback = IdentifyCallback::new(Arc::clone(&network_state));
+        let identify_callback = IdentifyCallback::new(Arc::clone(&network_state), consensus);
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
             .service_handle(move || {

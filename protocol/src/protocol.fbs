@@ -256,3 +256,9 @@ table Alert {
     message: Bytes;
 }
 
+table Identify {
+  // network name
+  name: string;
+  // flag
+  flag: uint64;
+}

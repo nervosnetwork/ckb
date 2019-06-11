@@ -140,9 +140,10 @@ fn setup_node(
     File::create(dir.path().join("network")).expect("create network database");
     let network_state =
         Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
-    let network_controller = NetworkService::new(Arc::clone(&network_state), Vec::new())
-        .start::<&str>(Default::default(), None)
-        .expect("Start network service failed");
+    let network_controller =
+        NetworkService::new(Arc::clone(&network_state), Vec::new(), shared.consensus())
+            .start::<&str>(Default::default(), None)
+            .expect("Start network service failed");
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let synchronizer = Synchronizer::new(
         chain_controller.clone(),
