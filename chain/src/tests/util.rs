@@ -127,6 +127,7 @@ pub(crate) fn create_transaction_with_out_point(
         .build()
 }
 
+#[derive(Clone)]
 pub struct MockChain {
     blocks: Vec<Block>,
     parent: Header,
@@ -201,5 +202,11 @@ impl MockChain {
 
     pub fn blocks(&self) -> &Vec<Block> {
         &self.blocks
+    }
+
+    pub fn total_difficulty(&self) -> U256 {
+        self.blocks()
+            .iter()
+            .fold(U256::from(0u64), |sum, b| sum + b.header().difficulty())
     }
 }

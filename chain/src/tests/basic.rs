@@ -360,42 +360,45 @@ fn test_chain_fork_by_hash() {
 
     let mut chain1 = MockChain::new(parent.clone());
     let mut chain2 = MockChain::new(parent.clone());
+    let mut chain3 = MockChain::new(parent.clone());
 
-    for _ in 1..final_number {
-        chain1.gen_empty_block(100u64);
+    for _ in 0..final_number {
+        chain1.gen_empty_block_with_difficulty(100u64);
     }
 
-    for _ in 1..final_number {
-        chain2.gen_empty_block(100u64);
+    for _ in 0..(final_number * 2) {
+        chain2.gen_empty_block_with_difficulty(50u64);
     }
 
-    for block in chain1.blocks() {
-        chain_controller
-            .process_block(Arc::new(block.clone()), false)
-            .expect("process block ok");
+    for _ in 0..(final_number * 5) {
+        chain3.gen_empty_block_with_difficulty(20u64);
     }
 
-    for block in chain2.blocks() {
-        chain_controller
-            .process_block(Arc::new(block.clone()), false)
-            .expect("process block ok");
+    for chain in vec![chain1.clone(), chain2.clone(), chain3.clone()] {
+        for block in chain.blocks() {
+            chain_controller
+                .process_block(Arc::new(block.clone()), false)
+                .expect("process block ok");
+        }
     }
 
-    //if total_difficulty equal, we chose block which have smaller hash as best
-    assert!(chain1
-        .blocks()
-        .iter()
-        .zip(chain2.blocks().iter())
-        .all(|(a, b)| a.header().difficulty() == b.header().difficulty()));
+    // if total_difficulty equal, we chose block which have smaller hash as best
+    assert_eq!(chain1.total_difficulty(), chain2.total_difficulty());
+    assert_eq!(chain1.total_difficulty(), chain3.total_difficulty());
 
-    // TODO: chain1.hash is always equal to chain2.hash
-    let best = if chain1.blocks()[(final_number - 2) as usize].header().hash()
-        < chain2.blocks()[(final_number - 2) as usize].header().hash()
-    {
-        chain1
-    } else {
-        chain2
+    let hash1 = chain1.tip_header().hash();
+    let hash2 = chain2.tip_header().hash();
+    let hash3 = chain3.tip_header().hash();
+
+    let tips = vec![hash1.clone(), hash2.clone(), hash3.clone()];
+    let v = tips.iter().min().unwrap();
+
+    let best = match v {
+        hash if hash == hash1 => chain1,
+        hash if hash == hash2 => chain2,
+        _ => chain3,
     };
+
     assert_eq!(
         shared.store().get_block_hash(8),
         best.blocks().get(7).map(|b| b.header().hash().to_owned())
@@ -419,7 +422,7 @@ fn test_chain_get_ancestor() {
     }
 
     for _ in 1..final_number {
-        chain2.gen_empty_block(100u64);
+        chain2.gen_empty_block(90u64);
     }
 
     for block in chain1.blocks() {
@@ -434,6 +437,8 @@ fn test_chain_get_ancestor() {
             .expect("process block ok");
     }
 
+    assert!(chain1.tip_header().hash() != chain2.tip_header().hash());
+
     assert_eq!(
         *chain1.blocks()[9].header(),
         shared
@@ -441,7 +446,6 @@ fn test_chain_get_ancestor() {
             .unwrap()
     );
 
-    // TODO: chain1 is always equals to chain2
     assert_eq!(
         *chain2.blocks()[9].header(),
         shared
