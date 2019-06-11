@@ -1,5 +1,6 @@
 mod debugger;
 mod load_cell;
+mod load_code;
 mod load_header;
 mod load_input;
 mod load_script_hash;
@@ -9,6 +10,7 @@ mod utils;
 
 pub use self::debugger::Debugger;
 pub use self::load_cell::LoadCell;
+pub use self::load_code::LoadCode;
 pub use self::load_header::LoadHeader;
 pub use self::load_input::LoadInput;
 pub use self::load_script_hash::LoadScriptHash;
@@ -24,6 +26,7 @@ pub const SUCCESS: u8 = 0;
 // for a dep OutPoint which only references a block header.
 pub const INDEX_OUT_OF_BOUND: u8 = 1;
 pub const ITEM_MISSING: u8 = 2;
+pub const SLICE_OUT_OF_BOUND: u8 = 3;
 
 pub const LOAD_TX_HASH_SYSCALL_NUMBER: u64 = 2061;
 pub const LOAD_SCRIPT_HASH_SYSCALL_NUMBER: u64 = 2062;
@@ -33,6 +36,7 @@ pub const LOAD_INPUT_SYSCALL_NUMBER: u64 = 2073;
 pub const LOAD_WITNESS_SYSCALL_NUMBER: u64 = 2074;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
+pub const LOAD_CODE_SYSCALL_NUMBER: u64 = 2091;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -149,8 +153,9 @@ mod tests {
     use ckb_store::{ChainKVStore, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
+        memory::{FLAG_EXECUTABLE, FLAG_FREEZED},
         registers::{A0, A1, A2, A3, A4, A5, A7},
-        CoreMachine, Memory, SparseMemory, Syscalls,
+        CoreMachine, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
     use flatbuffers::FlatBufferBuilder;
     use hash::blake2b_256;
@@ -1032,6 +1037,285 @@ mod tests {
         #[test]
         fn test_load_group_witness(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_group_witness(data)?;
+        }
+    }
+
+    fn _test_load_code(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let addr = 4096;
+        let addr_size = 4096;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, addr_size); // size
+        machine.set_register(A2, 0); // content offset
+        machine.set_register(A3, data.len() as u64); // content size
+        machine.set_register(A4, 0); //index
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+
+        let dep_cell = build_resolved_outpoint(CellOutput::new(
+            capacity_bytes!(10000),
+            Bytes::from(data),
+            Script::default(),
+            None,
+        ));
+
+        let store = Arc::new(new_memory_store());
+        let outputs = vec![];
+        let resolved_inputs = vec![];
+        let resolved_deps = vec![&dep_cell];
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_code = LoadCode::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
+
+        prop_assert!(machine
+            .memory_mut()
+            .store_byte(addr as usize, addr_size as usize, 1)
+            .is_ok());
+
+        prop_assert!(load_code.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(
+            machine
+                .memory_mut()
+                .fetch_flag(addr as usize / RISCV_PAGESIZE),
+            Ok(FLAG_EXECUTABLE | FLAG_FREEZED)
+        );
+        for (i, addr) in (addr..addr + data.len() as u64).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(data[i])));
+        }
+        if (data.len() as u64) < addr_size {
+            for i in (data.len() as u64)..addr_size {
+                prop_assert_eq!(machine.memory_mut().load8(&(addr + i)), Ok(0));
+            }
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_code(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
+            _test_load_code(data)?;
+        }
+    }
+
+    fn _test_load_code_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let addr = 4096;
+        let addr_size = 4096;
+
+        prop_assert!(machine
+            .memory_mut()
+            .init_pages(
+                addr as usize,
+                addr_size as usize,
+                FLAG_EXECUTABLE | FLAG_FREEZED,
+                None,
+                0
+            )
+            .is_ok());
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, addr_size); // size
+        machine.set_register(A2, 0); // content offset
+        machine.set_register(A3, data.len() as u64); // content size
+        machine.set_register(A4, 0); //index
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+
+        let dep_cell = build_resolved_outpoint(CellOutput::new(
+            capacity_bytes!(10000),
+            Bytes::from(data),
+            Script::default(),
+            None,
+        ));
+
+        let store = Arc::new(new_memory_store());
+        let outputs = vec![];
+        let resolved_inputs = vec![];
+        let resolved_deps = vec![&dep_cell];
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_code = LoadCode::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
+
+        prop_assert!(load_code.ecall(&mut machine).is_err());
+
+        for i in addr..addr + addr_size {
+            assert_eq!(machine.memory_mut().load8(&i), Ok(0));
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_code_on_freezed_memory(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
+            _test_load_code_on_freezed_memory(data)?;
+        }
+    }
+
+    #[test]
+    fn test_load_code_unaligned_error() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let addr = 4097;
+        let addr_size = 4096;
+        let data = [2; 32];
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, addr_size); // size
+        machine.set_register(A2, 0); // content offset
+        machine.set_register(A3, data.len() as u64); // content size
+        machine.set_register(A4, 0); //index
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+
+        let dep_cell = build_resolved_outpoint(CellOutput::new(
+            capacity_bytes!(10000),
+            Bytes::from(&data[..]),
+            Script::default(),
+            None,
+        ));
+
+        let store = Arc::new(new_memory_store());
+        let outputs = vec![];
+        let resolved_inputs = vec![];
+        let resolved_deps = vec![&dep_cell];
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_code = LoadCode::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
+
+        assert!(machine
+            .memory_mut()
+            .store_byte(addr as usize, addr_size as usize, 1)
+            .is_ok());
+
+        assert!(load_code.ecall(&mut machine).is_err());
+
+        for i in addr..addr + addr_size {
+            assert_eq!(machine.memory_mut().load8(&i), Ok(1));
+        }
+    }
+
+    #[test]
+    fn test_load_code_slice_out_of_bound_error() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let addr = 4096;
+        let addr_size = 4096;
+        let data = [2; 32];
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, addr_size); // size
+        machine.set_register(A2, 0); // content offset
+        machine.set_register(A3, data.len() as u64 + 3); // content size
+        machine.set_register(A4, 0); //index
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+
+        let dep_cell = build_resolved_outpoint(CellOutput::new(
+            capacity_bytes!(10000),
+            Bytes::from(&data[..]),
+            Script::default(),
+            None,
+        ));
+
+        let store = Arc::new(new_memory_store());
+        let outputs = vec![];
+        let resolved_inputs = vec![];
+        let resolved_deps = vec![&dep_cell];
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_code = LoadCode::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
+
+        assert!(machine
+            .memory_mut()
+            .store_byte(addr as usize, addr_size as usize, 1)
+            .is_ok());
+
+        assert!(load_code.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], u64::from(SLICE_OUT_OF_BOUND));
+
+        for i in addr..addr + addr_size {
+            assert_eq!(machine.memory_mut().load8(&i), Ok(1));
+        }
+    }
+
+    #[test]
+    fn test_load_code_not_enough_space_error() {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let addr = 4096;
+        let addr_size = 4096;
+
+        let mut data = vec![];
+        data.resize(8000, 2);
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, addr_size); // size
+        machine.set_register(A2, 0); // content offset
+        machine.set_register(A3, data.len() as u64); // content size
+        machine.set_register(A4, 0); //index
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+
+        let dep_cell = build_resolved_outpoint(CellOutput::new(
+            capacity_bytes!(10000),
+            Bytes::from(&data[..]),
+            Script::default(),
+            None,
+        ));
+
+        let store = Arc::new(new_memory_store());
+        let outputs = vec![];
+        let resolved_inputs = vec![];
+        let resolved_deps = vec![&dep_cell];
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_code = LoadCode::new(
+            store,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
+
+        assert!(machine
+            .memory_mut()
+            .store_byte(addr as usize, addr_size as usize, 1)
+            .is_ok());
+
+        assert!(load_code.ecall(&mut machine).is_ok());
+        assert_eq!(machine.registers()[A0], u64::from(SLICE_OUT_OF_BOUND));
+
+        for i in addr..addr + addr_size {
+            assert_eq!(machine.memory_mut().load8(&i), Ok(1));
         }
     }
 }
