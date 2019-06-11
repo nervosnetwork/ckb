@@ -22,15 +22,18 @@ fn test_accept_inbound_peer_in_reserve_only_mode() {
 
     // reserved_only mode: only accept reserved_peer
     let mut peers = PeerRegistry::new(3, 3, true, vec![reserved_peer.clone()]);
-    assert!(peers
-        .accept_peer(
-            PeerId::random(),
-            addr.clone(),
-            session_id,
-            SessionType::Inbound,
-            peer_store.as_mut(),
-        )
-        .is_err());
+    assert_eq!(
+        peers
+            .accept_peer(
+                PeerId::random(),
+                addr.clone(),
+                session_id,
+                SessionType::Inbound,
+                peer_store.as_mut(),
+            )
+            .unwrap_err(),
+        PeerError::NonReserved
+    );
 
     peers
         .accept_peer(
