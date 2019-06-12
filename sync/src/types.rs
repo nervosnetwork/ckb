@@ -1,11 +1,14 @@
+use crate::relayer::compact_block::CompactBlock;
 use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
+use bitflags::bitflags;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::transaction::ProposalShortId;
 use ckb_core::Cycle;
 use ckb_logger::{debug, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -14,8 +17,8 @@ use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_util::RwLock;
 use ckb_util::{Mutex, MutexGuard};
+use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -29,6 +32,7 @@ use std::collections::{
     BTreeMap,
 };
 use std::fmt;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -38,6 +42,8 @@ const MAX_ASK_SET_SIZE: usize = MAX_ASK_MAP_SIZE * 2;
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
+const TX_FILTER_SIZE: usize = 50000;
+const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with
@@ -228,10 +234,6 @@ impl KnownFilter {
 #[derive(Default)]
 pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
-    pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
-    pub blocks_inflight: RwLock<InflightBlocks>,
-    pub known_txs: Mutex<KnownFilter>,
-    pub known_blocks: Mutex<KnownFilter>,
 }
 
 #[derive(Debug, Clone)]
@@ -372,17 +374,6 @@ impl InflightBlocks {
 }
 
 impl Peers {
-    pub fn misbehavior(&self, peer: PeerIndex, score: u32) {
-        if score == 0 {
-            return;
-        }
-
-        let mut map = self.misbehavior.write();
-        map.entry(peer)
-            .and_modify(|e| *e += score)
-            .or_insert_with(|| score);
-    }
-
     pub fn on_connected(
         &self,
         peer: PeerIndex,
@@ -452,15 +443,7 @@ impl Peers {
     }
 
     pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
-        // self.misbehavior.write().remove(peer);
-        self.blocks_inflight.write().remove_by_peer(&peer);
         self.state.write().remove(&peer)
-    }
-
-    // Return true when the block is that we have requested and received first time.
-    pub fn new_block_received(&self, block: &Block) -> bool {
-        let mut blocks_inflight = self.blocks_inflight.write();
-        blocks_inflight.remove_by_block(block.header().hash())
     }
 }
 
@@ -599,12 +582,54 @@ impl EpochIndices {
     }
 }
 
+bitflags! {
+    pub struct BlockStatus: u32 {
+        const UNKNOWN            = 0;
+        const VALID_HEADER       = 1;
+        const VALID_TREE         = 2;
+        const VALID_TRANSACTIONS = 3;
+        const VALID_CHAIN        = 4;
+        const VALID_SCRIPTS      = 5;
+
+        const VALID_MASK         = Self::VALID_HEADER.bits | Self::VALID_TREE.bits | Self::VALID_TRANSACTIONS.bits |
+                                   Self::VALID_CHAIN.bits | Self::VALID_SCRIPTS.bits;
+        const BLOCK_HAVE_DATA    = 8;
+        const BLOCK_HAVE_UNDO    = 16;
+        const BLOCK_HAVE_MASK    = Self::BLOCK_HAVE_DATA.bits | Self::BLOCK_HAVE_UNDO.bits;
+        const FAILED_VALID       = 32;
+        const FAILED_CHILD       = 64;
+        const FAILED_MASK        = Self::FAILED_VALID.bits | Self::FAILED_CHILD.bits;
+    }
+}
+
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
+
+    n_sync_started: AtomicUsize,
+    n_protected_outbound_peers: AtomicUsize,
+
+    /* Status irrelevant to peers */
+    shared_best_header: RwLock<HeaderView>,
     epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
-    best_known_header: RwLock<HeaderView>,
-    get_headers_cache: RwLock<LruCache<(PeerIndex, H256), Instant>>,
+    block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
+    tx_filter: Mutex<LruCache<H256, ()>>,
+
+    /* Status relevant to peers */
+    peers: Peers,
+    misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
+    known_blocks: Mutex<KnownFilter>,
+    known_txs: Mutex<KnownFilter>,
+
+    /* Cached items which we had received but not completely process */
+    pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
+    pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
+    pending_compact_blocks: Mutex<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>>,
+
+    /* In-flight items for which we request to peers, but not got the responses yet */
+    inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
+    inflight_transactions: Mutex<LruCache<H256, Instant>>,
+    inflight_blocks: RwLock<InflightBlocks>,
 }
 
 impl<CS: ChainStore> SyncSharedState<CS> {
@@ -621,26 +646,88 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 block_ext.total_uncles_count,
             )
         };
-        let best_known_header = RwLock::new(HeaderView::new(
+        let shared_best_header = RwLock::new(HeaderView::new(
             header,
             total_difficulty,
             total_uncles_count,
         ));
-        let header_map = RwLock::new(HashMap::new());
-        let get_headers_cache = RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE));
-        let epoch_map = RwLock::new(EpochIndices::default());
 
         SyncSharedState {
             shared,
-            header_map,
-            epoch_map,
-            best_known_header,
-            get_headers_cache,
+            n_sync_started: AtomicUsize::new(0),
+            n_protected_outbound_peers: AtomicUsize::new(0),
+            shared_best_header,
+            header_map: RwLock::new(HashMap::new()),
+            epoch_map: RwLock::new(EpochIndices::default()),
+            block_status_map: Mutex::new(hashbrown::HashMap::new()),
+            tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+            peers: Peers::default(),
+            misbehavior: RwLock::new(FnvHashMap::default()),
+            known_blocks: Mutex::new(KnownFilter::default()),
+            known_txs: Mutex::new(KnownFilter::default()),
+            pending_get_block_proposals: Mutex::new(FnvHashMap::default()),
+            pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            inflight_proposals: Mutex::new(FnvHashSet::default()),
+            inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
+            inflight_blocks: RwLock::new(InflightBlocks::default()),
+            pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
         }
     }
 
     pub fn shared(&self) -> &Shared<CS> {
         &self.shared
+    }
+    pub fn n_sync_started(&self) -> &AtomicUsize {
+        &self.n_sync_started
+    }
+    pub fn n_protected_outbound_peers(&self) -> &AtomicUsize {
+        &self.n_protected_outbound_peers
+    }
+    pub fn block_status_map(&self) -> MutexGuard<hashbrown::HashMap<H256, BlockStatus>> {
+        self.block_status_map.lock()
+    }
+    pub fn tx_filter(&self) -> MutexGuard<LruCache<H256, ()>> {
+        self.tx_filter.lock()
+    }
+    pub fn peers(&self) -> &Peers {
+        &self.peers
+    }
+    pub fn misbehavior(&self, pi: PeerIndex, score: u32) {
+        if score != 0 {
+            self.misbehavior
+                .write()
+                .entry(pi)
+                .and_modify(|s| *s += score)
+                .or_insert_with(|| score);
+        }
+    }
+    pub fn known_blocks(&self) -> MutexGuard<KnownFilter> {
+        self.known_blocks.lock()
+    }
+    pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
+        self.known_txs.lock()
+    }
+    pub fn pending_get_block_proposals(
+        &self,
+    ) -> MutexGuard<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>> {
+        self.pending_get_block_proposals.lock()
+    }
+    pub fn pending_compact_blocks(
+        &self,
+    ) -> MutexGuard<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>> {
+        self.pending_compact_blocks.lock()
+    }
+    pub fn inflight_proposals(&self) -> MutexGuard<FnvHashSet<ProposalShortId>> {
+        self.inflight_proposals.lock()
+    }
+    pub fn inflight_transactions(&self) -> MutexGuard<LruCache<H256, Instant>> {
+        self.inflight_transactions.lock()
+    }
+    pub fn read_inflight_blocks(&self) -> RwLockReadGuard<InflightBlocks> {
+        self.inflight_blocks.read()
+    }
+    pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<InflightBlocks> {
+        self.inflight_blocks.write()
     }
     pub fn store(&self) -> &Arc<CS> {
         self.shared.store()
@@ -663,11 +750,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             > MAX_TIP_AGE
     }
 
-    pub fn best_known_header(&self) -> HeaderView {
-        self.best_known_header.read().to_owned()
+    pub fn shared_best_header(&self) -> HeaderView {
+        self.shared_best_header.read().to_owned()
     }
-    pub fn set_best_known_header(&self, header: HeaderView) {
-        *self.best_known_header.write() = header;
+    pub fn set_shared_best_header(&self, header: HeaderView) {
+        *self.shared_best_header.write() = header;
     }
 
     pub fn insert_header_view(&self, hash: H256, mut view: HeaderView) {
@@ -862,7 +949,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         header: &Header,
     ) {
         if let Some(last_time) = self
-            .get_headers_cache
+            .pending_get_headers
             .write()
             .get_refresh(&(peer, header.hash().to_owned()))
         {
@@ -879,7 +966,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 );
             }
         }
-        self.get_headers_cache
+        self.pending_get_headers
             .write()
             .insert((peer, header.hash().to_owned()), Instant::now());
 
@@ -897,6 +984,21 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             peer,
             fbb.finished_data().into(),
         );
+    }
+
+    pub fn mark_as_known_tx(&self, hash: H256) {
+        self.inflight_transactions().remove(&hash);
+        self.tx_filter().insert(hash, ());
+    }
+
+    pub fn already_known_tx(&self, hash: &H256) -> bool {
+        self.tx_filter().contains_key(hash)
+    }
+
+    // Return true when the block is that we have requested and received first time.
+    pub fn new_block_received(&self, block: &Block) -> bool {
+        self.write_inflight_blocks()
+            .remove_by_block(block.header().hash())
     }
 }
 

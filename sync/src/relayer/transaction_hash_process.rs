@@ -16,7 +16,7 @@ pub struct TransactionHashProcess<'a, CS> {
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
+impl<'a, CS: ChainStore + 'static> TransactionHashProcess<'a, CS> {
     pub fn new(
         message: &'a FbsRelayTransactionHash,
         relayer: &'a Relayer<CS>,
@@ -34,7 +34,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
     pub fn execute(self) -> Result<(), FailureError> {
         let tx_hash: H256 = (*self.message).try_into()?;
         let short_id = ProposalShortId::from_tx_hash(&tx_hash);
-        if self.relayer.state.already_known_tx(&tx_hash) {
+        if self.relayer.shared().already_known_tx(&tx_hash) {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
                 "transaction({:#x}) from {} already known, ignore it",
@@ -55,7 +55,7 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
                 tx_hash,
                 self.peer,
             );
-            self.relayer.state.mark_as_known_tx(tx_hash.clone());
+            self.relayer.shared().mark_as_known_tx(tx_hash.clone());
         } else {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -65,23 +65,22 @@ impl<'a, CS: ChainStore> TransactionHashProcess<'a, CS> {
             );
             let last_ask_timeout = self
                 .relayer
-                .state
-                .tx_already_asked
-                .lock()
+                .shared()
+                .inflight_transactions()
                 .get(&tx_hash)
                 .cloned();
             if let Some(next_ask_timeout) = self
                 .relayer
-                .peers
+                .shared()
+                .peers()
                 .state
                 .write()
                 .get_mut(&self.peer)
                 .and_then(|peer_state| peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout))
             {
                 self.relayer
-                    .state
-                    .tx_already_asked
-                    .lock()
+                    .shared()
+                    .inflight_transactions()
                     .insert(tx_hash.clone(), next_ask_timeout);
             }
         }

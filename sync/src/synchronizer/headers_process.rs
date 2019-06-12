@@ -164,12 +164,12 @@ where
         let headers = cast!(self.message.headers())?;
 
         if headers.len() > MAX_HEADERS_LEN {
-            self.synchronizer.peers.misbehavior(self.peer, 20);
+            self.synchronizer.shared().misbehavior(self.peer, 20);
             warn!("HeadersProcess is_oversize");
             return Ok(());
         }
 
-        let shared_best_known = self.synchronizer.shared.best_known_header();
+        let shared_best_known = self.synchronizer.shared.shared_best_header();
         if headers.len() == 0 {
             // Update peer's best known header
             self.synchronizer
@@ -193,7 +193,7 @@ where
             .collect::<Result<Vec<Header>, FailureError>>()?;
 
         if !self.is_continuous(&headers) {
-            self.synchronizer.peers.misbehavior(self.peer, 20);
+            self.synchronizer.shared().misbehavior(self.peer, 20);
             debug!("HeadersProcess is not continuous");
             return Ok(());
         }
@@ -202,7 +202,7 @@ where
         if !result.is_valid() {
             if result.misbehavior > 0 {
                 self.synchronizer
-                    .peers
+                    .shared()
                     .misbehavior(self.peer, result.misbehavior);
             }
             debug!(
@@ -226,7 +226,7 @@ where
                 if !result.is_valid() {
                     if result.misbehavior > 0 {
                         self.synchronizer
-                            .peers
+                            .shared()
                             .misbehavior(self.peer, result.misbehavior);
                     }
                     debug!("HeadersProcess accept is invalid {:?}", result);
@@ -237,7 +237,7 @@ where
 
         if log_enabled!(Level::Debug) {
             let chain_state = self.synchronizer.shared.lock_chain_state();
-            let peer_best_known = self.synchronizer.peers.get_best_known_header(self.peer);
+            let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
             debug!(
                 "chain: num={}, diff={:#x};",
                 chain_state.tip_number(),
@@ -279,7 +279,7 @@ where
         // chain. Disconnect peers that are on chains with insufficient work.
         let (is_outbound, is_protected) = self
             .synchronizer
-            .peers
+            .peers()
             .state
             .read()
             .get(&self.peer)

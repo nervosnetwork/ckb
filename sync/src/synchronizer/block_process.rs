@@ -38,7 +38,7 @@ where
             block.header().hash()
         );
 
-        if self.synchronizer.peers.new_block_received(&block) {
+        if self.synchronizer.shared().new_block_received(&block) {
             self.synchronizer.process_new_block(self.peer, block);
         }
         Ok(())

@@ -65,9 +65,8 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
         // deprecated
         Ok(self
             .synchronizer
-            .peers()
-            .blocks_inflight
-            .read()
+            .shared()
+            .read_inflight_blocks()
             .blocks_iter()
             .map(|(peer, blocks)| PeerState::new(peer.value(), 0, blocks.len()))
             .collect())
