@@ -2,20 +2,19 @@ use crate::syscalls::{
     utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
     LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
 };
+use crate::DataLoader;
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_core::transaction::CellOutput;
 use ckb_protocol::{CellOutput as FbsCellOutput, Script as FbsScript};
-use ckb_store::LazyLoadCellOutput;
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
 use flatbuffers::FlatBufferBuilder;
-use std::sync::Arc;
 
-pub struct LoadCell<'a, CS> {
-    store: Arc<CS>,
+pub struct LoadCell<'a, DL> {
+    data_loader: &'a DL,
     outputs: &'a [CellMeta],
     resolved_inputs: &'a [&'a ResolvedOutPoint],
     resolved_deps: &'a [&'a ResolvedOutPoint],
@@ -23,17 +22,17 @@ pub struct LoadCell<'a, CS> {
     group_outputs: &'a [usize],
 }
 
-impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
+impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
     pub fn new(
-        store: Arc<CS>,
+        data_loader: &'a DL,
         outputs: &'a [CellMeta],
         resolved_inputs: &'a [&'a ResolvedOutPoint],
         resolved_deps: &'a [&'a ResolvedOutPoint],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCell<'a, CS> {
+    ) -> LoadCell<'a, DL> {
         LoadCell {
-            store,
+            data_loader,
             outputs,
             resolved_inputs,
             resolved_deps,
@@ -162,7 +161,7 @@ impl<'a, CS: LazyLoadCellOutput + 'a> LoadCell<'a, CS> {
     }
 }
 
-impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCell<'a, CS> {
+impl<'a, Mac: SupportMachine, CS: DataLoader> Syscalls<Mac> for LoadCell<'a, CS> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
@@ -183,7 +182,7 @@ impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCell
             return Ok(true);
         }
         let cell = cell.unwrap();
-        let output = self.store.lazy_load_cell_output(&cell);
+        let output = self.data_loader.lazy_load_cell_output(&cell);
 
         let (return_code, len) = if load_by_field {
             self.load_by_field(machine, &output)?

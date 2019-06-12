@@ -4,7 +4,7 @@ use crate::{
         Debugger, LoadCell, LoadCode, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash,
         LoadWitness,
     },
-    ScriptConfig, ScriptError,
+    DataLoader, ScriptConfig, ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::extras::BlockExt;
@@ -14,7 +14,6 @@ use ckb_core::{BlockNumber, Capacity};
 use ckb_core::{Bytes, Cycle};
 use ckb_logger::info;
 use ckb_resource::Resource;
-use ckb_store::{ChainStore, LazyLoadCellOutput};
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
     WXorXMemory,
@@ -23,7 +22,6 @@ use dao::calculate_maximum_withdraw;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
 use std::cmp::min;
-use std::sync::Arc;
 
 #[cfg(all(unix, target_pointer_width = "64"))]
 use crate::Runner;
@@ -59,8 +57,8 @@ impl ScriptGroup {
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
 // future, we might refactor this to share buffer to achive zero-copy
-pub struct TransactionScriptsVerifier<'a, CS> {
-    store: Arc<CS>,
+pub struct TransactionScriptsVerifier<'a, DL> {
+    data_loader: &'a DL,
 
     // TODO: those are all cached data directly from ResolvedTransaction,
     // should we change the code to include ResolvedTransaction directly?
@@ -83,12 +81,12 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     config: &'a ScriptConfig,
 }
 
-impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
+impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     pub fn new(
         rtx: &'a ResolvedTransaction,
-        store: Arc<CS>,
+        data_loader: &'a DL,
         config: &'a ScriptConfig,
-    ) -> TransactionScriptsVerifier<'a, CS> {
+    ) -> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_deps: Vec<&'a ResolvedOutPoint> = rtx.resolved_deps.iter().collect();
         let resolved_inputs: Vec<&'a ResolvedOutPoint> = rtx.resolved_inputs.iter().collect();
@@ -120,7 +118,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     let hash = match cell_meta.data_hash() {
                         Some(hash) => hash.to_owned(),
                         None => {
-                            let output = store.lazy_load_cell_output(cell_meta);
+                            let output = data_loader.lazy_load_cell_output(cell_meta);
                             output.data_hash()
                         }
                     };
@@ -137,14 +135,14 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         let mut type_groups = FnvHashMap::default();
         for (i, resolved_input) in resolved_inputs.iter().enumerate() {
             if let Some(header) = &resolved_input.header {
-                if let Some(block_ext) = store.get_block_ext(header.hash()) {
+                if let Some(block_ext) = data_loader.get_block_ext(header.hash()) {
                     block_data.insert(header.hash().to_owned(), (header.number(), block_ext));
                 }
             }
             // here we are only pre-processing the data, verify method validates
             // each input has correct script setup.
             if let Some(cell_meta) = resolved_input.cell.cell_meta() {
-                let output = store.lazy_load_cell_output(cell_meta);
+                let output = data_loader.lazy_load_cell_output(cell_meta);
                 let lock_group_entry = lock_groups
                     .entry(output.lock.hash())
                     .or_insert_with(|| ScriptGroup::new(&output.lock));
@@ -167,14 +165,14 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         }
         for dep in &resolved_deps {
             if let Some(header) = &dep.header {
-                if let Some(block_ext) = store.get_block_ext(header.hash()) {
+                if let Some(block_ext) = data_loader.get_block_ext(header.hash()) {
                     block_data.insert(header.hash().to_owned(), (header.number(), block_ext));
                 }
             }
         }
 
         TransactionScriptsVerifier {
-            store,
+            data_loader,
             binary_index,
             block_data,
             inputs,
@@ -197,9 +195,9 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         &'a self,
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCell<'a, CS> {
+    ) -> LoadCell<'a, DL> {
         LoadCell::new(
-            Arc::clone(&self.store),
+            &self.data_loader,
             &self.outputs,
             &self.resolved_inputs,
             &self.resolved_deps,
@@ -212,9 +210,9 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         &'a self,
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCode<'a, CS> {
+    ) -> LoadCode<'a, DL> {
         LoadCode::new(
-            Arc::clone(&self.store),
+            &self.data_loader,
             &self.outputs,
             &self.resolved_inputs,
             &self.resolved_deps,
@@ -245,7 +243,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             self.resolved_deps[*index]
                 .cell
                 .cell_meta()
-                .map(|cell_meta| self.store.lazy_load_cell_output(&cell_meta))
+                .map(|cell_meta| self.data_loader.lazy_load_cell_output(&cell_meta))
         }) {
             Some(cell_output) => Ok(cell_output.data),
             None => Err(ScriptError::InvalidReferenceIndex),
@@ -347,7 +345,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 return Err(ScriptError::ArgumentError);
             }
             let cell_meta = resolved_input.cell().unwrap();
-            let output = self.store.lazy_load_cell_output(&cell_meta);
+            let output = self.data_loader.lazy_load_cell_output(&cell_meta);
             if output.lock.code_hash != DAO_CODE_HASH {
                 return Err(ScriptError::ArgumentError);
             }
@@ -560,7 +558,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 .cell
                 .cell_meta()
                 .map(|cell| {
-                    let output = self.store.lazy_load_cell_output(&cell);
+                    let output = self.data_loader.lazy_load_cell_output(&cell);
                     output.lock.code_hash == DAO_CODE_HASH
                 })
                 .unwrap_or(false)
@@ -580,7 +578,9 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
-    use ckb_store::{ChainKVStore, StoreBatch, COLUMNS};
+    use ckb_store::{
+        data_loader_wrapper::DataLoaderWrapper, ChainKVStore, ChainStore, StoreBatch, COLUMNS,
+    };
     use crypto::secp::{Generator, Privkey};
     use faster_hex::hex_encode;
     use hash::blake2b_256;
@@ -635,11 +635,12 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100).is_ok());
     }
@@ -709,11 +710,12 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -783,10 +785,11 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let verifier = TransactionScriptsVerifier::new(
             &rtx,
-            store,
+            &data_loader,
             &ScriptConfig {
                 runner: Runner::Rust,
             },
@@ -861,10 +864,11 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let verifier = TransactionScriptsVerifier::new(
             &rtx,
-            store,
+            &data_loader,
             &ScriptConfig {
                 runner: Runner::Assembly,
             },
@@ -939,11 +943,12 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100).is_err());
     }
@@ -1016,10 +1021,11 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1077,10 +1083,11 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1169,10 +1176,11 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1263,11 +1271,12 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1291,11 +1300,12 @@ mod tests {
             resolved_inputs: vec![ResolvedOutPoint::issuing_dao()],
         };
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1402,7 +1412,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1509,7 +1520,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1603,7 +1615,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1710,7 +1723,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100).is_err());
     }
@@ -1805,7 +1819,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1912,7 +1927,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -2019,7 +2035,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -2097,7 +2114,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         // Cycles can tell that both lock and type scripts are executed
         assert_eq!(verifier.verify(100_000_000), Ok(2_818_104));

@@ -1,18 +1,19 @@
-use crate::syscalls::{
-    Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_CODE_SYSCALL_NUMBER,
-    SLICE_OUT_OF_BOUND, SUCCESS,
+use crate::{
+    syscalls::{
+        Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_CODE_SYSCALL_NUMBER,
+        SLICE_OUT_OF_BOUND, SUCCESS,
+    },
+    DataLoader,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
-use ckb_store::LazyLoadCellOutput;
 use ckb_vm::{
     memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
     registers::{A0, A1, A2, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use std::sync::Arc;
 
-pub struct LoadCode<'a, CS> {
-    store: Arc<CS>,
+pub struct LoadCode<'a, DL> {
+    data_loader: &'a DL,
     outputs: &'a [CellMeta],
     resolved_inputs: &'a [&'a ResolvedOutPoint],
     resolved_deps: &'a [&'a ResolvedOutPoint],
@@ -20,17 +21,17 @@ pub struct LoadCode<'a, CS> {
     group_outputs: &'a [usize],
 }
 
-impl<'a, CS: LazyLoadCellOutput + 'a> LoadCode<'a, CS> {
+impl<'a, DL: DataLoader + 'a> LoadCode<'a, DL> {
     pub fn new(
-        store: Arc<CS>,
+        data_loader: &'a DL,
         outputs: &'a [CellMeta],
         resolved_inputs: &'a [&'a ResolvedOutPoint],
         resolved_deps: &'a [&'a ResolvedOutPoint],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCode<'a, CS> {
+    ) -> LoadCode<'a, DL> {
         LoadCode {
-            store,
+            data_loader,
             outputs,
             resolved_inputs,
             resolved_deps,
@@ -74,7 +75,7 @@ impl<'a, CS: LazyLoadCellOutput + 'a> LoadCode<'a, CS> {
     }
 }
 
-impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCode<'a, CS> {
+impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCode<'a, DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
@@ -98,7 +99,7 @@ impl<'a, Mac: SupportMachine, CS: LazyLoadCellOutput> Syscalls<Mac> for LoadCode
             return Ok(true);
         }
         let cell = cell.unwrap();
-        let output = self.store.lazy_load_cell_output(&cell);
+        let output = self.data_loader.lazy_load_cell_output(&cell);
 
         if content_offset >= output.data.len()
             || (content_offset + content_size) > output.data.len()

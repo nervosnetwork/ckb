@@ -10,7 +10,7 @@ use ckb_core::uncle::UncleBlock;
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber, Capacity, EpochNumber};
 use ckb_logger::error_target;
-use ckb_store::ChainStore;
+use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use dao_utils::calculate_transaction_fee;
 use fnv::FnvHashSet;
@@ -249,7 +249,7 @@ where
                 .iter()
                 .skip(1)
                 .try_fold(Capacity::zero(), |acc, tx| {
-                    calculate_transaction_fee(Arc::clone(self.store), &tx)
+                    calculate_transaction_fee(&DataLoaderWrapper::new(Arc::clone(&self.store)), &tx)
                         .ok_or(Error::FeeCalculation)
                         .and_then(|x| acc.safe_add(x).map_err(|_| Error::CapacityOverflow))
                 })?;

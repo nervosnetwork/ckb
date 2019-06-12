@@ -7,7 +7,7 @@ use ckb_core::{
 };
 use ckb_logger::info_target;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
-use ckb_store::ChainStore;
+use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
 use std::cell::RefCell;
@@ -152,9 +152,10 @@ impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
+        let data_loader = DataLoaderWrapper::new(Arc::clone(&self.chain_store));
         TransactionScriptsVerifier::new(
             &self.resolved_transaction,
-            Arc::clone(&self.chain_store),
+            &data_loader,
             &self.script_config,
         )
         .verify(max_cycles)

@@ -7,6 +7,6 @@ edition = "2018"
 
 [dependencies]
 ckb-core = { path = "../../../core" }
-ckb-store = { path = "../../../store" }
+ckb-script-data-loader = { path = "../../../script/data-loader" }
 dao = { path = ".." }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
