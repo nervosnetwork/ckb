@@ -39,9 +39,24 @@ pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
+/// Two protocol parameters w_close and w_far define the closest
+/// and farthest on-chain distance between a transaction’s proposal
+/// and commitment.
+///
 /// A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
 /// 1) it is proposed at height h_p of the same chain, where w_close ≤ h_c − h_p ≤ w_far ;
 /// 2) it is in the commitment zone of the main chain block with height h_c ;
+///
+///   ProposalWindow (2, 10)
+///       proposal
+///          \
+///           \
+///           13 14 [15 16 17 18 19 20 21 22 23]
+///                  \_______________________/
+///                               \
+///                             commit
+///
+
 impl ProposalWindow {
     pub fn closest(&self) -> BlockNumber {
         self.0

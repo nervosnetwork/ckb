@@ -87,6 +87,16 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     }
 
     /// Earliest proposer get 40% of tx fee as reward when tx committed
+    ///  block H(19) target H(13) ProposalWindow(2, 5)
+    ///                 target                    current
+    ///                  /                        /
+    ///     10  11  12  13  14  15  16  17  18  19
+    ///      \   \   \   \______/___/___/___/
+    ///       \   \   \________/___/___/
+    ///        \   \__________/___/
+    ///         \____________/
+    ///
+
     pub fn proposal_reward(
         &self,
         parent: &Header,
