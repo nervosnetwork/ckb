@@ -200,17 +200,7 @@ impl NetworkState {
     }
 
     pub(crate) fn query_session_id(&self, peer_id: &PeerId) -> Option<SessionId> {
-        let mut target_session_id = None;
-        // Create a scope for avoid dead lock
-        {
-            let peer_registry = self.peer_registry.read();
-            for peer in peer_registry.peers().values() {
-                if &peer.peer_id == peer_id {
-                    target_session_id = Some(peer.session_id);
-                }
-            }
-        }
-        target_session_id
+        self.with_peer_registry(|registry| registry.get_key_by_peer_id(peer_id))
     }
 
     pub(crate) fn accept_peer(
