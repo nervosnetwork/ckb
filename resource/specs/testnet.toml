@@ -7,7 +7,7 @@ timestamp = 1558137600000
 difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x23cd0452b06b39046a548d3d0888ed6460a374a515802a1cc6fb9f742374248c"
+hash = "0x2fe1ec8347daa9aa58acc8a8cb9ca410772bea660c8a290386f3f4fd0ea7db04"
 issued_cells = []
 
 [genesis.seal]
@@ -31,6 +31,10 @@ files = [
 [genesis.system_cells.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
+
+[genesis.bootstrap_lock]
+code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
+args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
 
 [params]
 epoch_reward = 5_000_000_00000000

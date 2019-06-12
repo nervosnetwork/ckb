@@ -4,14 +4,18 @@ use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::script::Script;
+use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainKVStore, ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
+use failure::Error as FailureError;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
+use reward_calculator::RewardCalculator;
 use std::sync::Arc;
 
 const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
@@ -139,6 +143,10 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
                     .map(|ext| ext.total_uncles_count)
             },
         )
+    }
+
+    fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
+        RewardCalculator::new(self).block_reward(parent)
     }
 
     fn consensus(&self) -> &Consensus {

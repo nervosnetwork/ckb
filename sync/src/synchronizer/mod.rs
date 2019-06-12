@@ -598,7 +598,7 @@ mod tests {
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-    use ckb_core::{capacity_bytes, Bytes, Capacity};
+    use ckb_core::Bytes;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
@@ -629,9 +629,10 @@ mod tests {
         NotifyController,
     ) {
         let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
-        if let Some(consensus) = consensus {
-            builder = builder.consensus(consensus);
-        }
+
+        let consensus = consensus.unwrap_or_else(Default::default);
+        builder = builder.consensus(consensus.set_bootstrap_lock(Script::default()));
+
         let shared = builder.build().unwrap();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
@@ -639,6 +640,33 @@ mod tests {
         let chain_controller = chain_service.start::<&str>(None);
 
         (chain_controller, shared, notify)
+    }
+
+    fn create_cellbase<CS: ChainStore>(
+        shared: &Shared<CS>,
+        parent_header: &Header,
+        number: BlockNumber,
+    ) -> Transaction {
+        let reward = if number > shared.consensus().reserve_number() {
+            let (_, block_reward) = shared.finalize_block_reward(parent_header).unwrap();
+            block_reward
+        } else {
+            shared
+                .consensus()
+                .genesis_epoch_ext()
+                .block_reward(number)
+                .unwrap()
+        };
+        TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(number))
+            .output(CellOutput::new(
+                reward,
+                Bytes::default(),
+                Script::default(),
+                None,
+            ))
+            .witness(Script::default().into_witness())
+            .build()
     }
 
     fn gen_synchronizer<CS: ChainStore>(
@@ -657,22 +685,15 @@ mod tests {
         assert!((status2 & BlockStatus::FAILED_MASK) == status2);
     }
 
-    fn create_cellbase(number: BlockNumber) -> Transaction {
-        TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(
-                capacity_bytes!(500),
-                Bytes::default(),
-                Script::default(),
-                None,
-            ))
-            .build()
-    }
-
-    fn gen_block(parent_header: &Header, epoch: &EpochExt, nonce: u64) -> Block {
+    fn gen_block<CS: ChainStore>(
+        shared: &Shared<CS>,
+        parent_header: &Header,
+        epoch: &EpochExt,
+        nonce: u64,
+    ) -> Block {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
-        let cellbase = create_cellbase(number);
+        let cellbase = create_cellbase(shared, parent_header, number);
         let header_builder = HeaderBuilder::default()
             .parent_hash(parent_header.hash().to_owned())
             .timestamp(now)
@@ -702,7 +723,7 @@ mod tests {
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
 
-        let block = gen_block(&parent, &epoch, nonce);
+        let block = gen_block(shared, &parent, &epoch, nonce);
 
         chain_controller
             .process_block(Arc::new(block), true)
@@ -797,7 +818,7 @@ mod tests {
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&parent, &epoch, i);
+            let new_block = gen_block(&shared1, &parent, &epoch, i);
             blocks.push(new_block.clone());
 
             chain_controller1
@@ -816,7 +837,7 @@ mod tests {
             let epoch = shared2
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&parent, &epoch, i + 100);
+            let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
             chain_controller2
                 .process_block(Arc::new(new_block.clone()), false)
@@ -904,7 +925,7 @@ mod tests {
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&parent, &epoch, i + 100);
+            let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
             chain_controller1
                 .process_block(Arc::new(new_block.clone()), false)
@@ -939,7 +960,7 @@ mod tests {
             let epoch = shared
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&parent, &epoch, i + 100);
+            let new_block = gen_block(&shared, &parent, &epoch, i + 100);
             blocks.push(new_block.clone());
 
             chain_controller

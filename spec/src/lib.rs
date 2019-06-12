@@ -56,6 +56,7 @@ pub struct Genesis {
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: SystemCells,
+    pub bootstrap_lock: Script,
     pub seal: Seal,
 }
 
@@ -154,8 +155,8 @@ impl ChainSpec {
             let actual = genesis.header().hash();
             if actual != expect {
                 return Err(SpecLoadError::genesis_mismatch(
-                    actual.clone(),
                     expect.clone(),
+                    actual.clone(),
                 ));
             }
         }
@@ -189,6 +190,7 @@ impl ChainSpec {
             .set_epoch_reward(self.params.epoch_reward)
             .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
+            .set_bootstrap_lock(self.genesis.bootstrap_lock.clone())
             .set_pow(self.pow.clone());
 
         Ok(consensus)
@@ -218,9 +220,11 @@ impl Genesis {
         // Layout of genesis cellbase:
         // - genesis cell, which contains a message and can never be spent.
         // - system cells, which stores the built-in code blocks.
+        // - foundation cells
         // - issued cells
         outputs.push(self.genesis_cell.build_output()?);
         self.system_cells.build_outputs_into(&mut outputs)?;
+        outputs.push(build_bootstrap_output(&self.bootstrap_lock)?);
         outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
 
         Ok(TransactionBuilder::default()
@@ -238,6 +242,13 @@ impl GenesisCell {
         cell.capacity = cell.occupied_capacity()?;
         Ok(cell)
     }
+}
+
+fn build_bootstrap_output(lock: &Script) -> Result<CellOutput, Box<dyn Error>> {
+    let mut cell = CellOutput::default();
+    cell.lock.clone_from(lock);
+    cell.capacity = cell.occupied_capacity()?;
+    Ok(cell)
 }
 
 impl IssuedCell {
@@ -320,7 +331,9 @@ pub mod test {
                 assert_eq!(genesis_hash, &spec_hashes.genesis, "{}", bundled_spec_err);
             }
 
-            let consensus = spec.build_consensus().expect("spec to consensus");
+            let consensus = spec.build_consensus();
+            assert!(consensus.is_ok(), "{}", consensus.unwrap_err());
+            let consensus = consensus.unwrap();
             let block = consensus.genesis_block();
             let cellbase = &block.transactions()[0];
 

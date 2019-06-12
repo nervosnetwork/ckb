@@ -1,0 +1,19 @@
+[package]
+name = "reward-calculator"
+version = "0.15.0-pre"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+ckb-core = { path = "../../core" }
+ckb-chain-spec = { path = "../../spec" }
+ckb-store = { path = "../../store" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+ckb-traits = { path = "../../traits" }
+failure = "0.1.5"
+ckb-verification = { path = "../../verification" }
+ckb-protocol = { path = "../../protocol" }
+ckb-script = { path = "../../script" }
+fnv = "1.0.3"

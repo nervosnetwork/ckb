@@ -2,11 +2,14 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::script::Script;
 use ckb_core::transaction::OutPoint;
+use ckb_core::Capacity;
 use ckb_db::MemoryKeyValueDB;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainKVStore;
 use ckb_traits::ChainProvider;
+use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 
@@ -41,6 +44,10 @@ impl ChainProvider for DummyChainProvider {
     }
 
     fn consensus(&self) -> &Consensus {
+        unimplemented!();
+    }
+
+    fn finalize_block_reward(&self, _parent: &Header) -> Result<(Script, Capacity), FailureError> {
         unimplemented!();
     }
 }

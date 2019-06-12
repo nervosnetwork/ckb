@@ -125,12 +125,12 @@ impl<'a, P: ChainProvider> UncleProvider for UncleVerifierContext<'a, P> {
 
 #[derive(Clone)]
 pub struct CommitVerifier<'a, CP> {
-    provider: CP,
+    provider: &'a CP,
     block: &'a Block,
 }
 
 impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
-    pub fn new(provider: CP, block: &'a Block) -> Self {
+    pub fn new(provider: &'a CP, block: &'a Block) -> Self {
         CommitVerifier { provider, block }
     }
 
@@ -140,8 +140,8 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
         }
         let block_number = self.block.header().number();
         let proposal_window = self.provider.consensus().tx_proposal_window();
-        let proposal_start = block_number.saturating_sub(proposal_window.start());
-        let mut proposal_end = block_number.saturating_sub(proposal_window.end());
+        let proposal_start = block_number.saturating_sub(proposal_window.farthest());
+        let mut proposal_end = block_number.saturating_sub(proposal_window.closest());
 
         let mut block_hash = self
             .provider
@@ -212,52 +212,67 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
     }
 }
 
-pub struct RewardVerifier<'a, CS> {
+pub struct RewardVerifier<'a, P> {
     resolved: &'a [ResolvedTransaction<'a>],
-    epoch: &'a EpochExt,
-    number: BlockNumber,
-    store: &'a Arc<CS>,
+    parent: &'a Header,
+    provider: &'a P,
 }
 
-impl<'a, CS> RewardVerifier<'a, CS>
+impl<'a, P> RewardVerifier<'a, P>
 where
-    CS: ChainStore,
+    P: ChainProvider,
 {
-    pub fn new(
-        store: &'a Arc<CS>,
-        resolved: &'a [ResolvedTransaction],
-        epoch: &'a EpochExt,
-        number: BlockNumber,
-    ) -> Self {
+    pub fn new(provider: &'a P, resolved: &'a [ResolvedTransaction], parent: &'a Header) -> Self {
         RewardVerifier {
-            number,
-            store,
+            parent,
+            provider,
             resolved,
-            epoch,
         }
     }
 
-    pub fn verify(&self) -> Result<(), Error> {
-        let block_reward = self
-            .epoch
-            .block_reward(self.number)
-            .map_err(|_| Error::CannotFetchBlockReward)?;
-        // Verify cellbase reward
+    pub fn verify(&self) -> Result<Vec<Capacity>, Error> {
         let cellbase = &self.resolved[0];
-        let fee: Capacity =
-            self.resolved
-                .iter()
-                .skip(1)
-                .try_fold(Capacity::zero(), |acc, tx| {
-                    calculate_transaction_fee(&DataLoaderWrapper::new(Arc::clone(&self.store)), &tx)
-                        .ok_or(Error::FeeCalculation)
-                        .and_then(|x| acc.safe_add(x).map_err(|_| Error::CapacityOverflow))
-                })?;
-        if cellbase.transaction.outputs_capacity()? > block_reward.safe_add(fee)? {
-            return Err(Error::Cellbase(CellbaseError::InvalidReward));
-        }
+        if (self.parent.number() + 1) > self.provider.consensus().reserve_number() {
+            let (target_lock, block_reward) = self
+                .provider
+                .finalize_block_reward(self.parent)
+                .map_err(|_| Error::CannotFetchBlockReward)?;
+            if cellbase.transaction.outputs_capacity()? != block_reward {
+                return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
+            }
+            if cellbase.transaction.outputs()[0].lock != target_lock {
+                return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
+            }
+        } else {
+            if cellbase.transaction.outputs_capacity()?
+                != self
+                    .provider
+                    .consensus()
+                    .genesis_epoch_ext()
+                    .block_reward(self.parent.number() + 1)
+                    .map_err(|_| Error::CannotFetchBlockReward)?
+            {
+                return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
+            }
+            if &cellbase.transaction.outputs()[0].lock != self.provider.consensus().bootstrap_lock()
+            {
+                return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
+            }
+        };
+        let txs_fees = self
+            .resolved
+            .iter()
+            .skip(1)
+            .map(|tx| {
+                calculate_transaction_fee(
+                    &DataLoaderWrapper::new(Arc::clone(self.provider.store())),
+                    &tx,
+                )
+                .ok_or(Error::FeeCalculation)
+            })
+            .collect::<Result<Vec<Capacity>, Error>>()?;
 
-        Ok(())
+        Ok(txs_fees)
     }
 }
 
@@ -337,20 +352,12 @@ where
     }
 }
 
-fn prepare_epoch_ext<P: ChainProvider>(provider: &P, block: &Block) -> Result<EpochExt, Error> {
-    if block.is_genesis() {
-        return Ok(provider.consensus().genesis_epoch_ext().to_owned());
-    }
-    let parent_hash = block.header().parent_hash();
+fn prepare_epoch_ext<P: ChainProvider>(provider: &P, parent: &Header) -> Result<EpochExt, Error> {
     let parent_ext = provider
-        .get_block_epoch(parent_hash)
-        .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
-    let parent = provider
-        .store()
-        .get_block_header(parent_hash)
-        .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
+        .get_block_epoch(parent.hash())
+        .ok_or_else(|| Error::UnknownParent(parent.hash().clone()))?;
     Ok(provider
-        .next_epoch_ext(&parent_ext, &parent)
+        .next_epoch_ext(&parent_ext, parent)
         .unwrap_or(parent_ext))
 }
 
@@ -371,27 +378,39 @@ where
         resolved: &[ResolvedTransaction],
         block: &Block,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
-    ) -> Result<Cycle, Error> {
-        let epoch_ext = prepare_epoch_ext(&self.context.provider, block)?;
+    ) -> Result<(Cycle, Vec<Capacity>), Error> {
+        let parent_hash = block.header().parent_hash();
+        let parent = self
+            .context
+            .provider
+            .store()
+            .get_block_header(parent_hash)
+            .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
+
+        let epoch_ext = if block.is_genesis() {
+            self.context
+                .provider
+                .consensus()
+                .genesis_epoch_ext()
+                .to_owned()
+        } else {
+            prepare_epoch_ext(&self.context.provider, &parent)?
+        };
 
         let uncle_verifier_context = UncleVerifierContext::new(self.context, &epoch_ext, block);
         UnclesVerifier::new(uncle_verifier_context, block).verify()?;
 
-        CommitVerifier::new(self.context.provider.clone(), block).verify()?;
-        RewardVerifier::new(
-            self.context.provider.store(),
-            resolved,
-            &epoch_ext,
-            block.header().number(),
-        )
-        .verify()?;
+        CommitVerifier::new(&self.context.provider, block).verify()?;
+        let txs_fees = RewardVerifier::new(&self.context.provider, resolved, &parent).verify()?;
 
-        BlockTxsVerifier::new(
+        let cycles = BlockTxsVerifier::new(
             self.context,
             block.header().number(),
             block.header().epoch(),
             resolved,
         )
-        .verify(txs_verify_cache)
+        .verify(txs_verify_cache)?;
+
+        Ok((cycles, txs_fees))
     }
 }

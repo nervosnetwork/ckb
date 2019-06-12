@@ -17,17 +17,17 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use test_chain_utils::create_always_success_cell;
 
-fn create_always_success_tx() -> Transaction {
-    let (always_success_cell, _) = create_always_success_cell();
+pub(crate) fn create_always_success_tx() -> Transaction {
+    let (ref always_success_cell, _) = create_always_success_cell();
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
-        .output(always_success_cell)
+        .output(always_success_cell.clone())
         .build()
 }
 
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+
 // invocations, let's stick to this way till this becomes a real problem
-fn create_always_success_out_point() -> OutPoint {
+pub(crate) fn create_always_success_out_point() -> OutPoint {
     OutPoint::new_cell(create_always_success_tx().hash().to_owned(), 0)
 }
 
@@ -39,17 +39,18 @@ pub(crate) fn start_chain(
     Header,
 ) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let shared = builder
-        .consensus(consensus.unwrap_or_else(|| {
-            let genesis_block = BlockBuilder::default()
-                .transaction(create_always_success_tx())
-                .build();
-            Consensus::default()
-                .set_cellbase_maturity(0)
-                .set_genesis_block(genesis_block)
-        }))
-        .build()
-        .unwrap();
+    let (_, ref always_success_script) = create_always_success_cell();
+
+    let consensus = consensus.unwrap_or_else(|| {
+        let genesis_block = BlockBuilder::default()
+            .transaction(create_always_success_tx())
+            .build();
+        Consensus::default()
+            .set_cellbase_maturity(0)
+            .set_bootstrap_lock(always_success_script.clone())
+            .set_genesis_block(genesis_block)
+    });
+    let shared = builder.consensus(consensus).build().unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainService::new(shared.clone(), notify);
@@ -62,16 +63,17 @@ pub(crate) fn start_chain(
     (chain_controller, shared, parent)
 }
 
-fn create_cellbase(number: BlockNumber) -> Transaction {
+pub(crate) fn create_cellbase(number: BlockNumber) -> Transaction {
     let (_, always_success_script) = create_always_success_cell();
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
             capacity_bytes!(2_500),
             Bytes::default(),
-            always_success_script,
+            always_success_script.clone(),
             None,
         ))
+        .witness(always_success_script.clone().into_witness())
         .build()
 }
 
@@ -119,7 +121,7 @@ pub(crate) fn create_transaction_with_out_point(
         .output(CellOutput::new(
             capacity_bytes!(2_500),
             Bytes::from(vec![unique_data]),
-            always_success_script,
+            always_success_script.clone(),
             None,
         ))
         .input(CellInput::new(out_point, 0))

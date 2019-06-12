@@ -9,7 +9,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
-use ckb_core::{capacity_bytes, Bytes, Capacity};
+use ckb_core::Bytes;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
@@ -77,7 +77,7 @@ fn setup_node(
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
-        .output(always_success_cell)
+        .output(always_success_cell.clone())
         .build();
 
     let mut block = BlockBuilder::default()
@@ -91,6 +91,7 @@ fn setup_node(
 
     let consensus = Consensus::default()
         .set_genesis_block(block.clone())
+        .set_bootstrap_lock(always_success_script.clone())
         .set_cellbase_maturity(0);
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
@@ -110,14 +111,26 @@ fn setup_node(
             .next_epoch_ext(&last_epoch, block.header())
             .unwrap_or(last_epoch);
 
+        let reward = if number > shared.consensus().reserve_number() {
+            let (_, block_reward) = shared.finalize_block_reward(block.header()).unwrap();
+            block_reward
+        } else {
+            shared
+                .consensus()
+                .genesis_epoch_ext()
+                .block_reward(number)
+                .unwrap()
+        };
+
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
-                capacity_bytes!(500),
+                reward,
                 Bytes::default(),
                 always_success_script.to_owned(),
                 None,
             ))
+            .witness(always_success_script.to_owned().into_witness())
             .build();
 
         let header_builder = HeaderBuilder::default()

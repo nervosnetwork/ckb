@@ -21,6 +21,26 @@ pub struct Script {
     pub code_hash: H256,
 }
 
+impl Script {
+    pub fn into_witness(self) -> Vec<Bytes> {
+        let Script {
+            code_hash,
+            mut args,
+        } = self;
+        args.insert(0, Bytes::from(code_hash.to_vec()));
+        args
+    }
+
+    pub fn from_witness(witness: &[Bytes]) -> Option<Self> {
+        witness.split_first().and_then(|(code_hash, args)| {
+            H256::from_slice(code_hash).ok().map(|code_hash| Script {
+                code_hash,
+                args: args.to_vec(),
+            })
+        })
+    }
+}
+
 fn prefix_hex(bytes: &[u8]) -> String {
     let mut dst = vec![0u8; bytes.len() * 2 + 2];
     dst[0] = b'0';

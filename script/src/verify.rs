@@ -610,7 +610,7 @@ mod tests {
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            always_success_script,
+            always_success_script.clone(),
             None,
         );
         let input = CellInput::new(OutPoint::null(), 0);
@@ -623,7 +623,7 @@ mod tests {
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(always_success_cell)
+            CellMetaBuilder::from_cell_output(always_success_cell.clone())
                 .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
@@ -1125,7 +1125,7 @@ mod tests {
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            always_success_script,
+            always_success_script.clone(),
             None,
         );
         let dummy_cell = ResolvedOutPoint::cell_only(
@@ -1134,7 +1134,7 @@ mod tests {
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(always_success_cell)
+            CellMetaBuilder::from_cell_output(always_success_cell.clone())
                 .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
@@ -1221,7 +1221,7 @@ mod tests {
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            always_success_script,
+            always_success_script.clone(),
             None,
         );
         let dummy_cell = ResolvedOutPoint::cell_only(

@@ -194,7 +194,7 @@ mod tests {
         let (always_success_cell, always_success_script) = create_always_success_cell();
         let always_success_tx = TransactionBuilder::default()
             .input(CellInput::new(OutPoint::null(), 0))
-            .output(always_success_cell)
+            .output(always_success_cell.clone())
             .build();
         let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
 

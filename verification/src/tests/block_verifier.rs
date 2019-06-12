@@ -20,6 +20,7 @@ fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transac
             Script::default(),
             None,
         ))
+        .witness(Script::default().into_witness())
         .build()
 }
 
@@ -32,6 +33,7 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction 
             Script::default(),
             None,
         ))
+        .witness(Script::default().into_witness())
         .build()
 }
 
@@ -53,7 +55,7 @@ fn create_normal_transaction() -> Transaction {
 
 #[test]
 pub fn test_block_without_cellbase() {
-    let block = BlockBuilder::default()
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(1))
         .transaction(TransactionBuilder::default().build())
         .build();
     let verifier = CellbaseVerifier::new();
@@ -67,8 +69,8 @@ pub fn test_block_without_cellbase() {
 pub fn test_block_with_one_cellbase_at_first() {
     let transaction = create_normal_transaction();
 
-    let block = BlockBuilder::default()
-        .transaction(create_cellbase_transaction())
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(1))
+        .transaction(create_cellbase_transaction_with_block_number(1))
         .transaction(transaction)
         .build();
 
@@ -101,7 +103,7 @@ pub fn test_block_with_incorrect_cellbase_number() {
 
 #[test]
 pub fn test_block_with_one_cellbase_at_last() {
-    let block = BlockBuilder::default()
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2))
         .transaction(create_normal_transaction())
         .transaction(create_cellbase_transaction())
         .build();
@@ -115,7 +117,7 @@ pub fn test_block_with_one_cellbase_at_last() {
 
 #[test]
 pub fn test_block_with_two_cellbases() {
-    let block = BlockBuilder::default()
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2))
         .transaction(create_cellbase_transaction())
         .transaction(create_cellbase_transaction())
         .build();
