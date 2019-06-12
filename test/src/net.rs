@@ -18,6 +18,9 @@ pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 pub struct Net {
     pub nodes: Vec<Node>,
     pub controller: Option<(NetworkController, Receiver<NetMessage>)>,
+    pub test_protocols: Vec<TestProtocol>,
+    num_nodes: usize,
+    start_port: u16,
 }
 
 impl Net {
@@ -42,62 +45,81 @@ impl Net {
             })
             .collect();
 
-        let controller = if test_protocols.is_empty() {
-            None
-        } else {
-            let (tx, rx) = crossbeam_channel::unbounded();
-
-            let config = NetworkConfig {
-                listen_addresses: vec![format!("/ip4/0.0.0.0/tcp/{}", start_port)
-                    .parse()
-                    .expect("invalid address")],
-                public_addresses: vec![],
-                bootnodes: vec![],
-                dns_seeds: vec![],
-                reserved_peers: vec![],
-                reserved_only: false,
-                max_peers: num_nodes as u32,
-                max_outbound_peers: num_nodes as u32,
-                path: tempdir()
-                    .expect("create tempdir failed")
-                    .path()
-                    .to_path_buf(),
-                ping_interval_secs: 15,
-                ping_timeout_secs: 20,
-                connect_outbound_interval_secs: 1,
-                discovery_local_address: true,
-                upnp: false,
-            };
-
-            let network_state =
-                Arc::new(NetworkState::from_config(config).expect("Init network state failed"));
-
-            let protocols = test_protocols
-                .into_iter()
-                .map(|tp| {
-                    let tx = tx.clone();
-                    CKBProtocol::new(
-                        tp.protocol_name,
-                        tp.id,
-                        &tp.supported_versions,
-                        move || Box::new(DummyProtocolHandler { tx: tx.clone() }),
-                        Arc::clone(&network_state),
-                    )
-                })
-                .collect();
-
-            Some((
-                NetworkService::new(Arc::clone(&network_state), protocols)
-                    .start(Default::default(), Some("NetworkService"))
-                    .expect("Start network service failed"),
-                rx,
-            ))
-        };
-
-        Self { nodes, controller }
+        Self {
+            nodes,
+            controller: None,
+            test_protocols,
+            start_port,
+            num_nodes,
+        }
     }
 
     pub fn connect(&self, node: &Node) {
+        if self.controller.is_none() {
+            let controller = if self.test_protocols.is_empty() {
+                None
+            } else {
+                let (tx, rx) = crossbeam_channel::unbounded();
+
+                let config = NetworkConfig {
+                    listen_addresses: vec![format!("/ip4/0.0.0.0/tcp/{}", self.start_port)
+                        .parse()
+                        .expect("invalid address")],
+                    public_addresses: vec![],
+                    bootnodes: vec![],
+                    dns_seeds: vec![],
+                    reserved_peers: vec![],
+                    reserved_only: false,
+                    max_peers: self.num_nodes as u32,
+                    max_outbound_peers: self.num_nodes as u32,
+                    path: tempdir()
+                        .expect("create tempdir failed")
+                        .path()
+                        .to_path_buf(),
+                    ping_interval_secs: 15,
+                    ping_timeout_secs: 20,
+                    connect_outbound_interval_secs: 1,
+                    discovery_local_address: true,
+                    upnp: false,
+                };
+
+                let network_state =
+                    Arc::new(NetworkState::from_config(config).expect("Init network state failed"));
+
+                let protocols = self
+                    .test_protocols
+                    .clone()
+                    .into_iter()
+                    .map(|tp| {
+                        let tx = tx.clone();
+                        CKBProtocol::new(
+                            tp.protocol_name,
+                            tp.id,
+                            &tp.supported_versions,
+                            move || Box::new(DummyProtocolHandler { tx: tx.clone() }),
+                            Arc::clone(&network_state),
+                        )
+                    })
+                    .collect();
+
+                Some((
+                    NetworkService::new(
+                        Arc::clone(&network_state),
+                        protocols,
+                        node.consensus.as_ref().unwrap().identify_name(),
+                    )
+                    .start(Default::default(), Some("NetworkService"))
+                    .expect("Start network service failed"),
+                    rx,
+                ))
+            };
+
+            let ptr = self as *const Self as *mut Self;
+            unsafe {
+                ::std::mem::replace(&mut (*ptr).controller, controller);
+            }
+        }
+
         let node_info = node.rpc_client().local_node_info();
         self.controller.as_ref().unwrap().0.add_node(
             &node_info.node_id.parse().expect("invalid peer_id"),

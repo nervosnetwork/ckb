@@ -3,12 +3,14 @@ mod convert;
 pub mod error;
 #[rustfmt::skip]
 #[allow(clippy::all)]
+#[allow(unused_imports)]
 mod protocol_generated;
 #[rustfmt::skip]
 mod protocol_generated_verifier;
 
 pub use crate::protocol_generated::ckb::protocol::*;
 use byteorder::{LittleEndian, ReadBytesExt};
+pub use flatbuffers;
 use hash::new_blake2b;
 use numext_fixed_hash::H256;
 use siphasher::sip::SipHasher;

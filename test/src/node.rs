@@ -1,6 +1,7 @@
 use crate::rpc::RpcClient;
 use crate::utils::wait_until;
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
@@ -27,6 +28,7 @@ pub struct Node {
     genesis_cellbase_hash: H256,
     always_success_code_hash: H256,
     guard: Option<ProcessGuard>,
+    pub consensus: Option<Consensus>,
 }
 
 struct ProcessGuard(pub Child);
@@ -53,6 +55,7 @@ impl Node {
             guard: None,
             genesis_cellbase_hash: Default::default(),
             always_success_code_hash: Default::default(),
+            consensus: None,
         }
     }
 
@@ -331,6 +334,8 @@ impl Node {
             .clone_from(consensus.genesis_block().transactions()[0].hash());
         self.always_success_code_hash =
             consensus.genesis_block().transactions()[0].outputs()[1].data_hash();
+
+        self.consensus = Some(consensus);
 
         // write to dir
         fs::write(

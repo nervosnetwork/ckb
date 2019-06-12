@@ -61,6 +61,7 @@ pub trait Spec {
     }
 }
 
+#[derive(Clone)]
 pub struct TestProtocol {
     pub id: ProtocolId,
     pub protocol_name: String,

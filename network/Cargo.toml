@@ -23,7 +23,7 @@ crossbeam-channel = "0.3"
 p2p = { version="0.2.1", package="tentacle" }
 p2p-ping = { version="0.3.5", package="tentacle-ping" }
 p2p-discovery = { version="0.2.5", package="tentacle-discovery" }
-p2p-identify = { version="0.2.5", package="tentacle-identify" }
+p2p-identify = { version="0.2.6", package="tentacle-identify" }
 faketime = "0.2.0"
 rusqlite = {version = "0.18.0", features = ["bundled"]}
 lazy_static = "1.3.0"
@@ -37,6 +37,7 @@ resolve = "0.2.0"
 build-info = {path = "../util/build-info"}
 num_cpus = "1.10"
 snap = "0.2"
+ckb-protocol = { path = "../protocol" }
 
 [dev-dependencies]
 criterion = "0.2"
