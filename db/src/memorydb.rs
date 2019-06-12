@@ -2,6 +2,7 @@
 use crate::{Col, DbBatch, Error, KeyValueDB, Result};
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
+use std::iter::FromIterator;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -16,10 +17,7 @@ pub struct MemoryKeyValueDB {
 
 impl MemoryKeyValueDB {
     pub fn open(cols: usize) -> MemoryKeyValueDB {
-        let mut table = FnvHashMap::with_capacity_and_hasher(cols, Default::default());
-        for idx in 0..cols {
-            table.insert(idx as u32, FnvHashMap::default());
-        }
+        let table = FnvHashMap::from_iter((0..cols).map(|idx| (idx as u32, FnvHashMap::default())));
         MemoryKeyValueDB {
             db: Arc::new(RwLock::new(table)),
         }

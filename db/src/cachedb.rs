@@ -2,6 +2,7 @@ use crate::{Col, DbBatch, KeyValueDB, Result};
 use ckb_util::Mutex;
 use fnv::FnvHashMap;
 use lru_cache::LruCache;
+use std::iter::FromIterator;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -98,10 +99,10 @@ where
     T: KeyValueDB,
 {
     pub fn new(db: T, cols: &[CacheCols]) -> Self {
-        let mut table = FnvHashMap::with_capacity_and_hasher(cols.len(), Default::default());
-        for (idx, capacity) in cols {
-            table.insert(*idx, Mutex::new(LruCache::new(*capacity)));
-        }
+        let table = FnvHashMap::from_iter(
+            cols.iter()
+                .map(|(idx, capacity)| (*idx, Mutex::new(LruCache::new(*capacity)))),
+        );
         CacheDB {
             db,
             cache: Arc::new(table),
