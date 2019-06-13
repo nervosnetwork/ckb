@@ -9,6 +9,7 @@ pub use self::template::{
 pub use std::io::{Error, Result};
 
 use self::template::Template;
+use numext_fixed_hash::H256;
 use std::borrow::Cow;
 use std::fmt;
 use std::fs;
@@ -17,6 +18,7 @@ use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
 include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
+include!(concat!(env!("OUT_DIR"), "/code_hashes.rs"));
 
 pub const CKB_CONFIG_FILE_NAME: &str = "ckb.toml";
 pub const MINER_CONFIG_FILE_NAME: &str = "ckb-miner.toml";

@@ -1,5 +1,6 @@
 use super::parse_hex_data;
 use ckb_app_config::{cli, ExitCode};
+use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use clap::ArgMatches;
 use crypto::secp::Pubkey;
 use hash::blake2b_256;
@@ -27,13 +28,19 @@ pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
         "block_assembler" => {
             println!("[block_assembler]");
             println!("# secp256k1_sighash_all");
-            println!("code_hash = \"0xf1951123466e4479842387a66fabfd6b65fc87fd84ae8e6cd3053edb27fff2fd\"");
+            println!(
+                "code_hash = \"{:#x}\"",
+                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
+            );
             println!("# args = [ \"blake160(compressed_pubkey)\" ]");
             println!("args = [ \"{:#x}\" ]", pubkey_blake160);
         }
         "json" => {
             println!("{{");
-            println!("    \"code_hash\": \"0xf1951123466e4479842387a66fabfd6b65fc87fd84ae8e6cd3053edb27fff2fd\",");
+            println!(
+                "    \"code_hash\": \"{:#x}\",",
+                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
+            );
             println!("    \"args\": [");
             println!("        \"{:#x}\"", pubkey_blake160);
             println!("    ]");
