@@ -51,9 +51,14 @@ impl<'b> serde::de::Visitor<'b> for BytesVisitor {
     where
         E: serde::de::Error,
     {
-        if v.len() < 2 || &v[0..2] != "0x" || v.len() & 1 != 0 {
+        if v.len() < 2 || &v[0..2] != "0x" {
             return Err(E::invalid_value(serde::de::Unexpected::Str(v), &self));
         }
+
+        if v.len() & 1 != 0 {
+            return Err(E::invalid_length(v.len(), &"even length"));
+        }
+
         let bytes = &v.as_bytes()[2..];
         if bytes.is_empty() {
             return Ok(JsonBytes::default());
