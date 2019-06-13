@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 // TODO: add secondary reward for miner
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(50);
-pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(5_000_000);
+pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 pub(crate) const CELLBASE_MATURITY: BlockNumber = 100;
