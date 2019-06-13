@@ -51,7 +51,7 @@ pub trait PowEngine: Send + Sync {
 
     fn verify_header(&self, header: &Header) -> bool {
         let proof_hash: H256 = blake2b_256(&header.proof()).into();
-        if proof_hash >= difficulty_to_target(&header.difficulty()) {
+        if proof_hash >= difficulty_to_target(header.difficulty()) {
             return false;
         }
 
@@ -64,7 +64,7 @@ pub trait PowEngine: Send + Sync {
 
         if let Some(proof) = self.solve(header.number(), &message) {
             let result: H256 = blake2b_256(&proof).into();
-            if result < difficulty_to_target(&header.difficulty()) {
+            if result < difficulty_to_target(header.difficulty()) {
                 return Some(Seal::new(nonce, Bytes::from(proof)));
             }
         }
