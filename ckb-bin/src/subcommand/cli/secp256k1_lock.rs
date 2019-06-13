@@ -25,26 +25,21 @@ pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
     let pubkey_blake160 = H160::from_slice(&pubkey_hash[0..20]).unwrap();
 
     match matches.value_of(cli::ARG_FORMAT).unwrap() {
-        "block_assembler" => {
+        "toml" => {
             println!("[block_assembler]");
-            println!("# secp256k1_sighash_all");
+            println!("# secp256k1_blake160_sighash_all");
             println!(
                 "code_hash = \"{:#x}\"",
                 CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
             );
-            println!("# args = [ \"blake160(compressed_pubkey)\" ]");
+            println!("# args = [ \"ckb cli blake160 <compressed-pubkey>\" ]");
             println!("args = [ \"{:#x}\" ]", pubkey_blake160);
         }
-        "json" => {
-            println!("{{");
+        "cmd" => {
             println!(
-                "    \"code_hash\": \"{:#x}\",",
-                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
+                "--ba-code-hash {:#x} --ba-arg {:#x}",
+                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, pubkey_blake160
             );
-            println!("    \"args\": [");
-            println!("        \"{:#x}\"", pubkey_blake160);
-            println!("    ]");
-            println!("}}");
         }
         _ => unreachable!(),
     }

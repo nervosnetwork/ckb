@@ -47,4 +47,6 @@ pub struct InitArgs {
     pub log_to_stdout: bool,
     pub list_chains: bool,
     pub force: bool,
+    pub block_assembler_code_hash: Option<String>,
+    pub block_assembler_args: Vec<String>,
 }

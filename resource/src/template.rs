@@ -7,7 +7,6 @@ const START_MARKER: &str = " # {{";
 const END_MAKER: &str = "# }}";
 const WILDCARD_BRANCH: &str = "# _ => ";
 
-use crate::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use std::io;
 
 pub struct Template<T>(T);
@@ -19,6 +18,7 @@ pub struct TemplateContext<'a> {
     pub log_to_file: bool,
     pub log_to_stdout: bool,
     pub runner: &'a str,
+    pub block_assembler: &'a str,
 }
 
 impl<T> Template<T> {
@@ -39,10 +39,7 @@ fn writeln<W: io::Write>(w: &mut W, s: &str, context: &TemplateContext) -> io::R
             .replace("{log_to_file}", &format!("{}", context.log_to_file))
             .replace("{log_to_stdout}", &format!("{}", context.log_to_stdout))
             .replace("{runner}", &context.runner.to_string())
-            .replace(
-                "{code_hash}",
-                &format!("{:#x}", CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL)
-            )
+            .replace("{block_assembler}", context.block_assembler)
     )
 }
 
