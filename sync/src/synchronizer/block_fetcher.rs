@@ -181,7 +181,7 @@ where
                     .get_ancestor(max_height_header.hash(), index_height)?;
                 let to_fetch_hash = to_fetch.hash();
 
-                let block_status = self.synchronizer.get_block_status(to_fetch_hash);
+                let block_status = self.synchronizer.shared().get_block_status(to_fetch_hash);
                 if block_status == BlockStatus::VALID_MASK
                     && inflight.insert(self.peer, to_fetch_hash.to_owned())
                 {

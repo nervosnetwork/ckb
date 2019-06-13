@@ -27,7 +27,7 @@ use crate::types::SyncSharedState;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::transaction::Transaction;
+use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
@@ -180,19 +180,28 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         peer: PeerIndex,
         block: &CompactBlock,
     ) {
-        let mut inflight = self.shared().inflight_proposals();
-        let unknown_ids = block
+        let proposals = block
             .proposals
             .iter()
-            .chain(block.uncles.iter().flat_map(UncleBlock::proposals))
-            .filter(|x| !chain_state.contains_proposal_id(x) && inflight.insert(**x))
+            .chain(block.uncles.iter().flat_map(UncleBlock::proposals));
+        let fresh_proposals: Vec<ProposalShortId> = proposals
+            .filter(|id| !chain_state.contains_proposal_id(id))
             .cloned()
-            .collect::<Vec<_>>();
-
-        if !unknown_ids.is_empty() {
+            .collect();
+        let to_ask_proposals: Vec<ProposalShortId> = self
+            .shared()
+            .insert_inflight_proposals(fresh_proposals.clone())
+            .into_iter()
+            .zip(fresh_proposals)
+            .filter_map(|(firstly_in, id)| if firstly_in { Some(id) } else { None })
+            .collect();
+        if !to_ask_proposals.is_empty() {
             let fbb = &mut FlatBufferBuilder::new();
-            let message =
-                RelayMessage::build_get_block_proposal(fbb, block.header.number(), &unknown_ids);
+            let message = RelayMessage::build_get_block_proposal(
+                fbb,
+                block.header.number(),
+                &to_ask_proposals,
+            );
             fbb.finish(message, None);
 
             nc.send_message_to(peer, fbb.finished_data().into());
@@ -317,25 +326,19 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
     }
 
     fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
-        let mut pending_get_block_proposals = self.shared().pending_get_block_proposals();
+        let get_block_proposals = self.shared().clear_get_block_proposals();
         let mut peer_txs = FnvHashMap::default();
-        let mut remove_ids = Vec::new();
         {
             let chain_state = self.shared.lock_chain_state();
             let tx_pool = chain_state.tx_pool();
-            for (id, peer_indexs) in pending_get_block_proposals.iter() {
-                if let Some(tx) = tx_pool.get_tx(id) {
-                    for peer_index in peer_indexs {
-                        let tx_set = peer_txs.entry(*peer_index).or_insert_with(Vec::new);
+            for (id, peer_indices) in get_block_proposals.into_iter() {
+                if let Some(tx) = tx_pool.get_tx(&id) {
+                    for peer_index in peer_indices {
+                        let tx_set = peer_txs.entry(peer_index).or_insert_with(Vec::new);
                         tx_set.push(tx.clone());
                     }
                 }
-                remove_ids.push(*id);
             }
-        }
-
-        for id in remove_ids {
-            pending_get_block_proposals.remove(&id);
         }
 
         for (peer_index, txs) in peer_txs {

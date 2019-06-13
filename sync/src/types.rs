@@ -32,6 +32,8 @@ use std::collections::{
     BTreeMap,
 };
 use std::fmt;
+use std::mem::swap;
+use std::ops::DerefMut;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -683,12 +685,6 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn n_protected_outbound_peers(&self) -> &AtomicUsize {
         &self.n_protected_outbound_peers
     }
-    pub fn block_status_map(&self) -> MutexGuard<hashbrown::HashMap<H256, BlockStatus>> {
-        self.block_status_map.lock()
-    }
-    pub fn tx_filter(&self) -> MutexGuard<LruCache<H256, ()>> {
-        self.tx_filter.lock()
-    }
     pub fn peers(&self) -> &Peers {
         &self.peers
     }
@@ -707,18 +703,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
         self.known_txs.lock()
     }
-    pub fn pending_get_block_proposals(
-        &self,
-    ) -> MutexGuard<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>> {
-        self.pending_get_block_proposals.lock()
-    }
     pub fn pending_compact_blocks(
         &self,
     ) -> MutexGuard<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>> {
         self.pending_compact_blocks.lock()
-    }
-    pub fn inflight_proposals(&self) -> MutexGuard<FnvHashSet<ProposalShortId>> {
-        self.inflight_proposals.lock()
     }
     pub fn inflight_transactions(&self) -> MutexGuard<LruCache<H256, Instant>> {
         self.inflight_transactions.lock()
@@ -988,17 +976,68 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn mark_as_known_tx(&self, hash: H256) {
         self.inflight_transactions().remove(&hash);
-        self.tx_filter().insert(hash, ());
+        self.tx_filter.lock().insert(hash, ());
     }
 
     pub fn already_known_tx(&self, hash: &H256) -> bool {
-        self.tx_filter().contains_key(hash)
+        self.tx_filter.lock().contains_key(hash)
     }
 
     // Return true when the block is that we have requested and received first time.
     pub fn new_block_received(&self, block: &Block) -> bool {
         self.write_inflight_blocks()
             .remove_by_block(block.header().hash())
+    }
+
+    pub fn insert_inflight_proposals(&self, ids: Vec<ProposalShortId>) -> Vec<bool> {
+        let mut locked = self.inflight_proposals.lock();
+        ids.into_iter().map(|id| locked.insert(id)).collect()
+    }
+
+    pub fn remove_inflight_proposals(&self, ids: &[ProposalShortId]) -> Vec<bool> {
+        let mut locked = self.inflight_proposals.lock();
+        ids.iter().map(|id| locked.remove(id)).collect()
+    }
+
+    pub fn get_block_status(&self, block_hash: &H256) -> BlockStatus {
+        let mut locked = self.block_status_map.lock();
+        match locked.get(block_hash).cloned() {
+            Some(status) => status,
+            None => {
+                if self.shared.store().get_block_header(block_hash).is_some() {
+                    locked.insert(block_hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
+                    BlockStatus::BLOCK_HAVE_MASK
+                } else {
+                    BlockStatus::UNKNOWN
+                }
+            }
+        }
+    }
+
+    pub fn insert_block_status(&self, block_hash: H256, status: BlockStatus) {
+        self.block_status_map.lock().insert(block_hash, status);
+    }
+
+    pub fn clear_get_block_proposals(&self) -> FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>> {
+        let mut locked = self.pending_get_block_proposals.lock();
+        let old = locked.deref_mut();
+        let mut ret = FnvHashMap::default();
+        swap(old, &mut ret);
+        ret
+    }
+
+    pub fn insert_get_block_proposals(&self, pi: PeerIndex, ids: Vec<ProposalShortId>) {
+        let mut locked = self.pending_get_block_proposals.lock();
+        for id in ids.into_iter() {
+            locked.entry(id).or_default().insert(pi);
+        }
+    }
+
+    pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
+        self.known_txs.lock().inner.remove(&pi);
+        self.known_blocks.lock().inner.remove(&pi);
+        self.inflight_blocks.write().remove_by_peer(&pi);
+        self.peers().disconnected(pi)
     }
 }
 
