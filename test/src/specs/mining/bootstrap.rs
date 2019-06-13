@@ -3,6 +3,7 @@ use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::Block;
 use ckb_core::script::Script;
+use jsonrpc_types::JsonBytes;
 use log::info;
 use numext_fixed_hash::{h256, H256};
 
@@ -65,6 +66,7 @@ impl Spec for BootstrapCellbase {
             config.block_assembler = Some(BlockAssemblerConfig {
                 code_hash: h256!("0xa2"),
                 args: vec![],
+                data: JsonBytes::default(),
             });
         })
     }

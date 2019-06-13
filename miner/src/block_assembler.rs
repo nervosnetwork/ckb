@@ -10,12 +10,13 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
-use ckb_core::{Bytes, Cycle, Version};
+use ckb_core::{Cycle, Version};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
+use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -407,10 +408,14 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 .consensus()
                 .genesis_epoch_ext()
                 .block_reward(candidate_number)?,
-            Bytes::default(),
+            self.config.data.clone().into_bytes(),
             self.shared.consensus().bootstrap_lock().clone(),
             None,
         );
+        // User-defined data has a risk of exceeding capacity
+        if output.is_lack_of_capacity()? {
+            return Err(TransactionError::InsufficientCellCapacity.into());
+        }
         Ok(TransactionBuilder::default()
             .input(input)
             .output(output)
@@ -424,7 +429,16 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         let witness = lock.into_witness();
         let input = CellInput::new_cellbase_input(candidate_number);
-        let output = CellOutput::new(block_reward, Bytes::default(), target_lock, None);
+        let output = CellOutput::new(
+            block_reward,
+            self.config.data.clone().into_bytes(),
+            target_lock,
+            None,
+        );
+        // User-defined data has a risk of exceeding capacity
+        if output.is_lack_of_capacity()? {
+            return Err(TransactionError::InsufficientCellCapacity.into());
+        }
         Ok(TransactionBuilder::default()
             .input(input)
             .output(output)
@@ -528,6 +542,7 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: H256::zero(),
             args: vec![],
+            data: JsonBytes::default(),
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
         let mut candidate_uncles = LruCache::new(MAX_CANDIDATE_UNCLES);
@@ -648,6 +663,7 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: H256::zero(),
             args: vec![],
+            data: JsonBytes::default(),
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
         let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");
