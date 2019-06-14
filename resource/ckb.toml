@@ -115,10 +115,16 @@ cell_output_cache_size  = 128
 #
 #     ckb cli secp256k1-lock <pubkey>
 #
-# Below is an example block assembler configuration section:
+# The command `ckb init` also accepts options to generate the block assembler
+# directly. See `ckb init --help` for details. And `ckb cli secp256k1-lock` can
+# also prints the command line options for `ckb init`.
 #
-# [block_assembler]
+#     ckb cli secp256k1-lock <pubkey> --format cmd
+#
+# The two commands can be combined together:
+#
+#     ckb init $(ckb cli secp256k1-lock <pubkey> --format cmd)
+#
 # # {{
-# _ => # code_hash = "{code_hash}"
+# _ => {block_assembler}
 # }}
-# args = ["ckb cli blake160 <pubkey>"]

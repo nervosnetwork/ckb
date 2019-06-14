@@ -1,6 +1,7 @@
 use ckb_app_config::{ExitCode, InitArgs};
 use ckb_resource::{
-    TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
+    TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME,
+    CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
     SPEC_DEV_FILE_NAME,
 };
 use ckb_script::Runner;
@@ -14,6 +15,35 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     }
 
     let runner = Runner::default().to_string();
+    let block_assembler = match args.block_assembler_code_hash {
+        Some(hash) => {
+            let default_hash = format!("{:#x}", CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL);
+            if default_hash != hash {
+                eprintln!(
+                    "WARN: the default secp256k1 code hash is `{}`, you are using `{}`",
+                    default_hash, hash
+                );
+            }
+            format!(
+                "[block_assembler]\n\
+                 code_hash = \"{}\"\n\
+                 args = [ \"{}\" ]",
+                hash,
+                args.block_assembler_args.join("\", \"")
+            )
+        }
+        None => {
+            eprintln!("WARN: mining feature is disabled because of lacking the block assembler config options");
+            format!(
+                "# secp256k1_blake160_sighash_all example:\n\
+                 # [block_assembler]\n\
+                 # code_hash = \"{:#x}\"\n\
+                 # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]",
+                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
+            )
+        }
+    };
+
     let context = TemplateContext {
         spec: &args.chain,
         rpc_port: &args.rpc_port,
@@ -21,6 +51,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         log_to_file: args.log_to_file,
         log_to_stdout: args.log_to_stdout,
         runner: &runner,
+        block_assembler: &block_assembler,
     };
 
     let exported = args.locator.exported();

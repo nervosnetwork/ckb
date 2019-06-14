@@ -270,6 +270,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             runner: "Rust",
+            block_assembler: "",
         };
         {
             locator.export_ckb(&context).expect("export config files");
@@ -307,6 +308,7 @@ mod tests {
             log_to_file: false,
             log_to_stdout: true,
             runner: "Rust",
+            block_assembler: "",
         };
         {
             locator.export_ckb(&context).expect("export config files");
@@ -339,6 +341,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             runner: "Rust",
+            block_assembler: "",
         };
         locator.export_ckb(&context).expect("export config files");
         {
@@ -376,6 +379,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             runner: "Rust",
+            block_assembler: "",
         };
         locator.export_ckb(&context).expect("export config files");
         {
@@ -417,6 +421,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             runner: "Assembly",
+            block_assembler: "",
         };
         {
             locator.export_ckb(&context).expect("export config files");
