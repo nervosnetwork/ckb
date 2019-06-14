@@ -644,7 +644,9 @@
         },
         "types": [
             {
-                "index_from": "Create an index from starting block number, an optional parameter, null means starting from tip",
+                "index_from": "Create an index from starting block number, an optional parameter, null means starting from tip"
+            },
+            {
                 "lock_hash": "Cell lock script hash"
             }
         ]
@@ -707,9 +709,16 @@
         ],
         "types": [
             {
-                "lock_hash": "Cell lock script hash",
-                "page": "Page number",
+                "lock_hash": "Cell lock script hash"
+            },
+            {
+                "page": "Page number"
+            },
+            {
                 "per": "Page size, max value is 50"
+            },
+            {
+                "reverse_order": "Returns the live cells collection in reverse order, an optional parameter, default is false"
             }
         ]
     },
@@ -742,9 +751,16 @@
         ],
         "types": [
             {
-                "lock_hash": "Cell lock script hash",
-                "page": "Page number",
+                "lock_hash": "Cell lock script hash"
+            },
+            {
+                "page": "Page number"
+            },
+            {
                 "per": "Page size, max value is 50"
+            },
+            {
+                "reverse_order": "Return the transactions collection in reverse order, an optional parameter, default is false"
             }
         ]
     },

@@ -40,7 +40,13 @@ pub trait IterableKeyValueDB: KeyValueDB {
         &'a self,
         col: Col,
         from_key: &'a [u8],
+        direction: Direction,
     ) -> Result<Box<Iterator<Item = KeyValueIteratorItem> + 'a>>;
+}
+
+pub enum Direction {
+    Forward,
+    Reverse,
 }
 
 pub trait DbBatch {

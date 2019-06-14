@@ -12,6 +12,7 @@ pub trait IndexerRpc {
         _lock_hash: H256,
         _page: Unsigned,
         _per_page: Unsigned,
+        _reverse_order: Option<bool>,
     ) -> Result<Vec<LiveCell>>;
 
     #[rpc(name = "get_transactions_by_lock_hash")]
@@ -20,6 +21,7 @@ pub trait IndexerRpc {
         _lock_hash: H256,
         _page: Unsigned,
         _per_page: Unsigned,
+        _reverse_order: Option<bool>,
     ) -> Result<Vec<CellTransaction>>;
 
     #[rpc(name = "index_lock_hash")]
@@ -46,6 +48,7 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
         lock_hash: H256,
         page: Unsigned,
         per_page: Unsigned,
+        reverse_order: Option<bool>,
     ) -> Result<Vec<LiveCell>> {
         let per_page = (per_page.0 as usize).min(50);
         Ok(self
@@ -54,6 +57,7 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
                 &lock_hash,
                 (page.0 as usize).saturating_mul(per_page),
                 per_page,
+                reverse_order.unwrap_or_default(),
             )
             .into_iter()
             .map(Into::into)
@@ -65,6 +69,7 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
         lock_hash: H256,
         page: Unsigned,
         per_page: Unsigned,
+        reverse_order: Option<bool>,
     ) -> Result<Vec<CellTransaction>> {
         let per_page = (per_page.0 as usize).min(50);
         Ok(self
@@ -73,6 +78,7 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
                 &lock_hash,
                 (page.0 as usize).saturating_mul(per_page),
                 per_page,
+                reverse_order.unwrap_or_default(),
             )
             .into_iter()
             .map(Into::into)

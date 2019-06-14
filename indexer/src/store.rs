@@ -8,7 +8,7 @@ use ckb_core::transaction::{CellOutPoint, CellOutput};
 use ckb_core::BlockNumber;
 use ckb_db::{
     rocksdb::{RocksDB, RocksdbBatch},
-    Col, DBConfig, DbBatch, IterableKeyValueDB, KeyValueDB,
+    Col, DBConfig, DbBatch, Direction, IterableKeyValueDB, KeyValueDB,
 };
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -39,13 +39,20 @@ const COLUMN_LOCK_HASH_TRANSACTION: Col = 2;
 const COLUMN_CELL_OUT_POINT_LOCK_HASH: Col = 3;
 
 pub trait IndexerStore: Sync + Send {
-    fn get_live_cells(&self, lock_hash: &H256, skip_num: usize, take_num: usize) -> Vec<LiveCell>;
+    fn get_live_cells(
+        &self,
+        lock_hash: &H256,
+        skip_num: usize,
+        take_num: usize,
+        reverse_order: bool,
+    ) -> Vec<LiveCell>;
 
     fn get_transactions(
         &self,
         lock_hash: &H256,
         skip_num: usize,
         take_num: usize,
+        reverse_order: bool,
     ) -> Vec<CellTransaction>;
 
     fn get_lock_hash_index_states(&self) -> HashMap<H256, LockHashIndexState>;
@@ -74,12 +81,24 @@ impl<CS: ChainStore> Clone for DefaultIndexerStore<CS> {
 }
 
 impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
-    fn get_live_cells(&self, lock_hash: &H256, skip_num: usize, take_num: usize) -> Vec<LiveCell> {
-        let iter = self
-            .db
-            .iter(COLUMN_LOCK_HASH_LIVE_CELL, lock_hash.as_bytes())
-            .expect("indexer db iter should be ok");
-        iter.skip(skip_num)
+    fn get_live_cells(
+        &self,
+        lock_hash: &H256,
+        skip_num: usize,
+        take_num: usize,
+        reverse_order: bool,
+    ) -> Vec<LiveCell> {
+        let mut from_key = lock_hash.to_vec();
+        let iter = if reverse_order {
+            from_key.extend_from_slice(&BlockNumber::max_value().to_be_bytes());
+            self.db
+                .iter(COLUMN_LOCK_HASH_LIVE_CELL, &from_key, Direction::Reverse)
+        } else {
+            self.db
+                .iter(COLUMN_LOCK_HASH_LIVE_CELL, &from_key, Direction::Forward)
+        };
+        iter.expect("indexer db iter should be ok")
+            .skip(skip_num)
             .take(take_num)
             .take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
             .map(|(key, value)| {
@@ -99,12 +118,19 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
         lock_hash: &H256,
         skip_num: usize,
         take_num: usize,
+        reverse_order: bool,
     ) -> Vec<CellTransaction> {
-        let iter = self
-            .db
-            .iter(COLUMN_LOCK_HASH_TRANSACTION, lock_hash.as_bytes())
-            .expect("indexer db iter should be ok");
-        iter.skip(skip_num)
+        let mut from_key = lock_hash.to_vec();
+        let iter = if reverse_order {
+            from_key.extend_from_slice(&BlockNumber::max_value().to_be_bytes());
+            self.db
+                .iter(COLUMN_LOCK_HASH_TRANSACTION, &from_key, Direction::Reverse)
+        } else {
+            self.db
+                .iter(COLUMN_LOCK_HASH_TRANSACTION, &from_key, Direction::Forward)
+        };
+        iter.expect("indexer db iter should be ok")
+            .skip(skip_num)
             .take(take_num)
             .take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
             .map(|(key, value)| {
@@ -121,7 +147,7 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
 
     fn get_lock_hash_index_states(&self) -> HashMap<H256, LockHashIndexState> {
         self.db
-            .iter(COLUMN_LOCK_HASH_INDEX_STATE, &[])
+            .iter(COLUMN_LOCK_HASH_INDEX_STATE, &[], Direction::Forward)
             .expect("indexer db iter should be ok")
             .map(|(key, value)| {
                 (
@@ -142,7 +168,7 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
             let tip_number = chain_state.tip_number();
             let block_number = index_from.unwrap_or_else(|| tip_number).min(tip_number);
             LockHashIndexState {
-                block_number: block_number,
+                block_number,
                 block_hash: chain_state
                     .store()
                     .get_block_hash(block_number)
@@ -159,7 +185,11 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
         self.commit_batch(|batch| {
             let iter = self
                 .db
-                .iter(COLUMN_LOCK_HASH_LIVE_CELL, lock_hash.as_bytes())
+                .iter(
+                    COLUMN_LOCK_HASH_LIVE_CELL,
+                    lock_hash.as_bytes(),
+                    Direction::Forward,
+                )
                 .expect("indexer db iter should be ok");
 
             iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
@@ -171,7 +201,11 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
 
             let iter = self
                 .db
-                .iter(COLUMN_LOCK_HASH_TRANSACTION, lock_hash.as_bytes())
+                .iter(
+                    COLUMN_LOCK_HASH_TRANSACTION,
+                    lock_hash.as_bytes(),
+                    Direction::Forward,
+                )
                 .expect("indexer db iter should be ok");
 
             iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
@@ -750,31 +784,37 @@ mod tests {
         chain.process_block(Arc::new(block2), false).unwrap();
         store.sync_index_states();
 
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(2, cells.len());
         assert_eq!(capacity_bytes!(1000), cells[0].cell_output.capacity);
         assert_eq!(capacity_bytes!(3000), cells[1].cell_output.capacity);
 
-        let cells = store.get_live_cells(&script2.hash(), 0, 100);
+        // test reverse order
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, true);
+        assert_eq!(2, cells.len());
+        assert_eq!(capacity_bytes!(3000), cells[0].cell_output.capacity);
+        assert_eq!(capacity_bytes!(1000), cells[1].cell_output.capacity);
+
+        let cells = store.get_live_cells(&script2.hash(), 0, 100, false);
         assert_eq!(2, cells.len());
         assert_eq!(capacity_bytes!(2000), cells[0].cell_output.capacity);
         assert_eq!(capacity_bytes!(4000), cells[1].cell_output.capacity);
 
         chain.process_block(Arc::new(block2_fork), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(1, cells.len());
         assert_eq!(capacity_bytes!(5000), cells[0].cell_output.capacity);
 
-        let cells = store.get_live_cells(&script2.hash(), 0, 100);
+        let cells = store.get_live_cells(&script2.hash(), 0, 100, false);
         assert_eq!(1, cells.len());
         assert_eq!(capacity_bytes!(6000), cells[0].cell_output.capacity);
 
         // remove script1's lock hash should remove its indexed data also
         store.remove_lock_hash(&script1.hash());
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cells = store.get_live_cells(&script2.hash(), 0, 100);
+        let cells = store.get_live_cells(&script2.hash(), 0, 100, false);
         assert_eq!(1, cells.len());
     }
 
@@ -885,19 +925,25 @@ mod tests {
         chain.process_block(Arc::new(block2), false).unwrap();
         store.sync_index_states();
 
-        let transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(tx11.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(tx21.hash().to_owned(), transactions[1].created_by.tx_hash);
 
-        let transactions = store.get_transactions(&script2.hash(), 0, 100);
+        // test reverse order
+        let transactions = store.get_transactions(&script1.hash(), 0, 100, true);
+        assert_eq!(2, transactions.len());
+        assert_eq!(tx21.hash().to_owned(), transactions[0].created_by.tx_hash);
+        assert_eq!(tx11.hash().to_owned(), transactions[1].created_by.tx_hash);
+
+        let transactions = store.get_transactions(&script2.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(tx12.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(tx22.hash().to_owned(), transactions[1].created_by.tx_hash);
 
         chain.process_block(Arc::new(block2_fork), false).unwrap();
         store.sync_index_states();
-        let transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(tx11.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(
@@ -909,16 +955,16 @@ mod tests {
         );
         assert_eq!(tx31.hash().to_owned(), transactions[1].created_by.tx_hash);
 
-        let transactions = store.get_transactions(&script2.hash(), 0, 100);
+        let transactions = store.get_transactions(&script2.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(tx12.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(tx32.hash().to_owned(), transactions[1].created_by.tx_hash);
 
         // remove script1's lock hash should remove its indexed data also
         store.remove_lock_hash(&script1.hash());
-        let transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(0, transactions.len());
-        let transactions = store.get_transactions(&script2.hash(), 0, 100);
+        let transactions = store.get_transactions(&script2.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
     }
 
@@ -1039,12 +1085,12 @@ mod tests {
 
         store.sync_index_states();
 
-        let transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(tx11.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(tx21.hash().to_owned(), transactions[1].created_by.tx_hash);
 
-        let transactions = store.get_transactions(&script2.hash(), 0, 100);
+        let transactions = store.get_transactions(&script2.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(tx12.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(tx22.hash().to_owned(), transactions[1].created_by.tx_hash);
@@ -1053,7 +1099,7 @@ mod tests {
         chain.process_block(Arc::new(block3), false).unwrap();
 
         store.sync_index_states();
-        let transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(tx11.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(
@@ -1065,7 +1111,7 @@ mod tests {
         );
         assert_eq!(tx31.hash().to_owned(), transactions[1].created_by.tx_hash);
 
-        let transactions = store.get_transactions(&script2.hash(), 0, 100);
+        let transactions = store.get_transactions(&script2.hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(tx12.hash().to_owned(), transactions[0].created_by.tx_hash);
         assert_eq!(tx32.hash().to_owned(), transactions[1].created_by.tx_hash);
@@ -1077,7 +1123,7 @@ mod tests {
         let script1 = Script::new(Vec::new(), DAO_CODE_HASH);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(0, cells.len());
 
         let tx11 = TransactionBuilder::default()
@@ -1138,16 +1184,16 @@ mod tests {
 
         chain.process_block(Arc::new(block1), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(2, cell_transactions.len());
 
         chain.process_block(Arc::new(block1_fork), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(0, cell_transactions.len());
     }
 
@@ -1157,7 +1203,7 @@ mod tests {
         let script1 = Script::new(Vec::new(), DAO_CODE_HASH);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(0, cells.len());
 
         let tx11 = TransactionBuilder::default()
@@ -1228,16 +1274,16 @@ mod tests {
         chain.process_block(Arc::new(block1), false).unwrap();
         chain.process_block(Arc::new(block2), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(2, cell_transactions.len());
 
         chain.process_block(Arc::new(block1_fork), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.hash(), 0, 100);
+        let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100);
+        let cell_transactions = store.get_transactions(&script1.hash(), 0, 100, false);
         assert_eq!(0, cell_transactions.len());
     }
 }

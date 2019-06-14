@@ -837,6 +837,7 @@ Returns the live cells collection by the hash of lock script.
     lock_hash - Cell lock script hash
     page - Page number
     per - Page size, max value is 50
+    reverse_order - Returns the live cells collection in reverse order, an optional parameter, default is false
 
 #### Examples
 
@@ -939,6 +940,7 @@ Returns the transactions collection by the hash of lock script.
     lock_hash - Cell lock script hash
     page - Page number
     per - Page size, max value is 50
+    reverse_order - Return the transactions collection in reverse order, an optional parameter, default is false
 
 #### Examples
 

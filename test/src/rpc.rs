@@ -222,10 +222,16 @@ impl RpcClient {
         lock_hash: H256,
         page: u64,
         per_page: u64,
+        reverse_order: Option<bool>,
     ) -> Vec<LiveCell> {
         self.inner()
             .lock()
-            .get_live_cells_by_lock_hash(lock_hash, Unsigned(page), Unsigned(per_page))
+            .get_live_cells_by_lock_hash(
+                lock_hash,
+                Unsigned(page),
+                Unsigned(per_page),
+                reverse_order,
+            )
             .call()
             .expect("rpc call get_live_cells_by_lock_hash")
     }
@@ -235,10 +241,16 @@ impl RpcClient {
         lock_hash: H256,
         page: u64,
         per_page: u64,
+        reverse_order: Option<bool>,
     ) -> Vec<CellTransaction> {
         self.inner()
             .lock()
-            .get_transactions_by_lock_hash(lock_hash, Unsigned(page), Unsigned(per_page))
+            .get_transactions_by_lock_hash(
+                lock_hash,
+                Unsigned(page),
+                Unsigned(per_page),
+                reverse_order,
+            )
             .call()
             .expect("rpc call get_transactions_by_lock_hash")
     }
@@ -310,8 +322,8 @@ jsonrpc_client!(pub struct Inner {
     pub fn remove_node(&mut self, peer_id: String) -> RpcRequest<()>;
     pub fn process_block_without_verify(&mut self, _data: Block) -> RpcRequest<Option<H256>>;
 
-    pub fn get_live_cells_by_lock_hash(&mut self, lock_hash: H256, page: Unsigned, per_page: Unsigned) -> RpcRequest<Vec<LiveCell>>;
-    pub fn get_transactions_by_lock_hash(&mut self, lock_hash: H256, page: Unsigned, per_page: Unsigned) -> RpcRequest<Vec<CellTransaction>>;
+    pub fn get_live_cells_by_lock_hash(&mut self, lock_hash: H256, page: Unsigned, per_page: Unsigned, reverse_order: Option<bool>) -> RpcRequest<Vec<LiveCell>>;
+    pub fn get_transactions_by_lock_hash(&mut self, lock_hash: H256, page: Unsigned, per_page: Unsigned, reverse_order: Option<bool>) -> RpcRequest<Vec<CellTransaction>>;
     pub fn index_lock_hash(&mut self, lock_hash: H256, index_from: Option<BlockNumber>) -> RpcRequest<LockHashIndexState>;
     pub fn deindex_lock_hash(&mut self, lock_hash: H256) -> RpcRequest<()>;
     pub fn get_lock_hash_index_states(&mut self) -> RpcRequest<Vec<LockHashIndexState>>;

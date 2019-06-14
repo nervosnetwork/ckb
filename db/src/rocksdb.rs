@@ -1,8 +1,12 @@
 use crate::{
-    Col, DBConfig, DbBatch, Error, IterableKeyValueDB, KeyValueDB, KeyValueIteratorItem, Result,
+    Col, DBConfig, DbBatch, Direction, Error, IterableKeyValueDB, KeyValueDB, KeyValueIteratorItem,
+    Result,
 };
 use log::{info, warn};
-use rocksdb::{ColumnFamily, Direction, Error as RdbError, IteratorMode, Options, WriteBatch, DB};
+use rocksdb::{
+    ColumnFamily, Direction as RdbDirection, Error as RdbError, IteratorMode, Options, WriteBatch,
+    DB,
+};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -166,9 +170,14 @@ impl IterableKeyValueDB for RocksDB {
         &'a self,
         col: Col,
         from_key: &'a [u8],
+        direction: Direction,
     ) -> Result<Box<Iterator<Item = KeyValueIteratorItem> + 'a>> {
         let cf = cf_handle(&self.inner, col)?;
-        let mode = IteratorMode::From(from_key, Direction::Forward);
+        let iter_direction = match direction {
+            Direction::Forward => RdbDirection::Forward,
+            Direction::Reverse => RdbDirection::Reverse,
+        };
+        let mode = IteratorMode::From(from_key, iter_direction);
         self.inner
             .iterator_cf(cf, mode)
             .map(|iter| Box::new(iter) as Box<_>)
@@ -334,5 +343,50 @@ mod tests {
         };
         let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, VERSION_VALUE).unwrap();
         let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, VERSION_VALUE).unwrap();
+    }
+
+    #[test]
+    fn iter() {
+        let db = setup_db("iter", 1);
+
+        let mut batch = db.batch().unwrap();
+        batch.insert(0, &[0, 0, 1], &[0, 0, 1]).unwrap();
+        batch.insert(0, &[0, 1, 1], &[0, 1, 1]).unwrap();
+        batch.insert(0, &[0, 1, 2], &[0, 1, 2]).unwrap();
+        batch.insert(0, &[0, 1, 3], &[0, 1, 3]).unwrap();
+        batch.insert(0, &[0, 2, 1], &[0, 2, 1]).unwrap();
+        batch.commit().unwrap();
+
+        let mut iter = db.iter(0, &[0, 1], Direction::Forward).unwrap();
+        assert_eq!(
+            (
+                vec![0, 1, 1].into_boxed_slice(),
+                vec![0, 1, 1].into_boxed_slice()
+            ),
+            iter.next().unwrap()
+        );
+        assert_eq!(
+            (
+                vec![0, 1, 2].into_boxed_slice(),
+                vec![0, 1, 2].into_boxed_slice()
+            ),
+            iter.next().unwrap()
+        );
+
+        let mut iter = db.iter(0, &[0, 2], Direction::Reverse).unwrap();
+        assert_eq!(
+            (
+                vec![0, 1, 3].into_boxed_slice(),
+                vec![0, 1, 3].into_boxed_slice()
+            ),
+            iter.next().unwrap()
+        );
+        assert_eq!(
+            (
+                vec![0, 1, 2].into_boxed_slice(),
+                vec![0, 1, 2].into_boxed_slice()
+            ),
+            iter.next().unwrap()
+        );
     }
 }
