@@ -48,6 +48,23 @@ impl KeyValueDB for MemoryKeyValueDB {
         }
     }
 
+    fn process_read<F, Ret>(&self, col: Col, key: &[u8], process: F) -> Result<Option<Ret>>
+    where
+        F: FnOnce(&[u8]) -> Result<Option<Ret>>,
+    {
+        let db = self.db.read();
+        match db.get(&col) {
+            None => Err(Error::DBError(format!("column {} not found ", col))),
+            Some(map) => {
+                if let Some(data) = map.get(key) {
+                    process(data)
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
     fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,

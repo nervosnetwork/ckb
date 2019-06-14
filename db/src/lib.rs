@@ -30,6 +30,9 @@ pub trait KeyValueDB: Sync + Send {
     fn read(&self, col: Col, key: &[u8]) -> Result<Option<Vec<u8>>>;
     fn partial_read(&self, col: Col, key: &[u8], range: &Range<usize>) -> Result<Option<Vec<u8>>>;
     fn batch(&self) -> Result<Self::Batch>;
+    fn process_read<F, Ret>(&self, col: Col, key: &[u8], process: F) -> Result<Option<Ret>>
+    where
+        F: FnOnce(&[u8]) -> Result<Option<Ret>>;
     fn traverse<F>(&self, col: Col, callback: F) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>;
