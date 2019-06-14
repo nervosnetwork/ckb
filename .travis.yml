@@ -54,16 +54,15 @@ deploy:
 matrix:
   include:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
-    # If you want to see the tests result in CI before submitting PR, name the branch with prefix "test".
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: linux
     - name: Linters
       env: CACHE_NAME=linters
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: linux
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
@@ -73,7 +72,7 @@ matrix:
         - make clippy
         - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: linux
       cache: false
       addons: { apt: { packages: [] } }
@@ -84,11 +83,11 @@ matrix:
         - make check-dirty-doc
 
     - name: Integration on macOS
-      if: 'tag IS NOT present AND type != pull_request'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
       os: osx
       script: make integration
     - name: Integration on Linux
-      if: 'tag IS NOT present AND type != pull_request'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
       os: linux
       script: make integration
     - name: Code Coverage
