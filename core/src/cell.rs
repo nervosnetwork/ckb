@@ -7,6 +7,7 @@ use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
+use std::convert::AsRef;
 use std::fmt;
 
 #[derive(Clone, Debug, Eq, PartialEq, Default, Deserialize, Serialize)]
@@ -291,7 +292,7 @@ impl ResolvedOutPoint {
     }
 
     pub fn header(&self) -> Option<&Header> {
-        self.header.as_ref().map(|h| &**h)
+        self.header.as_ref().map(AsRef::as_ref)
     }
 }
 
@@ -308,12 +309,12 @@ pub trait CellProvider {
 }
 
 pub struct OverlayCellProvider<'a> {
-    overlay: &'a CellProvider,
-    cell_provider: &'a CellProvider,
+    overlay: &'a dyn CellProvider,
+    cell_provider: &'a dyn CellProvider,
 }
 
 impl<'a> OverlayCellProvider<'a> {
-    pub fn new(overlay: &'a CellProvider, cell_provider: &'a CellProvider) -> Self {
+    pub fn new(overlay: &'a dyn CellProvider, cell_provider: &'a dyn CellProvider) -> Self {
         Self {
             overlay,
             cell_provider,
@@ -451,7 +452,7 @@ pub struct BlockHeadersProvider {
     detached_indices: FnvHashMap<H256, Header>,
 }
 
-impl<'a> BlockHeadersProvider {
+impl BlockHeadersProvider {
     pub fn push_attached(&mut self, block: &Block) {
         self.attached_indices
             .insert(block.header().hash().clone(), block.header().clone());
@@ -464,6 +465,12 @@ impl<'a> BlockHeadersProvider {
     pub fn push_detached(&mut self, block: &Block) {
         self.detached_indices
             .insert(block.header().hash().clone(), block.header().clone());
+    }
+
+    #[cfg(test)]
+    pub fn insert_attached_transaction_block(&mut self, tx_hash: H256, header_hash: H256) {
+        self.attached_transaction_blocks
+            .insert(tx_hash, header_hash);
     }
 }
 
@@ -646,7 +653,6 @@ impl<'a> ResolvedTransaction<'a> {
 #[cfg(test)]
 mod tests {
     use super::super::block::{Block, BlockBuilder};
-    use super::super::header::{Header, HeaderBuilder};
     use super::super::script::Script;
     use super::super::transaction::{CellInput, CellOutPoint, OutPoint, TransactionBuilder};
     use super::*;
@@ -672,44 +678,6 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct HeaderMemoryDb {
-        headers: HashMap<H256, Header>,
-        tx_headers: HashMap<CellOutPoint, H256>,
-    }
-    impl HeaderMemoryDb {
-        fn insert_header(&mut self, header: Header) {
-            self.headers.insert(header.hash().clone(), header);
-        }
-    }
-    impl HeaderProvider for HeaderMemoryDb {
-        fn header(&self, o: &OutPoint) -> HeaderStatus {
-            if o.block_hash.is_none() {
-                return HeaderStatus::Unspecified;
-            }
-
-            match self.headers.get(o.block_hash.as_ref().unwrap()) {
-                Some(header) => {
-                    if o.cell.is_some() {
-                        self.tx_headers.get(o.cell.as_ref().unwrap()).map_or(
-                            HeaderStatus::InclusionFaliure,
-                            |h| {
-                                if h == header.hash() {
-                                    HeaderStatus::live_header(header.clone())
-                                } else {
-                                    HeaderStatus::InclusionFaliure
-                                }
-                            },
-                        )
-                    } else {
-                        HeaderStatus::live_header(header.clone())
-                    }
-                }
-                None => HeaderStatus::Unknown,
-            }
-        }
-    }
-
     fn generate_dummy_cell_meta() -> CellMeta {
         let cell_output = CellOutput {
             capacity: capacity_bytes!(2),
@@ -731,6 +699,10 @@ mod tests {
             },
             cellbase: false,
         }
+    }
+
+    fn generate_block(txs: Vec<Transaction>) -> Block {
+        BlockBuilder::default().transactions(txs).build()
     }
 
     #[test]
@@ -768,19 +740,15 @@ mod tests {
         assert_eq!(CellStatus::Unknown, db.cell(&p3));
     }
 
-    fn generate_header(parent_hash: H256) -> Header {
-        HeaderBuilder::default().parent_hash(parent_hash).build()
-    }
-
     #[test]
     fn resolve_transaction_should_resolve_header_only_out_point() {
         let cell_provider = CellMemoryDb::default();
-        let mut header_provider = HeaderMemoryDb::default();
+        let mut header_provider = BlockHeadersProvider::default();
 
-        let header = generate_header(h256!("0x1"));
-        let header_hash = header.hash();
+        let block = generate_block(vec![]);
+        let header_hash = block.header().hash();
 
-        header_provider.insert_header(header.clone());
+        header_provider.push_attached(&block);
 
         let out_point = OutPoint::new_block_hash(header_hash.clone());
         let transaction = TransactionBuilder::default().dep(out_point).build();
@@ -795,18 +763,21 @@ mod tests {
         .unwrap();
 
         assert!(result.resolved_deps[0].cell.cell_meta().is_none());
-        assert_eq!(result.resolved_deps[0].header, Some(Box::new(header)));
+        assert_eq!(
+            result.resolved_deps[0].header,
+            Some(Box::new(block.header().clone()))
+        );
     }
 
     #[test]
     fn resolve_transaction_should_reject_input_without_cells() {
         let cell_provider = CellMemoryDb::default();
-        let mut header_provider = HeaderMemoryDb::default();
+        let mut header_provider = BlockHeadersProvider::default();
 
-        let header = generate_header(h256!("0x1"));
-        let header_hash = header.hash();
+        let block = generate_block(vec![]);
+        let header_hash = block.header().hash();
 
-        header_provider.insert_header(header.clone());
+        header_provider.push_attached(&block);
 
         let out_point = OutPoint::new_block_hash(header_hash.clone());
         let transaction = TransactionBuilder::default()
@@ -830,20 +801,21 @@ mod tests {
     #[test]
     fn resolve_transaction_should_resolve_both_header_and_cell() {
         let mut cell_provider = CellMemoryDb::default();
-        let mut header_provider = HeaderMemoryDb::default();
+        let mut header_provider = BlockHeadersProvider::default();
 
-        let header = generate_header(h256!("0x1"));
-        let header_hash = header.hash();
+        let block = generate_block(vec![]);
+        let header_hash = block.header().hash();
         let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
 
         cell_provider.cells.insert(
             out_point.cell.clone().unwrap(),
             Some(generate_dummy_cell_meta()),
         );
-        header_provider.insert_header(header.clone());
-        header_provider
-            .tx_headers
-            .insert(out_point.cell.clone().unwrap(), header_hash.clone());
+        header_provider.push_attached(&block);
+        header_provider.insert_attached_transaction_block(
+            out_point.cell.clone().unwrap().tx_hash,
+            header_hash.clone(),
+        );
 
         let transaction = TransactionBuilder::default().dep(out_point).build();
 
@@ -857,23 +829,26 @@ mod tests {
         .unwrap();
 
         assert!(result.resolved_deps[0].cell.cell_meta().is_some());
-        assert_eq!(result.resolved_deps[0].header, Some(Box::new(header)));
+        assert_eq!(
+            result.resolved_deps[0].header,
+            Some(Box::new(block.header().clone()))
+        );
     }
 
     #[test]
     fn resolve_transaction_should_test_header_includes_cell() {
         let mut cell_provider = CellMemoryDb::default();
-        let mut header_provider = HeaderMemoryDb::default();
+        let mut header_provider = BlockHeadersProvider::default();
 
-        let header = generate_header(h256!("0x1"));
-        let header_hash = header.hash();
+        let block = generate_block(vec![]);
+        let header_hash = block.header().hash();
         let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
 
         cell_provider.cells.insert(
             out_point.cell.clone().unwrap(),
             Some(generate_dummy_cell_meta()),
         );
-        header_provider.insert_header(header.clone());
+        header_provider.push_attached(&block);
 
         let transaction = TransactionBuilder::default().dep(out_point.clone()).build();
 
@@ -894,20 +869,21 @@ mod tests {
     #[test]
     fn resolve_transaction_should_reject_empty_out_point() {
         let mut cell_provider = CellMemoryDb::default();
-        let mut header_provider = HeaderMemoryDb::default();
+        let mut header_provider = BlockHeadersProvider::default();
 
-        let header = generate_header(h256!("0x1"));
-        let header_hash = header.hash();
+        let block = generate_block(vec![]);
+        let header_hash = block.header().hash();
         let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
 
         cell_provider.cells.insert(
             out_point.cell.clone().unwrap(),
             Some(generate_dummy_cell_meta()),
         );
-        header_provider.insert_header(header.clone());
-        header_provider
-            .tx_headers
-            .insert(out_point.cell.clone().unwrap(), header_hash.clone());
+        header_provider.push_attached(&block);
+        header_provider.insert_attached_transaction_block(
+            out_point.cell.clone().unwrap().tx_hash,
+            header_hash.clone(),
+        );
 
         let transaction = TransactionBuilder::default()
             .dep(OutPoint::default())
@@ -922,10 +898,6 @@ mod tests {
         );
 
         assert_eq!(result.err(), Some(UnresolvableError::Empty));
-    }
-
-    fn generate_block(txs: Vec<Transaction>) -> Block {
-        BlockBuilder::default().transactions(txs).build()
     }
 
     #[test]
@@ -1004,7 +976,7 @@ mod tests {
     #[test]
     fn resolve_transaction_should_reject_dep_cell_consumed_by_previous_input() {
         let mut cell_provider = CellMemoryDb::default();
-        let header_provider = HeaderMemoryDb::default();
+        let header_provider = BlockHeadersProvider::default();
 
         let out_point = OutPoint::new_cell(h256!("0x2"), 3);
 
