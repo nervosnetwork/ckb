@@ -164,12 +164,17 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
         index_from: Option<BlockNumber>,
     ) -> LockHashIndexState {
         let index_state = {
-            let chain_state = self.shared.lock_chain_state();
-            let tip_number = chain_state.tip_number();
+            let tip_number = self
+                .shared
+                .store()
+                .get_tip_header()
+                .expect("tip header exists")
+                .number();
             let block_number = index_from.unwrap_or_else(|| tip_number).min(tip_number);
             LockHashIndexState {
                 block_number,
-                block_hash: chain_state
+                block_hash: self
+                    .shared
                     .store()
                     .get_block_hash(block_number)
                     .expect("block exists"),
@@ -321,8 +326,12 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
             .block_number;
 
         let (tip_number, tip_hash) = {
-            let chain_state = self.shared.lock_chain_state();
-            (chain_state.tip_number(), chain_state.tip_hash().to_owned())
+            let tip_header = self
+                .shared
+                .store()
+                .get_tip_header()
+                .expect("tip header exists");
+            (tip_header.number(), tip_header.hash().to_owned())
         };
         self.commit_batch(|batch| {
             (min_block_number + 1..=tip_number)
