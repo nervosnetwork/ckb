@@ -9,14 +9,12 @@ use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::BlockNumber;
-use ckb_core::{Cycle, Version};
+use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, OccupiedCapacity, Version};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -403,19 +401,21 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     ) -> Result<Transaction, FailureError> {
         let witness = lock.into_witness();
         let input = CellInput::new_cellbase_input(candidate_number);
-        let output = CellOutput::new(
-            self.shared
-                .consensus()
-                .genesis_epoch_ext()
-                .block_reward(candidate_number)?,
-            self.config.data.clone().into_bytes(),
-            self.shared.consensus().bootstrap_lock().clone(),
-            None,
-        );
-        // User-defined data has a risk of exceeding capacity
-        if output.is_lack_of_capacity()? {
-            return Err(TransactionError::InsufficientCellCapacity.into());
-        }
+
+        let block_reward = self
+            .shared
+            .consensus()
+            .genesis_epoch_ext()
+            .block_reward(candidate_number)?;
+
+        let lock = self.shared.consensus().bootstrap_lock().clone();
+
+        let r#type = None;
+
+        let data = self.custom_data(block_reward, &lock, &r#type)?;
+
+        let output = CellOutput::new(block_reward, data, lock, r#type);
+
         Ok(TransactionBuilder::default()
             .input(input)
             .output(output)
@@ -429,21 +429,39 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         let witness = lock.into_witness();
         let input = CellInput::new_cellbase_input(candidate_number);
-        let output = CellOutput::new(
-            block_reward,
-            self.config.data.clone().into_bytes(),
-            target_lock,
-            None,
-        );
-        // User-defined data has a risk of exceeding capacity
-        if output.is_lack_of_capacity()? {
-            return Err(TransactionError::InsufficientCellCapacity.into());
-        }
+
+        let r#type = None;
+
+        let data = self.custom_data(block_reward, &target_lock, &r#type)?;
+
+        let output = CellOutput::new(block_reward, data, target_lock, r#type);
+
         Ok(TransactionBuilder::default()
             .input(input)
             .output(output)
             .witness(witness)
             .build())
+    }
+
+    fn custom_data(
+        &self,
+        reward: Capacity,
+        lock: &Script,
+        r#type: &Option<Script>,
+    ) -> Result<Bytes, FailureError> {
+        let mut data = self.config.data.clone().into_bytes();
+
+        let data_max_len = (reward.as_u64()
+            - lock.occupied_capacity()?.as_u64()
+            - reward.occupied_capacity()?.as_u64()
+            - r#type.occupied_capacity()?.as_u64()) as usize;
+
+        // User-defined data has a risk of exceeding capacity
+        // just truncate it
+        if data.len() > data_max_len {
+            data.truncate(data_max_len);
+        }
+        Ok(data)
     }
 
     fn prepare_uncles(

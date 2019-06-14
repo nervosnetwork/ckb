@@ -117,12 +117,13 @@ cell_output_cache_size  = 128
 #
 #     ckb cli secp256k1-lock <pubkey>
 #
-# Also, ckb allows the miner to add any data to the cellbase that he has dug out.
-# The data must be A 0x-prefixed hex string. **Please note** that the data cannot be
-# larger than the capacity value of the current cellbase. If it is larger,
-# the block template cannot be obtained normally. That is, it is impossible to mine normally.
+# Also, ckb allows the miners to add any data to the cellbase that they have dug out.
+# The data must be A 0x-prefixed hex string.
 #
 # note: The data field is optional.
+#
+# **WARNING**: if data is larger than the capacity value of the current cellbase,
+# it will be truncated
 #
 # Below is an example block assembler configuration section:
 #
