@@ -340,10 +340,10 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "block_reward": "250000000000",
+        "block_reward": "100000000000",
         "difficulty": "0x3e8",
         "last_block_hash_in_previous_epoch": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "length": "2000",
+        "length": "1250",
         "number": "0",
         "remainder_reward": "0",
         "start_number": "0"
@@ -380,10 +380,10 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "block_reward": "250000000000",
+        "block_reward": "100000000000",
         "difficulty": "0x3e8",
         "last_block_hash_in_previous_epoch": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "length": "2000",
+        "length": "1250",
         "number": "0",
         "remainder_reward": "0",
         "start_number": "0"
