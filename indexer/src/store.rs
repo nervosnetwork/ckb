@@ -13,7 +13,7 @@ use ckb_db::{
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use numext_fixed_hash::H256;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -230,7 +230,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
     }
 
     pub fn sync_index_states(&self) {
-        info!(target: "indexer", "Start sync index states with chain store");
+        debug!(target: "indexer", "Start sync index states with chain store");
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
         if lock_hash_index_states.is_empty() {
             return;
@@ -321,7 +321,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                 })
         });
 
-        info!(target: "indexer", "End sync index states with chain store");
+        debug!(target: "indexer", "End sync index states with chain store");
     }
 
     fn detach_block(
