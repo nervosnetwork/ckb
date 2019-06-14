@@ -140,9 +140,9 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
         let index_state = {
             let chain_state = self.shared.lock_chain_state();
             let tip_number = chain_state.tip_number();
-            let block_number = index_from.unwrap_or_else(|| tip_number);
+            let block_number = index_from.unwrap_or_else(|| tip_number).min(tip_number);
             LockHashIndexState {
-                block_number: block_number.min(tip_number),
+                block_number: block_number,
                 block_hash: chain_state
                     .store()
                     .get_block_hash(block_number)
