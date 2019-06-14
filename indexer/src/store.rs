@@ -13,7 +13,7 @@ use ckb_db::{
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
-use log::{debug, error, info, trace};
+use log::{debug, error, trace};
 use numext_fixed_hash::H256;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -286,10 +286,12 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
             .expect("none empty index states")
             .block_number;
 
-        // need to lock chain state, avoids inconsistent state in processing
-        let chain_state = self.shared.lock_chain_state();
+        let (tip_number, tip_hash) = {
+            let chain_state = self.shared.lock_chain_state();
+            (chain_state.tip_number(), chain_state.tip_hash().to_owned())
+        };
         self.commit_batch(|batch| {
-            (min_block_number + 1..=chain_state.tip_number())
+            (min_block_number + 1..=tip_number)
                 .take(BATCH_ATTACH_BLOCK_NUMS)
                 .for_each(|block_number| {
                     let index_lock_hashes = lock_hash_index_states
@@ -300,9 +302,8 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                         .collect();
                     let block = self
                         .shared
-                        .store()
-                        .get_block_hash(block_number)
-                        .and_then(|hash| self.shared.store().get_block(&hash))
+                        .get_ancestor(&tip_hash, block_number)
+                        .and_then(|header| self.shared.store().get_block(&header.hash()))
                         .expect("block exists");
                     self.attach_block(batch, &index_lock_hashes, &block);
                     let index_state = LockHashIndexState {
@@ -348,19 +349,20 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
 
             if !tx.is_cellbase() {
                 tx.inputs().iter().for_each(|input| {
-                    let cell_out_point = input.previous_output.cell.clone().expect("cell exists");
-                    if let Some(lock_hash_cell_output) =
-                        batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
-                    {
-                        if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                            if let Some(cell_output) = lock_hash_cell_output.cell_output {
-                                let lock_hash_index = LockHashIndex::new(
-                                    lock_hash_cell_output.lock_hash.clone(),
-                                    lock_hash_cell_output.block_number,
-                                    cell_out_point.tx_hash.clone(),
-                                    cell_out_point.index,
-                                );
-                                batch.generate_live_cell(lock_hash_index, cell_output);
+                    if let Some(cell_out_point) = input.previous_output.cell.clone() {
+                        if let Some(lock_hash_cell_output) =
+                            batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
+                        {
+                            if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
+                                if let Some(cell_output) = lock_hash_cell_output.cell_output {
+                                    let lock_hash_index = LockHashIndex::new(
+                                        lock_hash_cell_output.lock_hash.clone(),
+                                        lock_hash_cell_output.block_number,
+                                        cell_out_point.tx_hash.clone(),
+                                        cell_out_point.index,
+                                    );
+                                    batch.generate_live_cell(lock_hash_index, cell_output);
+                                }
                             }
                         }
                     }
@@ -382,23 +384,24 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
             if !tx.is_cellbase() {
                 tx.inputs().iter().enumerate().for_each(|(index, input)| {
                     let index = index as u32;
-                    let cell_out_point = input.previous_output.cell.clone().expect("cell exists");
-                    if let Some(lock_hash_cell_output) =
-                        batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
-                    {
-                        if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                            let lock_hash_index = LockHashIndex::new(
-                                lock_hash_cell_output.lock_hash,
-                                lock_hash_cell_output.block_number,
-                                cell_out_point.tx_hash,
-                                cell_out_point.index,
-                            );
-                            let consumed_by = TransactionPoint {
-                                block_number,
-                                tx_hash: tx_hash.clone(),
-                                index,
-                            };
-                            batch.consume_live_cell(lock_hash_index, consumed_by, &self.db);
+                    if let Some(cell_out_point) = input.previous_output.cell.clone() {
+                        if let Some(lock_hash_cell_output) =
+                            batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
+                        {
+                            if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
+                                let lock_hash_index = LockHashIndex::new(
+                                    lock_hash_cell_output.lock_hash,
+                                    lock_hash_cell_output.block_number,
+                                    cell_out_point.tx_hash,
+                                    cell_out_point.index,
+                                );
+                                let consumed_by = TransactionPoint {
+                                    block_number,
+                                    tx_hash: tx_hash.clone(),
+                                    index,
+                                };
+                                batch.consume_live_cell(lock_hash_index, consumed_by, &self.db);
+                            }
                         }
                     }
                 });
