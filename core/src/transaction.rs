@@ -767,9 +767,8 @@ impl ProposalShortId {
     }
 
     pub fn from_tx_hash(h: &H256) -> Self {
-        let v = h.to_vec();
         let mut inner = [0u8; 10];
-        inner.copy_from_slice(&v[..10]);
+        inner.copy_from_slice(&h.as_bytes()[..10]);
         ProposalShortId(inner)
     }
 
