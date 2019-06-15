@@ -88,25 +88,24 @@ impl Miner {
 
     fn check_seal(&mut self, pow_hash: H256, seal: Seal) {
         if let Some(work) = self.works.lock().get_refresh(&pow_hash) {
-            let block = &work.block;
             if self
                 .pow
-                .verify_proof_difficulty(&seal.proof(), &block.header().difficulty())
+                .verify_proof_difficulty(&seal.proof(), &work.block.header().difficulty())
             {
                 self.notify_workers(WorkerMessage::Stop);
+                let raw_header = work.block.header().raw().to_owned();
+                let block = BlockBuilder::from_block(work.block.clone())
+                    .header(raw_header.with_seal(seal))
+                    .build();
+
                 debug!(
-                    "found seal {:?} of block #{} {:x}",
-                    seal,
+                    "Found! #{} {:#x}",
                     block.header().number(),
                     block.header().hash(),
                 );
 
                 // submit block and poll new work
                 {
-                    let raw_header = block.header().raw().to_owned();
-                    let block = BlockBuilder::from_block(block.clone())
-                        .header(raw_header.with_seal(seal))
-                        .build();
                     self.client.submit_block(&work.work_id.to_string(), &block);
                     self.client.try_update_block_template();
                     self.notify_workers(WorkerMessage::Start);
@@ -116,7 +115,7 @@ impl Miner {
                 {
                     self.seals_found += 1;
                     self.pb.println(format!(
-                        "Found! #{} {:x}",
+                        "Found! #{} {:#x}",
                         block.header().number(),
                         block.header().hash()
                     ));
