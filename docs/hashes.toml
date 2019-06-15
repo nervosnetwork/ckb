@@ -10,7 +10,7 @@ code_hash = "0xf1951123466e4479842387a66fabfd6b65fc87fd84ae8e6cd3053edb27fff2fd"
 script_hash = "0xc0dd96594cf5af5e521340672c1e8d19cc1dde13117ef5a5b4f5cd658d159211"
 
 [ckb_testnet]
-genesis = "0x39a1ccb0873e8bbc17c7b880dff8a7230f164546aa8bf298f7c939dcbb23a0ca"
+genesis = "0x8d40c56b87b3772dba8802f825e396d25ff26bd5516acb69577f082aca563141"
 cellbase = "0x4761362a804a39c51410d25f622da2fcfd2fb1ed72d46b1b7cf9a09b167470dd"
 
 [[ckb_testnet.system_cells]]

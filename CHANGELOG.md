@@ -1,6 +1,111 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+
+# [v0.14.0](https://github.com/nervosnetwork/ckb/compare/v0.13.0...v0.14.0) (2019-06-15) rylai-v3
+
+### BREAKING CHANGES
+
+**Important**: The default secp256k1 code hash is changed to `0xf1951123466e4479842387a66fabfd6b65fc87fd84ae8e6cd3053edb27fff2fd`. Remember to update block assembler config.
+
+This version is not compatible with v0.13.0, please init a new CKB directory.
+
+### Features
+
+* #913: New verification model (@xxuejie)
+
+    This is a breaking change: b:consensus, b:database, b:p2p, b:rpc
+
+    Based on feedbacks gathered earlier, we are revising our verification
+    model with the following changes:
+
+    * When validating a transaction, CKB will grab all lock scripts from
+      all inputs, and group them based on lock script hash. The script in
+      each group will only be run once. The lock script itself will have
+      to do the validation task for all inputs in the same group
+    * CKB will also grab all type scripts from inputs and outputs(notice
+      different from previous version, the type scripts in inputs are
+      included here as well), and group them based on type script hash as
+      well. Each type script in each group will also be run once. The type
+      script itself needs to handle the validation task within the group
+    * Syscalls are also revised to allow fetching all the
+      inputs/outputs/witnesses within a single group.
+    * Input args is removed since the functionality can be replicated elsewhere
+
+* #908: Peers handle disconnect (@keroro520)
+* #891: Secp256k1 multisig (@jjyr)
+* #845: Limit TXO set memory usage (@yangby-cryptape)
+
+    This is a breaking change: b:database
+
+* #874: Revise uncle rule (@zhangsoledad)
+
+    This is a breaking change: b:consensus, b:database
+
+    1. get rid uncle age limit
+    2. try include disconnected block as uncle
+
+* #920: Tweak consensus params (@zhangsoledad)
+
+    This is a breaking change: b:consensus
+
+    tweak `block_cycles_limit` and `min_block_interval`
+
+* #897: Wrap the log macros to fix ill formed macros (@yangby-cryptape)
+
+    And, we have to update the log filters, add prefix `ckb-` for all our crates.
+
+* #919: Synchronizer and relayer share BlocksInflight (@keroro520)
+* #924: Add a transaction error `InsufficientCellCapacity` (@yangby-cryptape)
+* #926: Make a better error message for miner when method not found (@yangby-cryptape)
+* #961: Display miner worker status (@quake)
+
+    BREAKCHANGE: config file `ckb-miner.toml` changed
+
+* #1001: `ckb init` supports setting block assembler (@doitian)
+
+    - `ckb init` accepts options `--ba-code-hash` and `--ba-arg` (which can
+    repeat multiple times) to set block assembler.
+    - `ckb cli secp256k1-lock` adds an output format `cmd` to prints the
+    command line options for `ckb init` to set block assembler.
+
+    The two commands can combine into one to init the directory with a secp256k1 compressed pub key:
+
+        ckb init $(ckb cli secp256k1-lock <pubkey> --format cmd)
+
+* #996: Tweak consensus parameters (@doitian)
+
+    - Change target epoch duration to 4 hours
+    - Reduce epoch reward to 1/4
+    - Increase secondary epoch reward to 600,000 bytes
+
+
+### Bug Fixes
+
+* #878: Calculate the current median time from tip (@keroro520)
+
+    This is a breaking change: b:consensus
+
+    Original implementation use `[Tip-BlockMedianCount .. Tip-1]` to calculate the current block median time. According to the notion of BlockMedianTime in [bip-0113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki#specification) , here change to use `[Tip-BlockMedianCount+1 .. Tip]` instead.
+
+* #915: Sync blocked by protected peer (@TheWaWaR)
+* #906: Proposal table reload (@zhangsoledad)
+* #983: Uncle number should smaller than block (@zhangsoledad)
+
+    This is a breaking change: b:consensus
+
+
+### Improvements
+
+* #981 **sync:** Fix get ancestor performance issue (@TheWaWaR)
+
+    It's a backport of PR https://github.com/nervosnetwork/ckb/pull/970
+
+### Misc
+
+* #966: Backport windows support and sentry cleanup to v0.14.0 (@doitian)
+
+
 # [v0.13.0](https://github.com/nervosnetwork/ckb/compare/v0.12.2...v0.13.0) (2019-06-01) rylai-v2
 
 ### Features

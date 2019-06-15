@@ -179,6 +179,13 @@ impl Setup {
             _ => unreachable!(),
         };
 
+        let block_assembler_code_hash = matches.value_of(cli::ARG_BA_CODE_HASH).map(str::to_string);
+        let block_assembler_args: Vec<_> = matches
+            .values_of(cli::ARG_BA_ARG)
+            .unwrap_or_default()
+            .map(str::to_string)
+            .collect();
+
         Ok(InitArgs {
             root_dir,
             chain,
@@ -188,6 +195,8 @@ impl Setup {
             force,
             log_to_file,
             log_to_stdout,
+            block_assembler_code_hash,
+            block_assembler_args,
         })
     }
 

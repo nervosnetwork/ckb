@@ -26,6 +26,8 @@ pub const ARG_RPC_PORT: &str = "rpc-port";
 pub const ARG_FORCE: &str = "force";
 pub const ARG_LOG_TO: &str = "log-to";
 pub const ARG_BUNDLED: &str = "bundled";
+pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
+pub const ARG_BA_ARG: &str = "ba-arg";
 
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
     App::new("ckb")
@@ -183,11 +185,11 @@ fn cli_secp256k1_lock() -> App<'static, 'static> {
             Arg::with_name(ARG_FORMAT)
                 .long(ARG_FORMAT)
                 .short("s")
-                .possible_values(&["block_assembler", "json"])
-                .default_value("block_assembler")
+                .possible_values(&["toml", "cmd"])
+                .default_value("toml")
                 .required(true)
                 .takes_value(true)
-                .help("Output format: `block_assembler` is used in ckb.toml."),
+                .help("Output format. toml: ckb.toml, cmd: command line options for `ckb init`"),
         )
 }
 
@@ -231,6 +233,21 @@ fn init() -> App<'static, 'static> {
                 .long(ARG_P2P_PORT)
                 .default_value(DEFAULT_P2P_PORT)
                 .help("Replaces CKB P2P port in the created config file"),
+        )
+        .arg(
+            Arg::with_name(ARG_BA_CODE_HASH)
+                .long(ARG_BA_CODE_HASH)
+                .value_name("code_hash")
+                .takes_value(true)
+                .help("Set code_hash in [block_assembler]"),
+        )
+        .arg(
+            Arg::with_name(ARG_BA_ARG)
+                .long(ARG_BA_ARG)
+                .value_name("arg")
+                .multiple(true)
+                .number_of_values(1)
+                .help("Set args in [block_assembler]"),
         )
         .arg(
             Arg::with_name("export-specs")

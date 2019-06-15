@@ -21,6 +21,11 @@ pub struct UnclesVerifier<'a, P> {
     block: &'a Block,
 }
 
+/// A block B1 is considered to be the uncle of
+/// another block B2 if all of the following conditions are met:
+/// (1) they are in the same epoch, sharing the same difficulty;
+/// (2) height(B2) > height(B1);
+/// (3) B2 is the first block in its chain to refer to B1
 impl<'a, P> UnclesVerifier<'a, P>
 where
     P: UncleProvider,
@@ -85,9 +90,11 @@ where
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
             }
 
-            let uncle_header = uncle.header.clone();
+            if uncle.header().number() >= self.block.header().number() {
+                return Err(Error::Uncles(UnclesError::InvalidNumber));
+            }
 
-            let uncle_hash = uncle_header.hash().to_owned();
+            let uncle_hash = uncle.header.hash().to_owned();
             if included.contains(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash.clone())));
             }
@@ -104,7 +111,7 @@ where
                 return Err(Error::Uncles(UnclesError::ExceededMaximumProposalsLimit));
             }
 
-            if uncle_header.proposals_hash() != &uncle.cal_proposals_hash() {
+            if uncle.header.proposals_hash() != &uncle.cal_proposals_hash() {
                 return Err(Error::Uncles(UnclesError::ProposalsHash));
             }
 
@@ -117,7 +124,7 @@ where
                 .provider
                 .consensus()
                 .pow_engine()
-                .verify_header(&uncle_header)
+                .verify_header(&uncle.header)
             {
                 return Err(Error::Uncles(UnclesError::InvalidProof));
             }

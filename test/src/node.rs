@@ -302,7 +302,7 @@ impl Node {
         TransactionBuilder::default()
             .dep(always_success_out_point)
             .output(CellOutput::new(
-                capacity_bytes!(25_000),
+                capacity_bytes!(100),
                 Bytes::new(),
                 always_success_script,
                 None,

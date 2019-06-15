@@ -3,11 +3,12 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1558137600000
-difficulty = "0x1000"
+timestamp = 1560578400858
+# Difficulty of the block 161029 in rylai-v2
+difficulty = "0x9292"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x39a1ccb0873e8bbc17c7b880dff8a7230f164546aa8bf298f7c939dcbb23a0ca"
+hash = "0x8d40c56b87b3772dba8802f825e396d25ff26bd5516acb69577f082aca563141"
 issued_cells = []
 
 [genesis.seal]
@@ -37,8 +38,8 @@ code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
 args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
 
 [params]
-epoch_reward = 5_000_000_00000000
-secondary_epoch_reward = 50_00000000
+epoch_reward = 1_250_000_00000000
+secondary_epoch_reward = 600_000_00000000
 max_block_cycles = 10_000_000_000
 cellbase_maturity = 10
 

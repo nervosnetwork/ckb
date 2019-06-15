@@ -84,3 +84,4 @@ jobs:
             $(Build.ArtifactStagingDirectory)/*.asc
           assetUploadMode: replace
           isPreRelease: true
+          addChangeLog: false
