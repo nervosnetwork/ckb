@@ -13,4 +13,6 @@ pub struct MinerConfig {
 pub struct BlockAssemblerConfig {
     pub code_hash: H256,
     pub args: Vec<JsonBytes>,
+    #[serde(default)]
+    pub data: JsonBytes,
 }

@@ -9,13 +9,13 @@ use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::BlockNumber;
-use ckb_core::{Bytes, Cycle, Version};
+use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, OccupiedCapacity, Version};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
+use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -402,15 +402,22 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     ) -> Result<Transaction, FailureError> {
         let witness = lock.into_witness();
         let input = CellInput::new_cellbase_input(candidate_number);
-        let output = CellOutput::new(
-            self.shared
-                .consensus()
-                .genesis_epoch_ext()
-                .block_reward(candidate_number)?,
+
+        let block_reward = self
+            .shared
+            .consensus()
+            .genesis_epoch_ext()
+            .block_reward(candidate_number)?;
+
+        let raw_output = CellOutput::new(
+            block_reward,
             Bytes::default(),
             self.shared.consensus().bootstrap_lock().clone(),
             None,
         );
+
+        let output = self.custom_output(block_reward, raw_output)?;
+
         Ok(TransactionBuilder::default()
             .input(input)
             .output(output)
@@ -424,12 +431,44 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
 
         let witness = lock.into_witness();
         let input = CellInput::new_cellbase_input(candidate_number);
-        let output = CellOutput::new(block_reward, Bytes::default(), target_lock, None);
+
+        let raw_output = CellOutput::new(block_reward, Bytes::default(), target_lock, None);
+
+        let output = self.custom_output(block_reward, raw_output)?;
+
         Ok(TransactionBuilder::default()
             .input(input)
             .output(output)
             .witness(witness)
             .build())
+    }
+
+    fn custom_output(
+        &self,
+        reward: Capacity,
+        mut output: CellOutput,
+    ) -> Result<CellOutput, FailureError> {
+        let occupied_capacity = output.occupied_capacity()?;
+
+        if reward < occupied_capacity {
+            return Err(TransactionError::InsufficientCellCapacity.into());
+        }
+
+        let mut data = self.config.data.clone().into_bytes();
+
+        if !data.is_empty() {
+            let data_max_len = (reward.as_u64() - occupied_capacity.as_u64()) as usize;
+
+            // User-defined data has a risk of exceeding capacity
+            // just truncate it
+            if data.len() > data_max_len {
+                data.truncate(data_max_len);
+            }
+
+            output.data = data;
+        }
+
+        Ok(output)
     }
 
     fn prepare_uncles(
@@ -528,6 +567,7 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: H256::zero(),
             args: vec![],
+            data: JsonBytes::default(),
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
         let mut candidate_uncles = LruCache::new(MAX_CANDIDATE_UNCLES);
@@ -648,6 +688,7 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: H256::zero(),
             args: vec![],
+            data: JsonBytes::default(),
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
         let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");

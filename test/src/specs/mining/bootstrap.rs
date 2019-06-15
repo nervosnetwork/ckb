@@ -3,6 +3,8 @@ use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::Block;
 use ckb_core::script::Script;
+use ckb_core::Bytes;
+use jsonrpc_types::JsonBytes;
 use log::info;
 use numext_fixed_hash::{h256, H256};
 
@@ -43,7 +45,9 @@ impl Spec for BootstrapCellbase {
 
         let blk: Block = node.rpc_client().get_block(hash).unwrap().into();
         assert!(
-            blk.transactions()[0].is_cellbase() && blk.transactions()[0].outputs()[0].lock == miner
+            blk.transactions()[0].is_cellbase()
+                && blk.transactions()[0].outputs()[0].lock == miner
+                && blk.transactions()[0].outputs()[0].data == Bytes::from(vec![1; 30])
         )
     }
 
@@ -65,6 +69,7 @@ impl Spec for BootstrapCellbase {
             config.block_assembler = Some(BlockAssemblerConfig {
                 code_hash: h256!("0xa2"),
                 args: vec![],
+                data: JsonBytes::from_bytes(Bytes::from(vec![1; 30])),
             });
         })
     }

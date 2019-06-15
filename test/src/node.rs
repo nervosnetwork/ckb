@@ -8,7 +8,7 @@ use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
-use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
+use jsonrpc_types::{BlockTemplate, CellbaseTemplate, JsonBytes};
 use log::info;
 use numext_fixed_hash::H256;
 use rand;
@@ -355,6 +355,7 @@ impl Node {
         ckb_config.block_assembler = Some(BlockAssemblerConfig {
             code_hash: self.always_success_code_hash.clone(),
             args: Default::default(),
+            data: JsonBytes::default(),
         });
         modify_ckb_config(&mut ckb_config);
         fs::write(
