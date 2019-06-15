@@ -282,7 +282,6 @@ impl SystemCells {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use ckb_core::script::Script;
     use serde_derive::{Deserialize, Serialize};
     use std::collections::HashMap;
 
