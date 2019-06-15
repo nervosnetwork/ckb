@@ -116,10 +116,10 @@ impl ProposalShortId {
     }
 }
 
-// struct H256, aligned to 1
+// struct Bytes32, aligned to 1
 #[repr(C, align(1))]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct H256 {
+pub struct Bytes32 {
     u0_: u8,
     u1_: u8,
     u2_: u8,
@@ -152,44 +152,45 @@ pub struct H256 {
     u29_: u8,
     u30_: u8,
     u31_: u8,
-} // pub struct H256
-impl flatbuffers::SafeSliceAccess for H256 {}
-impl<'a> flatbuffers::Follow<'a> for H256 {
-    type Inner = &'a H256;
+} // pub struct Bytes32
+impl flatbuffers::SafeSliceAccess for Bytes32 {}
+impl<'a> flatbuffers::Follow<'a> for Bytes32 {
+    type Inner = &'a Bytes32;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        <&'a H256>::follow(buf, loc)
+        <&'a Bytes32>::follow(buf, loc)
     }
 }
-impl<'a> flatbuffers::Follow<'a> for &'a H256 {
-    type Inner = &'a H256;
+impl<'a> flatbuffers::Follow<'a> for &'a Bytes32 {
+    type Inner = &'a Bytes32;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        flatbuffers::follow_cast_ref::<H256>(buf, loc)
+        flatbuffers::follow_cast_ref::<Bytes32>(buf, loc)
     }
 }
-impl<'b> flatbuffers::Push for H256 {
-    type Output = H256;
+impl<'b> flatbuffers::Push for Bytes32 {
+    type Output = Bytes32;
     #[inline]
     fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        let src =
-            unsafe { ::std::slice::from_raw_parts(self as *const H256 as *const u8, Self::size()) };
+        let src = unsafe {
+            ::std::slice::from_raw_parts(self as *const Bytes32 as *const u8, Self::size())
+        };
         dst.copy_from_slice(src);
     }
 }
-impl<'b> flatbuffers::Push for &'b H256 {
-    type Output = H256;
+impl<'b> flatbuffers::Push for &'b Bytes32 {
+    type Output = Bytes32;
 
     #[inline]
     fn push(&self, dst: &mut [u8], _rest: &[u8]) {
         let src = unsafe {
-            ::std::slice::from_raw_parts(*self as *const H256 as *const u8, Self::size())
+            ::std::slice::from_raw_parts(*self as *const Bytes32 as *const u8, Self::size())
         };
         dst.copy_from_slice(src);
     }
 }
 
-impl H256 {
+impl Bytes32 {
     pub fn new<'a>(
         _u0: u8,
         _u1: u8,
@@ -224,7 +225,7 @@ impl H256 {
         _u30: u8,
         _u31: u8,
     ) -> Self {
-        H256 {
+        Bytes32 {
             u0_: _u0.to_little_endian(),
             u1_: _u1.to_little_endian(),
             u2_: _u2.to_little_endian(),
@@ -361,7 +362,7 @@ impl H256 {
 #[repr(C, align(4))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TransactionAddress {
-    block_hash_: H256,
+    block_hash_: Bytes32,
     index_: u32,
 } // pub struct TransactionAddress
 impl flatbuffers::SafeSliceAccess for TransactionAddress {}
@@ -408,17 +409,168 @@ impl<'b> flatbuffers::Push for &'b TransactionAddress {
 }
 
 impl TransactionAddress {
-    pub fn new<'a>(_block_hash: &'a H256, _index: u32) -> Self {
+    pub fn new<'a>(_block_hash: &'a Bytes32, _index: u32) -> Self {
         TransactionAddress {
             block_hash_: *_block_hash,
             index_: _index.to_little_endian(),
         }
     }
-    pub fn block_hash<'a>(&'a self) -> &'a H256 {
+    pub fn block_hash<'a>(&'a self) -> &'a Bytes32 {
         &self.block_hash_
     }
     pub fn index<'a>(&'a self) -> u32 {
         self.index_.from_little_endian()
+    }
+}
+
+// struct DaoStats, aligned to 8
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DaoStats {
+    accumulated_rate_: u64,
+    accumulated_capacity_: u64,
+} // pub struct DaoStats
+impl flatbuffers::SafeSliceAccess for DaoStats {}
+impl<'a> flatbuffers::Follow<'a> for DaoStats {
+    type Inner = &'a DaoStats;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        <&'a DaoStats>::follow(buf, loc)
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for &'a DaoStats {
+    type Inner = &'a DaoStats;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        flatbuffers::follow_cast_ref::<DaoStats>(buf, loc)
+    }
+}
+impl<'b> flatbuffers::Push for DaoStats {
+    type Output = DaoStats;
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(self as *const DaoStats as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+impl<'b> flatbuffers::Push for &'b DaoStats {
+    type Output = DaoStats;
+
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(*self as *const DaoStats as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+
+impl DaoStats {
+    pub fn new<'a>(_accumulated_rate: u64, _accumulated_capacity: u64) -> Self {
+        DaoStats {
+            accumulated_rate_: _accumulated_rate.to_little_endian(),
+            accumulated_capacity_: _accumulated_capacity.to_little_endian(),
+        }
+    }
+    pub fn accumulated_rate<'a>(&'a self) -> u64 {
+        self.accumulated_rate_.from_little_endian()
+    }
+    pub fn accumulated_capacity<'a>(&'a self) -> u64 {
+        self.accumulated_capacity_.from_little_endian()
+    }
+}
+
+// struct EpochExt, aligned to 8
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EpochExt {
+    number_: u64,
+    block_reward_: u64,
+    remainder_reward_: u64,
+    last_block_hash_in_previous_epoch_: Bytes32,
+    start_number_: u64,
+    length_: u64,
+    difficulty_: Bytes32,
+} // pub struct EpochExt
+impl flatbuffers::SafeSliceAccess for EpochExt {}
+impl<'a> flatbuffers::Follow<'a> for EpochExt {
+    type Inner = &'a EpochExt;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        <&'a EpochExt>::follow(buf, loc)
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for &'a EpochExt {
+    type Inner = &'a EpochExt;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        flatbuffers::follow_cast_ref::<EpochExt>(buf, loc)
+    }
+}
+impl<'b> flatbuffers::Push for EpochExt {
+    type Output = EpochExt;
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(self as *const EpochExt as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+impl<'b> flatbuffers::Push for &'b EpochExt {
+    type Output = EpochExt;
+
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(*self as *const EpochExt as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+
+impl EpochExt {
+    pub fn new<'a>(
+        _number: u64,
+        _block_reward: u64,
+        _remainder_reward: u64,
+        _last_block_hash_in_previous_epoch: &'a Bytes32,
+        _start_number: u64,
+        _length: u64,
+        _difficulty: &'a Bytes32,
+    ) -> Self {
+        EpochExt {
+            number_: _number.to_little_endian(),
+            block_reward_: _block_reward.to_little_endian(),
+            remainder_reward_: _remainder_reward.to_little_endian(),
+            last_block_hash_in_previous_epoch_: *_last_block_hash_in_previous_epoch,
+            start_number_: _start_number.to_little_endian(),
+            length_: _length.to_little_endian(),
+            difficulty_: *_difficulty,
+        }
+    }
+    pub fn number<'a>(&'a self) -> u64 {
+        self.number_.from_little_endian()
+    }
+    pub fn block_reward<'a>(&'a self) -> u64 {
+        self.block_reward_.from_little_endian()
+    }
+    pub fn remainder_reward<'a>(&'a self) -> u64 {
+        self.remainder_reward_.from_little_endian()
+    }
+    pub fn last_block_hash_in_previous_epoch<'a>(&'a self) -> &'a Bytes32 {
+        &self.last_block_hash_in_previous_epoch_
+    }
+    pub fn start_number<'a>(&'a self) -> u64 {
+        self.start_number_.from_little_endian()
+    }
+    pub fn length<'a>(&'a self) -> u64 {
+        self.length_.from_little_endian()
+    }
+    pub fn difficulty<'a>(&'a self) -> &'a Bytes32 {
+        &self.difficulty_
     }
 }
 
@@ -577,8 +729,8 @@ impl<'a> Header<'a> {
         self._tab.get::<u32>(Header::VT_VERSION, Some(0)).unwrap()
     }
     #[inline]
-    pub fn parent_hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(Header::VT_PARENT_HASH, None)
+    pub fn parent_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(Header::VT_PARENT_HASH, None)
     }
     #[inline]
     pub fn timestamp(&self) -> u64 {
@@ -589,20 +741,20 @@ impl<'a> Header<'a> {
         self._tab.get::<u64>(Header::VT_NUMBER, Some(0)).unwrap()
     }
     #[inline]
-    pub fn transactions_root(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(Header::VT_TRANSACTIONS_ROOT, None)
+    pub fn transactions_root(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(Header::VT_TRANSACTIONS_ROOT, None)
     }
     #[inline]
-    pub fn witnesses_root(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(Header::VT_WITNESSES_ROOT, None)
+    pub fn witnesses_root(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(Header::VT_WITNESSES_ROOT, None)
     }
     #[inline]
-    pub fn proposals_hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(Header::VT_PROPOSALS_HASH, None)
+    pub fn proposals_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(Header::VT_PROPOSALS_HASH, None)
     }
     #[inline]
-    pub fn difficulty(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(Header::VT_DIFFICULTY, None)
+    pub fn difficulty(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(Header::VT_DIFFICULTY, None)
     }
     #[inline]
     pub fn nonce(&self) -> u64 {
@@ -614,8 +766,8 @@ impl<'a> Header<'a> {
             .get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_PROOF, None)
     }
     #[inline]
-    pub fn uncles_hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(Header::VT_UNCLES_HASH, None)
+    pub fn uncles_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(Header::VT_UNCLES_HASH, None)
     }
     #[inline]
     pub fn uncles_count(&self) -> u32 {
@@ -631,16 +783,16 @@ impl<'a> Header<'a> {
 
 pub struct HeaderArgs<'a> {
     pub version: u32,
-    pub parent_hash: Option<&'a H256>,
+    pub parent_hash: Option<&'a Bytes32>,
     pub timestamp: u64,
     pub number: u64,
-    pub transactions_root: Option<&'a H256>,
-    pub witnesses_root: Option<&'a H256>,
-    pub proposals_hash: Option<&'a H256>,
-    pub difficulty: Option<&'a H256>,
+    pub transactions_root: Option<&'a Bytes32>,
+    pub witnesses_root: Option<&'a Bytes32>,
+    pub proposals_hash: Option<&'a Bytes32>,
+    pub difficulty: Option<&'a Bytes32>,
     pub nonce: u64,
     pub proof: Option<flatbuffers::WIPOffset<Bytes<'a>>>,
-    pub uncles_hash: Option<&'a H256>,
+    pub uncles_hash: Option<&'a Bytes32>,
     pub uncles_count: u32,
     pub epoch: u64,
 }
@@ -674,9 +826,9 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
         self.fbb_.push_slot::<u32>(Header::VT_VERSION, version, 0);
     }
     #[inline]
-    pub fn add_parent_hash(&mut self, parent_hash: &'b H256) {
+    pub fn add_parent_hash(&mut self, parent_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(Header::VT_PARENT_HASH, parent_hash);
+            .push_slot_always::<&Bytes32>(Header::VT_PARENT_HASH, parent_hash);
     }
     #[inline]
     pub fn add_timestamp(&mut self, timestamp: u64) {
@@ -688,24 +840,24 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
         self.fbb_.push_slot::<u64>(Header::VT_NUMBER, number, 0);
     }
     #[inline]
-    pub fn add_transactions_root(&mut self, transactions_root: &'b H256) {
+    pub fn add_transactions_root(&mut self, transactions_root: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(Header::VT_TRANSACTIONS_ROOT, transactions_root);
+            .push_slot_always::<&Bytes32>(Header::VT_TRANSACTIONS_ROOT, transactions_root);
     }
     #[inline]
-    pub fn add_witnesses_root(&mut self, witnesses_root: &'b H256) {
+    pub fn add_witnesses_root(&mut self, witnesses_root: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(Header::VT_WITNESSES_ROOT, witnesses_root);
+            .push_slot_always::<&Bytes32>(Header::VT_WITNESSES_ROOT, witnesses_root);
     }
     #[inline]
-    pub fn add_proposals_hash(&mut self, proposals_hash: &'b H256) {
+    pub fn add_proposals_hash(&mut self, proposals_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(Header::VT_PROPOSALS_HASH, proposals_hash);
+            .push_slot_always::<&Bytes32>(Header::VT_PROPOSALS_HASH, proposals_hash);
     }
     #[inline]
-    pub fn add_difficulty(&mut self, difficulty: &'b H256) {
+    pub fn add_difficulty(&mut self, difficulty: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(Header::VT_DIFFICULTY, difficulty);
+            .push_slot_always::<&Bytes32>(Header::VT_DIFFICULTY, difficulty);
     }
     #[inline]
     pub fn add_nonce(&mut self, nonce: u64) {
@@ -717,9 +869,9 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
             .push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_PROOF, proof);
     }
     #[inline]
-    pub fn add_uncles_hash(&mut self, uncles_hash: &'b H256) {
+    pub fn add_uncles_hash(&mut self, uncles_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(Header::VT_UNCLES_HASH, uncles_hash);
+            .push_slot_always::<&Bytes32>(Header::VT_UNCLES_HASH, uncles_hash);
     }
     #[inline]
     pub fn add_uncles_count(&mut self, uncles_count: u32) {
@@ -1410,12 +1562,12 @@ impl<'a> OutPoint<'a> {
     pub const VT_INDEX: flatbuffers::VOffsetT = 8;
 
     #[inline]
-    pub fn block_hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(OutPoint::VT_BLOCK_HASH, None)
+    pub fn block_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(OutPoint::VT_BLOCK_HASH, None)
     }
     #[inline]
-    pub fn tx_hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(OutPoint::VT_TX_HASH, None)
+    pub fn tx_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(OutPoint::VT_TX_HASH, None)
     }
     #[inline]
     pub fn index(&self) -> u32 {
@@ -1424,8 +1576,8 @@ impl<'a> OutPoint<'a> {
 }
 
 pub struct OutPointArgs<'a> {
-    pub block_hash: Option<&'a H256>,
-    pub tx_hash: Option<&'a H256>,
+    pub block_hash: Option<&'a Bytes32>,
+    pub tx_hash: Option<&'a Bytes32>,
     pub index: u32,
 }
 impl<'a> Default for OutPointArgs<'a> {
@@ -1444,14 +1596,14 @@ pub struct OutPointBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> OutPointBuilder<'a, 'b> {
     #[inline]
-    pub fn add_block_hash(&mut self, block_hash: &'b H256) {
+    pub fn add_block_hash(&mut self, block_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(OutPoint::VT_BLOCK_HASH, block_hash);
+            .push_slot_always::<&Bytes32>(OutPoint::VT_BLOCK_HASH, block_hash);
     }
     #[inline]
-    pub fn add_tx_hash(&mut self, tx_hash: &'b H256) {
+    pub fn add_tx_hash(&mut self, tx_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(OutPoint::VT_TX_HASH, tx_hash);
+            .push_slot_always::<&Bytes32>(OutPoint::VT_TX_HASH, tx_hash);
     }
     #[inline]
     pub fn add_index(&mut self, index: u32) {
@@ -1517,12 +1669,12 @@ impl<'a> CellInput<'a> {
     pub const VT_SINCE: flatbuffers::VOffsetT = 10;
 
     #[inline]
-    pub fn block_hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(CellInput::VT_BLOCK_HASH, None)
+    pub fn block_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(CellInput::VT_BLOCK_HASH, None)
     }
     #[inline]
-    pub fn tx_hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(CellInput::VT_TX_HASH, None)
+    pub fn tx_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(CellInput::VT_TX_HASH, None)
     }
     #[inline]
     pub fn index(&self) -> u32 {
@@ -1535,8 +1687,8 @@ impl<'a> CellInput<'a> {
 }
 
 pub struct CellInputArgs<'a> {
-    pub block_hash: Option<&'a H256>,
-    pub tx_hash: Option<&'a H256>,
+    pub block_hash: Option<&'a Bytes32>,
+    pub tx_hash: Option<&'a Bytes32>,
     pub index: u32,
     pub since: u64,
 }
@@ -1557,14 +1709,14 @@ pub struct CellInputBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> CellInputBuilder<'a, 'b> {
     #[inline]
-    pub fn add_block_hash(&mut self, block_hash: &'b H256) {
+    pub fn add_block_hash(&mut self, block_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(CellInput::VT_BLOCK_HASH, block_hash);
+            .push_slot_always::<&Bytes32>(CellInput::VT_BLOCK_HASH, block_hash);
     }
     #[inline]
-    pub fn add_tx_hash(&mut self, tx_hash: &'b H256) {
+    pub fn add_tx_hash(&mut self, tx_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(CellInput::VT_TX_HASH, tx_hash);
+            .push_slot_always::<&Bytes32>(CellInput::VT_TX_HASH, tx_hash);
     }
     #[inline]
     pub fn add_index(&mut self, index: u32) {
@@ -1762,8 +1914,8 @@ impl<'a> Script<'a> {
         >>(Script::VT_ARGS, None)
     }
     #[inline]
-    pub fn code_hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(Script::VT_CODE_HASH, None)
+    pub fn code_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(Script::VT_CODE_HASH, None)
     }
 }
 
@@ -1771,7 +1923,7 @@ pub struct ScriptArgs<'a> {
     pub args: Option<
         flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Bytes<'a>>>>,
     >,
-    pub code_hash: Option<&'a H256>,
+    pub code_hash: Option<&'a Bytes32>,
 }
 impl<'a> Default for ScriptArgs<'a> {
     #[inline]
@@ -1798,9 +1950,9 @@ impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
             .push_slot_always::<flatbuffers::WIPOffset<_>>(Script::VT_ARGS, args);
     }
     #[inline]
-    pub fn add_code_hash(&mut self, code_hash: &'b H256) {
+    pub fn add_code_hash(&mut self, code_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(Script::VT_CODE_HASH, code_hash);
+            .push_slot_always::<&Bytes32>(Script::VT_CODE_HASH, code_hash);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ScriptBuilder<'a, 'b> {
@@ -1812,6 +1964,317 @@ impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
     }
     #[inline]
     pub fn finish(self) -> flatbuffers::WIPOffset<Script<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+pub enum BlockExtOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct BlockExt<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for BlockExt<'a> {
+    type Inner = BlockExt<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> BlockExt<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        BlockExt { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args BlockExtArgs<'args>,
+    ) -> flatbuffers::WIPOffset<BlockExt<'bldr>> {
+        let mut builder = BlockExtBuilder::new(_fbb);
+        builder.add_total_uncles_count(args.total_uncles_count);
+        builder.add_received_at(args.received_at);
+        if let Some(x) = args.txs_fees {
+            builder.add_txs_fees(x);
+        }
+        if let Some(x) = args.dao_stats {
+            builder.add_dao_stats(x);
+        }
+        if let Some(x) = args.total_difficulty {
+            builder.add_total_difficulty(x);
+        }
+        builder.add_verified(args.verified);
+        builder.add_has_verified(args.has_verified);
+        builder.finish()
+    }
+
+    pub const VT_RECEIVED_AT: flatbuffers::VOffsetT = 4;
+    pub const VT_TOTAL_DIFFICULTY: flatbuffers::VOffsetT = 6;
+    pub const VT_TOTAL_UNCLES_COUNT: flatbuffers::VOffsetT = 8;
+    pub const VT_HAS_VERIFIED: flatbuffers::VOffsetT = 10;
+    pub const VT_VERIFIED: flatbuffers::VOffsetT = 12;
+    pub const VT_DAO_STATS: flatbuffers::VOffsetT = 14;
+    pub const VT_TXS_FEES: flatbuffers::VOffsetT = 16;
+
+    #[inline]
+    pub fn received_at(&self) -> u64 {
+        self._tab
+            .get::<u64>(BlockExt::VT_RECEIVED_AT, Some(0))
+            .unwrap()
+    }
+    #[inline]
+    pub fn total_difficulty(&self) -> Option<&'a Bytes32> {
+        self._tab
+            .get::<Bytes32>(BlockExt::VT_TOTAL_DIFFICULTY, None)
+    }
+    #[inline]
+    pub fn total_uncles_count(&self) -> u64 {
+        self._tab
+            .get::<u64>(BlockExt::VT_TOTAL_UNCLES_COUNT, Some(0))
+            .unwrap()
+    }
+    #[inline]
+    pub fn has_verified(&self) -> bool {
+        self._tab
+            .get::<bool>(BlockExt::VT_HAS_VERIFIED, Some(false))
+            .unwrap()
+    }
+    #[inline]
+    pub fn verified(&self) -> bool {
+        self._tab
+            .get::<bool>(BlockExt::VT_VERIFIED, Some(false))
+            .unwrap()
+    }
+    #[inline]
+    pub fn dao_stats(&self) -> Option<&'a DaoStats> {
+        self._tab.get::<DaoStats>(BlockExt::VT_DAO_STATS, None)
+    }
+    #[inline]
+    pub fn txs_fees(&self) -> Option<flatbuffers::Vector<'a, u64>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u64>>>(
+                BlockExt::VT_TXS_FEES,
+                None,
+            )
+    }
+}
+
+pub struct BlockExtArgs<'a> {
+    pub received_at: u64,
+    pub total_difficulty: Option<&'a Bytes32>,
+    pub total_uncles_count: u64,
+    pub has_verified: bool,
+    pub verified: bool,
+    pub dao_stats: Option<&'a DaoStats>,
+    pub txs_fees: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
+}
+impl<'a> Default for BlockExtArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        BlockExtArgs {
+            received_at: 0,
+            total_difficulty: None,
+            total_uncles_count: 0,
+            has_verified: false,
+            verified: false,
+            dao_stats: None,
+            txs_fees: None,
+        }
+    }
+}
+pub struct BlockExtBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> BlockExtBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_received_at(&mut self, received_at: u64) {
+        self.fbb_
+            .push_slot::<u64>(BlockExt::VT_RECEIVED_AT, received_at, 0);
+    }
+    #[inline]
+    pub fn add_total_difficulty(&mut self, total_difficulty: &'b Bytes32) {
+        self.fbb_
+            .push_slot_always::<&Bytes32>(BlockExt::VT_TOTAL_DIFFICULTY, total_difficulty);
+    }
+    #[inline]
+    pub fn add_total_uncles_count(&mut self, total_uncles_count: u64) {
+        self.fbb_
+            .push_slot::<u64>(BlockExt::VT_TOTAL_UNCLES_COUNT, total_uncles_count, 0);
+    }
+    #[inline]
+    pub fn add_has_verified(&mut self, has_verified: bool) {
+        self.fbb_
+            .push_slot::<bool>(BlockExt::VT_HAS_VERIFIED, has_verified, false);
+    }
+    #[inline]
+    pub fn add_verified(&mut self, verified: bool) {
+        self.fbb_
+            .push_slot::<bool>(BlockExt::VT_VERIFIED, verified, false);
+    }
+    #[inline]
+    pub fn add_dao_stats(&mut self, dao_stats: &'b DaoStats) {
+        self.fbb_
+            .push_slot_always::<&DaoStats>(BlockExt::VT_DAO_STATS, dao_stats);
+    }
+    #[inline]
+    pub fn add_txs_fees(&mut self, txs_fees: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u64>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(BlockExt::VT_TXS_FEES, txs_fees);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> BlockExtBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        BlockExtBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<BlockExt<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+pub enum TransactionMetaOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct TransactionMeta<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TransactionMeta<'a> {
+    type Inner = TransactionMeta<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> TransactionMeta<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        TransactionMeta { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args TransactionMetaArgs<'args>,
+    ) -> flatbuffers::WIPOffset<TransactionMeta<'bldr>> {
+        let mut builder = TransactionMetaBuilder::new(_fbb);
+        builder.add_epoch_number(args.epoch_number);
+        builder.add_block_number(args.block_number);
+        builder.add_len(args.len);
+        if let Some(x) = args.bits {
+            builder.add_bits(x);
+        }
+        builder.add_cellbase(args.cellbase);
+        builder.finish()
+    }
+
+    pub const VT_BLOCK_NUMBER: flatbuffers::VOffsetT = 4;
+    pub const VT_EPOCH_NUMBER: flatbuffers::VOffsetT = 6;
+    pub const VT_CELLBASE: flatbuffers::VOffsetT = 8;
+    pub const VT_BITS: flatbuffers::VOffsetT = 10;
+    pub const VT_LEN: flatbuffers::VOffsetT = 12;
+
+    #[inline]
+    pub fn block_number(&self) -> u64 {
+        self._tab
+            .get::<u64>(TransactionMeta::VT_BLOCK_NUMBER, Some(0))
+            .unwrap()
+    }
+    #[inline]
+    pub fn epoch_number(&self) -> u64 {
+        self._tab
+            .get::<u64>(TransactionMeta::VT_EPOCH_NUMBER, Some(0))
+            .unwrap()
+    }
+    #[inline]
+    pub fn cellbase(&self) -> bool {
+        self._tab
+            .get::<bool>(TransactionMeta::VT_CELLBASE, Some(false))
+            .unwrap()
+    }
+    #[inline]
+    pub fn bits(&self) -> Option<Bytes<'a>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(TransactionMeta::VT_BITS, None)
+    }
+    #[inline]
+    pub fn len(&self) -> u32 {
+        self._tab
+            .get::<u32>(TransactionMeta::VT_LEN, Some(0))
+            .unwrap()
+    }
+}
+
+pub struct TransactionMetaArgs<'a> {
+    pub block_number: u64,
+    pub epoch_number: u64,
+    pub cellbase: bool,
+    pub bits: Option<flatbuffers::WIPOffset<Bytes<'a>>>,
+    pub len: u32,
+}
+impl<'a> Default for TransactionMetaArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        TransactionMetaArgs {
+            block_number: 0,
+            epoch_number: 0,
+            cellbase: false,
+            bits: None,
+            len: 0,
+        }
+    }
+}
+pub struct TransactionMetaBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> TransactionMetaBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_block_number(&mut self, block_number: u64) {
+        self.fbb_
+            .push_slot::<u64>(TransactionMeta::VT_BLOCK_NUMBER, block_number, 0);
+    }
+    #[inline]
+    pub fn add_epoch_number(&mut self, epoch_number: u64) {
+        self.fbb_
+            .push_slot::<u64>(TransactionMeta::VT_EPOCH_NUMBER, epoch_number, 0);
+    }
+    #[inline]
+    pub fn add_cellbase(&mut self, cellbase: bool) {
+        self.fbb_
+            .push_slot::<bool>(TransactionMeta::VT_CELLBASE, cellbase, false);
+    }
+    #[inline]
+    pub fn add_bits(&mut self, bits: flatbuffers::WIPOffset<Bytes<'b>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<Bytes>>(TransactionMeta::VT_BITS, bits);
+    }
+    #[inline]
+    pub fn add_len(&mut self, len: u32) {
+        self.fbb_.push_slot::<u32>(TransactionMeta::VT_LEN, len, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> TransactionMetaBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        TransactionMetaBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<TransactionMeta<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }

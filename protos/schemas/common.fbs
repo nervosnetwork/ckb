@@ -4,16 +4,16 @@ table Bytes {
 
 table Header {
     version:                uint32;
-    parent_hash:            H256;
+    parent_hash:            Bytes32;
     timestamp:              uint64;
     number:                 uint64;
-    transactions_root:      H256;
-    witnesses_root:         H256;
-    proposals_hash:         H256;
-    difficulty:             H256;
+    transactions_root:      Bytes32;
+    witnesses_root:         Bytes32;
+    proposals_hash:         Bytes32;
+    difficulty:             Bytes32;
     nonce:                  uint64;
     proof:                  Bytes;
-    uncles_hash:            H256;
+    uncles_hash:            Bytes32;
     uncles_count:           uint32;
     epoch:                  uint64;
 }
@@ -47,14 +47,14 @@ table Witness {
 }
 
 table OutPoint {
-    block_hash:     H256;
-    tx_hash:        H256;
+    block_hash:     Bytes32;
+    tx_hash:        Bytes32;
     index:          uint32;
 }
 
 table CellInput {
-    block_hash:     H256;
-    tx_hash:        H256;
+    block_hash:     Bytes32;
+    tx_hash:        Bytes32;
     index:          uint32;
     since:          uint64;
 }
@@ -68,7 +68,7 @@ table CellOutput {
 
 table Script {
     args:           [Bytes];
-    code_hash:      H256;
+    code_hash:      Bytes32;
 }
 
 struct ProposalShortId {
@@ -84,7 +84,7 @@ struct ProposalShortId {
     u9: uint8;
 }
 
-struct H256 {
+struct Bytes32 {
     u0: uint8;
     u1: uint8;
     u2: uint8;
@@ -120,6 +120,39 @@ struct H256 {
 }
 
 struct TransactionAddress {
-    block_hash: H256;
-    index: uint32;
+    block_hash: Bytes32;
+    index:      uint32;
+}
+
+struct DaoStats {
+    accumulated_rate:       uint64;
+    accumulated_capacity:   uint64;
+}
+
+table BlockExt {
+    received_at:        uint64;
+    total_difficulty:   Bytes32;
+    total_uncles_count: uint64;
+    has_verified:       bool;
+    verified:           bool;
+    dao_stats:          DaoStats;
+    txs_fees:           [uint64];
+}
+
+struct EpochExt {
+    number:                             uint64;
+    block_reward:                       uint64;
+    remainder_reward:                   uint64;
+    last_block_hash_in_previous_epoch:  Bytes32;
+    start_number:                       uint64;
+    length:                             uint64;
+    difficulty:                         Bytes32;
+}
+
+table TransactionMeta {
+    block_number:   uint64;
+    epoch_number:   uint64;
+    cellbase:       bool;
+    bits:           Bytes;
+    len:            uint32;
 }

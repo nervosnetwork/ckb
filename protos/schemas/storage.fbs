@@ -6,10 +6,10 @@ table StoredBlock {
 }
 
 table StoredBlockCache {
-    header_hash: H256;
-    uncle_hashes: [H256];
-    tx_hashes: [H256];
-    tx_witness_hashes: [H256];
+    header_hash: Bytes32;
+    uncle_hashes: [Bytes32];
+    tx_hashes: [Bytes32];
+    tx_witness_hashes: [Bytes32];
 }
 
 table StoredBlockBody {
@@ -18,8 +18,8 @@ table StoredBlockBody {
 }
 
 table StoredBlockBodyCache {
-    tx_hashes: [H256];
-    tx_witness_hashes: [H256];
+    tx_hashes: [Bytes32];
+    tx_witness_hashes: [Bytes32];
 }
 
 table StoredTransactionAddress {
@@ -32,7 +32,7 @@ table StoredHeader{
 }
 
 table StoredHeaderCache {
-    hash: H256;
+    hash: Bytes32;
 }
 
 table StoredUncleBlocks {
@@ -41,9 +41,13 @@ table StoredUncleBlocks {
 }
 
 table StoredUncleBlocksCache {
-    hashes: [H256];
+    hashes: [Bytes32];
 }
 
 table StoredProposalShortIds {
     data: [ProposalShortId];
+}
+
+table StoredEpochExt {
+    data: EpochExt;
 }

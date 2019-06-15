@@ -1,7 +1,7 @@
 use numext_fixed_hash::H256;
 
 use ckb_core::{
-    extras::TransactionAddress,
+    extras::{EpochExt, TransactionAddress},
     header::Header,
     transaction::{CellOutput, ProposalShortId, Transaction},
     uncle::UncleBlock,
@@ -100,5 +100,11 @@ impl<'a> From<protos::StoredProposalShortIds<'a>> for Vec<ProposalShortId> {
     fn from(proto: protos::StoredProposalShortIds<'a>) -> Self {
         let proposals = cast!(proto.data());
         proposals.iter().map(Into::into).collect()
+    }
+}
+
+impl<'a> From<protos::StoredEpochExt<'a>> for EpochExt {
+    fn from(proto: protos::StoredEpochExt<'a>) -> Self {
+        cast!(proto.data()).into()
     }
 }

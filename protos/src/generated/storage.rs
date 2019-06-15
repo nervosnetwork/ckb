@@ -155,32 +155,32 @@ impl<'a> StoredBlockCache<'a> {
     pub const VT_TX_WITNESS_HASHES: flatbuffers::VOffsetT = 10;
 
     #[inline]
-    pub fn header_hash(&self) -> Option<&'a H256> {
+    pub fn header_hash(&self) -> Option<&'a Bytes32> {
         self._tab
-            .get::<H256>(StoredBlockCache::VT_HEADER_HASH, None)
+            .get::<Bytes32>(StoredBlockCache::VT_HEADER_HASH, None)
     }
     #[inline]
-    pub fn uncle_hashes(&self) -> Option<&'a [H256]> {
+    pub fn uncle_hashes(&self) -> Option<&'a [Bytes32]> {
         self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<Bytes32>>>(
                 StoredBlockCache::VT_UNCLE_HASHES,
                 None,
             )
             .map(|v| v.safe_slice())
     }
     #[inline]
-    pub fn tx_hashes(&self) -> Option<&'a [H256]> {
+    pub fn tx_hashes(&self) -> Option<&'a [Bytes32]> {
         self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<Bytes32>>>(
                 StoredBlockCache::VT_TX_HASHES,
                 None,
             )
             .map(|v| v.safe_slice())
     }
     #[inline]
-    pub fn tx_witness_hashes(&self) -> Option<&'a [H256]> {
+    pub fn tx_witness_hashes(&self) -> Option<&'a [Bytes32]> {
         self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<Bytes32>>>(
                 StoredBlockCache::VT_TX_WITNESS_HASHES,
                 None,
             )
@@ -189,10 +189,10 @@ impl<'a> StoredBlockCache<'a> {
 }
 
 pub struct StoredBlockCacheArgs<'a> {
-    pub header_hash: Option<&'a H256>,
-    pub uncle_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, H256>>>,
-    pub tx_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, H256>>>,
-    pub tx_witness_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, H256>>>,
+    pub header_hash: Option<&'a Bytes32>,
+    pub uncle_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Bytes32>>>,
+    pub tx_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Bytes32>>>,
+    pub tx_witness_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Bytes32>>>,
 }
 impl<'a> Default for StoredBlockCacheArgs<'a> {
     #[inline]
@@ -211,14 +211,14 @@ pub struct StoredBlockCacheBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> StoredBlockCacheBuilder<'a, 'b> {
     #[inline]
-    pub fn add_header_hash(&mut self, header_hash: &'b H256) {
+    pub fn add_header_hash(&mut self, header_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(StoredBlockCache::VT_HEADER_HASH, header_hash);
+            .push_slot_always::<&Bytes32>(StoredBlockCache::VT_HEADER_HASH, header_hash);
     }
     #[inline]
     pub fn add_uncle_hashes(
         &mut self,
-        uncle_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, H256>>,
+        uncle_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, Bytes32>>,
     ) {
         self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
             StoredBlockCache::VT_UNCLE_HASHES,
@@ -228,7 +228,7 @@ impl<'a: 'b, 'b> StoredBlockCacheBuilder<'a, 'b> {
     #[inline]
     pub fn add_tx_hashes(
         &mut self,
-        tx_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, H256>>,
+        tx_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, Bytes32>>,
     ) {
         self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
             StoredBlockCache::VT_TX_HASHES,
@@ -238,7 +238,7 @@ impl<'a: 'b, 'b> StoredBlockCacheBuilder<'a, 'b> {
     #[inline]
     pub fn add_tx_witness_hashes(
         &mut self,
-        tx_witness_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, H256>>,
+        tx_witness_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, Bytes32>>,
     ) {
         self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
             StoredBlockCache::VT_TX_WITNESS_HASHES,
@@ -404,18 +404,18 @@ impl<'a> StoredBlockBodyCache<'a> {
     pub const VT_TX_WITNESS_HASHES: flatbuffers::VOffsetT = 6;
 
     #[inline]
-    pub fn tx_hashes(&self) -> Option<&'a [H256]> {
+    pub fn tx_hashes(&self) -> Option<&'a [Bytes32]> {
         self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<Bytes32>>>(
                 StoredBlockBodyCache::VT_TX_HASHES,
                 None,
             )
             .map(|v| v.safe_slice())
     }
     #[inline]
-    pub fn tx_witness_hashes(&self) -> Option<&'a [H256]> {
+    pub fn tx_witness_hashes(&self) -> Option<&'a [Bytes32]> {
         self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<Bytes32>>>(
                 StoredBlockBodyCache::VT_TX_WITNESS_HASHES,
                 None,
             )
@@ -424,8 +424,8 @@ impl<'a> StoredBlockBodyCache<'a> {
 }
 
 pub struct StoredBlockBodyCacheArgs<'a> {
-    pub tx_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, H256>>>,
-    pub tx_witness_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, H256>>>,
+    pub tx_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Bytes32>>>,
+    pub tx_witness_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Bytes32>>>,
 }
 impl<'a> Default for StoredBlockBodyCacheArgs<'a> {
     #[inline]
@@ -444,7 +444,7 @@ impl<'a: 'b, 'b> StoredBlockBodyCacheBuilder<'a, 'b> {
     #[inline]
     pub fn add_tx_hashes(
         &mut self,
-        tx_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, H256>>,
+        tx_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, Bytes32>>,
     ) {
         self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
             StoredBlockBodyCache::VT_TX_HASHES,
@@ -454,7 +454,7 @@ impl<'a: 'b, 'b> StoredBlockBodyCacheBuilder<'a, 'b> {
     #[inline]
     pub fn add_tx_witness_hashes(
         &mut self,
-        tx_witness_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, H256>>,
+        tx_witness_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, Bytes32>>,
     ) {
         self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
             StoredBlockBodyCache::VT_TX_WITNESS_HASHES,
@@ -695,13 +695,13 @@ impl<'a> StoredHeaderCache<'a> {
     pub const VT_HASH: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn hash(&self) -> Option<&'a H256> {
-        self._tab.get::<H256>(StoredHeaderCache::VT_HASH, None)
+    pub fn hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(StoredHeaderCache::VT_HASH, None)
     }
 }
 
 pub struct StoredHeaderCacheArgs<'a> {
-    pub hash: Option<&'a H256>,
+    pub hash: Option<&'a Bytes32>,
 }
 impl<'a> Default for StoredHeaderCacheArgs<'a> {
     #[inline]
@@ -715,9 +715,9 @@ pub struct StoredHeaderCacheBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> StoredHeaderCacheBuilder<'a, 'b> {
     #[inline]
-    pub fn add_hash(&mut self, hash: &'b H256) {
+    pub fn add_hash(&mut self, hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<&H256>(StoredHeaderCache::VT_HASH, hash);
+            .push_slot_always::<&Bytes32>(StoredHeaderCache::VT_HASH, hash);
     }
     #[inline]
     pub fn new(
@@ -888,9 +888,9 @@ impl<'a> StoredUncleBlocksCache<'a> {
     pub const VT_HASHES: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn hashes(&self) -> Option<&'a [H256]> {
+    pub fn hashes(&self) -> Option<&'a [Bytes32]> {
         self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<Bytes32>>>(
                 StoredUncleBlocksCache::VT_HASHES,
                 None,
             )
@@ -899,7 +899,7 @@ impl<'a> StoredUncleBlocksCache<'a> {
 }
 
 pub struct StoredUncleBlocksCacheArgs<'a> {
-    pub hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, H256>>>,
+    pub hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Bytes32>>>,
 }
 impl<'a> Default for StoredUncleBlocksCacheArgs<'a> {
     #[inline]
@@ -913,7 +913,7 @@ pub struct StoredUncleBlocksCacheBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> StoredUncleBlocksCacheBuilder<'a, 'b> {
     #[inline]
-    pub fn add_hashes(&mut self, hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, H256>>) {
+    pub fn add_hashes(&mut self, hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, Bytes32>>) {
         self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
             StoredUncleBlocksCache::VT_HASHES,
             hashes,
@@ -1017,6 +1017,82 @@ impl<'a: 'b, 'b> StoredProposalShortIdsBuilder<'a, 'b> {
     }
     #[inline]
     pub fn finish(self) -> flatbuffers::WIPOffset<StoredProposalShortIds<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+pub enum StoredEpochExtOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct StoredEpochExt<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for StoredEpochExt<'a> {
+    type Inner = StoredEpochExt<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> StoredEpochExt<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        StoredEpochExt { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args StoredEpochExtArgs<'args>,
+    ) -> flatbuffers::WIPOffset<StoredEpochExt<'bldr>> {
+        let mut builder = StoredEpochExtBuilder::new(_fbb);
+        if let Some(x) = args.data {
+            builder.add_data(x);
+        }
+        builder.finish()
+    }
+
+    pub const VT_DATA: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn data(&self) -> Option<&'a EpochExt> {
+        self._tab.get::<EpochExt>(StoredEpochExt::VT_DATA, None)
+    }
+}
+
+pub struct StoredEpochExtArgs<'a> {
+    pub data: Option<&'a EpochExt>,
+}
+impl<'a> Default for StoredEpochExtArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        StoredEpochExtArgs { data: None }
+    }
+}
+pub struct StoredEpochExtBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> StoredEpochExtBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_data(&mut self, data: &'b EpochExt) {
+        self.fbb_
+            .push_slot_always::<&EpochExt>(StoredEpochExt::VT_DATA, data);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> StoredEpochExtBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        StoredEpochExtBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<StoredEpochExt<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }

@@ -4,17 +4,18 @@ use numext_fixed_uint::U256;
 
 use ckb_core::{
     block::Block,
-    extras::TransactionAddress,
+    extras::{BlockExt, DaoStats, EpochExt, TransactionAddress},
     header::Header,
     script::Script,
     transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction},
+    transaction_meta::TransactionMeta,
     uncle::UncleBlock,
     Bytes,
 };
 
 use crate as protos;
 
-impl From<&H256> for protos::H256 {
+impl From<&H256> for protos::Bytes32 {
     fn from(h256: &H256) -> Self {
         let bytes = h256.as_fixed_bytes();
         Self::new(
@@ -26,7 +27,7 @@ impl From<&H256> for protos::H256 {
     }
 }
 
-impl From<&U256> for protos::H256 {
+impl From<&U256> for protos::Bytes32 {
     fn from(u256: &U256) -> Self {
         let mut bytes = [0u8; 32];
         u256.into_little_endian(&mut bytes)
@@ -327,6 +328,80 @@ impl<'a> protos::BlockBody<'a> {
 
         let mut builder = protos::BlockBodyBuilder::new(fbb);
         builder.add_transactions(transactions);
+        builder.finish()
+    }
+}
+
+impl From<&DaoStats> for protos::DaoStats {
+    fn from(stats: &DaoStats) -> Self {
+        Self::new(stats.accumulated_rate, stats.accumulated_capacity)
+    }
+}
+
+impl<'a> protos::BlockExt<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        ext: &BlockExt,
+    ) -> WIPOffset<protos::BlockExt<'b>> {
+        let total_difficulty = (&ext.total_difficulty).into();
+        let dao_stats = (&ext.dao_stats).into();
+        let (has_verified, verified) = if let Some(verified) = ext.verified {
+            (true, verified)
+        } else {
+            (false, false)
+        };
+        let vec = ext
+            .txs_fees
+            .iter()
+            .map(|fee| fee.as_u64())
+            .collect::<Vec<_>>();
+        let txs_fees = fbb.create_vector(&vec);
+        let mut builder = protos::BlockExtBuilder::new(fbb);
+        builder.add_received_at(ext.received_at);
+        builder.add_total_difficulty(&total_difficulty);
+        builder.add_total_uncles_count(ext.total_uncles_count);
+        builder.add_has_verified(has_verified);
+        builder.add_verified(verified);
+        builder.add_dao_stats(&dao_stats);
+        builder.add_txs_fees(txs_fees);
+        builder.finish()
+    }
+}
+
+impl From<&EpochExt> for protos::EpochExt {
+    fn from(ext: &EpochExt) -> Self {
+        let number = ext.number();
+        let block_reward = ext.base_block_reward().as_u64();
+        let remainder_reward = ext.remainder_reward().as_u64();
+        let last_block_hash_in_previous_epoch = ext.last_block_hash_in_previous_epoch().into();
+        let start_number = ext.start_number();
+        let length = ext.length();
+        let difficulty = ext.difficulty().into();
+        Self::new(
+            number,
+            block_reward,
+            remainder_reward,
+            &last_block_hash_in_previous_epoch,
+            start_number,
+            length,
+            &difficulty,
+        )
+    }
+}
+
+impl<'a> protos::TransactionMeta<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        meta: &TransactionMeta,
+    ) -> WIPOffset<protos::TransactionMeta<'b>> {
+        let (block_number, epoch_number, cellbase, bits, len) = meta.destruct();
+        let bits = protos::Bytes::build(fbb, &bits);
+        let mut builder = protos::TransactionMetaBuilder::new(fbb);
+        builder.add_block_number(block_number);
+        builder.add_epoch_number(epoch_number);
+        builder.add_cellbase(cellbase);
+        builder.add_bits(bits);
+        builder.add_len(len as u32);
         builder.finish()
     }
 }

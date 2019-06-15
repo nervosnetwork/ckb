@@ -1,7 +1,7 @@
 use crate::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_EXT, COLUMN_INDEX,
-    COLUMN_META, COLUMN_TRANSACTION_ADDR, COLUMN_UNCLES,
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET, COLUMN_EPOCH,
+    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR, COLUMN_UNCLES,
 };
 use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
@@ -248,8 +248,10 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
-        self.get(COLUMN_EXT, block_hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize block ext should be ok"))
+        self.process_get(COLUMN_BLOCK_EXT, block_hash.as_bytes(), |slice| {
+            let ext: BlockExt = flatbuffers::get_root::<ckb_protos::BlockExt>(&slice).into();
+            Ok(Some(ext))
+        })
     }
 
     fn init(&self, consensus: &Consensus) -> Result<(), Error> {
@@ -338,13 +340,17 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_current_epoch_ext(&self) -> Option<EpochExt> {
-        self.get(COLUMN_META, META_CURRENT_EPOCH_KEY)
-            .map(|raw| deserialize(&raw[..]).expect("db safe access"))
+        self.process_get(COLUMN_META, META_CURRENT_EPOCH_KEY, |slice| {
+            let ext: EpochExt = flatbuffers::get_root::<ckb_protos::StoredEpochExt>(&slice).into();
+            Ok(Some(ext))
+        })
     }
 
     fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
-        self.get(COLUMN_EPOCH, hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("db safe access"))
+        self.process_get(COLUMN_EPOCH, hash.as_bytes(), |slice| {
+            let ext: EpochExt = flatbuffers::get_root::<ckb_protos::StoredEpochExt>(&slice).into();
+            Ok(Some(ext))
+        })
     }
 
     fn get_epoch_index(&self, number: EpochNumber) -> Option<H256> {
@@ -430,7 +436,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.traverse(COLUMN_CELL_SET, |hash_slice, tx_meta_bytes| {
             let tx_hash = H256::from_slice(hash_slice).expect("deserialize tx hash should be ok");
             let tx_meta: TransactionMeta =
-                deserialize(tx_meta_bytes).expect("deserialize TransactionMeta should be ok");
+                flatbuffers::get_root::<ckb_protos::TransactionMeta>(tx_meta_bytes).into();
             callback(tx_hash, tx_meta)
         })
     }
@@ -509,7 +515,8 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     }
 
     fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) -> Result<(), Error> {
-        self.insert_serialize(COLUMN_EXT, block_hash.as_bytes(), ext)
+        insert_flatbuffers!(self, COLUMN_BLOCK_EXT, block_hash.as_bytes(), BlockExt, ext);
+        Ok(())
     }
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
@@ -595,16 +602,30 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn insert_epoch_ext(&mut self, hash: &H256, epoch: &EpochExt) -> Result<(), Error> {
         let epoch_index = hash.as_bytes();
         let epoch_number = epoch.number().to_le_bytes();
-        self.insert_serialize(COLUMN_EPOCH, epoch_index, epoch)?;
+        insert_flatbuffers!(self, COLUMN_EPOCH, epoch_index, StoredEpochExt, epoch);
         self.insert_raw(COLUMN_EPOCH, &epoch_number, epoch_index)
     }
 
     fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {
-        self.insert_serialize(COLUMN_META, META_CURRENT_EPOCH_KEY, epoch)
+        insert_flatbuffers!(
+            self,
+            COLUMN_META,
+            META_CURRENT_EPOCH_KEY,
+            StoredEpochExt,
+            epoch
+        );
+        Ok(())
     }
 
     fn update_cell_set(&mut self, tx_hash: &H256, meta: &TransactionMeta) -> Result<(), Error> {
-        self.insert_serialize(COLUMN_CELL_SET, tx_hash.as_bytes(), meta)
+        insert_flatbuffers!(
+            self,
+            COLUMN_CELL_SET,
+            tx_hash.as_bytes(),
+            TransactionMeta,
+            meta
+        );
+        Ok(())
     }
 
     fn delete_cell_set(&mut self, tx_hash: &H256) -> Result<(), Error> {

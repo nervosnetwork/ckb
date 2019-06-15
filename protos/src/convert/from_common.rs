@@ -2,13 +2,14 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 
 use ckb_core::{
-    extras::TransactionAddress,
+    extras::{BlockExt, DaoStats, EpochExt, TransactionAddress},
     header::{Header, HeaderBuilder},
     script::Script,
     transaction::{
         CellInput, CellOutPoint, CellOutput, OutPoint, ProposalShortId, Transaction,
         TransactionBuilder, Witness,
     },
+    transaction_meta::{TransactionMeta, TransactionMetaBuilder},
     uncle::UncleBlock,
     Bytes, Capacity,
 };
@@ -16,8 +17,8 @@ use ckb_core::{
 use crate as protos;
 use crate::convert::FbVecIntoIterator;
 
-impl From<&protos::H256> for H256 {
-    fn from(h256: &protos::H256) -> H256 {
+impl From<&protos::Bytes32> for H256 {
+    fn from(h256: &protos::Bytes32) -> H256 {
         cast!(H256::from_slice(&[
             h256.u0(),
             h256.u1(),
@@ -55,8 +56,8 @@ impl From<&protos::H256> for H256 {
     }
 }
 
-impl From<&protos::H256> for U256 {
-    fn from(h256: &protos::H256) -> U256 {
+impl From<&protos::Bytes32> for U256 {
+    fn from(h256: &protos::Bytes32) -> U256 {
         let bytes = [
             h256.u0(),
             h256.u1(),
@@ -231,5 +232,76 @@ impl<'a> From<protos::CellOutput<'a>> for CellOutput {
             lock: lock.into(),
             type_,
         }
+    }
+}
+
+impl From<&protos::DaoStats> for DaoStats {
+    fn from(proto: &protos::DaoStats) -> Self {
+        let accumulated_rate = proto.accumulated_rate();
+        let accumulated_capacity = proto.accumulated_capacity();
+        DaoStats {
+            accumulated_rate,
+            accumulated_capacity,
+        }
+    }
+}
+
+impl<'a> From<protos::BlockExt<'a>> for BlockExt {
+    fn from(proto: protos::BlockExt<'a>) -> Self {
+        let received_at = proto.received_at();
+        let total_difficulty = cast!(proto.total_difficulty()).into();
+        let total_uncles_count = proto.total_uncles_count();
+        let verified = if proto.has_verified() {
+            Some(proto.verified())
+        } else {
+            None
+        };
+        let dao_stats = cast!(proto.dao_stats()).into();
+        let txs_fees = cast!(proto.txs_fees())
+            .iter()
+            .map(Capacity::shannons)
+            .collect::<Vec<_>>();
+        BlockExt {
+            received_at,
+            total_difficulty,
+            total_uncles_count,
+            verified,
+            dao_stats,
+            txs_fees,
+        }
+    }
+}
+
+impl From<&protos::EpochExt> for EpochExt {
+    fn from(proto: &protos::EpochExt) -> Self {
+        let number = proto.number();
+        let block_reward = Capacity::shannons(proto.block_reward());
+        let remainder_reward = Capacity::shannons(proto.remainder_reward());
+        let last_block_hash_in_previous_epoch = proto.last_block_hash_in_previous_epoch().into();
+        let start_number = proto.start_number();
+        let length = proto.length();
+        let difficulty = proto.difficulty().into();
+        EpochExt::new(
+            number,
+            block_reward,
+            remainder_reward,
+            last_block_hash_in_previous_epoch,
+            start_number,
+            length,
+            difficulty,
+        )
+    }
+}
+
+impl<'a> From<protos::TransactionMeta<'a>> for TransactionMeta {
+    fn from(proto: protos::TransactionMeta<'a>) -> Self {
+        let bits = cast!(proto.bits().and_then(|p| p.seq()).map(ToOwned::to_owned));
+        TransactionMetaBuilder::default()
+            .block_number(proto.block_number())
+            .epoch_number(proto.epoch_number())
+            .cellbase(proto.cellbase())
+            .bits(bits)
+            .len(proto.len() as usize)
+            .build()
     }
 }

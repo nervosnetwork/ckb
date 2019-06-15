@@ -2,7 +2,7 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 
 use ckb_core::{
     block::Block,
-    extras::TransactionAddress,
+    extras::{EpochExt, TransactionAddress},
     header::Header,
     transaction::{ProposalShortId, Transaction},
     uncle::UncleBlock,
@@ -16,12 +16,12 @@ impl<'a> protos::StoredBlockCache<'a> {
         block: &Block,
     ) -> WIPOffset<protos::StoredBlockCache<'b>> {
         let header_hash = block.header().hash().into();
-        let mut uncle_hashes: Vec<protos::H256> = Vec::with_capacity(block.uncles().len());
+        let mut uncle_hashes: Vec<protos::Bytes32> = Vec::with_capacity(block.uncles().len());
         for uncle in block.uncles() {
             uncle_hashes.push(uncle.hash().into());
         }
-        let mut tx_hashes: Vec<protos::H256> = Vec::with_capacity(block.transactions().len());
-        let mut tx_witness_hashes: Vec<protos::H256> =
+        let mut tx_hashes: Vec<protos::Bytes32> = Vec::with_capacity(block.transactions().len());
+        let mut tx_witness_hashes: Vec<protos::Bytes32> =
             Vec::with_capacity(block.transactions().len());
         for tx in block.transactions() {
             tx_hashes.push(tx.hash().into());
@@ -60,8 +60,8 @@ impl<'a> protos::StoredBlockBodyCache<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         transactions: &[Transaction],
     ) -> WIPOffset<protos::StoredBlockBodyCache<'b>> {
-        let mut tx_hashes: Vec<protos::H256> = Vec::with_capacity(transactions.len());
-        let mut tx_witness_hashes: Vec<protos::H256> = Vec::with_capacity(transactions.len());
+        let mut tx_hashes: Vec<protos::Bytes32> = Vec::with_capacity(transactions.len());
+        let mut tx_witness_hashes: Vec<protos::Bytes32> = Vec::with_capacity(transactions.len());
         for tx in transactions {
             tx_hashes.push(tx.hash().into());
             tx_witness_hashes.push(tx.witness_hash().into());
@@ -134,7 +134,7 @@ impl<'a> protos::StoredUncleBlocksCache<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         uncles: &[UncleBlock],
     ) -> WIPOffset<protos::StoredUncleBlocksCache<'b>> {
-        let mut hashes_vec: Vec<protos::H256> = Vec::with_capacity(uncles.len());
+        let mut hashes_vec: Vec<protos::Bytes32> = Vec::with_capacity(uncles.len());
         for uncle in uncles {
             hashes_vec.push(uncle.hash().into());
         }
@@ -175,6 +175,18 @@ impl<'a> protos::StoredProposalShortIds<'a> {
         let data = fbb.create_vector(&vec);
         let mut builder = protos::StoredProposalShortIdsBuilder::new(fbb);
         builder.add_data(data);
+        builder.finish()
+    }
+}
+
+impl<'a> protos::StoredEpochExt<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        ext: &EpochExt,
+    ) -> WIPOffset<protos::StoredEpochExt<'b>> {
+        let data = ext.into();
+        let mut builder = protos::StoredEpochExtBuilder::new(fbb);
+        builder.add_data(&data);
         builder.finish()
     }
 }

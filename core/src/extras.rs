@@ -62,6 +62,10 @@ impl EpochExt {
         }
     }
 
+    pub fn base_block_reward(&self) -> &Capacity {
+        &self.block_reward
+    }
+
     pub fn is_genesis(&self) -> bool {
         0 == self.number
     }
