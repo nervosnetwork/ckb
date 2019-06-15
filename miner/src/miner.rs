@@ -8,9 +8,11 @@ use ckb_logger::{debug, error};
 use ckb_pow::PowEngine;
 use ckb_util::Mutex;
 use crossbeam_channel::{select, unbounded, Receiver};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
+use std::thread;
 
 const WORK_CACHE_SIZE: usize = 32;
 
@@ -21,6 +23,8 @@ pub struct Miner {
     pub worker_controllers: Vec<WorkerController>,
     pub work_rx: Receiver<Work>,
     pub seal_rx: Receiver<(H256, Seal)>,
+    pub pb: ProgressBar,
+    pub seals_found: u64,
 }
 
 impl Miner {
@@ -31,19 +35,29 @@ impl Miner {
         workers: &[WorkerConfig],
     ) -> Miner {
         let (seal_tx, seal_rx) = unbounded();
+        let mp = MultiProgress::new();
 
         let worker_controllers = workers
             .iter()
-            .map(|config| start_worker(Arc::clone(&pow), config, seal_tx.clone()))
+            .map(|config| start_worker(Arc::clone(&pow), config, seal_tx.clone(), &mp))
             .collect();
+
+        let pb = mp.add(ProgressBar::new(100));
+        pb.set_style(ProgressStyle::default_bar().template("{msg:.green}"));
+
+        thread::spawn(move || {
+            mp.join().expect("MultiProgress join failed");
+        });
 
         Miner {
             works: Mutex::new(LruCache::new(WORK_CACHE_SIZE)),
+            seals_found: 0,
             pow,
             client,
             worker_controllers,
             work_rx,
             seal_rx,
+            pb,
         }
     }
 
@@ -81,17 +95,35 @@ impl Miner {
             {
                 self.notify_workers(WorkerMessage::Stop);
                 debug!(
-                    "found seal {:?} of block #{}",
+                    "found seal {:?} of block #{} {:x}",
                     seal,
-                    block.header().number()
+                    block.header().number(),
+                    block.header().hash(),
                 );
-                let raw_header = block.header().raw().to_owned();
-                let block = BlockBuilder::from_block(block.clone())
-                    .header(raw_header.with_seal(seal))
-                    .build();
-                self.client.submit_block(&work.work_id.to_string(), &block);
-                self.client.try_update_block_template();
-                self.notify_workers(WorkerMessage::Start);
+
+                // submit block and poll new work
+                {
+                    let raw_header = block.header().raw().to_owned();
+                    let block = BlockBuilder::from_block(block.clone())
+                        .header(raw_header.with_seal(seal))
+                        .build();
+                    self.client.submit_block(&work.work_id.to_string(), &block);
+                    self.client.try_update_block_template();
+                    self.notify_workers(WorkerMessage::Start);
+                }
+
+                // draw progress bar
+                {
+                    self.seals_found += 1;
+                    self.pb.println(format!(
+                        "Found! #{} {:x}",
+                        block.header().number(),
+                        block.header().hash()
+                    ));
+                    self.pb
+                        .set_message(&format!("Total seals found: {:>3}", self.seals_found));
+                    self.pb.inc(1);
+                }
             }
         }
     }

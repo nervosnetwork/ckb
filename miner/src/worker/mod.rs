@@ -41,21 +41,20 @@ impl WorkerController {
     }
 }
 
+const PROGRESS_BAR_TEMPLATE: &str = "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] {msg}";
+
 pub fn start_worker(
     pow: Arc<dyn PowEngine>,
     config: &WorkerConfig,
     seal_tx: Sender<(H256, Seal)>,
+    mp: &MultiProgress,
 ) -> WorkerController {
-    let mp = MultiProgress::new();
-    mp.set_move_cursor(true);
-    let spinner_style = ProgressStyle::default_bar()
-        .template("{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] {wide_msg}");
     match config {
         WorkerConfig::Dummy(config) => {
             if let Some(_dummy_engine) = pow.as_any().downcast_ref::<DummyPowEngine>() {
                 let worker_name = "Dummy-Worker";
                 let pb = mp.add(ProgressBar::new(100));
-                pb.set_style(spinner_style.clone());
+                pb.set_style(ProgressStyle::default_bar().template(PROGRESS_BAR_TEMPLATE));
                 pb.set_prefix(&worker_name);
 
                 let (worker_tx, worker_rx) = unbounded();
@@ -79,7 +78,7 @@ pub fn start_worker(
                         let worker_name = format!("CuckooSimple-Worker-{}", i);
                         // `100` is the len of progress bar, we can use any dummy value here, since we only show the spinner in console.
                         let pb = mp.add(ProgressBar::new(100));
-                        pb.set_style(spinner_style.clone());
+                        pb.set_style(ProgressStyle::default_bar().template(PROGRESS_BAR_TEMPLATE));
                         pb.set_prefix(&worker_name);
 
                         let (worker_tx, worker_rx) = unbounded();
@@ -94,10 +93,6 @@ pub fn start_worker(
                         worker_tx
                     })
                     .collect();
-
-                thread::spawn(move || {
-                    mp.join().expect("MultiProgress join failed");
-                });
 
                 WorkerController::new(worker_txs)
             } else {

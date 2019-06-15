@@ -169,7 +169,7 @@ impl Worker for CuckooSimple {
                             as f64
                             / 1_000_000_000.0;
                         progress_bar.set_message(&format!(
-                            "Graphs per second: {:>10.3} / Total seal candidates found: {:>10}",
+                            "gps: {:>10.3} / cycles found: {:>10}",
                             STATE_UPDATE_INTERVAL as f64 / elapsed_nanos,
                             self.seal_candidates_found,
                         ));
