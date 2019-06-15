@@ -25,7 +25,7 @@ addons:
       - libtool
 
 before_install:
-  - cargo sweep --version || cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
+  - cargo sweep --version || travis_retry cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
   - cargo sweep -s
 
 before_script:
@@ -66,8 +66,8 @@ matrix:
       if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
       install:
-        - cargo fmt --version || rustup component add rustfmt
-        - cargo clippy --version || rustup component add clippy
+        - cargo fmt --version || travis_retry rustup component add rustfmt
+        - cargo clippy --version || travis_retry rustup component add clippy
       script:
         - make fmt
         - make clippy
@@ -95,7 +95,7 @@ matrix:
       if: 'tag IS NOT present AND branch = master'
       os: linux
       install:
-        - cargo tarpaulin --version || cargo install cargo-tarpaulin
+        - cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin
       script:
         - make cov
       after_success:
