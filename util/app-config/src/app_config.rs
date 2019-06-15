@@ -232,6 +232,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             runner: "Rust",
+            block_assembler: "",
         };
         {
             Resource::bundled_ckb_config()
@@ -264,7 +265,7 @@ mod tests {
                 miner_config.chain.spec,
                 Resource::file_system(dir.path().join("specs").join("dev.toml"))
             );
-            assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
+            assert_eq!(miner_config.miner.client.rpc_url, "http://127.0.0.1:7000/");
         }
     }
 
@@ -278,6 +279,7 @@ mod tests {
             log_to_file: false,
             log_to_stdout: true,
             runner: "Rust",
+            block_assembler: "",
         };
         {
             Resource::bundled_ckb_config()
@@ -313,6 +315,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             runner: "Rust",
+            block_assembler: "",
         };
         {
             Resource::bundled_ckb_config()
@@ -345,7 +348,7 @@ mod tests {
                 miner_config.chain.spec,
                 Resource::bundled("specs/testnet.toml".to_string())
             );
-            assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
+            assert_eq!(miner_config.miner.client.rpc_url, "http://127.0.0.1:7000/");
         }
     }
 
@@ -359,6 +362,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             runner: "Rust",
+            block_assembler: "",
         };
         {
             Resource::bundled_ckb_config()
@@ -388,7 +392,7 @@ mod tests {
                 miner_config.chain.spec,
                 Resource::file_system(dir.path().join("specs").join("integration.toml"))
             );
-            assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
+            assert_eq!(miner_config.miner.client.rpc_url, "http://127.0.0.1:7000/");
         }
     }
 
@@ -403,6 +407,7 @@ mod tests {
             log_to_file: true,
             log_to_stdout: true,
             runner: "Assembly",
+            block_assembler: "",
         };
         {
             Resource::bundled_ckb_config()
@@ -435,7 +440,7 @@ mod tests {
                 miner_config.chain.spec,
                 Resource::file_system(dir.path().join("specs").join("dev.toml"))
             );
-            assert_eq!(miner_config.miner.rpc_url, "http://127.0.0.1:7000/");
+            assert_eq!(miner_config.miner.client.rpc_url, "http://127.0.0.1:7000/");
         }
     }
 }

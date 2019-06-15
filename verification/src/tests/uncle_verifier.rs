@@ -206,26 +206,6 @@ fn test_uncle_verifier() {
         );
     }
 
-    // Uncle depth is invalid
-    {
-        let parent_epoch = shared
-            .get_block_epoch(&chain1[chain1.len() - 2].header().hash())
-            .unwrap();
-        let epoch = shared
-            .next_epoch_ext(&parent_epoch, chain1[chain1.len() - 2].header())
-            .unwrap_or(parent_epoch);
-        // uncle.number > block.number - 1
-        let block = BlockBuilder::from_block(chain2.last().cloned().unwrap())
-            .uncle(chain1.last().cloned().unwrap().into())
-            .header_builder(HeaderBuilder::from_header(
-                chain2.last().unwrap().header().to_owned(),
-            ))
-            .build();
-        let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
-        let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_eq!(verifier.verify(), Ok(()));
-    }
-
     // Uncle is ancestor block
     {
         let block_number = 7;
@@ -277,6 +257,32 @@ fn test_uncle_verifier() {
         assert_eq!(
             verifier.verify(),
             Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch))
+        );
+    }
+
+    // Uncle.number >= block.number
+    {
+        let parent_epoch = shared.get_block_epoch(&chain2[17].header().hash()).unwrap();
+        let epoch = shared
+            .next_epoch_ext(&parent_epoch, chain2[17].header())
+            .unwrap_or(parent_epoch);
+
+        let uncle = unsafe {
+            BlockBuilder::from_block(chain1[16].to_owned())
+                .header_builder(
+                    HeaderBuilder::from_header(chain1[16].header().to_owned()).number(20),
+                )
+                .build_unchecked()
+        };
+        let block = BlockBuilder::from_block(chain2[18].to_owned())
+            .uncle(uncle.into())
+            .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
+            .build();
+        let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
+        let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
+        assert_eq!(
+            verifier.verify(),
+            Err(Error::Uncles(UnclesError::InvalidNumber))
         );
     }
 

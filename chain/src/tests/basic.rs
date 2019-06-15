@@ -519,7 +519,7 @@ fn test_next_epoch_ext() {
 
         // last_uncles_count 25
         // last_epoch_length 400
-        // epoch_duration_target 28800000
+        // epoch_duration_target 14400000
         // target_recip 20
         // last_duration 7980000
 
@@ -528,8 +528,8 @@ fn test_next_epoch_ext() {
         assert_eq!(epoch.difficulty(), &U256::from(1250u64));
 
         // ((Cu_last + Cm_last) * L * Cm_last) / ((u + 1) * Cu_last * L_last)
-        // ((25 + 400) * 28800000 * 400) / (( 20 + 1)* 25 * 7980000)
-        assert_eq!(epoch.length(), 1168);
+        // ((25 + 400) * 14400000 * 400) / (( 20 + 1)* 25 * 7980000)
+        assert_eq!(epoch.length(), 584);
 
         let consensus = shared.consensus();
 

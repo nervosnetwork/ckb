@@ -13,7 +13,7 @@ use std::sync::Arc;
 use test_chain_utils::create_always_success_cell;
 
 const TX_FEE: Capacity = capacity_bytes!(10);
-const BLOCK_REWARD: Capacity = capacity_bytes!(2_500);
+const BLOCK_REWARD: Capacity = capacity_bytes!(1_000);
 
 pub(crate) fn create_cellbase(
     number: BlockNumber,

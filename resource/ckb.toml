@@ -117,6 +117,16 @@ cell_output_cache_size  = 128
 #
 #     ckb cli secp256k1-lock <pubkey>
 #
+# The command `ckb init` also accepts options to generate the block assembler
+# directly. See `ckb init --help` for details. And `ckb cli secp256k1-lock` can
+# also prints the command line options for `ckb init`.
+#
+#     ckb cli secp256k1-lock <pubkey> --format cmd
+#
+# The two commands can be combined together:
+#
+#     ckb init $(ckb cli secp256k1-lock <pubkey> --format cmd)
+#
 # Also, ckb allows the miners to add any data to the cellbase that they have dug out.
 # The data must be A 0x-prefixed hex string.
 #
@@ -125,9 +135,6 @@ cell_output_cache_size  = 128
 # **WARNING**: if data is larger than the capacity value of the current cellbase,
 # it will be truncated
 #
-# Below is an example block assembler configuration section:
-#
-# [block_assembler]
-# code_hash = "0xf1951123466e4479842387a66fabfd6b65fc87fd84ae8e6cd3053edb27fff2fd"
-# args = ["ckb cli blake160 <pubkey>"]
-# data = "A 0x-prefixed hex string"
+# # {{
+# _ => {block_assembler}
+# }}

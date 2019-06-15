@@ -119,7 +119,7 @@ matrix:
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
-      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:bionic-rust-1.34.2
+      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.34.2
       before_install: skip
       before_cache: skip
       cache:
@@ -127,7 +127,7 @@ matrix:
           - $HOME/.cargo/git
       script:
         - mkdir -p $HOME/.cargo/git
-        - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo/git:/root/.cargo/git -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu -e OPENSSL_INCLUDE_DIR=/usr/include/openssl $BUILDER_IMAGE make prod
+        - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo/git:/root/.cargo/git -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
         - openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
         - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb
