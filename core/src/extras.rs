@@ -30,9 +30,8 @@ pub struct DaoStats {
 pub struct TransactionAddress {
     // Block hash
     pub block_hash: H256,
-    // Offset of block transaction in serialized bytes
-    pub offset: usize,
-    pub length: usize,
+    // Index in the block
+    pub index: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]

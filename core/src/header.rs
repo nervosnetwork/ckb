@@ -1,4 +1,4 @@
-use bincode::{deserialize, serialize};
+use bincode::serialize;
 use ckb_hash::blake2b_256;
 use faster_hex::hex_string;
 use numext_fixed_hash::H256;
@@ -116,13 +116,6 @@ pub struct Header {
     hash: H256,
 }
 
-// The order of fields should be same as Header deserialization
-#[derive(Deserialize)]
-struct HeaderKernel {
-    raw: RawHeader,
-    seal: Seal,
-}
-
 // The order of fields should be same as HeaderKernel deserialization
 impl<'de> serde::de::Deserialize<'de> for Header {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -231,16 +224,6 @@ impl Header {
             blake2b_256(serialize(&header).expect("Header serialize should not fail")).into();
         header.hash = hash;
         header
-    }
-
-    /// # Warning
-    ///
-    /// When using this method, the caller should ensure the input hash is right, or the caller
-    /// will get a incorrect Header.
-    pub unsafe fn from_bytes_with_hash_unchecked(bytes: &[u8], hash: H256) -> Self {
-        let HeaderKernel { raw, seal } =
-            deserialize(bytes).expect("header kernel deserializing should be ok");
-        Self { raw, seal, hash }
     }
 
     pub fn serialized_size(proof_size: usize) -> usize {
@@ -426,5 +409,14 @@ impl HeaderBuilder {
     pub fn build(self) -> Header {
         let Self { raw, seal } = self;
         Header::new(raw, seal)
+    }
+
+    /// # Warning
+    ///
+    /// When using this method, the caller should ensure the input hash is right, or the caller
+    /// will get a incorrect Header.
+    pub unsafe fn build_unchecked(self, hash: H256) -> Header {
+        let Self { raw, seal } = self;
+        Header { raw, seal, hash }
     }
 }

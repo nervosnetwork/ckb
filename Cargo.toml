@@ -36,6 +36,7 @@ members = [
     "traits",
     "network",
     "protocol",
+    "protos",
     "sync",
     "core",
     "store",

@@ -1,12 +1,7 @@
-use crate::flat_block_body::{
-    deserialize_block_body, deserialize_block_body_for_hashes_only, deserialize_transaction,
-    serialize_block_body, serialize_block_body_size, TransactionAddressInner,
-    TransactionAddressStored,
-};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET,
-    COLUMN_EPOCH, COLUMN_EXT, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR, COLUMN_UNCLES,
+    COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_EXT, COLUMN_INDEX,
+    COLUMN_META, COLUMN_TRANSACTION_ADDR, COLUMN_UNCLES,
 };
 use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
@@ -71,6 +66,15 @@ impl<T: KeyValueDB> ChainKVStore<T> {
     pub fn partial_get(&self, col: Col, key: &[u8], range: &Range<usize>) -> Option<Vec<u8>> {
         self.db
             .partial_read(col, key, range)
+            .expect("db operation should be ok")
+    }
+
+    fn process_get<F, Ret>(&self, col: Col, key: &[u8], process: F) -> Option<Ret>
+    where
+        F: FnOnce(&[u8]) -> Result<Option<Ret>, Error>,
+    {
+        self.db
+            .process_read(col, key, process)
             .expect("db operation should be ok")
     }
 
@@ -197,53 +201,50 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         // release lock asap
         drop(header_cache_unlocked);
 
-        self.get(COLUMN_BLOCK_HEADER, hash.as_bytes())
-            .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, hash.to_owned()) })
-            .and_then(|header| {
-                let mut header_cache_unlocked = self
-                    .header_cache
-                    .lock()
-                    .expect("poisoned header cache lock");
-                header_cache_unlocked.insert(hash.clone(), header.clone());
-                Some(header)
-            })
+        self.process_get(COLUMN_BLOCK_HEADER, hash.as_bytes(), |slice| {
+            let header: Header = flatbuffers::get_root::<ckb_protos::StoredHeader>(&slice).into();
+            Ok(Some(header))
+        })
+        .and_then(|header| {
+            let mut header_cache_unlocked = self
+                .header_cache
+                .lock()
+                .expect("poisoned header cache lock");
+            header_cache_unlocked.insert(hash.clone(), header.clone());
+            Some(header)
+        })
     }
 
-    fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
-        // TODO Q use builder
-        self.get(COLUMN_BLOCK_UNCLE, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize uncle should be ok"))
+    fn get_block_uncles(&self, hash: &H256) -> Option<Vec<UncleBlock>> {
+        self.process_get(COLUMN_BLOCK_UNCLE, hash.as_bytes(), |slice| {
+            let uncles: Vec<UncleBlock> =
+                flatbuffers::get_root::<ckb_protos::StoredUncleBlocks>(&slice).into();
+            Ok(Some(uncles))
+        })
     }
 
-    fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>> {
-        self.get(COLUMN_BLOCK_PROPOSAL_IDS, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize proposal txs id should be ok"))
+    fn get_block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>> {
+        self.process_get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), |slice| {
+            let uncles: Vec<ProposalShortId> =
+                flatbuffers::get_root::<ckb_protos::StoredProposalShortIds>(&slice).into();
+            Ok(Some(uncles))
+        })
     }
 
-    fn get_block_body(&self, h: &H256) -> Option<Vec<Transaction>> {
-        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
-            .and_then(|serialized_addresses| {
-                let tx_addresses: Vec<TransactionAddressInner> = deserialize(&serialized_addresses)
-                    .expect("flat deserialize address should be ok");
-                self.get(COLUMN_BLOCK_BODY, h.as_bytes())
-                    .map(|serialized_body| {
-                        deserialize_block_body(&serialized_body, &tx_addresses[..])
-                            .expect("deserialize block body should be ok")
-                    })
-            })
+    fn get_block_body(&self, hash: &H256) -> Option<Vec<Transaction>> {
+        self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
+            let transactions: Vec<Transaction> =
+                flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice).into();
+            Ok(Some(transactions))
+        })
     }
 
-    fn get_block_txs_hashes(&self, block_hash: &H256) -> Option<Vec<H256>> {
-        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, block_hash.as_bytes())
-            .and_then(|serialized_addresses| {
-                let tx_addresses: Vec<TransactionAddressInner> = deserialize(&serialized_addresses)
-                    .expect("flat deserialize address should be ok");
-                self.get(COLUMN_BLOCK_BODY, block_hash.as_bytes())
-                    .map(|serialized_body| {
-                        deserialize_block_body_for_hashes_only(&serialized_body, &tx_addresses[..])
-                            .expect("deserialize block body hashes should be ok")
-                    })
-            })
+    fn get_block_txs_hashes(&self, hash: &H256) -> Option<Vec<H256>> {
+        self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
+            let tx_hashes =
+                flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice).tx_hashes();
+            Ok(Some(tx_hashes))
+        })
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
@@ -356,36 +357,23 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(|raw| H256::from_slice(&raw[..]).expect("db safe access"))
     }
 
-    fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)> {
-        self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
-            .and_then(|addr: TransactionAddressStored| {
-                self.partial_get(
-                    COLUMN_BLOCK_BODY,
-                    addr.block_hash.as_bytes(),
-                    &(addr.inner.offset..(addr.inner.offset + addr.inner.length)),
-                )
-                .map(|ref serialized_transaction| {
-                    (
-                        deserialize_transaction(
-                            serialized_transaction,
-                            &addr.inner.outputs_addresses,
-                        )
-                        .expect("flat deserialize tx should be ok"),
-                        addr.block_hash,
-                    )
-                })
+    fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)> {
+        self.get_transaction_address(&hash).and_then(|addr| {
+            self.process_get(COLUMN_BLOCK_BODY, addr.block_hash.as_bytes(), |slice| {
+                let tx_opt = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
+                    .transaction(addr.index);
+                Ok(tx_opt)
             })
+            .map(|tx| (tx, addr.block_hash))
+        })
     }
 
-    fn get_transaction_address(&self, h: &H256) -> Option<TransactionAddress> {
-        self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
-            .map(|stored: TransactionAddressStored| TransactionAddress {
-                block_hash: stored.block_hash,
-                offset: stored.inner.offset,
-                length: stored.inner.length,
-            })
+    fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress> {
+        self.process_get(COLUMN_TRANSACTION_ADDR, hash.as_bytes(), |slice| {
+            let addr: TransactionAddress =
+                flatbuffers::get_root::<ckb_protos::StoredTransactionAddress>(&slice).into();
+            Ok(Some(addr))
+        })
     }
 
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
@@ -396,25 +384,13 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         .map(|raw| deserialize(&raw[..]).expect("deserialize cell meta should be ok"))
     }
 
-    fn get_cellbase(&self, h: &H256) -> Option<Transaction> {
-        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
-            .and_then(|serialized_addresses| {
-                let addresses: Vec<TransactionAddressInner> =
-                    deserialize(&serialized_addresses).expect("deserialize address should be ok");
-                let cellbase_address = addresses.get(0).expect("cellbase address should exist");
-                self.partial_get(
-                    COLUMN_BLOCK_BODY,
-                    h.as_bytes(),
-                    &(cellbase_address.offset..(cellbase_address.offset + cellbase_address.length)),
-                )
-                .map(|ref serialized_transaction| {
-                    deserialize_transaction(
-                        &serialized_transaction,
-                        &cellbase_address.outputs_addresses,
-                    )
-                    .expect("deserialize tx should be ok")
-                })
-            })
+    fn get_cellbase(&self, hash: &H256) -> Option<Transaction> {
+        self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
+            let cellbase = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
+                .transaction(0)
+                .expect("cellbase address should exist");
+            Ok(Some(cellbase))
+        })
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
@@ -429,32 +405,21 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         // release lock asap
         drop(cell_output_cache_unlocked);
 
-        self.get(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
-            .and_then(|stored: TransactionAddressStored| {
-                stored
-                    .inner
-                    .outputs_addresses
-                    .get(index as usize)
-                    .and_then(|addr| {
-                        let output_offset = stored.inner.offset + addr.offset;
-                        self.partial_get(
-                            COLUMN_BLOCK_BODY,
-                            stored.block_hash.as_bytes(),
-                            &(output_offset..(output_offset + addr.length)),
-                        )
-                        .map(|ref serialized_cell_output| {
-                            let cell_output: CellOutput = deserialize(serialized_cell_output)
-                                .expect("flat deserialize cell output should be ok");
-                            let mut cell_output_cache_unlocked = self
-                                .cell_output_cache
-                                .lock()
-                                .expect("poisoned cell output cache lock");
-                            cell_output_cache_unlocked
-                                .insert((tx_hash.clone(), index), cell_output.clone());
-                            cell_output.to_owned()
-                        })
-                    })
+        self.get_transaction_address(&tx_hash)
+            .and_then(|addr| {
+                self.process_get(COLUMN_BLOCK_BODY, addr.block_hash.as_bytes(), |slice| {
+                    let output_opt = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
+                        .output(addr.index, index as usize);
+                    Ok(output_opt)
+                })
+            })
+            .map(|cell_output: CellOutput| {
+                let mut cell_output_cache_unlocked = self
+                    .cell_output_cache
+                    .lock()
+                    .expect("poisoned cell output cache lock");
+                cell_output_cache_unlocked.insert((tx_hash.clone(), index), cell_output.clone());
+                cell_output
             })
     }
 
@@ -499,24 +464,48 @@ impl<B: DbBatch> DefaultStoreBatch<B> {
     }
 }
 
+macro_rules! insert_flatbuffers {
+    ($database:ident, $col:ident, $key:expr, $type:ident, $data:expr) => {
+        let builder = &mut flatbuffers::FlatBufferBuilder::new();
+        let proto = ckb_protos::$type::build(builder, $data);
+        builder.finish(proto, None);
+        let slice = builder.finished_data();
+        $database.insert_raw($col, $key, slice)?;
+    };
+}
+
 impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn insert_block(&mut self, block: &Block) -> Result<(), Error> {
-        let hash = block.header().hash();
-        self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), block.header())?;
-        self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), block.uncles())?;
-        self.insert_serialize(
+        let hash = block.header().hash().as_bytes();
+        insert_flatbuffers!(
+            self,
+            COLUMN_BLOCK_HEADER,
+            hash,
+            StoredHeader,
+            block.header()
+        );
+        insert_flatbuffers!(
+            self,
+            COLUMN_BLOCK_UNCLE,
+            hash,
+            StoredUncleBlocks,
+            block.uncles()
+        );
+        insert_flatbuffers!(
+            self,
             COLUMN_BLOCK_PROPOSAL_IDS,
-            hash.as_bytes(),
-            block.proposals(),
-        )?;
-        let (block_data, block_addresses) = serialize_block_body(block.transactions())
-            .expect("flat serialize block body should be ok");
-        self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data)?;
-        self.insert_serialize(
-            COLUMN_BLOCK_TRANSACTION_ADDRESSES,
-            hash.as_bytes(),
-            &block_addresses,
-        )
+            hash,
+            StoredProposalShortIds,
+            block.proposals()
+        );
+        insert_flatbuffers!(
+            self,
+            COLUMN_BLOCK_BODY,
+            hash,
+            StoredBlockBody,
+            block.transactions()
+        );
+        Ok(())
     }
 
     fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) -> Result<(), Error> {
@@ -525,21 +514,22 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
         let hash = block.header().hash();
-        let (_, tx_addresses) = serialize_block_body_size(block.transactions())
-            .expect("flat serialize tx addresses should be ok");
-        for (id, (tx, addr)) in block
-            .transactions()
-            .iter()
-            .zip(tx_addresses.into_iter())
-            .enumerate()
-        {
+        for (index, tx) in block.transactions().iter().enumerate() {
             let tx_hash = tx.hash();
-            self.insert_serialize(
-                COLUMN_TRANSACTION_ADDR,
-                tx_hash.as_bytes(),
-                &addr.into_stored(hash.to_owned()),
-            )?;
-            let cellbase = id == 0;
+            {
+                let addr = TransactionAddress {
+                    block_hash: hash.to_owned(),
+                    index,
+                };
+                insert_flatbuffers!(
+                    self,
+                    COLUMN_TRANSACTION_ADDR,
+                    tx_hash.as_bytes(),
+                    StoredTransactionAddress,
+                    &addr
+                );
+            }
+            let cellbase = index == 0;
             for (index, output) in tx.outputs().iter().enumerate() {
                 let out_point = CellOutPoint {
                     tx_hash: tx_hash.to_owned(),

@@ -769,6 +769,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-protos"
+version = "0.16.0-pre"
+dependencies = [
+ "ckb-core 0.16.0-pre",
+ "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "ckb-resource"
 version = "0.16.0-pre"
 dependencies = [
@@ -920,7 +930,9 @@ dependencies = [
  "ckb-chain-spec 0.16.0-pre",
  "ckb-core 0.16.0-pre",
  "ckb-db 0.16.0-pre",
+ "ckb-protos 0.16.0-pre",
  "ckb-script-data-loader 0.16.0-pre",
+ "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -1,0 +1,49 @@
+include "common.fbs";
+
+table StoredBlock {
+    data: Block;
+    cache: StoredBlockCache;
+}
+
+table StoredBlockCache {
+    header_hash: H256;
+    uncle_hashes: [H256];
+    tx_hashes: [H256];
+    tx_witness_hashes: [H256];
+}
+
+table StoredBlockBody {
+    data: BlockBody;
+    cache: StoredBlockBodyCache;
+}
+
+table StoredBlockBodyCache {
+    tx_hashes: [H256];
+    tx_witness_hashes: [H256];
+}
+
+table StoredTransactionAddress {
+    data: TransactionAddress;
+}
+
+table StoredHeader{
+    data: Header;
+    cache: StoredHeaderCache;
+}
+
+table StoredHeaderCache {
+    hash: H256;
+}
+
+table StoredUncleBlocks {
+    data: [UncleBlock];
+    cache: StoredUncleBlocksCache;
+}
+
+table StoredUncleBlocksCache {
+    hashes: [H256];
+}
+
+table StoredProposalShortIds {
+    data: [ProposalShortId];
+}
