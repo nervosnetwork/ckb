@@ -49,6 +49,7 @@ impl UncleBlock {
 
     pub fn serialized_size(&self, proof_size: usize) -> usize {
         Header::serialized_size(proof_size)
+            + self.proposals.len() * ProposalShortId::serialized_size()
     }
 }
 
@@ -82,13 +83,16 @@ mod tests {
     use crate::block::BlockBuilder;
 
     #[test]
-    fn block_size_should_not_include_uncles_proposal_zones() {
+    fn block_size_should_include_uncles_proposal_zones() {
         let uncle1: UncleBlock = BlockBuilder::default()
             .proposal(ProposalShortId::zero())
             .build()
             .into();
         let uncle2: UncleBlock = BlockBuilder::default().build().into();
 
-        assert_eq!(uncle1.serialized_size(0), uncle2.serialized_size(0));
+        assert_eq!(
+            uncle1.serialized_size(0) - uncle2.serialized_size(0),
+            ProposalShortId::serialized_size()
+        );
     }
 }
