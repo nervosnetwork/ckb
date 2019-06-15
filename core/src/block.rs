@@ -20,10 +20,11 @@ fn cal_transactions_root(vec: &[Transaction]) -> H256 {
 }
 
 fn cal_witnesses_root(vec: &[Transaction]) -> H256 {
-    // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
-    let mut witnesses = vec![H256::zero()];
-    witnesses.extend(vec.iter().skip(1).map(|tx| tx.witness_hash().to_owned()));
-    merkle_root(&witnesses[..])
+    merkle_root(
+        &vec.iter()
+            .map(|tx| tx.witness_hash().to_owned())
+            .collect::<Vec<_>>(),
+    )
 }
 
 pub(crate) fn cal_proposals_hash(vec: &[ProposalShortId]) -> H256 {
