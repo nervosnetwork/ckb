@@ -116,7 +116,7 @@ impl Miner {
                 {
                     self.seals_found += 1;
                     self.pb.println(format!(
-                        "Found seal of block #{} {:x}",
+                        "Found! #{} {:x}",
                         block.header().number(),
                         block.header().hash()
                     ));
