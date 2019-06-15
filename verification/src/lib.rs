@@ -9,7 +9,7 @@ mod uncles_verifier;
 mod tests;
 
 pub use crate::block_verifier::{BlockVerifier, HeaderResolverWrapper};
-pub use crate::contextual_block_verifier::ContextualBlockVerifier;
+pub use crate::contextual_block_verifier::{ContextualBlockVerifier, ForkContext};
 pub use crate::error::{Error, TransactionError};
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
 pub use crate::transaction_verifier::{
@@ -17,6 +17,8 @@ pub use crate::transaction_verifier::{
 };
 
 pub const ALLOWED_FUTURE_BLOCKTIME: u64 = 15 * 1000; // 15 Second
+
+pub(crate) const LOG_TARGET: &str = "ckb-chain";
 
 pub trait Verifier {
     type Target;

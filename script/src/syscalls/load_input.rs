@@ -1,11 +1,10 @@
 use crate::syscalls::{
-    utils::store_data, InputField, Source, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+    utils::store_data, InputField, Source, SourceEntry, INDEX_OUT_OF_BOUND,
     LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER, SUCCESS,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::transaction::CellInput;
-use ckb_protocol::CellInput as FbsCellInput;
-use ckb_protocol::{Bytes as FbsBytes, CellInputBuilder, OutPoint as FbsOutPoint};
+use ckb_protocol::{CellInput as FbsCellInput, OutPoint as FbsOutPoint};
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -15,18 +14,36 @@ use flatbuffers::FlatBufferBuilder;
 #[derive(Debug)]
 pub struct LoadInput<'a> {
     inputs: &'a [&'a CellInput],
+    group_inputs: &'a [usize],
 }
 
 impl<'a> LoadInput<'a> {
-    pub fn new(inputs: &'a [&'a CellInput]) -> LoadInput<'a> {
-        LoadInput { inputs }
+    pub fn new(inputs: &'a [&'a CellInput], group_inputs: &'a [usize]) -> LoadInput<'a> {
+        LoadInput {
+            inputs,
+            group_inputs,
+        }
     }
 
     fn fetch_input(&self, source: Source, index: usize) -> Result<&CellInput, u8> {
         match source {
-            Source::Input => self.inputs.get(index).cloned().ok_or(INDEX_OUT_OF_BOUND),
-            Source::Output => Err(ITEM_MISSING),
-            Source::Dep => Err(ITEM_MISSING),
+            Source::Transaction(SourceEntry::Input) => {
+                self.inputs.get(index).cloned().ok_or(INDEX_OUT_OF_BOUND)
+            }
+            Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
+            Source::Transaction(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::Input) => self
+                .group_inputs
+                .get(index)
+                .ok_or(INDEX_OUT_OF_BOUND)
+                .and_then(|actual_index| {
+                    self.inputs
+                        .get(*actual_index)
+                        .cloned()
+                        .ok_or(INDEX_OUT_OF_BOUND)
+                }),
+            Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
         }
     }
 
@@ -57,24 +74,6 @@ impl<'a> LoadInput<'a> {
         let field = InputField::parse_from_u64(machine.registers()[A5].to_u64())?;
 
         let result = match field {
-            InputField::Args => {
-                let mut builder = FlatBufferBuilder::new();
-                let vec = input
-                    .args
-                    .iter()
-                    .map(|argument| FbsBytes::build(&mut builder, argument))
-                    .collect::<Vec<_>>();
-                let args = builder.create_vector(&vec);
-                // Since a vector cannot be root FlatBuffer type, we have
-                // to wrap args here inside a CellInput struct.
-                let mut input_builder = CellInputBuilder::new(&mut builder);
-                input_builder.add_args(args);
-                let offset = input_builder.finish();
-                builder.finish(offset, None);
-                let data = builder.finished_data();
-                store_data(machine, data)?;
-                data.len()
-            }
             InputField::OutPoint => {
                 let mut builder = FlatBufferBuilder::new();
                 let offset = FbsOutPoint::build(&mut builder, &input.previous_output);

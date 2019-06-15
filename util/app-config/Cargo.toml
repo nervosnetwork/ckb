@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -10,8 +10,7 @@ clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
 toml = "0.5"
-log = "0.4"
-logger = { path = "../../util/logger" }
+ckb-logger = { path = "../../util/logger" }
 sentry = "^0.15.4"
 ckb-chain-spec = {path = "../../spec"}
 ckb-network = { path = "../../network"}
@@ -25,7 +24,6 @@ ckb-shared = { path = "../../shared" }
 ckb-sync = { path = "../../sync"}
 ckb-store = { path = "../../store" }
 build-info = { path = "../build-info" }
-ckb-verification = { path = "../../verification" }
 ckb-script = { path = "../../script" }
 
 [dev-dependencies]

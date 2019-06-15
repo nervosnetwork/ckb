@@ -1,44 +1,44 @@
 use crate::error::{CellbaseError, CommitError, Error};
-use crate::uncles_verifier::UnclesVerifier;
+use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use crate::{ContextualTransactionVerifier, TransactionVerifier};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
-use ckb_core::transaction::Capacity;
 use ckb_core::transaction::Transaction;
+use ckb_core::uncle::UncleBlock;
 use ckb_core::Cycle;
-use ckb_core::{block::Block, BlockNumber, EpochNumber};
+use ckb_core::{block::Block, BlockNumber, Capacity, EpochNumber};
+use ckb_logger::error_target;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use dao_utils::calculate_transaction_fee;
 use fnv::FnvHashSet;
-use log::error;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::sync::Arc;
 
 // Verification context for fork
-struct ForkContext<'a, CS> {
-    pub fork_attached_blocks: &'a [Block],
-    pub store: Arc<CS>,
-    pub consensus: &'a Consensus,
+pub struct ForkContext<'a, P> {
+    pub attached_blocks: Vec<&'a Block>,
+    pub detached_blocks: Vec<&'a Block>,
+    pub provider: P,
 }
 
-impl<'a, CS: ChainStore> ForkContext<'a, CS> {
+impl<'a, P: ChainProvider> ForkContext<'a, P> {
     fn get_header(&self, block_hash: &H256) -> Option<Header> {
-        self.fork_attached_blocks
+        self.attached_blocks
             .iter()
             .find(|b| b.header().hash() == block_hash)
             .and_then(|b| Some(b.header().to_owned()))
-            .or_else(|| self.store.get_header(block_hash))
+            .or_else(|| self.provider.store().get_header(block_hash))
     }
 }
 
-impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
+impl<'a, P: ChainProvider> BlockMedianTimeContext for ForkContext<'a, P> {
     fn median_block_count(&self) -> u64 {
-        self.consensus.median_time_block_count() as u64
+        self.provider.consensus().median_time_block_count() as u64
     }
 
     fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
@@ -49,11 +49,77 @@ impl<'a, CS: ChainStore> BlockMedianTimeContext for ForkContext<'a, CS> {
     }
 
     fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.fork_attached_blocks
+        self.attached_blocks
             .iter()
             .find(|b| b.header().number() == block_number)
             .and_then(|b| Some(b.header().hash().to_owned()))
-            .or_else(|| self.store.get_block_hash(block_number))
+            .or_else(|| self.provider.store().get_block_hash(block_number))
+    }
+}
+
+pub(crate) struct UncleVerifierContext<'a, P> {
+    epoch: &'a EpochExt,
+    excluded: FnvHashSet<&'a H256>,
+    detached: FnvHashSet<&'a H256>,
+    detached_uncles: FnvHashSet<&'a H256>,
+    provider: &'a P,
+}
+
+impl<'a, P: ChainProvider> UncleVerifierContext<'a, P> {
+    pub(crate) fn new(fork: &'a ForkContext<'a, P>, epoch: &'a EpochExt, block: &'a Block) -> Self {
+        let mut excluded = FnvHashSet::default();
+        excluded.insert(block.header().hash());
+
+        for pre in &fork.attached_blocks {
+            excluded.insert(pre.header().hash());
+            for uncle in pre.uncles() {
+                excluded.insert(uncle.header.hash());
+            }
+        }
+        let detached = fork
+            .detached_blocks
+            .iter()
+            .map(|b| b.header().hash())
+            .collect();
+        let detached_uncles = fork
+            .detached_blocks
+            .iter()
+            .flat_map(|b| b.uncles().iter().map(UncleBlock::hash))
+            .collect();
+        UncleVerifierContext {
+            epoch,
+            excluded,
+            detached,
+            detached_uncles,
+            provider: &fork.provider,
+        }
+    }
+}
+
+impl<'a, P: ChainProvider> UncleProvider for UncleVerifierContext<'a, P> {
+    fn double_inclusion(&self, hash: &H256) -> bool {
+        if self.excluded.contains(hash) {
+            return true;
+        }
+
+        // main chain
+        if self.provider.store().get_block_number(hash).is_some() {
+            return !self.detached.contains(hash);
+        }
+
+        if self.provider.store().is_uncle(hash) {
+            return !self.detached_uncles.contains(hash);
+        }
+
+        false
+    }
+
+    fn epoch(&self) -> &EpochExt {
+        self.epoch
+    }
+
+    fn consensus(&self) -> &Consensus {
+        self.provider.consensus()
     }
 }
 
@@ -118,10 +184,23 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
         let difference: Vec<_> = committed_ids.difference(&proposal_txs_ids).collect();
 
         if !difference.is_empty() {
-            error!(target: "chain",  "Block {} {:x}", self.block.header().number(), self.block.header().hash());
-            error!(target: "chain",  "proposal_window {:?}", proposal_window);
-            error!(target: "chain",  "committed_ids {} ", serde_json::to_string(&committed_ids).unwrap());
-            error!(target: "chain",  "proposal_txs_ids {} ", serde_json::to_string(&proposal_txs_ids).unwrap());
+            error_target!(
+                crate::LOG_TARGET,
+                "Block {} {:x}",
+                self.block.header().number(),
+                self.block.header().hash()
+            );
+            error_target!(crate::LOG_TARGET, "proposal_window {:?}", proposal_window);
+            error_target!(
+                crate::LOG_TARGET,
+                "committed_ids {} ",
+                serde_json::to_string(&committed_ids).unwrap()
+            );
+            error_target!(
+                crate::LOG_TARGET,
+                "proposal_txs_ids {} ",
+                serde_json::to_string(&proposal_txs_ids).unwrap()
+            );
             return Err(Error::Commit(CommitError::Invalid));
         }
         Ok(())
@@ -177,30 +256,26 @@ where
     }
 }
 
-struct BlockTxsVerifier<'a, M, P> {
-    provider: &'a P,
-    block_median_time_context: &'a M,
+struct BlockTxsVerifier<'a, P> {
+    context: &'a ForkContext<'a, P>,
     block_number: BlockNumber,
     epoch_number: EpochNumber,
     resolved: &'a [ResolvedTransaction<'a>],
 }
 
-impl<'a, M, P> BlockTxsVerifier<'a, M, P>
+impl<'a, P> BlockTxsVerifier<'a, P>
 where
-    M: BlockMedianTimeContext + Sync,
     P: ChainProvider,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        provider: &'a P,
-        block_median_time_context: &'a M,
+        context: &'a ForkContext<'a, P>,
         block_number: BlockNumber,
         epoch_number: EpochNumber,
         resolved: &'a [ResolvedTransaction<'a>],
-    ) -> BlockTxsVerifier<'a, M, P> {
+    ) -> BlockTxsVerifier<'a, P> {
         BlockTxsVerifier {
-            provider,
-            block_median_time_context,
+            context,
             block_number,
             epoch_number,
             resolved,
@@ -218,10 +293,10 @@ where
                 if let Some(cycles) = txs_verify_cache.get(&tx_hash) {
                     ContextualTransactionVerifier::new(
                         &tx,
-                        self.block_median_time_context,
+                        self.context,
                         self.block_number,
                         self.epoch_number,
-                        self.provider.consensus(),
+                        self.context.provider.consensus(),
                     )
                     .verify()
                     .map_err(|e| Error::Transactions((index, e)))
@@ -229,14 +304,14 @@ where
                 } else {
                     TransactionVerifier::new(
                         &tx,
-                        self.block_median_time_context,
+                        self.context,
                         self.block_number,
                         self.epoch_number,
-                        self.provider.consensus(),
-                        self.provider.script_config(),
-                        self.provider.store(),
+                        self.context.provider.consensus(),
+                        self.context.provider.script_config(),
+                        self.context.provider.store(),
                     )
-                    .verify(self.provider.consensus().max_block_cycles())
+                    .verify(self.context.provider.consensus().max_block_cycles())
                     .map_err(|e| Error::Transactions((index, e)))
                     .map(|cycles| (tx_hash, cycles))
                 }
@@ -249,7 +324,7 @@ where
             txs_verify_cache.insert(hash, cycles);
         }
 
-        if sum > self.provider.consensus().max_block_cycles() {
+        if sum > self.context.provider.consensus().max_block_cycles() {
             Err(Error::ExceededMaximumCycles)
         } else {
             Ok(sum)
@@ -273,42 +348,40 @@ fn prepare_epoch_ext<P: ChainProvider>(provider: &P, block: &Block) -> Result<Ep
         .unwrap_or(parent_ext))
 }
 
-pub struct ContextualBlockVerifier<P> {
-    provider: P,
+pub struct ContextualBlockVerifier<'a, P> {
+    context: &'a ForkContext<'a, P>,
 }
 
-impl<P: ChainProvider> ContextualBlockVerifier<P>
+impl<'a, P: ChainProvider> ContextualBlockVerifier<'a, P>
 where
     P: ChainProvider + Clone,
 {
-    pub fn new(provider: P) -> Self {
-        ContextualBlockVerifier { provider }
+    pub fn new(context: &'a ForkContext<'a, P>) -> Self {
+        ContextualBlockVerifier { context }
     }
 
     pub fn verify(
         &self,
         resolved: &[ResolvedTransaction],
-        fork_attached_blocks: &[Block],
         block: &Block,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
     ) -> Result<Cycle, Error> {
-        let consensus = self.provider.consensus();
-        let store = self.provider.store();
-        let epoch_ext = prepare_epoch_ext(&self.provider, block)?;
+        let epoch_ext = prepare_epoch_ext(&self.context.provider, block)?;
 
-        CommitVerifier::new(self.provider.clone(), block).verify()?;
-        UnclesVerifier::new(self.provider.clone(), &epoch_ext, block).verify()?;
-        RewardVerifier::new(store, resolved, &epoch_ext, block.header().number()).verify()?;
+        let uncle_verifier_context = UncleVerifierContext::new(self.context, &epoch_ext, block);
+        UnclesVerifier::new(uncle_verifier_context, block).verify()?;
 
-        let block_median_time_context = ForkContext {
-            fork_attached_blocks,
-            store: Arc::clone(store),
-            consensus,
-        };
+        CommitVerifier::new(self.context.provider.clone(), block).verify()?;
+        RewardVerifier::new(
+            self.context.provider.store(),
+            resolved,
+            &epoch_ext,
+            block.header().number(),
+        )
+        .verify()?;
 
         BlockTxsVerifier::new(
-            &self.provider,
-            &block_median_time_context,
+            self.context,
             block.header().number(),
             block.header().epoch(),
             resolved,

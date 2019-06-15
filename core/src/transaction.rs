@@ -8,8 +8,9 @@ use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::{h256, H256};
-use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity};
+use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity, Result as CapacityResult};
 use serde_derive::{Deserialize, Serialize};
+use std::convert::TryInto;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::mem;
@@ -25,6 +26,50 @@ pub const TX_VERSION: Version = 0;
 // unlocking process of the DAO cell. The hex used here is actually
 // "NERVOSDAOINPUT0001" in hex mode.
 pub const ISSUING_DAO_HASH: H256 = h256!("0x4e4552564f5344414f494e50555430303031");
+
+pub struct CellKey([u8; 36]);
+
+impl CellKey {
+    pub fn calculate(tx_hash: &H256, index: u32) -> Self {
+        let mut key: [u8; 36] = [0; 36];
+        key[..32].copy_from_slice(tx_hash.as_bytes());
+        key[32..36].copy_from_slice(&index.to_le_bytes());
+        CellKey(key)
+    }
+
+    pub fn recover(&self) -> CellOutPoint {
+        Self::deconstruct(&self.0)
+    }
+
+    pub fn deconstruct(bytes: &[u8]) -> CellOutPoint {
+        let tx_hash = H256::from_slice(&bytes[..32]).expect("should not be failed");
+        let le_bytes: [u8; 4] = bytes[32..36].try_into().expect("should not be failed");
+        let index = u32::from_le_bytes(le_bytes);
+        CellOutPoint { tx_hash, index }
+    }
+}
+
+impl AsRef<[u8]> for CellKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
+#[derive(Eq, PartialEq)]
+pub struct CellOutPointRef<'a> {
+    tx_hash: &'a H256,
+    index: u32,
+}
+
+impl<'a> CellOutPointRef<'a> {
+    pub fn new(tx_hash: &'a H256, index: u32) -> CellOutPointRef<'a> {
+        CellOutPointRef { tx_hash, index }
+    }
+
+    pub fn cell_key(&self) -> CellKey {
+        CellKey::calculate(self.tx_hash, self.index)
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
 pub struct CellOutPoint {
@@ -60,6 +105,17 @@ impl CellOutPoint {
 
     pub const fn serialized_size() -> usize {
         H256::size_of() + mem::size_of::<u32>()
+    }
+
+    pub fn cell_key(&self) -> CellKey {
+        CellKey::calculate(&self.tx_hash, self.index)
+    }
+
+    pub fn to_ref(&self) -> CellOutPointRef {
+        CellOutPointRef {
+            tx_hash: &self.tx_hash,
+            index: self.index,
+        }
     }
 }
 
@@ -148,41 +204,33 @@ impl OutPoint {
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: u64,
-    // Depends on whether the operation is Transform or Destroy, this is the proof to transform
-    // lock or destroy lock.
-    pub args: Vec<Bytes>,
 }
 
 impl CellInput {
-    pub fn new(previous_output: OutPoint, since: u64, args: Vec<Bytes>) -> Self {
+    pub fn new(previous_output: OutPoint, since: u64) -> Self {
         CellInput {
             previous_output,
             since,
-            args,
         }
     }
 
     pub fn new_cellbase_input(block_number: BlockNumber) -> Self {
         CellInput {
             previous_output: OutPoint::null(),
-            since: 0,
-            args: vec![Bytes::from(block_number.to_le_bytes().to_vec())],
+            since: block_number,
         }
     }
 
-    pub fn destruct(self) -> (OutPoint, u64, Vec<Bytes>) {
+    pub fn destruct(self) -> (OutPoint, u64) {
         let CellInput {
             previous_output,
             since,
-            args,
         } = self;
-        (previous_output, since, args)
+        (previous_output, since)
     }
 
     pub fn serialized_size(&self) -> usize {
-        self.previous_output.serialized_size()
-            + mem::size_of::<u64>()
-            + self.args.iter().map(Bytes::len).sum::<usize>()
+        self.previous_output.serialized_size() + mem::size_of::<u64>()
     }
 }
 
@@ -244,11 +292,8 @@ impl CellOutput {
         (capacity, data, lock, type_)
     }
 
-    pub fn is_occupied_capacity_overflow(&self) -> bool {
-        if let Ok(cap) = self.occupied_capacity() {
-            return cap > self.capacity;
-        }
-        true
+    pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
+        self.occupied_capacity().map(|cap| cap > self.capacity)
     }
 }
 
@@ -446,9 +491,7 @@ impl Transaction {
     }
 
     pub fn is_cellbase(&self) -> bool {
-        self.inputs.len() == 1
-            && self.inputs[0].previous_output.is_null()
-            && self.inputs[0].since == 0
+        self.inputs.len() == 1 && self.inputs[0].previous_output.is_null()
     }
 
     pub fn is_withdrawing_from_dao(&self) -> bool {
@@ -753,21 +796,17 @@ mod test {
                 Script::default(),
                 None,
             ))
-            .input(CellInput::new(
-                OutPoint::new_cell(H256::zero(), 0),
-                0,
-                vec![],
-            ))
+            .input(CellInput::new(OutPoint::new_cell(H256::zero(), 0), 0))
             .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "d5af472fc9cae95c8c3fe440ad72b83ea3e1b1f150aaf5dd19742c0acebace89"
+            "572dfb5f543d43c9a411c36d733655f0a4c2ea729f260d9b3d3085b84834bb4f"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "01da42e3575e48f2f40b63b598bd97ffcb3d089049308a676cad2cb791422f2c"
+            "816db0491b8dfa92ec7a77e07d98c47105fe5a33ddb05ef9f2b24132ac3cc793"
         );
     }
 }

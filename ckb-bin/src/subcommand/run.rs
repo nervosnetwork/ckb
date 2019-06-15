@@ -3,6 +3,7 @@ use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
 use ckb_chain::chain::ChainService;
 use ckb_db::RocksDB;
+use ckb_logger::info_target;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_notify::NotifyService;
@@ -12,7 +13,6 @@ use ckb_store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::{BlockVerifier, Verifier};
-use log::info;
 use std::sync::Arc;
 
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
@@ -36,7 +36,11 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let notify = NotifyService::default().start(Some("notify"));
     let chain_service = ChainService::new(shared.clone(), notify.clone());
     let chain_controller = chain_service.start(Some("ChainService"));
-    info!(target: "main", "chain genesis hash: {:#x}", shared.genesis_hash());
+    info_target!(
+        crate::LOG_TARGET_MAIN,
+        "chain genesis hash: {:#x}",
+        shared.genesis_hash()
+    );
 
     let block_assembler_controller =
         match (args.config.rpc.miner_enable(), args.config.block_assembler) {
@@ -45,7 +49,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
                     .start(Some("MinerAgent"), &notify),
             ),
             _ => {
-                info!(target: "main", "Miner is disabled, edit ckb.toml to enable it");
+                info_target!(
+                    crate::LOG_TARGET_MAIN,
+                    "Miner is disabled, edit ckb.toml to enable it"
+                );
 
                 None
             }
@@ -64,7 +71,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let relayer = Relayer::new(
         chain_controller.clone(),
         sync_shared_state,
-        synchronizer.peers(),
+        Arc::clone(synchronizer.peers()),
     );
     let net_timer = NetTimeProtocol::default();
 
@@ -107,10 +114,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     wait_for_exit();
 
-    info!(target: "main", "Finishing work, please wait...");
+    info_target!(crate::LOG_TARGET_MAIN, "Finishing work, please wait...");
 
     rpc_server.close();
-    info!(target: "main", "Jsonrpc shutdown");
+    info_target!(crate::LOG_TARGET_MAIN, "Jsonrpc shutdown");
     Ok(())
 }
 

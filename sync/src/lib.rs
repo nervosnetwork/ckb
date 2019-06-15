@@ -30,6 +30,8 @@ pub const STALE_RELAY_AGE_LIMIT: u64 = 30 * 24 * 60 * 60 * 1000;
 pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024;
 pub const PER_FETCH_BLOCK_LIMIT: usize = 128;
 
+pub(crate) const LOG_TARGET_RELAY: &str = "ckb-relay";
+
 use ckb_network::ProtocolId;
 
 pub enum NetworkProtocol {

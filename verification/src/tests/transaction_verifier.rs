@@ -39,14 +39,14 @@ pub fn test_capacity_outofbound() {
 
     assert_eq!(
         verifier.verify().err(),
-        Some(TransactionError::CapacityOverflow)
+        Some(TransactionError::InsufficientCellCapacity)
     );
 }
 
 #[test]
 pub fn test_skip_dao_capacity_check() {
     let transaction = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]))
+        .input(CellInput::new(OutPoint::new_issuing_dao(), 0))
         .output(CellOutput::new(
             capacity_bytes!(500),
             Bytes::from(vec![1; 10]),
@@ -207,7 +207,6 @@ pub fn test_since() {
         .inputs(vec![CellInput::new(
             OutPoint::new_cell(h256!("0x1"), 0),
             0x1000_0000_0000_0000,
-            Default::default(),
         )])
         .build();
 
@@ -240,7 +239,6 @@ pub fn test_since() {
         .inputs(vec![CellInput::new(
             OutPoint::new_cell(h256!("0x1"), 0),
             0x0000_0000_0000_000a,
-            Default::default(),
         )])
         .build();
 
@@ -273,7 +271,6 @@ pub fn test_since() {
         .inputs(vec![CellInput::new(
             OutPoint::new_cell(h256!("0x1"), 0),
             0xc000_0000_0000_0002,
-            Default::default(),
         )])
         .build();
 
@@ -305,16 +302,8 @@ pub fn test_since() {
     // both
     let transaction = TransactionBuilder::default()
         .inputs(vec![
-            CellInput::new(
-                OutPoint::new_cell(h256!("0x1"), 0),
-                0x0000_0000_0000_000a,
-                Default::default(),
-            ),
-            CellInput::new(
-                OutPoint::new_cell(h256!("0x1"), 0),
-                0xc000_0000_0000_0002,
-                Default::default(),
-            ),
+            CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0x0000_0000_0000_000a),
+            CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0xc000_0000_0000_0002),
         ])
         .build();
 
@@ -350,7 +339,6 @@ pub fn test_since() {
         .inputs(vec![CellInput::new(
             OutPoint::new_cell(h256!("0x1"), 0),
             0xa000_0000_0000_0001,
-            Default::default(),
         )])
         .build();
 
@@ -379,7 +367,6 @@ pub fn test_since() {
         .inputs(vec![CellInput::new(
             OutPoint::new_cell(h256!("0x1"), 0),
             0x6000_0000_0000_0001,
-            Default::default(),
         )])
         .build();
 

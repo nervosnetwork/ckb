@@ -47,5 +47,4 @@ tags
 /ckb-mainnet
 
 # tmp files
-/changes
 *.pyc

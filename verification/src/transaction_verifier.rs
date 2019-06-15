@@ -1,10 +1,11 @@
 use crate::error::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::transaction::{Capacity, CellOutput, Transaction, TX_VERSION};
+use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
     BlockNumber, Cycle, EpochNumber,
 };
+use ckb_logger::info_target;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
@@ -24,13 +25,13 @@ where
     pub fn new(
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
-        tip_number: BlockNumber,
-        tip_epoch_number: EpochNumber,
+        block_number: BlockNumber,
+        epoch_number: EpochNumber,
         consensus: &'a Consensus,
     ) -> Self {
         ContextualTransactionVerifier {
-            maturity: MaturityVerifier::new(&rtx, tip_number, consensus.cellbase_maturity()),
-            since: SinceVerifier::new(rtx, median_time_context, tip_number, tip_epoch_number),
+            maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
+            since: SinceVerifier::new(rtx, median_time_context, block_number, epoch_number),
         }
     }
 
@@ -60,8 +61,8 @@ where
     pub fn new(
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
-        tip_number: BlockNumber,
-        tip_epoch_number: EpochNumber,
+        block_number: BlockNumber,
+        epoch_number: EpochNumber,
         consensus: &'a Consensus,
         script_config: &'a ScriptConfig,
         chain_store: &'a Arc<CS>,
@@ -70,11 +71,11 @@ where
             version: VersionVerifier::new(&rtx.transaction),
             size: SizeVerifier::new(&rtx.transaction, consensus.max_block_bytes()),
             empty: EmptyVerifier::new(&rtx.transaction),
-            maturity: MaturityVerifier::new(&rtx, tip_number, consensus.cellbase_maturity()),
+            maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, chain_store, script_config),
             capacity: CapacityVerifier::new(rtx),
-            since: SinceVerifier::new(rtx, median_time_context, tip_number, tip_epoch_number),
+            since: SinceVerifier::new(rtx, median_time_context, block_number, epoch_number),
         }
     }
 
@@ -181,19 +182,19 @@ impl<'a> EmptyVerifier<'a> {
 
 pub struct MaturityVerifier<'a> {
     transaction: &'a ResolvedTransaction<'a>,
-    tip_number: BlockNumber,
+    block_number: BlockNumber,
     cellbase_maturity: BlockNumber,
 }
 
 impl<'a> MaturityVerifier<'a> {
     pub fn new(
         transaction: &'a ResolvedTransaction,
-        tip_number: BlockNumber,
+        block_number: BlockNumber,
         cellbase_maturity: BlockNumber,
     ) -> Self {
         MaturityVerifier {
             transaction,
-            tip_number,
+            block_number,
             cellbase_maturity,
         }
     }
@@ -201,7 +202,7 @@ impl<'a> MaturityVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         let cellbase_immature = |meta: &CellMeta| -> bool {
             meta.is_cellbase()
-                && self.tip_number
+                && self.block_number
                     < meta
                         .block_info
                         .as_ref()
@@ -301,14 +302,10 @@ impl<'a> CapacityVerifier<'a> {
             }
         }
 
-        if self
-            .resolved_transaction
-            .transaction
-            .outputs()
-            .iter()
-            .any(CellOutput::is_occupied_capacity_overflow)
-        {
-            return Err(TransactionError::CapacityOverflow);
+        for output in self.resolved_transaction.transaction.outputs().iter() {
+            if output.is_lack_of_capacity()? {
+                return Err(TransactionError::InsufficientCellCapacity);
+            }
         }
 
         Ok(())
@@ -363,8 +360,8 @@ impl Since {
 pub struct SinceVerifier<'a, M> {
     rtx: &'a ResolvedTransaction<'a>,
     block_median_time_context: &'a M,
-    tip_number: BlockNumber,
-    tip_epoch_number: EpochNumber,
+    block_number: BlockNumber,
+    epoch_number: EpochNumber,
     median_timestamps_cache: RefCell<LruCache<BlockNumber, u64>>,
 }
 
@@ -375,15 +372,15 @@ where
     pub fn new(
         rtx: &'a ResolvedTransaction,
         block_median_time_context: &'a M,
-        tip_number: BlockNumber,
-        tip_epoch_number: BlockNumber,
+        block_number: BlockNumber,
+        epoch_number: BlockNumber,
     ) -> Self {
         let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
         SinceVerifier {
             rtx,
             block_median_time_context,
-            tip_number,
-            tip_epoch_number,
+            block_number,
+            epoch_number,
             median_timestamps_cache,
         }
     }
@@ -401,6 +398,12 @@ where
                             .block_median_time(n, &block_hash)
                     })
                     .unwrap_or(0);
+                info_target!(
+                    crate::LOG_TARGET,
+                    "median_time {}, number {}",
+                    median_time,
+                    n
+                );
                 self.median_timestamps_cache
                     .borrow_mut()
                     .insert(n, median_time);
@@ -413,17 +416,17 @@ where
         if since.is_absolute() {
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.tip_number < block_number {
+                    if self.block_number < block_number {
                         return Err(TransactionError::Immature);
                     }
                 }
                 Some(SinceMetric::EpochNumber(epoch_number)) => {
-                    if self.tip_epoch_number < epoch_number {
+                    if self.epoch_number < epoch_number {
                         return Err(TransactionError::Immature);
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self.block_median_time(self.tip_number.saturating_sub(1));
+                    let tip_timestamp = self.block_median_time(self.block_number.saturating_sub(1));
                     if tip_timestamp < timestamp {
                         return Err(TransactionError::Immature);
                     }
@@ -449,20 +452,25 @@ where
             };
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.tip_number < cell_block_number + block_number {
+                    if self.block_number < cell_block_number + block_number {
                         return Err(TransactionError::Immature);
                     }
                 }
                 Some(SinceMetric::EpochNumber(epoch_number)) => {
-                    if self.tip_epoch_number < cell_epoch_number + epoch_number {
+                    if self.epoch_number < cell_epoch_number + epoch_number {
                         return Err(TransactionError::Immature);
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self.block_median_time(self.tip_number.saturating_sub(1));
-                    let median_timestamp =
+                    // pass_median_time(current_block) starts with tip block, which is the
+                    // parent of current block.
+                    // pass_median_time(input_cell's block) starts with cell_block_number - 1,
+                    // which is the parent of input_cell's block
+                    let cell_median_timestamp =
                         self.block_median_time(cell_block_number.saturating_sub(1));
-                    if tip_timestamp < median_timestamp + timestamp {
+                    let current_median_time =
+                        self.block_median_time(self.block_number.saturating_sub(1));
+                    if current_median_time < cell_median_timestamp + timestamp {
                         return Err(TransactionError::Immature);
                     }
                 }

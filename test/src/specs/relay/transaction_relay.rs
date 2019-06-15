@@ -45,8 +45,7 @@ impl Spec for TransactionRelayBasic {
     }
 }
 
-const TXS_NUM: usize = 500;
-const MIN_CAPACITY: u64 = 60;
+const MIN_CAPACITY: u64 = 60_0000_0000;
 
 pub struct TransactionRelayMultiple;
 
@@ -63,7 +62,7 @@ impl Spec for TransactionRelayMultiple {
 
         info!("Use generated block's cellbase as tx input");
         let reward = block.transactions()[0].outputs()[0].capacity;
-        let txs_num = std::cmp::min(TXS_NUM as u64, reward.as_u64() / MIN_CAPACITY);
+        let txs_num = reward.as_u64() / MIN_CAPACITY;
 
         let parent_hash = block.transactions()[0].hash().to_owned();
         let temp_transaction = node0.new_transaction(parent_hash);
@@ -78,7 +77,7 @@ impl Spec for TransactionRelayMultiple {
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
-        net.waiting_for_sync(4, 10);
+        net.waiting_for_sync(4);
 
         info!("Send multiple transactions to node0");
         let tx_hash = transaction.hash().to_owned();
@@ -93,7 +92,6 @@ impl Spec for TransactionRelayMultiple {
                     .input(CellInput::new(
                         OutPoint::new_cell(tx_hash.clone(), i as u32),
                         0,
-                        vec![],
                     ))
                     .build();
                 node0.rpc_client().send_transaction((&tx).into());
@@ -102,7 +100,7 @@ impl Spec for TransactionRelayMultiple {
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
-        net.waiting_for_sync(7, 30);
+        net.waiting_for_sync(7);
 
         info!("All transactions should be relayed and mined");
         node0.assert_tx_pool_size(0, 0);

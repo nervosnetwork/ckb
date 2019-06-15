@@ -50,6 +50,23 @@ impl KeyValueDB for MemoryKeyValueDB {
         }
     }
 
+    fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
+    where
+        F: FnMut(&[u8], &[u8]) -> Result<()>,
+    {
+        let db = self.db.read();
+
+        match db.get(&col) {
+            None => Err(Error::DBError(format!("column {} not found ", col)))?,
+            Some(map) => {
+                for (key, val) in map {
+                    callback(key, val)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn batch(&self) -> Result<Self::Batch> {
         Ok(Self::Batch {
             operations: Vec::new(),

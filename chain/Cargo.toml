@@ -1,12 +1,12 @@
 [package]
 name = "ckb-chain"
-version = "0.13.0"
+version = "0.14.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4"
+ckb-logger = { path = "../util/logger" }
 ckb-core = { path = "../core" }
 ckb-shared = { path = "../shared" }
 ckb-chain-spec = { path = "../spec" }
@@ -20,7 +20,7 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 fnv = "1.0"
 crossbeam-channel = "0.3"
 stop-handler = { path = "../util/stop-handler" }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "b36a4d1" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 serde = "1.0"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"

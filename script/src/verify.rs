@@ -3,7 +3,7 @@ use crate::{
     syscalls::{
         Debugger, LoadCell, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash, LoadWitness,
     },
-    Runner, ScriptConfig, ScriptError,
+    ScriptConfig, ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::extras::BlockExt;
@@ -11,20 +11,24 @@ use ckb_core::script::{Script, DAO_CODE_HASH};
 use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{BlockNumber, Capacity};
 use ckb_core::{Bytes, Cycle};
+use ckb_logger::info;
 use ckb_resource::bundled;
 use ckb_store::{ChainStore, LazyLoadCellOutput};
 use ckb_vm::{
-    machine::asm::{AsmCoreMachine, AsmMachine},
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
     WXorXMemory,
 };
 use dao::calculate_maximum_withdraw;
 use fnv::FnvHashMap;
-use log::info;
 use numext_fixed_hash::H256;
 use std::cmp::min;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[cfg(all(unix, target_pointer_width = "64"))]
+use crate::Runner;
+#[cfg(all(unix, target_pointer_width = "64"))]
+use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 
 pub const SYSTEM_DAO_CYCLES: u64 = 5000;
 
@@ -32,19 +36,50 @@ pub const SYSTEM_DAO_CYCLES: u64 = 5000;
 pub const DAO_LOCK_PERIOD_BLOCKS: BlockNumber = 10;
 pub const DAO_MATURITY_BLOCKS: BlockNumber = 5;
 
+// A script group is defined as scripts that share the same hash.
+// A script group will only be executed once per transaction, the
+// script itself should check against all inputs/outputs in its group
+// if needed.
+struct ScriptGroup {
+    script: Script,
+    input_indices: Vec<usize>,
+    output_indices: Vec<usize>,
+}
+
+impl ScriptGroup {
+    pub fn new(script: &Script) -> Self {
+        Self {
+            script: script.to_owned(),
+            input_indices: vec![],
+            output_indices: vec![],
+        }
+    }
+}
+
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
 // future, we might refactor this to share buffer to achive zero-copy
 pub struct TransactionScriptsVerifier<'a, CS> {
     store: Arc<CS>,
-    binary_index: FnvHashMap<H256, usize>,
-    block_data: FnvHashMap<H256, (BlockNumber, BlockExt)>,
+
+    // TODO: those are all cached data directly from ResolvedTransaction,
+    // should we change the code to include ResolvedTransaction directly?
     inputs: Vec<&'a CellInput>,
     outputs: Vec<CellMeta>,
     resolved_inputs: Vec<&'a ResolvedOutPoint>,
     resolved_deps: Vec<&'a ResolvedOutPoint>,
     witnesses: Vec<&'a Witness>,
     hash: H256,
+
+    binary_index: FnvHashMap<H256, usize>,
+    block_data: FnvHashMap<H256, (BlockNumber, BlockExt)>,
+    lock_groups: FnvHashMap<H256, ScriptGroup>,
+    type_groups: FnvHashMap<H256, ScriptGroup>,
+
+    // On windows we won't need this config right now, but removing it
+    // on windows alone is too much effort comparing to simply allowing
+    // it here.
+    #[allow(dead_code)]
     config: &'a ScriptConfig,
 }
 
@@ -98,11 +133,36 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             .collect();
 
         let mut block_data = FnvHashMap::<H256, (BlockNumber, BlockExt)>::default();
-        for resolved_input in &resolved_inputs {
+        let mut lock_groups = FnvHashMap::default();
+        let mut type_groups = FnvHashMap::default();
+        for (i, resolved_input) in resolved_inputs.iter().enumerate() {
             if let Some(header) = &resolved_input.header {
                 if let Some(block_ext) = store.get_block_ext(header.hash()) {
                     block_data.insert(header.hash().to_owned(), (header.number(), block_ext));
                 }
+            }
+            // here we are only pre-processing the data, verify method validates
+            // each input has correct script setup.
+            if let Some(cell_meta) = resolved_input.cell.cell_meta() {
+                let output = store.lazy_load_cell_output(cell_meta);
+                let lock_group_entry = lock_groups
+                    .entry(output.lock.hash())
+                    .or_insert_with(|| ScriptGroup::new(&output.lock));
+                lock_group_entry.input_indices.push(i);
+                if let Some(t) = output.type_ {
+                    let type_group_entry = type_groups
+                        .entry(t.hash())
+                        .or_insert_with(|| ScriptGroup::new(&t));
+                    type_group_entry.input_indices.push(i);
+                }
+            }
+        }
+        for (i, output) in rtx.transaction.outputs().iter().enumerate() {
+            if let Some(t) = &output.type_ {
+                let type_group_entry = type_groups
+                    .entry(t.hash())
+                    .or_insert_with(|| ScriptGroup::new(&t));
+                type_group_entry.output_indices.push(i);
             }
         }
         for dep in &resolved_deps {
@@ -123,6 +183,8 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             resolved_deps,
             witnesses,
             config,
+            lock_groups,
+            type_groups,
             hash: tx_hash.to_owned(),
         }
     }
@@ -131,29 +193,35 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         LoadTxHash::new(&self.hash.as_bytes())
     }
 
-    fn build_load_cell(&'a self) -> LoadCell<'a, CS> {
+    fn build_load_cell(
+        &'a self,
+        group_inputs: &'a [usize],
+        group_outputs: &'a [usize],
+    ) -> LoadCell<'a, CS> {
         LoadCell::new(
             Arc::clone(&self.store),
             &self.outputs,
             &self.resolved_inputs,
             &self.resolved_deps,
+            group_inputs,
+            group_outputs,
         )
     }
 
-    fn build_load_input(&self) -> LoadInput {
-        LoadInput::new(&self.inputs)
+    fn build_load_input(&self, group_inputs: &'a [usize]) -> LoadInput {
+        LoadInput::new(&self.inputs, group_inputs)
     }
 
     fn build_load_script_hash(&'a self, hash: &'a [u8]) -> LoadScriptHash<'a> {
         LoadScriptHash::new(hash)
     }
 
-    fn build_load_header(&'a self) -> LoadHeader<'a> {
-        LoadHeader::new(&self.resolved_inputs, &self.resolved_deps)
+    fn build_load_header(&'a self, group_inputs: &'a [usize]) -> LoadHeader<'a> {
+        LoadHeader::new(&self.resolved_inputs, &self.resolved_deps, group_inputs)
     }
 
-    fn build_load_witness(&'a self) -> LoadWitness<'a> {
-        LoadWitness::new(&self.witnesses)
+    fn build_load_witness(&'a self, group_inputs: &'a [usize]) -> LoadWitness<'a> {
+        LoadWitness::new(&self.witnesses, group_inputs)
     }
 
     // Extracts actual script binary either in dep cells.
@@ -169,64 +237,37 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         }
     }
 
-    pub fn verify_script(
-        &self,
-        script: &Script,
-        prefix: &str,
-        appended_arguments: &[Bytes],
-        max_cycles: Cycle,
-    ) -> Result<Cycle, ScriptError> {
-        let current_script_hash = script.hash();
-        let mut args = vec!["verify".into()];
-        args.extend_from_slice(&script.args);
-        args.extend_from_slice(&appended_arguments);
-        if script.code_hash == DAO_CODE_HASH {
-            return self.verify_dao(&args, prefix, max_cycles, &current_script_hash.as_bytes());
-        }
-        self.extract_script(script).and_then(|script_binary| {
-            self.run(
-                &script_binary,
-                &args,
-                prefix,
-                max_cycles,
-                &current_script_hash.as_bytes(),
-            )
-        })
-    }
-
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
-        let mut cycles = 0;
-        for (i, (input, input_cell)) in self
-            .inputs
-            .iter()
-            .zip(self.resolved_inputs.iter())
-            .enumerate()
-        {
-            if input_cell.cell.is_issuing_dao_input() {
+        let mut cycles: Cycle = 0;
+        // First, check if all inputs are resolved correctly
+        for resolved_input in &self.resolved_inputs {
+            if resolved_input.cell.is_issuing_dao_input() {
                 if !self.valid_dao_withdraw_transaction() {
                     return Err(ScriptError::InvalidIssuingDaoInput);
                 } else {
                     continue;
                 }
             }
-            let input_cell_meta = input_cell.cell.cell_meta();
-            let input_cell = match &input_cell_meta {
-                Some(cell) => cell,
-                None => {
-                    return Err(ScriptError::NoScript);
-                }
-            };
-            let output = self.store.lazy_load_cell_output(input_cell);
-
-            let prefix = format!("Transaction {:x}, input {}", self.hash, i);
-            let mut appended_arguments = vec![];
-            appended_arguments.extend_from_slice(&input.args);
-            if let Some(witness) = self.witnesses.get(i) {
-                appended_arguments.extend_from_slice(&witness);
+            if resolved_input.cell.cell_meta().is_none() {
+                return Err(ScriptError::NoScript);
             }
+        }
 
-            let cycle = self.verify_script(&output.lock, &prefix, &appended_arguments, max_cycles - cycles).map_err(|e| {
-                info!(target: "script", "Error validating input {} of transaction {:x}: {:?}", i, self.hash, e);
+        // Now run each script group
+        for group in self.lock_groups.values().chain(self.type_groups.values()) {
+            let verify_result = if group.script.code_hash == DAO_CODE_HASH {
+                self.verify_dao(&group, max_cycles)
+            } else {
+                let program = self.extract_script(&group.script)?;
+                self.run(&program, &group, max_cycles)
+            };
+            let cycle = verify_result.map_err(|e| {
+                info!(
+                    "Error validating script group {:x} of transaction {:x}: {:?}",
+                    group.script.hash(),
+                    self.hash,
+                    e
+                );
                 e
             })?;
             let current_cycles = cycles
@@ -237,75 +278,63 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             }
             cycles = current_cycles;
         }
-        for (i, cell_meta) in self.outputs.iter().enumerate() {
-            let output = cell_meta.cell_output.as_ref().expect("output already set");
-            if let Some(ref type_) = output.type_ {
-                let prefix = format!("Transaction {:x}, output {}", self.hash, i);
-                let cycle = self.verify_script(type_, &prefix, &[], max_cycles - cycles).map_err(|e| {
-                    info!(target: "script", "Error validating output {} of transaction {:x}: {:?}", i, self.hash, e);
-                    e
-                })?;
-                let current_cycles = cycles
-                    .checked_add(cycle)
-                    .ok_or(ScriptError::ExceededMaximumCycles)?;
-                if current_cycles > max_cycles {
-                    return Err(ScriptError::ExceededMaximumCycles);
-                }
-                cycles = current_cycles;
-            }
-        }
         Ok(cycles)
     }
 
     fn verify_dao(
         &self,
-        args: &[Bytes],
-        prefix: &str,
+        script_group: &ScriptGroup,
         max_cycles: Cycle,
-        current_script_hash: &[u8],
     ) -> Result<Cycle, ScriptError> {
-        if args.len() != 6 {
+        // args should only contain pubkey hash
+        let args = &script_group.script.args;
+        if args.len() != 1 {
             return Err(ScriptError::ArgumentNumber);
         }
-        // DAO accepts 6 arguments in the following format:
-        // 0. program name
-        // 1. pubkey hash(20 bytes) from lock script args
-        // 2. withdraw block hash(32 bytes) from input args
-        // 3. pubkey(33 bytes) from witness
-        // 4. signature from witness
-        // 5. size of signature field from witness, the actual value is stored in little endian formatted 64-bit unsigned integer
-        // Note argument 2 is not required in the default lock, hence we are processing
-        // the list a bit here.
-        let lock_arguments = vec![
-            args[0].to_owned(),
-            args[1].to_owned(),
-            args[3].to_owned(),
-            args[4].to_owned(),
-            args[5].to_owned(),
-        ];
+
         let cycles = self
-            .verify_default_lock(&lock_arguments, prefix, max_cycles, current_script_hash)?
+            .verify_default_lock(&script_group, max_cycles)?
             .checked_add(SYSTEM_DAO_CYCLES)
             .ok_or(ScriptError::ExceededMaximumCycles)?;;
         if cycles > max_cycles {
             return Err(ScriptError::ExceededMaximumCycles);
         }
 
-        let withdraw_header_hash = H256::from_slice(&args[2]).map_err(|_| ScriptError::IOError)?;
-        let (withdraw_block_number, withdraw_block_ext) = self
-            .block_data
-            .get(&withdraw_header_hash)
-            .ok_or(ScriptError::InvalidDaoWithdrawHeader)?;
-
         let mut maximum_output_capacities = Capacity::zero();
-        for (input, resolved_input) in self.inputs.iter().zip(self.resolved_inputs.iter()) {
+        for input_index in &script_group.input_indices {
+            // Each DAO witness should contain 3 arguments in the following order:
+            // 0. pubkey(33 bytes) from witness
+            // 1. signature from witness
+            // 2. withdraw block hash(32 bytes) from input args
+            let witness = self
+                .witnesses
+                .get(*input_index)
+                .ok_or(ScriptError::NoWitness)?;
+            if witness.len() != 3 {
+                return Err(ScriptError::ArgumentNumber);
+            }
+            let withdraw_header_hash =
+                H256::from_slice(&witness[2]).map_err(|_| ScriptError::IOError)?;
+            let (withdraw_block_number, withdraw_block_ext) = self
+                .block_data
+                .get(&withdraw_header_hash)
+                .ok_or(ScriptError::InvalidDaoWithdrawHeader)?;
+
+            let input = self
+                .inputs
+                .get(*input_index)
+                .ok_or(ScriptError::ArgumentError)?;
+            let resolved_input = self
+                .resolved_inputs
+                .get(*input_index)
+                .ok_or(ScriptError::ArgumentError)?;
             if resolved_input.cell().is_none() {
-                continue;
+                return Err(ScriptError::ArgumentError);
             }
             let cell_meta = resolved_input.cell().unwrap();
             let output = self.store.lazy_load_cell_output(&cell_meta);
             if output.lock.code_hash != DAO_CODE_HASH {
-                continue;
+                return Err(ScriptError::ArgumentError);
             }
 
             if resolved_input.header().is_none() {
@@ -356,48 +385,53 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
     // Default lock uses secp256k1_blake160_sighash_all now.
     fn verify_default_lock(
         &self,
-        args: &[Bytes],
-        prefix: &str,
+        script_group: &ScriptGroup,
         max_cycles: Cycle,
-        current_script_hash: &[u8],
     ) -> Result<Cycle, ScriptError> {
-        // TODO: this is a temporary solution for now, we can change this to use
-        // composable contracts when we manage to build NervosDAO as a script
-        // running on CKB VM.
+        // TODO: this is a temporary solution for now, later NervosDAO will be
+        // implemented as a type script, while the default lock remains a lock
+        // script.
         let program = bundled(PathBuf::from("specs/cells/secp256k1_blake160_sighash_all"))
             .ok_or(ScriptError::NoScript)?
             .get()
             .map_err(|_| ScriptError::IOError)?;
 
-        self.run(
-            &program.into_owned().into(),
-            args,
-            prefix,
-            max_cycles,
-            current_script_hash,
-        )
+        self.run(&program.into_owned().into(), &script_group, max_cycles)
     }
 
+    #[cfg(all(unix, target_pointer_width = "64"))]
     fn run(
         &self,
         program: &Bytes,
-        args: &[Bytes],
-        prefix: &str,
+        script_group: &ScriptGroup,
         max_cycles: Cycle,
-        current_script_hash: &[u8],
     ) -> Result<Cycle, ScriptError> {
+        let current_script_hash = script_group.script.hash();
+        let prefix = format!("script group: {:x}", current_script_hash);
+        let current_script_hash_bytes = current_script_hash.as_bytes();
+        let mut args = vec!["verify".into()];
+        args.extend_from_slice(&script_group.script.args);
         let (code, cycles) = match self.config.runner {
             Runner::Assembly => {
                 let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
                 let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
                     .instruction_cycle_func(Box::new(instruction_cycles))
-                    .syscall(Box::new(self.build_load_script_hash(current_script_hash)))
+                    .syscall(Box::new(
+                        self.build_load_script_hash(current_script_hash_bytes),
+                    ))
                     .syscall(Box::new(self.build_load_tx_hash()))
-                    .syscall(Box::new(self.build_load_cell()))
-                    .syscall(Box::new(self.build_load_input()))
-                    .syscall(Box::new(self.build_load_header()))
-                    .syscall(Box::new(self.build_load_witness()))
-                    .syscall(Box::new(Debugger::new(prefix)))
+                    .syscall(Box::new(self.build_load_cell(
+                        &script_group.input_indices,
+                        &script_group.output_indices,
+                    )))
+                    .syscall(Box::new(self.build_load_input(&script_group.input_indices)))
+                    .syscall(Box::new(
+                        self.build_load_header(&script_group.input_indices),
+                    ))
+                    .syscall(Box::new(
+                        self.build_load_witness(&script_group.input_indices),
+                    ))
+                    .syscall(Box::new(Debugger::new(&prefix)))
                     .build();
                 let mut machine = AsmMachine::new(machine);
                 machine
@@ -413,13 +447,22 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>,
                 >::new(core_machine)
                 .instruction_cycle_func(Box::new(instruction_cycles))
-                .syscall(Box::new(self.build_load_script_hash(current_script_hash)))
+                .syscall(Box::new(
+                    self.build_load_script_hash(current_script_hash_bytes),
+                ))
                 .syscall(Box::new(self.build_load_tx_hash()))
-                .syscall(Box::new(self.build_load_cell()))
-                .syscall(Box::new(self.build_load_input()))
-                .syscall(Box::new(self.build_load_header()))
-                .syscall(Box::new(self.build_load_witness()))
-                .syscall(Box::new(Debugger::new(prefix)))
+                .syscall(Box::new(self.build_load_cell(
+                    &script_group.input_indices,
+                    &script_group.output_indices,
+                )))
+                .syscall(Box::new(self.build_load_input(&script_group.input_indices)))
+                .syscall(Box::new(
+                    self.build_load_header(&script_group.input_indices),
+                ))
+                .syscall(Box::new(
+                    self.build_load_witness(&script_group.input_indices),
+                ))
+                .syscall(Box::new(Debugger::new(&prefix)))
                 .build();
                 let mut machine = TraceMachine::new(machine);
                 machine
@@ -431,6 +474,55 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         };
         if code == 0 {
             Ok(cycles)
+        } else {
+            Err(ScriptError::ValidationFailure(code))
+        }
+    }
+
+    #[cfg(not(all(unix, target_pointer_width = "64")))]
+    fn run(
+        &self,
+        program: &Bytes,
+        script_group: &ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<Cycle, ScriptError> {
+        let current_script_hash = script_group.script.hash();
+        let prefix = format!("script group: {:x}", current_script_hash);
+        let current_script_hash_bytes = current_script_hash.as_bytes();
+        let mut args = vec!["verify".into()];
+        args.extend_from_slice(&script_group.script.args);
+        let core_machine =
+            DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
+                max_cycles,
+            );
+        let machine = DefaultMachineBuilder::<
+            DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>,
+        >::new(core_machine)
+        .instruction_cycle_func(Box::new(instruction_cycles))
+        .syscall(Box::new(
+            self.build_load_script_hash(current_script_hash_bytes),
+        ))
+        .syscall(Box::new(self.build_load_tx_hash()))
+        .syscall(Box::new(self.build_load_cell(
+            &script_group.input_indices,
+            &script_group.output_indices,
+        )))
+        .syscall(Box::new(self.build_load_input(&script_group.input_indices)))
+        .syscall(Box::new(
+            self.build_load_header(&script_group.input_indices),
+        ))
+        .syscall(Box::new(
+            self.build_load_witness(&script_group.input_indices),
+        ))
+        .syscall(Box::new(Debugger::new(&prefix)))
+        .build();
+        let mut machine = TraceMachine::new(machine);
+        machine
+            .load_program(&program, &args)
+            .map_err(ScriptError::VMError)?;
+        let code = machine.run().map_err(ScriptError::VMError)?;
+        if code == 0 {
+            Ok(machine.machine.cycles())
         } else {
             Err(ScriptError::ValidationFailure(code))
         }
@@ -453,7 +545,8 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use byteorder::{LittleEndian, WriteBytesExt};
+    #[cfg(not(all(unix, target_pointer_width = "64")))]
+    use crate::Runner;
     use ckb_core::cell::{BlockInfo, CellMetaBuilder};
     use ckb_core::extras::DaoStats;
     use ckb_core::header::HeaderBuilder;
@@ -462,7 +555,7 @@ mod tests {
     use ckb_core::{capacity_bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
     use ckb_store::{ChainKVStore, StoreBatch, COLUMNS};
-    use crypto::secp::Generator;
+    use crypto::secp::{Generator, Privkey};
     use faster_hex::hex_encode;
     use hash::blake2b_256;
 
@@ -494,7 +587,7 @@ mod tests {
             always_success_script,
             None,
         );
-        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
 
@@ -517,13 +610,10 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100).is_ok());
     }
@@ -536,8 +626,7 @@ mod tests {
 
         let gen = Generator::new();
         let privkey = gen.random_privkey();
-        let args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-        let mut witness_data = vec![];
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
         let mut bytes = vec![];
         for argument in &args {
@@ -547,15 +636,15 @@ mod tests {
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
 
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        witness_data.insert(0, Bytes::from(hex_signature));
-
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, Bytes::from(hex_pubkey));
+        args.push(Bytes::from(hex_pubkey));
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -574,12 +663,11 @@ mod tests {
         );
 
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .dep(dep_out_point)
-            .witness(witness_data)
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
@@ -596,13 +684,10 @@ mod tests {
         };
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -615,8 +700,7 @@ mod tests {
 
         let gen = Generator::new();
         let privkey = gen.random_privkey();
-        let args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-        let mut witness_data = vec![];
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
         let mut bytes = vec![];
         for argument in &args {
@@ -626,15 +710,15 @@ mod tests {
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
 
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        witness_data.insert(0, Bytes::from(hex_signature));
-
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, Bytes::from(hex_pubkey));
+        args.push(Bytes::from(hex_pubkey));
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -653,12 +737,11 @@ mod tests {
         );
 
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .dep(dep_out_point)
-            .witness(witness_data)
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
@@ -686,16 +769,16 @@ mod tests {
         assert!(verifier.verify(100_000_000).is_ok());
     }
 
+    #[cfg(all(unix, target_pointer_width = "64"))]
     #[test]
-    fn check_signature_with_not_enough_cycles() {
+    fn check_signature_assembly() {
         let mut file = open_cell_verify();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
         let gen = Generator::new();
         let privkey = gen.random_privkey();
-        let args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-        let mut witness_data = vec![];
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
         let mut bytes = vec![];
         for argument in &args {
@@ -705,15 +788,92 @@ mod tests {
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
 
+        let pubkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_pubkey = vec![0; pubkey.len() * 2];
+        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
+        args.push(Bytes::from(hex_pubkey));
+
         let signature_der = signature.serialize_der();
         let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
-        witness_data.insert(0, Bytes::from(hex_signature));
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
+
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
+        let output = CellOutput::new(
+            Capacity::bytes(buffer.len()).unwrap(),
+            Bytes::from(buffer),
+            Script::default(),
+            None,
+        );
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_info(BlockInfo::new(1, 0))
+                .data_hash(code_hash.to_owned())
+                .out_point(dep_out_point.cell.clone().unwrap())
+                .build(),
+        );
+
+        let script = Script::new(args, code_hash);
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default()
+            .input(input.clone())
+            .dep(dep_out_point)
+            .build();
+
+        let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output.to_owned())
+                .block_info(BlockInfo::new(1, 0))
+                .build(),
+        );
+
+        let rtx = ResolvedTransaction {
+            transaction: &transaction,
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
+        };
+        let store = Arc::new(new_memory_store());
+
+        let verifier = TransactionScriptsVerifier::new(
+            &rtx,
+            store,
+            &ScriptConfig {
+                runner: Runner::Assembly,
+            },
+        );
+
+        assert!(verifier.verify(100_000_000).is_ok());
+    }
+
+    #[test]
+    fn check_signature_with_not_enough_cycles() {
+        let mut file = open_cell_verify();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let gen = Generator::new();
+        let privkey = gen.random_privkey();
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+
+        let mut bytes = vec![];
+        for argument in &args {
+            bytes.write_all(argument).unwrap();
+        }
+        let hash1 = sha3_256(&bytes);
+        let hash2 = sha3_256(hash1);
+        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, Bytes::from(hex_pubkey));
+        args.push(Bytes::from(hex_pubkey));
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -732,12 +892,11 @@ mod tests {
         );
 
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .dep(dep_out_point)
-            .witness(witness_data)
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
@@ -755,13 +914,10 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100).is_err());
     }
@@ -775,7 +931,6 @@ mod tests {
         let gen = Generator::new();
         let privkey = gen.random_privkey();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-        let mut witness_data = vec![];
 
         let mut bytes = vec![];
         for argument in &args {
@@ -785,17 +940,18 @@ mod tests {
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
 
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
-        witness_data.insert(0, Bytes::from(hex_signature));
         // This line makes the verification invalid
         args.push(Bytes::from(b"extrastring".to_vec()));
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, Bytes::from(hex_pubkey));
+        args.push(Bytes::from(hex_pubkey));
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -813,12 +969,11 @@ mod tests {
         );
 
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .dep(dep_out_point)
-            .witness(witness_data)
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
@@ -835,13 +990,10 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -854,8 +1006,7 @@ mod tests {
 
         let gen = Generator::new();
         let privkey = gen.random_privkey();
-        let args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-        let mut witness_data = vec![];
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
         let mut bytes = vec![];
         for argument in &args {
@@ -864,26 +1015,26 @@ mod tests {
         let hash1 = sha3_256(&bytes);
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
-        witness_data.insert(0, Bytes::from(hex_signature));
-
-        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        witness_data.insert(0, Bytes::from(hex_pubkey));
+        args.push(Bytes::from(hex_pubkey));
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
+
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let script = Script::new(args, code_hash);
-        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .dep(dep_out_point)
-            .witness(witness_data)
             .build();
 
         let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
@@ -900,13 +1051,10 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -939,7 +1087,7 @@ mod tests {
         hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
         args.push(Bytes::from(hex_signature));
 
-        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let input = CellInput::new(OutPoint::null(), 0);
         let (always_success_cell, always_success_script) = create_always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
@@ -995,13 +1143,10 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1024,19 +1169,20 @@ mod tests {
         let hash2 = sha3_256(hash1);
         let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
 
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
-        args.insert(0, Bytes::from(hex_signature));
         // This line makes the verification invalid
         args.push(Bytes::from(b"extrastring".to_vec()));
 
         let pubkey = privkey.pubkey().unwrap().serialize();
         let mut hex_pubkey = vec![0; pubkey.len() * 2];
         hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.insert(0, Bytes::from(hex_pubkey));
+        args.push(Bytes::from(hex_pubkey));
 
-        let input = CellInput::new(OutPoint::null(), 0, vec![]);
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
+
+        let input = CellInput::new(OutPoint::null(), 0);
         let (always_success_cell, always_success_script) = create_always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
@@ -1092,20 +1238,17 @@ mod tests {
 
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
 
     #[test]
     fn check_invalid_tx_with_only_dao_issuing_input_but_no_dao_input() {
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
@@ -1123,13 +1266,10 @@ mod tests {
         };
         let store = Arc::new(new_memory_store());
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1150,11 +1290,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            vec![withdraw_header.hash().as_bytes().into()],
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1176,12 +1315,15 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
-        let signature_der = signature.serialize_der();
-        let mut signature_size = vec![];
-        signature_size
-            .write_u64::<LittleEndian>(signature_der.len() as u64)
+        let mut message = vec![];
+        message.write_all(&transaction_hash.as_bytes()).unwrap();
+        message
+            .write_all(&withdraw_header.hash().as_bytes())
             .unwrap();
+        let signature = privkey
+            .sign_recoverable(&blake2b_256(&message).into())
+            .unwrap();
+        let signature_der = signature.serialize_der();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1192,7 +1334,7 @@ mod tests {
             .witness(vec![
                 Bytes::from(pubkey),
                 Bytes::from(signature_der),
-                Bytes::from(signature_size),
+                Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
 
@@ -1231,13 +1373,10 @@ mod tests {
             ],
         };
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1258,11 +1397,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            vec![withdraw_header.hash().as_bytes().into()],
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1284,12 +1422,15 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
-        let signature_der = signature.serialize_der();
-        let mut signature_size = vec![];
-        signature_size
-            .write_u64::<LittleEndian>(signature_der.len() as u64)
+        let mut message = vec![];
+        message.write_all(&transaction_hash.as_bytes()).unwrap();
+        message
+            .write_all(&withdraw_header.hash().as_bytes())
             .unwrap();
+        let signature = privkey
+            .sign_recoverable(&blake2b_256(&message).into())
+            .unwrap();
+        let signature_der = signature.serialize_der();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1300,7 +1441,7 @@ mod tests {
             .witness(vec![
                 Bytes::from(pubkey),
                 Bytes::from(signature_der),
-                Bytes::from(signature_size),
+                Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
 
@@ -1339,13 +1480,10 @@ mod tests {
             ],
         };
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1366,11 +1504,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            vec![withdraw_header.hash().as_bytes().into()],
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1388,10 +1525,6 @@ mod tests {
             .sign_recoverable(&blake2b_256(&vec![1, 2, 3]).into())
             .unwrap();
         let signature_der = signature.serialize_der();
-        let mut signature_size = vec![];
-        signature_size
-            .write_u64::<LittleEndian>(signature_der.len() as u64)
-            .unwrap();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1402,7 +1535,7 @@ mod tests {
             .witness(vec![
                 Bytes::from(pubkey),
                 Bytes::from(signature_der),
-                Bytes::from(signature_size),
+                Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
 
@@ -1441,13 +1574,10 @@ mod tests {
             ],
         };
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1468,11 +1598,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            vec![withdraw_header.hash().as_bytes().into()],
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1494,12 +1623,15 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
-        let signature_der = signature.serialize_der();
-        let mut signature_size = vec![];
-        signature_size
-            .write_u64::<LittleEndian>(signature_der.len() as u64)
+        let mut message = vec![];
+        message.write_all(&transaction_hash.as_bytes()).unwrap();
+        message
+            .write_all(&withdraw_header.hash().as_bytes())
             .unwrap();
+        let signature = privkey
+            .sign_recoverable(&blake2b_256(&message).into())
+            .unwrap();
+        let signature_der = signature.serialize_der();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1510,7 +1642,7 @@ mod tests {
             .witness(vec![
                 Bytes::from(pubkey),
                 Bytes::from(signature_der),
-                Bytes::from(signature_size),
+                Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
 
@@ -1549,13 +1681,10 @@ mod tests {
             ],
         };
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100).is_err());
     }
@@ -1576,11 +1705,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            vec![withdraw_header.hash().as_bytes().into()],
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1601,12 +1729,15 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
-        let signature_der = signature.serialize_der();
-        let mut signature_size = vec![];
-        signature_size
-            .write_u64::<LittleEndian>(signature_der.len() as u64)
+        let mut message = vec![];
+        message.write_all(&transaction_hash.as_bytes()).unwrap();
+        message
+            .write_all(&withdraw_header.hash().as_bytes())
             .unwrap();
+        let signature = privkey
+            .sign_recoverable(&blake2b_256(&message).into())
+            .unwrap();
+        let signature_der = signature.serialize_der();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1616,7 +1747,7 @@ mod tests {
             .witness(vec![
                 Bytes::from(pubkey),
                 Bytes::from(signature_der),
-                Bytes::from(signature_size),
+                Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
 
@@ -1645,13 +1776,10 @@ mod tests {
             ],
         };
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1672,11 +1800,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1061,
-            vec![withdraw_header.hash().as_bytes().into()],
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1698,12 +1825,15 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
-        let signature_der = signature.serialize_der();
-        let mut signature_size = vec![];
-        signature_size
-            .write_u64::<LittleEndian>(signature_der.len() as u64)
+        let mut message = vec![];
+        message.write_all(&transaction_hash.as_bytes()).unwrap();
+        message
+            .write_all(&withdraw_header.hash().as_bytes())
             .unwrap();
+        let signature = privkey
+            .sign_recoverable(&blake2b_256(&message).into())
+            .unwrap();
+        let signature_der = signature.serialize_der();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1714,7 +1844,7 @@ mod tests {
             .witness(vec![
                 Bytes::from(pubkey),
                 Bytes::from(signature_der),
-                Bytes::from(signature_size),
+                Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
 
@@ -1753,13 +1883,10 @@ mod tests {
             ],
         };
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1780,11 +1907,10 @@ mod tests {
             .number(1055)
             .transactions_root(h256!("0x2"))
             .build();
-        let input = CellInput::new(OutPoint::new_issuing_dao(), 0, vec![]);
+        let input = CellInput::new(OutPoint::new_issuing_dao(), 0);
         let input2 = CellInput::new(
             OutPoint::new(deposit_header.hash().to_owned(), h256!("0x3"), 0),
             1060,
-            vec![withdraw_header.hash().as_bytes().into()],
         );
         let deposit_output = CellOutput::new(
             capacity_bytes!(1000000),
@@ -1806,12 +1932,15 @@ mod tests {
             .build()
             .hash()
             .to_owned();
-        let signature = privkey.sign_recoverable(&transaction_hash).unwrap();
-        let signature_der = signature.serialize_der();
-        let mut signature_size = vec![];
-        signature_size
-            .write_u64::<LittleEndian>(signature_der.len() as u64)
+        let mut message = vec![];
+        message.write_all(&transaction_hash.as_bytes()).unwrap();
+        message
+            .write_all(&withdraw_header.hash().as_bytes())
             .unwrap();
+        let signature = privkey
+            .sign_recoverable(&blake2b_256(&message).into())
+            .unwrap();
+        let signature_der = signature.serialize_der();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1822,7 +1951,7 @@ mod tests {
             .witness(vec![
                 Bytes::from(pubkey),
                 Bytes::from(signature_der),
-                Bytes::from(signature_size),
+                Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
 
@@ -1861,14 +1990,90 @@ mod tests {
             ],
         };
 
-        let verifier = TransactionScriptsVerifier::new(
-            &rtx,
-            store,
-            &ScriptConfig {
-                runner: Runner::Assembly,
-            },
-        );
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
+    }
+
+    #[test]
+    fn check_same_lock_and_type_script_are_executed_twice() {
+        let mut file = open_cell_verify();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let privkey = Privkey::from_slice(&[1; 32][..]);
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+
+        let mut bytes = vec![];
+        for argument in &args {
+            bytes.write_all(argument).unwrap();
+        }
+        let hash1 = sha3_256(&bytes);
+        let hash2 = sha3_256(hash1);
+        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
+
+        let pubkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_pubkey = vec![0; pubkey.len() * 2];
+        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
+        args.push(Bytes::from(hex_pubkey));
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
+
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
+        let script = Script::new(args, code_hash.to_owned());
+
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
+        let output = CellOutput::new(
+            Capacity::bytes(buffer.len()).unwrap(),
+            Bytes::from(buffer),
+            Script::default(),
+            None,
+        );
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_info(BlockInfo::new(1, 0))
+                .data_hash(code_hash.to_owned())
+                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .build(),
+        );
+
+        let transaction = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::null(), 0))
+            .dep(dep_out_point)
+            .build();
+
+        // The lock and type scripts here are both executed.
+        let output = CellOutput::new(
+            capacity_bytes!(100),
+            Bytes::default(),
+            script.clone(),
+            Some(script.clone()),
+        );
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_info(BlockInfo::new(1, 0))
+                .build(),
+        );
+
+        let rtx = ResolvedTransaction {
+            transaction: &transaction,
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
+        };
+        let store = Arc::new(new_memory_store());
+
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+
+        // Cycles can tell that both lock and type scripts are executed
+        assert_eq!(verifier.verify(100_000_000), Ok(2_818_104));
     }
 }

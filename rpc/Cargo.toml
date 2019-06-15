@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "0.13.0"
+version = "0.14.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -19,6 +19,7 @@ ckb-chain = { path = "../chain" }
 ckb-miner = { path = "../miner" }
 ckb-protocol = { path = "../protocol" }
 ckb-pow = { path = "../pow"}
+ckb-logger = { path = "../util/logger"}
 jsonrpc-core = "10.1"
 jsonrpc-derive = "10.1"
 jsonrpc-http-server = { git = "https://github.com/nervosnetwork/jsonrpc", rev = "7c101f83a8fe34369c1b7a0e9b6721fcb0f91ee0" }
@@ -26,7 +27,6 @@ jsonrpc-server-utils = "10.1"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-log = "0.4"
 flatbuffers = "0.6.0"
 num_cpus = "1.10"
 faster-hex = "0.3"

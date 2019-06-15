@@ -10,10 +10,9 @@ use std::cmp;
 use std::sync::Arc;
 
 // TODO: add secondary reward for miner
-pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(50);
-pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(5_000_000);
+pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(600_000);
+pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
-pub(crate) const MAX_UNCLE_AGE: usize = 6;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 pub(crate) const CELLBASE_MATURITY: BlockNumber = 100;
 // TODO: should adjust this value based on CKB average block time
@@ -25,10 +24,14 @@ pub(crate) const ORPHAN_RATE_TARGET_RECIP: u64 = 20;
 const MAX_BLOCK_INTERVAL: u64 = 60 * 1000; // 60s
 const MIN_BLOCK_INTERVAL: u64 = 8 * 1000; // 8s
 const TWO_IN_TWO_OUT_CYCLES: Cycle = 2_580_000;
-pub(crate) const EPOCH_DURATION_TARGET: u64 = 8 * 60 * 60 * 1000; // 8 hours
-pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 3600
-pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
-pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 2_000;
+pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60 * 1000; // 4 hours
+pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
+pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 240
+
+// We choose 1250 because it is largest number between MIN_EPOCH_LENGTH and MAX_BLOCK_INTERVAL that
+// can divide DEFAULT_EPOCH_REWARD.
+pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_250;
+
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * 200 * 8;
 pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
@@ -54,7 +57,6 @@ pub struct Consensus {
     pub genesis_hash: H256,
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
-    pub max_uncles_age: usize,
     pub max_uncles_num: usize,
     pub orphan_rate_target_recip: u64,
     pub epoch_duration_target: u64,
@@ -102,14 +104,13 @@ impl Default for Consensus {
             genesis_hash: genesis_block.header().hash().to_owned(),
             genesis_block,
             id: "main".to_owned(),
-            max_uncles_age: MAX_UNCLE_AGE,
             max_uncles_num: MAX_UNCLE_NUM,
             epoch_reward: DEFAULT_EPOCH_REWARD,
             orphan_rate_target_recip: ORPHAN_RATE_TARGET_RECIP,
             epoch_duration_target: EPOCH_DURATION_TARGET,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
             tx_proposal_window: TX_PROPOSAL_WINDOW,
-            pow: Pow::Dummy(Default::default()),
+            pow: Pow::Dummy,
             cellbase_maturity: CELLBASE_MATURITY,
             median_time_block_count: MEDIAN_TIME_BLOCK_COUNT,
             max_block_cycles: MAX_BLOCK_CYCLES,
@@ -184,10 +185,6 @@ impl Consensus {
 
     pub fn max_uncles_num(&self) -> usize {
         self.max_uncles_num
-    }
-
-    pub fn max_uncles_age(&self) -> usize {
-        self.max_uncles_age
     }
 
     pub fn min_difficulty(&self) -> &U256 {

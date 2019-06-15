@@ -35,17 +35,6 @@ const TESTSET: [([u8; 80], [u32; 8]); 3] = [
 ];
 
 fn bench(c: &mut Criterion) {
-    c.bench_function("bench_solve", |b| {
-        let cuckoo = Cuckoo::new(6, 8);
-        b.iter(|| {
-            for _ in 0..100 {
-                for (message, _) in TESTSET.iter() {
-                    cuckoo.solve(message).unwrap();
-                }
-            }
-        })
-    });
-
     c.bench_function("bench_verify", |b| {
         let cuckoo = Cuckoo::new(6, 8);
         b.iter(|| {

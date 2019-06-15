@@ -1,5 +1,5 @@
 use ckb_core::block::Block;
-use ckb_core::transaction::OutPoint;
+use ckb_core::transaction::{CellOutPoint, OutPoint};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_util::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
@@ -65,6 +65,11 @@ pub struct CellSet {
     pub(crate) inner: FnvHashMap<H256, TransactionMeta>,
 }
 
+pub(crate) enum CellSetOpr {
+    Delete,
+    Update(TransactionMeta),
+}
+
 impl CellSet {
     pub fn new() -> Self {
         CellSet {
@@ -85,9 +90,12 @@ impl CellSet {
         for (hash, (number, epoch, cellbase, len)) in diff.new_outputs.clone() {
             removed.remove(&hash);
             if cellbase {
-                new.insert(hash, TransactionMeta::new_cellbase(number, epoch, len));
+                new.insert(
+                    hash,
+                    TransactionMeta::new_cellbase(number, epoch, len, false),
+                );
             } else {
-                new.insert(hash, TransactionMeta::new(number, epoch, len));
+                new.insert(hash, TransactionMeta::new(number, epoch, len, false));
             }
         }
 
@@ -124,69 +132,67 @@ impl CellSet {
         self.inner.get(h)
     }
 
-    pub fn insert(
+    pub(crate) fn put(&mut self, tx_hash: H256, tx_meta: TransactionMeta) {
+        self.inner.insert(tx_hash, tx_meta);
+    }
+
+    pub(crate) fn insert_cell(
+        &mut self,
+        cell: &CellOutPoint,
+        number: u64,
+        epoch: u64,
+        cellbase: bool,
+        outputs_len: usize,
+    ) -> TransactionMeta {
+        let mut meta = if cellbase {
+            TransactionMeta::new_cellbase(number, epoch, outputs_len, true)
+        } else {
+            TransactionMeta::new(number, epoch, outputs_len, true)
+        };
+        meta.unset_dead(cell.index as usize);
+        self.inner.insert(cell.tx_hash.clone(), meta.clone());
+        meta
+    }
+
+    pub(crate) fn insert_transaction(
         &mut self,
         tx_hash: H256,
         number: u64,
         epoch: u64,
         cellbase: bool,
         outputs_len: usize,
-    ) {
-        if cellbase {
-            self.inner.insert(
-                tx_hash,
-                TransactionMeta::new_cellbase(number, epoch, outputs_len),
-            );
+    ) -> TransactionMeta {
+        let meta = if cellbase {
+            TransactionMeta::new_cellbase(number, epoch, outputs_len, false)
         } else {
-            self.inner
-                .insert(tx_hash, TransactionMeta::new(number, epoch, outputs_len));
-        }
+            TransactionMeta::new(number, epoch, outputs_len, false)
+        };
+        self.inner.insert(tx_hash, meta.clone());
+        meta
     }
 
-    pub fn remove(&mut self, tx_hash: &H256) -> Option<TransactionMeta> {
+    pub(crate) fn remove(&mut self, tx_hash: &H256) -> Option<TransactionMeta> {
         self.inner.remove(tx_hash)
     }
 
-    pub fn mark_dead(&mut self, o: &OutPoint) {
-        if let Some(cell) = &o.cell {
-            if let Some(meta) = self.inner.get_mut(&cell.tx_hash) {
-                meta.set_dead(cell.index as usize);
+    pub(crate) fn mark_dead(&mut self, cell: &CellOutPoint) -> Option<CellSetOpr> {
+        self.inner.get_mut(&cell.tx_hash).map(|meta| {
+            meta.set_dead(cell.index as usize);
+            if meta.all_dead() {
+                CellSetOpr::Delete
+            } else {
+                CellSetOpr::Update(meta.clone())
             }
-        }
+        })
     }
 
-    fn mark_live(&mut self, o: &OutPoint) {
-        if let Some(cell) = &o.cell {
-            if let Some(meta) = self.inner.get_mut(&cell.tx_hash) {
-                meta.unset_dead(cell.index as usize);
-            }
+    // if we aleady removed the cell, `mark` will return None, else return the meta
+    pub(crate) fn try_mark_live(&mut self, cell: &CellOutPoint) -> Option<TransactionMeta> {
+        if let Some(meta) = self.inner.get_mut(&cell.tx_hash) {
+            meta.unset_dead(cell.index as usize);
+            Some(meta.clone())
+        } else {
+            None
         }
-    }
-
-    pub fn update(&mut self, diff: CellSetDiff) {
-        let CellSetDiff {
-            old_inputs,
-            old_outputs,
-            new_inputs,
-            new_outputs,
-        } = diff;
-
-        old_outputs.iter().for_each(|h| {
-            self.remove(h);
-        });
-
-        old_inputs.iter().for_each(|o| {
-            self.mark_live(o);
-        });
-
-        new_outputs
-            .into_iter()
-            .for_each(|(hash, (number, epoch, cellbase, len))| {
-                self.insert(hash, number, epoch, cellbase, len);
-            });
-
-        new_inputs.iter().for_each(|o| {
-            self.mark_dead(o);
-        });
     }
 }

@@ -16,7 +16,7 @@ spec = "specs/dev.toml" # {{
 
 [logger]
 filter = "info" # {{
-# integration => filter = "info,network=trace,rpc-server=debug,sync=debug,relay=debug,tx_pool=debug"
+# integration => filter = "info,ckb-network=trace,ckb-rpc=debug,ckb-sync=debug,ckb-relay=debug,ckb-tx-pool=debug"
 # }}
 color = true
 log_to_file = true # {{
@@ -76,7 +76,9 @@ max_cycles = 200_000_000_000
 max_verfify_cache_size = 100_000
 
 [script]
-runner = "Assembly"
+runner = "Assembly" # {{
+# _ => runner = "{runner}"
+# }}
 
 [store]
 header_cache_size       = 4096
@@ -113,8 +115,16 @@ cell_output_cache_size  = 128
 #
 #     ckb cli secp256k1-lock <pubkey>
 #
-# Below is an example block assembler configuration section:
+# The command `ckb init` also accepts options to generate the block assembler
+# directly. See `ckb init --help` for details. And `ckb cli secp256k1-lock` can
+# also prints the command line options for `ckb init`.
 #
-# [block_assembler]
-# code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
-# args = ["ckb cli blake160 <pubkey>"]
+#     ckb cli secp256k1-lock <pubkey> --format cmd
+#
+# The two commands can be combined together:
+#
+#     ckb init $(ckb cli secp256k1-lock <pubkey> --format cmd)
+#
+# # {{
+# _ => {block_assembler}
+# }}

@@ -1,7 +1,7 @@
 use crate::peer_store::PeerStore;
 use crate::{errors::PeerError, Peer, PeerId, SessionType};
+use ckb_logger::debug;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::debug;
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -175,7 +175,7 @@ impl PeerRegistry {
         // randomly evict a peer
         let mut rng = thread_rng();
         evict_group.choose(&mut rng).map(|peer| {
-            debug!(target: "network", "evict inbound peer {:?}", peer.peer_id);
+            debug!("evict inbound peer {:?}", peer.peer_id);
             peer.session_id
         })
     }

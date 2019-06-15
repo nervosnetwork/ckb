@@ -1,27 +1,37 @@
 use crate::error::{Error, UnclesError};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
-use ckb_traits::ChainProvider;
+// use ckb_traits::ChainProvider;
 use fnv::FnvHashSet;
+use numext_fixed_hash::H256;
 use std::collections::HashSet;
+
+pub trait UncleProvider {
+    fn double_inclusion(&self, hash: &H256) -> bool;
+
+    fn consensus(&self) -> &Consensus;
+
+    fn epoch(&self) -> &EpochExt;
+}
 
 #[derive(Clone)]
 pub struct UnclesVerifier<'a, P> {
     provider: P,
-    epoch: &'a EpochExt,
     block: &'a Block,
 }
 
+/// A block B1 is considered to be the uncle of
+/// another block B2 if all of the following conditions are met:
+/// (1) they are in the same epoch, sharing the same difficulty;
+/// (2) height(B2) > height(B1);
+/// (3) B2 is the first block in its chain to refer to B1
 impl<'a, P> UnclesVerifier<'a, P>
 where
-    P: ChainProvider + Clone,
+    P: UncleProvider,
 {
-    pub fn new(provider: P, epoch: &'a EpochExt, block: &'a Block) -> Self {
-        UnclesVerifier {
-            provider,
-            epoch,
-            block,
-        }
+    pub fn new(provider: P, block: &'a Block) -> Self {
+        UnclesVerifier { provider, block }
     }
 
     // -  uncles_hash
@@ -70,69 +80,27 @@ where
             }));
         }
 
-        // verify uncles age
-        let max_uncles_age = self.provider.consensus().max_uncles_age() as u64;
-        for uncle in self.block.uncles() {
-            let depth = self.block.header().number().saturating_sub(uncle.number());
-
-            if depth > max_uncles_age || depth < 1 {
-                return Err(Error::Uncles(UnclesError::InvalidDepth {
-                    min: self.block.header().number().saturating_sub(max_uncles_age),
-                    max: self.block.header().number().saturating_sub(1),
-                    actual: uncle.number(),
-                }));
-            }
-        }
-
-        // cB
-        // cB.p^0       1 depth, valid uncle
-        // cB.p^1   ---/  2
-        // cB.p^2   -----/  3
-        // cB.p^3   -------/  4
-        // cB.p^4   ---------/  5
-        // cB.p^5   -----------/  6
-        // cB.p^6   -------------/
-        // cB.p^7
-        // verify uncles is not included in main chain
-        // TODO: cache context
-        let mut excluded = FnvHashSet::default();
         let mut included = FnvHashSet::default();
-        excluded.insert(self.block.header().hash().to_owned());
-        let mut block_hash = self.block.header().parent_hash().to_owned();
-        excluded.insert(block_hash.clone());
-        for _ in 0..max_uncles_age {
-            if let Some(header) = self.provider.block_header(&block_hash) {
-                let parent_hash = header.parent_hash().to_owned();
-                excluded.insert(parent_hash.clone());
-                if let Some(uncles) = self.provider.uncles(&block_hash) {
-                    uncles.iter().for_each(|uncle| {
-                        excluded.insert(uncle.header.hash().to_owned());
-                    });
-                };
-                block_hash = parent_hash;
-            } else {
-                break;
-            }
-        }
-
         for uncle in self.block.uncles() {
-            if uncle.header().difficulty() != self.epoch.difficulty() {
+            if uncle.header().difficulty() != self.provider.epoch().difficulty() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficulty));
             }
 
-            if self.epoch.number() != uncle.header().epoch() {
+            if self.provider.epoch().number() != uncle.header().epoch() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
             }
 
-            let uncle_header = uncle.header.clone();
+            if uncle.header().number() >= self.block.header().number() {
+                return Err(Error::Uncles(UnclesError::InvalidNumber));
+            }
 
-            let uncle_hash = uncle_header.hash().to_owned();
+            let uncle_hash = uncle.header.hash().to_owned();
             if included.contains(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash.clone())));
             }
 
-            if excluded.contains(&uncle_hash) {
-                return Err(Error::Uncles(UnclesError::InvalidInclude(
+            if self.provider.double_inclusion(&uncle_hash) {
+                return Err(Error::Uncles(UnclesError::DoubleInclusion(
                     uncle_hash.clone(),
                 )));
             }
@@ -143,7 +111,7 @@ where
                 return Err(Error::Uncles(UnclesError::ExceededMaximumProposalsLimit));
             }
 
-            if uncle_header.proposals_hash() != &uncle.cal_proposals_hash() {
+            if uncle.header.proposals_hash() != &uncle.cal_proposals_hash() {
                 return Err(Error::Uncles(UnclesError::ProposalsHash));
             }
 
@@ -156,7 +124,7 @@ where
                 .provider
                 .consensus()
                 .pow_engine()
-                .verify_header(&uncle_header)
+                .verify_header(&uncle.header)
             {
                 return Err(Error::Uncles(UnclesError::InvalidProof));
             }

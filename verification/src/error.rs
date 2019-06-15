@@ -109,13 +109,14 @@ pub enum UnclesError {
         expected: H256,
         actual: H256,
     },
+    InvalidNumber,
     InvalidDifficulty,
     InvalidDifficultyEpoch,
     InvalidProof,
     ProposalsHash,
     ProposalDuplicate,
     Duplicate(H256),
-    InvalidInclude(H256),
+    DoubleInclusion(H256),
     InvalidCellbase,
     ExceededMaximumProposalsLimit,
 }
@@ -149,6 +150,8 @@ pub enum EpochError {
 pub enum TransactionError {
     /// Occur output's bytes_len exceed capacity
     CapacityOverflow,
+    /// In a single output cell, the capacity is not enough to hold the cell serialized size
+    InsufficientCellCapacity,
     DuplicateDeps,
     Empty,
     /// Sum of all outputs capacity exceed sum of all inputs in the transaction

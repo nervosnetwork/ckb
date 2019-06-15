@@ -2,6 +2,7 @@ use crate::Net;
 use bytes::Bytes;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder, Seal};
+use ckb_core::BlockNumber;
 use ckb_protocol::{RelayMessage, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_types::BlockTemplate;
@@ -9,6 +10,16 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+
+pub const MEDIAN_TIME_BLOCK_COUNT: u64 = 11;
+pub const FLAG_SINCE_RELATIVE: u64 =
+    0b1000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+pub const FLAG_SINCE_BLOCK_NUMBER: u64 =
+    0b000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+// pub const FLAG_SINCE_EPOCH_NUMBER: u64 =
+//    0b010_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
+pub const FLAG_SINCE_TIMESTAMP: u64 =
+    0b100_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 
 // Build compact block based on core block, and specific prefilled indices
 pub fn build_compact_block_with_prefilled(block: &Block, prefilled: Vec<usize>) -> Bytes {
@@ -99,4 +110,28 @@ where
 // Clear net message channel
 pub fn clear_messages(net: &Net) {
     while let Ok(_) = net.receive_timeout(Duration::new(0, 100)) {}
+}
+
+pub fn since_from_relative_block_number(block_number: BlockNumber) -> u64 {
+    FLAG_SINCE_RELATIVE | FLAG_SINCE_BLOCK_NUMBER | block_number
+}
+
+pub fn since_from_absolute_block_number(block_number: BlockNumber) -> u64 {
+    FLAG_SINCE_BLOCK_NUMBER | block_number
+}
+
+// pub fn since_from_relative_epoch_number(epoch_number: EpochNumber) -> u64 {
+//     FLAG_SINCE_RELATIVE | FLAG_SINCE_EPOCH_NUMBER | epoch_number
+// }
+//
+// pub fn since_from_absolute_epoch_number(epoch_number: EpochNumber) -> u64 {
+//     FLAG_SINCE_EPOCH_NUMBER | epoch_number
+// }
+
+pub fn since_from_relative_timestamp(timestamp: u64) -> u64 {
+    FLAG_SINCE_RELATIVE | FLAG_SINCE_TIMESTAMP | timestamp
+}
+
+pub fn since_from_absolute_timestamp(timestamp: u64) -> u64 {
+    FLAG_SINCE_TIMESTAMP | timestamp
 }

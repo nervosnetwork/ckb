@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.13.0"
+version = "0.14.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -15,7 +15,7 @@ serde = "1.0"
 serde_derive = "1.0"
 ckb-util = { path = "../util" }
 stop-handler = { path = "../util/stop-handler" }
-log = "0.4.5"
+ckb-logger = { path = "../util/logger" }
 bytes = "0.4.12"
 tokio = "0.1.18"
 futures = "0.1"

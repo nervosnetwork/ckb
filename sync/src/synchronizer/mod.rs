@@ -22,6 +22,7 @@ use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
+use ckb_logger::{debug, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use ckb_store::ChainStore;
@@ -30,7 +31,6 @@ use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use hashbrown::HashMap;
-use log::{debug, info, trace};
 use numext_fixed_hash::H256;
 use std::cmp::min;
 use std::sync::atomic::AtomicUsize;
@@ -39,11 +39,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const SEND_GET_HEADERS_TOKEN: u64 = 0;
-pub const BLOCK_FETCH_TOKEN: u64 = 1;
-pub const TIMEOUT_EVICTION_TOKEN: u64 = 2;
+pub const IBD_BLOCK_FETCH_TOKEN: u64 = 1;
+pub const NOT_IBD_BLOCK_FETCH_TOKEN: u64 = 2;
+pub const TIMEOUT_EVICTION_TOKEN: u64 = 3;
 pub const NO_PEER_CHECK_TOKEN: u64 = 255;
+
 const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
-const BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(400);
+const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
+const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
 bitflags! {
     pub struct BlockStatus: u32 {
@@ -71,11 +74,11 @@ pub struct Synchronizer<CS: ChainStore> {
     chain: ChainController,
     pub shared: Arc<SyncSharedState<CS>>,
     pub status_map: BlockStatusMap,
-    pub n_sync: Arc<AtomicUsize>,
     pub peers: Arc<Peers>,
     pub config: Arc<Config>,
     pub orphan_block_pool: Arc<OrphanBlockPool>,
-    pub outbound_peers_with_protect: Arc<AtomicUsize>,
+    pub n_sync_started: Arc<AtomicUsize>,
+    pub n_protected_outbound_peers: Arc<AtomicUsize>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -85,11 +88,11 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
             chain: self.chain.clone(),
             shared: Arc::clone(&self.shared),
             status_map: Arc::clone(&self.status_map),
-            n_sync: Arc::clone(&self.n_sync),
+            n_sync_started: Arc::clone(&self.n_sync_started),
             peers: Arc::clone(&self.peers),
             config: Arc::clone(&self.config),
             orphan_block_pool: Arc::clone(&self.orphan_block_pool),
-            outbound_peers_with_protect: Arc::clone(&self.outbound_peers_with_protect),
+            n_protected_outbound_peers: Arc::clone(&self.n_protected_outbound_peers),
         }
     }
 }
@@ -108,8 +111,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
             peers: Arc::new(Peers::default()),
             orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
             status_map: Arc::new(Mutex::new(HashMap::new())),
-            n_sync: Arc::new(AtomicUsize::new(0)),
-            outbound_peers_with_protect: Arc::new(AtomicUsize::new(0)),
+            n_sync_started: Arc::new(AtomicUsize::new(0)),
+            n_protected_outbound_peers: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -147,7 +150,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         if let Err(err) = self.try_process(nc, peer, message) {
-            debug!(target: "sync", "try_process error: {}", err);
+            debug!("try_process error: {}", err);
             nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
         }
     }
@@ -167,8 +170,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
     }
 
-    pub fn peers(&self) -> Arc<Peers> {
-        Arc::clone(&self.peers)
+    pub fn peers(&self) -> &Arc<Peers> {
+        &self.peers
     }
 
     pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
@@ -220,7 +223,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //TODO: process block which we don't request
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
         if self.orphan_block_pool.contains(&block) {
-            debug!(target: "sync", "block {:x} already in orphan pool", block.header().hash());
+            debug!("block {:x} already in orphan pool", block.header().hash());
             return;
         }
 
@@ -229,7 +232,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 self.insert_new_block(peer, block);
             }
             status => {
-                debug!(target: "sync", "[Synchronizer] process_new_block unexpect status {:?}", status);
+                debug!(
+                    "[Synchronizer] process_new_block unexpect status {:?}",
+                    status
+                );
             }
         }
     }
@@ -238,7 +244,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
         self.chain.process_block(Arc::clone(&block), true)?;
         self.shared.remove_header_view(block.header().hash());
         self.mark_block_stored(block.header().hash().to_owned());
-        self.peers.set_last_common_header(peer, &block.header());
+        self.peers
+            .set_last_common_header(peer, block.header().clone());
         Ok(())
     }
 
@@ -254,7 +261,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         // Insert the given block into orphan_block_pool if its parent is not found
         if !known_parent(&block) {
             debug!(
-                target: "sync", "insert new orphan block {} {:x}",
+                "insert new orphan block {} {:x}",
                 block.header().number(),
                 block.header().hash()
             );
@@ -265,7 +272,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         // Attempt to accept the given block if its parent already exist in database
         let block = Arc::new(block);
         if let Err(err) = self.accept_block(peer, &block) {
-            debug!(target: "sync", "accept block {:?} error {:?}", block, err);
+            debug!("accept block {:?} error {:?}", block, err);
             return;
         }
 
@@ -281,7 +288,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             // its parent, so we treat it as a invalid block as well.
             if !known_parent(&block) {
                 debug!(
-                    target: "sync", "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
+                    "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
                     block.header().number(),
                     block.header().hash(),
                     block.header().parent_hash(),
@@ -290,7 +297,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
 
             if let Err(err) = self.accept_block(peer, &block) {
-                debug!(target: "sync", "accept descendant orphan block {:?} error {:?}", block, err);
+                debug!("accept descendant orphan block {:?} error {:?}", block, err);
             }
         }
     }
@@ -305,11 +312,11 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .map(|peer| peer.is_outbound())
             .unwrap_or(false);
         let protect_outbound = is_outbound
-            && self.outbound_peers_with_protect.load(Ordering::Acquire)
+            && self.n_protected_outbound_peers.load(Ordering::Acquire)
                 < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT;
 
         if protect_outbound {
-            self.outbound_peers_with_protect
+            self.n_protected_outbound_peers
                 .fetch_add(1, Ordering::Release);
         }
 
@@ -326,11 +333,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //     If their best known block is still behind when that new timeout is
     //     reached, disconnect.
     pub fn eviction(&self, nc: &CKBProtocolContext) {
-        let mut peer_state = self.peers.state.write();
-        let best_known_headers = self.peers.best_known_headers.read();
+        let mut peer_states = self.peers.state.write();
         let is_initial_block_download = self.shared.is_initial_block_download();
         let mut eviction = Vec::new();
-        for (peer, state) in peer_state.iter_mut() {
+        for (peer, state) in peer_states.iter_mut() {
             let now = unix_time_as_millis();
 
             // headers_sync_timeout
@@ -343,8 +349,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
 
             if state.is_outbound {
-                let best_known_header = best_known_headers.get(peer);
-
+                let best_known_header = state.best_known_header.as_ref();
                 let (tip_header, local_total_difficulty) = {
                     let chain_state = self.shared.lock_chain_state();
                     (
@@ -382,7 +387,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                         if state.chain_sync.protect {
                             if state.sync_started {
                                 state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
-                                self.n_sync.fetch_sub(1, Ordering::Release);
+                                self.n_sync_started.fetch_sub(1, Ordering::Release);
                             }
                         } else {
                             eviction.push(*peer);
@@ -405,7 +410,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
         }
         for peer in eviction {
-            info!(target: "sync", "timeout eviction peer={}", peer);
+            info!("timeout eviction peer={}", peer);
             nc.disconnect(peer);
         }
     }
@@ -443,7 +448,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
-            if self.shared.is_initial_block_download() && self.n_sync.load(Ordering::Acquire) != 0 {
+            if self.shared.is_initial_block_download()
+                && self.n_sync_started.load(Ordering::Acquire) != 0
+            {
                 break;
             }
             {
@@ -452,12 +459,12 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     if !peer_state.sync_started {
                         let headers_sync_timeout = self.predict_headers_sync_time(&tip);
                         peer_state.start_sync(headers_sync_timeout);
-                        self.n_sync.fetch_add(1, Ordering::Release);
+                        self.n_sync_started.fetch_add(1, Ordering::Release);
                     }
                 }
             }
 
-            debug!(target: "sync", "start sync peer={}", peer);
+            debug!("start sync peer={}", peer);
             self.shared.send_getheaders_to_peer(nc, peer, &tip);
         }
     }
@@ -474,7 +481,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 .collect()
         };
 
-        trace!(target: "sync", "poll find_blocks_to_fetch select peers");
+        trace!("poll find_blocks_to_fetch select peers");
         {
             self.peers.blocks_inflight.write().prune();
         }
@@ -492,7 +499,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
         nc.send_message_to(peer, fbb.finished_data().into());
-        debug!(target: "sync", "send_getblocks len={:?} to peer={}", v_fetch.len() , peer);
+        debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
     }
 }
 
@@ -501,7 +508,8 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         // NOTE: 100ms is what bitcoin use.
         nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN);
         nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN);
-        nc.set_notify(BLOCK_FETCH_INTERVAL, BLOCK_FETCH_TOKEN);
+        nc.set_notify(IBD_BLOCK_FETCH_INTERVAL, IBD_BLOCK_FETCH_TOKEN);
+        nc.set_notify(NOT_IBD_BLOCK_FETCH_INTERVAL, NOT_IBD_BLOCK_FETCH_TOKEN);
         nc.set_notify(Duration::from_secs(2), NO_PEER_CHECK_TOKEN);
     }
 
@@ -514,18 +522,17 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         let msg = match get_root::<SyncMessage>(&data) {
             Ok(msg) => msg,
             _ => {
-                info!(target: "sync", "Peer {} sends us a malformed message", peer_index);
+                info!("Peer {} sends us a malformed message", peer_index);
                 nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
 
-        debug!(target: "sync", "received msg {:?} from {}", msg.payload_type(), peer_index);
+        debug!("received msg {:?} from {}", msg.payload_type(), peer_index);
 
         let start_time = Instant::now();
         self.process(nc.as_ref(), peer_index, msg);
         debug!(
-            target: "sync",
             "process message={:?}, peer={}, cost={:?}",
             msg.payload_type(),
             peer_index,
@@ -539,36 +546,40 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
         peer_index: PeerIndex,
         _version: &str,
     ) {
-        info!(target: "sync", "SyncProtocol.connected peer={}", peer_index);
+        info!("SyncProtocol.connected peer={}", peer_index);
         self.on_connected(nc.as_ref(), peer_index);
     }
 
     fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
-        info!(target: "sync", "SyncProtocol.disconnected peer={}", peer_index);
-        let mut state = self.peers.state.write();
-        if let Some(peer_state) = state.get(&peer_index) {
+        info!("SyncProtocol.disconnected peer={}", peer_index);
+        if let Some(peer_state) = self.peers.disconnected(peer_index) {
             // It shouldn't happen
             // fetch_sub wraps around on overflow, we still check manually
             // panic here to prevent some bug be hidden silently.
-            if peer_state.sync_started && self.n_sync.fetch_sub(1, Ordering::Release) == 0 {
+            if peer_state.sync_started && self.n_sync_started.fetch_sub(1, Ordering::Release) == 0 {
                 panic!("Synchronizer n_sync overflow");
             }
         }
-        state.remove(&peer_index);
-        self.peers.disconnected(peer_index);
     }
 
     fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
         if !self.peers.state.read().is_empty() {
             let start_time = Instant::now();
-            trace!(target: "sync", "start notify token={}", token);
+            trace!("start notify token={}", token);
 
             match token {
                 SEND_GET_HEADERS_TOKEN => {
                     self.start_sync_headers(nc.as_ref());
                 }
-                BLOCK_FETCH_TOKEN => {
-                    self.find_blocks_to_fetch(nc.as_ref());
+                IBD_BLOCK_FETCH_TOKEN => {
+                    if self.shared.is_initial_block_download() {
+                        self.find_blocks_to_fetch(nc.as_ref());
+                    }
+                }
+                NOT_IBD_BLOCK_FETCH_TOKEN => {
+                    if !self.shared.is_initial_block_download() {
+                        self.find_blocks_to_fetch(nc.as_ref());
+                    }
                 }
                 TIMEOUT_EVICTION_TOKEN => {
                     self.eviction(nc.as_ref());
@@ -577,9 +588,13 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
                 _ => {}
             }
 
-            trace!(target: "sync", "finished notify token={} cost={:?}", token, start_time.elapsed());
+            trace!(
+                "finished notify token={} cost={:?}",
+                token,
+                start_time.elapsed()
+            );
         } else if token == NO_PEER_CHECK_TOKEN {
-            debug!(target: "sync", "no peers connected");
+            debug!("no peers connected");
         }
     }
 }
@@ -1118,11 +1133,11 @@ mod tests {
             .execute()
             .expect("Process headers from peer2 failed");
         assert_eq!(
-            synchronizer1.peers.best_known_header(peer1),
-            synchronizer1.peers.best_known_header(peer2)
+            synchronizer1.peers.get_best_known_header(peer1),
+            synchronizer1.peers.get_best_known_header(peer2)
         );
 
-        let best_known_header = synchronizer1.peers.best_known_header(peer1);
+        let best_known_header = synchronizer1.peers.get_best_known_header(peer1);
 
         assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
 
@@ -1156,9 +1171,7 @@ mod tests {
         assert_eq!(
             synchronizer1
                 .peers
-                .last_common_headers
-                .read()
-                .get(&peer1)
+                .get_last_common_header(peer1)
                 .unwrap()
                 .hash(),
             blocks_to_fetch.last().unwrap()
@@ -1238,7 +1251,7 @@ mod tests {
                 .get_mut(&sync_protected_peer)
                 .unwrap()
                 .start_sync(headers_sync_timeout);
-            synchronizer.n_sync.fetch_add(1, Ordering::Release);
+            synchronizer.n_sync_started.fetch_add(1, Ordering::Release);
         }
         synchronizer.eviction(&network_context);
         {
@@ -1248,7 +1261,7 @@ mod tests {
                 peer_state.get(&sync_protected_peer).unwrap().sync_started,
                 true
             );
-            assert_eq!(synchronizer.n_sync.load(Ordering::Acquire), 1);
+            assert_eq!(synchronizer.n_sync_started.load(Ordering::Acquire), 1);
 
             assert!({ network_context.disconnected.lock().is_empty() });
             // start sync with protected peer
@@ -1334,7 +1347,7 @@ mod tests {
                 peer_state.get(&sync_protected_peer).unwrap().sync_started,
                 false
             );
-            assert_eq!(synchronizer.n_sync.load(Ordering::Acquire), 0);
+            assert_eq!(synchronizer.n_sync_started.load(Ordering::Acquire), 0);
 
             // Peer(3,4) run out of time to catch up!
             let disconnected = network_context.disconnected.lock();

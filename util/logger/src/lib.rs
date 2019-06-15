@@ -4,14 +4,107 @@ use chrono::prelude::{DateTime, Local};
 use crossbeam_channel::unbounded;
 use env_logger::filter::{Builder, Filter};
 use lazy_static::lazy_static;
-use log::{LevelFilter, SetLoggerError};
-use log::{Log, Metadata, Record};
+use log::{LevelFilter, Log, Metadata, Record};
 use parking_lot::Mutex;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, panic, thread};
+
+pub use log::{self as internal, Level, SetLoggerError};
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! env {
+    ($($inner:tt)*) => {
+        env!($($inner)*)
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! trace {
+    ($( $args:tt )*) => {
+        $crate::internal::trace!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! debug {
+    ($( $args:tt )*) => {
+        $crate::internal::debug!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! info {
+    ($( $args:tt )*) => {
+        $crate::internal::info!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! warn {
+    ($( $args:tt )*) => {
+        $crate::internal::warn!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! error {
+    ($( $args:tt )*) => {
+        $crate::internal::error!(target: $crate::env!("CARGO_PKG_NAME"), $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! log_enabled {
+    ($level:expr) => {
+        $crate::internal::log_enabled!(target: $crate::env!("CARGO_PKG_NAME"), $level);
+    };
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! trace_target {
+    ($target:expr, $( $args:tt )*) => {
+        $crate::internal::trace!(target: $target, $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! debug_target {
+    ($target:expr, $( $args:tt )*) => {
+        $crate::internal::debug!(target: $target, $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! info_target {
+    ($target:expr, $( $args:tt )*) => {
+        $crate::internal::info!(target: $target, $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! warn_target {
+    ($target:expr, $( $args:tt )*) => {
+        $crate::internal::warn!(target: $target, $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! error_target {
+    ($target:expr, $( $args:tt )*) => {
+        $crate::internal::error!(target: $target, $( $args )*);
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! log_enabled_target {
+    ($target:expr, $level:expr) => {
+        $crate::internal::log_enabled!(target: $target, $level);
+    };
+}
 
 enum Message {
     Record(String),

@@ -1,8 +1,8 @@
 use crate::peer_store::types::PeerAddr;
 use crate::NetworkState;
+use ckb_logger::{debug, trace, warn};
 use faketime::unix_time_as_millis;
 use futures::{Async, Future, Stream};
-use log::{debug, trace, warn};
 use p2p::service::ServiceControl;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -53,10 +53,15 @@ impl OutboundPeerService {
             paddrs
         });
         let p2p_control = self.p2p_control.clone();
-        trace!(target: "network", "count={}, attempt_peers: {:?} is_feeler: {}", count, attempt_peers, is_feeler);
+        trace!(
+            "count={}, attempt_peers: {:?} is_feeler: {}",
+            count,
+            attempt_peers,
+            is_feeler
+        );
         for paddr in attempt_peers {
             let PeerAddr { peer_id, addr, .. } = paddr;
-            debug!(target: "network", "dial attempt peer: {:?}, is_feeler: {}", addr, is_feeler);
+            debug!("dial attempt peer: {:?}, is_feeler: {}", addr, is_feeler);
             if is_feeler {
                 self.network_state.with_peer_registry_mut(|reg| {
                     reg.add_feeler(peer_id.clone());
@@ -95,14 +100,14 @@ impl Future for OutboundPeerService {
                     }
                 }
                 Ok(Async::Ready(None)) => {
-                    warn!(target: "network", "ckb outbound peer service stopped");
+                    warn!("ckb outbound peer service stopped");
                     return Ok(Async::Ready(()));
                 }
                 Ok(Async::NotReady) => {
                     return Ok(Async::NotReady);
                 }
                 Err(err) => {
-                    warn!(target: "network", "outbound peer service stopped because: {:?}", err);
+                    warn!("outbound peer service stopped because: {:?}", err);
                     return Err(());
                 }
             }

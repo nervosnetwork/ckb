@@ -84,7 +84,6 @@ table CellInput {
     tx_hash:        H256;
     index:          uint32;
     since:          uint64;
-    args:           [Bytes];
 }
 
 table CellOutput {

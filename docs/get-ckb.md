@@ -5,10 +5,9 @@
 We will publish binaries for each release via [Github Releases]. If your system
 is listed there, you can download the package directory.
 
-[Github Releases]: https://github.com/nervosnetwork/ckb/releases
+CKB releases are signed. It is wise and more secure to check out for their [integrity](integrity-check.md).
 
-There is also a repository [ckb-builds](https://github.com/ckb-builds/ckb-builds/releases) containing the nightly builds from the develop
-branch.
+[Github Releases]: https://github.com/nervosnetwork/ckb/releases
 
 CentOS users please use the `x86_64-unknown-centos-gnu` package, which also
 requires OpenSSL 1.0 to run:
@@ -16,6 +15,13 @@ requires OpenSSL 1.0 to run:
 ```shell
 sudo yum install openssl-libs
 ```
+
+The Windows packages are for experiments only, they have significant
+performance issues, we don't recommend to use them in production environment.
+They requires *The Visual C++ Redistributable Packages*, which can be downloaded
+under section *Other Tools and Frameworks*
+[here](https://visualstudio.microsoft.com/downloads/) or
+[here](https://www.microsoft.com/en-us/download/details.aspx?id=48145).
 
 We also provides docker images, see [how to run CKB with docker](run-ckb-with-docker.md).
 
@@ -62,6 +68,15 @@ scl enable llvm-toolset-7 bash
 ```
 
 Remember to run following commands in this console.
+
+#### Windows
+
+Install Visual Studio with Desktop C++ workload, and install following
+packages via [Chocolatey](https://chocolatey.org)
+
+```
+choco install -y llvm msys2
+```
 
 ### Add Environment Variables
 
@@ -112,3 +127,6 @@ export PATH="$(pwd)/target/release:$PATH"
 # or
 # ln -snf "$(pwd)/target/release/ckb" /usr/local/bin/ckb
 ```
+
+In Windows, use `cargo build --release` instead and the executable is
+`target/release/ckb.exe`.

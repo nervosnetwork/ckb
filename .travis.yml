@@ -24,46 +24,62 @@ addons:
       - texinfo
       - libtool
 
-install:
+before_install:
   - cargo sweep --version || cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
   - cargo sweep -s
 
 before_script:
   - if [ "$TRAVIS_OS_NAME" = "osx" ]; then ulimit -n 8192; fi
-  - export -f travis_nanoseconds travis_fold travis_time_start travis_time_finish
 
-script: ./devtools/ci/script.sh
+script: make test
 
 before_cache:
   - rm -rf ./target/release
   - rm -rf ./target/debug/incremental/
-  - cargo sweep -f || true
+  - cargo sweep -f
 
 deploy:
   provider: releases
   api_key: "$GITHUB_TOKEN"
-  file: "releases/ckb_${TRAVIS_TAG}_${REL_PKG}"
+  file:
+    - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}"
+    - "releases/ckb_${TRAVIS_TAG}_${REL_PKG}.asc"
   skip_cleanup: true
   prerelease: true
+  overwrite: true
   on:
     tags: true
     condition: '"$GITHUB_TOKEN" != "" && "$REL_PKG" != ""'
 
 matrix:
   include:
+    # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
+    # If you want to see the tests result in CI before submitting PR, name the branch with prefix "test".
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type == pull_request OR repo != nervosnetwork/ckb OR branch = master)'
+      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type == pull_request OR repo != nervosnetwork/ckb OR branch = master)'
+      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
+    - name: Linters
+      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      os: linux
+      install:
+        - cargo fmt --version || rustup component add rustfmt
+        - cargo clippy --version || rustup component add clippy
+        - cargo audit --version || cargo install cargo-audit
+      script:
+        - make security-audit
+        - make fmt
+        - make clippy
+        - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type == pull_request OR repo != nervosnetwork/ckb OR branch = master)'
+      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      os: linux
       cache: false
       addons: { apt: { packages: [] } }
-      language: javascript
-      install:
-        - npm install -g prettier
+      before_install: skip
+      before_cache: skip
       script:
         - make cargo-license
         - make check-dirty-doc
@@ -81,7 +97,7 @@ matrix:
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       os: osx
       env: REL_PKG=x86_64-apple-darwin.zip
-      install: skip
+      before_install: skip
       cache:
         directories:
           - $HOME/.cargo
@@ -89,30 +105,38 @@ matrix:
         - rm -rf $HOME/.cargo/registry
       script:
         - make prod
+        - openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
+        - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb
     - name: Package for Linux
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
-      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:bionic-rust-1.34.2
-      install: skip
+      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.34.2
+      before_install: skip
+      before_cache: skip
       cache:
         directories:
           - $HOME/.cargo/git
       script:
         - mkdir -p $HOME/.cargo/git
-        - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo/git:/root/.cargo/git -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu -e OPENSSL_INCLUDE_DIR=/usr/include/openssl $BUILDER_IMAGE make prod
+        - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo/git:/root/.cargo/git -e OPENSSL_STATIC=1 -e OPENSSL_LIB_DIR=/usr/local/lib -e OPENSSL_INCLUDE_DIR=/usr/local/include/openssl $BUILDER_IMAGE make prod
+        - openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
+        - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb
     - name: Package for Centos
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
       env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.34.2
-      install: skip
+      before_install: skip
+      before_cache: skip
       cache:
         directories:
           - $HOME/.cargo/git
       script:
         - mkdir -p $HOME/.cargo/git
         - docker run --rm -it -w /ckb -v $(pwd):/ckb -v $HOME/.cargo/git:/root/.cargo/git $BUILDER_IMAGE scl enable llvm-toolset-7 'make prod'
+        - openssl aes-256-cbc -K $encrypted_82dff4145bbf_key -iv $encrypted_82dff4145bbf_iv -in devtools/ci/travis-secret.asc.enc -out devtools/ci/travis-secret.asc -d
+        - gpg --import devtools/ci/travis-secret.asc
         - devtools/ci/package.sh target/release/ckb

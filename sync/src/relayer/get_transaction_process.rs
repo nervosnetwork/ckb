@@ -1,11 +1,11 @@
 use crate::relayer::Relayer;
 use ckb_core::transaction::ProposalShortId;
+use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetRelayTransaction as FbsGetRelayTransaction, RelayMessage};
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, trace};
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -33,7 +33,12 @@ impl<'a, CS: ChainStore> GetTransactionProcess<'a, CS> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         let tx_hash = (*self.message).try_into()?;
-        trace!(target: "relay", "{} request transaction({:#x})", self.peer, tx_hash);
+        trace_target!(
+            crate::LOG_TARGET_RELAY,
+            "{} request transaction({:#x})",
+            self.peer,
+            tx_hash
+        );
         let entry_opt = {
             let short_id = ProposalShortId::from_tx_hash(&tx_hash);
             self.relayer
@@ -49,8 +54,8 @@ impl<'a, CS: ChainStore> GetTransactionProcess<'a, CS> {
             let data = fbb.finished_data().into();
             self.nc.send_message_to(self.peer, data);
         } else {
-            debug!(
-                target: "realy",
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
                 "{} request transaction({:#x}), but not found or without cycles",
                 self.peer,
                 tx_hash,

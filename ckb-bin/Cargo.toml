@@ -1,6 +1,6 @@
 [package]
 name = "ckb-bin"
-version = "0.13.0"
+version = "0.14.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,10 +10,10 @@ clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
 toml = "0.5"
-log = "0.4"
 futures = "0.1"
 crossbeam-channel = "0.3"
 ckb-app-config = { path = "../util/app-config" }
+ckb-logger = { path = "../util/logger" }
 ckb-util = { path = "../util" }
 ckb-core = { path = "../core" }
 ckb-chain = { path = "../chain" }
@@ -27,7 +27,6 @@ ckb-pow = { path = "../pow" }
 ckb-network = { path = "../network"}
 ckb-rpc = { path = "../rpc"}
 ckb-resource = { path = "../resource"}
-logger = { path = "../util/logger" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ctrlc = { version = "3.1", features = ["termination"] }
@@ -41,3 +40,4 @@ sentry = "^0.15.4"
 ckb-verification = { path = "../verification" }
 tempfile = "3.0"
 faster-hex = "0.3"
+ckb-script = { path = "../script" }

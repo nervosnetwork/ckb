@@ -9,6 +9,7 @@ pub use self::template::{
 pub use std::io::{Error, Result};
 
 use self::template::Template;
+use numext_fixed_hash::H256;
 use std::borrow::Cow;
 use std::fmt;
 use std::fs;
@@ -17,6 +18,7 @@ use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
 include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
+include!(concat!(env!("OUT_DIR"), "/code_hashes.rs"));
 
 pub const CKB_CONFIG_FILE_NAME: &str = "ckb.toml";
 pub const MINER_CONFIG_FILE_NAME: &str = "ckb-miner.toml";
@@ -82,16 +84,13 @@ impl ResourceLocator {
     pub fn with_root_dir(root_dir: PathBuf) -> Result<ResourceLocator> {
         fs::create_dir_all(&root_dir)?;
 
-        root_dir
-            .canonicalize()
-            .map(|root_dir| ResourceLocator { root_dir })
+        Ok(ResourceLocator { root_dir })
     }
 
     pub fn current_dir() -> Result<ResourceLocator> {
         let root_dir = ::std::env::current_dir()?;
-        root_dir
-            .canonicalize()
-            .map(|root_dir| ResourceLocator { root_dir })
+
+        Ok(ResourceLocator { root_dir })
     }
 
     pub fn ckb(&self) -> Resource {
@@ -195,7 +194,11 @@ fn path_as_key(path: &PathBuf) -> Cow<str> {
 }
 
 fn file_system(path: PathBuf) -> Option<Resource> {
-    path.canonicalize().ok().map(Resource::FileSystem)
+    if path.exists() {
+        Some(Resource::FileSystem(path))
+    } else {
+        None
+    }
 }
 
 pub fn bundled(path: PathBuf) -> Option<Resource> {
@@ -237,7 +240,7 @@ mod tests {
             .open(&path)
             .expect("touch file in test");
 
-        path.as_ref().canonicalize().expect("touch file in test")
+        path.as_ref().to_path_buf()
     }
 
     #[test]

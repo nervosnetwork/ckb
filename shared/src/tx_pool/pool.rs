@@ -5,8 +5,8 @@ use crate::tx_pool::pending::PendingQueue;
 use crate::tx_pool::proposed::ProposedPool;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::{Capacity, Cycle};
+use ckb_logger::{error_target, trace_target};
 use faketime::unix_time_as_millis;
-use log::{self, trace};
 use lru_cache::LruCache;
 
 #[derive(Debug, Clone)]
@@ -85,11 +85,21 @@ impl TxPool {
     // cycles overflow is possible, currently obtaining cycles is not accurate
     pub fn update_statics_for_remove_tx(&mut self, tx_size: usize, cycles: Cycle) {
         let total_tx_size = self.total_tx_size.checked_sub(tx_size).unwrap_or_else(|| {
-            log::error!(target: "tx_pool", "total_tx_size {} overflow by sub {}", self.total_tx_size, tx_size);
+            error_target!(
+                crate::LOG_TARGET_TX_POOL,
+                "total_tx_size {} overflow by sub {}",
+                self.total_tx_size,
+                tx_size
+            );
             0
         });
         let total_tx_cycles = self.total_tx_cycles.checked_sub(cycles).unwrap_or_else(|| {
-            log::error!(target: "tx_pool", "total_tx_cycles {} overflow by sub {}", self.total_tx_cycles, cycles);
+            error_target!(
+                crate::LOG_TARGET_TX_POOL,
+                "total_tx_cycles {} overflow by sub {}",
+                self.total_tx_cycles,
+                cycles
+            );
             0
         });
         self.total_tx_size = total_tx_size;
@@ -117,7 +127,7 @@ impl TxPool {
         tx: Transaction,
         unknowns: Vec<OutPoint>,
     ) -> Option<DefectEntry> {
-        trace!(target: "tx_pool", "add_orphan {:#x}", &tx.hash());
+        trace_target!(crate::LOG_TARGET_TX_POOL, "add_orphan {:#x}", &tx.hash());
         self.orphan.add_tx(cycles, size, tx, unknowns.into_iter())
     }
 
@@ -128,7 +138,7 @@ impl TxPool {
         size: usize,
         tx: Transaction,
     ) {
-        trace!(target: "tx_pool", "add_proposed {:#x}", tx.hash());
+        trace_target!(crate::LOG_TARGET_TX_POOL, "add_proposed {:#x}", tx.hash());
         self.touch_last_txs_updated_at();
         self.proposed.add_tx(cycles, fee, size, tx);
     }
@@ -208,7 +218,7 @@ impl TxPool {
     ) {
         for tx in txs {
             let hash = tx.hash();
-            trace!(target: "tx_pool", "committed {:#x}", hash);
+            trace_target!(crate::LOG_TARGET_TX_POOL, "committed {:#x}", hash);
             for entry in self.proposed.remove_committed_tx(tx) {
                 self.update_statics_for_remove_tx(entry.size, entry.cycles);
             }

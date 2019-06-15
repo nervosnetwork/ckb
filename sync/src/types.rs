@@ -8,6 +8,7 @@ use ckb_core::extras::BlockExt;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::Cycle;
+use ckb_logger::{debug, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
@@ -19,7 +20,6 @@ use ckb_util::{Mutex, MutexGuard};
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
-use log::debug;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -87,6 +87,9 @@ pub struct PeerState {
     // The key is a `timeout`, means do not ask the tx before `timeout`.
     tx_ask_for_map: BTreeMap<Instant, Vec<H256>>,
     tx_ask_for_set: HashSet<H256>,
+
+    pub best_known_header: Option<HeaderView>,
+    pub last_common_header: Option<Header>,
 }
 
 impl PeerState {
@@ -104,6 +107,8 @@ impl PeerState {
             chain_sync,
             tx_ask_for_map: BTreeMap::default(),
             tx_ask_for_set: HashSet::default(),
+            best_known_header: None,
+            last_common_header: None,
         }
     }
 
@@ -139,16 +144,28 @@ impl PeerState {
         last_ask_timeout: Option<Instant>,
     ) -> Option<Instant> {
         if self.tx_ask_for_map.len() > MAX_ASK_MAP_SIZE {
-            debug!(target: "relay", "this peer tx_ask_for_map is full, ignore {:#x}", tx_hash);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "this peer tx_ask_for_map is full, ignore {:#x}",
+                tx_hash
+            );
             return None;
         }
         if self.tx_ask_for_set.len() > MAX_ASK_SET_SIZE {
-            debug!(target: "relay", "this peer tx_ask_for_set is full, ignore {:#x}", tx_hash);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "this peer tx_ask_for_set is full, ignore {:#x}",
+                tx_hash
+            );
             return None;
         }
         // This peer already register asked for this tx
         if self.tx_ask_for_set.contains(&tx_hash) {
-            debug!(target: "relay", "this peer already register ask tx({:#x})", tx_hash);
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "this peer already register ask tx({:#x})",
+                tx_hash
+            );
             return None;
         }
 
@@ -213,8 +230,6 @@ pub struct Peers {
     pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
     pub misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
     pub blocks_inflight: RwLock<InflightBlocks>,
-    pub best_known_headers: RwLock<FnvHashMap<PeerIndex, HeaderView>>,
-    pub last_common_headers: RwLock<FnvHashMap<PeerIndex, Header>>,
     pub known_txs: Mutex<KnownFilter>,
     pub known_blocks: Mutex<KnownFilter>,
 }
@@ -389,48 +404,63 @@ impl Peers {
             });
     }
 
-    pub fn best_known_header(&self, peer: PeerIndex) -> Option<HeaderView> {
-        self.best_known_headers.read().get(&peer).cloned()
+    pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderView> {
+        self.state
+            .read()
+            .get(&pi)
+            .and_then(|peer_state| peer_state.best_known_header.clone())
+    }
+
+    pub fn set_best_known_header(&self, pi: PeerIndex, header_view: HeaderView) {
+        self.state
+            .write()
+            .entry(pi)
+            .and_modify(|peer_state| peer_state.best_known_header = Some(header_view));
+    }
+
+    pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<Header> {
+        self.state
+            .read()
+            .get(&pi)
+            .and_then(|peer_state| peer_state.last_common_header.clone())
+    }
+
+    pub fn set_last_common_header(&self, pi: PeerIndex, header: Header) {
+        self.state
+            .write()
+            .entry(pi)
+            .and_modify(|peer_state| peer_state.last_common_header = Some(header));
     }
 
     pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
-        self.best_known_headers
-            .write()
-            .entry(peer)
-            .and_modify(|hv| {
+        if let Some(peer_state) = self.state.write().get_mut(&peer) {
+            if let Some(ref hv) = peer_state.best_known_header {
                 if header_view.total_difficulty() > hv.total_difficulty()
                     || (header_view.total_difficulty() == hv.total_difficulty()
                         && header_view.hash() < hv.hash())
                 {
-                    *hv = header_view.clone();
+                    peer_state.best_known_header = Some(header_view.clone());
                 }
-            })
-            .or_insert_with(|| header_view.clone());
+            } else {
+                peer_state.best_known_header = Some(header_view.clone());
+            }
+        }
     }
 
     pub fn getheaders_received(&self, _peer: PeerIndex) {
         // TODO:
     }
 
-    pub fn disconnected(&self, peer: PeerIndex) {
-        self.best_known_headers.write().remove(&peer);
+    pub fn disconnected(&self, peer: PeerIndex) -> Option<PeerState> {
         // self.misbehavior.write().remove(peer);
         self.blocks_inflight.write().remove_by_peer(&peer);
-        self.last_common_headers.write().remove(&peer);
+        self.state.write().remove(&peer)
     }
 
     // Return true when the block is that we have requested and received first time.
     pub fn new_block_received(&self, block: &Block) -> bool {
         let mut blocks_inflight = self.blocks_inflight.write();
         blocks_inflight.remove_by_block(block.header().hash())
-    }
-
-    pub fn set_last_common_header(&self, peer: PeerIndex, header: &Header) {
-        let mut last_common_headers = self.last_common_headers.write();
-        last_common_headers
-            .entry(peer)
-            .and_modify(|last_common_header| *last_common_header = header.clone())
-            .or_insert_with(|| header.clone());
     }
 }
 
@@ -439,6 +469,8 @@ pub struct HeaderView {
     inner: Header,
     total_difficulty: U256,
     total_uncles_count: u64,
+    // pointer to the index of some further predecessor of this block
+    skip_hash: Option<H256>,
 }
 
 impl HeaderView {
@@ -447,6 +479,7 @@ impl HeaderView {
             inner,
             total_difficulty,
             total_uncles_count,
+            skip_hash: None,
         }
     }
 
@@ -456,6 +489,10 @@ impl HeaderView {
 
     pub fn hash(&self) -> &H256 {
         self.inner.hash()
+    }
+
+    pub fn parent_hash(&self) -> &H256 {
+        self.inner.parent_hash()
     }
 
     pub fn timestamp(&self) -> u64 {
@@ -476,6 +513,69 @@ impl HeaderView {
 
     pub fn into_inner(self) -> Header {
         self.inner
+    }
+
+    pub fn build_skip<F>(&mut self, mut get_header_view: F)
+    where
+        F: FnMut(&H256) -> Option<HeaderView>,
+    {
+        self.skip_hash = get_header_view(self.parent_hash())
+            .and_then(|parent| parent.get_ancestor(get_skip_height(self.number()), get_header_view))
+            .map(|header| header.hash().clone());
+    }
+
+    // NOTE: get_header_view may change source state, for cache or for tests
+    pub fn get_ancestor<F>(self, number: BlockNumber, mut get_header_view: F) -> Option<Header>
+    where
+        F: FnMut(&H256) -> Option<HeaderView>,
+    {
+        let mut current = self;
+        if number > current.number() {
+            return None;
+        }
+        let mut number_walk = current.number();
+        while number_walk > number {
+            let number_skip = get_skip_height(number_walk);
+            let number_skip_prev = get_skip_height(number_walk - 1);
+            match current.skip_hash {
+                Some(ref hash)
+                    if number_skip == number
+                        || (number_skip > number
+                            && !(number_skip_prev + 2 < number_skip
+                                && number_skip_prev >= number)) =>
+                {
+                    // Only follow skip if parent->skip isn't better than skip->parent
+                    current = get_header_view(hash)?;
+                    number_walk = number_skip;
+                }
+                _ => {
+                    current = get_header_view(current.parent_hash())?;
+                    number_walk -= 1;
+                }
+            }
+        }
+        Some(current.clone()).map(HeaderView::into_inner)
+    }
+}
+
+// Compute what height to jump back to with the skip pointer.
+fn get_skip_height(height: BlockNumber) -> BlockNumber {
+    // Turn the lowest '1' bit in the binary representation of a number into a '0'.
+    fn invert_lowest_one(n: i64) -> i64 {
+        n & (n - 1)
+    }
+
+    if height < 2 {
+        return 0;
+    }
+
+    // Determine which height to jump back to. Any number strictly lower than height is acceptable,
+    // but the following expression seems to perform well in simulations (max 110 steps to go back
+    // up to 2**18 blocks).
+    if (height & 1) > 0 {
+        invert_lowest_one(invert_lowest_one(height as i64 - 1)) as u64 + 1
+    } else {
+        invert_lowest_one(height as i64) as u64
     }
 }
 
@@ -578,8 +678,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         *self.best_known_header.write() = header;
     }
 
-    pub fn insert_header_view(&self, hash: H256, header: HeaderView) {
-        self.header_map.write().insert(hash, header);
+    pub fn insert_header_view(&self, hash: H256, mut view: HeaderView) {
+        view.build_skip(|hash| self.get_header_view(hash));
+        self.header_map.write().insert(hash, view);
     }
     pub fn remove_header_view(&self, hash: &H256) {
         self.header_map.write().remove(hash);
@@ -637,24 +738,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
-        if let Some(header) = self.get_header(base) {
-            let mut n_number = header.number();
-            let mut index_walk = header;
-            if number > n_number {
-                return None;
-            }
-
-            while n_number > number {
-                if let Some(header) = self.get_header(&index_walk.parent_hash()) {
-                    index_walk = header;
-                    n_number -= 1;
-                } else {
-                    return None;
-                }
-            }
-            return Some(index_walk);
-        }
-        None
+        self.get_header_view(base)?
+            .get_ancestor(number, |hash| self.get_header_view(hash))
     }
 
     pub fn get_locator(&self, start: &Header) -> Vec<H256> {
@@ -788,18 +873,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
-                    target: "sync",
                     "last send get headers from {} less than {:?} ago, ignore it",
-                    peer,
-                    GET_HEADERS_TIMEOUT,
+                    peer, GET_HEADERS_TIMEOUT,
                 );
                 return;
             } else {
                 debug!(
-                    target: "sync",
                     "Can not get headers from {} in {:?}, retry",
-                    peer,
-                    GET_HEADERS_TIMEOUT,
+                    peer, GET_HEADERS_TIMEOUT,
                 );
             }
         }
@@ -807,7 +888,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .write()
             .insert((peer, header.hash().to_owned()), Instant::now());
 
-        debug!(target: "sync", "send_getheaders_to_peer peer={}, hash={:x}", peer, header.hash());
+        debug!(
+            "send_getheaders_to_peer peer={}, hash={:x}",
+            peer,
+            header.hash()
+        );
         let locator_hash = self.get_locator(header);
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
@@ -817,5 +902,84 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             peer,
             fbb.finished_data().into(),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use ckb_core::header::HeaderBuilder;
+    use rand::{thread_rng, Rng};
+
+    const SKIPLIST_LENGTH: u64 = 500_000;
+
+    #[test]
+    fn test_get_ancestor_use_skip_list() {
+        let mut header_map: HashMap<H256, HeaderView> = HashMap::default();
+        let mut hashes: BTreeMap<BlockNumber, H256> = BTreeMap::default();
+
+        let mut parent_hash = None;
+        for number in 0..SKIPLIST_LENGTH {
+            let mut header_builder = HeaderBuilder::default().number(number);
+            if let Some(parent_hash) = parent_hash.take() {
+                header_builder = header_builder.parent_hash(parent_hash);
+            }
+            let header = header_builder.build();
+            hashes.insert(number, header.hash().clone());
+            parent_hash = Some(header.hash().clone());
+
+            let mut view = HeaderView::new(header, U256::zero(), 0);
+            view.build_skip(|hash| header_map.get(hash).cloned());
+            header_map.insert(view.hash().clone(), view);
+        }
+
+        for (number, hash) in &hashes {
+            if *number > 0 {
+                let skip_view = header_map
+                    .get(hash)
+                    .and_then(|view| header_map.get(view.skip_hash.as_ref().unwrap()))
+                    .unwrap();
+                assert_eq!(Some(skip_view.hash()), hashes.get(&skip_view.number()));
+                assert!(skip_view.number() < *number);
+            } else {
+                assert!(header_map[hash].skip_hash.is_none());
+            }
+        }
+
+        let mut rng = thread_rng();
+        let a_to_b = |a, b, limit| {
+            let mut count = 0;
+            let header = header_map
+                .get(&hashes[&a])
+                .cloned()
+                .unwrap()
+                .get_ancestor(b, |hash| {
+                    count += 1;
+                    header_map.get(hash).cloned()
+                })
+                .unwrap();
+
+            // Search must finished in <limit> steps
+            assert!(count <= limit);
+
+            header
+        };
+        for _ in 0..1000 {
+            let from: u64 = rng.gen_range(0, SKIPLIST_LENGTH);
+            let to: u64 = rng.gen_range(0, from);
+            let view_from = &header_map[&hashes[&from]];
+            let view_to = &header_map[&hashes[&to]];
+            let view_0 = &header_map[&hashes[&0]];
+
+            let found_from_header = a_to_b(SKIPLIST_LENGTH - 1, from, 120);
+            assert_eq!(found_from_header.hash(), view_from.hash());
+
+            let found_to_header = a_to_b(from, to, 120);
+            assert_eq!(found_to_header.hash(), view_to.hash());
+
+            let found_0_header = a_to_b(from, 0, 120);
+            assert_eq!(found_0_header.hash(), view_0.hash());
+        }
     }
 }

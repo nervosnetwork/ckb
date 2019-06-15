@@ -18,7 +18,7 @@ use test_chain_utils::create_always_success_cell;
 fn create_always_success_tx() -> Transaction {
     let (always_success_cell, _) = create_always_success_cell();
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell)
         .build()
 }
@@ -56,7 +56,7 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
-            capacity_bytes!(2_500),
+            capacity_bytes!(1_000),
             Bytes::default(),
             always_success_script,
             None,
@@ -106,12 +106,12 @@ pub(crate) fn create_transaction_with_out_point(
 
     TransactionBuilder::default()
         .output(CellOutput::new(
-            capacity_bytes!(2_500),
+            capacity_bytes!(100),
             Bytes::from(vec![unique_data]),
             always_success_script,
             None,
         ))
-        .input(CellInput::new(out_point, 0, vec![]))
+        .input(CellInput::new(out_point, 0))
         .dep(always_success_out_point)
         .build()
 }

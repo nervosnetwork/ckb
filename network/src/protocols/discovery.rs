@@ -1,9 +1,9 @@
 // use crate::peer_store::Behaviour;
 use crate::peer_store::types::PeerAddr;
 use crate::NetworkState;
+use ckb_logger::{debug, error, trace, warn};
 use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
-use log::{debug, error, trace, warn};
 use std::{sync::Arc, time::Duration};
 
 use p2p::{
@@ -43,33 +43,32 @@ impl DiscoveryProtocol {
 
 impl ServiceProtocol for DiscoveryProtocol {
     fn init(&mut self, context: &mut ProtocolContext) {
-        debug!(target: "network", "protocol [discovery({})]: init", context.proto_id);
+        debug!("protocol [discovery({})]: init", context.proto_id);
 
         let discovery_task = self
             .discovery
             .take()
             .map(|discovery| {
-                debug!(target: "network", "Start discovery future_task");
+                debug!("Start discovery future_task");
                 discovery
                     .for_each(|()| Ok(()))
                     .map_err(|err| {
-                        warn!(target: "network", "discovery stream error: {:?}", err);
+                        warn!("discovery stream error: {:?}", err);
                     })
                     .then(|_| {
-                        debug!(target: "network", "End of discovery");
+                        debug!("End of discovery");
                         Ok(())
                     })
             })
             .expect("Discovery init only once");
         if let Err(err) = context.future_task(discovery_task) {
-            error!(target: "network", "Start discovery_task failed: {:?}", err);
+            error!("Start discovery_task failed: {:?}", err);
         }
     }
 
     fn connected(&mut self, context: ProtocolContextMutRef, _: &str) {
         let session = context.session;
         debug!(
-            target: "network",
             "protocol [discovery] open on session [{}], address: [{}], type: [{:?}]",
             session.id, session.address, session.ty
         );
@@ -78,7 +77,7 @@ impl ServiceProtocol for DiscoveryProtocol {
             peer_id: session.remote_pubkey.clone().map(|pubkey| pubkey.peer_id()),
         };
         if self.event_sender.unbounded_send(event).is_err() {
-            debug!(target: "network", "receiver maybe dropped! (ServiceProtocol::connected)");
+            debug!("receiver maybe dropped! (ServiceProtocol::connected)");
             return;
         }
 
@@ -87,11 +86,11 @@ impl ServiceProtocol for DiscoveryProtocol {
         let substream = Substream::new(context, receiver);
         match self.discovery_handle.substream_sender.try_send(substream) {
             Ok(_) => {
-                debug!(target: "network", "Send substream success");
+                debug!("Send substream success");
             }
             Err(err) => {
                 // TODO: handle channel is full (wait for poll API?)
-                warn!(target: "network", "Send substream failed : {:?}", err);
+                warn!("Send substream failed : {:?}", err);
             }
         }
     }
@@ -100,26 +99,26 @@ impl ServiceProtocol for DiscoveryProtocol {
         let session = context.session;
         let event = DiscoveryEvent::Disconnected(session.id);
         if self.event_sender.unbounded_send(event).is_err() {
-            debug!(target: "network", "receiver maybe dropped! (ServiceProtocol::disconnected)");
+            debug!("receiver maybe dropped! (ServiceProtocol::disconnected)");
             return;
         }
         self.discovery_senders.remove(&session.id);
-        debug!(target: "network", "protocol [discovery] close on session [{}]", session.id);
+        debug!("protocol [discovery] close on session [{}]", session.id);
     }
 
     fn received(&mut self, context: ProtocolContextMutRef, data: bytes::Bytes) {
         let session = context.session;
-        trace!(target: "network", "[received message]: length={}", data.len());
+        trace!("[received message]: length={}", data.len());
 
         if let Some(ref mut sender) = self.discovery_senders.get_mut(&session.id) {
             // TODO: handle channel is full (wait for poll API?)
             if let Err(err) = sender.try_send(data.to_vec()) {
                 if err.is_full() {
-                    warn!(target: "network", "channel is full");
+                    warn!("channel is full");
                 } else if err.is_disconnected() {
-                    warn!(target: "network", "channel is disconnected");
+                    warn!("channel is disconnected");
                 } else {
-                    warn!(target: "network", "other channel error: {:?}", err);
+                    warn!("other channel error: {:?}", err);
                 }
                 self.discovery_senders.remove(&session.id);
             }
@@ -197,7 +196,7 @@ impl DiscoveryService {
                 if let Some(_peer_id) = self.sessions.get(&session_id) {
                     // TODO: wait for peer store update
                     for addr in addrs.into_iter().filter(|addr| self.is_valid_addr(addr)) {
-                        trace!(target: "network", "Add discovered address:{:?}", addr);
+                        trace!("Add discovered address:{:?}", addr);
                         if let Some(peer_id) = extract_peer_id(&addr) {
                             self.network_state.with_peer_store_mut(|peer_store| {
                                 peer_store.add_discovered_addr(&peer_id, addr);
@@ -234,7 +233,7 @@ impl DiscoveryService {
                             })
                     })
                     .collect();
-                trace!(target: "network", "discovery send random addrs: {:?}", addrs);
+                trace!("discovery send random addrs: {:?}", addrs);
                 result
                     .send(addrs)
                     .expect("Send failed (should not happened)");
@@ -253,7 +252,7 @@ impl Future for DiscoveryService {
                     self.handle_event(event);
                 }
                 Async::Ready(None) => {
-                    debug!(target: "network", "discovery service shutdown");
+                    debug!("discovery service shutdown");
                     return Ok(Async::Ready(()));
                 }
                 Async::NotReady => break,
@@ -273,7 +272,7 @@ impl AddressManager for DiscoveryAddressManager {
     fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>) {
         let event = DiscoveryEvent::AddNewAddrs { session_id, addrs };
         if self.event_sender.unbounded_send(event).is_err() {
-            debug!(target: "network", "receiver maybe dropped! (DiscoveryAddressManager::add_new_addrs)");
+            debug!("receiver maybe dropped! (DiscoveryAddressManager::add_new_addrs)");
         }
     }
 
@@ -285,7 +284,7 @@ impl AddressManager for DiscoveryAddressManager {
             result: sender,
         };
         if self.event_sender.unbounded_send(event).is_err() {
-            debug!(target: "network", "receiver maybe dropped! (DiscoveryAddressManager::misbehave)");
+            debug!("receiver maybe dropped! (DiscoveryAddressManager::misbehave)");
             MisbehaveResult::Disconnect
         } else {
             receiver.wait().unwrap_or(MisbehaveResult::Disconnect)
@@ -296,7 +295,7 @@ impl AddressManager for DiscoveryAddressManager {
         let (sender, receiver) = oneshot::channel();
         let event = DiscoveryEvent::GetRandom { n, result: sender };
         if self.event_sender.unbounded_send(event).is_err() {
-            debug!(target: "network", "receiver maybe dropped! (DiscoveryAddressManager::get_random)");
+            debug!("receiver maybe dropped! (DiscoveryAddressManager::get_random)");
             Vec::new()
         } else {
             receiver.wait().ok().unwrap_or_else(Vec::new)

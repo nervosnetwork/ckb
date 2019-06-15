@@ -3,6 +3,7 @@ use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
 use ckb_core::header::Header;
 use ckb_core::BlockNumber;
+use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
@@ -11,8 +12,7 @@ use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use fnv::FnvHashMap;
-use log::debug;
+use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -43,34 +43,17 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash().to_owned();
 
-        if self.relayer.state.already_known_compact_block(&block_hash) {
-            debug!(target: "relay", "discarding already known compact block {:x}", block_hash);
-            return Ok(());
-        }
-        self.relayer
-            .state
-            .mark_as_known_compact_block(block_hash.clone());
-
-        if let Some(parent_header_view) = self
+        let parent = self
             .relayer
             .shared
-            .get_header_view(&compact_block.header.parent_hash())
-        {
-            let best_known_header = self.relayer.shared.best_known_header();
-            let current_total_difficulty =
-                parent_header_view.total_difficulty() + compact_block.header.difficulty();
-            if current_total_difficulty <= *best_known_header.total_difficulty() {
-                debug!(
-                    target: "relay",
-                    "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
-                    block_hash,
-                    current_total_difficulty,
-                    best_known_header.total_difficulty(),
-                );
-                return Ok(());
-            }
-        } else {
-            debug!(target: "relay", "UnknownParent: {:#x}, send_getheaders_to_peer({})", block_hash, self.peer);
+            .get_header_view(compact_block.header.parent_hash());
+        if parent.is_none() {
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "UnknownParent: {:#x}, send_getheaders_to_peer({})",
+                block_hash,
+                self.peer
+            );
             self.relayer.shared.send_getheaders_to_peer(
                 self.nc.as_ref(),
                 self.peer,
@@ -79,17 +62,65 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             return Ok(());
         }
 
+        {
+            let parent = parent.unwrap();
+            let best_known_header = self.relayer.shared.best_known_header();
+            let current_total_difficulty =
+                parent.total_difficulty() + compact_block.header.difficulty();
+            if current_total_difficulty <= *best_known_header.total_difficulty() {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
+                    block_hash,
+                    current_total_difficulty,
+                    best_known_header.total_difficulty(),
+                );
+                return Ok(());
+            }
+        }
+
+        if let Some(flight) = self
+            .relayer
+            .peers
+            .blocks_inflight
+            .read()
+            .inflight_state_by_block(&block_hash)
+        {
+            if flight.peers.contains(&self.peer) {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "discard already in-flight compact block {:x}",
+                    block_hash,
+                );
+                return Ok(());
+            }
+        }
+
         // The new arrived has greater difficulty than local best known chain
         let mut missing_indexes: Vec<usize> = Vec::new();
         {
             // Verify compact block
             let mut pending_compact_blocks = self.relayer.state.pending_compact_blocks.lock();
-            if pending_compact_blocks.get(&block_hash).is_some()
+            if pending_compact_blocks
+                .get(&block_hash)
+                .map(|(_, peers_set)| peers_set.contains(&self.peer))
+                .unwrap_or(false)
                 || self.relayer.shared.get_block(&block_hash).is_some()
             {
-                debug!(target: "relay", "already processed compact block {:x}", block_hash);
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "discard already pending compact block {:x}",
+                    block_hash
+                );
                 return Ok(());
             } else {
+                let fn_get_pending_header = {
+                    |block_hash| {
+                        pending_compact_blocks
+                            .get(&block_hash)
+                            .map(|(compact_block, _)| compact_block.header.to_owned())
+                    }
+                };
                 let resolver = HeaderResolverWrapper::new(
                     &compact_block.header,
                     self.relayer.shared.shared().to_owned(),
@@ -97,14 +128,18 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 let header_verifier = HeaderVerifier::new(
                     CompactBlockMedianTimeView {
                         anchor_hash: compact_block.header.hash(),
-                        pending_compact_blocks: &pending_compact_blocks,
+                        fn_get_pending_header: Box::new(fn_get_pending_header),
                         shared: self.relayer.shared.shared(),
                     },
                     Arc::clone(&self.relayer.shared.consensus().pow_engine()),
                 );
                 let compact_block_verifier = CompactBlockVerifier::new();
                 if let Err(err) = header_verifier.verify(&resolver) {
-                    debug!(target: "relay", "unexpected header verify failed: {}", err);
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "unexpected header verify failed: {}",
+                        err
+                    );
                     return Ok(());
                 }
                 compact_block_verifier.verify(&compact_block)?;
@@ -128,16 +163,37 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             // into database
             match ret {
                 Ok(block) => {
+                    pending_compact_blocks.remove(&block_hash);
                     self.relayer
                         .accept_block(self.nc.as_ref(), self.peer, &Arc::new(block))
                 }
                 Err(missing) => {
                     missing_indexes = missing;
-                    pending_compact_blocks.insert(block_hash.clone(), compact_block);
+                    pending_compact_blocks
+                        .entry(block_hash.clone())
+                        .or_insert_with(|| (compact_block, FnvHashSet::default()))
+                        .1
+                        .insert(self.peer);
                 }
             }
         }
         if !missing_indexes.is_empty() {
+            if !self
+                .relayer
+                .peers
+                .blocks_inflight
+                .write()
+                .insert(self.peer, block_hash.to_owned())
+            {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "BlockInFlight reach limit or had requested, peer: {}, block: {:x}",
+                    self.peer,
+                    block_hash,
+                );
+                return Ok(());
+            }
+
             let fbb = &mut FlatBufferBuilder::new();
             let message = RelayMessage::build_get_block_transactions(
                 fbb,
@@ -157,7 +213,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 
 struct CompactBlockMedianTimeView<'a, CS> {
     anchor_hash: &'a H256,
-    pending_compact_blocks: &'a FnvHashMap<H256, CompactBlock>,
+    fn_get_pending_header: Box<Fn(H256) -> Option<Header> + 'a>,
     shared: &'a Shared<CS>,
 }
 
@@ -166,10 +222,7 @@ where
     CS: ChainStore,
 {
     fn get_header(&self, hash: &H256) -> Option<Header> {
-        self.pending_compact_blocks
-            .get(hash)
-            .map(|cb| cb.header.to_owned())
-            .or_else(|| self.shared.block_header(hash))
+        (self.fn_get_pending_header)(hash.to_owned()).or_else(|| self.shared.block_header(hash))
     }
 }
 

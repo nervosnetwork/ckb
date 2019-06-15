@@ -7,7 +7,7 @@ use secp256k1::key;
 use secp256k1::Message as SecpMessage;
 use std::{fmt, ops};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct Pubkey {
     inner: H512,
 }

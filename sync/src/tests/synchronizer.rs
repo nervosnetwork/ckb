@@ -1,4 +1,7 @@
-use crate::synchronizer::{BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN, TIMEOUT_EVICTION_TOKEN};
+use crate::synchronizer::{
+    IBD_BLOCK_FETCH_TOKEN, NOT_IBD_BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN,
+    TIMEOUT_EVICTION_TOKEN,
+};
 use crate::tests::TestNode;
 use crate::{Config, NetworkProtocol, SyncSharedState, Synchronizer};
 use ckb_chain::chain::ChainService;
@@ -73,7 +76,7 @@ fn setup_node(
 ) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0, Default::default()))
+        .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell)
         .build();
 
@@ -143,7 +146,8 @@ fn setup_node(
         &protocol,
         &[
             SEND_GET_HEADERS_TOKEN,
-            BLOCK_FETCH_TOKEN,
+            IBD_BLOCK_FETCH_TOKEN,
+            NOT_IBD_BLOCK_FETCH_TOKEN,
             TIMEOUT_EVICTION_TOKEN,
         ],
     );

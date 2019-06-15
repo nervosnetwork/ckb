@@ -1,0 +1,15 @@
+[package]
+name = "multisig"
+version = "0.14.0"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+ckb-logger = { path = "../logger" }
+crypto = { path = "../crypto" }
+failure = "0.1.5"
+
+[dev-dependencies]
+rand = "0.6.5"
+
