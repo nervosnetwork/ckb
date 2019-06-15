@@ -586,6 +586,65 @@ impl EpochExt {
     }
 }
 
+// struct CellMeta, aligned to 8
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CellMeta {
+    capacity_: u64,
+    data_hash_: Bytes32,
+} // pub struct CellMeta
+impl flatbuffers::SafeSliceAccess for CellMeta {}
+impl<'a> flatbuffers::Follow<'a> for CellMeta {
+    type Inner = &'a CellMeta;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        <&'a CellMeta>::follow(buf, loc)
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for &'a CellMeta {
+    type Inner = &'a CellMeta;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        flatbuffers::follow_cast_ref::<CellMeta>(buf, loc)
+    }
+}
+impl<'b> flatbuffers::Push for CellMeta {
+    type Output = CellMeta;
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(self as *const CellMeta as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+impl<'b> flatbuffers::Push for &'b CellMeta {
+    type Output = CellMeta;
+
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        let src = unsafe {
+            ::std::slice::from_raw_parts(*self as *const CellMeta as *const u8, Self::size())
+        };
+        dst.copy_from_slice(src);
+    }
+}
+
+impl CellMeta {
+    pub fn new<'a>(_capacity: u64, _data_hash: &'a Bytes32) -> Self {
+        CellMeta {
+            capacity_: _capacity.to_little_endian(),
+            data_hash_: *_data_hash,
+        }
+    }
+    pub fn capacity<'a>(&'a self) -> u64 {
+        self.capacity_.from_little_endian()
+    }
+    pub fn data_hash<'a>(&'a self) -> &'a Bytes32 {
+        &self.data_hash_
+    }
+}
+
 pub enum BytesOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 

@@ -158,3 +158,8 @@ table TransactionMeta {
     bits:           Bytes;
     len:            uint32;
 }
+
+struct CellMeta {
+    capacity:       uint64;
+    data_hash:      Bytes32;
+}

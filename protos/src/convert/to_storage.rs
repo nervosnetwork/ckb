@@ -1,4 +1,5 @@
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use numext_fixed_hash::H256;
 
 use ckb_core::{
     block::Block,
@@ -6,6 +7,7 @@ use ckb_core::{
     header::Header,
     transaction::{ProposalShortId, Transaction},
     uncle::UncleBlock,
+    Capacity,
 };
 
 use crate as protos;
@@ -186,6 +188,18 @@ impl<'a> protos::StoredEpochExt<'a> {
     ) -> WIPOffset<protos::StoredEpochExt<'b>> {
         let data = ext.into();
         let mut builder = protos::StoredEpochExtBuilder::new(fbb);
+        builder.add_data(&data);
+        builder.finish()
+    }
+}
+
+impl<'a> protos::StoredCellMeta<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        meta: &(Capacity, H256),
+    ) -> WIPOffset<protos::StoredCellMeta<'b>> {
+        let data = meta.into();
+        let mut builder = protos::StoredCellMetaBuilder::new(fbb);
         builder.add_data(&data);
         builder.finish()
     }

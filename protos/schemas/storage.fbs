@@ -51,3 +51,7 @@ table StoredProposalShortIds {
 table StoredEpochExt {
     data: EpochExt;
 }
+
+table StoredCellMeta {
+    data: CellMeta;
+}

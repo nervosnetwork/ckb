@@ -5,6 +5,7 @@ use ckb_core::{
     header::Header,
     transaction::{CellOutput, ProposalShortId, Transaction},
     uncle::UncleBlock,
+    Capacity,
 };
 
 use crate as protos;
@@ -105,6 +106,12 @@ impl<'a> From<protos::StoredProposalShortIds<'a>> for Vec<ProposalShortId> {
 
 impl<'a> From<protos::StoredEpochExt<'a>> for EpochExt {
     fn from(proto: protos::StoredEpochExt<'a>) -> Self {
+        cast!(proto.data()).into()
+    }
+}
+
+impl<'a> From<protos::StoredCellMeta<'a>> for (Capacity, H256) {
+    fn from(proto: protos::StoredCellMeta<'a>) -> Self {
         cast!(proto.data()).into()
     }
 }

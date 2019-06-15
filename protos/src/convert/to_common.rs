@@ -10,7 +10,7 @@ use ckb_core::{
     transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction},
     transaction_meta::TransactionMeta,
     uncle::UncleBlock,
-    Bytes,
+    Bytes, Capacity,
 };
 
 use crate as protos;
@@ -408,5 +408,13 @@ impl<'a> protos::TransactionMeta<'a> {
         builder.add_bits(bits);
         builder.add_len(len as u32);
         builder.finish()
+    }
+}
+
+impl From<&(Capacity, H256)> for protos::CellMeta {
+    fn from(meta: &(Capacity, H256)) -> Self {
+        let capacity = meta.0.as_u64();
+        let data_hash = (&meta.1).into();
+        Self::new(capacity, &data_hash)
     }
 }

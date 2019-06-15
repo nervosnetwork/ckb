@@ -383,42 +383,39 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
-        self.get_cell_output(tx_hash, index)
-            .and_then(|cell_output| {
-                self.get(
-                    COLUMN_CELL_META,
-                    CellKey::calculate(tx_hash, index).as_ref(),
-                )
-                .map(|raw| {
-                    let data_hash = H256::from_slice(&raw[..]).expect("db safe access");
-                    (cell_output, data_hash)
-                })
-            })
-            .and_then(|(cell_output, data_hash)| {
-                self.get_transaction_info(tx_hash)
-                    .map(|tx_info| (tx_info, cell_output, data_hash))
-            })
-            .map(|(tx_info, cell_output, data_hash)| {
-                let out_point = CellOutPoint {
-                    tx_hash: tx_hash.to_owned(),
-                    index: index as u32,
-                };
-                let capacity = cell_output.capacity;
-                let cellbase = tx_info.index == 0;
-                let block_info = BlockInfo {
-                    number: tx_info.block_number,
-                    epoch: tx_info.block_epoch,
-                };
-                CellMeta {
-                    //cell_output: Some(cell_output),
-                    cell_output: None,
-                    out_point,
-                    block_info: Some(block_info),
-                    cellbase,
-                    capacity,
-                    data_hash: Some(data_hash),
-                }
-            })
+        self.process_get(
+            COLUMN_CELL_META,
+            CellKey::calculate(tx_hash, index).as_ref(),
+            |slice| {
+                let meta: (Capacity, H256) =
+                    flatbuffers::get_root::<ckb_protos::StoredCellMeta>(&slice).into();
+                Ok(Some(meta))
+            },
+        )
+        .and_then(|meta| {
+            self.get_transaction_info(tx_hash)
+                .map(|tx_info| (tx_info, meta))
+        })
+        .map(|(tx_info, meta)| {
+            let out_point = CellOutPoint {
+                tx_hash: tx_hash.to_owned(),
+                index: index as u32,
+            };
+            let cellbase = tx_info.index == 0;
+            let block_info = BlockInfo {
+                number: tx_info.block_number,
+                epoch: tx_info.block_epoch,
+            };
+            let (capacity, data_hash) = meta;
+            CellMeta {
+                cell_output: None,
+                out_point,
+                block_info: Some(block_info),
+                cellbase,
+                capacity,
+                data_hash: Some(data_hash),
+            }
+        })
     }
 
     fn get_cellbase(&self, hash: &H256) -> Option<Transaction> {
@@ -563,8 +560,13 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                     index: cell_index as u32,
                 };
                 let store_key = out_point.cell_key();
-                let data_hash = output.data_hash();
-                self.insert_raw(COLUMN_CELL_META, store_key.as_ref(), data_hash.as_bytes())?;
+                insert_flatbuffers!(
+                    self,
+                    COLUMN_CELL_META,
+                    store_key.as_ref(),
+                    StoredCellMeta,
+                    &(output.capacity, output.data_hash())
+                );
             }
         }
 

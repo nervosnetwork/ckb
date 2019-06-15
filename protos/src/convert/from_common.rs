@@ -312,3 +312,11 @@ impl<'a> From<protos::TransactionMeta<'a>> for TransactionMeta {
             .build()
     }
 }
+
+impl From<&protos::CellMeta> for (Capacity, H256) {
+    fn from(proto: &protos::CellMeta) -> Self {
+        let capacity = Capacity::shannons(proto.capacity());
+        let data_hash = proto.data_hash().into();
+        (capacity, data_hash)
+    }
+}
