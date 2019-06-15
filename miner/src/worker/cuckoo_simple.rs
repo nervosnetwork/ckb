@@ -9,7 +9,7 @@ use numext_fixed_hash::H256;
 use rand::random;
 use serde_derive::{Deserialize, Serialize};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CuckooSimpleConfig {
@@ -154,7 +154,7 @@ const STATE_UPDATE_INTERVAL: usize = 16;
 impl Worker for CuckooSimple {
     fn run(&mut self, progress_bar: ProgressBar) {
         let mut state_update_counter = 0usize;
-        let mut start = SystemTime::now();
+        let mut start = Instant::now();
         loop {
             self.poll_worker_message();
             if self.start {
@@ -163,7 +163,7 @@ impl Worker for CuckooSimple {
                     state_update_counter += 1;
 
                     if state_update_counter == STATE_UPDATE_INTERVAL {
-                        let elapsed = SystemTime::now().duration_since(start).unwrap();
+                        let elapsed = start.elapsed();
                         let elapsed_nanos: f64 = (elapsed.as_secs() * 1_000_000_000
                             + u64::from(elapsed.subsec_nanos()))
                             as f64
@@ -175,13 +175,13 @@ impl Worker for CuckooSimple {
                         ));
                         progress_bar.inc(1);
                         state_update_counter = 0;
-                        start = SystemTime::now();
+                        start = Instant::now();
                     }
                 }
             } else {
                 // reset state and sleep
                 state_update_counter = 0;
-                start = SystemTime::now();
+                start = Instant::now();
                 thread::sleep(Duration::from_millis(100));
             }
         }
