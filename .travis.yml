@@ -62,6 +62,7 @@ matrix:
       if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
     - name: Linters
+      env: CACHE_NAME=linters
       if: 'tag IS NOT present AND (type = pull_request OR branch = master OR branch =~ /^test/)'
       os: linux
       install:
