@@ -358,65 +358,77 @@ impl Bytes32 {
     }
 }
 
-// struct TransactionAddress, aligned to 4
-#[repr(C, align(4))]
+// struct TransactionInfo, aligned to 8
+#[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TransactionAddress {
+pub struct TransactionInfo {
     block_hash_: Bytes32,
+    block_number_: u64,
+    block_epoch_: u64,
     index_: u32,
-} // pub struct TransactionAddress
-impl flatbuffers::SafeSliceAccess for TransactionAddress {}
-impl<'a> flatbuffers::Follow<'a> for TransactionAddress {
-    type Inner = &'a TransactionAddress;
+    padding0__: u32,
+} // pub struct TransactionInfo
+impl flatbuffers::SafeSliceAccess for TransactionInfo {}
+impl<'a> flatbuffers::Follow<'a> for TransactionInfo {
+    type Inner = &'a TransactionInfo;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        <&'a TransactionAddress>::follow(buf, loc)
+        <&'a TransactionInfo>::follow(buf, loc)
     }
 }
-impl<'a> flatbuffers::Follow<'a> for &'a TransactionAddress {
-    type Inner = &'a TransactionAddress;
+impl<'a> flatbuffers::Follow<'a> for &'a TransactionInfo {
+    type Inner = &'a TransactionInfo;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        flatbuffers::follow_cast_ref::<TransactionAddress>(buf, loc)
+        flatbuffers::follow_cast_ref::<TransactionInfo>(buf, loc)
     }
 }
-impl<'b> flatbuffers::Push for TransactionAddress {
-    type Output = TransactionAddress;
+impl<'b> flatbuffers::Push for TransactionInfo {
+    type Output = TransactionInfo;
     #[inline]
     fn push(&self, dst: &mut [u8], _rest: &[u8]) {
         let src = unsafe {
-            ::std::slice::from_raw_parts(
-                self as *const TransactionAddress as *const u8,
-                Self::size(),
-            )
+            ::std::slice::from_raw_parts(self as *const TransactionInfo as *const u8, Self::size())
         };
         dst.copy_from_slice(src);
     }
 }
-impl<'b> flatbuffers::Push for &'b TransactionAddress {
-    type Output = TransactionAddress;
+impl<'b> flatbuffers::Push for &'b TransactionInfo {
+    type Output = TransactionInfo;
 
     #[inline]
     fn push(&self, dst: &mut [u8], _rest: &[u8]) {
         let src = unsafe {
-            ::std::slice::from_raw_parts(
-                *self as *const TransactionAddress as *const u8,
-                Self::size(),
-            )
+            ::std::slice::from_raw_parts(*self as *const TransactionInfo as *const u8, Self::size())
         };
         dst.copy_from_slice(src);
     }
 }
 
-impl TransactionAddress {
-    pub fn new<'a>(_block_hash: &'a Bytes32, _index: u32) -> Self {
-        TransactionAddress {
+impl TransactionInfo {
+    pub fn new<'a>(
+        _block_hash: &'a Bytes32,
+        _block_number: u64,
+        _block_epoch: u64,
+        _index: u32,
+    ) -> Self {
+        TransactionInfo {
             block_hash_: *_block_hash,
+            block_number_: _block_number.to_little_endian(),
+            block_epoch_: _block_epoch.to_little_endian(),
             index_: _index.to_little_endian(),
+
+            padding0__: 0,
         }
     }
     pub fn block_hash<'a>(&'a self) -> &'a Bytes32 {
         &self.block_hash_
+    }
+    pub fn block_number<'a>(&'a self) -> u64 {
+        self.block_number_.from_little_endian()
+    }
+    pub fn block_epoch<'a>(&'a self) -> u64 {
+        self.block_epoch_.from_little_endian()
     }
     pub fn index<'a>(&'a self) -> u32 {
         self.index_.from_little_endian()

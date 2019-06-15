@@ -2,7 +2,7 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 
 use ckb_core::{
-    extras::{BlockExt, DaoStats, EpochExt, TransactionAddress},
+    extras::{BlockExt, DaoStats, EpochExt, TransactionInfo},
     header::{Header, HeaderBuilder},
     script::Script,
     transaction::{
@@ -113,11 +113,18 @@ impl From<&protos::ProposalShortId> for ProposalShortId {
     }
 }
 
-impl From<&protos::TransactionAddress> for TransactionAddress {
-    fn from(proto: &protos::TransactionAddress) -> Self {
+impl From<&protos::TransactionInfo> for TransactionInfo {
+    fn from(proto: &protos::TransactionInfo) -> Self {
         let block_hash = proto.block_hash().into();
+        let block_number = proto.block_number();
+        let block_epoch = proto.block_epoch();
         let index = proto.index() as usize;
-        TransactionAddress { block_hash, index }
+        TransactionInfo {
+            block_hash,
+            block_number,
+            block_epoch,
+            index,
+        }
     }
 }
 

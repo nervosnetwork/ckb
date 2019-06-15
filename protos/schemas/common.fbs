@@ -119,9 +119,11 @@ struct Bytes32 {
     u31: uint8;
 }
 
-struct TransactionAddress {
-    block_hash: Bytes32;
-    index:      uint32;
+struct TransactionInfo {
+    block_hash:     Bytes32;
+    block_number:   uint64;
+    block_epoch:    uint64;
+    index:          uint32;
 }
 
 struct DaoStats {

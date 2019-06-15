@@ -1,15 +1,12 @@
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR, COLUMN_UNCLES,
+    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
 };
-use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMeta};
-use ckb_core::extras::{
-    BlockExt, DaoStats, EpochExt, TransactionAddress, DEFAULT_ACCUMULATED_RATE,
-};
+use ckb_core::extras::{BlockExt, DaoStats, EpochExt, TransactionInfo, DEFAULT_ACCUMULATED_RATE};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{CellKey, CellOutPoint, CellOutput, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
@@ -19,6 +16,7 @@ use ckb_db::{Col, DbBatch, Error, KeyValueDB};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
+use std::convert::TryInto;
 use std::ops::Range;
 use std::sync::Mutex;
 
@@ -117,7 +115,7 @@ pub trait ChainStore: Sync + Send {
     fn get_tip_header(&self) -> Option<Header>;
     /// Get commit transaction and block hash by it's hash
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)>;
-    fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
+    fn get_transaction_info(&self, hash: &H256) -> Option<TransactionInfo>;
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
     // Get current epoch ext
@@ -327,8 +325,10 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber> {
-        self.get(COLUMN_INDEX, hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize block number should be ok"))
+        self.get(COLUMN_INDEX, hash.as_bytes()).map(|raw| {
+            let le_bytes: [u8; 8] = raw[..].try_into().expect("should not be failed");
+            u64::from_le_bytes(le_bytes)
+        })
     }
 
     fn get_tip_header(&self) -> Option<Header> {
@@ -364,30 +364,61 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)> {
-        self.get_transaction_address(&hash).and_then(|addr| {
-            self.process_get(COLUMN_BLOCK_BODY, addr.block_hash.as_bytes(), |slice| {
+        self.get_transaction_info(&hash).and_then(|info| {
+            self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
                 let tx_opt = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
-                    .transaction(addr.index);
+                    .transaction(info.index);
                 Ok(tx_opt)
             })
-            .map(|tx| (tx, addr.block_hash))
+            .map(|tx| (tx, info.block_hash))
         })
     }
 
-    fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress> {
-        self.process_get(COLUMN_TRANSACTION_ADDR, hash.as_bytes(), |slice| {
-            let addr: TransactionAddress =
-                flatbuffers::get_root::<ckb_protos::StoredTransactionAddress>(&slice).into();
-            Ok(Some(addr))
+    fn get_transaction_info(&self, hash: &H256) -> Option<TransactionInfo> {
+        self.process_get(COLUMN_TRANSACTION_INFO, hash.as_bytes(), |slice| {
+            let info: TransactionInfo =
+                flatbuffers::get_root::<ckb_protos::StoredTransactionInfo>(&slice).into();
+            Ok(Some(info))
         })
     }
 
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
-        self.get(
-            COLUMN_CELL_META,
-            CellKey::calculate(tx_hash, index).as_ref(),
-        )
-        .map(|raw| deserialize(&raw[..]).expect("deserialize cell meta should be ok"))
+        self.get_cell_output(tx_hash, index)
+            .and_then(|cell_output| {
+                self.get(
+                    COLUMN_CELL_META,
+                    CellKey::calculate(tx_hash, index).as_ref(),
+                )
+                .map(|raw| {
+                    let data_hash = H256::from_slice(&raw[..]).expect("db safe access");
+                    (cell_output, data_hash)
+                })
+            })
+            .and_then(|(cell_output, data_hash)| {
+                self.get_transaction_info(tx_hash)
+                    .map(|tx_info| (tx_info, cell_output, data_hash))
+            })
+            .map(|(tx_info, cell_output, data_hash)| {
+                let out_point = CellOutPoint {
+                    tx_hash: tx_hash.to_owned(),
+                    index: index as u32,
+                };
+                let capacity = cell_output.capacity;
+                let cellbase = tx_info.index == 0;
+                let block_info = BlockInfo {
+                    number: tx_info.block_number,
+                    epoch: tx_info.block_epoch,
+                };
+                CellMeta {
+                    //cell_output: Some(cell_output),
+                    cell_output: None,
+                    out_point,
+                    block_info: Some(block_info),
+                    cellbase,
+                    capacity,
+                    data_hash: Some(data_hash),
+                }
+            })
     }
 
     fn get_cellbase(&self, hash: &H256) -> Option<Transaction> {
@@ -411,11 +442,11 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         // release lock asap
         drop(cell_output_cache_unlocked);
 
-        self.get_transaction_address(&tx_hash)
-            .and_then(|addr| {
-                self.process_get(COLUMN_BLOCK_BODY, addr.block_hash.as_bytes(), |slice| {
+        self.get_transaction_info(&tx_hash)
+            .and_then(|info| {
+                self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
                     let output_opt = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
-                        .output(addr.index, index as usize);
+                        .output(info.index, index as usize);
                     Ok(output_opt)
                 })
             })
@@ -450,19 +481,6 @@ pub struct DefaultStoreBatch<B> {
 impl<B: DbBatch> DefaultStoreBatch<B> {
     fn insert_raw(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.inner.insert(col, key, value)
-    }
-
-    fn insert_serialize<T: serde::ser::Serialize + ?Sized>(
-        &mut self,
-        col: Col,
-        key: &[u8],
-        item: &T,
-    ) -> Result<(), Error> {
-        self.inner.insert(
-            col,
-            key,
-            &serialize(item).expect("serializing should be ok"),
-        )
     }
 
     fn delete(&mut self, col: Col, key: &[u8]) -> Result<(), Error> {
@@ -520,41 +538,33 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     }
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
-        let hash = block.header().hash();
+        let header = block.header();
+        let hash = header.hash();
         for (index, tx) in block.transactions().iter().enumerate() {
             let tx_hash = tx.hash();
             {
-                let addr = TransactionAddress {
+                let info = TransactionInfo {
                     block_hash: hash.to_owned(),
+                    block_number: header.number(),
+                    block_epoch: header.epoch(),
                     index,
                 };
                 insert_flatbuffers!(
                     self,
-                    COLUMN_TRANSACTION_ADDR,
+                    COLUMN_TRANSACTION_INFO,
                     tx_hash.as_bytes(),
-                    StoredTransactionAddress,
-                    &addr
+                    StoredTransactionInfo,
+                    &info
                 );
             }
-            let cellbase = index == 0;
-            for (index, output) in tx.outputs().iter().enumerate() {
+            for (cell_index, output) in tx.outputs().iter().enumerate() {
                 let out_point = CellOutPoint {
                     tx_hash: tx_hash.to_owned(),
-                    index: index as u32,
+                    index: cell_index as u32,
                 };
                 let store_key = out_point.cell_key();
-                let cell_meta = CellMeta {
-                    cell_output: None,
-                    out_point,
-                    block_info: Some(BlockInfo {
-                        number: block.header().number(),
-                        epoch: block.header().epoch(),
-                    }),
-                    cellbase,
-                    capacity: output.capacity,
-                    data_hash: Some(output.data_hash()),
-                };
-                self.insert_serialize(COLUMN_CELL_META, store_key.as_ref(), &cell_meta)?;
+                let data_hash = output.data_hash();
+                self.insert_raw(COLUMN_CELL_META, store_key.as_ref(), data_hash.as_bytes())?;
             }
         }
 
@@ -569,7 +579,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn detach_block(&mut self, block: &Block) -> Result<(), Error> {
         for tx in block.transactions() {
             let tx_hash = tx.hash();
-            self.delete(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())?;
+            self.delete(COLUMN_TRANSACTION_INFO, tx_hash.as_bytes())?;
             for index in 0..tx.outputs().len() {
                 let store_key = CellKey::calculate(&tx_hash, index as u32);
                 self.delete(COLUMN_CELL_META, store_key.as_ref())?;

@@ -27,9 +27,11 @@ pub struct DaoStats {
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct TransactionAddress {
+pub struct TransactionInfo {
     // Block hash
     pub block_hash: H256,
+    pub block_number: BlockNumber,
+    pub block_epoch: EpochNumber,
     // Index in the block
     pub index: usize,
 }

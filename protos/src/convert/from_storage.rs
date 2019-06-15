@@ -1,7 +1,7 @@
 use numext_fixed_hash::H256;
 
 use ckb_core::{
-    extras::{EpochExt, TransactionAddress},
+    extras::{EpochExt, TransactionInfo},
     header::Header,
     transaction::{CellOutput, ProposalShortId, Transaction},
     uncle::UncleBlock,
@@ -70,8 +70,8 @@ impl<'a> protos::StoredBlockBody<'a> {
     }
 }
 
-impl<'a> From<protos::StoredTransactionAddress<'a>> for TransactionAddress {
-    fn from(proto: protos::StoredTransactionAddress<'a>) -> Self {
+impl<'a> From<protos::StoredTransactionInfo<'a>> for TransactionInfo {
+    fn from(proto: protos::StoredTransactionInfo<'a>) -> Self {
         cast!(proto.data()).into()
     }
 }

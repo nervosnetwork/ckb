@@ -478,15 +478,15 @@ impl<'a: 'b, 'b> StoredBlockBodyCacheBuilder<'a, 'b> {
     }
 }
 
-pub enum StoredTransactionAddressOffset {}
+pub enum StoredTransactionInfoOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
-pub struct StoredTransactionAddress<'a> {
+pub struct StoredTransactionInfo<'a> {
     pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for StoredTransactionAddress<'a> {
-    type Inner = StoredTransactionAddress<'a>;
+impl<'a> flatbuffers::Follow<'a> for StoredTransactionInfo<'a> {
+    type Inner = StoredTransactionInfo<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -495,17 +495,17 @@ impl<'a> flatbuffers::Follow<'a> for StoredTransactionAddress<'a> {
     }
 }
 
-impl<'a> StoredTransactionAddress<'a> {
+impl<'a> StoredTransactionInfo<'a> {
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        StoredTransactionAddress { _tab: table }
+        StoredTransactionInfo { _tab: table }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args StoredTransactionAddressArgs<'args>,
-    ) -> flatbuffers::WIPOffset<StoredTransactionAddress<'bldr>> {
-        let mut builder = StoredTransactionAddressBuilder::new(_fbb);
+        args: &'args StoredTransactionInfoArgs<'args>,
+    ) -> flatbuffers::WIPOffset<StoredTransactionInfo<'bldr>> {
+        let mut builder = StoredTransactionInfoBuilder::new(_fbb);
         if let Some(x) = args.data {
             builder.add_data(x);
         }
@@ -515,43 +515,43 @@ impl<'a> StoredTransactionAddress<'a> {
     pub const VT_DATA: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn data(&self) -> Option<&'a TransactionAddress> {
+    pub fn data(&self) -> Option<&'a TransactionInfo> {
         self._tab
-            .get::<TransactionAddress>(StoredTransactionAddress::VT_DATA, None)
+            .get::<TransactionInfo>(StoredTransactionInfo::VT_DATA, None)
     }
 }
 
-pub struct StoredTransactionAddressArgs<'a> {
-    pub data: Option<&'a TransactionAddress>,
+pub struct StoredTransactionInfoArgs<'a> {
+    pub data: Option<&'a TransactionInfo>,
 }
-impl<'a> Default for StoredTransactionAddressArgs<'a> {
+impl<'a> Default for StoredTransactionInfoArgs<'a> {
     #[inline]
     fn default() -> Self {
-        StoredTransactionAddressArgs { data: None }
+        StoredTransactionInfoArgs { data: None }
     }
 }
-pub struct StoredTransactionAddressBuilder<'a: 'b, 'b> {
+pub struct StoredTransactionInfoBuilder<'a: 'b, 'b> {
     fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> StoredTransactionAddressBuilder<'a, 'b> {
+impl<'a: 'b, 'b> StoredTransactionInfoBuilder<'a, 'b> {
     #[inline]
-    pub fn add_data(&mut self, data: &'b TransactionAddress) {
+    pub fn add_data(&mut self, data: &'b TransactionInfo) {
         self.fbb_
-            .push_slot_always::<&TransactionAddress>(StoredTransactionAddress::VT_DATA, data);
+            .push_slot_always::<&TransactionInfo>(StoredTransactionInfo::VT_DATA, data);
     }
     #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    ) -> StoredTransactionAddressBuilder<'a, 'b> {
+    ) -> StoredTransactionInfoBuilder<'a, 'b> {
         let start = _fbb.start_table();
-        StoredTransactionAddressBuilder {
+        StoredTransactionInfoBuilder {
             fbb_: _fbb,
             start_: start,
         }
     }
     #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<StoredTransactionAddress<'a>> {
+    pub fn finish(self) -> flatbuffers::WIPOffset<StoredTransactionInfo<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }

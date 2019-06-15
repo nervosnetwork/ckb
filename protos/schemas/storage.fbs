@@ -22,8 +22,8 @@ table StoredBlockBodyCache {
     tx_witness_hashes: [Bytes32];
 }
 
-table StoredTransactionAddress {
-    data: TransactionAddress;
+table StoredTransactionInfo {
+    data: TransactionInfo;
 }
 
 table StoredHeader{

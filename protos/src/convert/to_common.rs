@@ -4,7 +4,7 @@ use numext_fixed_uint::U256;
 
 use ckb_core::{
     block::Block,
-    extras::{BlockExt, DaoStats, EpochExt, TransactionAddress},
+    extras::{BlockExt, DaoStats, EpochExt, TransactionInfo},
     header::Header,
     script::Script,
     transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction},
@@ -51,9 +51,14 @@ impl From<&ProposalShortId> for protos::ProposalShortId {
     }
 }
 
-impl From<&TransactionAddress> for protos::TransactionAddress {
-    fn from(input: &TransactionAddress) -> Self {
-        Self::new(&(&input.block_hash).into(), input.index as u32)
+impl From<&TransactionInfo> for protos::TransactionInfo {
+    fn from(info: &TransactionInfo) -> Self {
+        Self::new(
+            &(&info.block_hash).into(),
+            info.block_number,
+            info.block_epoch,
+            info.index as u32,
+        )
     }
 }
 

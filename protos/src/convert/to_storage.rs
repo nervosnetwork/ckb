@@ -2,7 +2,7 @@ use flatbuffers::{FlatBufferBuilder, WIPOffset};
 
 use ckb_core::{
     block::Block,
-    extras::{EpochExt, TransactionAddress},
+    extras::{EpochExt, TransactionInfo},
     header::Header,
     transaction::{ProposalShortId, Transaction},
     uncle::UncleBlock,
@@ -103,13 +103,13 @@ impl<'a> protos::StoredHeaderCache<'a> {
     }
 }
 
-impl<'a> protos::StoredTransactionAddress<'a> {
+impl<'a> protos::StoredTransactionInfo<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        addr: &TransactionAddress,
-    ) -> WIPOffset<protos::StoredTransactionAddress<'b>> {
-        let data = addr.into();
-        let mut builder = protos::StoredTransactionAddressBuilder::new(fbb);
+        info: &TransactionInfo,
+    ) -> WIPOffset<protos::StoredTransactionInfo<'b>> {
+        let data = info.into();
+        let mut builder = protos::StoredTransactionInfoBuilder::new(fbb);
         builder.add_data(&data);
         builder.finish()
     }
