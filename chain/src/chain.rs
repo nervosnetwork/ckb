@@ -230,7 +230,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             })?
         }
 
-        let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
 
         let mut cell_set_diff = CellSetDiff::default();
@@ -303,10 +302,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         )?;
         batch.insert_epoch_ext(epoch.last_block_hash_in_previous_epoch(), &epoch)?;
 
-        if (cannon_total_difficulty > current_total_difficulty)
+        let new_best_block = (cannon_total_difficulty > current_total_difficulty)
             || ((current_total_difficulty == cannon_total_difficulty)
-                && (block.header().hash() < chain_state.tip_hash()))
-        {
+                && (block.header().hash() < chain_state.tip_hash()));
+
+        if new_best_block {
             debug!(
                 "new best block found: {} => {:#x}, difficulty diff = {:#x}",
                 block.header().number(),
@@ -332,7 +332,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             if new_epoch || fork.has_detached() {
                 batch.insert_current_epoch_ext(&epoch)?;
             }
-            new_best_block = true;
 
             total_difficulty = cannon_total_difficulty.clone();
         } else {
@@ -528,7 +527,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         self.find_fork_until_latest_common(fork, &mut index);
     }
 
-    // we found new best_block total_difficulty > old_chain.total_difficulty
+    // we found new best_block
     pub(crate) fn reconcile_main_chain(
         &self,
         batch: &mut StoreBatch,

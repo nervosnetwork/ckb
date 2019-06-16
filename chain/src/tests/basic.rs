@@ -327,14 +327,18 @@ fn test_chain_fork_by_total_difficulty() {
     let mut chain1 = MockChain::new(parent.clone());
     let mut chain2 = MockChain::new(parent.clone());
 
-    for _ in 1..final_number {
-        chain1.gen_empty_block(100u64);
+    // 100 * 20 = 2000
+    for _ in 0..final_number {
+        chain1.gen_empty_block_with_difficulty(100u64);
     }
 
-    for i in 1..final_number {
+    // 99 * 10 + 110 * 10 = 2090
+    for i in 0..final_number {
         let j = if i > 10 { 110 } else { 99 };
-        chain2.gen_empty_block(j);
+        chain2.gen_empty_block_with_difficulty(j);
     }
+
+    assert!(chain2.total_difficulty() > chain1.total_difficulty());
 
     for block in chain1.blocks() {
         chain_controller
@@ -362,14 +366,17 @@ fn test_chain_fork_by_hash() {
     let mut chain2 = MockChain::new(parent.clone());
     let mut chain3 = MockChain::new(parent.clone());
 
+    // 100 * 20 = 2000
     for _ in 0..final_number {
         chain1.gen_empty_block_with_difficulty(100u64);
     }
 
+    // 50 * 40 = 2000
     for _ in 0..(final_number * 2) {
         chain2.gen_empty_block_with_difficulty(50u64);
     }
 
+    // 20 * 100 = 2000
     for _ in 0..(final_number * 5) {
         chain3.gen_empty_block_with_difficulty(20u64);
     }
