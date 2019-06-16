@@ -149,7 +149,7 @@ fn path(graph: &[u64], start: u64) -> Vec<u64> {
     path
 }
 
-const STATE_UPDATE_INTERVAL: usize = 16;
+const STATE_UPDATE_DURATION_MILLIS: u128 = 500;
 
 impl Worker for CuckooSimple {
     fn run(&mut self, progress_bar: ProgressBar) {
@@ -162,15 +162,15 @@ impl Worker for CuckooSimple {
                     self.solve(&pow_hash, random());
                     state_update_counter += 1;
 
-                    if state_update_counter == STATE_UPDATE_INTERVAL {
-                        let elapsed = start.elapsed();
+                    let elapsed = start.elapsed();
+                    if elapsed.as_millis() > STATE_UPDATE_DURATION_MILLIS {
                         let elapsed_nanos: f64 = (elapsed.as_secs() * 1_000_000_000
                             + u64::from(elapsed.subsec_nanos()))
                             as f64
                             / 1_000_000_000.0;
                         progress_bar.set_message(&format!(
                             "gps: {:>10.3} / cycles found: {:>10}",
-                            STATE_UPDATE_INTERVAL as f64 / elapsed_nanos,
+                            state_update_counter as f64 / elapsed_nanos,
                             self.seal_candidates_found,
                         ));
                         progress_bar.inc(1);
