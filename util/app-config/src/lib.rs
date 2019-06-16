@@ -213,6 +213,7 @@ impl Setup {
             .unwrap_or_default()
             .map(str::to_string)
             .collect();
+        let block_assembler_data = matches.value_of(cli::ARG_BA_DATA).map(str::to_string);
 
         Ok(InitArgs {
             root_dir,
@@ -225,6 +226,7 @@ impl Setup {
             log_to_stdout,
             block_assembler_code_hash,
             block_assembler_args,
+            block_assembler_data,
         })
     }
 
