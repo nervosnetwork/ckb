@@ -1,6 +1,5 @@
 use ckb_app_config::{cli, CKBAppConfig, ExitCode};
 use ckb_chain_spec::ChainSpec;
-use ckb_core::script::Script;
 use ckb_resource::Resource;
 use clap::ArgMatches;
 use numext_fixed_hash::H256;
@@ -14,7 +13,6 @@ struct SystemCell {
     pub path: String,
     pub index: usize,
     pub code_hash: H256,
-    pub script_hash: H256,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -54,12 +52,10 @@ impl TryFrom<ChainSpec> for SpecHashes {
             .enumerate()
             .map(|(index_minus_one, (resource, output))| {
                 let code_hash = output.data_hash();
-                let script_hash = Script::new(vec![], code_hash.to_owned()).hash();
                 SystemCell {
                     path: resource.to_string(),
                     index: index_minus_one + 1,
                     code_hash,
-                    script_hash,
                 }
             })
             .collect();

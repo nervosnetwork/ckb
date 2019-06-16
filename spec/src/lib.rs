@@ -290,7 +290,6 @@ pub mod test {
         pub path: String,
         pub index: usize,
         pub code_hash: H256,
-        pub script_hash: H256,
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -346,10 +345,8 @@ pub mod test {
                 .enumerate()
             {
                 let code_hash = output.data_hash();
-                let script_hash = Script::new(vec![], code_hash.clone()).hash();
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
                 assert_eq!(cell.code_hash, code_hash, "{}", bundled_spec_err);
-                assert_eq!(cell.script_hash, script_hash, "{}", bundled_spec_err);
             }
         }
     }
