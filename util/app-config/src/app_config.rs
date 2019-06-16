@@ -223,6 +223,17 @@ mod tests {
     }
 
     #[test]
+    fn test_bundled_config_files() {
+        let resource = Resource::bundled_ckb_config();
+        toml::from_slice::<CKBAppConfig>(&resource.get().expect("read bundled file"))
+            .expect("deserialize config");
+
+        let resource = Resource::bundled_miner_config();
+        toml::from_slice::<MinerAppConfig>(&resource.get().expect("read bundled file"))
+            .expect("deserialize config");
+    }
+
+    #[test]
     fn test_export_dev_config_files() {
         let dir = mkdir();
         let context = TemplateContext {
