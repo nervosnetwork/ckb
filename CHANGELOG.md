@@ -2,6 +2,13 @@ All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
 
+# [v0.14.1](https://github.com/nervosnetwork/ckb/compare/v0.14.0...v0.14.1) (2019-06-16)
+
+### Bug Fixes
+
+* #1019: Miner log wrong block hash (@quake)
+* #1025: Miner time interval panic (@quake)
+
 # [v0.14.0](https://github.com/nervosnetwork/ckb/compare/v0.13.0...v0.14.0) (2019-06-15) rylai-v3
 
 ### BREAKING CHANGES
