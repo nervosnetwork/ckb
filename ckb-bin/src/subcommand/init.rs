@@ -15,10 +15,18 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     }
 
     let runner = Runner::default().to_string();
-    let block_assembler = match args.block_assembler_code_hash {
+    let default_hash = format!("{:#x}", CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL);
+    let block_assembler_code_hash = args.block_assembler_code_hash.as_ref().or_else(|| {
+        if !args.block_assembler_args.is_empty() {
+            Some(&default_hash)
+        } else {
+            None
+        }
+    });
+
+    let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
-            let default_hash = format!("{:#x}", CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL);
-            if default_hash != hash {
+            if default_hash != *hash {
                 eprintln!(
                     "WARN: the default secp256k1 code hash is `{}`, you are using `{}`",
                     default_hash, hash

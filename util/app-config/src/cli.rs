@@ -239,7 +239,10 @@ fn init() -> App<'static, 'static> {
                 .long(ARG_BA_CODE_HASH)
                 .value_name("code_hash")
                 .takes_value(true)
-                .help("Set code_hash in [block_assembler]"),
+                .help(
+                    "Sets code_hash in [block_assembler] \
+                     [default: secp256k1 if --ba-arg is present]",
+                ),
         )
         .arg(
             Arg::with_name(ARG_BA_ARG)
@@ -247,7 +250,7 @@ fn init() -> App<'static, 'static> {
                 .value_name("arg")
                 .multiple(true)
                 .number_of_values(1)
-                .help("Set args in [block_assembler]"),
+                .help("Sets args in [block_assembler]"),
         )
         .arg(
             Arg::with_name("export-specs")
