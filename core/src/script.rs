@@ -99,6 +99,13 @@ mod tests {
     use occupied_capacity::OccupiedCapacity;
 
     #[test]
+    fn test_from_into_witness() {
+        let script = Script::new(vec![Bytes::from(vec![1])], H256::zero());
+        let witness = script.clone().into_witness();
+        assert_eq!(Script::from_witness(&witness), Some(script));
+    }
+
+    #[test]
     fn empty_script_hash() {
         let script = Script::new(vec![], H256::zero());
         let expect = h256!("0x266cec97cbede2cfbce73666f08deed9560bdf7841a7a5a51b3a3f09da249e21");
