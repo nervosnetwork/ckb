@@ -638,7 +638,7 @@
             "1024"
         ],
         "result": {
-            "block_hash": "0x97261e49510ade933eb1ebbb165ed675d56f9e80a4e0bce4c091aa9ef794d93f",
+            "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
             "block_number": "1024",
             "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
         },
@@ -658,7 +658,7 @@
         "params": [],
         "result": [
             {
-                "block_hash": "0x97261e49510ade933eb1ebbb165ed675d56f9e80a4e0bce4c091aa9ef794d93f",
+                "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
                 "block_number": "1024",
                 "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
             }
