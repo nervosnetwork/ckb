@@ -256,6 +256,8 @@ mod tests {
         let mut batch = db.batch().unwrap();
         batch.insert(0, &[0, 0], &[0, 0, 0]).unwrap();
         batch.insert(1, &[1, 1], &[1, 1, 1]).unwrap();
+        batch.insert(1, &[2], &[1, 1, 1]).unwrap();
+        batch.delete(1, &[2]).unwrap();
         batch.commit().unwrap();
 
         assert_eq!(Some(vec![0, 0, 0]), db.read(0, &[0, 0]).unwrap());
@@ -263,6 +265,17 @@ mod tests {
 
         assert_eq!(None, db.read(1, &[0, 0]).unwrap());
         assert_eq!(Some(vec![1, 1, 1]), db.read(1, &[1, 1]).unwrap());
+
+        assert_eq!(None, db.read(1, &[2]).unwrap());
+
+        let mut r = HashMap::new();
+        let callback = |k: &[u8], v: &[u8]| -> Result<()> {
+            r.insert(k.to_vec(), v.to_vec());
+            Ok(())
+        };
+        db.traverse(1, callback).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r.get(&vec![1, 1]), Some(&vec![1, 1, 1]));
     }
 
     #[test]
@@ -291,7 +304,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn test_version_is_not_matched() {
         let tmp_dir = tempfile::Builder::new()
             .prefix("test_version_is_not_matched")
@@ -302,7 +314,13 @@ mod tests {
             ..Default::default()
         };
         let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.1.0");
-        let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.2.0").unwrap();
+        let r = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.2.0");
+        assert_eq!(
+            r.err(),
+            Some(Error::DBError(
+                "the database version is not matched, require 0.2.0 but it's 0.1.0".to_owned()
+            ))
+        );
     }
 
     #[test]
