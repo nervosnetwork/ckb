@@ -5,7 +5,7 @@ mod exit_code;
 mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
-pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs};
+pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs, StatsArgs};
 pub use ckb_miner::BlockAssemblerConfig;
 pub use exit_code::ExitCode;
 
@@ -13,7 +13,7 @@ use build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
 use ckb_logger::{info_target, LoggerInitGuard};
-use clap::{value_t, ArgMatches};
+use clap::{value_t, ArgMatches, ErrorKind};
 use std::path::PathBuf;
 
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
@@ -109,10 +109,38 @@ impl Setup {
     pub fn prof<'m>(self, matches: &ArgMatches<'m>) -> Result<ProfArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let from = value_t!(matches.value_of("from"), u64)?;
-        let to = value_t!(matches.value_of("to"), u64)?;
+        let from = value_t!(matches, cli::ARG_FROM, u64)?;
+        let to = value_t!(matches, cli::ARG_TO, u64)?;
 
         Ok(ProfArgs {
+            config,
+            consensus,
+            from,
+            to,
+        })
+    }
+
+    pub fn stats<'m>(self, matches: &ArgMatches<'m>) -> Result<StatsArgs, ExitCode> {
+        let consensus = self.consensus()?;
+        let config = self.config.into_ckb()?;
+        // There are two types of errors,
+        // parse failures and those where the argument wasn't present
+        let from = match value_t!(matches, cli::ARG_FROM, u64) {
+            Ok(from) => Some(from),
+            Err(ref e) if e.kind == ErrorKind::ArgumentNotFound => None,
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
+        let to = match value_t!(matches, cli::ARG_TO, u64) {
+            Ok(to) => Some(to),
+            Err(ref e) if e.kind == ErrorKind::ArgumentNotFound => None,
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
+
+        Ok(StatsArgs {
             config,
             consensus,
             from,
@@ -251,4 +279,36 @@ fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
         eprintln!("chainspec error: {}", err);
         ExitCode::Config
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::CMD_STATS;
+    use clap::{App, AppSettings};
+
+    #[test]
+    fn stats_args() {
+        let app = App::new("stats_args_test")
+            .setting(AppSettings::SubcommandRequiredElseHelp)
+            .subcommand(cli::stats());
+
+        let stats = app.clone().get_matches_from_safe(vec!["", CMD_STATS]);
+        assert!(stats.is_ok());
+
+        let stats = app
+            .clone()
+            .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10"]);
+        assert!(stats.is_ok());
+
+        let stats = app
+            .clone()
+            .get_matches_from_safe(vec!["", CMD_STATS, "--to", "100"]);
+        assert!(stats.is_ok());
+
+        let stats = app
+            .clone()
+            .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
+        assert!(stats.is_ok());
+    }
 }
