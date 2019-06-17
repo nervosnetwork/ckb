@@ -536,7 +536,6 @@ mod tests {
     use ckb_store::{ChainKVStore, ChainStore};
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
-    use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
     use std::sync::Arc;
 
@@ -582,43 +581,8 @@ mod tests {
             .get_block_template(None, None, None, &mut candidate_uncles)
             .unwrap();
 
-        let BlockTemplate {
-            version,
-            difficulty,
-            current_time,
-            number,
-            epoch,
-            parent_hash,
-            uncles, // Vec<UncleTemplate>
-            transactions, // Vec<TransactionTemplate>
-            proposals, // Vec<ProposalShortId>
-            cellbase, // CellbaseTemplate
-            ..
-                // cycles_limit,
-                // bytes_limit,
-                // uncles_count_limit,
-        } = block_template;
-
-        let cellbase = {
-            let CellbaseTemplate { data, .. } = cellbase;
-            data
-        };
-
-        let header_builder = HeaderBuilder::default()
-            .version(version.0)
-            .number(number.0)
-            .epoch(epoch.0)
-            .difficulty(difficulty)
-            .timestamp(current_time.0)
-            .parent_hash(parent_hash);
-
-        let block = BlockBuilder::default()
-            .uncles(uncles)
-            .transaction(cellbase)
-            .transactions(transactions)
-            .proposals(proposals)
-            .header_builder(header_builder)
-            .build();
+        let block: BlockBuilder = block_template.into();
+        let block = block.build();
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
         let header_verify_result = {

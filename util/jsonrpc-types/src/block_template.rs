@@ -2,11 +2,14 @@ use crate::{
     BlockNumber, Cycle, EpochNumber, Header, ProposalShortId, Timestamp, Transaction, Unsigned,
     Version,
 };
+use ckb_core::block::BlockBuilder;
+use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
+use std::convert::From;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct BlockTemplate {
@@ -24,6 +27,38 @@ pub struct BlockTemplate {
     pub proposals: Vec<ProposalShortId>,
     pub cellbase: CellbaseTemplate,
     pub work_id: Unsigned,
+}
+
+impl From<BlockTemplate> for BlockBuilder {
+    fn from(block_template: BlockTemplate) -> BlockBuilder {
+        let BlockTemplate {
+            version,
+            difficulty,
+            current_time,
+            number,
+            epoch,
+            parent_hash,
+            uncles,
+            transactions,
+            proposals,
+            cellbase,
+            ..
+        } = block_template;
+
+        let header_builder = HeaderBuilder::default()
+            .version(version.0)
+            .number(number.0)
+            .epoch(epoch.0)
+            .difficulty(difficulty)
+            .timestamp(current_time.0)
+            .parent_hash(parent_hash);
+
+        BlockBuilder::from_header_builder(header_builder)
+            .uncles(uncles)
+            .transaction(cellbase)
+            .transactions(transactions)
+            .proposals(proposals)
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
