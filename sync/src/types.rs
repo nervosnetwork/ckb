@@ -727,15 +727,16 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.shared.lock_txs_verify_cache()
     }
     pub fn tip_header(&self) -> Header {
-        self.shared.lock_chain_state().tip_header().to_owned()
+        self.shared
+            .store()
+            .get_tip_header()
+            .expect("get_tip_header")
     }
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
     }
     pub fn is_initial_block_download(&self) -> bool {
-        unix_time_as_millis()
-            .saturating_sub(self.shared.lock_chain_state().tip_header().timestamp())
-            > MAX_TIP_AGE
+        unix_time_as_millis().saturating_sub(self.tip_header().timestamp()) > MAX_TIP_AGE
     }
 
     pub fn shared_best_header(&self) -> HeaderView {
@@ -914,11 +915,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn get_locator_response(&self, block_number: BlockNumber, hash_stop: &H256) -> Vec<Header> {
-        // Should not change chain state when get headers from it
-        let chain_state = self.shared.lock_chain_state();
-
-        // NOTE: call `self.tip_header()` will cause deadlock
-        let tip_number = chain_state.tip_header().number();
+        let tip_number = self.tip_header().number();
         let max_height = cmp::min(
             block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
             tip_number + 1,
