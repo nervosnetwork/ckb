@@ -11,9 +11,24 @@ pub use crate::config::{BlockAssemblerConfig, ClientConfig, MinerConfig, WorkerC
 pub use crate::error::Error;
 pub use crate::miner::Miner;
 
-use ckb_core::block::Block;
+use ckb_core::block::{Block, BlockBuilder};
+use jsonrpc_types::BlockTemplate;
+use std::convert::From;
 
 pub struct Work {
     work_id: u64,
     block: Block,
+}
+
+impl From<BlockTemplate> for Work {
+    fn from(block_template: BlockTemplate) -> Work {
+        let work_id = block_template.work_id.clone();
+        let block: BlockBuilder = block_template.into();
+        let block = block.build();
+
+        Work {
+            work_id: work_id.0,
+            block,
+        }
+    }
 }

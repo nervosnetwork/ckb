@@ -4,14 +4,12 @@ use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
-use jsonrpc_types::{BlockTemplate, CellbaseTemplate, JsonBytes};
+use jsonrpc_types::JsonBytes;
 use log::info;
 use numext_fixed_hash::H256;
-use rand;
 use std::convert::Into;
 use std::fs;
 use std::io::Error;
@@ -236,38 +234,8 @@ impl Node {
         let template =
             self.rpc_client()
                 .get_block_template(bytes_limit, proposals_limit, max_version);
-        let BlockTemplate {
-            version,
-            difficulty,
-            current_time,
-            number,
-            parent_hash,
-            uncles,       // Vec<UncleTemplate>
-            transactions, // Vec<TransactionTemplate>
-            proposals,    // Vec<ProposalShortId>
-            cellbase,     // CellbaseTemplate
-            ..
-        } = template;
 
-        let cellbase = {
-            let CellbaseTemplate { data, .. } = cellbase;
-            data
-        };
-
-        let header_builder = HeaderBuilder::default()
-            .version(version.0)
-            .number(number.0)
-            .difficulty(difficulty)
-            .timestamp(current_time.0)
-            .parent_hash(parent_hash)
-            .seal(Seal::new(rand::random(), Bytes::default()));
-
-        BlockBuilder::default()
-            .uncles(uncles)
-            .transaction(cellbase)
-            .transactions(transactions)
-            .proposals(proposals)
-            .header_builder(header_builder)
+        template.into()
     }
 
     pub fn new_transaction(&self, hash: H256) -> Transaction {
