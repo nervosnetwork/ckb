@@ -37,6 +37,13 @@ pub struct MinerArgs {
     pub pow_engine: Arc<dyn PowEngine>,
 }
 
+pub struct StatsArgs {
+    pub config: Box<CKBAppConfig>,
+    pub consensus: Consensus,
+    pub from: Option<u64>,
+    pub to: Option<u64>,
+}
+
 pub struct InitArgs {
     pub root_dir: PathBuf,
     pub chain: String,

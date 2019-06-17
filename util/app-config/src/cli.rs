@@ -8,6 +8,7 @@ pub const CMD_EXPORT: &str = "export";
 pub const CMD_IMPORT: &str = "import";
 pub const CMD_INIT: &str = "init";
 pub const CMD_PROF: &str = "prof";
+pub const CMD_STATS: &str = "stats";
 pub const CMD_CLI: &str = "cli";
 pub const CMD_HASHES: &str = "hashes";
 pub const CMD_BLAKE256: &str = "blake256";
@@ -28,6 +29,8 @@ pub const ARG_LOG_TO: &str = "log-to";
 pub const ARG_BUNDLED: &str = "bundled";
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
 pub const ARG_BA_ARG: &str = "ba-arg";
+pub const ARG_FROM: &str = "from";
+pub const ARG_TO: &str = "to";
 
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
     App::new("ckb")
@@ -53,6 +56,7 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
         .subcommand(cli())
         .subcommand(init())
         .subcommand(prof())
+        .subcommand(stats())
         .get_matches()
 }
 
@@ -64,6 +68,27 @@ fn miner() -> App<'static, 'static> {
     SubCommand::with_name(CMD_MINER).about("Runs ckb miner")
 }
 
+pub(crate) fn stats() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_STATS)
+        .about(
+            "Statics chain infomation\n\
+             Example: \n\
+             ckb -- -C <dir> stats -- from 1 --to 500",
+        )
+        .arg(
+            Arg::with_name(ARG_FROM)
+                .long(ARG_FROM)
+                .takes_value(true)
+                .help("Specifies from block number."),
+        )
+        .arg(
+            Arg::with_name(ARG_TO)
+                .long(ARG_TO)
+                .takes_value(true)
+                .help("Specifies to block number."),
+        )
+}
+
 fn prof() -> App<'static, 'static> {
     SubCommand::with_name(CMD_PROF)
         .about(
@@ -72,13 +97,13 @@ fn prof() -> App<'static, 'static> {
              cargo flamegraph --bin ckb -- -C <dir> prof 1 500",
         )
         .arg(
-            Arg::with_name("from")
+            Arg::with_name(ARG_FROM)
                 .required(true)
                 .index(1)
                 .help("Specifies from block number."),
         )
         .arg(
-            Arg::with_name("to")
+            Arg::with_name(ARG_TO)
                 .required(true)
                 .index(2)
                 .help("Specifies to block number."),
