@@ -14,9 +14,9 @@ tempfile = "3.0"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 serde = "1.0"
 serde_derive = "1.0"
+system-cells = { git = "https://github.com/nervosnetwork/ckb-system-scripts", rev = "51bd1ed294de77bcff8d7b15b342d161dff9499b" }
 
 [build-dependencies]
 includedir_codegen = "0.5.0"
-walkdir = "2.1.4"
+system-cells = { git = "https://github.com/nervosnetwork/ckb-system-scripts", rev = "51bd1ed294de77bcff8d7b15b342d161dff9499b" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-hash = { path = "../util/hash"}
