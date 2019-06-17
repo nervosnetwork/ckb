@@ -318,12 +318,23 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
             });
 
         // attach blocks until reach tip or batch limit
+        // need to check empty again because `remove_lock_hash` may be called during detach
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
+        if lock_hash_index_states.is_empty() {
+            return;
+        }
         let min_block_number: BlockNumber = lock_hash_index_states
             .values()
             .min_by_key(|index_state| index_state.block_number)
             .expect("none empty index states")
             .block_number;
+
+        // should index genesis block also
+        let start_number = if min_block_number == 0 {
+            0
+        } else {
+            min_block_number + 1
+        };
 
         let (tip_number, tip_hash) = {
             let tip_header = self
@@ -334,7 +345,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
             (tip_header.number(), tip_header.hash().to_owned())
         };
         self.commit_batch(|batch| {
-            (min_block_number + 1..=tip_number)
+            (start_number..=tip_number)
                 .take(BATCH_ATTACH_BLOCK_NUMS)
                 .for_each(|block_number| {
                     let index_lock_hashes = lock_hash_index_states

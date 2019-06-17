@@ -42,7 +42,7 @@ pub struct CKBAppConfig {
     pub block_assembler: Option<BlockAssemblerConfig>,
     #[serde(default)]
     pub db: DBConfig,
-    #[serde(skip)]
+    #[serde(default)]
     pub indexer_db: DBConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,

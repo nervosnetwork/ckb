@@ -70,11 +70,12 @@ impl LockHashIndex {
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
-        let mut bytes = self.lock_hash.to_vec();
-        bytes.extend_from_slice(&self.block_number.to_be_bytes());
-        bytes.extend_from_slice(self.cell_out_point.tx_hash.as_bytes());
-        bytes.extend_from_slice(&self.cell_out_point.index.to_be_bytes());
-        bytes.to_vec()
+        let mut result = Vec::with_capacity(76);
+        result.extend_from_slice(self.lock_hash.as_bytes());
+        result.extend_from_slice(&self.block_number.to_be_bytes());
+        result.extend_from_slice(self.cell_out_point.tx_hash.as_bytes());
+        result.extend_from_slice(&self.cell_out_point.index.to_be_bytes());
+        result
     }
 }
 
