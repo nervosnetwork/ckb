@@ -1,6 +1,6 @@
 # [Nervos CKB](https://www.nervos.org/) - The Common Knowledge Base
 
-[![Version](https://img.shields.io/badge/version-0.14.0-orange.svg)](#readme)
+[![Version](https://img.shields.io/badge/version-0.14.1-orange.svg)](#readme)
 [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?token=y9uR6ygmT3geQaMJ4jpJ&branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
 [![Telegram Group](https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg)](https://t.me/nervosnetwork)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/)
