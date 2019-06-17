@@ -55,7 +55,7 @@ impl PeerAddr {
     }
 
     pub fn tried_in_last_minute(&self, now_ms: u64) -> bool {
-        self.last_tried_at_ms >= (now_ms - 60_000)
+        self.last_tried_at_ms >= now_ms.saturating_sub(60_000)
     }
 
     pub fn is_terrible(&self, now_ms: u64) -> bool {
@@ -68,7 +68,7 @@ impl PeerAddr {
             return true;
         }
         // consider addr is terrible if failed too many times
-        if (now_ms - self.last_connected_at_ms) > ADDR_TIMEOUT_MS
+        if now_ms.saturating_sub(self.last_connected_at_ms) > ADDR_TIMEOUT_MS
             && (self.attempts_count >= ADDR_MAX_FAILURES)
         {
             return true;
