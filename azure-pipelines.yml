@@ -13,8 +13,7 @@ jobs:
         not(startsWith(variables['Build.SourceBranch'], 'refs/tags/')),
         or(
           eq(variables['Build.Reason'], 'PullRequest'),
-          eq(variables['Build.SourceBranch'], 'refs/heads/master'),
-          startsWith(variables['Build.SourceBranch'], 'refs/heads/test')
+          eq(variables['Build.SourceBranch'], 'refs/heads/master')
         )
       )
     pool:
@@ -30,7 +29,12 @@ jobs:
     condition: |
       and(
         not(startsWith(variables['Build.SourceBranch'], 'refs/tags/')),
-        ne(variables['Build.Reason'], 'PullRequest')
+        ne(variables['Build.Reason'], 'PullRequest'),
+        or(
+          startsWith(variables['Build.SourceBranch'], 'refs/heads/pr-mirror/'),
+          startsWith(variables['Build.SourceBranch'], 'refs/heads/rc/'),
+          in(variables['Build.SourceBranch'], 'refs/heads/master', 'refs/heads/develop')
+        )
       )
     pool:
       vmImage: 'VS2017-Win2016'
