@@ -48,6 +48,7 @@ impl CuckooSimple {
                     self.pow_hash = Some(pow_hash);
                 }
                 WorkerMessage::Stop => {
+                    self.pow_hash = None;
                     self.start = false;
                 }
                 WorkerMessage::Start => {
@@ -158,6 +159,7 @@ impl Worker for CuckooSimple {
         loop {
             self.poll_worker_message();
             if self.start {
+                // check the new work is reached
                 if let Some(pow_hash) = self.pow_hash.clone() {
                     self.solve(&pow_hash, random());
                     state_update_counter += 1;
@@ -177,12 +179,14 @@ impl Worker for CuckooSimple {
                         state_update_counter = 0;
                         start = SystemTime::now();
                     }
+                } else {
+                    thread::sleep(Duration::from_millis(10));
                 }
             } else {
                 // reset state and sleep
                 state_update_counter = 0;
                 start = SystemTime::now();
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(10));
             }
         }
     }
