@@ -264,7 +264,7 @@ fn init() -> App<'static, 'static> {
             Arg::with_name(ARG_BA_CODE_HASH)
                 .long(ARG_BA_CODE_HASH)
                 .value_name("code_hash")
-                .validator(|code_hash| is_hex(code_hash.as_str()))
+                .validator(is_hex)
                 .takes_value(true)
                 .help(
                     "Sets code_hash in [block_assembler] \
@@ -275,7 +275,7 @@ fn init() -> App<'static, 'static> {
             Arg::with_name(ARG_BA_ARG)
                 .long(ARG_BA_ARG)
                 .value_name("arg")
-                .validator(|arg| is_hex(arg.as_str()))
+                .validator(is_hex)
                 .multiple(true)
                 .number_of_values(1)
                 .help("Sets args in [block_assembler]"),
@@ -284,7 +284,7 @@ fn init() -> App<'static, 'static> {
             Arg::with_name(ARG_BA_DATA)
                 .long(ARG_BA_DATA)
                 .value_name("data")
-                .validator(|data| is_hex(data.as_str()))
+                .validator(is_hex)
                 .help("Sets data in [block_assembler]"),
         )
         .arg(
@@ -302,15 +302,24 @@ fn init() -> App<'static, 'static> {
         )
 }
 
-fn is_hex(hex: &str) -> Result<(), String> {
+fn is_hex(hex: String) -> Result<(), String> {
     let tmp = hex.as_bytes();
     if tmp.len() < 2 {
-        Err("Must be a hexadecimal string".to_string())
+        Err("Must be a 0x-prefixed hexadecimal string".to_string())
     } else if tmp.len() & 1 != 0 {
         Err("Hexadecimal strings must be of even length".to_string())
     } else if tmp[..2] == b"0x"[..] {
+        for byte in &tmp[2..] {
+            match byte {
+                b'A'...b'F' | b'a'...b'f' | b'0'...b'9' => continue,
+                invalid_char => {
+                    return Err(format!("Hex has invalid char: {}", invalid_char));
+                }
+            }
+        }
+
         Ok(())
     } else {
-        Err("Must hex string".to_string())
+        Err("Must 0x-prefixed hexadecimal string".to_string())
     }
 }

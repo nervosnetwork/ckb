@@ -39,7 +39,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                  data = \"{}\"",
                 hash,
                 args.block_assembler_args.join("\", \""),
-                args.block_assembler_data.unwrap_or_default()
+                args.block_assembler_data
+                    .unwrap_or_else(|| "0x".to_string())
             )
         }
         None => {
