@@ -7,12 +7,10 @@ use failure::Fail;
 use std::ops::Range;
 use std::result;
 
-pub mod cachedb;
 pub mod config;
 pub mod memorydb;
 pub mod rocksdb;
 
-pub use crate::cachedb::CacheDB;
 pub use crate::config::DBConfig;
 pub use crate::memorydb::MemoryKeyValueDB;
 pub use crate::rocksdb::RocksDB;
