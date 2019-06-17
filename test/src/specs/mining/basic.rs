@@ -3,7 +3,7 @@ use ckb_core::block::Block;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::ProposalShortId;
 use log::info;
-use std::convert::TryInto;
+use std::convert::Into;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -34,18 +34,8 @@ impl MiningBasic {
         let _ = node.generate_block(); // skip
         let block3_hash = node.generate_block();
 
-        let block1: Block = node
-            .rpc_client()
-            .get_block(block1_hash)
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let block3: Block = node
-            .rpc_client()
-            .get_block(block3_hash)
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let block1: Block = node.rpc_client().get_block(block1_hash).unwrap().into();
+        let block3: Block = node.rpc_client().get_block(block3_hash).unwrap().into();
 
         info!("Generated tx should be included in next block's proposal txs");
         assert!(block1

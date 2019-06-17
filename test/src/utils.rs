@@ -7,7 +7,7 @@ use ckb_protocol::{RelayMessage, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_types::BlockTemplate;
 use std::collections::HashSet;
-use std::convert::TryInto;
+use std::convert::Into;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -63,31 +63,10 @@ pub fn new_block_with_template(template: BlockTemplate) -> Block {
         .parent_hash(template.parent_hash)
         .seal(Seal::new(rand::random(), Bytes::new()));
     BlockBuilder::default()
-        .uncles(
-            template
-                .uncles
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()
-                .expect("parse uncles failed"),
-        )
-        .transaction(cellbase.try_into().expect("parse cellbase failed"))
-        .transactions(
-            template
-                .transactions
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()
-                .expect("parse commit transactions failed"),
-        )
-        .proposals(
-            template
-                .proposals
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()
-                .expect("parse proposal transactions failed"),
-        )
+        .uncles(template.uncles.into_iter().map(Into::into).collect())
+        .transaction(cellbase.into())
+        .transactions(template.transactions.into_iter().map(Into::into).collect())
+        .proposals(template.proposals.into_iter().map(Into::into).collect())
         .header_builder(header_builder)
         .build()
 }

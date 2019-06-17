@@ -538,7 +538,7 @@ mod tests {
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
-    use std::convert::TryInto;
+    use std::convert::Into;
     use std::sync::Arc;
 
     fn start_chain(
@@ -614,28 +614,10 @@ mod tests {
             .parent_hash(parent_hash);
 
         let block = BlockBuilder::default()
-            .uncles(
-                uncles
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .unwrap(),
-            )
-            .transaction(cellbase.try_into().unwrap())
-            .transactions(
-                transactions
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .unwrap(),
-            )
-            .proposals(
-                proposals
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .unwrap(),
-            )
+            .uncles(uncles.into_iter().map(Into::into).collect())
+            .transaction(cellbase.into())
+            .transactions(transactions.into_iter().map(Into::into).collect())
+            .proposals(proposals.into_iter().map(Into::into).collect())
             .header_builder(header_builder)
             .build();
 
