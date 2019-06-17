@@ -233,10 +233,10 @@ impl Client {
             .parent_hash(parent_hash);
 
         let block = BlockBuilder::from_header_builder(header_builder)
-            .uncles(uncles.into_iter().map(Into::into).collect())
-            .transaction(cellbase.into())
-            .transactions(transactions.into_iter().map(Into::into).collect())
-            .proposals(proposals.into_iter().map(Into::into).collect())
+            .uncles(uncles)
+            .transaction(cellbase)
+            .transactions(transactions)
+            .proposals(proposals)
             .build();
 
         let work = Work {

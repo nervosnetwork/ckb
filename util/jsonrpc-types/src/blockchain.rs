@@ -525,10 +525,10 @@ impl From<Block> for CoreBlock {
         } = json;
 
         BlockBuilder::default()
-            .header(header.into())
-            .uncles(uncles.into_iter().map(Into::into).collect::<Vec<_>>())
-            .transactions(transactions.into_iter().map(Into::into).collect::<Vec<_>>())
-            .proposals(proposals.into_iter().map(Into::into).collect::<Vec<_>>())
+            .header(header)
+            .uncles(uncles)
+            .transactions(transactions)
+            .proposals(proposals)
             .build()
     }
 }
@@ -543,10 +543,10 @@ impl From<BlockView> for CoreBlock {
         } = json;
 
         BlockBuilder::default()
-            .header(header.into())
-            .uncles(uncles.into_iter().map(Into::into).collect::<Vec<_>>())
-            .transactions(transactions.into_iter().map(Into::into).collect::<Vec<_>>())
-            .proposals(proposals.into_iter().map(Into::into).collect::<Vec<_>>())
+            .header(header)
+            .uncles(uncles)
+            .transactions(transactions)
+            .proposals(proposals)
             .build()
     }
 }

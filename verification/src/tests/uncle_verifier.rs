@@ -143,7 +143,7 @@ fn test_uncle_verifier() {
             .unwrap_or(parent_epoch);
         let block = unsafe {
             BlockBuilder::from_block(chain1.last().cloned().unwrap())
-                .uncle(chain2.last().cloned().unwrap().into())
+                .uncle(chain2.last().cloned().unwrap())
                 .build_unchecked()
         };
 
@@ -170,7 +170,7 @@ fn test_uncle_verifier() {
         let block = unsafe {
             BlockBuilder::from_block(chain1.last().cloned().unwrap())
                 .header(HeaderBuilder::default().uncles_count(1).build())
-                .uncle(chain2.last().cloned().unwrap().into())
+                .uncle(chain2.last().cloned().unwrap())
                 .build_unchecked()
         };
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
@@ -219,7 +219,7 @@ fn test_uncle_verifier() {
             .unwrap_or(parent_epoch);
 
         let block = BlockBuilder::from_block(chain1[block_number].to_owned())
-            .uncle(chain1[uncle_number].to_owned().into())
+            .uncle(chain1[uncle_number].to_owned())
             .header_builder(HeaderBuilder::from_header(
                 chain1[block_number].header().to_owned(),
             ))
@@ -248,7 +248,7 @@ fn test_uncle_verifier() {
             .unwrap_or(parent_epoch);
 
         let block = BlockBuilder::from_block(chain1.get(block_number).cloned().unwrap()) // epoch 1
-            .uncle(chain2.get(uncle_number).cloned().unwrap().into())                    // epoch 0
+            .uncle(chain2.get(uncle_number).cloned().unwrap())                    // epoch 0
             .header_builder(HeaderBuilder::from_header(
                 chain1[block_number].header().to_owned()
             )).build();
@@ -275,7 +275,7 @@ fn test_uncle_verifier() {
                 .build_unchecked()
         };
         let block = BlockBuilder::from_block(chain2[18].to_owned())
-            .uncle(uncle.into())
+            .uncle(uncle)
             .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
             .build();
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
@@ -299,7 +299,7 @@ fn test_uncle_verifier() {
                 .build_unchecked()
         };
         let block = BlockBuilder::from_block(chain2[18].to_owned())
-            .uncle(uncle.into())
+            .uncle(uncle)
             .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
             .build();
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
@@ -322,7 +322,7 @@ fn test_uncle_verifier() {
             .header_builder(HeaderBuilder::from_header(chain2[6].header().to_owned()))
             .build();
         let block = BlockBuilder::from_block(chain1[8].to_owned())
-            .uncle(uncle.into())
+            .uncle(uncle)
             .header_builder(HeaderBuilder::from_header(chain1[8].header().to_owned()))
             .build();
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
@@ -347,8 +347,8 @@ fn test_uncle_verifier() {
             .header_builder(HeaderBuilder::from_header(chain1[10].header().to_owned()))
             .build();
         let block = BlockBuilder::from_block(chain2[12].to_owned())
-            .uncle(uncle1.into())
-            .uncle(uncle2.into())
+            .uncle(uncle1)
+            .uncle(uncle2)
             .header_builder(HeaderBuilder::from_header(chain2[12].header().to_owned()))
             .build();
         // uncle duplicate
@@ -375,7 +375,7 @@ fn test_uncle_verifier() {
             let uncle = BlockBuilder::from_block(chain1[10].to_owned())
                 .header_builder(HeaderBuilder::from_header(chain1[10].header().to_owned()))
                 .build();
-            uncles.push(uncle.into());
+            uncles.push(uncle);
         }
         let block = BlockBuilder::from_block(chain2[12].to_owned())
             .uncles(uncles)
@@ -409,7 +409,7 @@ fn test_uncle_verifier() {
             .build();
 
         let block = BlockBuilder::from_block(chain1[8].clone())
-            .uncle(uncle.into())
+            .uncle(uncle)
             .header_builder(HeaderBuilder::from_header(chain1[8].header().to_owned()))
             .build();
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
@@ -429,7 +429,7 @@ fn test_uncle_verifier() {
         .header_builder(HeaderBuilder::from_header(chain1[16].header().to_owned()))
         .build();
     let block = BlockBuilder::from_block(chain2[18].clone())
-        .uncle(uncle.into())
+        .uncle(uncle)
         .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
         .build();
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
@@ -445,7 +445,7 @@ fn test_uncle_verifier() {
         .header_builder(HeaderBuilder::from_header(chain1[10].header().to_owned()))
         .build();
     let block = BlockBuilder::from_block(chain2[12].clone())
-        .uncle(uncle.into())
+        .uncle(uncle)
         .header_builder(HeaderBuilder::from_header(chain2[12].header().to_owned()))
         .build();
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
@@ -526,7 +526,7 @@ fn test_uncle_verifier_with_fork_context() {
         .header_builder(HeaderBuilder::from_header(chain2[17].header().to_owned()))
         .build();
     let block = BlockBuilder::from_block(new_block.clone())
-        .uncle(uncle.into())
+        .uncle(uncle)
         .header_builder(HeaderBuilder::from_header(new_block.header().to_owned()))
         .build();
     let uncle_verifier_context = UncleVerifierContext::new(&context, &epoch, &block);
@@ -542,7 +542,7 @@ fn test_uncle_verifier_with_fork_context() {
         .header_builder(HeaderBuilder::from_header(chain1[17].header().to_owned()))
         .build();
     let block = BlockBuilder::from_block(new_block.clone())
-        .uncle(uncle.into())
+        .uncle(uncle)
         .header_builder(HeaderBuilder::from_header(new_block.header().to_owned()))
         .build();
     let uncle_verifier_context = UncleVerifierContext::new(&context, &epoch, &block);

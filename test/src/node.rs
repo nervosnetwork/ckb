@@ -262,10 +262,10 @@ impl Node {
             .seal(Seal::new(rand::random(), Bytes::default()));
 
         BlockBuilder::default()
-            .uncles(uncles.into_iter().map(Into::into).collect())
-            .transaction(cellbase.into())
-            .transactions(transactions.into_iter().map(Into::into).collect())
-            .proposals(proposals.into_iter().map(Into::into).collect())
+            .uncles(uncles)
+            .transaction(cellbase)
+            .transactions(transactions)
+            .proposals(proposals)
             .header_builder(header_builder)
     }
 

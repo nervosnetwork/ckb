@@ -63,10 +63,10 @@ pub fn new_block_with_template(template: BlockTemplate) -> Block {
         .parent_hash(template.parent_hash)
         .seal(Seal::new(rand::random(), Bytes::new()));
     BlockBuilder::default()
-        .uncles(template.uncles.into_iter().map(Into::into).collect())
-        .transaction(cellbase.into())
-        .transactions(template.transactions.into_iter().map(Into::into).collect())
-        .proposals(template.proposals.into_iter().map(Into::into).collect())
+        .uncles(template.uncles)
+        .transaction(cellbase)
+        .transactions(template.transactions)
+        .proposals(template.proposals)
         .header_builder(header_builder)
         .build()
 }
