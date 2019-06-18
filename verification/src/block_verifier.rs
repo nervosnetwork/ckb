@@ -158,12 +158,12 @@ impl<'a> HeaderResolverWrapper<'a> {
     where
         CP: ChainProvider,
     {
-        let parent = provider.store().get_block_header(&header.parent_hash());
+        let parent = provider.store().get_block_header(header.parent_hash());
         let epoch = parent
             .as_ref()
             .and_then(|parent| {
                 provider
-                    .get_block_epoch(&parent.hash())
+                    .get_block_epoch(parent.hash())
                     .map(|ext| (parent, ext))
             })
             .map(|(parent, last_epoch)| {
