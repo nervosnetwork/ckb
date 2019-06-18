@@ -99,6 +99,24 @@ matrix:
         - make cov
       after_success:
         - bash <(curl -s https://codecov.io/bash)
+    - name: Code Coverage
+      if: 'tag IS NOT present AND branch = master'
+      os: linux
+      install:
+        wget https://github.com/SimonKagstrom/kcov/archive/v36.tar.gz &&
+        tar xzf v36.tar.gz &&
+        cd kcov-36 &&
+        mkdir build &&
+        cd build &&
+        cmake .. &&
+        make &&
+        sudo make install &&
+        cd ../.. &&
+        rm -rf kcov-36 v36.tar.gz &&
+      script:
+        - make integration-cov
+      after_success:
+        - bash <(curl -s https://codecov.io/bash)
 
     - name: Package for macOS
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'

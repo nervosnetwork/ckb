@@ -15,6 +15,11 @@ cov: ## Run code coverage.
 	# https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
 	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --exclude-files protocol/src/protocol_generated* test/* */tests/ --all -v --out Xml
 
+integration-cov: setup-ckb-test
+	cargo build ${VERBOSE} --release
+	mkdir -p target/cov/ckb-test
+	cd test && kcov --exclude-pattern=/.cargo,/usr/lib,/usr/include/,../test --verify ../target/cov/ckb-test cargo run
+
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
 	rm -rf test/target && ln -snf ../target/ test/target
