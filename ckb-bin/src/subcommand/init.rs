@@ -35,9 +35,12 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             format!(
                 "[block_assembler]\n\
                  code_hash = \"{}\"\n\
-                 args = [ \"{}\" ]",
+                 args = [ \"{}\" ]\n\
+                 data = \"{}\"",
                 hash,
-                args.block_assembler_args.join("\", \"")
+                args.block_assembler_args.join("\", \""),
+                args.block_assembler_data
+                    .unwrap_or_else(|| "0x".to_string())
             )
         }
         None => {

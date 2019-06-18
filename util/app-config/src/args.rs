@@ -55,4 +55,5 @@ pub struct InitArgs {
     pub force: bool,
     pub block_assembler_code_hash: Option<String>,
     pub block_assembler_args: Vec<String>,
+    pub block_assembler_data: Option<String>,
 }

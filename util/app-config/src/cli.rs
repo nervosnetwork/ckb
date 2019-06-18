@@ -29,6 +29,7 @@ pub const ARG_LOG_TO: &str = "log-to";
 pub const ARG_BUNDLED: &str = "bundled";
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
 pub const ARG_BA_ARG: &str = "ba-arg";
+pub const ARG_BA_DATA: &str = "ba-data";
 pub const ARG_FROM: &str = "from";
 pub const ARG_TO: &str = "to";
 
@@ -263,6 +264,7 @@ fn init() -> App<'static, 'static> {
             Arg::with_name(ARG_BA_CODE_HASH)
                 .long(ARG_BA_CODE_HASH)
                 .value_name("code_hash")
+                .validator(is_hex)
                 .takes_value(true)
                 .help(
                     "Sets code_hash in [block_assembler] \
@@ -273,9 +275,17 @@ fn init() -> App<'static, 'static> {
             Arg::with_name(ARG_BA_ARG)
                 .long(ARG_BA_ARG)
                 .value_name("arg")
+                .validator(is_hex)
                 .multiple(true)
                 .number_of_values(1)
                 .help("Sets args in [block_assembler]"),
+        )
+        .arg(
+            Arg::with_name(ARG_BA_DATA)
+                .long(ARG_BA_DATA)
+                .value_name("data")
+                .validator(is_hex)
+                .help("Sets data in [block_assembler]"),
         )
         .arg(
             Arg::with_name("export-specs")
@@ -290,4 +300,26 @@ fn init() -> App<'static, 'static> {
                 .takes_value(true)
                 .hidden(true),
         )
+}
+
+fn is_hex(hex: String) -> Result<(), String> {
+    let tmp = hex.as_bytes();
+    if tmp.len() < 2 {
+        Err("Must be a 0x-prefixed hexadecimal string".to_string())
+    } else if tmp.len() & 1 != 0 {
+        Err("Hexadecimal strings must be of even length".to_string())
+    } else if tmp[..2] == b"0x"[..] {
+        for byte in &tmp[2..] {
+            match byte {
+                b'A'...b'F' | b'a'...b'f' | b'0'...b'9' => continue,
+                invalid_char => {
+                    return Err(format!("Hex has invalid char: {}", invalid_char));
+                }
+            }
+        }
+
+        Ok(())
+    } else {
+        Err("Must 0x-prefixed hexadecimal string".to_string())
+    }
 }
