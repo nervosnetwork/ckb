@@ -1,9 +1,34 @@
 # Get CKB
 
+We have CI to ensure CKB works in following systems, they are also the
+recommended system to run CKB.
+
+OS           | Arch
+-------------|------
+Ubuntu 16.04 | x64
+macOS        | x64
+Windows\*    | x64
+
+> \* Support for Windows is experimental. CKB is known to have serious performance
+> issues when running in Windows.
+
+CKB should also work on any modern Linux distributions. However, we limit our
+energy to focus on the support of following systems:
+
+OS             | Arch
+---------------|------
+Ubuntu 18.04   | x64
+Debian Stretch | x64
+Arch Linux     | x64
+CentOS 7       | x64
+
+You can also [use docker](run-ckb-with-docker.md) if your operating system is
+not properly supported by CKB for now.
+
 ## Download from Releases
 
 We will publish binaries for each release via [Github Releases]. If your system
-is listed there, you can download the package directory.
+is listed there, you can download the package directly.
 
 CKB releases are signed. It is wise and more secure to check out for their [integrity](integrity-check.md).
 
@@ -22,8 +47,6 @@ They requires *The Visual C++ Redistributable Packages*, which can be downloaded
 under section *Other Tools and Frameworks*
 [here](https://visualstudio.microsoft.com/downloads/) or
 [here](https://www.microsoft.com/en-us/download/details.aspx?id=48145).
-
-We also provides docker images, see [how to run CKB with docker](run-ckb-with-docker.md).
 
 ## Build from Source
 
