@@ -14,10 +14,10 @@ tempfile = "3.0"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 serde = "1.0"
 serde_derive = "1.0"
-ckb-system-cells = { git = "https://github.com/nervosnetwork/ckb-system-scripts", rev = "d1450b543ef67a0bb8fcacc10835f1abeef6c0ab" }
+ckb-system-cells = { git = "https://github.com/nervosnetwork/ckb-system-scripts", tag = "v2019.06.18+secp-recoverable" }
 
 [build-dependencies]
 includedir_codegen = "0.5.0"
 walkdir = "2.1.4"
-ckb-system-cells = { git = "https://github.com/nervosnetwork/ckb-system-scripts", rev = "d1450b543ef67a0bb8fcacc10835f1abeef6c0ab" }
+ckb-system-cells = { git = "https://github.com/nervosnetwork/ckb-system-scripts", tag = "v2019.06.18+secp-recoverable" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
