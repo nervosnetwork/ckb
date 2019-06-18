@@ -630,6 +630,155 @@
         ]
     },
     {
+        "description": "Create index for live cells and transactions by the hash of lock script.",
+        "method": "index_lock_hash",
+        "module": "indexer",
+        "params": [
+            "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
+            "1024"
+        ],
+        "result": {
+            "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+            "block_number": "1024",
+            "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
+        },
+        "types": [
+            {
+                "index_from": "Create an index from starting block number (exclusive), an optional parameter, null means starting from tip and 0 means starting from genesis"
+            },
+            {
+                "lock_hash": "Cell lock script hash"
+            }
+        ]
+    },
+    {
+        "description": "Get lock hash index states",
+        "method": "get_lock_hash_index_states",
+        "module": "indexer",
+        "params": [],
+        "result": [
+            {
+                "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+                "block_number": "1024",
+                "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
+            }
+        ]
+    },
+    {
+        "description": "Returns the live cells collection by the hash of lock script.",
+        "method": "get_live_cells_by_lock_hash",
+        "module": "indexer",
+        "params": [
+            "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
+            "0",
+            "2"
+        ],
+        "result": [
+            {
+                "cell_output": {
+                    "capacity": "50000000000000",
+                    "data": "0x",
+                    "lock": {
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+                    },
+                    "type": null
+                },
+                "created_by": {
+                    "block_number": "1",
+                    "index": "0",
+                    "tx_hash": "0x41524669872de0ce874f926a9799b6944198571094fe94dc7ffa623a97c4f19f"
+                }
+            },
+            {
+                "cell_output": {
+                    "capacity": "50000000000000",
+                    "data": "0x",
+                    "lock": {
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
+                    },
+                    "type": null
+                },
+                "created_by": {
+                    "block_number": "2",
+                    "index": "0",
+                    "tx_hash": "0x46ab01ddbbabef1af701f0843e11c7cfc0ce53f9aa9b554af74cadf8e3257d89"
+                }
+            }
+        ],
+        "types": [
+            {
+                "lock_hash": "Cell lock script hash"
+            },
+            {
+                "page": "Page number"
+            },
+            {
+                "per": "Page size, max value is 50"
+            },
+            {
+                "reverse_order": "Returns the live cells collection in reverse order, an optional parameter, default is false"
+            }
+        ]
+    },
+    {
+        "description": "Returns the transactions collection by the hash of lock script. Returns empty array when the `lock_hash` not indexed yet.",
+        "method": "get_transactions_by_lock_hash",
+        "module": "indexer",
+        "params": [
+            "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510",
+            "0",
+            "2"
+        ],
+        "result": [
+            {
+                "consumed_by": null,
+                "created_by": {
+                    "block_number": "1",
+                    "index": "0",
+                    "tx_hash": "0x41524669872de0ce874f926a9799b6944198571094fe94dc7ffa623a97c4f19f"
+                }
+            },
+            {
+                "consumed_by": null,
+                "created_by": {
+                    "block_number": "2",
+                    "index": "0",
+                    "tx_hash": "0x46ab01ddbbabef1af701f0843e11c7cfc0ce53f9aa9b554af74cadf8e3257d89"
+                }
+            }
+        ],
+        "types": [
+            {
+                "lock_hash": "Cell lock script hash"
+            },
+            {
+                "page": "Page number"
+            },
+            {
+                "per": "Page size, max value is 50"
+            },
+            {
+                "reverse_order": "Return the transactions collection in reverse order, an optional parameter, default is false"
+            }
+        ]
+    },
+    {
+        "description": "Remove index for live cells and transaction by the hash of lock script. Returns empty array when the `lock_hash` not indexed yet.",
+        "method": "deindex_lock_hash",
+        "module": "indexer",
+        "params": [
+            "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
+        ],
+        "result": null,
+        "types": [
+            {
+                "lock_hash": "Cell lock script hash"
+            }
+        ]
+    },
+    {
         "description": "Returns code hash of given hex encoded data\n\n**Deprecated**: will be removed in a later version",
         "method": "_compute_code_hash",
         "module": "experiment",

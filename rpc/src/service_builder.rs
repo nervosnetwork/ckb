@@ -1,10 +1,12 @@
 use crate::config::Config;
 use crate::module::{
-    AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl,
-    IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc, NetworkRpcImpl,
-    PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    AlertRpc, AlertRpcImpl, ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc,
+    IndexerRpcImpl, IntegrationTestRpc, IntegrationTestRpcImpl, MinerRpc, MinerRpcImpl, NetworkRpc,
+    NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use ckb_chain::chain::ChainController;
+use ckb_db::DBConfig;
+use ckb_indexer::DefaultIndexerStore;
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
@@ -137,6 +139,17 @@ impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
             self.io_handler.extend_with(
                 AlertRpcImpl::new(alert_verifier, alert_notifier, network_controller).to_delegate(),
             )
+        }
+        self
+    }
+
+    pub fn enable_indexer(mut self, db_config: &DBConfig, shared: Shared<CS>) -> Self {
+        if self.config.indexer_enable() {
+            let store = DefaultIndexerStore::new(db_config, shared);
+            store.clone().start(Some("IndexerStore"));
+
+            self.io_handler
+                .extend_with(IndexerRpcImpl { store }.to_delegate())
         }
         self
     }

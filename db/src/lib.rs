@@ -17,6 +17,7 @@ pub use crate::rocksdb::RocksDB;
 
 pub type Col = u32;
 pub type Result<T> = result::Result<T, Error>;
+pub type KeyValueIteratorItem = (Box<[u8]>, Box<[u8]>);
 
 #[derive(Clone, Debug, PartialEq, Eq, Fail)]
 pub enum Error {
@@ -32,6 +33,20 @@ pub trait KeyValueDB: Sync + Send {
     fn traverse<F>(&self, col: Col, callback: F) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>;
+}
+
+pub trait IterableKeyValueDB: KeyValueDB {
+    fn iter<'a>(
+        &'a self,
+        col: Col,
+        from_key: &'a [u8],
+        direction: Direction,
+    ) -> Result<Box<Iterator<Item = KeyValueIteratorItem> + 'a>>;
+}
+
+pub enum Direction {
+    Forward,
+    Reverse,
 }
 
 pub trait DbBatch {

@@ -22,6 +22,7 @@ ckb-store = { path = "../store" }
 ckb-chain-spec = {path = "../spec"}
 ckb-notify = { path = "../notify"}
 ckb-miner = { path = "../miner" }
+ckb-indexer = { path = "../indexer" }
 ckb-db = { path = "../db" }
 ckb-pow = { path = "../pow" }
 ckb-network = { path = "../network"}

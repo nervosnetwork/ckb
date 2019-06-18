@@ -42,6 +42,8 @@ pub struct CKBAppConfig {
     pub block_assembler: Option<BlockAssemblerConfig>,
     #[serde(default)]
     pub db: DBConfig,
+    #[serde(default)]
+    pub indexer_db: DBConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
     pub sync: SyncConfig,
@@ -155,6 +157,7 @@ impl CKBAppConfig {
             )?);
         }
         self.db.path = mkdir(self.data_dir.join("db"))?;
+        self.indexer_db.path = mkdir(self.data_dir.join("indexer_db"))?;
         self.network.path = mkdir(self.data_dir.join("network"))?;
         self.chain.spec.absolutize(root_dir);
 

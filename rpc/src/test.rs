@@ -1,6 +1,6 @@
 use crate::module::{
-    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc,
-    PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl,
+    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -10,7 +10,9 @@ use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
+use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConfig};
 use ckb_notify::NotifyService;
@@ -154,6 +156,15 @@ fn setup_node(
         SyncConfig::default(),
     );
 
+    let db_config = DBConfig {
+        path: dir.path().join("indexer").to_path_buf(),
+        ..Default::default()
+    };
+    let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
+    indexer_store.insert_lock_hash(&always_success_script.hash(), Some(0));
+    // use hardcoded BATCH_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
+    (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
+
     // Start rpc services
     let mut io = IoHandler::new();
     io.extend_with(
@@ -177,6 +188,12 @@ fn setup_node(
             shared: shared.clone(),
             synchronizer: synchronizer.clone(),
             alert_notifier,
+        }
+        .to_delegate(),
+    );
+    io.extend_with(
+        IndexerRpcImpl {
+            store: indexer_store,
         }
         .to_delegate(),
     );
@@ -250,7 +267,6 @@ fn test_rpc() {
             server.server.address().ip(),
             server.server.address().port()
         );
-        let req_message = request.clone();
         let response: JsonResponse = client
             .post(&uri)
             .json(&json!(request))
@@ -258,14 +274,7 @@ fn test_rpc() {
             .expect("send jsonrpc request")
             .json()
             .expect("transform jsonrpc response into json");
-        let message = response.clone();
-        let actual = response.result.clone().unwrap_or_else(|| {
-            panic!(
-                "jsonrpc does not return result! request {}. response: {:?}",
-                json!(req_message),
-                message
-            )
-        });
+        let actual = response.result.clone().unwrap_or_else(|| Value::Null);
         let expect = case.remove("result").expect("get case result");
 
         // Print only at print_mode, otherwise do real testing asserts
