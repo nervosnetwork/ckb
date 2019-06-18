@@ -93,6 +93,16 @@ impl Capacity {
         Capacity(val)
     }
 
+    /// The extra cost for dynamic length types.
+    ///
+    /// ### Notice
+    ///
+    /// If ckb omits this extra cost, ckb may suffers the empty bytes list attack.
+    /// So, even the length of a dynamic length type is zero, it has to be stored.
+    pub const fn extra_for_dynamic() -> Self {
+        Capacity(4 * BYTE_SHANNONS)
+    }
+
     pub fn bytes(val: usize) -> Result<Self> {
         (val as u64)
             .checked_mul(BYTE_SHANNONS)
