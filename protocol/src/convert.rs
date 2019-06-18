@@ -114,7 +114,7 @@ impl<'a> TryFrom<ckb_protocol::Block<'a>> for ckb_core::block::Block {
         let header = cast!(block.header())?;
 
         Ok(ckb_core::block::BlockBuilder::default()
-            .header(TryInto::try_into(header)?)
+            .header(TryInto::<ckb_core::header::Header>::try_into(header)?)
             .uncles(uncles?)
             .transactions(transactions?)
             .proposals(proposals?)

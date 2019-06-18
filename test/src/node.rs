@@ -12,7 +12,7 @@ use jsonrpc_types::{BlockTemplate, CellbaseTemplate, JsonBytes};
 use log::info;
 use numext_fixed_hash::H256;
 use rand;
-use std::convert::TryInto;
+use std::convert::Into;
 use std::fs;
 use std::io::Error;
 use std::path::Path;
@@ -200,10 +200,7 @@ impl Node {
     // generate a transaction which spend tip block's cellbase
     pub fn new_transaction_spend_tip_cellbase(&self) -> Transaction {
         let block = self.get_tip_block();
-        let cellbase: Transaction = block.transactions()[0]
-            .clone()
-            .try_into()
-            .expect("parse cellbase transaction failed");
+        let cellbase = &block.transactions()[0];
         self.new_transaction(cellbase.hash().to_owned())
     }
 
@@ -217,8 +214,7 @@ impl Node {
         rpc_client
             .get_block_by_number(tip_number)
             .expect("tip block exists")
-            .try_into()
-            .unwrap()
+            .into()
     }
 
     pub fn new_block(
@@ -267,28 +263,10 @@ impl Node {
             .seal(Seal::new(rand::random(), Bytes::default()));
 
         BlockBuilder::default()
-            .uncles(
-                uncles
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .expect("parse uncles failed"),
-            )
-            .transaction(cellbase.try_into().expect("parse cellbase failed"))
-            .transactions(
-                transactions
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .expect("parse commit transactions failed"),
-            )
-            .proposals(
-                proposals
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .expect("parse proposal transactions failed"),
-            )
+            .uncles(uncles)
+            .transaction(cellbase)
+            .transactions(transactions)
+            .proposals(proposals)
             .header_builder(header_builder)
     }
 

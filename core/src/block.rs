@@ -192,38 +192,61 @@ impl BlockBuilder {
         self
     }
 
-    pub fn header(mut self, header: Header) -> Self {
-        self.header_builder = HeaderBuilder::from_header(header);
+    pub fn header<T>(mut self, header: T) -> Self
+    where
+        T: Into<Header>,
+    {
+        self.header_builder = HeaderBuilder::from_header(header.into());
         self
     }
 
-    pub fn uncle(mut self, uncle: UncleBlock) -> Self {
-        self.uncles.push(uncle);
+    pub fn uncle<T>(mut self, uncle: T) -> Self
+    where
+        T: Into<UncleBlock>,
+    {
+        self.uncles.push(uncle.into());
         self
     }
 
-    pub fn uncles(mut self, uncles: Vec<UncleBlock>) -> Self {
-        self.uncles.extend(uncles);
+    pub fn uncles<T>(mut self, uncles: Vec<T>) -> Self
+    where
+        T: Into<UncleBlock>,
+    {
+        self.uncles.extend(uncles.into_iter().map(Into::into));
         self
     }
 
-    pub fn transaction(mut self, transaction: Transaction) -> Self {
-        self.transactions.push(transaction);
+    pub fn transaction<T>(mut self, transaction: T) -> Self
+    where
+        T: Into<Transaction>,
+    {
+        self.transactions.push(transaction.into());
         self
     }
 
-    pub fn transactions(mut self, transactions: Vec<Transaction>) -> Self {
-        self.transactions.extend(transactions);
+    pub fn transactions<T>(mut self, transactions: Vec<T>) -> Self
+    where
+        T: Into<Transaction>,
+    {
+        self.transactions
+            .extend(transactions.into_iter().map(Into::into));
         self
     }
 
-    pub fn proposal(mut self, proposal_short_id: ProposalShortId) -> Self {
-        self.proposals.push(proposal_short_id);
+    pub fn proposal<T>(mut self, proposal_short_id: T) -> Self
+    where
+        T: Into<ProposalShortId>,
+    {
+        self.proposals.push(proposal_short_id.into());
         self
     }
 
-    pub fn proposals(mut self, proposal_short_ids: Vec<ProposalShortId>) -> Self {
-        self.proposals.extend(proposal_short_ids);
+    pub fn proposals<T>(mut self, proposal_short_ids: Vec<T>) -> Self
+    where
+        T: Into<ProposalShortId>,
+    {
+        self.proposals
+            .extend(proposal_short_ids.into_iter().map(Into::into));
         self
     }
 

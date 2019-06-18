@@ -18,7 +18,7 @@ use jsonrpc_types::{
 use numext_fixed_hash::H256;
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
-use std::convert::TryInto;
+use std::convert::Into;
 use std::thread;
 use std::time;
 use stop_handler::{SignalSender, StopHandler};
@@ -233,25 +233,10 @@ impl Client {
             .parent_hash(parent_hash);
 
         let block = BlockBuilder::from_header_builder(header_builder)
-            .uncles(
-                uncles
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-            )
-            .transaction(cellbase.try_into()?)
-            .transactions(
-                transactions
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-            )
-            .proposals(
-                proposals
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-            )
+            .uncles(uncles)
+            .transaction(cellbase)
+            .transactions(transactions)
+            .proposals(proposals)
             .build();
 
         let work = Work {
