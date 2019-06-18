@@ -9,6 +9,7 @@ pub use self::template::{
 pub use std::io::{Error, Result};
 
 use self::template::Template;
+use includedir::Files;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -17,6 +18,8 @@ use std::fs;
 use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
+
+use ckb_system_cells::BUNDLED_CELL;
 
 include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
 include!(concat!(env!("OUT_DIR"), "/code_hashes.rs"));
@@ -69,6 +72,7 @@ impl Resource {
     pub fn exported_in<P: AsRef<Path>>(root_dir: P) -> bool {
         BUNDLED
             .file_names()
+            .chain(BUNDLED_CELL.file_names())
             .any(|name| join_bundled_key(root_dir.as_ref().to_path_buf(), name).exists())
     }
 
@@ -81,7 +85,9 @@ impl Resource {
 
     pub fn exists(&self) -> bool {
         match self {
-            Resource::Bundled { bundled } => BUNDLED.is_available(bundled),
+            Resource::Bundled { bundled } => {
+                SourceFiles::new(&BUNDLED_CELL, &BUNDLED).is_available(bundled)
+            }
             Resource::FileSystem { file } => file.exists(),
         }
     }
@@ -104,7 +110,7 @@ impl Resource {
     /// Gets resource content
     pub fn get(&self) -> Result<Cow<'static, [u8]>> {
         match self {
-            Resource::Bundled { bundled } => BUNDLED.get(bundled),
+            Resource::Bundled { bundled } => SourceFiles::new(&BUNDLED_CELL, &BUNDLED).get(bundled),
             Resource::FileSystem { file } => Ok(Cow::Owned(fs::read(file)?)),
         }
     }
@@ -112,7 +118,9 @@ impl Resource {
     /// Gets resource input stream
     pub fn read(&self) -> Result<Box<dyn Read>> {
         match self {
-            Resource::Bundled { bundled } => BUNDLED.read(bundled),
+            Resource::Bundled { bundled } => {
+                SourceFiles::new(&BUNDLED_CELL, &BUNDLED).read(bundled)
+            }
             Resource::FileSystem { file } => Ok(Box::new(BufReader::new(fs::File::open(file)?))),
         }
     }
@@ -135,6 +143,36 @@ impl Resource {
         template.write_to(&mut out, context)?;
         out.persist(target)?;
         Ok(())
+    }
+}
+
+struct SourceFiles<'a> {
+    system_cells: &'a Files,
+    config: &'a Files,
+}
+
+impl<'a> SourceFiles<'a> {
+    fn new(system_cells: &'a Files, config: &'a Files) -> Self {
+        SourceFiles {
+            system_cells,
+            config,
+        }
+    }
+
+    fn get(&self, path: &str) -> Result<Cow<'static, [u8]>> {
+        self.config
+            .get(path)
+            .or_else(|_| self.system_cells.get(path))
+    }
+
+    fn read(&self, path: &str) -> Result<Box<dyn Read>> {
+        self.config
+            .read(path)
+            .or_else(|_| self.system_cells.read(path))
+    }
+
+    fn is_available(&self, path: &str) -> bool {
+        self.config.is_available(path) || self.system_cells.is_available(path)
     }
 }
 

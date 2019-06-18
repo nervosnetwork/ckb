@@ -316,18 +316,17 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         let mut maximum_output_capacities = Capacity::zero();
         for input_index in &script_group.input_indices {
             // Each DAO witness should contain 3 arguments in the following order:
-            // 0. pubkey(33 bytes) from witness
-            // 1. signature from witness
-            // 2. withdraw block hash(32 bytes) from input args
+            // 0. signature from witness
+            // 1. withdraw block hash(32 bytes) from input args
             let witness = self
                 .witnesses
                 .get(*input_index)
                 .ok_or(ScriptError::NoWitness)?;
-            if witness.len() != 3 {
+            if witness.len() != 2 {
                 return Err(ScriptError::ArgumentNumber);
             }
             let withdraw_header_hash =
-                H256::from_slice(&witness[2]).map_err(|_| ScriptError::IOError)?;
+                H256::from_slice(&witness[1]).map_err(|_| ScriptError::IOError)?;
             let (withdraw_block_number, withdraw_block_ext) = self
                 .block_data
                 .get(&withdraw_header_hash)
@@ -1359,7 +1358,7 @@ mod tests {
         let signature = privkey
             .sign_recoverable(&blake2b_256(&message).into())
             .unwrap();
-        let signature_der = signature.serialize_der();
+        let signature_ser = signature.serialize();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1368,8 +1367,7 @@ mod tests {
             .dep(OutPoint::new_block_hash(withdraw_header.hash().to_owned()))
             .witness(vec![])
             .witness(vec![
-                Bytes::from(pubkey),
-                Bytes::from(signature_der),
+                Bytes::from(signature_ser),
                 Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
@@ -1467,7 +1465,7 @@ mod tests {
         let signature = privkey
             .sign_recoverable(&blake2b_256(&message).into())
             .unwrap();
-        let signature_der = signature.serialize_der();
+        let signature_ser = signature.serialize();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1476,8 +1474,7 @@ mod tests {
             .dep(OutPoint::new_block_hash(withdraw_header.hash().to_owned()))
             .witness(vec![])
             .witness(vec![
-                Bytes::from(pubkey),
-                Bytes::from(signature_der),
+                Bytes::from(signature_ser),
                 Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
