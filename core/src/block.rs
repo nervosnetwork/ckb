@@ -121,12 +121,15 @@ impl Block {
                 .iter()
                 .map(|u| u.serialized_size(proof_size))
                 .sum::<usize>()
+            + 4
             + self.proposals.len() * ProposalShortId::serialized_size()
+            + 4
             + self
                 .transactions()
                 .iter()
                 .map(Transaction::serialized_size)
                 .sum::<usize>()
+            + 4
     }
 
     pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {

@@ -274,6 +274,7 @@ impl CellOutput {
     pub fn serialized_size(&self) -> usize {
         mem::size_of::<u64>()
             + self.data.len()
+            + 4
             + self.lock.serialized_size()
             + self
                 .type_
@@ -554,21 +555,25 @@ impl Transaction {
                 .iter()
                 .map(OutPoint::serialized_size)
                 .sum::<usize>()
+            + 4
             + self
                 .inputs
                 .iter()
                 .map(CellInput::serialized_size)
                 .sum::<usize>()
+            + 4
             + self
                 .outputs
                 .iter()
                 .map(CellOutput::serialized_size)
                 .sum::<usize>()
+            + 4
             + self
                 .witnesses
                 .iter()
                 .flat_map(|witness| witness.iter().map(Bytes::len))
                 .sum::<usize>()
+            + 4
     }
 }
 

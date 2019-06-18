@@ -86,7 +86,7 @@ impl Script {
     }
 
     pub fn serialized_size(&self) -> usize {
-        self.args.iter().map(Bytes::len).sum::<usize>() + H256::size_of()
+        self.args.iter().map(|b| b.len() + 4).sum::<usize>() + 4 + H256::size_of()
     }
 }
 
