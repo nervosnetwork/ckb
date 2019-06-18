@@ -12,7 +12,7 @@ impl<T: OccupiedCapacity> OccupiedCapacity for [T] {
     fn occupied_capacity(&self) -> Result<Capacity> {
         self.iter()
             .map(OccupiedCapacity::occupied_capacity)
-            .try_fold(Capacity::zero(), |acc, rhs| {
+            .try_fold(Capacity::extra_for_dynamic(), |acc, rhs| {
                 rhs.and_then(|x| acc.safe_add(x))
             })
     }
@@ -29,7 +29,7 @@ impl<T: OccupiedCapacity> OccupiedCapacity for Vec<T> {
     fn occupied_capacity(&self) -> Result<Capacity> {
         self.iter()
             .map(OccupiedCapacity::occupied_capacity)
-            .try_fold(Capacity::zero(), |acc, rhs| {
+            .try_fold(Capacity::extra_for_dynamic(), |acc, rhs| {
                 rhs.and_then(|x| acc.safe_add(x))
             })
     }
@@ -55,19 +55,19 @@ macro_rules! impl_mem_size_of {
 // Currently, specialization haven't implemented
 impl OccupiedCapacity for Vec<u8> {
     fn occupied_capacity(&self) -> Result<Capacity> {
-        Capacity::bytes(self.len())
+        Capacity::bytes(self.len()).and_then(|x| x.safe_add(Capacity::extra_for_dynamic()))
     }
 }
 
 impl OccupiedCapacity for [u8] {
     fn occupied_capacity(&self) -> Result<Capacity> {
-        Capacity::bytes(self.len())
+        Capacity::bytes(self.len()).and_then(|x| x.safe_add(Capacity::extra_for_dynamic()))
     }
 }
 
 impl OccupiedCapacity for bytes::Bytes {
     fn occupied_capacity(&self) -> Result<Capacity> {
-        Capacity::bytes(self.len())
+        Capacity::bytes(self.len()).and_then(|x| x.safe_add(Capacity::extra_for_dynamic()))
     }
 }
 

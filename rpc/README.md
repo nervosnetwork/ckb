@@ -1226,7 +1226,7 @@ http://localhost:8114
         "pending": "1",
         "proposed": "0",
         "total_tx_cycles": "12",
-        "total_tx_size": "156"
+        "total_tx_size": "180"
     }
 }
 ```

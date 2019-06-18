@@ -274,6 +274,7 @@ impl CellOutput {
     pub fn serialized_size(&self) -> usize {
         mem::size_of::<u64>()
             + self.data.len()
+            + 4
             + self.lock.serialized_size()
             + self
                 .type_
@@ -554,21 +555,25 @@ impl Transaction {
                 .iter()
                 .map(OutPoint::serialized_size)
                 .sum::<usize>()
+            + 4
             + self
                 .inputs
                 .iter()
                 .map(CellInput::serialized_size)
                 .sum::<usize>()
+            + 4
             + self
                 .outputs
                 .iter()
                 .map(CellOutput::serialized_size)
                 .sum::<usize>()
+            + 4
             + self
                 .witnesses
                 .iter()
                 .flat_map(|witness| witness.iter().map(Bytes::len))
                 .sum::<usize>()
+            + 4
     }
 }
 
@@ -791,7 +796,7 @@ mod test {
     use crate::{capacity_bytes, Bytes, Capacity};
 
     #[test]
-    fn test_tx_hash() {
+    fn tx_hash() {
         let tx = TransactionBuilder::default()
             .output(CellOutput::new(
                 capacity_bytes!(5000),
@@ -811,5 +816,19 @@ mod test {
             format!("{:x}", tx.witness_hash()),
             "816db0491b8dfa92ec7a77e07d98c47105fe5a33ddb05ef9f2b24132ac3cc793"
         );
+    }
+
+    #[test]
+    fn min_cell_output_capacity() {
+        let lock = Script::new(vec![], H256::default());
+        let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(48));
+    }
+
+    #[test]
+    fn min_secp256k1_cell_output_capacity() {
+        let lock = Script::new(vec![vec![0u8; 20].into()], H256::default());
+        let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(72));
     }
 }
