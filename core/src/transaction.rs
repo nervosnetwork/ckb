@@ -796,7 +796,7 @@ mod test {
     use crate::{capacity_bytes, Bytes, Capacity};
 
     #[test]
-    fn test_tx_hash() {
+    fn tx_hash() {
         let tx = TransactionBuilder::default()
             .output(CellOutput::new(
                 capacity_bytes!(5000),
@@ -816,5 +816,19 @@ mod test {
             format!("{:x}", tx.witness_hash()),
             "816db0491b8dfa92ec7a77e07d98c47105fe5a33ddb05ef9f2b24132ac3cc793"
         );
+    }
+
+    #[test]
+    fn min_cell_output_capacity() {
+        let lock = Script::new(vec![], H256::default());
+        let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(48));
+    }
+
+    #[test]
+    fn min_secp256k1_cell_output_capacity() {
+        let lock = Script::new(vec![vec![0u8; 20].into()], H256::default());
+        let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(72));
     }
 }
