@@ -677,14 +677,15 @@ dependencies = [
 name = "ckb-resource"
 version = "0.15.0-pre"
 dependencies = [
+ "ckb-system-cells 0.1.0 (git+https://github.com/nervosnetwork/ckb-system-scripts?rev=d1450b543ef67a0bb8fcacc10835f1abeef6c0ab)",
  "includedir 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "includedir_codegen 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "phf 0.7.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
- "system-cells 0.1.0 (git+https://github.com/nervosnetwork/ckb-system-scripts?rev=b58e84fe724c5a534833fe4231f28aef8b949450)",
  "tempfile 3.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "walkdir 2.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -855,6 +856,18 @@ dependencies = [
  "serde 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
  "test-chain-utils 0.15.0-pre",
+]
+
+[[package]]
+name = "ckb-system-cells"
+version = "0.1.0"
+source = "git+https://github.com/nervosnetwork/ckb-system-scripts?rev=d1450b543ef67a0bb8fcacc10835f1abeef6c0ab#d1450b543ef67a0bb8fcacc10835f1abeef6c0ab"
+dependencies = [
+ "blake2b-rs 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "includedir 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "includedir_codegen 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "phf 0.7.24 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3129,18 +3142,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "system-cells"
-version = "0.1.0"
-source = "git+https://github.com/nervosnetwork/ckb-system-scripts?rev=b58e84fe724c5a534833fe4231f28aef8b949450#b58e84fe724c5a534833fe4231f28aef8b949450"
-dependencies = [
- "blake2b-rs 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "includedir 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "includedir_codegen 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "phf 0.7.24 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3838,6 +3839,7 @@ dependencies = [
 "checksum cexpr 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "a7fa24eb00d5ffab90eaeaf1092ac85c04c64aaf358ea6f84505b8116d24c6af"
 "checksum cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "11d43355396e872eefb45ce6342e4374ed7bc2b3a502d1b28e36d6e23c05d1f4"
 "checksum chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "45912881121cb26fad7c38c17ba7daa18764771836b34fab7d3fbd93ed633878"
+"checksum ckb-system-cells 0.1.0 (git+https://github.com/nervosnetwork/ckb-system-scripts?rev=d1450b543ef67a0bb8fcacc10835f1abeef6c0ab)" = "<none>"
 "checksum ckb-vm 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "18b51030e40fcedaf36738d9b874565e51265facd279e2024d1d1798b52a17b2"
 "checksum ckb-vm-definitions 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)" = "bb652578c56840b6db86364105df9af6cb3413076d06cf55a5b335724da16dea"
 "checksum clang-sys 0.26.4 (registry+https://github.com/rust-lang/crates.io-index)" = "6ef0c1bcf2e99c649104bd7a7012d8f8802684400e03db0ec0af48583c6fa0e4"
@@ -4065,7 +4067,6 @@ dependencies = [
 "checksum subtle 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2d67a5a62ba6e01cb2192ff309324cb4875d0c451d55fe2319433abe7a05a8ee"
 "checksum syn 0.15.29 (registry+https://github.com/rust-lang/crates.io-index)" = "1825685f977249735d510a242a6727b46efe914bb67e38d30c071b1b72b1d5c2"
 "checksum synstructure 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)" = "73687139bf99285483c96ac0add482c3776528beac1d97d444f6e91f203a2015"
-"checksum system-cells 0.1.0 (git+https://github.com/nervosnetwork/ckb-system-scripts?rev=b58e84fe724c5a534833fe4231f28aef8b949450)" = "<none>"
 "checksum tempfile 3.0.8 (registry+https://github.com/rust-lang/crates.io-index)" = "7dc4738f2e68ed2855de5ac9cdbe05c9216773ecde4739b2f095002ab03a13ef"
 "checksum tentacle 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "8dcddd2761682b538db6c0d20723a031d6beeac74d73656e5e9b54ff6cd25bed"
 "checksum tentacle-discovery 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "66079c177dba4f89cc882d74a16b037774059cf5be4fe9179b12937d7b4ffe40"
