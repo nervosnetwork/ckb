@@ -723,7 +723,7 @@
         ]
     },
     {
-        "description": "Returns the transactions collection by the hash of lock script. Returns empty array when the `lock_hash` not indexed yet.",
+        "description": "Returns the transactions collection by the hash of lock script. Returns empty array when the `lock_hash` has not been indexed yet.",
         "method": "get_transactions_by_lock_hash",
         "module": "indexer",
         "params": [
@@ -765,7 +765,7 @@
         ]
     },
     {
-        "description": "Remove index for live cells and transaction by the hash of lock script. Returns empty array when the `lock_hash` not indexed yet.",
+        "description": "Remove index for live cells and transactions by the hash of lock script.",
         "method": "deindex_lock_hash",
         "module": "indexer",
         "params": [

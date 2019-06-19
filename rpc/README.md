@@ -900,7 +900,8 @@ http://localhost:8114
 
 ### `get_lock_hash_index_states`
 
-Get lock hash index states.
+Get lock hash index states
+
 
 #### Examples
 
