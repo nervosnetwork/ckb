@@ -1,6 +1,6 @@
 use crate::Bytes;
 use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
-use hash::blake2b_256;
+use hash::Blake2bWriter;
 use numext_fixed_hash::H256;
 use std::io::Write;
 
@@ -35,11 +35,11 @@ impl CanonicalSerialize for Alert {
 
 impl Alert {
     pub fn hash(&self) -> H256 {
-        let mut buf = Vec::new();
-        let mut serializer = CanonicalSerializer::new(&mut buf);
+        let mut hasher = Blake2bWriter::new();
+        let mut serializer = CanonicalSerializer::new(&mut hasher);
         self.serialize(&mut serializer)
             .expect("alert canonical serialize");
-        blake2b_256(buf).into()
+        hasher.finalize().into()
     }
 }
 

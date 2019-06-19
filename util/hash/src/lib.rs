@@ -4,6 +4,35 @@ pub const BLAKE2B_KEY: &[u8] = &[];
 pub const BLAKE2B_LEN: usize = 32;
 pub const CKB_HASH_PERSONALIZATION: &[u8] = b"ckb-default-hash";
 
+pub struct Blake2bWriter(Blake2b);
+impl Blake2bWriter {
+    pub fn new() -> Blake2bWriter {
+        Blake2bWriter(new_blake2b())
+    }
+
+    pub fn finalize(self) -> [u8; 32] {
+        let mut result = [0u8; 32];
+        self.0.finalize(&mut result);
+        result
+    }
+}
+
+impl Default for Blake2bWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::io::Write for Blake2bWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 pub fn new_blake2b() -> Blake2b {
     Blake2bBuilder::new(32)
         .personal(CKB_HASH_PERSONALIZATION)

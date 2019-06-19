@@ -3,7 +3,7 @@ use crate::header::Header;
 use crate::transaction::ProposalShortId;
 use crate::BlockNumber;
 use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
-use hash::blake2b_256;
+use hash::Blake2bWriter;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
@@ -82,12 +82,12 @@ pub fn uncles_hash(uncles: &[UncleBlock]) -> H256 {
     if uncles.is_empty() {
         H256::zero()
     } else {
-        let mut buf = Vec::new();
-        let mut serializer = CanonicalSerializer::new(&mut buf);
+        let mut hasher = Blake2bWriter::new();
+        let mut serializer = CanonicalSerializer::new(&mut hasher);
         serializer
             .encode_vec(uncles)
             .expect("Uncles canonical serialize");
-        blake2b_256(buf).into()
+        hasher.finalize().into()
     }
 }
 

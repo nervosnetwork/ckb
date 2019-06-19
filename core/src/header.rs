@@ -1,7 +1,7 @@
 use bincode::deserialize;
 use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
 use faster_hex::hex_string;
-use hash::blake2b_256;
+use hash::Blake2bWriter;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -98,11 +98,11 @@ impl CanonicalSerialize for RawHeader {
 
 impl RawHeader {
     fn compute_hash(&self) -> H256 {
-        let mut buf = Vec::new();
-        let mut serializer = CanonicalSerializer::new(&mut buf);
+        let mut hasher = Blake2bWriter::new();
+        let mut serializer = CanonicalSerializer::new(&mut hasher);
         self.serialize(&mut serializer)
-            .expect("canonical serialize");
-        blake2b_256(buf).into()
+            .expect("RawHeader canonical serialize");
+        hasher.finalize().into()
     }
 
     pub fn pow_hash(&self) -> H256 {
@@ -278,11 +278,11 @@ impl Header {
     }
 
     fn compute_hash(&self) -> H256 {
-        let mut buf = Vec::new();
-        let mut serializer = CanonicalSerializer::new(&mut buf);
+        let mut hasher = Blake2bWriter::new();
+        let mut serializer = CanonicalSerializer::new(&mut hasher);
         self.serialize(&mut serializer)
             .expect("canonical serialize");
-        blake2b_256(buf).into()
+        hasher.finalize().into()
     }
 
     /// # Warning

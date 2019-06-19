@@ -111,6 +111,7 @@ fn setup_node(
                 .unwrap_or(last_epoch)
         };
         let cellbase = new_cellbase(parent.header().number() + 1, &always_success_script);
+
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header_builder(

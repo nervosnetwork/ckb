@@ -6,7 +6,7 @@ pub use bincode::deserialize;
 use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
 use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
-use hash::blake2b_256;
+use hash::{blake2b_256, Blake2bWriter};
 use numext_fixed_hash::{h256, H256};
 use occupied_capacity::{Capacity, Result as CapacityResult};
 use serde_derive::{Deserialize, Serialize};
@@ -498,11 +498,11 @@ impl<'a> CanonicalSerialize for RawTransaction<'a> {
 
 impl<'a> RawTransaction<'a> {
     fn compute_hash(&self) -> H256 {
-        let mut buf = Vec::new();
-        let mut serializer = CanonicalSerializer::new(&mut buf);
+        let mut hasher = Blake2bWriter::new();
+        let mut serializer = CanonicalSerializer::new(&mut hasher);
         self.serialize(&mut serializer)
-            .expect("canonical serialize");
-        blake2b_256(&buf).into()
+            .expect("RawTransaction canonical serialize");
+        hasher.finalize().into()
     }
 }
 
@@ -547,11 +547,11 @@ impl Transaction {
     }
 
     fn compute_witness_hash(&self) -> H256 {
-        let mut buf = Vec::new();
-        let mut serializer = CanonicalSerializer::new(&mut buf);
+        let mut hasher = Blake2bWriter::new();
+        let mut serializer = CanonicalSerializer::new(&mut hasher);
         self.serialize(&mut serializer)
-            .expect("canonical serialize");
-        blake2b_256(&buf).into()
+            .expect("Transaction canonical serialize");
+        hasher.finalize().into()
     }
 
     pub fn version(&self) -> u32 {
