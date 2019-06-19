@@ -3,7 +3,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
     transaction::{Transaction, TX_VERSION},
-    BlockNumber, Capacity, Cycle, EpochNumber,
+    BlockNumber, Cycle, EpochNumber,
 };
 use ckb_logger::info_target;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
@@ -278,25 +278,8 @@ impl<'a> CapacityVerifier<'a> {
                 .transaction
                 .is_withdrawing_from_dao())
         {
-            let inputs_total = self.resolved_transaction.resolved_inputs.iter().try_fold(
-                Capacity::zero(),
-                |acc, resolved_out_point| {
-                    let capacity = resolved_out_point
-                        .cell()
-                        .map(|cell_meta| cell_meta.capacity)
-                        .unwrap_or_else(Capacity::zero);
-                    acc.safe_add(capacity)
-                },
-            )?;
-
-            let outputs_total = self
-                .resolved_transaction
-                .transaction
-                .outputs()
-                .iter()
-                .try_fold(Capacity::zero(), |acc, output| {
-                    acc.safe_add(output.capacity)
-                })?;
+            let inputs_total = self.resolved_transaction.inputs_capacity()?;
+            let outputs_total = self.resolved_transaction.outputs_capacity()?;
 
             if inputs_total < outputs_total {
                 return Err(TransactionError::OutputsSumOverflow);
