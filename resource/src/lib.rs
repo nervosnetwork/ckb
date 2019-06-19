@@ -19,7 +19,7 @@ use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
-use ckb_system_cells::BUNDLED_CELL;
+use ckb_system_scripts::BUNDLED_CELL;
 
 include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
 include!(concat!(env!("OUT_DIR"), "/code_hashes.rs"));

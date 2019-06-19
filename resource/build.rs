@@ -6,7 +6,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use walkdir::WalkDir;
 
-use ckb_system_cells::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
+use ckb_system_scripts::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 
 fn main() {
     let mut bundled = includedir_codegen::start("BUNDLED");
