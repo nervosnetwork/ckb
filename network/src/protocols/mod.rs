@@ -4,7 +4,7 @@ pub(crate) mod identify;
 pub(crate) mod ping;
 
 use crate::Error;
-use ckb_logger::{debug, error, trace};
+use ckb_logger::trace;
 use futures::Future;
 use p2p::{
     builder::MetaBuilder,
@@ -246,13 +246,8 @@ struct DefaultCKBProtocolContext {
 
 impl CKBProtocolContext for DefaultCKBProtocolContext {
     fn set_notify(&self, interval: Duration, token: u64) -> Result<(), Error> {
-        if let Err(err) = self
-            .p2p_control
-            .set_service_notify(self.proto_id, interval, token)
-        {
-            debug!("p2p service set_notify error: {:?}", err);
-            Err(err)?;
-        }
+        self.p2p_control
+            .set_service_notify(self.proto_id, interval, token)?;
         Ok(())
     }
     fn quick_send_message(
@@ -267,13 +262,8 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             peer_index,
             data.len()
         );
-        if let Err(err) = self
-            .p2p_control
-            .quick_send_message_to(peer_index, proto_id, data)
-        {
-            debug!("p2p service quick_send_message error: {:?}", err);
-            Err(err)?;
-        }
+        self.p2p_control
+            .quick_send_message_to(peer_index, proto_id, data)?;
         Ok(())
     }
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error> {
@@ -283,33 +273,20 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             peer_index,
             data.len()
         );
-        if let Err(err) = self
-            .p2p_control
-            .quick_send_message_to(peer_index, self.proto_id, data)
-        {
-            debug!("p2p service quick_send_message_to error: {:?}", err);
-            Err(err)?;
-        }
+        self.p2p_control
+            .quick_send_message_to(peer_index, self.proto_id, data)?;
         Ok(())
     }
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error> {
-        if let Err(err) = self
-            .p2p_control
-            .quick_filter_broadcast(target, self.proto_id, data)
-        {
-            debug!("p2p service quick_filter_broadcast error: {:?}", err);
-            Err(err)?;
-        }
+        self.p2p_control
+            .quick_filter_broadcast(target, self.proto_id, data)?;
         Ok(())
     }
     fn future_task(
         &self,
         task: Box<Future<Item = (), Error = ()> + 'static + Send>,
     ) -> Result<(), Error> {
-        if let Err(err) = self.p2p_control.future_task(task) {
-            error!("failed to spawn future task: {:?}", err);
-            Err(err)?;
-        }
+        self.p2p_control.future_task(task)?;
         Ok(())
     }
     fn send_message(
@@ -324,10 +301,8 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             peer_index,
             data.len()
         );
-        if let Err(err) = self.p2p_control.send_message_to(peer_index, proto_id, data) {
-            debug!("p2p service send_message error: {:?}", err);
-            Err(err)?;
-        }
+        self.p2p_control
+            .send_message_to(peer_index, proto_id, data)?;
         Ok(())
     }
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error> {
@@ -337,30 +312,17 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             peer_index,
             data.len()
         );
-        if let Err(err) = self
-            .p2p_control
-            .send_message_to(peer_index, self.proto_id, data)
-        {
-            debug!("p2p service send_message_to error: {:?}", err);
-            Err(err)?;
-        }
+        self.p2p_control
+            .send_message_to(peer_index, self.proto_id, data)?;
         Ok(())
     }
     fn filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error> {
-        if let Err(err) = self
-            .p2p_control
-            .filter_broadcast(target, self.proto_id, data)
-        {
-            debug!("p2p service filter_broadcast error: {:?}", err);
-            Err(err)?;
-        }
+        self.p2p_control
+            .filter_broadcast(target, self.proto_id, data)?;
         Ok(())
     }
     fn disconnect(&self, peer_index: PeerIndex) -> Result<(), Error> {
-        if let Err(err) = self.p2p_control.disconnect(peer_index) {
-            debug!("Disconnect failed {:?}, error: {:?}", peer_index, err);
-            Err(err)?;
-        }
+        self.p2p_control.disconnect(peer_index)?;
         Ok(())
     }
 
