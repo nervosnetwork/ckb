@@ -359,6 +359,7 @@ dependencies = [
 name = "ckb-benches"
 version = "0.15.0-pre"
 dependencies = [
+ "canonical-serializer 0.1.0",
  "ckb-chain 0.15.0-pre",
  "ckb-chain-spec 0.15.0-pre",
  "ckb-core 0.15.0-pre",

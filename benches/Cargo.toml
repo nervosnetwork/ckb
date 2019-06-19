@@ -25,6 +25,7 @@ tempfile = "3.0"
 ckb-traits = { path = "../traits" }
 hash = {path = "../util/hash"}
 occupied-capacity = {path = "../util/occupied-capacity"}
+canonical-serializer = {path = "../util/canonical-serializer"}
 
 [[bench]]
 name = "cuckoo"
@@ -36,4 +37,8 @@ harness = false
 
 [[bench]]
 name = "fetch_cell_output"
+harness = false
+
+[[bench]]
+name = "canonical_serialize"
 harness = false
