@@ -248,27 +248,38 @@ impl<CS: ChainStore> ChainState<CS> {
         let updated_old_inputs = old_inputs
             .into_iter()
             .filter_map(|out_point| {
-                out_point.cell.map(|cell| {
-                    if let Some(tx_meta) = self.cell_set.try_mark_live(&cell) {
-                        (cell.tx_hash, tx_meta)
+                out_point.cell.and_then(|cell| {
+                    // if old_input reference the old_output, skip.
+                    if !old_outputs.contains(&cell.tx_hash) {
+                        if let Some(tx_meta) = self.cell_set.try_mark_live(&cell) {
+                            Some((cell.tx_hash, tx_meta))
+                        } else {
+                            let ret = self.store.get_transaction(&cell.tx_hash);
+                            if ret.is_none() {
+                                info_target!(
+                                    crate::LOG_TARGET_CHAIN,
+                                    "[update_tip] get_transaction error tx_hash {:x} cell {:?}",
+                                    &cell.tx_hash,
+                                    cell,
+                                );
+                            }
+                            let (tx, block_hash) = ret.expect("we should have this transaction");
+                            let block = self
+                                .store
+                                .get_block(&block_hash)
+                                .expect("we should have this block");
+                            let cellbase = block.transactions()[0].hash() == tx.hash();
+                            let tx_meta = self.cell_set.insert_cell(
+                                &cell,
+                                block.header().number(),
+                                block.header().epoch(),
+                                cellbase,
+                                tx.outputs().len(),
+                            );
+                            Some((cell.tx_hash, tx_meta))
+                        }
                     } else {
-                        let (tx, block_hash) = self
-                            .store
-                            .get_transaction(&cell.tx_hash)
-                            .expect("we should have this transaction");
-                        let block = self
-                            .store
-                            .get_block(&block_hash)
-                            .expect("we should have this block");
-                        let cellbase = block.transactions()[0].hash() == tx.hash();
-                        let tx_meta = self.cell_set.insert_cell(
-                            &cell,
-                            block.header().number(),
-                            block.header().epoch(),
-                            cellbase,
-                            tx.outputs().len(),
-                        );
-                        (cell.tx_hash, tx_meta)
+                        None
                     }
                 })
             })
@@ -710,7 +721,7 @@ impl<CS: ChainStore> ChainState<CS> {
         outputs: &'a FnvHashMap<H256, &'a [CellOutput]>,
     ) -> ChainCellSetOverlay<'a, CS> {
         ChainCellSetOverlay {
-            overlay: self.cell_set.new_overlay(diff),
+            overlay: self.cell_set.new_overlay(diff, self.store()),
             store: Arc::clone(self.store()),
             outputs,
         }
