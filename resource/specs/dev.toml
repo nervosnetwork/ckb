@@ -44,13 +44,4 @@ max_block_cycles = 10_000_000_000
 cellbase_maturity = 0
 
 [pow]
-func = "Cuckoo"
-
-[pow.params]
-# the 2-log of the graph size, which is the size in bits of the node
-# identifiers
-edge_bits = 15
-
-# length of the cycle to be found, must be an even number, a minimum of 12 is
-# recommended
-cycle_length = 12
+func = "Dummy"
