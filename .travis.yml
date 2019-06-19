@@ -34,7 +34,7 @@ before_script:
 script: make test
 
 before_cache:
-  - rm -rf ./target/release
+  - rm -rf ./target/release/incremental/
   - rm -rf ./target/debug/incremental/
   - cargo sweep -f
 
@@ -83,13 +83,15 @@ matrix:
         - make check-dirty-doc
 
     - name: Integration on macOS
+      env: CACHE_NAME=integration
       if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
       os: osx
-      script: make integration
+      script: make integration-release
     - name: Integration on Linux
+      env: CACHE_NAME=integration
       if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
       os: linux
-      script: make integration
+      script: make integration-release
     - name: Code Coverage
       if: 'tag IS NOT present AND branch = master'
       os: linux
