@@ -2,10 +2,11 @@ use crate::block::{cal_proposals_hash, Block};
 use crate::header::Header;
 use crate::transaction::ProposalShortId;
 use crate::BlockNumber;
-use bincode::serialize;
+use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
+use std::io::Write;
 
 #[derive(Clone, Serialize, Deserialize, Eq, Debug)]
 pub struct UncleBlock {
@@ -19,6 +20,15 @@ impl From<Block> for UncleBlock {
             header: block.header().to_owned(),
             proposals: block.proposals().to_vec(),
         }
+    }
+}
+
+impl CanonicalSerialize for UncleBlock {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_struct_ref(&self.header)?
+            .encode_vec(&self.proposals)?;
+        Ok(())
     }
 }
 
@@ -72,7 +82,12 @@ pub fn uncles_hash(uncles: &[UncleBlock]) -> H256 {
     if uncles.is_empty() {
         H256::zero()
     } else {
-        blake2b_256(serialize(uncles).expect("Uncle serialize should not fail")).into()
+        let mut buf = Vec::new();
+        let mut serializer = CanonicalSerializer::new(&mut buf);
+        serializer
+            .encode_vec(uncles)
+            .expect("Uncles canonical serialize");
+        blake2b_256(buf).into()
     }
 }
 

@@ -2,7 +2,8 @@
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use crate::script::Script;
 use crate::{BlockNumber, Bytes, Version};
-use bincode::{deserialize, serialize};
+pub use bincode::deserialize;
+use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
 use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
@@ -12,6 +13,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 
@@ -78,6 +80,15 @@ pub struct CellOutPoint {
     pub index: u32,
 }
 
+impl CanonicalSerialize for CellOutPoint {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_struct_ref(&self.tx_hash)?
+            .encode_u32(self.index)?;
+        Ok(())
+    }
+}
+
 impl fmt::Debug for CellOutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("CellOutPoint")
@@ -122,6 +133,14 @@ impl CellOutPoint {
 pub struct OutPoint {
     pub cell: Option<CellOutPoint>,
     pub block_hash: Option<H256>,
+}
+impl CanonicalSerialize for OutPoint {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_option_ref(&self.cell)?
+            .encode_option_ref(&self.block_hash)?;
+        Ok(())
+    }
 }
 
 impl fmt::Debug for OutPoint {
@@ -203,6 +222,14 @@ pub struct CellInput {
     pub since: u64,
 }
 
+impl CanonicalSerialize for CellInput {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        self.previous_output.serialize(serializer)?;
+        serializer.encode_u64(self.since)?;
+        Ok(())
+    }
+}
+
 impl CellInput {
     pub fn new(previous_output: OutPoint, since: u64) -> Self {
         CellInput {
@@ -238,6 +265,17 @@ pub struct CellOutput {
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
+}
+
+impl CanonicalSerialize for CellOutput {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_u64(self.capacity.as_u64())?
+            .encode_struct_ref(&self.lock)?
+            .encode_option_ref(&self.type_)?
+            .encode_bytes(&self.data)?;
+        Ok(())
+    }
 }
 
 impl fmt::Debug for CellOutput {
@@ -321,6 +359,18 @@ pub struct Transaction {
     hash: H256,
     #[serde(skip)]
     witness_hash: H256,
+}
+
+impl<'a> CanonicalSerialize for Transaction {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_u32(self.version)?
+            .encode_vec(&self.deps)?
+            .encode_vec(&self.inputs)?
+            .encode_vec(&self.outputs)?
+            .encode_vec(&self.witnesses)?;
+        Ok(())
+    }
 }
 
 impl<'de> serde::de::Deserialize<'de> for Transaction {
@@ -435,6 +485,27 @@ struct RawTransaction<'a> {
     outputs: &'a [CellOutput],
 }
 
+impl<'a> CanonicalSerialize for RawTransaction<'a> {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_u32(self.version)?
+            .encode_vec(self.deps)?
+            .encode_vec(self.inputs)?
+            .encode_vec(self.outputs)?;
+        Ok(())
+    }
+}
+
+impl<'a> RawTransaction<'a> {
+    fn compute_hash(&self) -> H256 {
+        let mut buf = Vec::new();
+        let mut serializer = CanonicalSerializer::new(&mut buf);
+        self.serialize(&mut serializer)
+            .expect("canonical serialize");
+        blake2b_256(&buf).into()
+    }
+}
+
 impl Hash for Transaction {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.witness_hash().as_fixed_bytes())
@@ -461,8 +532,7 @@ impl Transaction {
             inputs: &inputs,
             outputs: &outputs,
         };
-        let hash =
-            blake2b_256(serialize(&raw).expect("RawTransaction serialize should not fail")).into();
+        let hash = raw.compute_hash();
         let mut tx = Self {
             version,
             deps,
@@ -472,10 +542,16 @@ impl Transaction {
             hash,
             witness_hash: H256::zero(),
         };
-        let witness_hash =
-            blake2b_256(serialize(&tx).expect("Transaction serialize should not fail")).into();
-        tx.witness_hash = witness_hash;
+        tx.witness_hash = tx.compute_witness_hash();
         tx
+    }
+
+    fn compute_witness_hash(&self) -> H256 {
+        let mut buf = Vec::new();
+        let mut serializer = CanonicalSerializer::new(&mut buf);
+        self.serialize(&mut serializer)
+            .expect("canonical serialize");
+        blake2b_256(&buf).into()
     }
 
     pub fn version(&self) -> u32 {
@@ -739,6 +815,13 @@ pub struct IndexTransaction {
 #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Eq, Default, Hash)]
 pub struct ProposalShortId([u8; 10]);
 
+impl CanonicalSerialize for ProposalShortId {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer.encode_fix_length_bytes(&self.0, 10)?;
+        Ok(())
+    }
+}
+
 impl Deref for ProposalShortId {
     type Target = [u8; 10];
 
@@ -817,11 +900,11 @@ mod test {
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "572dfb5f543d43c9a411c36d733655f0a4c2ea729f260d9b3d3085b84834bb4f"
+            "b8af0234bf75c516b190e08fc4d9f154cc44875c6f7c0d84aef802b171346d06"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "816db0491b8dfa92ec7a77e07d98c47105fe5a33ddb05ef9f2b24132ac3cc793"
+            "93714ca8acad869e53709f7f57d3249bc4d89d0d5c6f936a9cc57214326d49c5"
         );
     }
 

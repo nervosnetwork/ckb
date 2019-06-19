@@ -1,10 +1,11 @@
-use bincode::{deserialize, serialize};
+use bincode::deserialize;
+use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
-use std::{fmt, mem};
+use std::{fmt, io::Write, mem};
 
 pub use crate::{BlockNumber, Bytes, EpochNumber, Version};
 
@@ -25,6 +26,15 @@ impl fmt::Debug for Seal {
                 &format_args!("0x{}", &hex_string(&self.proof).expect("hex proof")),
             )
             .finish()
+    }
+}
+
+impl CanonicalSerialize for Seal {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_u64(self.nonce)?
+            .encode_bytes(&self.proof)?;
+        Ok(())
     }
 }
 
@@ -68,9 +78,35 @@ pub struct RawHeader {
     epoch: EpochNumber,
 }
 
+impl CanonicalSerialize for RawHeader {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_u32(self.version)?
+            .encode_u64(self.number)?
+            .encode_u64(self.epoch)?
+            .encode_u64(self.timestamp)?
+            .encode_fix_length_bytes(&self.difficulty.to_le_bytes(), 32)?
+            .encode_u32(self.uncles_count)?
+            .encode_struct_ref(&self.uncles_hash)?
+            .encode_struct_ref(&self.parent_hash)?
+            .encode_struct_ref(&self.proposals_hash)?
+            .encode_struct_ref(&self.transactions_root)?
+            .encode_struct_ref(&self.witnesses_root)?;
+        Ok(())
+    }
+}
+
 impl RawHeader {
+    fn compute_hash(&self) -> H256 {
+        let mut buf = Vec::new();
+        let mut serializer = CanonicalSerializer::new(&mut buf);
+        self.serialize(&mut serializer)
+            .expect("canonical serialize");
+        blake2b_256(buf).into()
+    }
+
     pub fn pow_hash(&self) -> H256 {
-        blake2b_256(serialize(self).expect("RawHeader serialize should not fail")).into()
+        self.compute_hash()
     }
 
     pub fn with_seal(self, seal: Seal) -> Header {
@@ -220,6 +256,15 @@ impl fmt::Debug for Header {
     }
 }
 
+impl CanonicalSerialize for Header {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_struct_ref(&self.raw)?
+            .encode_struct_ref(&self.seal)?;
+        Ok(())
+    }
+}
+
 impl Header {
     pub(crate) fn new(raw: RawHeader, seal: Seal) -> Self {
         let mut header = Self {
@@ -227,10 +272,17 @@ impl Header {
             seal,
             hash: H256::zero(),
         };
-        let hash =
-            blake2b_256(serialize(&header).expect("Header serialize should not fail")).into();
+        let hash = header.compute_hash();
         header.hash = hash;
         header
+    }
+
+    fn compute_hash(&self) -> H256 {
+        let mut buf = Vec::new();
+        let mut serializer = CanonicalSerializer::new(&mut buf);
+        self.serialize(&mut serializer)
+            .expect("canonical serialize");
+        blake2b_256(buf).into()
     }
 
     /// # Warning

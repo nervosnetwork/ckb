@@ -6,6 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
+canonical-serializer = {path = "../util/canonical-serializer"}
 serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.1"

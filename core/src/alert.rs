@@ -1,10 +1,10 @@
 use crate::Bytes;
-use bincode::serialize;
+use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
 use hash::blake2b_256;
 use numext_fixed_hash::H256;
-use serde_derive::{Deserialize, Serialize};
+use std::io::Write;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Alert {
     pub id: u32,
     // cancel id if cancel is greater than 0
@@ -19,19 +19,27 @@ pub struct Alert {
     pub signatures: Vec<Bytes>,
 }
 
+impl CanonicalSerialize for Alert {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_u32(self.id)?
+            .encode_u32(self.cancel)?
+            .encode_option_ref(&self.min_version.clone().map(|v| v.as_bytes().to_vec()))?
+            .encode_option_ref(&self.max_version.clone().map(|v| v.as_bytes().to_vec()))?
+            .encode_u32(self.priority)?
+            .encode_u64(self.notice_until)?
+            .encode_bytes(self.message.as_bytes())?;
+        Ok(())
+    }
+}
+
 impl Alert {
     pub fn hash(&self) -> H256 {
-        let alert = Self {
-            id: self.id,
-            cancel: self.cancel,
-            min_version: self.min_version.clone(),
-            max_version: self.max_version.clone(),
-            priority: self.priority,
-            notice_until: self.notice_until,
-            message: self.message.clone(),
-            signatures: Vec::new(),
-        };
-        blake2b_256(serialize(&alert).expect("serialize should not fail")).into()
+        let mut buf = Vec::new();
+        let mut serializer = CanonicalSerializer::new(&mut buf);
+        self.serialize(&mut serializer)
+            .expect("alert canonical serialize");
+        blake2b_256(buf).into()
     }
 }
 

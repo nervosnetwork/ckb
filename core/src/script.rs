@@ -1,10 +1,12 @@
 use bytes::Bytes;
+use canonical_serializer::{CanonicalSerialize, CanonicalSerializer, Result as SerializeResult};
 use faster_hex::hex_encode;
 use hash::new_blake2b;
 use numext_fixed_hash::{h256, H256};
 use occupied_capacity::{Capacity, Result as CapacityResult};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
+use std::io::Write;
 
 // This is the code hash for locking funds in NervosDAO. The hex used here
 // is actually "NERVOSDAOCODE0001" in hex mode.
@@ -19,6 +21,15 @@ pub struct Script {
     // cells of current transaction. The hash here must match the hash of
     // cell data so as to reference a dep cell.
     pub code_hash: H256,
+}
+
+impl CanonicalSerialize for Script {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
+        serializer
+            .encode_vec(&self.args)?
+            .encode_struct_ref(&self.code_hash)?;
+        Ok(())
+    }
 }
 
 impl Script {
