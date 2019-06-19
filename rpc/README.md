@@ -798,7 +798,7 @@ http://localhost:8114
 
 ### `deindex_lock_hash`
 
-Remove index for live cells and transaction by the hash of lock script. Returns empty array when the `lock_hash` not indexed yet.
+Remove index for live cells and transactions by the hash of lock script.
 
 #### Parameters
 
@@ -933,7 +933,7 @@ http://localhost:8114
 
 ### `get_transactions_by_lock_hash`
 
-Returns the transactions collection by the hash of lock script. Returns empty array when the `lock_hash` not indexed yet.
+Returns the transactions collection by the hash of lock script. Returns empty array when the `lock_hash` has not been indexed yet.
 
 #### Parameters
 
