@@ -56,6 +56,7 @@ where
                     .send_message_to(self.peer, fbb.finished_data().into())
                 {
                     debug!("synchronizer send Block error: {:?}", err);
+                    break;
                 }
             } else {
                 // TODO response not found

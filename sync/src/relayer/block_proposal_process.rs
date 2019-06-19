@@ -1,6 +1,6 @@
 use crate::relayer::Relayer;
 use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_logger::{debug_terget, warn_target};
+use ckb_logger::{debug_target, warn_target};
 use ckb_network::CKBProtocolContext;
 use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
 use ckb_store::ChainStore;
