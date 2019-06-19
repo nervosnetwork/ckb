@@ -1,5 +1,5 @@
 use crate::{peer_store::sqlite::DBError, ProtocolId};
-use p2p::{secio::PeerId, SessionId};
+use p2p::{error::Error as P2PError, secio::PeerId, SessionId};
 use std::fmt;
 use std::fmt::Display;
 use std::io::Error as IoError;
@@ -10,7 +10,7 @@ pub enum Error {
     Config(ConfigError),
     Protocol(ProtocolError),
     Io(IoError),
-    P2P(String),
+    P2P(P2PError),
     DB(DBError),
     Shutdown,
 }
@@ -60,6 +60,12 @@ impl From<ConfigError> for Error {
 impl From<ProtocolError> for Error {
     fn from(err: ProtocolError) -> Error {
         Error::Protocol(err)
+    }
+}
+
+impl From<P2PError> for Error {
+    fn from(err: P2PError) -> Error {
+        Error::P2P(err)
     }
 }
 

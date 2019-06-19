@@ -52,7 +52,13 @@ impl<'a, CS: ChainStore> GetTransactionProcess<'a, CS> {
             let message = RelayMessage::build_transaction(fbb, &tx, cycles);
             fbb.finish(message, None);
             let data = fbb.finished_data().into();
-            self.nc.send_message_to(self.peer, data);
+            if let Err(err) = self.nc.send_message_to(self.peer, data) {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer send Transaction error: {:?}",
+                    err,
+                );
+            }
         } else {
             debug_target!(
                 crate::LOG_TARGET_RELAY,

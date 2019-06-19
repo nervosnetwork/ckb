@@ -83,7 +83,9 @@ impl CKBProtocolHandler for AlertRelayer {
             let fbb = &mut FlatBufferBuilder::new();
             let msg = AlertMessage::build_alert(fbb, &alert);
             fbb.finish(msg, None);
-            nc.quick_send_message_to(peer_index, fbb.finished_data().into());
+            if let Err(err) = nc.quick_send_message_to(peer_index, fbb.finished_data().into()) {
+                debug!("alert_relayer send alert when connected error: {:?}", err);
+            }
         }
     }
 
@@ -131,7 +133,9 @@ impl CKBProtocolHandler for AlertRelayer {
             .into_iter()
             .filter(|peer| self.mark_as_known(*peer, alert.id))
             .collect();
-        nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data);
+        if let Err(err) = nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data) {
+            debug!("alert broadcast error: {:?}", err);
+        }
         // add to received alerts
         self.notifier.lock().add(alert);
     }

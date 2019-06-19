@@ -51,8 +51,12 @@ where
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = SyncMessage::build_block(fbb, &block);
                 fbb.finish(message, None);
-                self.nc
-                    .send_message_to(self.peer, fbb.finished_data().into());
+                if let Err(err) = self
+                    .nc
+                    .send_message_to(self.peer, fbb.finished_data().into())
+                {
+                    debug!("synchronizer send Block error: {:?}", err);
+                }
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

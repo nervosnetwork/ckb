@@ -202,8 +202,12 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     .collect::<Vec<_>>(),
             );
             fbb.finish(message, None);
-            self.nc
-                .send_message_to(self.peer, fbb.finished_data().into());
+            if let Err(err) = self
+                .nc
+                .send_message_to(self.peer, fbb.finished_data().into())
+            {
+                ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
+            }
         }
         Ok(())
     }

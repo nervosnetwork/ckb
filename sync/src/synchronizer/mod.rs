@@ -364,7 +364,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
         for peer in eviction {
             info!("timeout eviction peer={}", peer);
-            nc.disconnect(peer);
+            if let Err(err) = nc.disconnect(peer) {
+                debug!("synchronizer disconnect error: {:?}", err);
+            }
         }
     }
 
@@ -453,19 +455,26 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        nc.send_message_to(peer, fbb.finished_data().into());
         debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
+        if let Err(err) = nc.send_message_to(peer, fbb.finished_data().into()) {
+            debug!("synchronizer send GetBlocks error: {:?}", err);
+        }
     }
 }
 
 impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         // NOTE: 100ms is what bitcoin use.
-        nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN);
-        nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN);
-        nc.set_notify(IBD_BLOCK_FETCH_INTERVAL, IBD_BLOCK_FETCH_TOKEN);
-        nc.set_notify(NOT_IBD_BLOCK_FETCH_INTERVAL, NOT_IBD_BLOCK_FETCH_TOKEN);
-        nc.set_notify(Duration::from_secs(2), NO_PEER_CHECK_TOKEN);
+        nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(IBD_BLOCK_FETCH_INTERVAL, IBD_BLOCK_FETCH_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(NOT_IBD_BLOCK_FETCH_INTERVAL, NOT_IBD_BLOCK_FETCH_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(Duration::from_secs(2), NO_PEER_CHECK_TOKEN)
+            .expect("set_notify at init is ok");
     }
 
     fn received(
@@ -985,7 +994,7 @@ mod tests {
 
     impl CKBProtocolContext for DummyNetworkContext {
         // Interact with underlying p2p service
-        fn set_notify(&self, _interval: Duration, _token: u64) {
+        fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
             unimplemented!();
         }
 
@@ -994,27 +1003,58 @@ mod tests {
             task: Box<
                 (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
             >,
-        ) {
-            task.wait().expect("resolve future task error")
+        ) -> Result<(), ckb_network::Error> {
+            task.wait().expect("resolve future task error");
+            Ok(())
         }
 
-        fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
+        fn quick_send_message(
+            &self,
+            proto_id: ProtocolId,
+            peer_index: PeerIndex,
+            data: Bytes,
+        ) -> Result<(), ckb_network::Error> {
             self.send_message(proto_id, peer_index, data)
         }
-        fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
+        fn quick_send_message_to(
+            &self,
+            peer_index: PeerIndex,
+            data: Bytes,
+        ) -> Result<(), ckb_network::Error> {
             self.send_message_to(peer_index, data)
         }
-        fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) {
+        fn quick_filter_broadcast(
+            &self,
+            target: TargetSession,
+            data: Bytes,
+        ) -> Result<(), ckb_network::Error> {
             self.filter_broadcast(target, data)
         }
-        fn send_message(&self, _proto_id: ProtocolId, _peer_index: PeerIndex, _data: bytes::Bytes) {
+        fn send_message(
+            &self,
+            _proto_id: ProtocolId,
+            _peer_index: PeerIndex,
+            _data: bytes::Bytes,
+        ) -> Result<(), ckb_network::Error> {
+            Ok(())
         }
-        fn send_message_to(&self, _peer_index: PeerIndex, _data: bytes::Bytes) {}
-        fn filter_broadcast(&self, _target: TargetSession, _data: bytes::Bytes) {
-            unimplemented!();
+        fn send_message_to(
+            &self,
+            _peer_index: PeerIndex,
+            _data: bytes::Bytes,
+        ) -> Result<(), ckb_network::Error> {
+            Ok(())
         }
-        fn disconnect(&self, peer_index: PeerIndex) {
+        fn filter_broadcast(
+            &self,
+            _target: TargetSession,
+            _data: bytes::Bytes,
+        ) -> Result<(), ckb_network::Error> {
+            Ok(())
+        }
+        fn disconnect(&self, peer_index: PeerIndex) -> Result<(), ckb_network::Error> {
             self.disconnected.lock().insert(peer_index);
+            Ok(())
         }
         // Interact with NetworkState
         fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer> {

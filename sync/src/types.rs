@@ -964,11 +964,13 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_headers(fbb, &locator_hash);
         fbb.finish(message, None);
-        nc.send_message(
+        if let Err(err) = nc.send_message(
             NetworkProtocol::SYNC.into(),
             peer,
             fbb.finished_data().into(),
-        );
+        ) {
+            debug!("synchronizer send get_headers error: {:?}", err);
+        }
     }
 
     pub fn mark_as_known_tx(&self, hash: H256) {

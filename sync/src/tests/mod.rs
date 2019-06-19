@@ -141,7 +141,7 @@ struct TestNetworkContext {
 
 impl CKBProtocolContext for TestNetworkContext {
     // Interact with underlying p2p service
-    fn set_notify(&self, interval: Duration, token: u64) {
+    fn set_notify(&self, interval: Duration, token: u64) -> Result<(), ckb_network::Error> {
         if let Some(sender) = self.timer_senders.get(&(self.protocol, token)) {
             let sender = sender.clone();
             thread::spawn(move || loop {
@@ -149,6 +149,7 @@ impl CKBProtocolContext for TestNetworkContext {
                 let _ = sender.send(());
             });
         }
+        Ok(())
     }
 
     fn future_task(
@@ -156,45 +157,75 @@ impl CKBProtocolContext for TestNetworkContext {
         task: Box<
             (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
         >,
-    ) {
-        task.wait().expect("resolve future task error")
+    ) -> Result<(), ckb_network::Error> {
+        task.wait().expect("resolve future task error");
+        Ok(())
     }
 
-    fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
+    fn quick_send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
         self.send_message(proto_id, peer_index, data)
     }
-    fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
+    fn quick_send_message_to(
+        &self,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
         self.send_message_to(peer_index, data)
     }
-    fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) {
+    fn quick_filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: Bytes,
+    ) -> Result<(), ckb_network::Error> {
         self.filter_broadcast(target, data)
     }
-    fn send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: bytes::Bytes) {
+    fn send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: bytes::Bytes,
+    ) -> Result<(), ckb_network::Error> {
         if let Some(sender) = self.msg_senders.get(&(proto_id, peer_index)) {
             let _ = sender.send(data);
         }
+        Ok(())
     }
-    fn send_message_to(&self, peer_index: PeerIndex, data: bytes::Bytes) {
+    fn send_message_to(
+        &self,
+        peer_index: PeerIndex,
+        data: bytes::Bytes,
+    ) -> Result<(), ckb_network::Error> {
         if let Some(sender) = self.msg_senders.get(&(self.protocol, peer_index)) {
             let _ = sender.send(data);
         }
+        Ok(())
     }
-    fn filter_broadcast(&self, target: TargetSession, data: bytes::Bytes) {
+    fn filter_broadcast(
+        &self,
+        target: TargetSession,
+        data: bytes::Bytes,
+    ) -> Result<(), ckb_network::Error> {
         match target {
-            TargetSession::Single(peer) => {
-                self.send_message_to(peer, data);
-            }
+            TargetSession::Single(peer) => self.send_message_to(peer, data).unwrap(),
             TargetSession::Multi(peers) => {
                 for peer in peers {
-                    self.send_message_to(peer, data.clone());
+                    self.send_message_to(peer, data.clone()).unwrap();
                 }
             }
             TargetSession::All => {
                 unimplemented!();
             }
         }
+        Ok(())
     }
-    fn disconnect(&self, _peer_index: PeerIndex) {}
+    fn disconnect(&self, _peer_index: PeerIndex) -> Result<(), ckb_network::Error> {
+        Ok(())
+    }
     // Interact with NetworkState
     fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {
         None

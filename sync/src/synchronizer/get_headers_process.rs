@@ -83,8 +83,12 @@ where
             let fbb = &mut FlatBufferBuilder::new();
             let message = SyncMessage::build_headers(fbb, &headers);
             fbb.finish(message, None);
-            self.nc
-                .send_message_to(self.peer, fbb.finished_data().into());
+            if let Err(err) = self
+                .nc
+                .send_message_to(self.peer, fbb.finished_data().into())
+            {
+                debug!("synchronizer send Headers error: {:?}", err);
+            }
         } else {
             for hash in &block_locator_hashes[..] {
                 warn!("unknown block headers from peer {} {:#x}", self.peer, hash);
