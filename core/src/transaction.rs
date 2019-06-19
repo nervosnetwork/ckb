@@ -1,14 +1,13 @@
 //! Transaction using Cell.
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use crate::script::Script;
-pub use crate::Capacity;
 use crate::{BlockNumber, Bytes, Version};
 use bincode::{deserialize, serialize};
 use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
 use numext_fixed_hash::{h256, H256};
-use occupied_capacity::{HasOccupiedCapacity, OccupiedCapacity, Result as CapacityResult};
+use occupied_capacity::{Capacity, Result as CapacityResult};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt;
@@ -71,7 +70,7 @@ impl<'a> CellOutPointRef<'a> {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct CellOutPoint {
     // Hash of Transaction
     pub tx_hash: H256,
@@ -119,7 +118,7 @@ impl CellOutPoint {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash, HasOccupiedCapacity)]
+#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct OutPoint {
     pub cell: Option<CellOutPoint>,
     pub block_hash: Option<H256>,
@@ -198,9 +197,7 @@ impl OutPoint {
     }
 }
 
-#[derive(
-    Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, HasOccupiedCapacity,
-)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: u64,
@@ -234,7 +231,7 @@ impl CellInput {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct CellOutput {
     pub capacity: Capacity,
     pub data: Bytes,
@@ -293,6 +290,18 @@ impl CellOutput {
         (capacity, data, lock, type_)
     }
 
+    pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
+        Capacity::bytes(8 + self.data.len())
+            .and_then(|x| self.lock.occupied_capacity().and_then(|y| y.safe_add(x)))
+            .and_then(|x| {
+                self.type_
+                    .as_ref()
+                    .map(Script::occupied_capacity)
+                    .transpose()
+                    .and_then(|y| y.unwrap_or_else(Capacity::zero).safe_add(x))
+            })
+    }
+
     pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
         self.occupied_capacity().map(|cap| cap > self.capacity)
     }
@@ -300,7 +309,7 @@ impl CellOutput {
 
 pub type Witness = Vec<Bytes>;
 
-#[derive(Clone, Serialize, Eq, Debug, HasOccupiedCapacity)]
+#[derive(Clone, Serialize, Eq, Debug)]
 pub struct Transaction {
     version: Version,
     deps: Vec<OutPoint>,
@@ -309,10 +318,8 @@ pub struct Transaction {
     //Segregated Witness to provide protection from transaction malleability.
     witnesses: Vec<Witness>,
     #[serde(skip)]
-    #[free_capacity]
     hash: H256,
     #[serde(skip)]
-    #[free_capacity]
     witness_hash: H256,
 }
 
@@ -822,13 +829,13 @@ mod test {
     fn min_cell_output_capacity() {
         let lock = Script::new(vec![], H256::default());
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(48));
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(40));
     }
 
     #[test]
     fn min_secp256k1_cell_output_capacity() {
         let lock = Script::new(vec![vec![0u8; 20].into()], H256::default());
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(72));
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(60));
     }
 }

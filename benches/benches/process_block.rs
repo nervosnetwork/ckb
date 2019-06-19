@@ -15,7 +15,6 @@ use ckb_traits::chain_provider::ChainProvider;
 use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use occupied_capacity::OccupiedCapacity;
 use rand::random;
 use std::sync::Arc;
 use tempfile::{tempdir, TempDir};

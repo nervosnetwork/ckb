@@ -2,7 +2,7 @@ use bytes::Bytes;
 use faster_hex::hex_encode;
 use hash::new_blake2b;
 use numext_fixed_hash::{h256, H256};
-use occupied_capacity::HasOccupiedCapacity;
+use occupied_capacity::{Capacity, Result as CapacityResult};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
@@ -12,7 +12,7 @@ pub const DAO_CODE_HASH: H256 = h256!("0x4e4552564f5344414f434f444530303031");
 
 // TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
 // implement proper From trait
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, HasOccupiedCapacity)]
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Script {
     pub args: Vec<Bytes>,
     // Code hash here can be used to refer to the data in one of the dep
@@ -88,15 +88,18 @@ impl Script {
     pub fn serialized_size(&self) -> usize {
         self.args.iter().map(|b| b.len() + 4).sum::<usize>() + 4 + H256::size_of()
     }
+
+    pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
+        Capacity::bytes(self.args.iter().map(Bytes::len).sum::<usize>() + 32)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Script;
-    use crate::Bytes;
+    use crate::{Bytes, Capacity};
     use hash::blake2b_256;
     use numext_fixed_hash::{h256, H256};
-    use occupied_capacity::OccupiedCapacity;
 
     #[test]
     fn test_from_into_witness() {
@@ -111,12 +114,7 @@ mod tests {
         let expect = h256!("0x266cec97cbede2cfbce73666f08deed9560bdf7841a7a5a51b3a3f09da249e21");
         assert_eq!(script.hash(), expect);
 
-        let expect_occupied_capacity = script
-            .args
-            .occupied_capacity()
-            .unwrap()
-            .safe_add(script.code_hash.occupied_capacity().unwrap())
-            .unwrap();
+        let expect_occupied_capacity = Capacity::bytes(script.args.len() + 32).unwrap();
         assert_eq!(
             script.occupied_capacity().unwrap(),
             expect_occupied_capacity
@@ -132,12 +130,7 @@ mod tests {
         let expect = h256!("0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510");
         assert_eq!(script.hash(), expect);
 
-        let expect_occupied_capacity = script
-            .args
-            .occupied_capacity()
-            .unwrap()
-            .safe_add(script.code_hash.occupied_capacity().unwrap())
-            .unwrap();
+        let expect_occupied_capacity = Capacity::bytes(script.args.len() + 32).unwrap();
         assert_eq!(
             script.occupied_capacity().unwrap(),
             expect_occupied_capacity
@@ -150,12 +143,7 @@ mod tests {
         let expect = h256!("0xdade0e507e27e2a5995cf39c8cf454b6e70fa80d03c1187db7a4cb2c9eab79da");
         assert_eq!(script.hash(), expect);
 
-        let expect_occupied_capacity = script
-            .args
-            .occupied_capacity()
-            .unwrap()
-            .safe_add(script.code_hash.occupied_capacity().unwrap())
-            .unwrap();
+        let expect_occupied_capacity = Capacity::bytes(script.args.len() + 32).unwrap();
         assert_eq!(
             script.occupied_capacity().unwrap(),
             expect_occupied_capacity

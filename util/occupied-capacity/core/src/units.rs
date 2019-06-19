@@ -1,7 +1,5 @@
 use serde_derive::{Deserialize, Serialize};
 
-use crate::OccupiedCapacity;
-
 // The inner is the amount of `Shannons`.
 #[derive(
     Debug, Clone, Copy, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
@@ -18,13 +16,6 @@ impl Ratio {
 
     pub fn denom(&self) -> u64 {
         self.1
-    }
-}
-
-// Be careful: if the inner type of `Capacity` was changed, update this!
-impl OccupiedCapacity for Capacity {
-    fn occupied_capacity(&self) -> Result<Capacity> {
-        self.0.occupied_capacity()
     }
 }
 
@@ -91,16 +82,6 @@ impl Capacity {
 
     pub const fn shannons(val: u64) -> Self {
         Capacity(val)
-    }
-
-    /// The extra cost for dynamic length types.
-    ///
-    /// ### Notice
-    ///
-    /// If ckb omits this extra cost, ckb may suffers the empty bytes list attack.
-    /// So, even the length of a dynamic length type is zero, it has to be stored.
-    pub const fn extra_for_dynamic() -> Self {
-        Capacity(4 * BYTE_SHANNONS)
     }
 
     pub fn bytes(val: usize) -> Result<Self> {

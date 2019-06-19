@@ -21,7 +21,6 @@ use ckb_pow::{Pow, PowEngine};
 use ckb_resource::Resource;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
