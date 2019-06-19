@@ -404,6 +404,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                         "relayer send Transaction error: {:?}",
                         err,
                     );
+                    break;
                 }
             }
         }
