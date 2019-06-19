@@ -1,9 +1,9 @@
 use crate::error::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
-    BlockNumber, Cycle, EpochNumber,
+    transaction::{Transaction, TX_VERSION},
+    BlockNumber, Capacity, Cycle, EpochNumber,
 };
 use ckb_logger::info_target;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};

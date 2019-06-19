@@ -9,7 +9,7 @@ use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, OccupiedCapacity, Version};
+use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, Version};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
