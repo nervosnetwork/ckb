@@ -47,9 +47,9 @@ use std::usize;
 use stop_handler::{SignalSender, StopHandler};
 use tokio::runtime;
 
-const PING_PROTOCOL_ID: usize = 0;
-const DISCOVERY_PROTOCOL_ID: usize = 1;
-const IDENTIFY_PROTOCOL_ID: usize = 2;
+pub(crate) const PING_PROTOCOL_ID: usize = 0;
+pub(crate) const DISCOVERY_PROTOCOL_ID: usize = 1;
+pub(crate) const IDENTIFY_PROTOCOL_ID: usize = 2;
 pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
 
 const ADDR_LIMIT: u32 = 3;
@@ -67,12 +67,12 @@ pub struct SessionInfo {
 }
 
 pub struct NetworkState {
-    peer_registry: RwLock<PeerRegistry>,
-    peer_store: Mutex<Box<dyn PeerStore>>,
+    pub(crate) peer_registry: RwLock<PeerRegistry>,
+    pub(crate) peer_store: Mutex<Box<dyn PeerStore>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<FnvHashMap<PeerId, Instant>>,
 
-    protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
+    pub(crate) protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     // Send disconnect message but not disconnected yet
     disconnecting_sessions: RwLock<FnvHashSet<SessionId>>,
@@ -438,7 +438,7 @@ impl NetworkState {
 }
 
 pub struct EventHandler {
-    network_state: Arc<NetworkState>,
+    pub(crate) network_state: Arc<NetworkState>,
 }
 
 impl ServiceHandle for EventHandler {
