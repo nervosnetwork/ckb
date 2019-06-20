@@ -53,6 +53,12 @@ impl Into<H256> for Privkey {
     }
 }
 
+impl AsRef<[u8]> for Privkey {
+    fn as_ref(&self) -> &[u8] {
+        self.inner.as_bytes()
+    }
+}
+
 impl FromStr for Privkey {
     type Err = Error;
 
