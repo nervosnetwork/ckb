@@ -19,7 +19,7 @@ use futures::{
 };
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
-    multiaddr::Multiaddr,
+    multiaddr::{multihash::Multihash, Multiaddr, Protocol},
     service::{DialProtocol, ProtocolHandle, ServiceControl, TargetProtocol},
     utils::multiaddr_to_socketaddr,
     ProtocolId, SessionId,
@@ -36,11 +36,13 @@ struct Node {
 
 impl Node {
     fn dial(&self, node: &Node, protocol: DialProtocol) {
-        let _ = self.control.dial(node.listen_addr.clone(), protocol);
+        self.control
+            .dial(node.listen_addr.clone(), protocol)
+            .unwrap();
     }
 
     fn dial_addr(&self, addr: Multiaddr, protocol: DialProtocol) {
-        let _ = self.control.dial(addr, protocol);
+        self.control.dial(addr, protocol).unwrap();
     }
 
     fn session_num(&self) -> usize {
@@ -68,7 +70,7 @@ impl Node {
     }
 
     fn open_protocols(&self, id: SessionId, protocol: TargetProtocol) {
-        let _ = self.control.open_protocols(id, protocol);
+        self.control.open_protocols(id, protocol).unwrap();
     }
 
     fn ban_all(&self) {
@@ -190,8 +192,20 @@ fn net_service_start(name: String) -> Node {
         ping_receiver,
     );
 
-    let listen_addr = p2p_service
+    let peer_id = network_state.local_peer_id().clone();
+
+    let mut listen_addr = p2p_service
         .listen("/ip4/0.0.0.0/tcp/0".parse().unwrap())
+        .unwrap();
+    listen_addr.push(Protocol::P2p(
+        Multihash::from_bytes(peer_id.into_bytes()).expect("Invalid peer id"),
+    ));
+
+    // On windows, it must replace `0.0.0.0` to `1270.0.1`
+    #[cfg(windows)]
+    let listen_addr = format!("{}", listen_addr)
+        .replace("0.0.0.0", "127.0.0.1")
+        .parse()
         .unwrap();
 
     let control = p2p_service.control().clone();
