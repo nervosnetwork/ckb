@@ -13,15 +13,15 @@ use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]
 pub struct LoadHeader<'a> {
-    resolved_inputs: &'a [&'a ResolvedOutPoint],
-    resolved_deps: &'a [&'a ResolvedOutPoint],
+    resolved_inputs: &'a [ResolvedOutPoint],
+    resolved_deps: &'a [ResolvedOutPoint],
     group_inputs: &'a [usize],
 }
 
 impl<'a> LoadHeader<'a> {
     pub fn new(
-        resolved_inputs: &'a [&'a ResolvedOutPoint],
-        resolved_deps: &'a [&'a ResolvedOutPoint],
+        resolved_inputs: &'a [ResolvedOutPoint],
+        resolved_deps: &'a [ResolvedOutPoint],
         group_inputs: &'a [usize],
     ) -> LoadHeader<'a> {
         LoadHeader {

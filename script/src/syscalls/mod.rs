@@ -217,7 +217,7 @@ mod tests {
         let store = Arc::new(new_memory_store());
         let data_loader = DataLoaderWrapper::new(store);
         let outputs = vec![output];
-        let resolved_inputs = vec![&input_cell];
+        let resolved_inputs = vec![input_cell];
         let resolved_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
@@ -267,7 +267,7 @@ mod tests {
             None,
         ));
         let outputs = vec![output.clone()];
-        let resolved_inputs = vec![&input_cell];
+        let resolved_inputs = vec![input_cell.clone()];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let data_loader = DataLoaderWrapper::new(store);
@@ -377,7 +377,7 @@ mod tests {
             None,
         ));
         let outputs = vec![output];
-        let resolved_inputs = vec![&input_cell];
+        let resolved_inputs = vec![input_cell.clone()];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let data_loader = DataLoaderWrapper::new(store);
@@ -445,7 +445,7 @@ mod tests {
             None,
         ));
         let outputs = vec![output];
-        let resolved_inputs = vec![&input_cell];
+        let resolved_inputs = vec![input_cell.clone()];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let data_loader = DataLoaderWrapper::new(store);
@@ -512,7 +512,7 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let resolved_inputs = vec![&input_cell];
+        let resolved_inputs = vec![input_cell.clone()];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let data_loader = DataLoaderWrapper::new(store);
@@ -624,8 +624,8 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let resolved_inputs = vec![&input_cell];
-        let resolved_deps = vec![&dep_cell];
+        let resolved_inputs = vec![input_cell.clone()];
+        let resolved_deps = vec![dep_cell];
         let store = Arc::new(new_memory_store());
         let data_loader = DataLoaderWrapper::new(store);
         let group_inputs = vec![];
@@ -691,8 +691,8 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let resolved_inputs = vec![&input_cell];
-        let resolved_deps = vec![&dep_cell];
+        let resolved_inputs = vec![input_cell.clone()];
+        let resolved_deps = vec![dep_cell];
         let store = Arc::new(new_memory_store());
         let data_loader = DataLoaderWrapper::new(store);
         let group_inputs = vec![];
@@ -761,7 +761,7 @@ mod tests {
 
         let dep_cell = ResolvedOutPoint::header_only(header);
         let resolved_inputs = vec![];
-        let resolved_deps = vec![&dep_cell];
+        let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let mut load_cell = LoadHeader::new(&resolved_inputs, &resolved_deps, &group_inputs);
 
@@ -906,7 +906,7 @@ mod tests {
             None,
         ));
         let outputs = vec![];
-        let resolved_inputs = vec![&input_cell];
+        let resolved_inputs = vec![input_cell.clone()];
         let resolved_deps = vec![];
         let store = Arc::new(new_memory_store());
         let data_loader = DataLoaderWrapper::new(store);
@@ -963,7 +963,7 @@ mod tests {
         builder.finish(fbs_offset, None);
         let witness_correct_data = builder.finished_data();
 
-        let witnesses = vec![&witness];
+        let witnesses = vec![witness];
         let group_inputs = vec![];
         let mut load_witness = LoadWitness::new(&witnesses, &group_inputs);
 
@@ -1016,7 +1016,7 @@ mod tests {
         let witness_correct_data = builder.finished_data();
 
         let dummy_witness = vec![];
-        let witnesses = vec![&dummy_witness, &witness];
+        let witnesses = vec![dummy_witness, witness];
         let group_inputs = vec![1];
         let mut load_witness = LoadWitness::new(&witnesses, &group_inputs);
 
@@ -1073,7 +1073,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![&dep_cell];
+        let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCode::new(
@@ -1152,7 +1152,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![&dep_cell];
+        let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCode::new(
@@ -1205,7 +1205,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![&dep_cell];
+        let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCode::new(
@@ -1255,7 +1255,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![&dep_cell];
+        let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCode::new(
@@ -1308,7 +1308,7 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![&dep_cell];
+        let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCode::new(

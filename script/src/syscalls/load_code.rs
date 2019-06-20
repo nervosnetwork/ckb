@@ -15,8 +15,8 @@ use ckb_vm::{
 pub struct LoadCode<'a, DL> {
     data_loader: &'a DL,
     outputs: &'a [CellMeta],
-    resolved_inputs: &'a [&'a ResolvedOutPoint],
-    resolved_deps: &'a [&'a ResolvedOutPoint],
+    resolved_inputs: &'a [ResolvedOutPoint],
+    resolved_deps: &'a [ResolvedOutPoint],
     group_inputs: &'a [usize],
     group_outputs: &'a [usize],
 }
@@ -25,8 +25,8 @@ impl<'a, DL: DataLoader + 'a> LoadCode<'a, DL> {
     pub fn new(
         data_loader: &'a DL,
         outputs: &'a [CellMeta],
-        resolved_inputs: &'a [&'a ResolvedOutPoint],
-        resolved_deps: &'a [&'a ResolvedOutPoint],
+        resolved_inputs: &'a [ResolvedOutPoint],
+        resolved_deps: &'a [ResolvedOutPoint],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
     ) -> LoadCode<'a, DL> {
