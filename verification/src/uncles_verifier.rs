@@ -2,7 +2,6 @@ use crate::error::{Error, UnclesError};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
-// use ckb_traits::ChainProvider;
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
