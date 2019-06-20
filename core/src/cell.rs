@@ -648,6 +648,10 @@ impl<'a> ResolvedTransaction<'a> {
             })
             .try_fold(Capacity::zero(), Capacity::safe_add)
     }
+
+    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+        self.transaction.outputs_capacity()
+    }
 }
 
 #[cfg(test)]
