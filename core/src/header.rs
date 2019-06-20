@@ -85,7 +85,7 @@ impl CanonicalSerialize for RawHeader {
             .encode_u64(self.number)?
             .encode_u64(self.epoch)?
             .encode_u64(self.timestamp)?
-            .encode_fix_length_bytes(&self.difficulty.to_le_bytes(), 32)?
+            .encode_struct_ref(&self.difficulty)?
             .encode_u32(self.uncles_count)?
             .encode_struct_ref(&self.uncles_hash)?
             .encode_struct_ref(&self.parent_hash)?

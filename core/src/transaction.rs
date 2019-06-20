@@ -817,7 +817,7 @@ pub struct ProposalShortId([u8; 10]);
 
 impl CanonicalSerialize for ProposalShortId {
     fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> SerializeResult<()> {
-        serializer.encode_fix_length_bytes(&self.0, 10)?;
+        serializer.encode_fix_length_bytes(&self.0)?;
         Ok(())
     }
 }

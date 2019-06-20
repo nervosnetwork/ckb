@@ -9,4 +9,5 @@ license = "MIT"
 failure = "0.1.5"
 bytes = "0.4.12"
 numext-fixed-hash = "0.1.4"
+numext-fixed-uint = "0.1.4"
 

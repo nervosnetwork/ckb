@@ -3,8 +3,10 @@
 //!
 
 use bytes::Bytes;
-use failure::{ensure, Error};
+use failure::Error;
 use numext_fixed_hash::H256;
+use numext_fixed_uint::U256;
+use std::convert::TryInto;
 use std::io::Write;
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -37,55 +39,20 @@ impl<W: Write> CanonicalSerializer<W> {
         Ok(self)
     }
 
-    pub fn encode_h160(&mut self, v: &[u8]) -> Result<&mut Self> {
-        ensure!(
-            v.len() == 20,
-            "serialize H160 length error expect 20, got {}",
-            v.len()
-        );
-        self.buf.write_all(v)?;
-        Ok(self)
-    }
-
-    pub fn encode_h256(&mut self, v: &[u8]) -> Result<&mut Self> {
-        ensure!(
-            v.len() == 32,
-            "serialize H256 length error expect 32, got {}",
-            v.len()
-        );
-        self.buf.write_all(v)?;
-        Ok(self)
-    }
-
-    pub fn encode_u256(&mut self, v: &[u8]) -> Result<&mut Self> {
-        ensure!(
-            v.len() == 32,
-            "serialize U256 length error expect 32, got {}",
-            v.len()
-        );
-        self.buf.write_all(v)?;
-        Ok(self)
-    }
-
-    pub fn encode_fix_length_bytes(&mut self, v: &[u8], len: usize) -> Result<&mut Self> {
-        ensure!(
-            v.len() == len,
-            "serialize fix length bytes error expect {}, got {}",
-            len,
-            v.len()
-        );
+    // this methods is design for fixed length data
+    pub fn encode_fix_length_bytes(&mut self, v: &[u8]) -> Result<&mut Self> {
         self.buf.write_all(v)?;
         Ok(self)
     }
 
     pub fn encode_bytes(&mut self, v: &[u8]) -> Result<&mut Self> {
-        self.encode_u32(v.len() as u32)?;
+        self.encode_u32(v.len().try_into()?)?;
         self.buf.write_all(v)?;
         Ok(self)
     }
 
     pub fn encode_vec<T: CanonicalSerialize>(&mut self, list: &[T]) -> Result<&mut Self> {
-        self.encode_u32(list.len() as u32)?;
+        self.encode_u32(list.len().try_into()?)?;
         for elem in list {
             elem.serialize(self)?;
         }
@@ -141,7 +108,14 @@ impl CanonicalSerialize for u64 {
 
 impl CanonicalSerialize for H256 {
     fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> Result<()> {
-        serializer.encode_h256(self.as_bytes())?;
+        serializer.encode_fix_length_bytes(self.as_bytes())?;
+        Ok(())
+    }
+}
+
+impl CanonicalSerialize for U256 {
+    fn serialize<W: Write>(&self, serializer: &mut CanonicalSerializer<W>) -> Result<()> {
+        serializer.encode_fix_length_bytes(&self.to_le_bytes())?;
         Ok(())
     }
 }
