@@ -450,6 +450,7 @@ dependencies = [
  "ckb-pow 0.15.0-pre",
  "ckb-resource 0.15.0-pre",
  "dao 0.15.0-pre",
+ "jsonrpc-types 0.15.0-pre",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "occupied-capacity 0.15.0-pre",
