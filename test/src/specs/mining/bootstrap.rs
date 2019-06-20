@@ -2,7 +2,7 @@ use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::Block;
-use ckb_core::script::Script;
+use ckb_core::script::Script as CoreScript;
 use ckb_core::Bytes;
 use jsonrpc_types::JsonBytes;
 use log::info;
@@ -19,13 +19,13 @@ impl Spec for BootstrapCellbase {
             .map(|_| node.generate_block())
             .collect();
 
-        let bootstrap_lock = Script {
-            args: vec![],
+        let bootstrap_lock = CoreScript {
+            args: vec![Bytes::from(vec![1]), Bytes::from(vec![2])],
             code_hash: h256!("0xa1"),
         };
 
-        let miner = Script {
-            args: vec![],
+        let miner = CoreScript {
+            args: vec![Bytes::from(vec![2]), Bytes::from(vec![1])],
             code_hash: h256!("0xa2"),
         };
 
@@ -57,10 +57,11 @@ impl Spec for BootstrapCellbase {
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
-            spec_config.genesis.bootstrap_lock = Script {
-                args: vec![],
+            spec_config.genesis.bootstrap_lock = CoreScript {
+                args: vec![Bytes::from(vec![1]), Bytes::from(vec![2])],
                 code_hash: h256!("0xa1"),
-            };
+            }
+            .into();
         })
     }
 
@@ -68,7 +69,10 @@ impl Spec for BootstrapCellbase {
         Box::new(|config| {
             config.block_assembler = Some(BlockAssemblerConfig {
                 code_hash: h256!("0xa2"),
-                args: vec![],
+                args: vec![
+                    JsonBytes::from_bytes(Bytes::from(vec![2])),
+                    JsonBytes::from_bytes(Bytes::from(vec![1])),
+                ],
                 data: JsonBytes::from_bytes(Bytes::from(vec![1; 30])),
             });
         })

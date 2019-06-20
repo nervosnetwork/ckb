@@ -14,11 +14,11 @@ use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::{BlockNumber, Bytes, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::Resource;
+use jsonrpc_types::Script;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -189,7 +189,7 @@ impl ChainSpec {
             .set_epoch_reward(self.params.epoch_reward)
             .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
-            .set_bootstrap_lock(self.genesis.bootstrap_lock.clone())
+            .set_bootstrap_lock(self.genesis.bootstrap_lock.clone().into())
             .set_pow(self.pow.clone());
 
         Ok(consensus)
@@ -237,7 +237,7 @@ impl GenesisCell {
     fn build_output(&self) -> Result<CellOutput, Box<dyn Error>> {
         let mut cell = CellOutput::default();
         cell.data = self.message.as_bytes().into();
-        cell.lock.clone_from(&self.lock);
+        cell.lock = self.lock.clone().into();
         cell.capacity = cell.occupied_capacity()?;
         Ok(cell)
     }
@@ -245,7 +245,7 @@ impl GenesisCell {
 
 fn build_bootstrap_output(lock: &Script) -> Result<CellOutput, Box<dyn Error>> {
     let mut cell = CellOutput::default();
-    cell.lock.clone_from(lock);
+    cell.lock = lock.clone().into();
     cell.capacity = cell.occupied_capacity()?;
     Ok(cell)
 }
@@ -253,7 +253,7 @@ fn build_bootstrap_output(lock: &Script) -> Result<CellOutput, Box<dyn Error>> {
 impl IssuedCell {
     fn build_output(&self) -> CellOutput {
         let mut cell = CellOutput::default();
-        cell.lock = self.lock.clone();
+        cell.lock = self.lock.clone().into();
         cell.capacity = self.capacity;
         cell
     }
@@ -269,7 +269,7 @@ impl SystemCells {
             let data = res.get()?;
             let mut cell = CellOutput::default();
             cell.data = data.into_owned().into();
-            cell.lock.clone_from(&self.lock);
+            cell.lock = self.lock.clone().into();
             cell.capacity = cell.occupied_capacity()?;
             outputs.push(cell);
         }
