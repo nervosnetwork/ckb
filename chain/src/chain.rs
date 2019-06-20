@@ -233,7 +233,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
 
-        let mut cell_set_diff = CellSetDiff::default();
         let mut fork = ForkChanges::default();
         let mut chain_state = self.shared.lock_chain_state();
         let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
@@ -317,7 +316,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.attached_blocks.iter(),
             )?;
             // MUST update index before reconcile_main_chain
-            cell_set_diff = self.reconcile_main_chain(
+            let cell_set_diff = self.reconcile_main_chain(
                 &mut batch,
                 &mut fork,
                 &mut chain_state,
@@ -325,6 +324,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 need_verify,
             )?;
             self.update_proposal_ids(&mut chain_state, &fork);
+            chain_state.update_cell_set(cell_set_diff, &mut batch)?;
             batch.insert_tip_header(&block.header())?;
             if new_epoch || fork.has_detached() {
                 batch.insert_current_epoch_ext(&epoch)?;
@@ -353,7 +353,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             if new_epoch || fork.has_detached() {
                 chain_state.update_current_epoch_ext(epoch);
             }
-            chain_state.update_tip(tip_header, total_difficulty, cell_set_diff)?;
+            chain_state.update_tip(tip_header, total_difficulty)?;
             chain_state.update_tx_pool_for_reorg(
                 fork.detached_blocks().iter(),
                 fork.attached_blocks().iter(),

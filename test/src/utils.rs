@@ -2,6 +2,8 @@ use crate::Net;
 use bytes::Bytes;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder, Seal};
+use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
 use ckb_protocol::{RelayMessage, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
@@ -62,32 +64,33 @@ pub fn new_block_with_template(template: BlockTemplate) -> Block {
         .timestamp(template.current_time.0)
         .parent_hash(template.parent_hash)
         .seal(Seal::new(rand::random(), Bytes::new()));
+
+    let uncles: Vec<UncleBlock> = template
+        .uncles
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()
+        .expect("parse uncles failed");
+
+    let transactions: Vec<Transaction> = template
+        .transactions
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()
+        .expect("parse commit transactions failed");
+
+    let proposals: Vec<ProposalShortId> = template
+        .proposals
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<_, _>>()
+        .expect("parse proposal transactions failed");
+
     BlockBuilder::default()
-        .uncles(
-            template
-                .uncles
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()
-                .expect("parse uncles failed"),
-        )
+        .uncles(uncles)
         .transaction(cellbase.try_into().expect("parse cellbase failed"))
-        .transactions(
-            template
-                .transactions
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()
-                .expect("parse commit transactions failed"),
-        )
-        .proposals(
-            template
-                .proposals
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()
-                .expect("parse proposal transactions failed"),
-        )
+        .transactions(transactions)
+        .proposals(proposals)
         .header_builder(header_builder)
         .build()
 }

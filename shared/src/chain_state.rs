@@ -227,15 +227,11 @@ impl<CS: ChainStore> ChainState<CS> {
         self.current_epoch_ext = epoch_ext;
     }
 
-    pub fn update_tip(
+    pub fn update_cell_set(
         &mut self,
-        header: Header,
-        total_difficulty: U256,
         txo_diff: CellSetDiff,
+        batch: &mut StoreBatch,
     ) -> Result<(), FailureError> {
-        self.tip_header = header;
-        self.total_difficulty = total_difficulty;
-
         let CellSetDiff {
             old_inputs,
             old_outputs,
@@ -248,27 +244,38 @@ impl<CS: ChainStore> ChainState<CS> {
         let updated_old_inputs = old_inputs
             .into_iter()
             .filter_map(|out_point| {
-                out_point.cell.map(|cell| {
-                    if let Some(tx_meta) = self.cell_set.try_mark_live(&cell) {
-                        (cell.tx_hash, tx_meta)
+                out_point.cell.and_then(|cell| {
+                    // if old_input reference the old_output, skip.
+                    if !old_outputs.contains(&cell.tx_hash) {
+                        if let Some(tx_meta) = self.cell_set.try_mark_live(&cell) {
+                            Some((cell.tx_hash, tx_meta))
+                        } else {
+                            let ret = self.store.get_transaction(&cell.tx_hash);
+                            if ret.is_none() {
+                                info_target!(
+                                    crate::LOG_TARGET_CHAIN,
+                                    "[update_tip] get_transaction error tx_hash {:x} cell {:?}",
+                                    &cell.tx_hash,
+                                    cell,
+                                );
+                            }
+                            let (tx, block_hash) = ret.expect("we should have this transaction");
+                            let block = self
+                                .store
+                                .get_block(&block_hash)
+                                .expect("we should have this block");
+                            let cellbase = block.transactions()[0].hash() == tx.hash();
+                            let tx_meta = self.cell_set.insert_cell(
+                                &cell,
+                                block.header().number(),
+                                block.header().epoch(),
+                                cellbase,
+                                tx.outputs().len(),
+                            );
+                            Some((cell.tx_hash, tx_meta))
+                        }
                     } else {
-                        let (tx, block_hash) = self
-                            .store
-                            .get_transaction(&cell.tx_hash)
-                            .expect("we should have this transaction");
-                        let block = self
-                            .store
-                            .get_block(&block_hash)
-                            .expect("we should have this block");
-                        let cellbase = block.transactions()[0].hash() == tx.hash();
-                        let tx_meta = self.cell_set.insert_cell(
-                            &cell,
-                            block.header().number(),
-                            block.header().epoch(),
-                            cellbase,
-                            tx.outputs().len(),
-                        );
-                        (cell.tx_hash, tx_meta)
+                        None
                     }
                 })
             })
@@ -304,26 +311,31 @@ impl<CS: ChainStore> ChainState<CS> {
             });
         });
 
-        {
-            let mut batch = self.store.new_batch()?;
-            for (tx_hash, tx_meta) in updated_old_inputs.iter() {
-                batch.update_cell_set(&tx_hash, &tx_meta)?;
-            }
-            for tx_hash in removed_old_outputs.iter() {
-                batch.delete_cell_set(&tx_hash)?;
-            }
-            for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
-                batch.update_cell_set(&tx_hash, &tx_meta)?;
-            }
-            for (tx_hash, tx_meta) in updated_new_inputs.iter() {
-                batch.update_cell_set(&tx_hash, &tx_meta)?;
-            }
-            for tx_hash in removed_new_inputs.iter() {
-                batch.delete_cell_set(&tx_hash)?;
-            }
-            batch.commit()?;
+        for (tx_hash, tx_meta) in updated_old_inputs.iter() {
+            batch.update_cell_set(&tx_hash, &tx_meta)?;
         }
+        for tx_hash in removed_old_outputs.iter() {
+            batch.delete_cell_set(&tx_hash)?;
+        }
+        for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
+            batch.update_cell_set(&tx_hash, &tx_meta)?;
+        }
+        for (tx_hash, tx_meta) in updated_new_inputs.iter() {
+            batch.update_cell_set(&tx_hash, &tx_meta)?;
+        }
+        for tx_hash in removed_new_inputs.iter() {
+            batch.delete_cell_set(&tx_hash)?;
+        }
+        Ok(())
+    }
 
+    pub fn update_tip(
+        &mut self,
+        header: Header,
+        total_difficulty: U256,
+    ) -> Result<(), FailureError> {
+        self.tip_header = header;
+        self.total_difficulty = total_difficulty;
         Ok(())
     }
 
@@ -707,7 +719,7 @@ impl<CS: ChainStore> ChainState<CS> {
         outputs: &'a FnvHashMap<H256, &'a [CellOutput]>,
     ) -> ChainCellSetOverlay<'a, CS> {
         ChainCellSetOverlay {
-            overlay: self.cell_set.new_overlay(diff),
+            overlay: self.cell_set.new_overlay(diff, self.store()),
             store: Arc::clone(self.store()),
             outputs,
         }

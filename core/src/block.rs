@@ -203,7 +203,7 @@ impl BlockBuilder {
         self
     }
 
-    pub fn uncles(mut self, uncles: Vec<UncleBlock>) -> Self {
+    pub fn uncles(mut self, uncles: impl IntoIterator<Item = UncleBlock>) -> Self {
         self.uncles.extend(uncles);
         self
     }
@@ -213,7 +213,7 @@ impl BlockBuilder {
         self
     }
 
-    pub fn transactions(mut self, transactions: Vec<Transaction>) -> Self {
+    pub fn transactions(mut self, transactions: impl IntoIterator<Item = Transaction>) -> Self {
         self.transactions.extend(transactions);
         self
     }
@@ -223,7 +223,10 @@ impl BlockBuilder {
         self
     }
 
-    pub fn proposals(mut self, proposal_short_ids: Vec<ProposalShortId>) -> Self {
+    pub fn proposals(
+        mut self,
+        proposal_short_ids: impl IntoIterator<Item = ProposalShortId>,
+    ) -> Self {
         self.proposals.extend(proposal_short_ids);
         self
     }

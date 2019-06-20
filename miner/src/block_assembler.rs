@@ -574,29 +574,28 @@ mod tests {
             .timestamp(current_time.0)
             .parent_hash(parent_hash);
 
+        let uncles: Vec<UncleBlock> = uncles
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let transactions: Vec<Transaction> = transactions
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        let proposals: Vec<ProposalShortId> = proposals
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
         let block = BlockBuilder::default()
-            .uncles(
-                uncles
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .unwrap(),
-            )
+            .uncles(uncles)
             .transaction(cellbase.try_into().unwrap())
-            .transactions(
-                transactions
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .unwrap(),
-            )
-            .proposals(
-                proposals
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .unwrap(),
-            )
+            .transactions(transactions)
+            .proposals(proposals)
             .header_builder(header_builder)
             .build();
 
