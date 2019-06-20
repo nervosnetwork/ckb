@@ -64,7 +64,7 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     rtx: &'a ResolvedTransaction<'a>,
 
     binary_index: FnvHashMap<H256, usize>,
-    block_data: FnvHashMap<H256, (BlockNumber, BlockExt)>,
+    block_data: FnvHashMap<&'a H256, (BlockNumber, BlockExt)>,
     lock_groups: FnvHashMap<H256, ScriptGroup>,
     type_groups: FnvHashMap<H256, ScriptGroup>,
 
@@ -122,13 +122,13 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             .filter_map(|x| x)
             .collect();
 
-        let mut block_data = FnvHashMap::<H256, (BlockNumber, BlockExt)>::default();
+        let mut block_data = FnvHashMap::<&'a H256, (BlockNumber, BlockExt)>::default();
         let mut lock_groups = FnvHashMap::default();
         let mut type_groups = FnvHashMap::default();
         for (i, resolved_input) in resolved_inputs.iter().enumerate() {
             if let Some(header) = &resolved_input.header {
                 if let Some(block_ext) = data_loader.get_block_ext(header.hash()) {
-                    block_data.insert(header.hash().to_owned(), (header.number(), block_ext));
+                    block_data.insert(header.hash(), (header.number(), block_ext));
                 }
             }
             // here we are only pre-processing the data, verify method validates
@@ -158,7 +158,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         for dep in resolved_deps {
             if let Some(header) = &dep.header {
                 if let Some(block_ext) = data_loader.get_block_ext(header.hash()) {
-                    block_data.insert(header.hash().to_owned(), (header.number(), block_ext));
+                    block_data.insert(header.hash(), (header.number(), block_ext));
                 }
             }
         }
@@ -201,7 +201,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 
     fn build_load_tx_hash(&self) -> LoadTxHash {
-        LoadTxHash::new(&self.hash().as_bytes())
+        LoadTxHash::new(self.hash().as_bytes())
     }
 
     fn build_load_cell(
