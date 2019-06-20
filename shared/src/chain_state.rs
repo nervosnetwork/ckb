@@ -227,15 +227,11 @@ impl<CS: ChainStore> ChainState<CS> {
         self.current_epoch_ext = epoch_ext;
     }
 
-    pub fn update_tip(
+    pub fn update_cell_set(
         &mut self,
-        header: Header,
-        total_difficulty: U256,
         txo_diff: CellSetDiff,
+        batch: &mut StoreBatch,
     ) -> Result<(), FailureError> {
-        self.tip_header = header;
-        self.total_difficulty = total_difficulty;
-
         let CellSetDiff {
             old_inputs,
             old_outputs,
@@ -315,26 +311,31 @@ impl<CS: ChainStore> ChainState<CS> {
             });
         });
 
-        {
-            let mut batch = self.store.new_batch()?;
-            for (tx_hash, tx_meta) in updated_old_inputs.iter() {
-                batch.update_cell_set(&tx_hash, &tx_meta)?;
-            }
-            for tx_hash in removed_old_outputs.iter() {
-                batch.delete_cell_set(&tx_hash)?;
-            }
-            for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
-                batch.update_cell_set(&tx_hash, &tx_meta)?;
-            }
-            for (tx_hash, tx_meta) in updated_new_inputs.iter() {
-                batch.update_cell_set(&tx_hash, &tx_meta)?;
-            }
-            for tx_hash in removed_new_inputs.iter() {
-                batch.delete_cell_set(&tx_hash)?;
-            }
-            batch.commit()?;
+        for (tx_hash, tx_meta) in updated_old_inputs.iter() {
+            batch.update_cell_set(&tx_hash, &tx_meta)?;
         }
+        for tx_hash in removed_old_outputs.iter() {
+            batch.delete_cell_set(&tx_hash)?;
+        }
+        for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
+            batch.update_cell_set(&tx_hash, &tx_meta)?;
+        }
+        for (tx_hash, tx_meta) in updated_new_inputs.iter() {
+            batch.update_cell_set(&tx_hash, &tx_meta)?;
+        }
+        for tx_hash in removed_new_inputs.iter() {
+            batch.delete_cell_set(&tx_hash)?;
+        }
+        Ok(())
+    }
 
+    pub fn update_tip(
+        &mut self,
+        header: Header,
+        total_difficulty: U256,
+    ) -> Result<(), FailureError> {
+        self.tip_header = header;
+        self.total_difficulty = total_difficulty;
         Ok(())
     }
 

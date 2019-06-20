@@ -225,10 +225,10 @@ impl From<Transaction> for CoreTransaction {
 
         TransactionBuilder::default()
             .version(version.0)
-            .deps(deps.into_iter().map(Into::into).collect::<Vec<_>>())
-            .inputs(inputs.into_iter().map(Into::into).collect::<Vec<_>>())
-            .outputs(outputs.into_iter().map(Into::into).collect::<Vec<_>>())
-            .witnesses(witnesses.into_iter().map(Into::into).collect::<Vec<_>>())
+            .deps(deps)
+            .inputs(inputs)
+            .outputs(outputs)
+            .witnesses(witnesses)
             .build()
     }
 }

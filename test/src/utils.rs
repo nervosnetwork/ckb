@@ -62,6 +62,7 @@ pub fn new_block_with_template(template: BlockTemplate) -> Block {
         .timestamp(template.current_time.0)
         .parent_hash(template.parent_hash)
         .seal(Seal::new(rand::random(), Bytes::new()));
+
     BlockBuilder::default()
         .uncles(template.uncles)
         .transaction(cellbase)
