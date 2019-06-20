@@ -13,12 +13,12 @@ use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]
 pub struct LoadInput<'a> {
-    inputs: &'a [&'a CellInput],
+    inputs: &'a [CellInput],
     group_inputs: &'a [usize],
 }
 
 impl<'a> LoadInput<'a> {
-    pub fn new(inputs: &'a [&'a CellInput], group_inputs: &'a [usize]) -> LoadInput<'a> {
+    pub fn new(inputs: &'a [CellInput], group_inputs: &'a [usize]) -> LoadInput<'a> {
         LoadInput {
             inputs,
             group_inputs,
@@ -28,7 +28,7 @@ impl<'a> LoadInput<'a> {
     fn fetch_input(&self, source: Source, index: usize) -> Result<&CellInput, u8> {
         match source {
             Source::Transaction(SourceEntry::Input) => {
-                self.inputs.get(index).cloned().ok_or(INDEX_OUT_OF_BOUND)
+                self.inputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
@@ -36,12 +36,7 @@ impl<'a> LoadInput<'a> {
                 .group_inputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| {
-                    self.inputs
-                        .get(*actual_index)
-                        .cloned()
-                        .ok_or(INDEX_OUT_OF_BOUND)
-                }),
+                .and_then(|actual_index| self.inputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
             Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
         }

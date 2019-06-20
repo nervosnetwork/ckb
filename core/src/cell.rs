@@ -229,7 +229,7 @@ impl HeaderStatus {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ResolvedCell {
     Cell(Box<CellMeta>),
     IssuingDaoInput,
@@ -252,7 +252,7 @@ impl ResolvedCell {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResolvedOutPoint {
     pub cell: ResolvedCell,
     pub header: Option<Box<Header>>,

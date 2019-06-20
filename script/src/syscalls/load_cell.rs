@@ -16,8 +16,8 @@ use flatbuffers::FlatBufferBuilder;
 pub struct LoadCell<'a, DL> {
     data_loader: &'a DL,
     outputs: &'a [CellMeta],
-    resolved_inputs: &'a [&'a ResolvedOutPoint],
-    resolved_deps: &'a [&'a ResolvedOutPoint],
+    resolved_inputs: &'a [ResolvedOutPoint],
+    resolved_deps: &'a [ResolvedOutPoint],
     group_inputs: &'a [usize],
     group_outputs: &'a [usize],
 }
@@ -26,8 +26,8 @@ impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
     pub fn new(
         data_loader: &'a DL,
         outputs: &'a [CellMeta],
-        resolved_inputs: &'a [&'a ResolvedOutPoint],
-        resolved_deps: &'a [&'a ResolvedOutPoint],
+        resolved_inputs: &'a [ResolvedOutPoint],
+        resolved_deps: &'a [ResolvedOutPoint],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
     ) -> LoadCell<'a, DL> {

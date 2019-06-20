@@ -60,14 +60,8 @@ impl ScriptGroup {
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
 
-    // TODO: those are all cached data directly from ResolvedTransaction,
-    // should we change the code to include ResolvedTransaction directly?
-    inputs: Vec<&'a CellInput>,
     outputs: Vec<CellMeta>,
-    resolved_inputs: Vec<&'a ResolvedOutPoint>,
-    resolved_deps: Vec<&'a ResolvedOutPoint>,
-    witnesses: Vec<&'a Witness>,
-    hash: H256,
+    rtx: &'a ResolvedTransaction<'a>,
 
     binary_index: FnvHashMap<H256, usize>,
     block_data: FnvHashMap<H256, (BlockNumber, BlockExt)>,
@@ -88,10 +82,8 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         config: &'a ScriptConfig,
     ) -> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
-        let resolved_deps: Vec<&'a ResolvedOutPoint> = rtx.resolved_deps.iter().collect();
-        let resolved_inputs: Vec<&'a ResolvedOutPoint> = rtx.resolved_inputs.iter().collect();
-        let inputs: Vec<&'a CellInput> = rtx.transaction.inputs().iter().collect();
-        let witnesses: Vec<&'a Witness> = rtx.transaction.witnesses().iter().collect();
+        let resolved_deps = &rtx.resolved_deps;
+        let resolved_inputs = &rtx.resolved_inputs;
         let outputs = rtx
             .transaction
             .outputs()
@@ -163,7 +155,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 type_group_entry.output_indices.push(i);
             }
         }
-        for dep in &resolved_deps {
+        for dep in resolved_deps {
             if let Some(header) = &dep.header {
                 if let Some(block_ext) = data_loader.get_block_ext(header.hash()) {
                     block_data.insert(header.hash().to_owned(), (header.number(), block_ext));
@@ -175,20 +167,41 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             data_loader,
             binary_index,
             block_data,
-            inputs,
             outputs,
-            resolved_inputs,
-            resolved_deps,
-            witnesses,
+            rtx,
             config,
             lock_groups,
             type_groups,
-            hash: tx_hash.to_owned(),
         }
     }
 
+    #[inline]
+    fn inputs(&self) -> &[CellInput] {
+        self.rtx.transaction.inputs()
+    }
+
+    #[inline]
+    fn resolved_inputs(&self) -> &Vec<ResolvedOutPoint> {
+        &self.rtx.resolved_inputs
+    }
+
+    #[inline]
+    fn resolved_deps(&self) -> &Vec<ResolvedOutPoint> {
+        &self.rtx.resolved_deps
+    }
+
+    #[inline]
+    fn witnesses(&self) -> &[Witness] {
+        self.rtx.transaction.witnesses()
+    }
+
+    #[inline]
+    fn hash(&self) -> &H256 {
+        self.rtx.transaction.hash()
+    }
+
     fn build_load_tx_hash(&self) -> LoadTxHash {
-        LoadTxHash::new(&self.hash.as_bytes())
+        LoadTxHash::new(&self.hash().as_bytes())
     }
 
     fn build_load_cell(
@@ -199,8 +212,8 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         LoadCell::new(
             &self.data_loader,
             &self.outputs,
-            &self.resolved_inputs,
-            &self.resolved_deps,
+            self.resolved_inputs(),
+            self.resolved_deps(),
             group_inputs,
             group_outputs,
         )
@@ -214,15 +227,15 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         LoadCode::new(
             &self.data_loader,
             &self.outputs,
-            &self.resolved_inputs,
-            &self.resolved_deps,
+            self.resolved_inputs(),
+            self.resolved_deps(),
             group_inputs,
             group_outputs,
         )
     }
 
     fn build_load_input(&self, group_inputs: &'a [usize]) -> LoadInput {
-        LoadInput::new(&self.inputs, group_inputs)
+        LoadInput::new(self.inputs(), group_inputs)
     }
 
     fn build_load_script_hash(&'a self, hash: &'a [u8]) -> LoadScriptHash<'a> {
@@ -230,17 +243,17 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 
     fn build_load_header(&'a self, group_inputs: &'a [usize]) -> LoadHeader<'a> {
-        LoadHeader::new(&self.resolved_inputs, &self.resolved_deps, group_inputs)
+        LoadHeader::new(self.resolved_inputs(), self.resolved_deps(), group_inputs)
     }
 
     fn build_load_witness(&'a self, group_inputs: &'a [usize]) -> LoadWitness<'a> {
-        LoadWitness::new(&self.witnesses, group_inputs)
+        LoadWitness::new(&self.witnesses(), group_inputs)
     }
 
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
         match self.binary_index.get(&script.code_hash).and_then(|index| {
-            self.resolved_deps[*index]
+            self.resolved_deps()[*index]
                 .cell
                 .cell_meta()
                 .map(|cell_meta| self.data_loader.lazy_load_cell_output(&cell_meta))
@@ -253,7 +266,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
         let mut cycles: Cycle = 0;
         // First, check if all inputs are resolved correctly
-        for resolved_input in &self.resolved_inputs {
+        for resolved_input in self.resolved_inputs() {
             if resolved_input.cell.is_issuing_dao_input() {
                 if !self.valid_dao_withdraw_transaction() {
                     return Err(ScriptError::InvalidIssuingDaoInput);
@@ -278,7 +291,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 info!(
                     "Error validating script group {:x} of transaction {:x}: {:?}",
                     group.script.hash(),
-                    self.hash,
+                    self.hash(),
                     e
                 );
                 e
@@ -319,7 +332,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             // 0. signature from witness
             // 1. withdraw block hash(32 bytes) from input args
             let witness = self
-                .witnesses
+                .witnesses()
                 .get(*input_index)
                 .ok_or(ScriptError::NoWitness)?;
             if witness.len() != 2 {
@@ -333,11 +346,11 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 .ok_or(ScriptError::InvalidDaoWithdrawHeader)?;
 
             let input = self
-                .inputs
+                .inputs()
                 .get(*input_index)
                 .ok_or(ScriptError::ArgumentError)?;
             let resolved_input = self
-                .resolved_inputs
+                .resolved_inputs()
                 .get(*input_index)
                 .ok_or(ScriptError::ArgumentError)?;
             if resolved_input.cell().is_none() {
@@ -552,7 +565,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 
     fn valid_dao_withdraw_transaction(&self) -> bool {
-        self.resolved_inputs.iter().any(|input| {
+        self.resolved_inputs().iter().any(|input| {
             input
                 .cell
                 .cell_meta()
