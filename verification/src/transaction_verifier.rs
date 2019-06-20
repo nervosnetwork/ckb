@@ -309,7 +309,7 @@ enum SinceMetric {
 
 /// RFC 0017
 #[derive(Copy, Clone, Debug)]
-struct Since(u64);
+pub(crate) struct Since(pub(crate) u64);
 
 impl Since {
     pub fn is_absolute(self) -> bool {
@@ -323,7 +323,7 @@ impl Since {
 
     pub fn flags_is_valid(self) -> bool {
         (self.0 & REMAIN_FLAGS_BITS == 0)
-            && ((self.0 & METRIC_TYPE_FLAG_MASK) != (0b0110_0000 << 56))
+            && ((self.0 & METRIC_TYPE_FLAG_MASK) != METRIC_TYPE_FLAG_MASK)
     }
 
     fn extract_metric(self) -> Option<SinceMetric> {

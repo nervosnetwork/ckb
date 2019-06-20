@@ -584,13 +584,24 @@ impl Transaction {
     }
 }
 
-#[derive(Default)]
 pub struct TransactionBuilder {
     version: Version,
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
     witnesses: Vec<Witness>,
+}
+
+impl Default for TransactionBuilder {
+    fn default() -> Self {
+        Self {
+            version: TX_VERSION,
+            deps: Default::default(),
+            inputs: Default::default(),
+            outputs: Default::default(),
+            witnesses: Default::default(),
+        }
+    }
 }
 
 impl TransactionBuilder {
