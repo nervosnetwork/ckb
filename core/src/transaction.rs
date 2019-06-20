@@ -639,7 +639,7 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn inputs(mut self, inputs: Vec<CellInput>) -> Self {
+    pub fn inputs(mut self, inputs: impl IntoIterator<Item = CellInput>) -> Self {
         self.inputs.extend(inputs);
         self
     }
@@ -654,7 +654,7 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn outputs(mut self, outputs: Vec<CellOutput>) -> Self {
+    pub fn outputs(mut self, outputs: impl IntoIterator<Item = CellOutput>) -> Self {
         self.outputs.extend(outputs);
         self
     }
@@ -669,7 +669,7 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn witnesses(mut self, witness: Vec<Witness>) -> Self {
+    pub fn witnesses(mut self, witness: impl IntoIterator<Item = Witness>) -> Self {
         self.witnesses.extend(witness);
         self
     }

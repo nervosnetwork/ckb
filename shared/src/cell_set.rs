@@ -5,6 +5,7 @@ use ckb_store::ChainStore;
 use ckb_util::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::hash_map;
 use std::sync::Arc;
 
 #[derive(Default, Clone, Deserialize, Serialize)]
@@ -213,14 +214,17 @@ impl CellSet {
     }
 
     pub(crate) fn mark_dead(&mut self, cell: &CellOutPoint) -> Option<CellSetOpr> {
-        self.inner.get_mut(&cell.tx_hash).map(|meta| {
-            meta.set_dead(cell.index as usize);
-            if meta.all_dead() {
-                CellSetOpr::Delete
+        if let hash_map::Entry::Occupied(mut o) = self.inner.entry(cell.tx_hash.clone()) {
+            o.get_mut().set_dead(cell.index as usize);
+            if o.get().all_dead() {
+                o.remove_entry();
+                Some(CellSetOpr::Delete)
             } else {
-                CellSetOpr::Update(meta.clone())
+                Some(CellSetOpr::Update(o.get().clone()))
             }
-        })
+        } else {
+            None
+        }
     }
 
     // if we aleady removed the cell, `mark` will return None, else return the meta

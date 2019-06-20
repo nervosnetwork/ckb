@@ -1,6 +1,8 @@
 use crate::{ClientConfig, Work};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
+use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::uncle::UncleBlock;
 use ckb_logger::{debug, error, warn};
 use crossbeam_channel::Sender;
 use failure::Error;
@@ -232,26 +234,26 @@ impl Client {
             .timestamp(current_time.0)
             .parent_hash(parent_hash);
 
+        let uncles: Vec<UncleBlock> = uncles
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?;
+
+        let transactions: Vec<Transaction> = transactions
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?;
+
+        let proposals: Vec<ProposalShortId> = proposals
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?;
+
         let block = BlockBuilder::from_header_builder(header_builder)
-            .uncles(
-                uncles
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-            )
+            .uncles(uncles)
             .transaction(cellbase.try_into()?)
-            .transactions(
-                transactions
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-            )
-            .proposals(
-                proposals
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()?,
-            )
+            .transactions(transactions)
+            .proposals(proposals)
             .build();
 
         let work = Work {
