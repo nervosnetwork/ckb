@@ -333,4 +333,6 @@ fn test_rpc() {
     if print_mode {
         println!("{}", to_string_pretty(&Value::Array(outputs)).unwrap());
     }
+
+    server.close();
 }
