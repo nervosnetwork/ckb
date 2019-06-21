@@ -350,7 +350,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                 .for_each(|block_number| {
                     let index_lock_hashes = lock_hash_index_states
                         .iter()
-                        .filter(|(_, index_state)| index_state.block_number < block_number)
+                        .filter(|(_, index_state)| index_state.block_number <= block_number)
                         .map(|(lock_hash, _)| lock_hash)
                         .cloned()
                         .collect();

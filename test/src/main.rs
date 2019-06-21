@@ -58,6 +58,7 @@ fn main() {
     specs.insert("tx_pool_cycles_limit", Box::new(CyclesLimit));
     specs.insert("alert_propagation", Box::new(AlertPropagation::default()));
     specs.insert("indexer_basic", Box::new(IndexerBasic));
+    specs.insert("genesis_issued_cells", Box::new(GenesisIssuedCells));
 
     if let Some(spec_name) = env::args().nth(3) {
         if let Some(spec) = specs.get(spec_name.as_str()) {

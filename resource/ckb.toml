@@ -55,6 +55,10 @@ ping_timeout_secs = 1200
 connect_outbound_interval_secs = 15
 # If set to true, try to register upnp
 upnp = false
+# If set to true, network service will add discovered local address to peer store, it's helpful for private net development
+discovery_local_address = false # {{
+# dev => discovery_local_address = true
+# }}
 
 [rpc]
 listen_address = "127.0.0.1:8114" # {{

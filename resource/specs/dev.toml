@@ -6,9 +6,6 @@ parent_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 timestamp = 0
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-# run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xd6686c89355859038a1b4e9352f9d383f8f9bdc2a05080971a6c06a93828e91f"
-issued_cells = []
 
 [genesis.seal]
 nonce = 0
@@ -36,6 +33,18 @@ args = []
 [genesis.bootstrap_lock]
 code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
 args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
+
+# issue 5M cell for random generated private key: d00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc
+[[genesis.issued_cells]]
+capacity = 5_000_000_00000000
+lock.code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
+lock.args = ["0xc8328aabcd9b9e8e64fbc566c4385c3bdeb219d7"]
+
+# issue 5M cell for random generated private key: 63d86723e08f0f813a36ce6aa123bb2289d90680ae1e99d4de8cdb334553f24d
+[[genesis.issued_cells]]
+capacity = 5_000_000_00000000
+lock.code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
+lock.args = ["0x470dcdc5e44064909650113a274b3b36aecb6dc7"]
 
 [params]
 epoch_reward = 1_250_000_00000000
