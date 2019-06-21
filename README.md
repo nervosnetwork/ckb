@@ -4,10 +4,9 @@
 [![Telegram Group](https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg)](https://t.me/nervosnetwork)
 [![Nervos Talk](https://img.shields.io/badge/discuss-on%20Nervos%20Talk-3CC68A.svg)](https://talk.nervos.org/)
 
-Branch    | Tests | Coverage
-----------|-------|----------
-master    | [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?branch=master)](https://travis-ci.com/nervosnetwork/ckb) | [![Codecov](https://codecov.io/gh/nervosnetwork/ckb/branch/master/graph/badge.svg)](https://codecov.io/gh/nervosnetwork/ckb/branch/master)
-develop   | [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?branch=develop)](https://travis-ci.com/nervosnetwork/ckb) | [![Codecov](https://codecov.io/gh/nervosnetwork/ckb/branch/develop/graph/badge.svg)](https://codecov.io/gh/nervosnetwork/ckb/branch/develop)
+master | develop
+-------|----------
+[![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?branch=master)](https://travis-ci.com/nervosnetwork/ckb) | [![TravisCI](https://travis-ci.com/nervosnetwork/ckb.svg?branch=develop)](https://travis-ci.com/nervosnetwork/ckb)
 
 ---
 
