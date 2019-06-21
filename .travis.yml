@@ -58,11 +58,11 @@ matrix:
       if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR repo != nervosnetwork/ckb)'
       os: linux
     - name: Linters
       env: CACHE_NAME=linters
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR repo != nervosnetwork/ckb)'
       os: linux
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
@@ -72,7 +72,7 @@ matrix:
         - make clippy
         - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR repo != nervosnetwork/ckb)'
       os: linux
       cache: false
       addons: { apt: { packages: [] } }
