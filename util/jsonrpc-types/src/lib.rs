@@ -38,7 +38,7 @@ pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 pub use self::blockchain::{
-    Block, BlockView, CellInput, CellOutPoint, CellOutput, EpochExt, Header, HeaderView, OutPoint,
+    Block, BlockView, CellInput, CellOutPoint, CellOutput, EpochView, Header, HeaderView, OutPoint,
     Script, Seal, Transaction, TransactionView, TransactionWithStatus, TxStatus, UncleBlock,
     UncleBlockView, Witness,
 };
