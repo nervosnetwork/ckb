@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 ckb-core = { path = "../../core" }
 failure = "0.1.5"
-occupied-capacity = {path = "../occupied-capacity"}
 
 [dev-dependencies]
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

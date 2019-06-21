@@ -16,7 +16,6 @@ jsonrpc-types = { path = "../jsonrpc-types" }
 ckb-logger = { path = "../logger"}
 fnv = "1.0"
 faketime = "0.2.0"
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 failure = "0.1.5"
 bytes = "0.4.12"
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }

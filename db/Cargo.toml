@@ -11,7 +11,6 @@ rocksdb = { version = "0.12.2", default-features = false }
 fnv = "1.0.3"
 serde = "1.0"
 serde_derive = "1.0"
-serde_json = "1.0"
 failure = "0.1.5"
 ckb-logger = { path = "../util/logger" }
 semver = "0.9"

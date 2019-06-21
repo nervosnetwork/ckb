@@ -16,7 +16,6 @@ ckb-sync = { path = "../sync" }
 ckb-protocol = { path = "../protocol"}
 ckb-util = { path = "../util" }
 ckb-chain-spec = { path = "../spec" }
-ckb-resource = { path = "../resource" }
 ckb-rpc= { path = "../rpc" }
 ckb-network-alert = { path = "../util/network-alert" }
 crypto = { path = "../util/crypto" }

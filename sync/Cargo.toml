@@ -25,11 +25,9 @@ serde = "1.0"
 serde_derive = "1.0"
 flatbuffers = "0.6.0"
 ckb-chain-spec = { path = "../spec" }
-bloom-filters = "0.1.0"
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 bytes = "0.4.12"
-hash = {path = "../util/hash"}
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 sentry = "^0.15.4"
 hashbrown = "0.4.0"

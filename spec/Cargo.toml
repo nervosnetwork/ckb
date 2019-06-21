@@ -15,5 +15,4 @@ ckb-core = { path = "../core" }
 ckb-pow = { path = "../pow" }
 ckb-resource = { path = "../resource" }
 occupied-capacity = { path = "../util/occupied-capacity" }
-dao = { path = "../util/dao" }
 jsonrpc-types = { path = "../util/jsonrpc-types" }
