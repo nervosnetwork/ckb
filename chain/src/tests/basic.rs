@@ -1,6 +1,6 @@
 use crate::tests::util::{
-    create_multi_outputs_transaction, create_transaction, create_transaction_with_out_point,
-    gen_block, start_chain, MockChain,
+    create_cellbase, create_multi_outputs_transaction, create_transaction,
+    create_transaction_with_out_point, start_chain, MockChain,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -14,6 +14,7 @@ use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
+use test_chain_utils::{build_block, header_builder};
 
 #[test]
 fn test_genesis_transaction_spend() {
@@ -34,10 +35,10 @@ fn test_genesis_transaction_spend() {
 
     let genesis_tx_hash = root_hash.clone();
 
-    let genesis_block = BlockBuilder::default()
-        .transaction(tx)
-        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
-        .build();
+    let genesis_block = build_block!(
+        transaction: tx,
+        header_builder: header_builder!(difficulty: U256::from(1000u64),),
+    );
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (chain_controller, shared, parent) = start_chain(Some(consensus));
@@ -470,9 +471,9 @@ fn test_chain_get_ancestor() {
 
 #[test]
 fn test_next_epoch_ext() {
-    let genesis_block = BlockBuilder::default()
-        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
-        .build();
+    let genesis_block =
+        build_block!(header_builder: header_builder!(difficulty: U256::from(1000u64),),);
+
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
     consensus.genesis_epoch_ext.set_length(400);
     let epoch = consensus.genesis_epoch_ext.clone();
@@ -490,7 +491,17 @@ fn test_next_epoch_ext() {
         let epoch = shared
             .next_epoch_ext(&last_epoch, &parent)
             .unwrap_or(last_epoch);
-        let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], vec![]);
+
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                timestamp: parent.timestamp() + 20_000,
+                difficulty: epoch.difficulty().clone(),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+        );
+
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
@@ -507,9 +518,20 @@ fn test_next_epoch_ext() {
             .unwrap_or(last_epoch);
         let mut uncles = vec![];
         if i < 26 {
-            uncles.push(chain1[i as usize].clone().into());
+            uncles.push(chain1[i as usize].clone());
         }
-        let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
+
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                timestamp: parent.timestamp() + 20_000,
+                difficulty: epoch.difficulty().clone(),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+            uncles: uncles.clone(),
+        );
+
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
@@ -587,9 +609,20 @@ fn test_next_epoch_ext() {
             .unwrap_or(last_epoch);
         let mut uncles = vec![];
         if i < 11 {
-            uncles.push(chain1[i as usize].clone().into());
+            uncles.push(chain1[i as usize].clone());
         }
-        let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
+
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                timestamp: parent.timestamp() + 20_000,
+                difficulty: epoch.difficulty().clone(),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+            uncles: uncles,
+        );
+
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
@@ -631,9 +664,19 @@ fn test_next_epoch_ext() {
             .unwrap_or(last_epoch);
         let mut uncles = vec![];
         if i < 151 {
-            uncles.push(chain1[i as usize].clone().into());
+            uncles.push(chain1[i as usize].clone());
         }
-        let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                timestamp: parent.timestamp() + 20_000,
+                difficulty: epoch.difficulty().clone(),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+            uncles: uncles,
+        );
+
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");

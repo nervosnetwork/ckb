@@ -1,13 +1,15 @@
 use crate::tests::util::{
-    create_multi_outputs_transaction, create_transaction, create_transaction_with_out_point,
-    gen_block, start_chain, MockChain,
+    create_cellbase, create_multi_outputs_transaction, create_transaction,
+    create_transaction_with_out_point, start_chain, MockChain,
 };
-use ckb_core::block::Block;
+use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::UnresolvableError;
+use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::OutPoint;
 use ckb_shared::error::SharedError;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
+use test_chain_utils::build_block;
 
 #[test]
 fn test_dead_cell_in_same_block() {
@@ -249,53 +251,59 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
 #[test]
 fn test_full_dead_transaction() {
-    let (chain_controller, shared, mut parent) = start_chain(None);
+    let (chain_controller, _shared, mut parent) = start_chain(None);
     let final_number = 20;
     let switch_fork_number = 10;
-    let pin = 3;
+    let proposal_number = 3;
 
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
     let difficulty = parent.difficulty().to_owned();
-    let block = gen_block(
-        &parent,
-        difficulty + U256::from(100u64),
-        vec![],
-        vec![],
-        vec![],
+    let block = build_block!(
+        from_header_builder: {
+            parent_hash: parent.hash().to_owned(),
+            number: parent.number() + 1,
+            difficulty: difficulty + U256::from(100u64),
+        },
+        transaction: create_cellbase(parent.number() + 1),
     );
     chain1.push(block.clone());
     chain2.push(block.clone());
     let root_tx = &block.transactions()[0];
-    let tx1 = create_transaction(root_tx.hash(), 1);
-    let tx1_hash = tx1.hash().clone();
+    let tx1 = create_multi_outputs_transaction(&root_tx, vec![0], 1, vec![1]);
+
     parent = block.header().to_owned();
     for i in 2..switch_fork_number {
         let difficulty = parent.difficulty().to_owned();
-        let new_block = if i == pin {
-            gen_block(
-                &parent,
-                difficulty + U256::from(100u64),
-                vec![],
-                vec![tx1.clone()],
-                vec![],
+        let new_block = if i == proposal_number {
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(100u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
+                proposals: vec![tx1.proposal_short_id()],
             )
-        } else if i == pin + 2 {
-            gen_block(
-                &parent,
-                difficulty + U256::from(100u64),
-                vec![tx1.clone()],
-                vec![],
-                vec![],
+        } else if i == proposal_number + 2 {
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(100u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
+                transactions: vec![tx1.clone()],
             )
         } else {
-            gen_block(
-                &parent,
-                difficulty + U256::from(100u64),
-                vec![],
-                vec![],
-                vec![],
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(100u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
             )
         };
         chain1.push(new_block.clone());
@@ -303,35 +311,39 @@ fn test_full_dead_transaction() {
         parent = new_block.header().to_owned();
     }
 
-    let tx2 = create_transaction(&tx1_hash, 2);
-    let tx2_hash = tx2.hash().clone();
-    let tx3 = create_transaction(&tx2_hash, 3);
+    let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 1, vec![2]);
+    let tx3 = create_multi_outputs_transaction(&tx2, vec![0], 1, vec![3]);
 
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = if i == final_number - 3 {
-            gen_block(
-                &parent,
-                difficulty + U256::from(100u64),
-                vec![],
-                vec![tx2.clone(), tx3.clone()],
-                vec![],
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(100u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
+                proposals: vec![tx2.proposal_short_id(), tx3.proposal_short_id()],
             )
         } else if i == final_number - 1 {
-            gen_block(
-                &parent,
-                difficulty + U256::from(100u64),
-                vec![tx2.clone(), tx3.clone()],
-                vec![],
-                vec![],
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(100u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
+                transactions: vec![tx2.clone(), tx3.clone()],
             )
         } else {
-            gen_block(
-                &parent,
-                difficulty + U256::from(100u64),
-                vec![],
-                vec![],
-                vec![],
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(100u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
             )
         };
         chain1.push(new_block.clone());
@@ -342,28 +354,33 @@ fn test_full_dead_transaction() {
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = if i == final_number - 3 {
-            gen_block(
-                &parent,
-                difficulty + U256::from(101u64),
-                vec![],
-                vec![tx2.clone(), tx3.clone()],
-                vec![],
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(101u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
+                proposals: vec![tx2.proposal_short_id(), tx3.proposal_short_id()],
             )
         } else if i == final_number - 1 {
-            gen_block(
-                &parent,
-                difficulty + U256::from(101u64),
-                vec![tx2.clone(), tx3.clone()],
-                vec![],
-                vec![],
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(101u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
+                transactions: vec![tx2.clone(), tx3.clone()],
             )
         } else {
-            gen_block(
-                &parent,
-                difficulty + U256::from(101u64),
-                vec![],
-                vec![],
-                vec![],
+            build_block!(
+                from_header_builder: {
+                    parent_hash: parent.hash().to_owned(),
+                    number: parent.number() + 1,
+                    difficulty: difficulty + U256::from(101u64),
+                },
+                transaction: create_cellbase(parent.number() + 1),
             )
         };
         chain2.push(new_block.clone());
