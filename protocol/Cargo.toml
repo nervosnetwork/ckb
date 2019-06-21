@@ -15,6 +15,5 @@ ckb-core = { path = "../core" }
 hash = { path = "../util/hash"}
 siphasher = "0.3.0"
 rand = "0.6"
-ckb-util = { path = "../util" }
 ckb-merkle-tree = { path = "../util/merkle-tree"}
 failure = "0.1.5"
