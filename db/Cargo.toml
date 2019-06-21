@@ -13,7 +13,7 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 failure = "0.1.5"
-log = "0.4"
+ckb-logger = { path = "../util/logger" }
 semver = "0.9"
 
 [dev-dependencies]

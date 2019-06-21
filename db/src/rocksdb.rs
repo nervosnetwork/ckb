@@ -2,7 +2,7 @@ use crate::{
     Col, DBConfig, DbBatch, Direction, Error, IterableKeyValueDB, KeyValueDB, KeyValueIteratorItem,
     Result,
 };
-use log::{info, warn};
+use ckb_logger::{info, warn};
 use rocksdb::{
     ColumnFamily, Direction as RdbDirection, Error as RdbError, IteratorMode, Options, WriteBatch,
     DB,

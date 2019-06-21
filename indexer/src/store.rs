@@ -10,10 +10,10 @@ use ckb_db::{
     rocksdb::{RocksDB, RocksdbBatch},
     Col, DBConfig, DbBatch, Direction, IterableKeyValueDB, KeyValueDB,
 };
+use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
-use log::{debug, error, trace};
 use numext_fixed_hash::H256;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -263,13 +263,13 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                 batch.commit();
             }
             Err(err) => {
-                error!(target: "indexer", "indexer db failed to create new batch, error: {:?}", err);
+                error!("indexer db failed to create new batch, error: {:?}", err);
             }
         }
     }
 
     pub fn sync_index_states(&self) {
-        debug!(target: "indexer", "Start sync index states with chain store");
+        debug!("Start sync index states with chain store");
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
         if lock_hash_index_states.is_empty() {
             return;
@@ -376,7 +376,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                 })
         });
 
-        debug!(target: "indexer", "End sync index states with chain store");
+        debug!("End sync index states with chain store");
     }
 
     fn detach_block(
@@ -385,7 +385,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
         index_lock_hashes: &HashSet<H256>,
         block: &Block,
     ) {
-        trace!(target: "indexer", "detach block {:x}", block.header().hash());
+        trace!("detach block {:x}", block.header().hash());
         let block_number = block.header().number();
         block.transactions().iter().rev().for_each(|tx| {
             let tx_hash = tx.hash();
@@ -431,7 +431,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
         index_lock_hashes: &HashSet<H256>,
         block: &Block,
     ) {
-        trace!(target: "indexer", "attach block {:x}", block.header().hash());
+        trace!("attach block {:x}", block.header().hash());
         let block_number = block.header().number();
         block.transactions().iter().for_each(|tx| {
             let tx_hash = tx.hash();
@@ -637,7 +637,7 @@ impl IndexerStoreBatch {
     fn commit(self) {
         // only log the error, indexer store commit failure should not causing the thread to panic entirely.
         if let Err(err) = self.batch.commit() {
-            error!(target: "indexer", "indexer db failed to commit batch, error: {:?}", err)
+            error!("indexer db failed to commit batch, error: {:?}", err)
         }
     }
 }
