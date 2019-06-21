@@ -684,6 +684,7 @@ version = "0.16.0-pre"
 dependencies = [
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-core 0.16.0-pre",
+ "ckb-crypto 0.16.0-pre",
  "ckb-jsonrpc-types 0.16.0-pre",
  "ckb-logger 0.16.0-pre",
  "ckb-multisig 0.16.0-pre",
