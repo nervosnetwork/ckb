@@ -24,13 +24,14 @@ impl Spec for IndexerBasic {
         assert_eq!(0, live_cells.len());
         assert_eq!(0, cell_transactions.len());
 
-        info!("Should return live cells and cell transactions after index the lock hash");
+        // genesis block outputs are indexed also, so the result should be 2
+        info!("Live cells size should be 2 (1 + 1), cell transactions size should be 2 (1 + 1)");
         rpc_client.index_lock_hash(lock_hash.clone(), Some(0));
         let result = wait_until(5, || {
             let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);
             let cell_transactions =
                 rpc_client.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20, None);
-            live_cells.len() == 1 && cell_transactions.len() == 1
+            live_cells.len() == 2 && cell_transactions.len() == 2
         });
         if !result {
             panic!("Wrong indexer store index data");
@@ -50,13 +51,13 @@ impl Spec for IndexerBasic {
         info!("Generate 3 more blocks on node0 to commit 6 txs");
         node0.generate_blocks(3);
         info!(
-            "Live cells size should be 4 (1 + 3), cell transactions size should be 10 (1 + 6 + 3)"
+            "Live cells size should be 5 (2 + 3), cell transactions size should be 11 (2 + 6 + 3)"
         );
         let result = wait_until(5, || {
             let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);
             let cell_transactions =
                 rpc_client.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20, None);
-            live_cells.len() == 4 && cell_transactions.len() == 10
+            live_cells.len() == 5 && cell_transactions.len() == 11
         });
         if !result {
             panic!("Wrong indexer store index data");
@@ -75,12 +76,12 @@ impl Spec for IndexerBasic {
         node1.generate_blocks(5);
         node0.connect(node1);
         node0.waiting_for_sync(node1, 5);
-        info!("Live cells size should be 5, cell transactions size should be 5");
+        info!("Live cells size should be 6, cell transactions size should be 6");
         let result = wait_until(5, || {
             let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);
             let cell_transactions =
                 rpc_client.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20, None);
-            live_cells.len() == 5 && cell_transactions.len() == 5
+            live_cells.len() == 6 && cell_transactions.len() == 6
         });
         if !result {
             panic!("Wrong indexer store index data");
