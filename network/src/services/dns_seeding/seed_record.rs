@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use hash::blake2b_256;
+use ckb_hash::blake2b_256;
 use lazy_static::lazy_static;
 use p2p::{
     multiaddr::{multihash::Multihash, Multiaddr, Protocol},

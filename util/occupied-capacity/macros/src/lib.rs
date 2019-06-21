@@ -4,7 +4,7 @@ use proc_macro_hack::proc_macro_hack;
 use quote::quote;
 use syn::parse_macro_input;
 
-use occupied_capacity_core::Capacity;
+use ckb_occupied_capacity_core::Capacity;
 
 #[proc_macro_hack]
 pub fn capacity_bytes(input: proc_macro::TokenStream) -> proc_macro::TokenStream {

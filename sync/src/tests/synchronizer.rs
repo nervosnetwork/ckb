@@ -15,6 +15,7 @@ use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
+use ckb_test_chain_utils::create_always_success_cell;
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
@@ -23,7 +24,6 @@ use numext_fixed_uint::U256;
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
-use test_chain_utils::create_always_success_cell;
 
 const DEFAULT_CHANNEL: usize = 128;
 

@@ -3,6 +3,7 @@ use crate::header::Header;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
 use crate::Capacity;
 use crate::{BlockNumber, EpochNumber};
+use ckb_occupied_capacity::Result as CapacityResult;
 use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
@@ -638,7 +639,7 @@ impl<'a> ResolvedTransaction<'a> {
         self.resolved_inputs.is_empty()
     }
 
-    pub fn inputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+    pub fn inputs_capacity(&self) -> CapacityResult<Capacity> {
         self.resolved_inputs
             .iter()
             .map(|o| {
@@ -649,7 +650,7 @@ impl<'a> ResolvedTransaction<'a> {
             .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 
-    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+    pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
         self.transaction.outputs_capacity()
     }
 }

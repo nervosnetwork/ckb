@@ -14,11 +14,11 @@ use ckb_notify::NotifyService;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainKVStore, ChainStore};
+use ckb_test_chain_utils::create_always_success_cell;
 use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
-use test_chain_utils::create_always_success_cell;
 
 fn new_header_builder(
     shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,

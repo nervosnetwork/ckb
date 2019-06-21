@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 toml = "0.5.0"
-jsonrpc-types = { path = "../util/jsonrpc-types" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-logger = { path = "../util/logger" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-core = { path = "../core" }
@@ -18,7 +18,7 @@ ckb-util = { path = "../util" }
 ckb-chain-spec = { path = "../spec" }
 ckb-rpc= { path = "../rpc" }
 ckb-network-alert = { path = "../util/network-alert" }
-crypto = { path = "../util/crypto" }
+ckb-crypto = { path = "../util/crypto" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 tempfile = "3.0"
 jsonrpc-client-core = "0.5.0"

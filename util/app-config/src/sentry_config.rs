@@ -1,4 +1,4 @@
-use build_info::Version;
+use ckb_build_info::Version;
 use sentry::{
     configure_scope, init,
     integrations::panic::register_panic_handler,

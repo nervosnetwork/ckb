@@ -1,7 +1,7 @@
+use ckb_jsonrpc_types::{Node, NodeAddress, Unsigned};
 use ckb_network::NetworkController;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Node, NodeAddress, Unsigned};
 
 const MAX_ADDRS: usize = 50;
 

@@ -3,9 +3,9 @@ use crate::utils::wait_until;
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_core::{alert::AlertBuilder, Bytes};
+use ckb_crypto::secp::{Message, Privkey};
 use ckb_network_alert::config::Config as AlertConfig;
 use ckb_rpc::Module as RPCModule;
-use crypto::secp::{Message, Privkey};
 use log::info;
 
 pub struct AlertPropagation {

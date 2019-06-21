@@ -2,9 +2,9 @@ mod alert_propagation;
 
 pub use alert_propagation::AlertPropagation;
 
+use ckb_crypto::secp::Privkey;
+use ckb_jsonrpc_types::JsonBytes;
 use ckb_network_alert::config::Config as AlertConfig;
-use crypto::secp::Privkey;
-use jsonrpc_types::JsonBytes;
 use rand::{thread_rng, Rng};
 
 pub(crate) fn random_privkey() -> Privkey {

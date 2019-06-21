@@ -8,9 +8,9 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_test_chain_utils::create_always_success_cell;
 use ckb_traits::ChainProvider;
 use std::sync::Arc;
-use test_chain_utils::create_always_success_cell;
 
 const TX_FEE: Capacity = capacity_bytes!(10);
 const BLOCK_REWARD: Capacity = capacity_bytes!(1_000);

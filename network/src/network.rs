@@ -12,8 +12,9 @@ use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
-use build_info::Version;
+use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Mutex, RwLock};
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
@@ -44,7 +45,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::usize;
-use stop_handler::{SignalSender, StopHandler};
 use tokio::runtime;
 
 pub(crate) const PING_PROTOCOL_ID: usize = 0;

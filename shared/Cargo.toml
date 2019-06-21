@@ -22,8 +22,8 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }
 ckb-script = { path = "../script" }
-dao-utils = { path = "../util/dao/utils" }
-reward-calculator = { path = "../util/reward-calculator" }
+ckb-dao-utils = { path = "../util/dao/utils" }
+ckb-reward-calculator = { path = "../util/reward-calculator" }
 
 [dev-dependencies]
 env_logger = "0.6"

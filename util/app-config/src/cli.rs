@@ -1,4 +1,4 @@
-use build_info::Version;
+use ckb_build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 

@@ -1,5 +1,6 @@
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
+use ckb_jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
 use ckb_logger::{debug, error};
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
@@ -13,7 +14,6 @@ use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
 use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;

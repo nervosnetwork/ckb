@@ -1,10 +1,10 @@
 use crate::utils::{build_block, build_header, new_block_with_template, wait_until};
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_core::block::Block;
+use ckb_jsonrpc_types::{ChainInfo, Timestamp};
 use ckb_network::PeerIndex;
 use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
-use jsonrpc_types::{ChainInfo, Timestamp};
 use log::info;
 use std::collections::HashSet;
 use std::thread::sleep;

@@ -10,9 +10,15 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, Version};
+use ckb_jsonrpc_types::{
+    BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
+    EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
+    UncleTemplate, Unsigned, Version as JsonVersion,
+};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_verification::TransactionError;
@@ -20,17 +26,11 @@ use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
-use jsonrpc_types::{
-    BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
-    EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
-    UncleTemplate, Unsigned, Version as JsonVersion,
-};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
-use stop_handler::{SignalSender, StopHandler};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
 type BlockTemplateParams = (Option<u64>, Option<u64>, Option<Version>);

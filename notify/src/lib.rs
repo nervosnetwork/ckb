@@ -3,11 +3,11 @@
 use ckb_core::block::Block;
 use ckb_core::service::Request;
 use ckb_logger::{debug, trace, warn};
+use ckb_stop_handler::{SignalSender, StopHandler};
 use crossbeam_channel::{select, Receiver, Sender};
 use fnv::FnvHashMap;
 use std::sync::Arc;
 use std::thread;
-use stop_handler::{SignalSender, StopHandler};
 
 pub const SIGNAL_CHANNEL_SIZE: usize = 1;
 pub const REGISTER_CHANNEL_SIZE: usize = 2;

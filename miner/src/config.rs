@@ -1,5 +1,5 @@
 use crate::worker::{CuckooSimpleConfig, DummyConfig};
-use jsonrpc_types::JsonBytes;
+use ckb_jsonrpc_types::JsonBytes;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 

@@ -7,9 +7,9 @@ use ckb_core::cell::UnresolvableError;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::OutPoint;
 use ckb_shared::error::SharedError;
+use ckb_test_chain_utils::build_block;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
-use test_chain_utils::build_block;
 
 #[test]
 fn test_dead_cell_in_same_block() {

@@ -1,5 +1,5 @@
 [package]
-name = "reward-calculator"
+name = "ckb-reward-calculator"
 version = "0.16.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]

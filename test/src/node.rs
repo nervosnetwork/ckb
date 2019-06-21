@@ -7,7 +7,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
-use jsonrpc_types::JsonBytes;
+use ckb_jsonrpc_types::JsonBytes;
 use log::info;
 use numext_fixed_hash::H256;
 use std::convert::Into;

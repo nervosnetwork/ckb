@@ -1,6 +1,6 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
-use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
+use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_db::RocksDB;
 use ckb_logger::info_target;

@@ -9,7 +9,7 @@ pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs, S
 pub use ckb_miner::BlockAssemblerConfig;
 pub use exit_code::ExitCode;
 
-use build_info::Version;
+use ckb_build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
 use ckb_logger::{info_target, LoggerInitGuard};

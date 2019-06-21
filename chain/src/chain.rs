@@ -7,17 +7,18 @@ use ckb_core::extras::{BlockExt, DaoStats};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
 use ckb_core::{BlockNumber, Cycle};
+use ckb_dao::calculate_dao_data;
 use ckb_logger::{self, debug, error, info, log_enabled, warn};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::ChainProvider;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, ForkContext, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
-use dao::calculate_dao_data;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -28,7 +29,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::{cmp, thread};
-use stop_handler::{SignalSender, StopHandler};
 
 type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<(), FailureError>>;
 

@@ -1,8 +1,8 @@
 mod helper;
 mod subcommand;
 
-use build_info::Version;
 use ckb_app_config::{cli, ExitCode, Setup};
+use ckb_build_info::Version;
 
 pub(crate) const LOG_TARGET_MAIN: &str = "main";
 

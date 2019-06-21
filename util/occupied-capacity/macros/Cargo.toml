@@ -1,5 +1,5 @@
 [package]
-name = "occupied-capacity-macros"
+name = "ckb-occupied-capacity-macros"
 version = "0.16.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -12,4 +12,4 @@ proc-macro = true
 quote = "0.6"
 syn = "0.15"
 proc-macro-hack = "0.5"
-occupied-capacity-core = { path = "../core" }
+ckb-occupied-capacity-core = { path = "../core" }

@@ -4,7 +4,7 @@ mod macros;
 use ckb_core::script::Script;
 use ckb_core::transaction::CellOutput;
 use ckb_core::Capacity;
-use hash::blake2b_256;
+use ckb_hash::blake2b_256;
 use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Read;
