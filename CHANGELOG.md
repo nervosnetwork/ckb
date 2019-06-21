@@ -1,6 +1,13 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [v0.14.2](https://github.com/nervosnetwork/ckb/compare/v0.14.1...v0.14.2) (2019-06-21)
+
+### Bug Fixes
+
+* #1076: `CellSet` is inconsistent in memory and storage (@zhangsoledad)
+* #1066: Check new block based on orphan block pool (@keroro520)
+
 
 # [v0.14.1](https://github.com/nervosnetwork/ckb/compare/v0.14.0...v0.14.1) (2019-06-16)
 
