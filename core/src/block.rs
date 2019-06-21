@@ -211,8 +211,9 @@ impl BlockBuilder {
         self
     }
 
-    pub fn uncles<T>(mut self, uncles: Vec<T>) -> Self
+    pub fn uncles<I, T>(mut self, uncles: I) -> Self
     where
+        I: IntoIterator<Item = T>,
         T: Into<UncleBlock>,
     {
         self.uncles.extend(uncles.into_iter().map(Into::into));
@@ -227,8 +228,9 @@ impl BlockBuilder {
         self
     }
 
-    pub fn transactions<T>(mut self, transactions: Vec<T>) -> Self
+    pub fn transactions<I, T>(mut self, transactions: I) -> Self
     where
+        I: IntoIterator<Item = T>,
         T: Into<Transaction>,
     {
         self.transactions
@@ -244,8 +246,9 @@ impl BlockBuilder {
         self
     }
 
-    pub fn proposals<T>(mut self, proposal_short_ids: Vec<T>) -> Self
+    pub fn proposals<I, T>(mut self, proposal_short_ids: I) -> Self
     where
+        I: IntoIterator<Item = T>,
         T: Into<ProposalShortId>,
     {
         self.proposals

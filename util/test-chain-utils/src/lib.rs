@@ -1,3 +1,6 @@
+#[macro_use]
+mod macros;
+
 use ckb_core::script::Script;
 use ckb_core::transaction::CellOutput;
 use ckb_core::Capacity;

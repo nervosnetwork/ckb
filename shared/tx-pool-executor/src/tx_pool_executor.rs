@@ -244,23 +244,21 @@ mod tests {
                 .outputs(outputs)
                 .build();
 
-            let txs = (10..20)
-                .map(|i| {
-                    TransactionBuilder::default()
-                        .input(CellInput::new(
-                            OutPoint::new_cell(cellbase.hash().to_owned(), i),
-                            0,
-                        ))
-                        .output(CellOutput::new(
-                            capacity_bytes!(50),
-                            Bytes::default(),
-                            always_success_script.to_owned(),
-                            None,
-                        ))
-                        .dep(always_success_out_point.to_owned())
-                        .build()
-                })
-                .collect();
+            let txs = (10..20).map(|i| {
+                TransactionBuilder::default()
+                    .input(CellInput::new(
+                        OutPoint::new_cell(cellbase.hash().to_owned(), i),
+                        0,
+                    ))
+                    .output(CellOutput::new(
+                        capacity_bytes!(50),
+                        Bytes::default(),
+                        always_success_script.to_owned(),
+                        None,
+                    ))
+                    .dep(always_success_out_point.to_owned())
+                    .build()
+            });
 
             let header_builder = HeaderBuilder::default()
                 .parent_hash(block.header().hash().to_owned())
@@ -270,7 +268,7 @@ mod tests {
                 .difficulty(epoch.difficulty().clone());
 
             block = BlockBuilder::default()
-                .transaction(cellbase)
+                .transaction(cellbase.clone())
                 .transactions(txs)
                 .header_builder(header_builder)
                 .build();

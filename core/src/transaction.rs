@@ -651,8 +651,12 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn deps(mut self, deps: Vec<OutPoint>) -> Self {
-        self.deps.extend(deps);
+    pub fn deps<I, T>(mut self, deps: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OutPoint>,
+    {
+        self.deps.extend(deps.into_iter().map(Into::into));
         self
     }
 
@@ -666,8 +670,12 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn inputs(mut self, inputs: Vec<CellInput>) -> Self {
-        self.inputs.extend(inputs);
+    pub fn inputs<I, T>(mut self, inputs: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<CellInput>,
+    {
+        self.inputs.extend(inputs.into_iter().map(Into::into));
         self
     }
 
@@ -681,8 +689,12 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn outputs(mut self, outputs: Vec<CellOutput>) -> Self {
-        self.outputs.extend(outputs);
+    pub fn outputs<I, T>(mut self, outputs: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<CellOutput>,
+    {
+        self.outputs.extend(outputs.into_iter().map(Into::into));
         self
     }
 
@@ -696,8 +708,12 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn witnesses(mut self, witness: Vec<Witness>) -> Self {
-        self.witnesses.extend(witness);
+    pub fn witnesses<I, T>(mut self, witnesses: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Witness>,
+    {
+        self.witnesses.extend(witnesses.into_iter().map(Into::into));
         self
     }
 

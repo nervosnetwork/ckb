@@ -4,7 +4,6 @@ use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
@@ -15,7 +14,9 @@ use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use test_chain_utils::create_always_success_cell;
+use test_chain_utils::{build_block, create_always_success_cell};
+
+const MIN_CAP: Capacity = capacity_bytes!(60);
 
 pub(crate) fn create_always_success_tx() -> Transaction {
     let (ref always_success_cell, _) = create_always_success_cell();
@@ -77,32 +78,47 @@ pub(crate) fn create_cellbase(number: BlockNumber) -> Transaction {
         .build()
 }
 
-pub(crate) fn gen_block(
-    parent_header: &Header,
-    difficulty: U256,
-    transactions: Vec<Transaction>,
-    proposals: Vec<Transaction>,
-    uncles: Vec<UncleBlock>,
-) -> Block {
-    let number = parent_header.number() + 1;
-    let cellbase = create_cellbase(number);
-    let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash().to_owned())
-        .timestamp(parent_header.timestamp() + 20_000)
-        .number(number)
-        .difficulty(difficulty);
+// more flexible mock function for make non-full-dead-cell test case
+pub(crate) fn create_multi_outputs_transaction(
+    parent: &Transaction,
+    indices: Vec<usize>,
+    output_len: usize,
+    data: Vec<u8>,
+) -> Transaction {
+    let (_, always_success_script) = create_always_success_cell();
+    let always_success_out_point = create_always_success_out_point();
 
-    BlockBuilder::default()
-        .transaction(cellbase)
-        .transactions(transactions)
-        .uncles(uncles)
-        .proposals(
-            proposals
-                .iter()
-                .map(Transaction::proposal_short_id)
-                .collect(),
-        )
-        .header_builder(header_builder)
+    let parent_outputs = parent.outputs();
+    let total_capacity = indices
+        .iter()
+        .map(|i| parent_outputs[*i].capacity)
+        .try_fold(Capacity::zero(), Capacity::safe_add)
+        .unwrap();
+
+    let output_capacity = Capacity::shannons(total_capacity.as_u64() / output_len as u64);
+    let reminder = Capacity::shannons(total_capacity.as_u64() % output_len as u64);
+
+    assert!(output_capacity > MIN_CAP);
+    let data = Bytes::from(data);
+
+    let outputs = (0..output_len).map(|i| {
+        let capacity = if i == output_len - 1 {
+            output_capacity.safe_add(reminder).unwrap()
+        } else {
+            output_capacity
+        };
+        CellOutput::new(capacity, data.clone(), always_success_script.clone(), None)
+    });
+
+    let parent_pts = parent.output_pts();
+    let inputs = indices
+        .iter()
+        .map(|i| CellInput::new(parent_pts[*i].clone(), 0));
+
+    TransactionBuilder::default()
+        .outputs(outputs)
+        .inputs(inputs)
+        .dep(always_success_out_point)
         .build()
 }
 
@@ -145,47 +161,57 @@ impl MockChain {
 
     pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<Transaction>) {
         let difficulty = self.difficulty();
-        let new_block = gen_block(
-            self.tip_header(),
-            difficulty + U256::from(100u64),
-            vec![],
-            txs.clone(),
-            vec![],
+        let parent = self.tip_header();
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                difficulty: difficulty + U256::from(100u64),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+            proposals: txs.iter().map(Transaction::proposal_short_id),
         );
         self.blocks.push(new_block);
     }
 
     pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64) {
-        let new_block = gen_block(
-            self.tip_header(),
-            U256::from(difficulty),
-            vec![],
-            vec![],
-            vec![],
+        let parent = self.tip_header();
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                difficulty: U256::from(difficulty),
+            },
+            transaction: create_cellbase(parent.number() + 1),
         );
         self.blocks.push(new_block);
     }
 
     pub fn gen_empty_block(&mut self, diff: u64) {
         let difficulty = self.difficulty();
-        let new_block = gen_block(
-            self.tip_header(),
-            difficulty + U256::from(diff),
-            vec![],
-            vec![],
-            vec![],
+        let parent = self.tip_header();
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                difficulty: difficulty + U256::from(diff),
+            },
+            transaction: create_cellbase(parent.number() + 1),
         );
         self.blocks.push(new_block);
     }
 
     pub fn gen_block_with_commit_txs(&mut self, txs: Vec<Transaction>) {
         let difficulty = self.difficulty();
-        let new_block = gen_block(
-            self.tip_header(),
-            difficulty + U256::from(100u64),
-            txs.clone(),
-            vec![],
-            vec![],
+        let parent = self.tip_header();
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                difficulty: difficulty + U256::from(100u64),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+            transactions: txs,
         );
         self.blocks.push(new_block);
     }
