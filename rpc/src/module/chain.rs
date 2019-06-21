@@ -8,7 +8,7 @@ use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{
     BlockNumber, BlockView, Capacity, CellOutPoint, CellOutputWithOutPoint, CellWithStatus,
-    EpochExt, EpochNumber, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
+    EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
 };
 use numext_fixed_hash::H256;
 
@@ -46,10 +46,10 @@ pub trait ChainRpc {
     fn get_tip_block_number(&self) -> Result<BlockNumber>;
 
     #[rpc(name = "get_current_epoch")]
-    fn get_current_epoch(&self) -> Result<EpochExt>;
+    fn get_current_epoch(&self) -> Result<EpochView>;
 
     #[rpc(name = "get_epoch_by_number")]
-    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochExt>>;
+    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochView>>;
 }
 
 pub(crate) struct ChainRpcImpl<CS> {
@@ -119,21 +119,26 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             .expect("tip header exists"))
     }
 
-    fn get_current_epoch(&self) -> Result<EpochExt> {
+    fn get_current_epoch(&self) -> Result<EpochView> {
         Ok(self
             .shared
             .store()
             .get_current_epoch_ext()
-            .map(Into::into)
+            .map(|ext| EpochView::from_ext(self.shared.consensus().epoch_reward(), &ext))
             .expect("current_epoch exists"))
     }
 
-    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochExt>> {
+    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochView>> {
         Ok(self
             .shared
             .store()
             .get_epoch_index(number.0)
-            .and_then(|hash| self.shared.store().get_epoch_ext(&hash).map(Into::into)))
+            .and_then(|hash| {
+                self.shared
+                    .store()
+                    .get_epoch_ext(&hash)
+                    .map(|ext| EpochView::from_ext(self.shared.consensus().epoch_reward(), &ext))
+            }))
     }
 
     // TODO: we need to build a proper index instead of scanning every time

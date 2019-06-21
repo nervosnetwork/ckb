@@ -6,7 +6,7 @@ use jsonrpc_client_core::{expand_params, jsonrpc_client, Result as JsonRpcResult
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use jsonrpc_types::{
     Alert, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint, CellTransaction,
-    CellWithStatus, ChainInfo, DryRunResult, EpochExt, EpochNumber, HeaderView, LiveCell,
+    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, LiveCell,
     LockHashIndexState, Node, OutPoint, PeerState, Transaction, TransactionWithStatus, TxPoolInfo,
     Unsigned, Version,
 };
@@ -101,7 +101,7 @@ impl RpcClient {
             .0
     }
 
-    pub fn get_current_epoch(&self) -> EpochExt {
+    pub fn get_current_epoch(&self) -> EpochView {
         self.inner
             .lock()
             .get_current_epoch()
@@ -109,7 +109,7 @@ impl RpcClient {
             .expect("rpc call get_current_epoch")
     }
 
-    pub fn get_epoch_by_number(&self, number: CoreEpochNumber) -> Option<EpochExt> {
+    pub fn get_epoch_by_number(&self, number: CoreEpochNumber) -> Option<EpochView> {
         self.inner
             .lock()
             .get_epoch_by_number(EpochNumber(number))
@@ -298,8 +298,8 @@ jsonrpc_client!(pub struct Inner {
     ) -> RpcRequest<Vec<CellOutputWithOutPoint>>;
     pub fn get_live_cell(&mut self, _out_point: OutPoint) -> RpcRequest<CellWithStatus>;
     pub fn get_tip_block_number(&mut self) -> RpcRequest<BlockNumber>;
-    pub fn get_current_epoch(&mut self) -> RpcRequest<EpochExt>;
-    pub fn get_epoch_by_number(&mut self, number: EpochNumber) -> RpcRequest<Option<EpochExt>>;
+    pub fn get_current_epoch(&mut self) -> RpcRequest<EpochView>;
+    pub fn get_epoch_by_number(&mut self, number: EpochNumber) -> RpcRequest<Option<EpochView>>;
     pub fn local_node_info(&mut self) -> RpcRequest<Node>;
     pub fn get_peers(&mut self) -> RpcRequest<Vec<Node>>;
     pub fn get_block_template(
