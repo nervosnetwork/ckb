@@ -18,7 +18,7 @@ bincode = "1.1"
 serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.3"
-log = "0.4"
+ckb-logger = { path = "../util/logger" }
 
 [dev-dependencies]
 tempfile = "3.0"

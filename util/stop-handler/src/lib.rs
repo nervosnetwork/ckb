@@ -1,6 +1,6 @@
+use ckb_logger::error;
 use crossbeam_channel::Sender;
 use futures::sync::oneshot;
-use log::error;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::thread::JoinHandle;
