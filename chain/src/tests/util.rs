@@ -15,6 +15,8 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use test_chain_utils::create_always_success_cell;
 
+const MIN_CAP: Capacity = capacity_bytes!(60);
+
 fn create_always_success_tx() -> Transaction {
     let (always_success_cell, _) = create_always_success_cell();
     TransactionBuilder::default()
@@ -83,13 +85,51 @@ pub(crate) fn gen_block(
         .transaction(cellbase)
         .transactions(transactions)
         .uncles(uncles)
-        .proposals(
-            proposals
-                .iter()
-                .map(Transaction::proposal_short_id)
-                .collect(),
-        )
+        .proposals(proposals.iter().map(Transaction::proposal_short_id))
         .header_builder(header_builder)
+        .build()
+}
+
+// more flexible mock function for make non-full-dead-cell test case
+pub(crate) fn create_multi_outputs_transaction(
+    parent: &Transaction,
+    indices: Vec<usize>,
+    output_len: usize,
+    data: Vec<u8>,
+) -> Transaction {
+    let (_, always_success_script) = create_always_success_cell();
+    let always_success_out_point = create_always_success_out_point();
+
+    let parent_outputs = parent.outputs();
+    let total_capacity = indices
+        .iter()
+        .map(|i| parent_outputs[*i].capacity)
+        .try_fold(Capacity::zero(), Capacity::safe_add)
+        .unwrap();
+
+    let output_capacity = Capacity::shannons(total_capacity.as_u64() / output_len as u64);
+
+    assert!(output_capacity > MIN_CAP);
+    let data = Bytes::from(data);
+
+    let outputs = (0..output_len).map(|_| {
+        CellOutput::new(
+            output_capacity,
+            data.clone(),
+            always_success_script.clone(),
+            None,
+        )
+    });
+
+    let parent_pts = parent.output_pts();
+    let inputs = indices
+        .iter()
+        .map(|i| CellInput::new(parent_pts[*i].clone(), 0));
+
+    TransactionBuilder::default()
+        .outputs(outputs)
+        .inputs(inputs)
+        .dep(always_success_out_point)
         .build()
 }
 

@@ -1,5 +1,6 @@
 use crate::tests::util::{
-    create_transaction, create_transaction_with_out_point, gen_block, start_chain,
+    create_multi_outputs_transaction, create_transaction, create_transaction_with_out_point,
+    gen_block, start_chain,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -94,15 +95,15 @@ fn test_transaction_spend_in_same_block() {
 
     let last_cell_base = &chain.last().unwrap().transactions()[0];
     let last_cell_base_hash = last_cell_base.hash().to_owned();
-    let tx1 = create_transaction(&last_cell_base_hash, 1);
+    let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash().to_owned();
-    let tx2 = create_transaction(&tx1_hash, 2);
+    let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     let tx2_hash = tx2.hash().to_owned();
     let tx2_output = tx2.outputs()[0].clone();
 
     let txs = vec![tx1, tx2];
 
-    for hash in [&last_cell_base_hash, &tx1_hash, &tx2_hash].iter() {
+    for hash in &[&last_cell_base_hash, &tx1_hash, &tx2_hash] {
         assert_eq!(
             shared
                 .lock_chain_state()
@@ -154,14 +155,20 @@ fn test_transaction_spend_in_same_block() {
             .expect("process block ok");
     }
 
-    for hash in [&last_cell_base_hash, &tx1_hash].iter() {
-        assert_eq!(
-            shared
-                .lock_chain_state()
-                .cell(&OutPoint::new_cell(hash.to_owned().to_owned(), 0)),
-            CellStatus::Dead
-        );
-    }
+    // assert last_cell_base_hash is full dead
+    assert_eq!(
+        shared
+            .lock_chain_state()
+            .cell(&OutPoint::new_cell(last_cell_base_hash.to_owned(), 0)),
+        CellStatus::Unknown
+    );
+
+    assert_eq!(
+        shared
+            .lock_chain_state()
+            .cell(&OutPoint::new_cell(tx1_hash.to_owned(), 0)),
+        CellStatus::Dead
+    );
 
     assert_eq!(
         shared
@@ -280,10 +287,10 @@ fn test_transaction_conflict_in_different_blocks() {
     }
 
     let last_cell_base = &chain.last().unwrap().transactions()[0];
-    let tx1 = create_transaction(last_cell_base.hash(), 1);
+    let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash();
-    let tx2 = create_transaction(tx1_hash, 2);
-    let tx3 = create_transaction(tx1_hash, 3);
+    let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![1]);
+    let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     // proposal txs
     {
         let difficulty = parent.difficulty().to_owned();

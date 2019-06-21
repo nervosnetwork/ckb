@@ -5,7 +5,10 @@ use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+};
+use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_resource::Resource;
 use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
@@ -263,29 +266,28 @@ impl Node {
             .parent_hash(parent_hash)
             .seal(Seal::new(rand::random(), Bytes::default()));
 
+        let uncles: Vec<UncleBlock> = uncles
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()
+            .expect("parse uncles failed");
+        let transactions: Vec<Transaction> = transactions
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()
+            .expect("parse commit transactions failed");
+
+        let proposals: Vec<ProposalShortId> = proposals
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()
+            .expect("parse proposal transactions failed");
+
         BlockBuilder::default()
-            .uncles(
-                uncles
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .expect("parse uncles failed"),
-            )
+            .uncles(uncles)
             .transaction(cellbase.try_into().expect("parse cellbase failed"))
-            .transactions(
-                transactions
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .expect("parse commit transactions failed"),
-            )
-            .proposals(
-                proposals
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-                    .expect("parse proposal transactions failed"),
-            )
+            .transactions(transactions)
+            .proposals(proposals)
             .header_builder(header_builder)
     }
 

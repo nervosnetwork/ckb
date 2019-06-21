@@ -316,25 +316,18 @@ mod tests {
     fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
             .inputs(
-                inputs
-                    .into_iter()
-                    .map(|(txid, index)| {
-                        CellInput::new(OutPoint::new_cell(txid.to_owned(), index), 0)
-                    })
-                    .collect(),
+                inputs.into_iter().map(|(txid, index)| {
+                    CellInput::new(OutPoint::new_cell(txid.to_owned(), index), 0)
+                }),
             )
-            .outputs(
-                (0..outputs_len)
-                    .map(|i| {
-                        CellOutput::new(
-                            Capacity::bytes(i + 1).unwrap(),
-                            Bytes::default(),
-                            Script::default(),
-                            None,
-                        )
-                    })
-                    .collect(),
-            )
+            .outputs((0..outputs_len).map(|i| {
+                CellOutput::new(
+                    Capacity::bytes(i + 1).unwrap(),
+                    Bytes::default(),
+                    Script::default(),
+                    None,
+                )
+            }))
             .build()
     }
 

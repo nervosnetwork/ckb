@@ -58,7 +58,9 @@ impl OrphanBlockPool {
     pub fn contains(&self, block: &Block) -> bool {
         self.blocks
             .read()
-            .contains_key(block.header().parent_hash())
+            .get(block.header().parent_hash())
+            .map(|blocks| blocks.contains(block))
+            .unwrap_or(false)
     }
 }
 
