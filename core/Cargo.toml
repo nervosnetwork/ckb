@@ -12,7 +12,6 @@ bincode = "1.1"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 hash = {path = "../util/hash"}
-crypto = {path = "../util/crypto"}
 occupied-capacity = {path = "../util/occupied-capacity"}
 bit-vec = "0.5.1"
 crossbeam-channel = "0.3"

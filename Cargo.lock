@@ -454,7 +454,6 @@ dependencies = [
  "ckb-merkle-tree 0.16.0-pre",
  "ckb-util 0.16.0-pre",
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "crypto 0.16.0-pre",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
