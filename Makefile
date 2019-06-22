@@ -9,11 +9,11 @@ CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use 
 test: ## Run all tests.
 	cargo test ${VERBOSE} --all -- --nocapture
 
+# Tarpaulin only supports x86_64 processors running Linux.
+# https://github.com/xd009642/tarpaulin/issues/161
+# https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
 cov: ## Run code coverage.
-	# Tarpaulin only supports x86_64 processors running Linux.
-	# https://github.com/xd009642/tarpaulin/issues/161
-	# https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
-	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --exclude-files protocol/src/protocol_generated* test/* */tests/ --all -v --out Xml
+	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --timeout 300 --exclude-files protocol/src/protocol_generated* test/* */tests/ --all -v --out Xml
 
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
