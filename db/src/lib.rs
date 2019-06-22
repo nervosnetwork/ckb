@@ -57,3 +57,9 @@ pub trait DbBatch {
     fn delete(&mut self, col: Col, key: &[u8]) -> Result<()>;
     fn commit(self) -> Result<()>;
 }
+
+impl From<ckb_protos::Error> for Error {
+    fn from(err: ckb_protos::Error) -> Self {
+        Error::DBError(err.to_string())
+    }
+}

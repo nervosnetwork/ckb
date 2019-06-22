@@ -1,9 +1,3 @@
-macro_rules! cast {
-    ($expr:expr) => {
-        $expr.expect("deserialize data from database should be ok")
-    };
-}
-
 mod from_common;
 mod from_storage;
 mod to_common;
@@ -41,5 +35,15 @@ pub(crate) trait FbVecIntoIterator<'a, T: flatbuffers::Follow<'a> + 'a> {
 impl<'a, T: flatbuffers::Follow<'a> + 'a> FbVecIntoIterator<'a, T> for flatbuffers::Vector<'a, T> {
     fn iter(self) -> FlatbuffersVectorIterator<'a, T> {
         FlatbuffersVectorIterator::new(self)
+    }
+}
+
+pub(crate) trait OptionShouldBeSome<T> {
+    fn unwrap_some(self) -> crate::Result<T>;
+}
+
+impl<T> OptionShouldBeSome<T> for Option<T> {
+    fn unwrap_some(self) -> crate::Result<T> {
+        self.ok_or(crate::Error::Deserialize)
     }
 }

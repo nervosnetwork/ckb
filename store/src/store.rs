@@ -200,7 +200,8 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         drop(header_cache_unlocked);
 
         self.process_get(COLUMN_BLOCK_HEADER, hash.as_bytes(), |slice| {
-            let header: Header = flatbuffers::get_root::<ckb_protos::StoredHeader>(&slice).into();
+            let header: Header =
+                flatbuffers::get_root::<ckb_protos::StoredHeader>(&slice).try_into()?;
             Ok(Some(header))
         })
         .and_then(|header| {
@@ -216,7 +217,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_uncles(&self, hash: &H256) -> Option<Vec<UncleBlock>> {
         self.process_get(COLUMN_BLOCK_UNCLE, hash.as_bytes(), |slice| {
             let uncles: Vec<UncleBlock> =
-                flatbuffers::get_root::<ckb_protos::StoredUncleBlocks>(&slice).into();
+                flatbuffers::get_root::<ckb_protos::StoredUncleBlocks>(&slice).try_into()?;
             Ok(Some(uncles))
         })
     }
@@ -224,7 +225,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>> {
         self.process_get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), |slice| {
             let uncles: Vec<ProposalShortId> =
-                flatbuffers::get_root::<ckb_protos::StoredProposalShortIds>(&slice).into();
+                flatbuffers::get_root::<ckb_protos::StoredProposalShortIds>(&slice).try_into()?;
             Ok(Some(uncles))
         })
     }
@@ -232,7 +233,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_body(&self, hash: &H256) -> Option<Vec<Transaction>> {
         self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
             let transactions: Vec<Transaction> =
-                flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice).into();
+                flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice).try_into()?;
             Ok(Some(transactions))
         })
     }
@@ -240,14 +241,14 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_txs_hashes(&self, hash: &H256) -> Option<Vec<H256>> {
         self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
             let tx_hashes =
-                flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice).tx_hashes();
+                flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice).tx_hashes()?;
             Ok(Some(tx_hashes))
         })
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
         self.process_get(COLUMN_BLOCK_EXT, block_hash.as_bytes(), |slice| {
-            let ext: BlockExt = flatbuffers::get_root::<ckb_protos::BlockExt>(&slice).into();
+            let ext: BlockExt = flatbuffers::get_root::<ckb_protos::BlockExt>(&slice).try_into()?;
             Ok(Some(ext))
         })
     }
@@ -341,14 +342,16 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_current_epoch_ext(&self) -> Option<EpochExt> {
         self.process_get(COLUMN_META, META_CURRENT_EPOCH_KEY, |slice| {
-            let ext: EpochExt = flatbuffers::get_root::<ckb_protos::StoredEpochExt>(&slice).into();
+            let ext: EpochExt =
+                flatbuffers::get_root::<ckb_protos::StoredEpochExt>(&slice).try_into()?;
             Ok(Some(ext))
         })
     }
 
     fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
         self.process_get(COLUMN_EPOCH, hash.as_bytes(), |slice| {
-            let ext: EpochExt = flatbuffers::get_root::<ckb_protos::StoredEpochExt>(&slice).into();
+            let ext: EpochExt =
+                flatbuffers::get_root::<ckb_protos::StoredEpochExt>(&slice).try_into()?;
             Ok(Some(ext))
         })
     }
@@ -367,7 +370,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.get_transaction_info(&hash).and_then(|info| {
             self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
                 let tx_opt = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
-                    .transaction(info.index);
+                    .transaction(info.index)?;
                 Ok(tx_opt)
             })
             .map(|tx| (tx, info.block_hash))
@@ -377,7 +380,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_transaction_info(&self, hash: &H256) -> Option<TransactionInfo> {
         self.process_get(COLUMN_TRANSACTION_INFO, hash.as_bytes(), |slice| {
             let info: TransactionInfo =
-                flatbuffers::get_root::<ckb_protos::StoredTransactionInfo>(&slice).into();
+                flatbuffers::get_root::<ckb_protos::StoredTransactionInfo>(&slice).try_into()?;
             Ok(Some(info))
         })
     }
@@ -388,7 +391,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             CellKey::calculate(tx_hash, index).as_ref(),
             |slice| {
                 let meta: (Capacity, H256) =
-                    flatbuffers::get_root::<ckb_protos::StoredCellMeta>(&slice).into();
+                    flatbuffers::get_root::<ckb_protos::StoredCellMeta>(&slice).try_into()?;
                 Ok(Some(meta))
             },
         )
@@ -421,7 +424,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_cellbase(&self, hash: &H256) -> Option<Transaction> {
         self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
             let cellbase = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
-                .transaction(0)
+                .transaction(0)?
                 .expect("cellbase address should exist");
             Ok(Some(cellbase))
         })
@@ -443,7 +446,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .and_then(|info| {
                 self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
                     let output_opt = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
-                        .output(info.index, index as usize);
+                        .output(info.index, index as usize)?;
                     Ok(output_opt)
                 })
             })
@@ -464,7 +467,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.traverse(COLUMN_CELL_SET, |hash_slice, tx_meta_bytes| {
             let tx_hash = H256::from_slice(hash_slice).expect("deserialize tx hash should be ok");
             let tx_meta: TransactionMeta =
-                flatbuffers::get_root::<ckb_protos::TransactionMeta>(tx_meta_bytes).into();
+                flatbuffers::get_root::<ckb_protos::TransactionMeta>(tx_meta_bytes).try_into()?;
             callback(tx_hash, tx_meta)
         })
     }

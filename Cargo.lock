@@ -503,6 +503,7 @@ name = "ckb-db"
 version = "0.16.0-pre"
 dependencies = [
  "ckb-logger 0.16.0-pre",
+ "ckb-protos 0.16.0-pre",
  "ckb-util 0.16.0-pre",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -773,6 +774,7 @@ name = "ckb-protos"
 version = "0.16.0-pre"
 dependencies = [
  "ckb-core 0.16.0-pre",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",

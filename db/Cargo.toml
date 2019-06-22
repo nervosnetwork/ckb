@@ -7,6 +7,7 @@ edition = "2018"
 
 [dependencies]
 ckb-util = { path = "../util" }
+ckb-protos = { path = "../protos" }
 rocksdb = { version = "0.12.2", default-features = false }
 fnv = "1.0.3"
 serde = "1.0"
