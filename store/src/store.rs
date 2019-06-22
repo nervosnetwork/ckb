@@ -13,6 +13,7 @@ use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Capacity, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
+use ckb_protos::{self as protos, CanBuild};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
@@ -200,8 +201,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         drop(header_cache_unlocked);
 
         self.process_get(COLUMN_BLOCK_HEADER, hash.as_bytes(), |slice| {
-            let header: Header =
-                flatbuffers::get_root::<ckb_protos::StoredHeader>(&slice).try_into()?;
+            let header: Header = protos::StoredHeader::from_slice(slice).try_into()?;
             Ok(Some(header))
         })
         .and_then(|header| {
@@ -217,7 +217,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_uncles(&self, hash: &H256) -> Option<Vec<UncleBlock>> {
         self.process_get(COLUMN_BLOCK_UNCLE, hash.as_bytes(), |slice| {
             let uncles: Vec<UncleBlock> =
-                flatbuffers::get_root::<ckb_protos::StoredUncleBlocks>(&slice).try_into()?;
+                protos::StoredUncleBlocks::from_slice(slice).try_into()?;
             Ok(Some(uncles))
         })
     }
@@ -225,7 +225,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>> {
         self.process_get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), |slice| {
             let uncles: Vec<ProposalShortId> =
-                flatbuffers::get_root::<ckb_protos::StoredProposalShortIds>(&slice).try_into()?;
+                protos::StoredProposalShortIds::from_slice(slice).try_into()?;
             Ok(Some(uncles))
         })
     }
@@ -233,22 +233,21 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_block_body(&self, hash: &H256) -> Option<Vec<Transaction>> {
         self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
             let transactions: Vec<Transaction> =
-                flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice).try_into()?;
+                protos::StoredBlockBody::from_slice(slice).try_into()?;
             Ok(Some(transactions))
         })
     }
 
     fn get_block_txs_hashes(&self, hash: &H256) -> Option<Vec<H256>> {
         self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
-            let tx_hashes =
-                flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice).tx_hashes()?;
+            let tx_hashes = protos::StoredBlockBody::from_slice(slice).tx_hashes()?;
             Ok(Some(tx_hashes))
         })
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
         self.process_get(COLUMN_BLOCK_EXT, block_hash.as_bytes(), |slice| {
-            let ext: BlockExt = flatbuffers::get_root::<ckb_protos::BlockExt>(&slice).try_into()?;
+            let ext: BlockExt = protos::BlockExt::from_slice(slice).try_into()?;
             Ok(Some(ext))
         })
     }
@@ -342,16 +341,14 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_current_epoch_ext(&self) -> Option<EpochExt> {
         self.process_get(COLUMN_META, META_CURRENT_EPOCH_KEY, |slice| {
-            let ext: EpochExt =
-                flatbuffers::get_root::<ckb_protos::StoredEpochExt>(&slice).try_into()?;
+            let ext: EpochExt = protos::StoredEpochExt::from_slice(slice).try_into()?;
             Ok(Some(ext))
         })
     }
 
     fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
         self.process_get(COLUMN_EPOCH, hash.as_bytes(), |slice| {
-            let ext: EpochExt =
-                flatbuffers::get_root::<ckb_protos::StoredEpochExt>(&slice).try_into()?;
+            let ext: EpochExt = protos::StoredEpochExt::from_slice(slice).try_into()?;
             Ok(Some(ext))
         })
     }
@@ -369,8 +366,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)> {
         self.get_transaction_info(&hash).and_then(|info| {
             self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
-                let tx_opt = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
-                    .transaction(info.index)?;
+                let tx_opt = protos::StoredBlockBody::from_slice(slice).transaction(info.index)?;
                 Ok(tx_opt)
             })
             .map(|tx| (tx, info.block_hash))
@@ -380,7 +376,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     fn get_transaction_info(&self, hash: &H256) -> Option<TransactionInfo> {
         self.process_get(COLUMN_TRANSACTION_INFO, hash.as_bytes(), |slice| {
             let info: TransactionInfo =
-                flatbuffers::get_root::<ckb_protos::StoredTransactionInfo>(&slice).try_into()?;
+                protos::StoredTransactionInfo::from_slice(slice).try_into()?;
             Ok(Some(info))
         })
     }
@@ -391,7 +387,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             CellKey::calculate(tx_hash, index).as_ref(),
             |slice| {
                 let meta: (Capacity, H256) =
-                    flatbuffers::get_root::<ckb_protos::StoredCellMeta>(&slice).try_into()?;
+                    protos::StoredCellMeta::from_slice(slice).try_into()?;
                 Ok(Some(meta))
             },
         )
@@ -423,7 +419,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_cellbase(&self, hash: &H256) -> Option<Transaction> {
         self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
-            let cellbase = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
+            let cellbase = protos::StoredBlockBody::from_slice(slice)
                 .transaction(0)?
                 .expect("cellbase address should exist");
             Ok(Some(cellbase))
@@ -445,7 +441,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.get_transaction_info(&tx_hash)
             .and_then(|info| {
                 self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
-                    let output_opt = flatbuffers::get_root::<ckb_protos::StoredBlockBody>(&slice)
+                    let output_opt = protos::StoredBlockBody::from_slice(slice)
                         .output(info.index, index as usize)?;
                     Ok(output_opt)
                 })
@@ -467,7 +463,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.traverse(COLUMN_CELL_SET, |hash_slice, tx_meta_bytes| {
             let tx_hash = H256::from_slice(hash_slice).expect("deserialize tx hash should be ok");
             let tx_meta: TransactionMeta =
-                flatbuffers::get_root::<ckb_protos::TransactionMeta>(tx_meta_bytes).try_into()?;
+                protos::TransactionMeta::from_slice(tx_meta_bytes).try_into()?;
             callback(tx_hash, tx_meta)
         })
     }
@@ -488,53 +484,31 @@ impl<B: DbBatch> DefaultStoreBatch<B> {
     }
 }
 
-macro_rules! insert_flatbuffers {
-    ($database:ident, $col:ident, $key:expr, $type:ident, $data:expr) => {
-        let builder = &mut flatbuffers::FlatBufferBuilder::new();
-        let proto = ckb_protos::$type::build(builder, $data);
-        builder.finish(proto, None);
-        let slice = builder.finished_data();
-        $database.insert_raw($col, $key, slice)?;
-    };
-}
-
 impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn insert_block(&mut self, block: &Block) -> Result<(), Error> {
         let hash = block.header().hash().as_bytes();
-        insert_flatbuffers!(
-            self,
-            COLUMN_BLOCK_HEADER,
-            hash,
-            StoredHeader,
-            block.header()
-        );
-        insert_flatbuffers!(
-            self,
-            COLUMN_BLOCK_UNCLE,
-            hash,
-            StoredUncleBlocks,
-            block.uncles()
-        );
-        insert_flatbuffers!(
-            self,
-            COLUMN_BLOCK_PROPOSAL_IDS,
-            hash,
-            StoredProposalShortIds,
-            block.proposals()
-        );
-        insert_flatbuffers!(
-            self,
-            COLUMN_BLOCK_BODY,
-            hash,
-            StoredBlockBody,
-            block.transactions()
-        );
+        {
+            let builder = protos::StoredHeader::full_build(block.header());
+            self.insert_raw(COLUMN_BLOCK_HEADER, hash, builder.as_slice())?;
+        }
+        {
+            let builder = protos::StoredUncleBlocks::full_build(block.uncles());
+            self.insert_raw(COLUMN_BLOCK_UNCLE, hash, builder.as_slice())?;
+        }
+        {
+            let builder = protos::StoredProposalShortIds::full_build(block.proposals());
+            self.insert_raw(COLUMN_BLOCK_PROPOSAL_IDS, hash, builder.as_slice())?;
+        }
+        {
+            let builder = protos::StoredBlockBody::full_build(block.transactions());
+            self.insert_raw(COLUMN_BLOCK_BODY, hash, builder.as_slice())?;
+        }
         Ok(())
     }
 
     fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) -> Result<(), Error> {
-        insert_flatbuffers!(self, COLUMN_BLOCK_EXT, block_hash.as_bytes(), BlockExt, ext);
-        Ok(())
+        let builder = protos::BlockExt::full_build(ext);
+        self.insert_raw(COLUMN_BLOCK_EXT, block_hash.as_bytes(), builder.as_slice())
     }
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
@@ -549,13 +523,12 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                     block_epoch: header.epoch(),
                     index,
                 };
-                insert_flatbuffers!(
-                    self,
+                let builder = protos::StoredTransactionInfo::full_build(&info);
+                self.insert_raw(
                     COLUMN_TRANSACTION_INFO,
                     tx_hash.as_bytes(),
-                    StoredTransactionInfo,
-                    &info
-                );
+                    builder.as_slice(),
+                )?;
             }
             for (cell_index, output) in tx.outputs().iter().enumerate() {
                 let out_point = CellOutPoint {
@@ -563,13 +536,9 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                     index: cell_index as u32,
                 };
                 let store_key = out_point.cell_key();
-                insert_flatbuffers!(
-                    self,
-                    COLUMN_CELL_META,
-                    store_key.as_ref(),
-                    StoredCellMeta,
-                    &(output.capacity, output.data_hash())
-                );
+                let data = (output.capacity, output.data_hash());
+                let builder = protos::StoredCellMeta::full_build(&data);
+                self.insert_raw(COLUMN_CELL_META, store_key.as_ref(), builder.as_slice())?;
             }
         }
 
@@ -617,30 +586,19 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn insert_epoch_ext(&mut self, hash: &H256, epoch: &EpochExt) -> Result<(), Error> {
         let epoch_index = hash.as_bytes();
         let epoch_number = epoch.number().to_le_bytes();
-        insert_flatbuffers!(self, COLUMN_EPOCH, epoch_index, StoredEpochExt, epoch);
+        let builder = protos::StoredEpochExt::full_build(epoch);
+        self.insert_raw(COLUMN_EPOCH, epoch_index, builder.as_slice())?;
         self.insert_raw(COLUMN_EPOCH, &epoch_number, epoch_index)
     }
 
     fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {
-        insert_flatbuffers!(
-            self,
-            COLUMN_META,
-            META_CURRENT_EPOCH_KEY,
-            StoredEpochExt,
-            epoch
-        );
-        Ok(())
+        let builder = protos::StoredEpochExt::full_build(epoch);
+        self.insert_raw(COLUMN_META, META_CURRENT_EPOCH_KEY, builder.as_slice())
     }
 
     fn update_cell_set(&mut self, tx_hash: &H256, meta: &TransactionMeta) -> Result<(), Error> {
-        insert_flatbuffers!(
-            self,
-            COLUMN_CELL_SET,
-            tx_hash.as_bytes(),
-            TransactionMeta,
-            meta
-        );
-        Ok(())
+        let builder = protos::TransactionMeta::full_build(meta);
+        self.insert_raw(COLUMN_CELL_SET, tx_hash.as_bytes(), builder.as_slice())
     }
 
     fn delete_cell_set(&mut self, tx_hash: &H256) -> Result<(), Error> {

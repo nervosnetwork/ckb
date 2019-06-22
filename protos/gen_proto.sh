@@ -50,6 +50,17 @@ function gen_one() {
         done
         sed -i "/${flatbuffers}/i\\\n" "${output_dir}/${name}.rs"
     fi
+    grep "^table " "${input_dir}/${name}.fbs" \
+            | sed -n 's/^table \(.*\) {$/\1/p' \
+            | while read table_name; do
+        echo "
+impl<'a> super::${table_name}<'a> {
+    pub fn from_slice(slice: &'a [u8]) -> Self {
+        flatbuffers::get_root::<Self>(&slice)
+    }
+}" >> "${output_dir}/extra_methods.rs"
+    done
+
     rustfmt --emit files --quiet "${output_dir}/${name}.rs"
     if ${use_cfbc}; then
         rustfmt --emit files --quiet "${output_dir}/${name}_builder.rs"
@@ -73,6 +84,9 @@ function main() {
         local name="${fbs_file%.fbs}"
         gen_one "${name}"
     done
+    echo >> "${output_dir}/mod.rs"
+    echo "mod extra_methods;" >> "${output_dir}/mod.rs"
+    rustfmt --emit files --quiet "${output_dir}/extra_methods.rs"
     rustfmt --emit files --quiet "${output_dir}/mod.rs"
 }
 

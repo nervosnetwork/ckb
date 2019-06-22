@@ -10,12 +10,13 @@ use ckb_core::{
     Capacity,
 };
 
-use crate as protos;
+use crate::{self as protos, CanBuild};
 
-impl<'a> protos::StoredBlockCache<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredBlockCache<'a> {
+    type Input = Block;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        block: &Block,
+        block: &Self::Input,
     ) -> WIPOffset<protos::StoredBlockCache<'b>> {
         let header_hash = block.header().hash().into();
         let mut uncle_hashes: Vec<protos::Bytes32> = Vec::with_capacity(block.uncles().len());
@@ -43,10 +44,11 @@ impl<'a> protos::StoredBlockCache<'a> {
     }
 }
 
-impl<'a> protos::StoredBlock<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredBlock<'a> {
+    type Input = Block;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        block: &Block,
+        block: &Self::Input,
     ) -> WIPOffset<protos::StoredBlock<'b>> {
         let data = protos::Block::build(fbb, block);
         let cache = protos::StoredBlockCache::build(fbb, block);
@@ -57,10 +59,11 @@ impl<'a> protos::StoredBlock<'a> {
     }
 }
 
-impl<'a> protos::StoredBlockBodyCache<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredBlockBodyCache<'a> {
+    type Input = [Transaction];
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        transactions: &[Transaction],
+        transactions: &Self::Input,
     ) -> WIPOffset<protos::StoredBlockBodyCache<'b>> {
         let mut tx_hashes: Vec<protos::Bytes32> = Vec::with_capacity(transactions.len());
         let mut tx_witness_hashes: Vec<protos::Bytes32> = Vec::with_capacity(transactions.len());
@@ -79,10 +82,11 @@ impl<'a> protos::StoredBlockBodyCache<'a> {
     }
 }
 
-impl<'a> protos::StoredBlockBody<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredBlockBody<'a> {
+    type Input = [Transaction];
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        transactions: &[Transaction],
+        transactions: &Self::Input,
     ) -> WIPOffset<protos::StoredBlockBody<'b>> {
         let data = protos::BlockBody::build(fbb, transactions);
         let cache = protos::StoredBlockBodyCache::build(fbb, transactions);
@@ -93,10 +97,11 @@ impl<'a> protos::StoredBlockBody<'a> {
     }
 }
 
-impl<'a> protos::StoredHeaderCache<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredHeaderCache<'a> {
+    type Input = Header;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        header: &Header,
+        header: &Self::Input,
     ) -> WIPOffset<protos::StoredHeaderCache<'b>> {
         let hash = header.hash().into();
         let mut builder = protos::StoredHeaderCacheBuilder::new(fbb);
@@ -105,10 +110,11 @@ impl<'a> protos::StoredHeaderCache<'a> {
     }
 }
 
-impl<'a> protos::StoredTransactionInfo<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredTransactionInfo<'a> {
+    type Input = TransactionInfo;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        info: &TransactionInfo,
+        info: &Self::Input,
     ) -> WIPOffset<protos::StoredTransactionInfo<'b>> {
         let data = info.into();
         let mut builder = protos::StoredTransactionInfoBuilder::new(fbb);
@@ -117,10 +123,11 @@ impl<'a> protos::StoredTransactionInfo<'a> {
     }
 }
 
-impl<'a> protos::StoredHeader<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredHeader<'a> {
+    type Input = Header;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        header: &Header,
+        header: &Self::Input,
     ) -> WIPOffset<protos::StoredHeader<'b>> {
         let data = protos::Header::build(fbb, header);
         let cache = protos::StoredHeaderCache::build(fbb, header);
@@ -131,10 +138,11 @@ impl<'a> protos::StoredHeader<'a> {
     }
 }
 
-impl<'a> protos::StoredUncleBlocksCache<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredUncleBlocksCache<'a> {
+    type Input = [UncleBlock];
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        uncles: &[UncleBlock],
+        uncles: &Self::Input,
     ) -> WIPOffset<protos::StoredUncleBlocksCache<'b>> {
         let mut hashes_vec: Vec<protos::Bytes32> = Vec::with_capacity(uncles.len());
         for uncle in uncles {
@@ -147,10 +155,11 @@ impl<'a> protos::StoredUncleBlocksCache<'a> {
     }
 }
 
-impl<'a> protos::StoredUncleBlocks<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredUncleBlocks<'a> {
+    type Input = [UncleBlock];
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        uncles: &[UncleBlock],
+        uncles: &Self::Input,
     ) -> WIPOffset<protos::StoredUncleBlocks<'b>> {
         let vec = uncles
             .iter()
@@ -165,10 +174,11 @@ impl<'a> protos::StoredUncleBlocks<'a> {
     }
 }
 
-impl<'a> protos::StoredProposalShortIds<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredProposalShortIds<'a> {
+    type Input = [ProposalShortId];
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        proposals: &[ProposalShortId],
+        proposals: &Self::Input,
     ) -> WIPOffset<protos::StoredProposalShortIds<'b>> {
         let vec = proposals
             .iter()
@@ -181,10 +191,11 @@ impl<'a> protos::StoredProposalShortIds<'a> {
     }
 }
 
-impl<'a> protos::StoredEpochExt<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredEpochExt<'a> {
+    type Input = EpochExt;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        ext: &EpochExt,
+        ext: &Self::Input,
     ) -> WIPOffset<protos::StoredEpochExt<'b>> {
         let data = ext.into();
         let mut builder = protos::StoredEpochExtBuilder::new(fbb);
@@ -193,10 +204,11 @@ impl<'a> protos::StoredEpochExt<'a> {
     }
 }
 
-impl<'a> protos::StoredCellMeta<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::StoredCellMeta<'a> {
+    type Input = (Capacity, H256);
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        meta: &(Capacity, H256),
+        meta: &Self::Input,
     ) -> WIPOffset<protos::StoredCellMeta<'b>> {
         let data = meta.into();
         let mut builder = protos::StoredCellMetaBuilder::new(fbb);

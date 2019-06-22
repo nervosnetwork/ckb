@@ -13,7 +13,7 @@ use ckb_core::{
     Bytes, Capacity,
 };
 
-use crate as protos;
+use crate::{self as protos, CanBuild};
 
 impl From<&H256> for protos::Bytes32 {
     fn from(h256: &H256) -> Self {
@@ -62,8 +62,12 @@ impl From<&TransactionInfo> for protos::TransactionInfo {
     }
 }
 
-impl<'a> protos::Bytes<'a> {
-    pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, seq: &[u8]) -> WIPOffset<protos::Bytes<'b>> {
+impl<'a> CanBuild<'a> for protos::Bytes<'a> {
+    type Input = [u8];
+    fn build<'b: 'a>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        seq: &Self::Input,
+    ) -> WIPOffset<protos::Bytes<'b>> {
         let seq = fbb.create_vector(seq);
         let mut builder = protos::BytesBuilder::new(fbb);
         builder.add_seq(seq);
@@ -71,10 +75,11 @@ impl<'a> protos::Bytes<'a> {
     }
 }
 
-impl<'a> protos::Script<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::Script<'a> {
+    type Input = Script;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        script: &Script,
+        script: &Self::Input,
     ) -> WIPOffset<protos::Script<'b>> {
         let vec = script
             .args
@@ -92,10 +97,11 @@ impl<'a> protos::Script<'a> {
     }
 }
 
-impl<'a> protos::CellOutput<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::CellOutput<'a> {
+    type Input = CellOutput;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        cell_output: &CellOutput,
+        cell_output: &Self::Input,
     ) -> WIPOffset<protos::CellOutput<'b>> {
         let data = protos::Bytes::build(fbb, &cell_output.data);
         let lock = protos::Script::build(fbb, &cell_output.lock);
@@ -114,10 +120,11 @@ impl<'a> protos::CellOutput<'a> {
     }
 }
 
-impl<'a> protos::CellInput<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::CellInput<'a> {
+    type Input = CellInput;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        cell_input: &CellInput,
+        cell_input: &Self::Input,
     ) -> WIPOffset<protos::CellInput<'b>> {
         let tx_hash = cell_input
             .previous_output
@@ -150,10 +157,11 @@ impl<'a> protos::CellInput<'a> {
     }
 }
 
-impl<'a> protos::Witness<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::Witness<'a> {
+    type Input = [Bytes];
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        witness: &[Bytes],
+        witness: &Self::Input,
     ) -> WIPOffset<protos::Witness<'b>> {
         let data = witness
             .iter()
@@ -167,10 +175,11 @@ impl<'a> protos::Witness<'a> {
     }
 }
 
-impl<'a> protos::Transaction<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::Transaction<'a> {
+    type Input = Transaction;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        transaction: &Transaction,
+        transaction: &Self::Input,
     ) -> WIPOffset<protos::Transaction<'b>> {
         let vec = transaction
             .deps()
@@ -210,10 +219,11 @@ impl<'a> protos::Transaction<'a> {
     }
 }
 
-impl<'a> protos::OutPoint<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::OutPoint<'a> {
+    type Input = OutPoint;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        out_point: &OutPoint,
+        out_point: &Self::Input,
     ) -> WIPOffset<protos::OutPoint<'b>> {
         let tx_hash = out_point.cell.clone().map(|tx| (&tx.tx_hash).into());
         let tx_index = out_point.cell.as_ref().map(|tx| tx.index);
@@ -233,10 +243,11 @@ impl<'a> protos::OutPoint<'a> {
     }
 }
 
-impl<'a> protos::Header<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::Header<'a> {
+    type Input = Header;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        header: &Header,
+        header: &Self::Input,
     ) -> WIPOffset<protos::Header<'b>> {
         let parent_hash = header.parent_hash().into();
         let transactions_root = header.transactions_root().into();
@@ -263,10 +274,11 @@ impl<'a> protos::Header<'a> {
     }
 }
 
-impl<'a> protos::UncleBlock<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::UncleBlock<'a> {
+    type Input = UncleBlock;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        uncle_block: &UncleBlock,
+        uncle_block: &Self::Input,
     ) -> WIPOffset<protos::UncleBlock<'b>> {
         let header = protos::Header::build(fbb, &uncle_block.header());
         let vec = uncle_block
@@ -283,10 +295,11 @@ impl<'a> protos::UncleBlock<'a> {
     }
 }
 
-impl<'a> protos::Block<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::Block<'a> {
+    type Input = Block;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        block: &Block,
+        block: &Self::Input,
     ) -> WIPOffset<protos::Block<'b>> {
         let header = protos::Header::build(fbb, &block.header());
 
@@ -320,10 +333,11 @@ impl<'a> protos::Block<'a> {
     }
 }
 
-impl<'a> protos::BlockBody<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::BlockBody<'a> {
+    type Input = [Transaction];
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        transactions: &[Transaction],
+        transactions: &Self::Input,
     ) -> WIPOffset<protos::BlockBody<'b>> {
         let vec = transactions
             .iter()
@@ -343,10 +357,11 @@ impl From<&DaoStats> for protos::DaoStats {
     }
 }
 
-impl<'a> protos::BlockExt<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::BlockExt<'a> {
+    type Input = BlockExt;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        ext: &BlockExt,
+        ext: &Self::Input,
     ) -> WIPOffset<protos::BlockExt<'b>> {
         let total_difficulty = (&ext.total_difficulty).into();
         let dao_stats = (&ext.dao_stats).into();
@@ -394,10 +409,11 @@ impl From<&EpochExt> for protos::EpochExt {
     }
 }
 
-impl<'a> protos::TransactionMeta<'a> {
-    pub fn build<'b>(
+impl<'a> CanBuild<'a> for protos::TransactionMeta<'a> {
+    type Input = TransactionMeta;
+    fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
-        meta: &TransactionMeta,
+        meta: &Self::Input,
     ) -> WIPOffset<protos::TransactionMeta<'b>> {
         let (block_number, epoch_number, cellbase, bits, len) = meta.destruct();
         let bits = protos::Bytes::build(fbb, &bits);

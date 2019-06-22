@@ -8,3 +8,5 @@ pub use common::*;
 
 pub mod storage;
 pub use storage::*;
+
+mod extra_methods;
