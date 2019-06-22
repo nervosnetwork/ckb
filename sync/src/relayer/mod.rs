@@ -204,7 +204,14 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             );
             fbb.finish(message, None);
 
-            nc.send_message_to(peer, fbb.finished_data().into());
+            if let Err(err) = nc.send_message_to(peer, fbb.finished_data().into()) {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer send GetBlockProposal error {:?}",
+                    err,
+                );
+                self.shared().remove_inflight_proposals(&to_ask_proposals);
+            }
         }
     }
 
@@ -234,7 +241,14 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 })
                 .take(MAX_RELAY_PEERS)
                 .collect();
-            nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data);
+            if let Err(err) = nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data)
+            {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer send block when accept block error: {:?}",
+                    err,
+                );
+            }
         } else {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -346,7 +360,13 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             let message =
                 RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
             fbb.finish(message, None);
-            nc.send_message_to(peer_index, fbb.finished_data().into());
+            if let Err(err) = nc.send_message_to(peer_index, fbb.finished_data().into()) {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer send BlockProposal error: {:?}",
+                    err,
+                );
+            }
         }
     }
 
@@ -378,7 +398,14 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 let message = RelayMessage::build_get_transaction(fbb, &tx_hash);
                 fbb.finish(message, None);
                 let data = fbb.finished_data().into();
-                nc.send_message_to(*peer, data);
+                if let Err(err) = nc.send_message_to(*peer, data) {
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "relayer send Transaction error: {:?}",
+                        err,
+                    );
+                    break;
+                }
             }
         }
     }
@@ -386,8 +413,10 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
 impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
-        nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN);
-        nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN);
+        nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN)
+            .expect("set_notify at init is ok");
     }
 
     fn received(

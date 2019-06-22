@@ -118,7 +118,9 @@ impl CKBProtocolHandler for NetTimeProtocol {
             let fbb = &mut FlatBufferBuilder::new();
             let message = TimeMessage::build_time(fbb, now);
             fbb.finish(message, None);
-            nc.send_message_to(peer_index, fbb.finished_data().into());
+            if let Err(err) = nc.send_message_to(peer_index, fbb.finished_data().into()) {
+                debug!(target: "network", "net_time_checker send message error: {:?}", err);
+            }
         }
     }
 

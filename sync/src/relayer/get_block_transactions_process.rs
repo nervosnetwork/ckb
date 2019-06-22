@@ -51,8 +51,16 @@ impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
             let message = RelayMessage::build_block_transactions(fbb, &block_hash, &transactions);
             fbb.finish(message, None);
 
-            self.nc
-                .send_message_to(self.peer, fbb.finished_data().into());
+            if let Err(err) = self
+                .nc
+                .send_message_to(self.peer, fbb.finished_data().into())
+            {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer send BlockTransactions error: {:?}",
+                    err
+                );
+            }
         }
 
         Ok(())

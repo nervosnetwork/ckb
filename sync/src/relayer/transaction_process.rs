@@ -64,7 +64,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
             peer_state.remove_ask_for_tx(&tx_hash);
         }
 
-        self.nc.future_task({
+        let ret = self.nc.future_task({
             // prepare sync data
             let nc = Arc::clone(&self.nc);
             let self_peer = self.peer;
@@ -94,7 +94,15 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                         let message = RelayMessage::build_transaction_hash(fbb, &tx_hash);
                         fbb.finish(message, None);
                         let data = fbb.finished_data().into();
-                        nc.filter_broadcast(TargetSession::Multi(selected_peers), data);
+                        if let Err(err) =
+                            nc.filter_broadcast(TargetSession::Multi(selected_peers), data)
+                        {
+                            debug_target!(
+                                crate::LOG_TARGET_RELAY,
+                                "relayer send TransactionHash error: {:?}",
+                                err,
+                            );
+                        }
                     }
                     Ok(cycles) => {
                         debug_target!(
@@ -147,6 +155,9 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                 futures::future::ok(())
             }))
         });
+        if let Err(err) = ret {
+            ckb_logger::debug!("relayer send future task error: {:?}", err);
+        }
         Ok(())
     }
 }
