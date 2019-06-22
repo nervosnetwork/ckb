@@ -2,7 +2,7 @@
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use crate::script::Script;
 use crate::{BlockNumber, Bytes, Version};
-use bincode::{deserialize, serialize};
+use bincode::serialize;
 use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use hash::blake2b_256;
@@ -54,22 +54,6 @@ impl AsRef<[u8]> for CellKey {
     }
 }
 
-#[derive(Eq, PartialEq)]
-pub struct CellOutPointRef<'a> {
-    tx_hash: &'a H256,
-    index: u32,
-}
-
-impl<'a> CellOutPointRef<'a> {
-    pub fn new(tx_hash: &'a H256, index: u32) -> CellOutPointRef<'a> {
-        CellOutPointRef { tx_hash, index }
-    }
-
-    pub fn cell_key(&self) -> CellKey {
-        CellKey::calculate(self.tx_hash, self.index)
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct CellOutPoint {
     // Hash of Transaction
@@ -108,13 +92,6 @@ impl CellOutPoint {
 
     pub fn cell_key(&self) -> CellKey {
         CellKey::calculate(&self.tx_hash, self.index)
-    }
-
-    pub fn to_ref(&self) -> CellOutPointRef {
-        CellOutPointRef {
-            tx_hash: &self.tx_hash,
-            index: self.index,
-        }
     }
 }
 
@@ -605,24 +582,6 @@ impl Default for TransactionBuilder {
 }
 
 impl TransactionBuilder {
-    pub fn new(bytes: &[u8]) -> Self {
-        let Transaction {
-            version,
-            deps,
-            inputs,
-            outputs,
-            witnesses,
-            ..
-        } = deserialize(bytes).expect("transaction deserializing should be ok");
-        Self {
-            version,
-            deps,
-            inputs,
-            outputs,
-            witnesses,
-        }
-    }
-
     pub fn from_transaction(transaction: Transaction) -> Self {
         let Transaction {
             version,
