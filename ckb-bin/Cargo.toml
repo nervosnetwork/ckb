@@ -29,10 +29,10 @@ ckb-network-alert = { path = "../util/network-alert" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ctrlc = { version = "3.1", features = ["termination"] }
 ckb-sync = { path = "../sync"}
-crypto = { path = "../util/crypto"}
+ckb-crypto = { path = "../util/crypto"}
 ckb-instrument = { path = "../util/instrument", features = ["progress_bar"] }
-hash = { path = "../util/hash"}
-build-info = { path = "../util/build-info" }
+ckb-hash = { path = "../util/hash"}
+ckb-build-info = { path = "../util/build-info" }
 ckb-traits = { path = "../traits" }
 ckb-verification = { path = "../verification" }
 tempfile = "3.0"

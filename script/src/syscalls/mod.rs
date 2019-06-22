@@ -149,6 +149,7 @@ mod tests {
     use ckb_core::transaction::{CellOutPoint, CellOutput};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
+    use ckb_hash::blake2b_256;
     use ckb_protocol::{CellOutput as FbsCellOutput, Header as FbsHeader, Witness as FbsWitness};
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainKVStore, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
@@ -158,7 +159,6 @@ mod tests {
         CoreMachine, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
     use flatbuffers::FlatBufferBuilder;
-    use hash::blake2b_256;
     use numext_fixed_hash::H256;
     use proptest::{collection::size_range, prelude::*};
     use std::sync::Arc;

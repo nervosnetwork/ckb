@@ -1,8 +1,8 @@
 use ckb_core::cell::{ResolvedCell, ResolvedTransaction};
 use ckb_core::script::DAO_CODE_HASH;
 use ckb_core::{Bytes, Capacity};
+use ckb_dao::calculate_maximum_withdraw;
 use ckb_script_data_loader::DataLoader;
-use dao::calculate_maximum_withdraw;
 use numext_fixed_hash::H256;
 
 // With DAO in consideration, transaction fee calculation is getting more

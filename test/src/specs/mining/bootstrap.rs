@@ -4,7 +4,7 @@ use ckb_chain_spec::ChainSpec;
 use ckb_core::block::Block;
 use ckb_core::script::Script as CoreScript;
 use ckb_core::Bytes;
-use jsonrpc_types::JsonBytes;
+use ckb_jsonrpc_types::JsonBytes;
 use log::info;
 use numext_fixed_hash::{h256, H256};
 

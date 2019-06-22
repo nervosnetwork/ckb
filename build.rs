@@ -28,11 +28,11 @@ fn main() {
     if files_stdout.is_some() {
         println!(
             "cargo:rustc-env=COMMIT_DESCRIBE={}",
-            build_info::get_commit_describe().unwrap_or_default()
+            ckb_build_info::get_commit_describe().unwrap_or_default()
         );
         println!(
             "cargo:rustc-env=COMMIT_DATE={}",
-            build_info::get_commit_date().unwrap_or_default()
+            ckb_build_info::get_commit_date().unwrap_or_default()
         );
 
         println!("cargo:rerun-if-changed=build.rs");

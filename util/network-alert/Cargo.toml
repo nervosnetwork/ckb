@@ -7,12 +7,12 @@ edition = "2018"
 
 [dependencies]
 toml = "0.5.0"
-multisig = { path = "../multisig" }
+ckb-multisig = { path = "../multisig" }
 ckb-core = { path = "../../core" }
 ckb-util = { path = "../../util" }
 ckb-network = { path = "../../network" }
 ckb-protocol = { path = "../../protocol" }
-jsonrpc-types = { path = "../jsonrpc-types" }
+ckb-jsonrpc-types = { path = "../jsonrpc-types" }
 ckb-logger = { path = "../logger"}
 fnv = "1.0"
 faketime = "0.2.0"

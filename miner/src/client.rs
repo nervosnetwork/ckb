@@ -1,6 +1,11 @@
 use crate::{ClientConfig, Work};
 use ckb_core::block::Block;
+use ckb_jsonrpc_types::{
+    error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
+    request::MethodCall, response::Output, version::Version, Block as JsonBlock, BlockTemplate,
+};
 use ckb_logger::{debug, error, warn};
+use ckb_stop_handler::{SignalSender, StopHandler};
 use crossbeam_channel::Sender;
 use failure::Error;
 use futures::sync::{mpsc, oneshot};
@@ -9,17 +14,12 @@ use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::rt::{self, Future, Stream};
 use hyper::Uri;
 use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
-use jsonrpc_types::{
-    error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
-    request::MethodCall, response::Output, version::Version, Block as JsonBlock, BlockTemplate,
-};
 use numext_fixed_hash::H256;
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
 use std::convert::Into;
 use std::thread;
 use std::time;
-use stop_handler::{SignalSender, StopHandler};
 
 type RpcRequest = (oneshot::Sender<Result<Chunk, RpcError>>, MethodCall);
 

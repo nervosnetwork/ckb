@@ -12,7 +12,7 @@ ckb-notify = { path = "../notify" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-traits = { path = "../traits" }
-jsonrpc-types = { path = "../util/jsonrpc-types" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 bincode = "1.1"
 serde = "1.0"

@@ -3,7 +3,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use crypto::bech32::Bech32;
+//! use ckb_crypto::bech32::Bech32;
 //!
 //! let b = Bech32 {
 //!     hrp: "bech32".to_string(),

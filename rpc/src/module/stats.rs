@@ -1,3 +1,4 @@
+use ckb_jsonrpc_types::{AlertMessage, ChainInfo, EpochNumber, PeerState, Timestamp};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -6,7 +7,6 @@ use ckb_traits::BlockMedianTimeContext;
 use ckb_util::Mutex;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{AlertMessage, ChainInfo, EpochNumber, PeerState, Timestamp};
 use std::sync::Arc;
 
 #[rpc]

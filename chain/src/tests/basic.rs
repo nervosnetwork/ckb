@@ -11,10 +11,10 @@ use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, Trans
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_shared::error::SharedError;
 use ckb_store::ChainStore;
+use ckb_test_chain_utils::{build_block, header_builder};
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
-use test_chain_utils::{build_block, header_builder};
 
 #[test]
 fn test_genesis_transaction_spend() {

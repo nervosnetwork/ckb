@@ -5,7 +5,7 @@
 /// ```
 /// use ckb_core::block::{Block, BlockBuilder};
 /// use ckb_core::header::HeaderBuilder;
-/// use test_chain_utils::build_block;
+/// use ckb_test_chain_utils::build_block;
 ///
 /// fn block() -> Block{
 ///     let header = HeaderBuilder::default().build();

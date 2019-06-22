@@ -1,5 +1,5 @@
 [package]
-name = "stop-handler"
+name = "ckb-stop-handler"
 version = "0.16.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"

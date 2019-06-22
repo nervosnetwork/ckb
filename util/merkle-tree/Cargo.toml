@@ -7,5 +7,5 @@ edition = "2018"
 
 [dependencies]
 merkle-cbt = "0.2"
-hash = { path = "../hash"}
+ckb-hash = { path = "../hash"}
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

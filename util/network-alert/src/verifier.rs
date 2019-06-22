@@ -1,9 +1,9 @@
 use crate::config::Config;
 use ckb_core::alert::Alert;
 use ckb_logger::{debug, trace};
+use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
 use failure::Error;
 use fnv::FnvHashSet;
-use multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
 
 pub struct Verifier {
     config: Config,

@@ -1,7 +1,7 @@
 use super::parse_hex_data;
 use ckb_app_config::{cli, ExitCode};
+use ckb_hash::blake2b_256;
 use clap::ArgMatches;
-use hash::blake2b_256;
 use numext_fixed_hash::{H160, H256};
 
 pub fn blake256<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {

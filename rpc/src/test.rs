@@ -19,6 +19,7 @@ use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
 use ckb_sync::{Config as SyncConfig, SyncSharedState, Synchronizer};
+use ckb_test_chain_utils::create_always_success_cell;
 use ckb_traits::chain_provider::ChainProvider;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
@@ -31,7 +32,6 @@ use serde_json::{from_reader, json, to_string_pretty, Map, Value};
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
-use test_chain_utils::create_always_success_cell;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
 
@@ -311,7 +311,7 @@ fn test_rpc() {
         //             CellOutput::new(capacity_bytes!(1000), Bytes::new(), Script::always_success(), None),
         //         )
         //         .build();
-        //     let json_transaction: jsonrpc_types::Transaction = (&transaction).into();
+        //     let json_transaction: ckb_jsonrpc_types::Transaction = (&transaction).into();
         //     let mut object = Map::new();
         //     object.insert("id".to_owned(), json!(1));
         //     object.insert("jsonrpc".to_owned(), json!("2.0"));

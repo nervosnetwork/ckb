@@ -1,6 +1,6 @@
 use bincode::{deserialize, serialize};
+use ckb_hash::blake2b_256;
 use faster_hex::hex_string;
-use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};

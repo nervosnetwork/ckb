@@ -1,5 +1,5 @@
 [package]
-name = "multisig"
+name = "ckb-multisig"
 version = "0.16.0-pre"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 ckb-logger = { path = "../logger" }
-crypto = { path = "../crypto" }
+ckb-crypto = { path = "../crypto" }
 failure = "0.1.5"
 
 [dev-dependencies]

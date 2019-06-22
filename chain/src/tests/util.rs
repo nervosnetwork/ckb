@@ -11,10 +11,10 @@ use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainKVStore;
 use ckb_store::ChainStore;
+use ckb_test_chain_utils::{build_block, create_always_success_cell};
 use ckb_traits::chain_provider::ChainProvider;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use test_chain_utils::{build_block, create_always_success_cell};
 
 const MIN_CAP: Capacity = capacity_bytes!(60);
 

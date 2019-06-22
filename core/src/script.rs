@@ -1,8 +1,8 @@
 use bytes::Bytes;
+use ckb_hash::new_blake2b;
+use ckb_occupied_capacity::{Capacity, Result as CapacityResult};
 use faster_hex::hex_encode;
-use hash::new_blake2b;
 use numext_fixed_hash::{h256, H256};
-use occupied_capacity::{Capacity, Result as CapacityResult};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
@@ -98,7 +98,7 @@ impl Script {
 mod tests {
     use super::Script;
     use crate::{Bytes, Capacity};
-    use hash::blake2b_256;
+    use ckb_hash::blake2b_256;
     use numext_fixed_hash::{h256, H256};
 
     #[test]

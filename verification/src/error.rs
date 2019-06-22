@@ -1,4 +1,5 @@
 use ckb_core::BlockNumber;
+use ckb_occupied_capacity::Error as CapacityError;
 use ckb_script::ScriptError;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -192,18 +193,18 @@ impl TransactionError {
     }
 }
 
-impl From<occupied_capacity::Error> for TransactionError {
-    fn from(error: occupied_capacity::Error) -> Self {
+impl From<CapacityError> for TransactionError {
+    fn from(error: CapacityError) -> Self {
         match error {
-            occupied_capacity::Error::Overflow => TransactionError::CapacityOverflow,
+            CapacityError::Overflow => TransactionError::CapacityOverflow,
         }
     }
 }
 
-impl From<occupied_capacity::Error> for Error {
-    fn from(error: occupied_capacity::Error) -> Self {
+impl From<CapacityError> for Error {
+    fn from(error: CapacityError) -> Self {
         match error {
-            occupied_capacity::Error::Overflow => Error::CapacityOverflow,
+            CapacityError::Overflow => Error::CapacityOverflow,
         }
     }
 }

@@ -7,10 +7,10 @@ edition = "2018"
 build = "build.rs"
 
 [build-dependencies]
-build-info = { path = "util/build-info" }
+ckb-build-info = { path = "util/build-info" }
 
 [dependencies]
-build-info = { path = "util/build-info" }
+ckb-build-info = { path = "util/build-info" }
 ckb-bin = { path = "ckb-bin" }
 
 [dev-dependencies]

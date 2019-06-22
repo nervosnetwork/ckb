@@ -1,5 +1,6 @@
 use crate::error::RPCError;
 use ckb_core::alert::Alert as CoreAlert;
+use ckb_jsonrpc_types::Alert;
 use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
@@ -9,7 +10,6 @@ use ckb_util::Mutex;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::Alert;
 use std::sync::Arc;
 
 #[rpc]

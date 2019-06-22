@@ -3,11 +3,11 @@
 use crate::script::Script;
 use crate::{BlockNumber, Bytes, Version};
 use bincode::serialize;
+use ckb_hash::blake2b_256;
+use ckb_occupied_capacity::{Capacity, Result as CapacityResult};
 use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
-use hash::blake2b_256;
 use numext_fixed_hash::{h256, H256};
-use occupied_capacity::{Capacity, Result as CapacityResult};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt;
@@ -525,7 +525,7 @@ impl Transaction {
         self.outputs.get(i).cloned()
     }
 
-    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+    pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
         self.outputs
             .iter()
             .map(|output| output.capacity)

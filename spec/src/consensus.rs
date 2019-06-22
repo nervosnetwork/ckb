@@ -4,10 +4,10 @@ use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
+use ckb_occupied_capacity::Ratio;
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use occupied_capacity::Ratio;
 use std::cmp;
 use std::sync::Arc;
 

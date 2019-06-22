@@ -185,10 +185,10 @@ mod tests {
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
     use ckb_store::ChainKVStore;
+    use ckb_test_chain_utils::create_always_success_cell;
     use ckb_traits::ChainProvider;
     use faketime::{self, unix_time_as_millis};
     use numext_fixed_uint::U256;
-    use test_chain_utils::create_always_success_cell;
 
     fn setup(height: u64) -> (Shared<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
         let (always_success_cell, always_success_script) = create_always_success_cell();

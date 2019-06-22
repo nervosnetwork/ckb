@@ -1,4 +1,4 @@
-use jsonrpc_types::JsonBytes;
+use ckb_jsonrpc_types::JsonBytes;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

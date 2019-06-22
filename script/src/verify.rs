@@ -12,13 +12,13 @@ use ckb_core::script::{Script, DAO_CODE_HASH};
 use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{BlockNumber, Capacity};
 use ckb_core::{Bytes, Cycle};
+use ckb_dao::calculate_maximum_withdraw;
 use ckb_logger::info;
 use ckb_resource::Resource;
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
     WXorXMemory,
 };
-use dao::calculate_maximum_withdraw;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
 use std::cmp::min;
@@ -589,20 +589,20 @@ mod tests {
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Capacity};
+    use ckb_crypto::secp::{Generator, Privkey};
     use ckb_db::MemoryKeyValueDB;
+    use ckb_hash::blake2b_256;
     use ckb_store::{
         data_loader_wrapper::DataLoaderWrapper, ChainKVStore, ChainStore, StoreBatch, COLUMNS,
     };
-    use crypto::secp::{Generator, Privkey};
     use faster_hex::hex_encode;
-    use hash::blake2b_256;
 
+    use ckb_test_chain_utils::create_always_success_cell;
     use numext_fixed_hash::{h256, H256};
     use std::fs::File;
     use std::io::{Read, Write};
     use std::path::Path;
     use std::sync::Arc;
-    use test_chain_utils::create_always_success_cell;
 
     fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
         tiny_keccak::sha3_256(s.as_ref())
