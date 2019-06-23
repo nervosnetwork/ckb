@@ -34,7 +34,7 @@ use std::collections::{
 use std::fmt;
 use std::mem::swap;
 use std::ops::DerefMut;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -609,6 +609,7 @@ pub struct SyncSharedState<CS> {
 
     n_sync_started: AtomicUsize,
     n_protected_outbound_peers: AtomicUsize,
+    ibd_finished: AtomicBool,
 
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
@@ -658,6 +659,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             shared,
             n_sync_started: AtomicUsize::new(0),
             n_protected_outbound_peers: AtomicUsize::new(0),
+            ibd_finished: AtomicBool::new(false),
             shared_best_header,
             header_map: RwLock::new(HashMap::new()),
             epoch_map: RwLock::new(EpochIndices::default()),
@@ -735,8 +737,18 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn consensus(&self) -> &Consensus {
         self.shared.consensus()
     }
+
     pub fn is_initial_block_download(&self) -> bool {
-        unix_time_as_millis().saturating_sub(self.tip_header().timestamp()) > MAX_TIP_AGE
+        // Once this function has returned false, it must remain false.
+        if self.ibd_finished.load(Ordering::Relaxed) {
+            false
+        } else if unix_time_as_millis().saturating_sub(self.tip_header().timestamp()) > MAX_TIP_AGE
+        {
+            true
+        } else {
+            self.ibd_finished.store(true, Ordering::Relaxed);
+            false
+        }
     }
 
     pub fn shared_best_header(&self) -> HeaderView {
