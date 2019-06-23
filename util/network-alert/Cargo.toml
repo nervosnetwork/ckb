@@ -23,3 +23,6 @@ serde = "1.0"
 serde_derive = "1.0"
 flatbuffers = "0.6.0"
 
+[dev-dependencies]
+ckb-crypto = { path = "../crypto" }
+

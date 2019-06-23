@@ -10,6 +10,8 @@
 pub mod alert_relayer;
 pub mod config;
 pub mod notifier;
+#[cfg(test)]
+mod tests;
 pub mod verifier;
 
 use std::time::Duration;
