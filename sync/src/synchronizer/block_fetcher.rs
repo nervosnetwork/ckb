@@ -182,9 +182,13 @@ where
                 let to_fetch_hash = to_fetch.hash();
 
                 let block_status = self.synchronizer.shared().get_block_status(to_fetch_hash);
-                if block_status == BlockStatus::VALID_MASK
-                    && inflight.insert(self.peer, to_fetch_hash.to_owned())
+                if block_status != BlockStatus::VALID_MASK
+                    || self.synchronizer.orphan_block_pool.contains(&to_fetch)
                 {
+                    continue;
+                }
+
+                if inflight.insert(self.peer, to_fetch_hash.to_owned()) {
                     trace!(
                         "[Synchronizer] inflight insert {:?}------------{:x}",
                         to_fetch.number(),

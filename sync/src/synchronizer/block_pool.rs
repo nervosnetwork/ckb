@@ -1,15 +1,15 @@
 use ckb_core::block::Block;
+use ckb_core::header::Header;
 use ckb_util::RwLock;
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
-use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 
 pub type ParentHash = H256;
 
 #[derive(Default)]
 pub struct OrphanBlockPool {
-    blocks: RwLock<FnvHashMap<ParentHash, FnvHashSet<Block>>>,
+    blocks: RwLock<FnvHashMap<ParentHash, FnvHashMap<H256, Block>>>,
 }
 
 impl OrphanBlockPool {
@@ -27,21 +27,21 @@ impl OrphanBlockPool {
         self.blocks
             .write()
             .entry(block.header().parent_hash().to_owned())
-            .or_insert_with(FnvHashSet::default)
-            .insert(block);
+            .or_insert_with(FnvHashMap::default)
+            .insert(block.header().hash().to_owned(), block);
     }
 
-    pub fn remove_blocks_by_parent(&self, hash: &H256) -> VecDeque<Block> {
+    pub fn remove_blocks_by_parent(&self, hash: &H256) -> Vec<Block> {
         let mut guard = self.blocks.write();
         let mut queue: VecDeque<H256> = VecDeque::new();
-        queue.push_back(hash.clone());
+        queue.push_back(hash.to_owned());
 
-        let mut removed: VecDeque<Block> = VecDeque::new();
+        let mut removed: Vec<Block> = Vec::new();
         while let Some(parent_hash) = queue.pop_front() {
-            if let Entry::Occupied(entry) = guard.entry(parent_hash) {
-                let (_, orphaned) = entry.remove_entry();
-                queue.extend(orphaned.iter().map(|b| b.header().hash().to_owned()));
-                removed.extend(orphaned.into_iter());
+            if let Some(orphaned) = guard.remove(&parent_hash) {
+                let (hashes, blocks): (Vec<_>, Vec<_>) = orphaned.into_iter().unzip();
+                queue.extend(hashes);
+                removed.extend(blocks);
             }
         }
         removed
@@ -55,11 +55,11 @@ impl OrphanBlockPool {
         self.len() == 0
     }
 
-    pub fn contains(&self, block: &Block) -> bool {
+    pub fn contains(&self, header: &Header) -> bool {
         self.blocks
             .read()
-            .get(block.header().parent_hash())
-            .map(|blocks| blocks.contains(block))
+            .get(header.parent_hash())
+            .map(|blocks| blocks.contains_key(header.hash()))
             .unwrap_or(false)
     }
 }
