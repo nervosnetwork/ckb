@@ -29,6 +29,7 @@ members = [
     "util/occupied-capacity",
     "util/stop-handler",
     "util/app-config",
+    "util/sdk",
     "script/data-loader",
     "util/reward-calculator",
     "shared/tx-pool-executor",
