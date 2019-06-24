@@ -17,9 +17,7 @@ ckb-network = { path = "../../network"}
 ckb-rpc = { path = "../../rpc"}
 ckb-miner = { path = "../../miner" }
 ckb-db = { path = "../../db" }
-ckb-pow = { path = "../../pow" }
 ckb-resource = { path = "../../resource"}
-ckb-instrument = { path = "../instrument", features = ["progress_bar"] }
 ckb-shared = { path = "../../shared" }
 ckb-sync = { path = "../../sync"}
 ckb-store = { path = "../../store" }
