@@ -751,6 +751,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         }
     }
 
+    pub fn is_initial_header_sync(&self) -> bool {
+        unix_time_as_millis().saturating_sub(self.shared_best_header().timestamp()) > MAX_TIP_AGE
+    }
+
     pub fn shared_best_header(&self) -> HeaderView {
         self.shared_best_header.read().to_owned()
     }
