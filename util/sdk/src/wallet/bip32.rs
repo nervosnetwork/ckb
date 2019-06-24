@@ -31,7 +31,7 @@ macro_rules! impl_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
         impl<'a> From<&'a [$ty]> for $thing {
             fn from(data: &'a [$ty]) -> $thing {
-                assert_eq!(data.len(), $len);
+                // assert_eq!(data.len(), $len);
                 let mut ret = [0; $len];
                 ret.copy_from_slice(&data[..]);
                 $thing(ret)

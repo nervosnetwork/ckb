@@ -69,7 +69,6 @@ pub struct ChainConfig {
     pub spec: Resource,
 }
 
-const CMD_RUN: &str = "run";
 const CMD_MINER: &str = "miner";
 
 impl AppConfig {
@@ -220,6 +219,8 @@ fn ensure_ckb_dir(r: Resource) -> Result<Resource, ExitCode> {
 mod tests {
     use super::*;
     use ckb_resource::TemplateContext;
+
+    const CMD_RUN: &str = "run";
 
     fn mkdir() -> tempfile::TempDir {
         tempfile::Builder::new()
