@@ -236,6 +236,8 @@ where
         }
 
         if log_enabled!(Level::Debug) {
+            // Regain the updated best known
+            let shared_best_known = self.synchronizer.shared.shared_best_header();
             let chain_state = self.synchronizer.shared.lock_chain_state();
             let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
             debug!(
@@ -285,7 +287,11 @@ where
             .get(&self.peer)
             .map(|state| (state.is_outbound, state.chain_sync.protect))
             .unwrap_or((false, false));
-        if self.synchronizer.shared.is_initial_block_download()
+
+        // The judgment condition should be whether self is still in the header synchronization process.
+        // If the header is also synchronized, and the header given by the node is less than
+        // the maximum length, the node is also a node that is not synchronized, and can be disconnected.
+        if self.synchronizer.shared.is_initial_header_download()
             && headers.len() != MAX_HEADERS_LEN
             && (is_outbound && !is_protected)
         {

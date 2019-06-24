@@ -754,6 +754,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn shared_best_header(&self) -> HeaderView {
         self.shared_best_header.read().to_owned()
     }
+
+    pub fn is_initial_header_download(&self) -> bool {
+        unix_time_as_millis().saturating_sub(self.shared_best_header().timestamp()) > MAX_TIP_AGE
+    }
+
     pub fn set_shared_best_header(&self, header: HeaderView) {
         *self.shared_best_header.write() = header;
     }
