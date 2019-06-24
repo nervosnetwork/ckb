@@ -79,7 +79,7 @@ matrix:
       before_install: skip
       before_cache: skip
       script:
-        - make cargo-license
+        - make check-cargotoml
         - make check-dirty-doc
 
     - name: Integration on macOS

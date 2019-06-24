@@ -89,14 +89,11 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 ##@ Continuous Integration
 
 ci: ## Run recipes for CI.
-ci: crate-name cargo-license fmt check-dirty-doc clippy security-audit test
+ci: check-cargotoml fmt check-dirty-doc clippy security-audit test
 	git diff --exit-code Cargo.lock
 
-crate-name:
-	./devtools/ci/check-pkgname.sh
-
-cargo-license:
-	FILES="$$(find . -name Cargo.toml | xargs grep -L '^license')"; if [ -n "$$FILES" ]; then echo "Missing license in: $${FILES}"; false; fi
+check-cargotoml:
+	./devtools/ci/check-cargotoml.sh
 
 check-dirty-doc:
 	./devtools/doc/jsonfmt.py rpc/json/rpc.json
