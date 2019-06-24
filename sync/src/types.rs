@@ -26,12 +26,9 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
-use std::collections::{
-    hash_map::{Entry, HashMap},
-    hash_set::HashSet,
-    BTreeMap,
-};
+use std::collections::{hash_map::HashMap, hash_set::HashSet, BTreeMap};
 use std::fmt;
+use std::hash::Hash;
 use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -211,9 +208,30 @@ impl PeerState {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
+pub struct Filter<T: Eq + Hash> {
+    inner: LruCache<T, ()>,
+}
+
+impl<T: Eq + Hash> Filter<T> {
+    pub fn new(size: usize) -> Self {
+        Self {
+            inner: LruCache::new(size),
+        }
+    }
+
+    pub fn contains(&self, item: &T) -> bool {
+        self.inner.contains_key(item)
+    }
+
+    pub fn insert(&mut self, item: T) -> bool {
+        self.inner.insert(item, ()).is_none()
+    }
+}
+
+#[derive(Default)]
 pub struct KnownFilter {
-    inner: FnvHashMap<PeerIndex, LruCache<H256, ()>>,
+    inner: FnvHashMap<PeerIndex, Filter<H256>>,
 }
 
 impl KnownFilter {
@@ -221,15 +239,10 @@ impl KnownFilter {
     /// If the filter did not have this value present, `true` is returned.
     /// If the filter did have this value present, `false` is returned.
     pub fn insert(&mut self, index: PeerIndex, hash: H256) -> bool {
-        match self.inner.entry(index) {
-            Entry::Occupied(mut o) => o.get_mut().insert(hash, ()).is_none(),
-            Entry::Vacant(v) => {
-                let mut lru = LruCache::new(FILTER_SIZE);
-                lru.insert(hash, ());
-                v.insert(lru);
-                true
-            }
-        }
+        self.inner
+            .entry(index)
+            .or_insert_with(|| Filter::new(FILTER_SIZE))
+            .insert(hash)
     }
 }
 
@@ -616,7 +629,7 @@ pub struct SyncSharedState<CS> {
     epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
     block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
-    tx_filter: Mutex<LruCache<H256, ()>>,
+    tx_filter: Mutex<Filter<H256>>,
 
     /* Status relevant to peers */
     peers: Peers,
@@ -664,7 +677,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             header_map: RwLock::new(HashMap::new()),
             epoch_map: RwLock::new(EpochIndices::default()),
             block_status_map: Mutex::new(hashbrown::HashMap::new()),
-            tx_filter: Mutex::new(LruCache::new(TX_FILTER_SIZE)),
+            tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
             misbehavior: RwLock::new(FnvHashMap::default()),
             known_blocks: Mutex::new(KnownFilter::default()),
@@ -987,11 +1000,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn mark_as_known_tx(&self, hash: H256) {
         self.inflight_transactions().remove(&hash);
-        self.tx_filter.lock().insert(hash, ());
+        self.tx_filter.lock().insert(hash);
     }
 
     pub fn already_known_tx(&self, hash: &H256) -> bool {
-        self.tx_filter.lock().contains_key(hash)
+        self.tx_filter.lock().contains(hash)
     }
 
     // Return true when the block is that we have requested and received first time.
