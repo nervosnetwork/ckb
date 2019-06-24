@@ -21,6 +21,7 @@ use ckb_vm::{
 };
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
+use std::cell::RefCell;
 use std::cmp::min;
 
 #[cfg(all(unix, target_pointer_width = "64"))]
@@ -65,6 +66,7 @@ pub struct TransactionScriptsVerifier<'a, DL> {
 
     binary_index: FnvHashMap<H256, usize>,
     block_data: FnvHashMap<&'a H256, (BlockNumber, BlockExt)>,
+    binary_data: RefCell<FnvHashMap<H256, Bytes>>,
     lock_groups: FnvHashMap<H256, ScriptGroup>,
     type_groups: FnvHashMap<H256, ScriptGroup>,
 
@@ -84,6 +86,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_deps = &rtx.resolved_deps;
         let resolved_inputs = &rtx.resolved_inputs;
+        let mut binary_data: FnvHashMap<H256, Bytes> = FnvHashMap::default();
         let outputs = rtx
             .transaction
             .outputs()
@@ -111,7 +114,9 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                         Some(hash) => hash.to_owned(),
                         None => {
                             let output = data_loader.lazy_load_cell_output(cell_meta);
-                            output.data_hash()
+                            let hash = output.data_hash();
+                            binary_data.insert(hash.clone(), output.data);
+                            hash
                         }
                     };
                     Some((hash, i))
@@ -166,6 +171,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         TransactionScriptsVerifier {
             data_loader,
             binary_index,
+            binary_data: RefCell::new(binary_data),
             block_data,
             outputs,
             rtx,
@@ -252,13 +258,21 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
+        if let Some(data) = self.binary_data.borrow().get(&script.code_hash) {
+            return Ok(data.to_owned());
+        };
         match self.binary_index.get(&script.code_hash).and_then(|index| {
             self.resolved_deps()[*index]
                 .cell
                 .cell_meta()
                 .map(|cell_meta| self.data_loader.lazy_load_cell_output(&cell_meta))
         }) {
-            Some(cell_output) => Ok(cell_output.data),
+            Some(cell_output) => {
+                self.binary_data
+                    .borrow_mut()
+                    .insert(script.code_hash.clone(), cell_output.data.clone());
+                Ok(cell_output.data)
+            }
             None => Err(ScriptError::InvalidReferenceIndex),
         }
     }
