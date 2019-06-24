@@ -1,9 +1,11 @@
-use ckb_app_config::{ExitCode, StatsArgs};
+use ckb_app_config::ExitCode;
 use ckb_core::BlockNumber;
 use ckb_db::RocksDB;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainKVStore, ChainStore};
 use ckb_traits::chain_provider::ChainProvider;
+
+use crate::args::StatsArgs;
 
 pub fn stats(args: StatsArgs) -> Result<(), ExitCode> {
     let stats = Statics::build(args)?;

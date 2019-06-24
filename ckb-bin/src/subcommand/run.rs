@@ -1,5 +1,4 @@
-use crate::helper::{deadlock_detection, wait_for_exit};
-use ckb_app_config::{ExitCode, RunArgs};
+use ckb_app_config::ExitCode;
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_db::RocksDB;
@@ -15,6 +14,11 @@ use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synch
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::{BlockVerifier, Verifier};
 use std::sync::Arc;
+
+use crate::{
+    args::RunArgs,
+    helper::{deadlock_detection, wait_for_exit},
+};
 
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();

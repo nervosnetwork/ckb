@@ -1,4 +1,4 @@
-use ckb_app_config::{ExitCode, ProfArgs};
+use ckb_app_config::ExitCode;
 use ckb_chain::chain::ChainController;
 use ckb_chain::chain::ChainService;
 use ckb_db::{DBConfig, RocksDB};
@@ -8,6 +8,8 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use std::sync::Arc;
+
+use crate::args::ProfArgs;
 
 pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
     let shared = SharedBuilder::<RocksDB>::default()

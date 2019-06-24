@@ -2,6 +2,8 @@ use ckb_build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 
+use crate::subcommand::cli::cli_main::build_cli;
+
 pub const CMD_RUN: &str = "run";
 pub const CMD_MINER: &str = "miner";
 pub const CMD_EXPORT: &str = "export";
@@ -39,6 +41,8 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
         .about("Nervos CKB - The Common Knowledge Base")
         .version(version.short().as_str())
         .long_version(version.long().as_str())
+        .global_setting(AppSettings::ColoredHelp)
+        .global_setting(AppSettings::DeriveDisplayOrder)
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .arg(
             Arg::with_name(ARG_CONFIG_DIR)
@@ -54,7 +58,7 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
         .subcommand(miner())
         .subcommand(export())
         .subcommand(import())
-        .subcommand(cli())
+        .subcommand(build_cli())
         .subcommand(init())
         .subcommand(prof())
         .subcommand(stats())
@@ -148,74 +152,6 @@ fn import() -> App<'static, 'static> {
                 .required(true)
                 .index(1)
                 .help("Specifies the exported data path."),
-        )
-}
-
-fn cli() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_CLI)
-        .about("CLI tools")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .subcommand(cli_hashes())
-        .subcommand(cli_blake256())
-        .subcommand(cli_blake160())
-        .subcommand(cli_secp256k1_lock())
-}
-
-fn cli_hashes() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_HASHES)
-        .about("Lists well known hashes")
-        .arg(
-            Arg::with_name(ARG_BUNDLED)
-                .short("b")
-                .long(ARG_BUNDLED)
-                .help(
-                    "Lists hashes of the bundled chain specs instead of the current effective one.",
-                ),
-        )
-}
-
-fn arg_hex_data() -> Arg<'static, 'static> {
-    Arg::with_name(ARG_DATA)
-        .short("d")
-        .long(ARG_DATA)
-        .value_name("hex")
-        .required(true)
-        .index(1)
-        .help("The data encoded in hex.")
-}
-
-fn cli_blake256() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_BLAKE256)
-        .about("Hashes data using blake2b with CKB personal option, prints first 256 bits.")
-        .arg(arg_hex_data())
-}
-
-fn cli_blake160() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_BLAKE160)
-        .about("Hashes data using blake2b with CKB personal option, prints first 160 bits.")
-        .arg(arg_hex_data())
-}
-
-fn cli_secp256k1_lock() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_SECP256K1_LOCK)
-        .about("Prints lock structure from secp256k1 pubkey")
-        .arg(
-            Arg::with_name(ARG_DATA)
-                .short("d")
-                .long(ARG_DATA)
-                .required(true)
-                .index(1)
-                .help("Pubkey encoded in hex, either uncompressed 65 bytes or compresed 33 bytes"),
-        )
-        .arg(
-            Arg::with_name(ARG_FORMAT)
-                .long(ARG_FORMAT)
-                .short("s")
-                .possible_values(&["toml", "cmd"])
-                .default_value("toml")
-                .required(true)
-                .takes_value(true)
-                .help("Output format. toml: ckb.toml, cmd: command line options for `ckb init`"),
         )
 }
 

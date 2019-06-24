@@ -24,7 +24,7 @@ use ckb_store::StoreConfig;
 use ckb_sync::Config as SyncConfig;
 
 use super::sentry_config::SentryConfig;
-use super::{cli, ExitCode};
+use super::ExitCode;
 
 pub enum AppConfig {
     CKB(Box<CKBAppConfig>),
@@ -69,13 +69,16 @@ pub struct ChainConfig {
     pub spec: Resource,
 }
 
+const CMD_RUN: &str = "run";
+const CMD_MINER: &str = "miner";
+
 impl AppConfig {
     pub fn load_for_subcommand<P: AsRef<Path>>(
         root_dir: P,
         subcommand_name: &str,
     ) -> Result<AppConfig, ExitCode> {
         match subcommand_name {
-            cli::CMD_MINER => {
+            CMD_MINER => {
                 let resource = ensure_ckb_dir(Resource::miner_config(root_dir.as_ref()))?;
                 let config: MinerAppConfig = toml::from_slice(&resource.get()?)?;
 
@@ -252,7 +255,7 @@ mod tests {
             Resource::bundled_ckb_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
@@ -271,7 +274,7 @@ mod tests {
             Resource::bundled_miner_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));
@@ -299,7 +302,7 @@ mod tests {
             Resource::bundled_ckb_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(ckb_config.logger.file, None);
@@ -310,7 +313,7 @@ mod tests {
             Resource::bundled_miner_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(miner_config.logger.file, None);
@@ -335,7 +338,7 @@ mod tests {
             Resource::bundled_ckb_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
@@ -354,7 +357,7 @@ mod tests {
             Resource::bundled_miner_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));
@@ -382,7 +385,7 @@ mod tests {
             Resource::bundled_ckb_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(
@@ -399,7 +402,7 @@ mod tests {
             Resource::bundled_miner_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(
@@ -427,7 +430,7 @@ mod tests {
             Resource::bundled_ckb_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_RUN)
                 .unwrap_or_else(|err| panic!(err));
             let ckb_config = app_config.into_ckb().unwrap_or_else(|err| panic!(err));
             assert_eq!(ckb_config.logger.filter, Some("info".to_string()));
@@ -446,7 +449,7 @@ mod tests {
             Resource::bundled_miner_config()
                 .export(&context, dir.path())
                 .expect("export config files");
-            let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_MINER)
+            let app_config = AppConfig::load_for_subcommand(dir.path(), CMD_MINER)
                 .unwrap_or_else(|err| panic!(err));
             let miner_config = app_config.into_miner().unwrap_or_else(|err| panic!(err));
             assert_eq!(miner_config.logger.filter, Some("info".to_string()));

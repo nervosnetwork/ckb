@@ -6,15 +6,12 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-clap = { version = "2" }
-serde = "1.0"
-serde_derive = "1.0"
-toml = "0.5"
-crossbeam-channel = "0.3"
 ckb-app-config = { path = "../util/app-config" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-logger = { path = "../util/logger" }
 ckb-util = { path = "../util" }
 ckb-core = { path = "../core" }
+ckb-pow = { path = "../pow" }
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
@@ -26,8 +23,6 @@ ckb-network = { path = "../network"}
 ckb-rpc = { path = "../rpc"}
 ckb-resource = { path = "../resource"}
 ckb-network-alert = { path = "../util/network-alert" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ctrlc = { version = "3.1", features = ["termination"] }
 ckb-sync = { path = "../sync"}
 ckb-crypto = { path = "../util/crypto"}
 ckb-instrument = { path = "../util/instrument", features = ["progress_bar"] }
@@ -35,6 +30,38 @@ ckb-hash = { path = "../util/hash"}
 ckb-build-info = { path = "../util/build-info" }
 ckb-traits = { path = "../traits" }
 ckb-verification = { path = "../verification" }
+ckb-script = { path = "../script" }
+ckb-sdk = { path = "../util/sdk" }
+
+clap = { version = "2" }
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+serde_yaml = "0.8.9"
+yaml-rust = "0.4.3"
+toml = "0.5"
+regex = "1.1.6"
+atty = "^0.2.10"
+url = "1.7.2"
+log = "0.4.6"
+env_logger = "0.6"
+secp256k1 = {version = "0.12.2" }
+crossbeam-channel = "0.3"
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+ctrlc = { version = "3.1", features = ["termination"] }
 tempfile = "3.0"
 faster-hex = "0.3"
-ckb-script = { path = "../script" }
+bytes = { version="0.4", features = ["serde"] }
+sentry = "^0.15.4"
+jsonrpc-client-core = "0.5.0"
+rustyline = "4.0.0"
+ansi_term = "^0.11.0"
+colored = "^1.6.0"
+rpassword = "3.0.2"
+dtoa = "0.4"
+dirs = "1.0.5"
+shell-words = "0.1.0"
+
+[target.'cfg(unix)'.dependencies]
+tui = "0.6.0"
+termion = "1.5"

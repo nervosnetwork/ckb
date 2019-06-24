@@ -1,10 +1,12 @@
-use ckb_app_config::{ExitCode, InitArgs};
+use ckb_app_config::ExitCode;
 use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME,
     CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
     SPEC_DEV_FILE_NAME,
 };
 use ckb_script::Runner;
+
+use crate::args::InitArgs;
 
 pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     if args.list_chains {

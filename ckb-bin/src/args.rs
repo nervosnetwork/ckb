@@ -1,4 +1,4 @@
-use super::app_config::CKBAppConfig;
+use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_instrument::Format;
 use ckb_miner::MinerConfig;

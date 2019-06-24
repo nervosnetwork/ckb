@@ -1,9 +1,11 @@
-use ckb_app_config::{ExitCode, ImportArgs};
+use ckb_app_config::ExitCode;
 use ckb_chain::chain::ChainService;
 use ckb_db::RocksDB;
 use ckb_instrument::Import;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
+
+use crate::args::ImportArgs;
 
 pub fn import(args: ImportArgs) -> Result<(), ExitCode> {
     let shared = SharedBuilder::<RocksDB>::default()

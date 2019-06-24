@@ -1,13 +1,16 @@
 mod blake;
+pub mod cli_main;
 mod hashes;
+mod interactive;
 mod secp256k1_lock;
+pub mod subcommands;
 
 pub use blake::{blake160, blake256};
+use faster_hex::hex_decode;
 pub use hashes::hashes;
 pub use secp256k1_lock::secp256k1_lock;
 
 use ckb_app_config::ExitCode;
-use faster_hex::hex_decode;
 
 fn canonicalize_data(data: &str) -> &str {
     let data = data.trim();

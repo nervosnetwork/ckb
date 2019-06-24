@@ -1,7 +1,9 @@
-use ckb_app_config::{ExitCode, ExportArgs};
+use ckb_app_config::ExitCode;
 use ckb_db::RocksDB;
 use ckb_instrument::Export;
 use ckb_shared::shared::SharedBuilder;
+
+use crate::args::ExportArgs;
 
 pub fn export(args: ExportArgs) -> Result<(), ExitCode> {
     let shared = SharedBuilder::<RocksDB>::default()

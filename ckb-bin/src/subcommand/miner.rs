@@ -1,7 +1,9 @@
-use ckb_app_config::{ExitCode, MinerArgs};
+use ckb_app_config::ExitCode;
 use ckb_miner::{Client, Miner, MinerConfig};
 use crossbeam_channel::unbounded;
 use std::thread;
+
+use crate::args::MinerArgs;
 
 pub fn miner(args: MinerArgs) -> Result<(), ExitCode> {
     let (new_work_tx, new_work_rx) = unbounded();
