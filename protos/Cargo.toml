@@ -1,0 +1,13 @@
+[package]
+name = "ckb-protos"
+version = "0.16.0-pre"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+license = "MIT"
+
+[dependencies]
+flatbuffers = "0.6.0"
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+ckb-core = { path = "../core" }
+failure = "0.1.5"

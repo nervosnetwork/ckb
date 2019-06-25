@@ -765,9 +765,9 @@ impl<CS: ChainStore> HeaderProvider for ChainState<CS> {
                 Some(header) => {
                     if let Some(cell_out_point) = &out_point.cell {
                         self.store
-                            .get_transaction_address(&cell_out_point.tx_hash)
-                            .map_or(HeaderStatus::InclusionFaliure, |address| {
-                                if address.block_hash == *block_hash {
+                            .get_transaction_info(&cell_out_point.tx_hash)
+                            .map_or(HeaderStatus::InclusionFaliure, |info| {
+                                if info.block_hash == *block_hash {
                                     HeaderStatus::live_header(header)
                                 } else {
                                     HeaderStatus::InclusionFaliure

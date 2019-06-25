@@ -1,29 +1,23 @@
-use crate::flat_block_body::{
-    deserialize_block_body, deserialize_block_body_for_hashes_only, deserialize_transaction,
-    serialize_block_body, serialize_block_body_size, TransactionAddressInner,
-    TransactionAddressStored,
-};
 use crate::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_TRANSACTION_ADDRESSES, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET,
-    COLUMN_EPOCH, COLUMN_EXT, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_ADDR, COLUMN_UNCLES,
+    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET, COLUMN_EPOCH,
+    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
 };
-use bincode::{deserialize, serialize};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMeta};
-use ckb_core::extras::{
-    BlockExt, DaoStats, EpochExt, TransactionAddress, DEFAULT_ACCUMULATED_RATE,
-};
+use ckb_core::extras::{BlockExt, DaoStats, EpochExt, TransactionInfo, DEFAULT_ACCUMULATED_RATE};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{CellKey, CellOutPoint, CellOutput, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Capacity, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
+use ckb_protos::{self as protos, CanBuild};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
+use std::convert::TryInto;
 use std::ops::Range;
 use std::sync::Mutex;
 
@@ -74,6 +68,15 @@ impl<T: KeyValueDB> ChainKVStore<T> {
             .expect("db operation should be ok")
     }
 
+    fn process_get<F, Ret>(&self, col: Col, key: &[u8], process: F) -> Option<Ret>
+    where
+        F: FnOnce(&[u8]) -> Result<Option<Ret>, Error>,
+    {
+        self.db
+            .process_read(col, key, process)
+            .expect("db operation should be ok")
+    }
+
     pub fn traverse<F>(&self, col: Col, callback: F) -> Result<(), Error>
     where
         F: FnMut(&[u8], &[u8]) -> Result<(), Error>,
@@ -113,7 +116,7 @@ pub trait ChainStore: Sync + Send {
     fn get_tip_header(&self) -> Option<Header>;
     /// Get commit transaction and block hash by it's hash
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)>;
-    fn get_transaction_address(&self, hash: &H256) -> Option<TransactionAddress>;
+    fn get_transaction_info(&self, hash: &H256) -> Option<TransactionInfo>;
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
     // Get current epoch ext
@@ -197,58 +200,56 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         // release lock asap
         drop(header_cache_unlocked);
 
-        self.get(COLUMN_BLOCK_HEADER, hash.as_bytes())
-            .map(|ref raw| unsafe { Header::from_bytes_with_hash_unchecked(raw, hash.to_owned()) })
-            .and_then(|header| {
-                let mut header_cache_unlocked = self
-                    .header_cache
-                    .lock()
-                    .expect("poisoned header cache lock");
-                header_cache_unlocked.insert(hash.clone(), header.clone());
-                Some(header)
-            })
+        self.process_get(COLUMN_BLOCK_HEADER, hash.as_bytes(), |slice| {
+            let header: Header = protos::StoredHeader::from_slice(slice).try_into()?;
+            Ok(Some(header))
+        })
+        .and_then(|header| {
+            let mut header_cache_unlocked = self
+                .header_cache
+                .lock()
+                .expect("poisoned header cache lock");
+            header_cache_unlocked.insert(hash.clone(), header.clone());
+            Some(header)
+        })
     }
 
-    fn get_block_uncles(&self, h: &H256) -> Option<Vec<UncleBlock>> {
-        // TODO Q use builder
-        self.get(COLUMN_BLOCK_UNCLE, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize uncle should be ok"))
+    fn get_block_uncles(&self, hash: &H256) -> Option<Vec<UncleBlock>> {
+        self.process_get(COLUMN_BLOCK_UNCLE, hash.as_bytes(), |slice| {
+            let uncles: Vec<UncleBlock> =
+                protos::StoredUncleBlocks::from_slice(slice).try_into()?;
+            Ok(Some(uncles))
+        })
     }
 
-    fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>> {
-        self.get(COLUMN_BLOCK_PROPOSAL_IDS, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize proposal txs id should be ok"))
+    fn get_block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>> {
+        self.process_get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), |slice| {
+            let uncles: Vec<ProposalShortId> =
+                protos::StoredProposalShortIds::from_slice(slice).try_into()?;
+            Ok(Some(uncles))
+        })
     }
 
-    fn get_block_body(&self, h: &H256) -> Option<Vec<Transaction>> {
-        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
-            .and_then(|serialized_addresses| {
-                let tx_addresses: Vec<TransactionAddressInner> = deserialize(&serialized_addresses)
-                    .expect("flat deserialize address should be ok");
-                self.get(COLUMN_BLOCK_BODY, h.as_bytes())
-                    .map(|serialized_body| {
-                        deserialize_block_body(&serialized_body, &tx_addresses[..])
-                            .expect("deserialize block body should be ok")
-                    })
-            })
+    fn get_block_body(&self, hash: &H256) -> Option<Vec<Transaction>> {
+        self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
+            let transactions: Vec<Transaction> =
+                protos::StoredBlockBody::from_slice(slice).try_into()?;
+            Ok(Some(transactions))
+        })
     }
 
-    fn get_block_txs_hashes(&self, block_hash: &H256) -> Option<Vec<H256>> {
-        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, block_hash.as_bytes())
-            .and_then(|serialized_addresses| {
-                let tx_addresses: Vec<TransactionAddressInner> = deserialize(&serialized_addresses)
-                    .expect("flat deserialize address should be ok");
-                self.get(COLUMN_BLOCK_BODY, block_hash.as_bytes())
-                    .map(|serialized_body| {
-                        deserialize_block_body_for_hashes_only(&serialized_body, &tx_addresses[..])
-                            .expect("deserialize block body hashes should be ok")
-                    })
-            })
+    fn get_block_txs_hashes(&self, hash: &H256) -> Option<Vec<H256>> {
+        self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
+            let tx_hashes = protos::StoredBlockBody::from_slice(slice).tx_hashes()?;
+            Ok(Some(tx_hashes))
+        })
     }
 
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
-        self.get(COLUMN_EXT, block_hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize block ext should be ok"))
+        self.process_get(COLUMN_BLOCK_EXT, block_hash.as_bytes(), |slice| {
+            let ext: BlockExt = protos::BlockExt::from_slice(slice).try_into()?;
+            Ok(Some(ext))
+        })
     }
 
     fn init(&self, consensus: &Consensus) -> Result<(), Error> {
@@ -324,8 +325,10 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_block_number(&self, hash: &H256) -> Option<BlockNumber> {
-        self.get(COLUMN_INDEX, hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize block number should be ok"))
+        self.get(COLUMN_INDEX, hash.as_bytes()).map(|raw| {
+            let le_bytes: [u8; 8] = raw[..].try_into().expect("should not be failed");
+            u64::from_le_bytes(le_bytes)
+        })
     }
 
     fn get_tip_header(&self) -> Option<Header> {
@@ -337,13 +340,17 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_current_epoch_ext(&self) -> Option<EpochExt> {
-        self.get(COLUMN_META, META_CURRENT_EPOCH_KEY)
-            .map(|raw| deserialize(&raw[..]).expect("db safe access"))
+        self.process_get(COLUMN_META, META_CURRENT_EPOCH_KEY, |slice| {
+            let ext: EpochExt = protos::StoredEpochExt::from_slice(slice).try_into()?;
+            Ok(Some(ext))
+        })
     }
 
     fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
-        self.get(COLUMN_EPOCH, hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("db safe access"))
+        self.process_get(COLUMN_EPOCH, hash.as_bytes(), |slice| {
+            let ext: EpochExt = protos::StoredEpochExt::from_slice(slice).try_into()?;
+            Ok(Some(ext))
+        })
     }
 
     fn get_epoch_index(&self, number: EpochNumber) -> Option<H256> {
@@ -356,65 +363,67 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             .map(|raw| H256::from_slice(&raw[..]).expect("db safe access"))
     }
 
-    fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)> {
-        self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
-            .and_then(|addr: TransactionAddressStored| {
-                self.partial_get(
-                    COLUMN_BLOCK_BODY,
-                    addr.block_hash.as_bytes(),
-                    &(addr.inner.offset..(addr.inner.offset + addr.inner.length)),
-                )
-                .map(|ref serialized_transaction| {
-                    (
-                        deserialize_transaction(
-                            serialized_transaction,
-                            &addr.inner.outputs_addresses,
-                        )
-                        .expect("flat deserialize tx should be ok"),
-                        addr.block_hash,
-                    )
-                })
+    fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)> {
+        self.get_transaction_info(&hash).and_then(|info| {
+            self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
+                let tx_opt = protos::StoredBlockBody::from_slice(slice).transaction(info.index)?;
+                Ok(tx_opt)
             })
+            .map(|tx| (tx, info.block_hash))
+        })
     }
 
-    fn get_transaction_address(&self, h: &H256) -> Option<TransactionAddress> {
-        self.get(COLUMN_TRANSACTION_ADDR, h.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
-            .map(|stored: TransactionAddressStored| TransactionAddress {
-                block_hash: stored.block_hash,
-                offset: stored.inner.offset,
-                length: stored.inner.length,
-            })
+    fn get_transaction_info(&self, hash: &H256) -> Option<TransactionInfo> {
+        self.process_get(COLUMN_TRANSACTION_INFO, hash.as_bytes(), |slice| {
+            let info: TransactionInfo =
+                protos::StoredTransactionInfo::from_slice(slice).try_into()?;
+            Ok(Some(info))
+        })
     }
 
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
-        self.get(
+        self.process_get(
             COLUMN_CELL_META,
             CellKey::calculate(tx_hash, index).as_ref(),
+            |slice| {
+                let meta: (Capacity, H256) =
+                    protos::StoredCellMeta::from_slice(slice).try_into()?;
+                Ok(Some(meta))
+            },
         )
-        .map(|raw| deserialize(&raw[..]).expect("deserialize cell meta should be ok"))
+        .and_then(|meta| {
+            self.get_transaction_info(tx_hash)
+                .map(|tx_info| (tx_info, meta))
+        })
+        .map(|(tx_info, meta)| {
+            let out_point = CellOutPoint {
+                tx_hash: tx_hash.to_owned(),
+                index: index as u32,
+            };
+            let cellbase = tx_info.index == 0;
+            let block_info = BlockInfo {
+                number: tx_info.block_number,
+                epoch: tx_info.block_epoch,
+            };
+            let (capacity, data_hash) = meta;
+            CellMeta {
+                cell_output: None,
+                out_point,
+                block_info: Some(block_info),
+                cellbase,
+                capacity,
+                data_hash: Some(data_hash),
+            }
+        })
     }
 
-    fn get_cellbase(&self, h: &H256) -> Option<Transaction> {
-        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
-            .and_then(|serialized_addresses| {
-                let addresses: Vec<TransactionAddressInner> =
-                    deserialize(&serialized_addresses).expect("deserialize address should be ok");
-                let cellbase_address = addresses.get(0).expect("cellbase address should exist");
-                self.partial_get(
-                    COLUMN_BLOCK_BODY,
-                    h.as_bytes(),
-                    &(cellbase_address.offset..(cellbase_address.offset + cellbase_address.length)),
-                )
-                .map(|ref serialized_transaction| {
-                    deserialize_transaction(
-                        &serialized_transaction,
-                        &cellbase_address.outputs_addresses,
-                    )
-                    .expect("deserialize tx should be ok")
-                })
-            })
+    fn get_cellbase(&self, hash: &H256) -> Option<Transaction> {
+        self.process_get(COLUMN_BLOCK_BODY, hash.as_bytes(), |slice| {
+            let cellbase = protos::StoredBlockBody::from_slice(slice)
+                .transaction(0)?
+                .expect("cellbase address should exist");
+            Ok(Some(cellbase))
+        })
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
@@ -429,32 +438,21 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         // release lock asap
         drop(cell_output_cache_unlocked);
 
-        self.get(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())
-            .map(|raw| deserialize(&raw[..]).expect("deserialize tx address should be ok"))
-            .and_then(|stored: TransactionAddressStored| {
-                stored
-                    .inner
-                    .outputs_addresses
-                    .get(index as usize)
-                    .and_then(|addr| {
-                        let output_offset = stored.inner.offset + addr.offset;
-                        self.partial_get(
-                            COLUMN_BLOCK_BODY,
-                            stored.block_hash.as_bytes(),
-                            &(output_offset..(output_offset + addr.length)),
-                        )
-                        .map(|ref serialized_cell_output| {
-                            let cell_output: CellOutput = deserialize(serialized_cell_output)
-                                .expect("flat deserialize cell output should be ok");
-                            let mut cell_output_cache_unlocked = self
-                                .cell_output_cache
-                                .lock()
-                                .expect("poisoned cell output cache lock");
-                            cell_output_cache_unlocked
-                                .insert((tx_hash.clone(), index), cell_output.clone());
-                            cell_output.to_owned()
-                        })
-                    })
+        self.get_transaction_info(&tx_hash)
+            .and_then(|info| {
+                self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
+                    let output_opt = protos::StoredBlockBody::from_slice(slice)
+                        .output(info.index, index as usize)?;
+                    Ok(output_opt)
+                })
+            })
+            .map(|cell_output: CellOutput| {
+                let mut cell_output_cache_unlocked = self
+                    .cell_output_cache
+                    .lock()
+                    .expect("poisoned cell output cache lock");
+                cell_output_cache_unlocked.insert((tx_hash.clone(), index), cell_output.clone());
+                cell_output
             })
     }
 
@@ -465,7 +463,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.traverse(COLUMN_CELL_SET, |hash_slice, tx_meta_bytes| {
             let tx_hash = H256::from_slice(hash_slice).expect("deserialize tx hash should be ok");
             let tx_meta: TransactionMeta =
-                deserialize(tx_meta_bytes).expect("deserialize TransactionMeta should be ok");
+                protos::TransactionMeta::from_slice(tx_meta_bytes).try_into()?;
             callback(tx_hash, tx_meta)
         })
     }
@@ -481,19 +479,6 @@ impl<B: DbBatch> DefaultStoreBatch<B> {
         self.inner.insert(col, key, value)
     }
 
-    fn insert_serialize<T: serde::ser::Serialize + ?Sized>(
-        &mut self,
-        col: Col,
-        key: &[u8],
-        item: &T,
-    ) -> Result<(), Error> {
-        self.inner.insert(
-            col,
-            key,
-            &serialize(item).expect("serializing should be ok"),
-        )
-    }
-
     fn delete(&mut self, col: Col, key: &[u8]) -> Result<(), Error> {
         self.inner.delete(col, key)
     }
@@ -501,63 +486,59 @@ impl<B: DbBatch> DefaultStoreBatch<B> {
 
 impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn insert_block(&mut self, block: &Block) -> Result<(), Error> {
-        let hash = block.header().hash();
-        self.insert_serialize(COLUMN_BLOCK_HEADER, hash.as_bytes(), block.header())?;
-        self.insert_serialize(COLUMN_BLOCK_UNCLE, hash.as_bytes(), block.uncles())?;
-        self.insert_serialize(
-            COLUMN_BLOCK_PROPOSAL_IDS,
-            hash.as_bytes(),
-            block.proposals(),
-        )?;
-        let (block_data, block_addresses) = serialize_block_body(block.transactions())
-            .expect("flat serialize block body should be ok");
-        self.insert_raw(COLUMN_BLOCK_BODY, hash.as_bytes(), &block_data)?;
-        self.insert_serialize(
-            COLUMN_BLOCK_TRANSACTION_ADDRESSES,
-            hash.as_bytes(),
-            &block_addresses,
-        )
+        let hash = block.header().hash().as_bytes();
+        {
+            let builder = protos::StoredHeader::full_build(block.header());
+            self.insert_raw(COLUMN_BLOCK_HEADER, hash, builder.as_slice())?;
+        }
+        {
+            let builder = protos::StoredUncleBlocks::full_build(block.uncles());
+            self.insert_raw(COLUMN_BLOCK_UNCLE, hash, builder.as_slice())?;
+        }
+        {
+            let builder = protos::StoredProposalShortIds::full_build(block.proposals());
+            self.insert_raw(COLUMN_BLOCK_PROPOSAL_IDS, hash, builder.as_slice())?;
+        }
+        {
+            let builder = protos::StoredBlockBody::full_build(block.transactions());
+            self.insert_raw(COLUMN_BLOCK_BODY, hash, builder.as_slice())?;
+        }
+        Ok(())
     }
 
     fn insert_block_ext(&mut self, block_hash: &H256, ext: &BlockExt) -> Result<(), Error> {
-        self.insert_serialize(COLUMN_EXT, block_hash.as_bytes(), ext)
+        let builder = protos::BlockExt::full_build(ext);
+        self.insert_raw(COLUMN_BLOCK_EXT, block_hash.as_bytes(), builder.as_slice())
     }
 
     fn attach_block(&mut self, block: &Block) -> Result<(), Error> {
-        let hash = block.header().hash();
-        let (_, tx_addresses) = serialize_block_body_size(block.transactions())
-            .expect("flat serialize tx addresses should be ok");
-        for (id, (tx, addr)) in block
-            .transactions()
-            .iter()
-            .zip(tx_addresses.into_iter())
-            .enumerate()
-        {
+        let header = block.header();
+        let hash = header.hash();
+        for (index, tx) in block.transactions().iter().enumerate() {
             let tx_hash = tx.hash();
-            self.insert_serialize(
-                COLUMN_TRANSACTION_ADDR,
-                tx_hash.as_bytes(),
-                &addr.into_stored(hash.to_owned()),
-            )?;
-            let cellbase = id == 0;
-            for (index, output) in tx.outputs().iter().enumerate() {
+            {
+                let info = TransactionInfo {
+                    block_hash: hash.to_owned(),
+                    block_number: header.number(),
+                    block_epoch: header.epoch(),
+                    index,
+                };
+                let builder = protos::StoredTransactionInfo::full_build(&info);
+                self.insert_raw(
+                    COLUMN_TRANSACTION_INFO,
+                    tx_hash.as_bytes(),
+                    builder.as_slice(),
+                )?;
+            }
+            for (cell_index, output) in tx.outputs().iter().enumerate() {
                 let out_point = CellOutPoint {
                     tx_hash: tx_hash.to_owned(),
-                    index: index as u32,
+                    index: cell_index as u32,
                 };
                 let store_key = out_point.cell_key();
-                let cell_meta = CellMeta {
-                    cell_output: None,
-                    out_point,
-                    block_info: Some(BlockInfo {
-                        number: block.header().number(),
-                        epoch: block.header().epoch(),
-                    }),
-                    cellbase,
-                    capacity: output.capacity,
-                    data_hash: Some(output.data_hash()),
-                };
-                self.insert_serialize(COLUMN_CELL_META, store_key.as_ref(), &cell_meta)?;
+                let data = (output.capacity, output.data_hash());
+                let builder = protos::StoredCellMeta::full_build(&data);
+                self.insert_raw(COLUMN_CELL_META, store_key.as_ref(), builder.as_slice())?;
             }
         }
 
@@ -572,7 +553,7 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn detach_block(&mut self, block: &Block) -> Result<(), Error> {
         for tx in block.transactions() {
             let tx_hash = tx.hash();
-            self.delete(COLUMN_TRANSACTION_ADDR, tx_hash.as_bytes())?;
+            self.delete(COLUMN_TRANSACTION_INFO, tx_hash.as_bytes())?;
             for index in 0..tx.outputs().len() {
                 let store_key = CellKey::calculate(&tx_hash, index as u32);
                 self.delete(COLUMN_CELL_META, store_key.as_ref())?;
@@ -605,16 +586,19 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
     fn insert_epoch_ext(&mut self, hash: &H256, epoch: &EpochExt) -> Result<(), Error> {
         let epoch_index = hash.as_bytes();
         let epoch_number = epoch.number().to_le_bytes();
-        self.insert_serialize(COLUMN_EPOCH, epoch_index, epoch)?;
+        let builder = protos::StoredEpochExt::full_build(epoch);
+        self.insert_raw(COLUMN_EPOCH, epoch_index, builder.as_slice())?;
         self.insert_raw(COLUMN_EPOCH, &epoch_number, epoch_index)
     }
 
     fn insert_current_epoch_ext(&mut self, epoch: &EpochExt) -> Result<(), Error> {
-        self.insert_serialize(COLUMN_META, META_CURRENT_EPOCH_KEY, epoch)
+        let builder = protos::StoredEpochExt::full_build(epoch);
+        self.insert_raw(COLUMN_META, META_CURRENT_EPOCH_KEY, builder.as_slice())
     }
 
     fn update_cell_set(&mut self, tx_hash: &H256, meta: &TransactionMeta) -> Result<(), Error> {
-        self.insert_serialize(COLUMN_CELL_SET, tx_hash.as_bytes(), meta)
+        let builder = protos::TransactionMeta::full_build(meta);
+        self.insert_raw(COLUMN_CELL_SET, tx_hash.as_bytes(), builder.as_slice())
     }
 
     fn delete_cell_set(&mut self, tx_hash: &H256) -> Result<(), Error> {

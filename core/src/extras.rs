@@ -27,12 +27,13 @@ pub struct DaoStats {
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct TransactionAddress {
+pub struct TransactionInfo {
     // Block hash
     pub block_hash: H256,
-    // Offset of block transaction in serialized bytes
-    pub offset: usize,
-    pub length: usize,
+    pub block_number: BlockNumber,
+    pub block_epoch: EpochNumber,
+    // Index in the block
+    pub index: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
@@ -61,6 +62,10 @@ impl EpochExt {
         } else {
             Ok(self.block_reward)
         }
+    }
+
+    pub fn base_block_reward(&self) -> &Capacity {
+        &self.block_reward
     }
 
     pub fn is_genesis(&self) -> bool {

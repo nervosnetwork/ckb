@@ -96,6 +96,72 @@ impl TransactionMeta {
             self.dead_cell.set(index, false);
         }
     }
+
+    pub fn destruct(&self) -> (u64, u64, bool, Vec<u8>, usize) {
+        let len = self.dead_cell.len();
+        let bits = self.dead_cell.to_bytes();
+        (
+            self.block_number,
+            self.epoch_number,
+            self.cellbase,
+            bits,
+            len,
+        )
+    }
+}
+
+#[derive(Default)]
+pub struct TransactionMetaBuilder {
+    block_number: u64,
+    epoch_number: u64,
+    cellbase: bool,
+    bits: Vec<u8>,
+    len: usize,
+}
+
+impl TransactionMetaBuilder {
+    pub fn block_number(mut self, block_number: u64) -> Self {
+        self.block_number = block_number;
+        self
+    }
+
+    pub fn epoch_number(mut self, epoch_number: u64) -> Self {
+        self.epoch_number = epoch_number;
+        self
+    }
+
+    pub fn cellbase(mut self, cellbase: bool) -> Self {
+        self.cellbase = cellbase;
+        self
+    }
+
+    pub fn bits(mut self, bits: Vec<u8>) -> Self {
+        self.bits = bits;
+        self
+    }
+
+    pub fn len(mut self, len: usize) -> Self {
+        self.len = len;
+        self
+    }
+
+    pub fn build(self) -> TransactionMeta {
+        let TransactionMetaBuilder {
+            block_number,
+            epoch_number,
+            cellbase,
+            bits,
+            len,
+        } = self;
+        let mut dead_cell = BitVec::from_bytes(&bits);
+        dead_cell.truncate(len);
+        TransactionMeta {
+            block_number,
+            epoch_number,
+            cellbase,
+            dead_cell,
+        }
+    }
 }
 
 #[cfg(test)]

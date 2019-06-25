@@ -145,6 +145,18 @@ impl KeyValueDB for RocksDB {
             .map_err(Into::into)
     }
 
+    fn process_read<F, Ret>(&self, col: Col, key: &[u8], process: F) -> Result<Option<Ret>>
+    where
+        F: FnOnce(&[u8]) -> Result<Option<Ret>>,
+    {
+        let cf = cf_handle(&self.inner, col)?;
+        if let Some(slice) = self.inner.get_pinned_cf(cf, &key)? {
+            process(&slice)
+        } else {
+            Ok(None)
+        }
+    }
+
     fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
