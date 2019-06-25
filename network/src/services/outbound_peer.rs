@@ -1,6 +1,6 @@
 use crate::peer_store::types::PeerAddr;
 use crate::NetworkState;
-use ckb_logger::{debug, trace, warn};
+use ckb_logger::{trace, warn};
 use faketime::unix_time_as_millis;
 use futures::{Async, Future, Stream};
 use p2p::service::ServiceControl;
@@ -61,11 +61,7 @@ impl OutboundPeerService {
         );
         for paddr in attempt_peers {
             let PeerAddr { peer_id, addr, .. } = paddr;
-            debug!("dial attempt peer: {:?}, is_feeler: {}", addr, is_feeler);
             if is_feeler {
-                self.network_state.with_peer_registry_mut(|reg| {
-                    reg.add_feeler(peer_id.clone());
-                });
                 self.network_state.dial_feeler(&p2p_control, &peer_id, addr);
             } else {
                 self.network_state
