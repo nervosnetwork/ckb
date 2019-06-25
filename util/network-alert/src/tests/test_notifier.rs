@@ -4,18 +4,17 @@ use std::sync::Arc;
 
 #[test]
 fn test_notice_alerts_by_version() {
-    let mut notifier = Notifier::new("0.1.0".into());
+    let mut notifier = Notifier::new("0.9.0".into());
     let alert1 = Arc::new(
         AlertBuilder::default()
             .id(1)
-            .max_version(Some("0.2.0".into()))
-            .min_version(Some("0.1.0".into()))
+            .max_version(Some("0.10.0".into()))
             .build(),
     );
     let alert2 = Arc::new(
         AlertBuilder::default()
             .id(2)
-            .max_version(Some("0.0.2".into()))
+            .min_version(Some("0.10.0".into()))
             .build(),
     );
     notifier.add(alert1);

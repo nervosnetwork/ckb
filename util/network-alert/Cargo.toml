@@ -22,6 +22,7 @@ lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8
 serde = "1.0"
 serde_derive = "1.0"
 flatbuffers = "0.6.0"
+semver = "0.9"
 
 [dev-dependencies]
 ckb-crypto = { path = "../crypto" }
