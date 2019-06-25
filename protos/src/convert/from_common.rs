@@ -4,7 +4,7 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 
 use ckb_core::{
-    extras::{BlockExt, DaoStats, EpochExt, TransactionInfo},
+    extras::{BlockExt, EpochExt, TransactionInfo},
     header::{Header, HeaderBuilder},
     script::Script,
     transaction::{
@@ -155,6 +155,12 @@ impl<'a> protos::Header<'a> {
             .map(Bytes::from)
             .unwrap_some()?;
 
+        let dao = self
+            .dao()
+            .and_then(|d| d.seq())
+            .map(Bytes::from)
+            .unwrap_some()?;
+
         let builder = HeaderBuilder::default()
             .version(self.version())
             .parent_hash(parent_hash.try_into()?)
@@ -168,6 +174,7 @@ impl<'a> protos::Header<'a> {
             .uncles_hash(uncles_hash.try_into()?)
             .nonce(self.nonce())
             .proof(proof)
+            .dao(dao)
             .uncles_count(self.uncles_count());
 
         let header = unsafe { builder.build_unchecked(hash) };
@@ -312,17 +319,6 @@ impl<'a> TryFrom<protos::CellOutput<'a>> for CellOutput {
     }
 }
 
-impl From<&protos::DaoStats> for DaoStats {
-    fn from(proto: &protos::DaoStats) -> Self {
-        let accumulated_rate = proto.accumulated_rate();
-        let accumulated_capacity = proto.accumulated_capacity();
-        DaoStats {
-            accumulated_rate,
-            accumulated_capacity,
-        }
-    }
-}
-
 impl<'a> TryFrom<protos::BlockExt<'a>> for BlockExt {
     type Error = Error;
     fn try_from(proto: protos::BlockExt<'a>) -> Result<Self> {
@@ -334,7 +330,6 @@ impl<'a> TryFrom<protos::BlockExt<'a>> for BlockExt {
         } else {
             None
         };
-        let dao_stats = proto.dao_stats().unwrap_some()?.into();
         let txs_fees = proto
             .txs_fees()
             .unwrap_some()?
@@ -346,7 +341,6 @@ impl<'a> TryFrom<protos::BlockExt<'a>> for BlockExt {
             total_difficulty,
             total_uncles_count,
             verified,
-            dao_stats,
             txs_fees,
         };
         Ok(ret)

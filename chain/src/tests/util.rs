@@ -2,19 +2,27 @@ use crate::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
+use ckb_core::cell::{
+    resolve_transaction, CellMetaBuilder, CellProvider, CellStatus, HeaderProvider, HeaderStatus,
+    OverlayCellProvider,
+};
+use ckb_core::extras::EpochExt;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_core::{capacity_bytes, Bytes, Capacity};
+use ckb_dao::DaoCalculator;
+use ckb_dao_utils::genesis_dao_data;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
-use ckb_store::ChainKVStore;
-use ckb_store::ChainStore;
+use ckb_store::{ChainKVStore, ChainStore, StoreBatch, COLUMNS};
 use ckb_test_chain_utils::{build_block, create_always_success_cell};
 use ckb_traits::chain_provider::ChainProvider;
+use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use std::sync::Arc;
 
 const MIN_CAP: Capacity = capacity_bytes!(60);
 
@@ -43,8 +51,11 @@ pub(crate) fn start_chain(
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
 
     let consensus = consensus.unwrap_or_else(|| {
-        let genesis_block = BlockBuilder::default()
-            .transaction(create_always_success_tx())
+        let tx = create_always_success_tx();
+        let dao = genesis_dao_data(&tx).unwrap();
+        let header_builder = HeaderBuilder::default().dao(dao);
+        let genesis_block = BlockBuilder::from_header_builder(header_builder)
+            .transaction(tx)
             .build();
         Consensus::default()
             .set_cellbase_maturity(0)
@@ -63,12 +74,154 @@ pub(crate) fn start_chain(
     (chain_controller, shared, parent)
 }
 
-pub(crate) fn create_cellbase(number: BlockNumber) -> Transaction {
+pub struct MockStore(Arc<ChainKVStore<MemoryKeyValueDB>>);
+
+impl MockStore {
+    pub fn new(parent: &Header, chain_store: &Arc<ChainKVStore<MemoryKeyValueDB>>) -> Self {
+        // Insert parent block into current mock store for referencing
+        let block = chain_store.get_block(parent.hash()).unwrap();
+        let epoch_ext = chain_store
+            .get_block_epoch_index(parent.hash())
+            .and_then(|index| chain_store.get_epoch_ext(&index))
+            .unwrap();
+        let mut store = MockStore(Arc::new(ChainKVStore::new(MemoryKeyValueDB::open(
+            COLUMNS as usize,
+        ))));
+        store.insert_block(&block, &epoch_ext);
+        store.insert_transaction(&create_always_success_tx());
+        store
+    }
+
+    pub fn insert_block(&mut self, block: &Block, epoch_ext: &EpochExt) {
+        let mut batch = self.0.new_batch().unwrap();
+        batch.insert_block(&block).unwrap();
+        batch.attach_block(&block).unwrap();
+        batch
+            .insert_block_epoch_index(
+                &block.header().hash(),
+                epoch_ext.last_block_hash_in_previous_epoch(),
+            )
+            .unwrap();
+        batch
+            .insert_epoch_ext(epoch_ext.last_block_hash_in_previous_epoch(), &epoch_ext)
+            .unwrap();
+        batch.commit().unwrap();
+    }
+
+    pub fn insert_transaction(&mut self, t: &Transaction) {
+        let block = BlockBuilder::default().transaction(t.to_owned()).build();
+        let mut batch = self.0.new_batch().unwrap();
+        batch.insert_block(&block).unwrap();
+        batch.attach_block(&block).unwrap();
+        batch.commit().unwrap();
+    }
+}
+
+impl CellProvider for MockStore {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        if let Some(cell_out_point) = &out_point.cell {
+            match self.0.get_transaction(&cell_out_point.tx_hash) {
+                Some((tx, _)) => tx
+                    .outputs()
+                    .get(cell_out_point.index as usize)
+                    .as_ref()
+                    .map(|cell| {
+                        CellStatus::live_cell(
+                            CellMetaBuilder::from_cell_output((*cell).to_owned()).build(),
+                        )
+                    })
+                    .unwrap_or(CellStatus::Unknown),
+                None => CellStatus::Unknown,
+            }
+        } else {
+            CellStatus::Unspecified
+        }
+    }
+}
+
+impl HeaderProvider for MockStore {
+    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
+        if let Some(block_hash) = &out_point.block_hash {
+            match self.0.get_block_header(block_hash) {
+                Some(header) => HeaderStatus::Live(Box::new(header)),
+                None => HeaderStatus::Unknown,
+            }
+        } else {
+            HeaderStatus::Unspecified
+        }
+    }
+}
+
+pub struct TransactionsProvider {
+    transactions: FnvHashMap<H256, Transaction>,
+}
+
+impl TransactionsProvider {
+    pub fn new(transactions: &[Transaction]) -> Self {
+        let transactions = transactions
+            .iter()
+            .map(|tx| (tx.hash().to_owned(), tx.to_owned()))
+            .collect();
+        Self { transactions }
+    }
+}
+
+impl CellProvider for TransactionsProvider {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        if let Some(cell_out_point) = &out_point.cell {
+            match self.transactions.get(&cell_out_point.tx_hash) {
+                Some(tx) => tx
+                    .outputs()
+                    .get(cell_out_point.index as usize)
+                    .as_ref()
+                    .map(|cell| {
+                        CellStatus::live_cell(
+                            CellMetaBuilder::from_cell_output((*cell).to_owned()).build(),
+                        )
+                    })
+                    .unwrap_or(CellStatus::Unknown),
+                None => CellStatus::Unknown,
+            }
+        } else {
+            CellStatus::Unspecified
+        }
+    }
+}
+
+pub(crate) fn calculate_reward(
+    store: &mut MockStore,
+    consensus: &Consensus,
+    parent: &Header,
+) -> Capacity {
+    let number = parent.number() + 1;
+    if number > consensus.reserve_number() {
+        let target_number = consensus.finalize_target(number).unwrap();
+        let target = store.0.get_ancestor(parent.hash(), target_number).unwrap();
+        let calculator = DaoCalculator::new(consensus, Arc::clone(&store.0));
+        calculator
+            .primary_block_reward(&target)
+            .unwrap()
+            .safe_add(calculator.secondary_block_reward(&target).unwrap())
+            .unwrap()
+    } else {
+        consensus
+            .genesis_epoch_ext()
+            .block_reward(parent.number())
+            .unwrap()
+    }
+}
+
+pub(crate) fn create_cellbase(
+    store: &mut MockStore,
+    consensus: &Consensus,
+    parent: &Header,
+) -> Transaction {
     let (_, always_success_script) = create_always_success_cell();
+    let capacity = calculate_reward(store, consensus, parent);
     TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(number))
+        .input(CellInput::new_cellbase_input(parent.number() + 1))
         .output(CellOutput::new(
-            capacity_bytes!(1_000),
+            capacity,
             Bytes::default(),
             always_success_script.clone(),
             None,
@@ -145,73 +298,122 @@ pub(crate) fn create_transaction_with_out_point(
 }
 
 #[derive(Clone)]
-pub struct MockChain {
+pub struct MockChain<'a> {
     blocks: Vec<Block>,
     parent: Header,
+    consensus: &'a Consensus,
 }
 
-impl MockChain {
-    pub fn new(parent: Header) -> Self {
+impl<'a> MockChain<'a> {
+    pub fn new(parent: Header, consensus: &'a Consensus) -> Self {
         Self {
             blocks: vec![],
             parent,
+            consensus,
         }
     }
 
-    pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<Transaction>) {
+    pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<Transaction>, store: &mut MockStore) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
+        let cellbase = create_cellbase(store, self.consensus, &parent);
+        let dao = dao_data(
+            &self.consensus,
+            &parent,
+            &[cellbase.to_owned()],
+            store,
+            false,
+        );
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 difficulty: difficulty + U256::from(100u64),
+                dao: dao,
             },
-            transaction: create_cellbase(parent.number() + 1),
+            transaction: cellbase,
             proposals: txs.iter().map(Transaction::proposal_short_id),
         );
+        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
 
-    pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64) {
+    pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64, store: &mut MockStore) {
         let parent = self.tip_header();
+        let cellbase = create_cellbase(store, self.consensus, &parent);
+        let dao = dao_data(
+            &self.consensus,
+            &parent,
+            &[cellbase.to_owned()],
+            store,
+            false,
+        );
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 difficulty: U256::from(difficulty),
+                dao: dao,
             },
-            transaction: create_cellbase(parent.number() + 1),
+            transaction: cellbase,
         );
+        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
 
-    pub fn gen_empty_block(&mut self, diff: u64) {
+    pub fn gen_empty_block(&mut self, diff: u64, store: &mut MockStore) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
+        let cellbase = create_cellbase(store, self.consensus, &parent);
+        let dao = dao_data(
+            &self.consensus,
+            &parent,
+            &[cellbase.to_owned()],
+            store,
+            false,
+        );
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 difficulty: difficulty + U256::from(diff),
+                dao: dao,
             },
-            transaction: create_cellbase(parent.number() + 1),
+            transaction: cellbase,
         );
+        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
 
-    pub fn gen_block_with_commit_txs(&mut self, txs: Vec<Transaction>) {
+    pub fn gen_block_with_commit_txs(
+        &mut self,
+        txs: Vec<Transaction>,
+        store: &mut MockStore,
+        ignore_resolve_error: bool,
+    ) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
+        let cellbase = create_cellbase(store, self.consensus, &parent);
+        let mut txs_to_resolve = vec![cellbase.to_owned()];
+        txs_to_resolve.extend_from_slice(&txs);
+        let dao = dao_data(
+            &self.consensus,
+            &parent,
+            &txs_to_resolve,
+            store,
+            ignore_resolve_error,
+        );
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 difficulty: difficulty + U256::from(100u64),
+                dao: dao,
             },
-            transaction: create_cellbase(parent.number() + 1),
+            transaction: cellbase,
             transactions: txs,
         );
+        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
 
@@ -236,4 +438,36 @@ impl MockChain {
             .iter()
             .fold(U256::from(0u64), |sum, b| sum + b.header().difficulty())
     }
+}
+
+pub fn dao_data(
+    consensus: &Consensus,
+    parent: &Header,
+    txs: &[Transaction],
+    store: &mut MockStore,
+    ignore_resolve_error: bool,
+) -> Bytes {
+    let mut seen_inputs = FnvHashSet::default();
+    // In case of resolving errors, we just output a dummp DAO field,
+    // since those should be the cases where we are testing invalid
+    // blocks
+    let transactions_provider = TransactionsProvider::new(txs);
+    let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, store);
+    let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
+        let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, store);
+        match rtx {
+            Ok(rtx) => {
+                rtxs.push(rtx);
+                Ok(rtxs)
+            }
+            Err(e) => Err(e),
+        }
+    });
+    let rtxs = if ignore_resolve_error {
+        rtxs.unwrap_or_else(|_| vec![])
+    } else {
+        rtxs.unwrap()
+    };
+    let calculator = DaoCalculator::new(consensus, Arc::clone(&store.0));
+    calculator.dao_field(&rtxs, &parent).unwrap()
 }

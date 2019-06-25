@@ -13,10 +13,12 @@ tempfile = "3.0"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 serde = "1.0"
 serde_derive = "1.0"
-ckb-system-scripts = "0.1.0"
+# TODO: change this to stable published crate version once the system script PR
+# is merged and published
+ckb-system-scripts = { version = "0.2.0-alpha.1" }
 
 [build-dependencies]
 includedir_codegen = "0.5.0"
 walkdir = "2.1.4"
-ckb-system-scripts = "0.1.0"
+ckb-system-scripts = { version = "0.2.0-alpha.1" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

@@ -1,6 +1,6 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::extras::EpochExt;
-use ckb_core::header::{BlockNumber, Header};
+use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::Capacity;
 use ckb_script::ScriptConfig;
@@ -17,8 +17,6 @@ pub trait ChainProvider: Sync + Send {
     fn script_config(&self) -> &ScriptConfig;
 
     fn genesis_hash(&self) -> &H256;
-
-    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
 
     fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt>;
 

@@ -112,6 +112,17 @@ impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
                 store_data(machine, &buffer)?;
                 (SUCCESS, buffer.len())
             }
+            CellField::OccupiedCapacity => {
+                let mut buffer = vec![];
+                buffer.write_u64::<LittleEndian>(
+                    output
+                        .occupied_capacity()
+                        .map_err(|_| VMError::Unexpected)?
+                        .as_u64(),
+                )?;
+                store_data(machine, &buffer)?;
+                (SUCCESS, buffer.len())
+            }
             CellField::Data => {
                 store_data(machine, &output.data)?;
                 (SUCCESS, output.data.len())

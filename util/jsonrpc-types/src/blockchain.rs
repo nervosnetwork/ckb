@@ -350,6 +350,7 @@ pub struct Header {
     pub difficulty: U256,
     pub uncles_hash: H256,
     pub uncles_count: Unsigned,
+    pub dao: JsonBytes,
     pub seal: Seal,
 }
 
@@ -374,6 +375,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             difficulty: core.difficulty().to_owned(),
             uncles_hash: core.uncles_hash().to_owned(),
             uncles_count: Unsigned(u64::from(core.uncles_count())),
+            dao: JsonBytes::from_bytes(core.dao().to_owned()),
             seal: core.seal().to_owned().into(),
         }
     }
@@ -403,6 +405,7 @@ impl From<Header> for CoreHeader {
             uncles_hash,
             uncles_count,
             seal,
+            dao,
         } = json;
 
         HeaderBuilder::default()
@@ -418,6 +421,7 @@ impl From<Header> for CoreHeader {
             .uncles_hash(uncles_hash)
             .uncles_count(uncles_count.0 as u32)
             .seal(seal.into())
+            .dao(dao.into_bytes())
             .build()
     }
 }

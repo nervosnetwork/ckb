@@ -12,3 +12,4 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 ckb-traits = { path = "../../traits" }
 failure = "0.1.5"
 fnv = "1.0.3"
+ckb-dao = { path = "../dao" }

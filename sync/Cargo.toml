@@ -38,3 +38,5 @@ env_logger = "0.6"
 crossbeam-channel = "0.3"
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 rand = "0.6"
+ckb-dao = { path = "../util/dao" }
+ckb-dao-utils = { path = "../util/dao/utils" }

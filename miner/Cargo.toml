@@ -31,6 +31,7 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }
 indicatif = "0.11"
+ckb-dao = { path = "../util/dao" }
 
 [dev-dependencies]
 proptest = "0.9"
@@ -38,3 +39,4 @@ ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
 ckb-pow = { path = "../pow" }
+ckb-dao-utils = { path = "../util/dao/utils" }

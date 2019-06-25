@@ -62,6 +62,10 @@ pub enum Error {
     CannotFetchBlockReward,
     /// Fee calculation error
     FeeCalculation,
+    /// Error generating DAO field
+    DAOGeneration,
+    /// Invalid data in DAO header field
+    InvalidDAO,
 }
 
 impl StdError for Error {}

@@ -6,7 +6,7 @@ use crate::{
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMeta};
-use ckb_core::extras::{BlockExt, DaoStats, EpochExt, TransactionInfo, DEFAULT_ACCUMULATED_RATE};
+use ckb_core::extras::{BlockExt, EpochExt, TransactionInfo};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{CellKey, CellOutPoint, CellOutput, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
@@ -133,6 +133,8 @@ pub trait ChainStore: Sync + Send {
     fn is_uncle(&self, hash: &H256) -> bool;
     // Get cellbase by block hash
     fn get_cellbase(&self, hash: &H256) -> Option<Transaction>;
+    // Get the ancestor of a base block by a block number
+    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
 }
 
 pub trait StoreBatch {
@@ -263,23 +265,6 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             total_uncles_count: 0,
             verified: Some(true),
             txs_fees: vec![],
-            dao_stats: DaoStats {
-                accumulated_rate: DEFAULT_ACCUMULATED_RATE,
-                accumulated_capacity: genesis
-                    .transactions()
-                    .get(0)
-                    .map(|tx| {
-                        tx.outputs()
-                            .iter()
-                            .skip(1)
-                            .try_fold(Capacity::zero(), |capacity, output| {
-                                capacity.safe_add(output.capacity)
-                            })
-                            .expect("accumulated capacity in genesis block should not overflow")
-                    })
-                    .unwrap_or_else(Capacity::zero)
-                    .as_u64(),
-            },
         };
 
         let mut cells = Vec::with_capacity(genesis.transactions().len());
@@ -466,6 +451,39 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 protos::TransactionMeta::from_slice(tx_meta_bytes).try_into()?;
             callback(tx_hash, tx_meta)
         })
+    }
+
+    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
+        // if base in the main chain
+        if let Some(n_number) = self.get_block_number(base) {
+            if number > n_number {
+                return None;
+            } else {
+                return self
+                    .get_block_hash(number)
+                    .and_then(|hash| self.get_block_header(&hash));
+            }
+        }
+
+        // if base in the fork
+        if let Some(header) = self.get_block_header(base) {
+            let mut n_number = header.number();
+            let mut index_walk = header;
+            if number > n_number {
+                return None;
+            }
+
+            while n_number > number {
+                if let Some(header) = self.get_block_header(&index_walk.parent_hash()) {
+                    index_walk = header;
+                    n_number -= 1;
+                } else {
+                    return None;
+                }
+            }
+            return Some(index_walk);
+        }
+        None
     }
 }
 
@@ -674,10 +692,6 @@ mod tests {
             total_uncles_count: block.uncles().len() as u64,
             verified: Some(true),
             txs_fees: vec![],
-            dao_stats: DaoStats {
-                accumulated_rate: DEFAULT_ACCUMULATED_RATE,
-                accumulated_capacity: block.outputs_capacity().unwrap().as_u64(),
-            },
         };
 
         let hash = block.header().hash();

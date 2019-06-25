@@ -1,6 +1,7 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_core::block::Block;
+use ckb_core::cell::resolve_transaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
@@ -10,6 +11,7 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, Version};
+use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
     BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
     EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
@@ -335,6 +337,35 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             );
         }
 
+        // Generate DAO fields here
+        let resolved_cellbase = resolve_transaction(
+            &cellbase,
+            &mut Default::default(),
+            &*chain_state,
+            &*chain_state,
+        )
+        .map_err(|_| Error::InvalidInput)?;
+        let rtxs = entries
+            .iter()
+            .try_fold(
+                vec![resolved_cellbase],
+                |mut rtxs, entry| match resolve_transaction(
+                    &entry.transaction,
+                    &mut Default::default(),
+                    &*chain_state,
+                    &*chain_state,
+                ) {
+                    Ok(rtx) => {
+                        rtxs.push(rtx);
+                        Ok(rtxs)
+                    }
+                    Err(e) => Err(e),
+                },
+            )
+            .map_err(|_| Error::InvalidInput)?;
+        let dao = DaoCalculator::new(&chain_state.consensus(), Arc::clone(chain_state.store()))
+            .dao_field(&rtxs, &tip_header)?;
+
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
 
@@ -358,6 +389,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
             work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
+            dao: JsonBytes::from_bytes(dao),
         };
 
         self.template_caches.insert(
@@ -487,6 +519,7 @@ mod tests {
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
     use ckb_core::{BlockNumber, Bytes};
+    use ckb_dao_utils::genesis_dao_data;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
@@ -558,6 +591,10 @@ mod tests {
     fn gen_block(parent_header: &Header, nonce: u64, epoch: &EpochExt) -> Block {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number, epoch);
+        // This just make sure we can generate a valid block template,
+        // the actual DAO validation logic will be ensured in other
+        // tests
+        let dao = genesis_dao_data(&cellbase).unwrap();
         let header = HeaderBuilder::default()
             .parent_hash(parent_header.hash().to_owned())
             .timestamp(parent_header.timestamp() + 10)
@@ -565,6 +602,7 @@ mod tests {
             .epoch(epoch.number())
             .difficulty(epoch.difficulty().clone())
             .nonce(nonce)
+            .dao(dao)
             .build();
 
         unsafe {

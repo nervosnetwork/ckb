@@ -18,6 +18,7 @@ use ckb_core::{
     transaction::{CellInput, CellOutput, Transaction, TransactionBuilder},
     BlockNumber, Bytes, Capacity, Cycle,
 };
+use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::Resource;
@@ -199,6 +200,9 @@ impl ChainSpec {
 
 impl Genesis {
     fn build_block(&self) -> Result<Block, Box<dyn Error>> {
+        let cellbase_transaction = self.build_cellbase_transaction()?;
+        let dao = genesis_dao_data(&cellbase_transaction)?;
+
         let header_builder = HeaderBuilder::default()
             .version(self.version)
             .parent_hash(self.parent_hash.clone())
@@ -206,10 +210,11 @@ impl Genesis {
             .difficulty(self.difficulty.clone())
             .nonce(self.seal.nonce)
             .proof(self.seal.proof.clone())
-            .uncles_hash(self.uncles_hash.clone());
+            .uncles_hash(self.uncles_hash.clone())
+            .dao(dao);
 
         Ok(BlockBuilder::from_header_builder(header_builder)
-            .transaction(self.build_cellbase_transaction()?)
+            .transaction(cellbase_transaction)
             .build())
     }
 

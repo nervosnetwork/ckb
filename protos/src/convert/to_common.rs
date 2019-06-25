@@ -4,7 +4,7 @@ use numext_fixed_uint::U256;
 
 use ckb_core::{
     block::Block,
-    extras::{BlockExt, DaoStats, EpochExt, TransactionInfo},
+    extras::{BlockExt, EpochExt, TransactionInfo},
     header::Header,
     script::Script,
     transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction},
@@ -255,6 +255,7 @@ impl<'a> CanBuild<'a> for protos::Header<'a> {
         let proposals_hash = header.proposals_hash().into();
         let difficulty = header.difficulty().into();
         let proof = protos::Bytes::build(fbb, &header.proof());
+        let dao = protos::Bytes::build(fbb, &header.dao());
         let uncles_hash = header.uncles_hash().into();
         let mut builder = protos::HeaderBuilder::new(fbb);
         builder.add_version(header.version());
@@ -268,6 +269,7 @@ impl<'a> CanBuild<'a> for protos::Header<'a> {
         builder.add_difficulty(&difficulty);
         builder.add_nonce(header.nonce());
         builder.add_proof(proof);
+        builder.add_dao(dao);
         builder.add_uncles_hash(&uncles_hash);
         builder.add_uncles_count(header.uncles_count());
         builder.finish()
@@ -351,12 +353,6 @@ impl<'a> CanBuild<'a> for protos::BlockBody<'a> {
     }
 }
 
-impl From<&DaoStats> for protos::DaoStats {
-    fn from(stats: &DaoStats) -> Self {
-        Self::new(stats.accumulated_rate, stats.accumulated_capacity)
-    }
-}
-
 impl<'a> CanBuild<'a> for protos::BlockExt<'a> {
     type Input = BlockExt;
     fn build<'b: 'a>(
@@ -364,7 +360,6 @@ impl<'a> CanBuild<'a> for protos::BlockExt<'a> {
         ext: &Self::Input,
     ) -> WIPOffset<protos::BlockExt<'b>> {
         let total_difficulty = (&ext.total_difficulty).into();
-        let dao_stats = (&ext.dao_stats).into();
         let (has_verified, verified) = if let Some(verified) = ext.verified {
             (true, verified)
         } else {
@@ -382,7 +377,6 @@ impl<'a> CanBuild<'a> for protos::BlockExt<'a> {
         builder.add_total_uncles_count(ext.total_uncles_count);
         builder.add_has_verified(has_verified);
         builder.add_verified(verified);
-        builder.add_dao_stats(&dao_stats);
         builder.add_txs_fees(txs_fees);
         builder.finish()
     }

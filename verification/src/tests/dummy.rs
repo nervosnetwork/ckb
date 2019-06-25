@@ -1,7 +1,7 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::extras::EpochExt;
-use ckb_core::header::{BlockNumber, Header};
+use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::transaction::OutPoint;
 use ckb_core::Capacity;
@@ -28,10 +28,6 @@ impl ChainProvider for DummyChainProvider {
     }
 
     fn genesis_hash(&self) -> &H256 {
-        unimplemented!();
-    }
-
-    fn get_ancestor(&self, _base: &H256, _number: BlockNumber) -> Option<Header> {
         unimplemented!();
     }
 

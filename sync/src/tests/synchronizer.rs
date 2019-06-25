@@ -7,9 +7,12 @@ use crate::{NetworkProtocol, SyncSharedState, Synchronizer};
 use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
+use ckb_core::cell::resolve_transaction;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::Bytes;
+use ckb_dao::DaoCalculator;
+use ckb_dao_utils::genesis_dao_data;
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
@@ -81,11 +84,14 @@ fn setup_node(
         .output(always_success_cell.clone())
         .build();
 
+    let dao = genesis_dao_data(&always_success_tx).unwrap();
+
     let mut block = BlockBuilder::default()
         .header_builder(
             HeaderBuilder::default()
                 .timestamp(unix_time_as_millis())
-                .difficulty(U256::from(1000u64)),
+                .difficulty(U256::from(1000u64))
+                .dao(dao),
         )
         .transaction(always_success_tx)
         .build();
@@ -124,12 +130,27 @@ fn setup_node(
             .witness(always_success_script.to_owned().into_witness())
             .build();
 
+        let dao = {
+            let chain_state = shared.lock_chain_state();
+            let resolved_cellbase = resolve_transaction(
+                &cellbase,
+                &mut Default::default(),
+                &*chain_state,
+                &*chain_state,
+            )
+            .unwrap();
+            DaoCalculator::new(shared.consensus(), Arc::clone(shared.store()))
+                .dao_field(&[resolved_cellbase], block.header())
+                .unwrap()
+        };
+
         let header_builder = HeaderBuilder::default()
             .parent_hash(block.header().hash().to_owned())
             .number(number)
             .epoch(epoch.number())
             .timestamp(timestamp)
-            .difficulty(epoch.difficulty().clone());
+            .difficulty(epoch.difficulty().clone())
+            .dao(dao);
 
         block = BlockBuilder::default()
             .transaction(cellbase)

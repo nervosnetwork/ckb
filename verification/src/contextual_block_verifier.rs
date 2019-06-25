@@ -9,9 +9,9 @@ use ckb_core::transaction::Transaction;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber, Capacity, EpochNumber};
-use ckb_dao_utils::calculate_transaction_fee;
+use ckb_dao::DaoCalculator;
 use ckb_logger::error_target;
-use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
+use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use lru_cache::LruCache;
@@ -145,6 +145,7 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
 
         let mut block_hash = self
             .provider
+            .store()
             .get_ancestor(self.block.header().parent_hash(), proposal_end)
             .map(|h| h.hash().to_owned())
             .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
@@ -247,15 +248,61 @@ where
             .iter()
             .skip(1)
             .map(|tx| {
-                calculate_transaction_fee(
-                    &DataLoaderWrapper::new(Arc::clone(self.provider.store())),
-                    &tx,
-                )
-                .ok_or(Error::FeeCalculation)
+                DaoCalculator::new(self.provider.consensus(), Arc::clone(self.provider.store()))
+                    .transaction_fee(&tx)
+                    .map_err(|_| Error::FeeCalculation)
             })
             .collect::<Result<Vec<Capacity>, Error>>()?;
 
         Ok(txs_fees)
+    }
+}
+
+struct DaoHeaderVerifier<'a, P> {
+    provider: &'a P,
+    resolved: &'a [ResolvedTransaction<'a>],
+    parent: &'a Header,
+    header: &'a Header,
+}
+
+impl<'a, P> DaoHeaderVerifier<'a, P>
+where
+    P: ChainProvider,
+{
+    pub fn new(
+        provider: &'a P,
+        resolved: &'a [ResolvedTransaction<'a>],
+        parent: &'a Header,
+        header: &'a Header,
+    ) -> Self {
+        DaoHeaderVerifier {
+            provider,
+            resolved,
+            parent,
+            header,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        let dao = DaoCalculator::new(
+            &self.provider.consensus(),
+            Arc::clone(self.provider.store()),
+        )
+        .dao_field(&self.resolved, self.parent)
+        .map_err(|e| {
+            error_target!(
+                crate::LOG_TARGET,
+                "Error generating dao data for block {:x}: {:?}",
+                self.header.hash(),
+                e
+            );
+            Error::DAOGeneration
+        })?;
+
+        if dao != self.header.dao() {
+            return Err(Error::InvalidDAO);
+        }
+        Ok(())
     }
 }
 
@@ -384,6 +431,8 @@ where
         UnclesVerifier::new(uncle_verifier_context, block).verify()?;
 
         CommitVerifier::new(&self.context.provider, block).verify()?;
+        DaoHeaderVerifier::new(&self.context.provider, resolved, &parent, &block.header())
+            .verify()?;
         let txs_fees = RewardVerifier::new(&self.context.provider, resolved, &parent).verify()?;
 
         let cycles = BlockTxsVerifier::new(

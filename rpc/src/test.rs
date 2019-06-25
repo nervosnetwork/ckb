@@ -10,6 +10,7 @@ use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{alert::AlertBuilder, capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_dao_utils::genesis_dao_data;
 use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
@@ -74,13 +75,15 @@ fn setup_node(
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .build();
+    let dao = genesis_dao_data(&always_success_tx).unwrap();
 
     let consensus = {
         let genesis = BlockBuilder::default()
             .header_builder(
                 HeaderBuilder::default()
                     .timestamp(GENESIS_TIMESTAMP)
-                    .difficulty(U256::from(1000u64)),
+                    .difficulty(U256::from(1000u64))
+                    .dao(dao),
             )
             .transaction(always_success_tx)
             .build();
@@ -113,6 +116,7 @@ fn setup_node(
                 .unwrap_or(last_epoch)
         };
         let cellbase = new_cellbase(parent.header().number() + 1, &always_success_script);
+        let dao = genesis_dao_data(&cellbase).unwrap();
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header_builder(
@@ -121,7 +125,8 @@ fn setup_node(
                     .number(parent.header().number() + 1)
                     .epoch(epoch.number())
                     .timestamp(parent.header().timestamp() + 1)
-                    .difficulty(epoch.difficulty().clone()),
+                    .difficulty(epoch.difficulty().clone())
+                    .dao(dao),
             )
             .build();
         chain_controller
