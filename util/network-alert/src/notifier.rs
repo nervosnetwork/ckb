@@ -27,6 +27,8 @@ impl Notifier {
     }
 
     pub fn add(&mut self, alert: Arc<Alert>) {
+        use semver::Version;
+
         if self.has_received(alert.id) {
             return;
         }
@@ -41,7 +43,7 @@ impl Notifier {
         if alert
             .min_version
             .as_ref()
-            .map(|min_v| self.client_version < *min_v)
+            .map(|min_v| Version::parse(&self.client_version) < Version::parse(min_v))
             == Some(true)
         {
             return;
@@ -50,7 +52,7 @@ impl Notifier {
         if alert
             .max_version
             .as_ref()
-            .map(|max_v| self.client_version > *max_v)
+            .map(|max_v| Version::parse(&self.client_version) > Version::parse(max_v))
             == Some(true)
         {
             return;
