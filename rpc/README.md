@@ -1253,7 +1253,14 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "alerts": [],
+        "alerts": [
+            {
+                "id": "42",
+                "message": "An example alert message!",
+                "notice_until": "2524579200000",
+                "priority": "1"
+            }
+        ],
         "chain": "main",
         "difficulty": "0x3e8",
         "epoch": "0",

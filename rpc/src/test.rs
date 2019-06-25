@@ -9,7 +9,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_core::{alert::AlertBuilder, capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
@@ -34,6 +34,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
+const ALERT_UNTIL_TIMESTAMP: u64 = 2_524_579_200;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct JsonResponse {
@@ -180,9 +181,23 @@ fn setup_node(
         }
         .to_delegate(),
     );
-    let alert_relayer = AlertRelayer::new("0".to_string(), AlertConfig::default());
+    let alert_relayer = AlertRelayer::new("0.1".to_string(), AlertConfig::default());
 
-    let alert_notifier = Arc::clone(alert_relayer.notifier());
+    let alert_notifier = {
+        let alert_notifier = alert_relayer.notifier();
+        let alert = Arc::new(
+            AlertBuilder::default()
+                .id(42)
+                .min_version(Some("0.0.1".into()))
+                .max_version(Some("1.0.0".into()))
+                .priority(1)
+                .notice_until(ALERT_UNTIL_TIMESTAMP * 1000)
+                .message("An example alert message!".into())
+                .build(),
+        );
+        alert_notifier.lock().add(alert);
+        Arc::clone(alert_notifier)
+    };
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),
