@@ -5,7 +5,9 @@ use super::super::transaction_verifier::{
 use crate::error::TransactionError;
 use ckb_core::cell::{BlockInfo, CellMeta, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::{Script, ScriptHashType};
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder, TX_VERSION,
+};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity, EpochNumber, Version};
 use ckb_db::MemoryKeyValueDB;
 use ckb_resource::CODE_HASH_DAO;
@@ -29,7 +31,7 @@ pub fn test_empty() {
 #[test]
 pub fn test_version() {
     let transaction = TransactionBuilder::default()
-        .version(Version::default() + 1)
+        .version(TX_VERSION + 1)
         .build();
     let verifier = VersionVerifier::new(&transaction);
 

@@ -43,7 +43,7 @@ impl Seal {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct RawHeader {
     version: Version,
     /// Parent hash.
@@ -68,6 +68,25 @@ pub struct RawHeader {
     epoch: EpochNumber,
     /// Statistic data used in NervosDAO calculation
     dao: Bytes,
+}
+
+impl Default for RawHeader {
+    fn default() -> Self {
+        Self {
+            version: HEADER_VERSION,
+            parent_hash: Default::default(),
+            timestamp: Default::default(),
+            number: Default::default(),
+            transactions_root: Default::default(),
+            proposals_hash: Default::default(),
+            witnesses_root: Default::default(),
+            difficulty: Default::default(),
+            uncles_hash: Default::default(),
+            uncles_count: Default::default(),
+            epoch: Default::default(),
+            dao: Default::default(),
+        }
+    }
 }
 
 impl RawHeader {
