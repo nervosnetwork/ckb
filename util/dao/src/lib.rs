@@ -116,10 +116,13 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                 .ok_or(Error::InvalidHeader)?;
             self.primary_block_reward(&target)
                 .and_then(|c| c.safe_add(parent_g2).map_err(Into::into))?
+        } else if parent.number() == 0 {
+            Capacity::zero()
         } else {
             self.consensus
                 .genesis_epoch_ext()
-                .block_reward(parent.number())?
+                .block_reward(parent.number())
+                .and_then(|c| c.safe_add(parent_g2).map_err(Into::into))?
         };
 
         let current_c = parent_c.safe_add(parent_g)?;
@@ -269,12 +272,16 @@ fn calculate_g2(
     current_epoch_ext: &EpochExt,
     secondary_epoch_reward: Capacity,
 ) -> Result<Capacity, FailureError> {
+    if block_number == 0 {
+        return Ok(Capacity::zero());
+    }
     let epoch_length = current_epoch_ext.length();
     let mut g2 = Capacity::shannons(secondary_epoch_reward.as_u64() / epoch_length);
-    if current_epoch_ext.start_number() == block_number {
-        g2 = g2.safe_add(Capacity::shannons(
-            secondary_epoch_reward.as_u64() % epoch_length,
-        ))?;
+    let remainder = secondary_epoch_reward.as_u64() % epoch_length;
+    if block_number >= current_epoch_ext.start_number()
+        && block_number < current_epoch_ext.start_number() + remainder
+    {
+        g2 = g2.safe_add(Capacity::one())?;
     }
     Ok(g2)
 }
@@ -360,7 +367,7 @@ mod tests {
         let consensus = Consensus::default();
 
         let parent_number = 12345;
-        let parent_epoch_start = parent_number - 5;
+        let parent_epoch_start = parent_number - 2000;
         let parent_header = HeaderBuilder::default()
             .number(parent_number)
             .dao(pack_dao_data(
@@ -408,8 +415,8 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_585_651_568_640,
-                Capacity::shannons(500_100_000_000_000),
+                10_000_000_000_000_000,
+                Capacity::shannons(500_000_000_000_000),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -438,8 +445,8 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_585_651_691_959,
-                Capacity::shannons(500_079_282_701_433),
+                10_000_585_651_660_659,
+                Capacity::shannons(500_079_282_699_868),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -468,8 +475,8 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_624_877_953_630_076_928,
-                Capacity::shannons(100_000_000_000),
+                0,
+                Capacity::shannons(0),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -540,8 +547,8 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_585_651_660_639,
-                Capacity::shannons(500_079_282_699_867),
+                10_000_585_651_660_659,
+                Capacity::shannons(500_079_282_699_868),
                 Capacity::shannons(600_500_000_000)
             )
         );
