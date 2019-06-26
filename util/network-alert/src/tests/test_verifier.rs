@@ -8,8 +8,7 @@ use ckb_jsonrpc_types::JsonBytes;
 fn test_veirifer() {
     let keypairs: Vec<_> = (0..3)
         .map(move |_| Generator::new().random_keypair())
-        .collect::<Result<Vec<_>, _>>()
-        .expect("random keypair");
+        .collect();
     let config = Config {
         signatures_threshold: 2,
         public_keys: keypairs

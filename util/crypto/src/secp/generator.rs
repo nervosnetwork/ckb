@@ -1,4 +1,3 @@
-use super::error::Error;
 use super::privkey::Privkey;
 use super::pubkey::Pubkey;
 use super::SECP256K1;
@@ -16,11 +15,11 @@ impl Generator {
         self.random_secret_key().into()
     }
 
-    pub fn random_keypair(self) -> Result<(Privkey, Pubkey), Error> {
+    pub fn random_keypair(self) -> (Privkey, Pubkey) {
         let secret_key = self.random_secret_key();
         let pubkey = PublicKey::from_secret_key(&*SECP256K1, &secret_key);
 
-        Ok((secret_key.into(), pubkey.into()))
+        (secret_key.into(), pubkey.into())
     }
 
     pub fn random_secret_key(&self) -> SecretKey {
