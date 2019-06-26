@@ -296,14 +296,19 @@ fn test_rpc() {
         if print_mode {
             case.insert("result".to_owned(), actual.clone());
             outputs.push(Value::Object(case.clone()));
-        } else {
+        } else if actual != expect {
+            let orig = to_string_pretty(&expect).expect("expect should be in json format");
+            let edit = to_string_pretty(&actual).expect("actual should be in json format");
+            let changeset = difference::Changeset::new(&orig, &edit, "\n");
+
             assert!(
                 actual == expect,
-                "\nexpect result of {}: \n{}\nactual result of {}:\n {}",
+                "\nexpect of {}:\n{}\
+                 \ndiff of {}:\n{}",
                 case.get("method").expect("get jsonrpc method"),
-                to_string_pretty(&expect).expect("expect should be in json format"),
+                orig,
                 case.get("method").expect("get jsonrpc method"),
-                to_string_pretty(&actual).expect("actual should be in json format"),
+                changeset,
             );
         }
 

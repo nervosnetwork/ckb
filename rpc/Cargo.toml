@@ -45,3 +45,4 @@ ckb-notify = { path = "../notify" }
 reqwest = "0.9.16"
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 tempfile = "3.0"
+difference = "2.0"
