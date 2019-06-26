@@ -41,6 +41,7 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 	cargo doc --all
 
 gen-doc:  ## Generate rpc documentation
+	./devtools/doc/jsonfmt.py rpc/json/rpc.json
 	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
 
 gen-hashes: ## Generate docs/hashes.toml
@@ -95,9 +96,7 @@ ci: check-cargotoml fmt check-dirty-doc clippy security-audit test
 check-cargotoml:
 	./devtools/ci/check-cargotoml.sh
 
-check-dirty-doc:
-	./devtools/doc/jsonfmt.py rpc/json/rpc.json
-	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
+check-dirty-doc: gen-doc
 	git diff --exit-code rpc/README.md rpc/json/rpc.json
 
 ##@ Generates Files
