@@ -1,7 +1,7 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_core::block::Block;
-use ckb_core::cell::resolve_transaction;
+use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
@@ -338,21 +338,21 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         }
 
         // Generate DAO fields here
-        let resolved_cellbase = resolve_transaction(
-            &cellbase,
-            &mut Default::default(),
-            &*chain_state,
-            &*chain_state,
-        )
-        .map_err(|_| Error::InvalidInput)?;
-        let rtxs = entries
+        let mut txs = vec![cellbase.to_owned()];
+        for entry in &entries {
+            txs.push(entry.transaction.to_owned());
+        }
+        let mut seen_inputs = FnvHashSet::default();
+        let transactions_provider = TransactionsProvider::new(&txs);
+        let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, &*chain_state);
+
+        let rtxs = txs
             .iter()
-            .try_fold(
-                vec![resolved_cellbase],
-                |mut rtxs, entry| match resolve_transaction(
-                    &entry.transaction,
-                    &mut Default::default(),
-                    &*chain_state,
+            .try_fold(vec![], |mut rtxs, tx| {
+                match resolve_transaction(
+                    &tx,
+                    &mut seen_inputs,
+                    &overlay_cell_provider,
                     &*chain_state,
                 ) {
                     Ok(rtx) => {
@@ -360,8 +360,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                         Ok(rtxs)
                     }
                     Err(e) => Err(e),
-                },
-            )
+                }
+            })
             .map_err(|_| Error::InvalidInput)?;
         let dao = DaoCalculator::new(&chain_state.consensus(), Arc::clone(chain_state.store()))
             .dao_field(&rtxs, &tip_header)?;

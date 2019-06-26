@@ -4,7 +4,7 @@ use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::cell::{
     resolve_transaction, CellMetaBuilder, CellProvider, CellStatus, HeaderProvider, HeaderStatus,
-    OverlayCellProvider,
+    OverlayCellProvider, TransactionsProvider,
 };
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{Header, HeaderBuilder};
@@ -19,7 +19,7 @@ use ckb_shared::shared::SharedBuilder;
 use ckb_store::{ChainKVStore, ChainStore, StoreBatch, COLUMNS};
 use ckb_test_chain_utils::{build_block, create_always_success_cell};
 use ckb_traits::chain_provider::ChainProvider;
-use fnv::{FnvHashMap, FnvHashSet};
+use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
@@ -148,42 +148,6 @@ impl HeaderProvider for MockStore {
             }
         } else {
             HeaderStatus::Unspecified
-        }
-    }
-}
-
-pub struct TransactionsProvider {
-    transactions: FnvHashMap<H256, Transaction>,
-}
-
-impl TransactionsProvider {
-    pub fn new(transactions: &[Transaction]) -> Self {
-        let transactions = transactions
-            .iter()
-            .map(|tx| (tx.hash().to_owned(), tx.to_owned()))
-            .collect();
-        Self { transactions }
-    }
-}
-
-impl CellProvider for TransactionsProvider {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(cell_out_point) = &out_point.cell {
-            match self.transactions.get(&cell_out_point.tx_hash) {
-                Some(tx) => tx
-                    .outputs()
-                    .get(cell_out_point.index as usize)
-                    .as_ref()
-                    .map(|cell| {
-                        CellStatus::live_cell(
-                            CellMetaBuilder::from_cell_output((*cell).to_owned()).build(),
-                        )
-                    })
-                    .unwrap_or(CellStatus::Unknown),
-                None => CellStatus::Unknown,
-            }
-        } else {
-            CellStatus::Unspecified
         }
     }
 }

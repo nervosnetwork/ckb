@@ -413,6 +413,42 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
     }
 }
 
+pub struct TransactionsProvider {
+    transactions: FnvHashMap<H256, Transaction>,
+}
+
+impl TransactionsProvider {
+    pub fn new(transactions: &[Transaction]) -> Self {
+        let transactions = transactions
+            .iter()
+            .map(|tx| (tx.hash().to_owned(), tx.to_owned()))
+            .collect();
+        Self { transactions }
+    }
+}
+
+impl CellProvider for TransactionsProvider {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        if let Some(cell_out_point) = &out_point.cell {
+            match self.transactions.get(&cell_out_point.tx_hash) {
+                Some(tx) => tx
+                    .outputs()
+                    .get(cell_out_point.index as usize)
+                    .as_ref()
+                    .map(|cell| {
+                        CellStatus::live_cell(
+                            CellMetaBuilder::from_cell_output((*cell).to_owned()).build(),
+                        )
+                    })
+                    .unwrap_or(CellStatus::Unknown),
+                None => CellStatus::Unknown,
+            }
+        } else {
+            CellStatus::Unspecified
+        }
+    }
+}
+
 pub trait HeaderProvider {
     fn header(&self, out_point: &OutPoint) -> HeaderStatus;
 }
