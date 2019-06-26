@@ -19,6 +19,7 @@ use std::sync::Arc;
 #[test]
 fn test_genesis_transaction_spend() {
     let tx = TransactionBuilder::default()
+        .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutput::new(
@@ -300,6 +301,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
 #[test]
 fn test_genesis_transaction_fetch() {
     let tx = TransactionBuilder::default()
+        .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
             CellOutput::new(
@@ -471,8 +473,14 @@ fn test_chain_get_ancestor() {
 
 #[test]
 fn test_next_epoch_ext() {
-    let genesis_block =
-        build_block!(header_builder: header_builder!(difficulty: U256::from(1000u64),),);
+    let cellbase = TransactionBuilder::default()
+        .witness(Script::default().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let genesis_block = build_block! {
+        header_builder: header_builder!(difficulty: U256::from(1000u64),),
+        transaction: cellbase,
+    };
 
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
     consensus.genesis_epoch_ext.set_length(400);

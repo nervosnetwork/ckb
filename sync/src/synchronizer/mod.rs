@@ -631,7 +631,7 @@ mod tests {
         let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
 
         let consensus = consensus.unwrap_or_else(Default::default);
-        builder = builder.consensus(consensus.set_bootstrap_lock(Script::default()));
+        builder = builder.consensus(consensus);
 
         let shared = builder.build().unwrap();
 
@@ -647,16 +647,7 @@ mod tests {
         parent_header: &Header,
         number: BlockNumber,
     ) -> Transaction {
-        let reward = if number > shared.consensus().reserve_number() {
-            let (_, block_reward) = shared.finalize_block_reward(parent_header).unwrap();
-            block_reward
-        } else {
-            shared
-                .consensus()
-                .genesis_epoch_ext()
-                .block_reward(number)
-                .unwrap()
-        };
+        let (_, reward) = shared.finalize_block_reward(parent_header).unwrap();
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
@@ -1248,7 +1239,10 @@ mod tests {
         let header = HeaderBuilder::default()
             .difficulty(U256::from(2u64))
             .build();
-        let block = BlockBuilder::default().header(header).build();
+        let block = BlockBuilder::default()
+            .header(header)
+            .transaction(consensus.genesis_block().transactions()[0].clone())
+            .build();
         let consensus = consensus.set_genesis_block(block);
 
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);

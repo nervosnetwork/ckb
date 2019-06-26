@@ -76,6 +76,7 @@ fn setup_node(
 ) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
+        .witness(always_success_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .build();
@@ -91,7 +92,6 @@ fn setup_node(
 
     let consensus = Consensus::default()
         .set_genesis_block(block.clone())
-        .set_bootstrap_lock(always_success_script.clone())
         .set_cellbase_maturity(0);
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
@@ -111,16 +111,7 @@ fn setup_node(
             .next_epoch_ext(&last_epoch, block.header())
             .unwrap_or(last_epoch);
 
-        let reward = if number > shared.consensus().reserve_number() {
-            let (_, block_reward) = shared.finalize_block_reward(block.header()).unwrap();
-            block_reward
-        } else {
-            shared
-                .consensus()
-                .genesis_epoch_ext()
-                .block_reward(number)
-                .unwrap()
-        };
+        let (_, reward) = shared.finalize_block_reward(block.header()).unwrap();
 
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))

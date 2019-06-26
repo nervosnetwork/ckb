@@ -163,6 +163,13 @@ fn new_chain(
 
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
+        .witness(
+            Script {
+                args: vec![],
+                code_hash: cell_output.data_hash(),
+            }
+            .into_witness(),
+        )
         .output(cell_output)
         .build();
 

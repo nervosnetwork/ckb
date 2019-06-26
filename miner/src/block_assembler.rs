@@ -376,8 +376,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     /// Miner mined block H(c), the block reward will be finalized at H(c + w_far + 1).
     /// Miner specify own lock in cellbase witness.
     /// The cellbase have only one output,
-    /// if H(c) > reserve_number, miner should collect the block reward for finalize target H(c - w_far - 1)
-    /// otherwise miner create a output with bootstrap lock.
+    /// miner should collect the block reward for finalize target H(max(0, c - w_far - 1))
     fn build_cellbase(
         &self,
         tip: &Header,
@@ -385,62 +384,22 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     ) -> Result<(Transaction, usize), FailureError> {
         let candidate_number = tip.number() + 1;
 
-        let tx = if candidate_number > (self.shared.consensus().reserve_number()) {
-            self.ordinary_cellbase(tip, lock)
-        } else {
-            self.bootstrap_cellbase(candidate_number, lock)
-        }?;
+        let tx = {
+            let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
+            let witness = lock.into_witness();
+            let input = CellInput::new_cellbase_input(candidate_number);
+            let raw_output = CellOutput::new(block_reward, Bytes::default(), target_lock, None);
+            let output = self.custom_output(block_reward, raw_output)?;
 
+            TransactionBuilder::default()
+                .input(input)
+                .output(output)
+                .witness(witness)
+                .build()
+        };
         let serialized_size = tx.serialized_size();
+
         Ok((tx, serialized_size))
-    }
-
-    fn bootstrap_cellbase(
-        &self,
-        candidate_number: BlockNumber,
-        lock: Script,
-    ) -> Result<Transaction, FailureError> {
-        let witness = lock.into_witness();
-        let input = CellInput::new_cellbase_input(candidate_number);
-
-        let block_reward = self
-            .shared
-            .consensus()
-            .genesis_epoch_ext()
-            .block_reward(candidate_number)?;
-
-        let raw_output = CellOutput::new(
-            block_reward,
-            Bytes::default(),
-            self.shared.consensus().bootstrap_lock().clone(),
-            None,
-        );
-
-        let output = self.custom_output(block_reward, raw_output)?;
-
-        Ok(TransactionBuilder::default()
-            .input(input)
-            .output(output)
-            .witness(witness)
-            .build())
-    }
-
-    fn ordinary_cellbase(&self, tip: &Header, lock: Script) -> Result<Transaction, FailureError> {
-        let candidate_number = tip.number() + 1;
-        let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
-
-        let witness = lock.into_witness();
-        let input = CellInput::new_cellbase_input(candidate_number);
-
-        let raw_output = CellOutput::new(block_reward, Bytes::default(), target_lock, None);
-
-        let output = self.custom_output(block_reward, raw_output)?;
-
-        Ok(TransactionBuilder::default()
-            .input(input)
-            .output(output)
-            .witness(witness)
-            .build())
     }
 
     fn custom_output(

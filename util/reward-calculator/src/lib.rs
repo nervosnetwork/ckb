@@ -178,20 +178,10 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     }
 
     fn base_block_reward(&self, target: &Header) -> Result<Capacity, FailureError> {
-        let target_parent_hash = target.parent_hash();
-        let target_parent_epoch = self
-            .provider
-            .get_block_epoch(target_parent_hash)
-            .expect("target parent exist");
-        let target_parent = self
-            .provider
-            .store()
-            .get_block_header(target_parent_hash)
-            .expect("target parent exist");
         let epoch = self
             .provider
-            .next_epoch_ext(&target_parent_epoch, &target_parent)
-            .unwrap_or(target_parent_epoch);
+            .get_block_epoch(target.hash())
+            .expect("get reward target epoch");
 
         epoch.block_reward(target.number()).map_err(Into::into)
     }
