@@ -181,7 +181,7 @@ fn setup_node(
         }
         .to_delegate(),
     );
-    let alert_relayer = AlertRelayer::new("0.1".to_string(), AlertConfig::default());
+    let alert_relayer = AlertRelayer::new("0.1.0".to_string(), AlertConfig::default());
 
     let alert_notifier = {
         let alert_notifier = alert_relayer.notifier();
