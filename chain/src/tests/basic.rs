@@ -1,6 +1,7 @@
 use crate::tests::util::{
-    create_cellbase, create_multi_outputs_transaction, create_transaction,
-    create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
+    create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
+    create_transaction, create_transaction_with_out_point, dao_data, start_chain, MockChain,
+    MockStore,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -41,6 +42,7 @@ fn test_genesis_transaction_spend() {
 
     let genesis_block = build_block!(
         transaction: tx,
+        transaction: create_always_success_tx(),
         header_builder:
             header_builder!(difficulty: U256::from(1000u64),
                                         dao: dao,),

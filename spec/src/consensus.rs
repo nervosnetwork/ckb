@@ -114,10 +114,11 @@ impl Default for Consensus {
             .witness(Script::default().into_witness())
             .build();
         let dao = genesis_dao_data(&cellbase).unwrap();
-        let genesis_block =
-            BlockBuilder::from_header_builder(HeaderBuilder::default().difficulty(U256::one()).dao(dao))
-                .transaction(cellbase)
-                .build();
+        let genesis_block = BlockBuilder::from_header_builder(
+            HeaderBuilder::default().difficulty(U256::one()).dao(dao),
+        )
+        .transaction(cellbase)
+        .build();
 
         let block_reward = Capacity::shannons(DEFAULT_EPOCH_REWARD.as_u64() / GENESIS_EPOCH_LENGTH);
         let remainder_reward =

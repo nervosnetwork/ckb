@@ -649,6 +649,11 @@ mod tests {
 
         let block0_0 = gen_block(&genesis, 11, &epoch);
         let block0_1 = gen_block(&genesis, 10, &epoch);
+        let (block0_0, block0_1) = if block0_0.header().hash() < block0_1.header().hash() {
+            (block0_1, block0_0)
+        } else {
+            (block0_0, block0_1)
+        };
 
         let last_epoch = epoch.clone();
         let epoch = shared

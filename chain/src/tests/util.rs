@@ -88,7 +88,6 @@ impl MockStore {
             COLUMNS as usize,
         ))));
         store.insert_block(&block, &epoch_ext);
-        store.insert_transaction(&create_always_success_tx());
         store
     }
 
@@ -105,14 +104,6 @@ impl MockStore {
         batch
             .insert_epoch_ext(epoch_ext.last_block_hash_in_previous_epoch(), &epoch_ext)
             .unwrap();
-        batch.commit().unwrap();
-    }
-
-    pub fn insert_transaction(&mut self, t: &Transaction) {
-        let block = BlockBuilder::default().transaction(t.to_owned()).build();
-        let mut batch = self.0.new_batch().unwrap();
-        batch.insert_block(&block).unwrap();
-        batch.attach_block(&block).unwrap();
         batch.commit().unwrap();
     }
 }
@@ -158,21 +149,14 @@ pub(crate) fn calculate_reward(
     parent: &Header,
 ) -> Capacity {
     let number = parent.number() + 1;
-    if number > consensus.reserve_number() {
-        let target_number = consensus.finalize_target(number).unwrap();
-        let target = store.0.get_ancestor(parent.hash(), target_number).unwrap();
-        let calculator = DaoCalculator::new(consensus, Arc::clone(&store.0));
-        calculator
-            .primary_block_reward(&target)
-            .unwrap()
-            .safe_add(calculator.secondary_block_reward(&target).unwrap())
-            .unwrap()
-    } else {
-        consensus
-            .genesis_epoch_ext()
-            .block_reward(parent.number())
-            .unwrap()
-    }
+    let target_number = consensus.finalize_target(number).unwrap();
+    let target = store.0.get_ancestor(parent.hash(), target_number).unwrap();
+    let calculator = DaoCalculator::new(consensus, Arc::clone(&store.0));
+    calculator
+        .primary_block_reward(&target)
+        .unwrap()
+        .safe_add(calculator.secondary_block_reward(&target).unwrap())
+        .unwrap()
 }
 
 pub(crate) fn create_cellbase(

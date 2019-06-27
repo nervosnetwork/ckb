@@ -41,6 +41,9 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
     }
 
     pub fn secondary_block_reward(&self, target: &Header) -> Result<Capacity, FailureError> {
+        if target.number() == 0 {
+            return Ok(Capacity::zero());
+        }
         let target_parent_hash = target.parent_hash();
         let target_parent = self
             .store
@@ -103,9 +106,9 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
             &parent_epoch,
             self.consensus.secondary_epoch_reward(),
         )?;
-        let parent_g = if parent.number() > self.consensus.reserve_number() {
-            // Note the primary issuance of a block is not the reward of the
-            // parent block, but the target block(see RewardCalculator)
+        let parent_g = if parent.number() == 0 {
+            Capacity::zero()
+        } else {
             let target_number = self
                 .consensus
                 .finalize_target(parent.number())
@@ -115,13 +118,6 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                 .get_ancestor(parent.hash(), target_number)
                 .ok_or(Error::InvalidHeader)?;
             self.primary_block_reward(&target)
-                .and_then(|c| c.safe_add(parent_g2).map_err(Into::into))?
-        } else if parent.number() == 0 {
-            Capacity::zero()
-        } else {
-            self.consensus
-                .genesis_epoch_ext()
-                .block_reward(parent.number())
                 .and_then(|c| c.safe_add(parent_g2).map_err(Into::into))?
         };
 
