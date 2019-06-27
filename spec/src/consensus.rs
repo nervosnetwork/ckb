@@ -52,7 +52,7 @@ pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 /// 2) it is in the commitment zone of the main chain block with height h_c ;
 ///
 ///   ProposalWindow (2, 10)
-///       proposal
+///       propose
 ///          \
 ///           \
 ///           13 14 [15 16 17 18 19 20 21 22 23]
