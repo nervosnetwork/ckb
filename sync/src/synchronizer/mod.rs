@@ -11,7 +11,6 @@ use self::block_process::BlockProcess;
 use self::get_blocks_process::GetBlocksProcess;
 use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
-use crate::config::Config;
 use crate::types::BlockStatus;
 use crate::types::{HeaderView, Peers, SyncSharedState};
 use crate::{
@@ -61,11 +60,7 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
 }
 
 impl<CS: ChainStore> Synchronizer<CS> {
-    pub fn new(
-        chain: ChainController,
-        shared: Arc<SyncSharedState<CS>>,
-        _config: Config,
-    ) -> Synchronizer<CS> {
+    pub fn new(chain: ChainController, shared: Arc<SyncSharedState<CS>>) -> Synchronizer<CS> {
         Synchronizer { chain, shared }
     }
 
@@ -591,7 +586,7 @@ mod tests {
         shared: Shared<CS>,
     ) -> Synchronizer<CS> {
         let shared = Arc::new(SyncSharedState::new(shared));
-        Synchronizer::new(chain_controller, shared, Config::default())
+        Synchronizer::new(chain_controller, shared)
     }
 
     #[test]

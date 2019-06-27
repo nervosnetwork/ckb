@@ -18,7 +18,7 @@ use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConf
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
-use ckb_sync::{Config as SyncConfig, SyncSharedState, Synchronizer};
+use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::create_always_success_cell;
 use ckb_traits::chain_provider::ChainProvider;
 use jsonrpc_core::IoHandler;
@@ -152,11 +152,7 @@ fn setup_node(
     .start::<&str>(Default::default(), None)
     .expect("Start network service failed");
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
-    let synchronizer = Synchronizer::new(
-        chain_controller.clone(),
-        Arc::clone(&sync_shared_state),
-        SyncConfig::default(),
-    );
+    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
 
     let db_config = DBConfig {
         path: dir.path().join("indexer").to_path_buf(),

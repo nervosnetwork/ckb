@@ -21,7 +21,6 @@ use ckb_rpc::Config as RpcConfig;
 use ckb_script::ScriptConfig;
 use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_store::StoreConfig;
-use ckb_sync::Config as SyncConfig;
 
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};
@@ -46,7 +45,6 @@ pub struct CKBAppConfig {
     pub indexer_db: DBConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
-    pub sync: SyncConfig,
     pub tx_pool: TxPoolConfig,
     pub script: ScriptConfig,
     pub store: StoreConfig,
