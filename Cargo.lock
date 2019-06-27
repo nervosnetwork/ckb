@@ -812,8 +812,12 @@ dependencies = [
 name = "ckb-reward-calculator"
 version = "0.16.0-pre"
 dependencies = [
+ "ckb-chain-spec 0.16.0-pre",
  "ckb-core 0.16.0-pre",
  "ckb-dao 0.16.0-pre",
+ "ckb-db 0.16.0-pre",
+ "ckb-occupied-capacity 0.16.0-pre",
+ "ckb-script 0.16.0-pre",
  "ckb-store 0.16.0-pre",
  "ckb-traits 0.16.0-pre",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",

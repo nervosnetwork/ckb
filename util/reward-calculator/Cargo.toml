@@ -13,3 +13,9 @@ ckb-traits = { path = "../../traits" }
 failure = "0.1.5"
 fnv = "1.0.3"
 ckb-dao = { path = "../dao" }
+
+[dev-dependencies]
+ckb-chain-spec = { path = "../../spec" }
+ckb-db = { path = "../../db" }
+ckb-script = { path = "../../script" }
+ckb-occupied-capacity = { path = "../occupied-capacity" }
