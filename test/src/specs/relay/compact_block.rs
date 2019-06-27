@@ -1,9 +1,12 @@
 use crate::utils::{
-    build_compact_block, build_compact_block_with_prefilled, clear_messages, wait_until,
+    build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
+    build_header, clear_messages, wait_until,
 };
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_chain_spec::ChainSpec;
+use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
+use ckb_core::transaction::{CellInput, TransactionBuilder};
 use ckb_network::PeerIndex;
 use ckb_protocol::{get_root, RelayMessage, RelayPayload, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
@@ -193,6 +196,87 @@ impl CompactBlockBasic {
         node1.submit_block(&block);
         node1.waiting_for_sync(node0, node1.get_tip_block().header().number());
     }
+
+    // Case: A <- B, A == B.parent
+    // 1. Sync B to node0. Node0 will put B into orphan_block_pool since B's parent unknown
+    // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
+    // orphan_block_pool now
+    pub fn test_relay_parent_of_orphan_block(&self, net: &Net, node: &Node, peer_id: PeerIndex) {
+        node.generate_block();
+
+        // Proposal a tx, and grow up into proposal window
+        let new_tx = node.new_transaction_spend_tip_cellbase();
+        node.submit_block(
+            &node
+                .new_block_builder(None, None, None)
+                .proposal(new_tx.proposal_short_id())
+                .build(),
+        );
+        node.generate_blocks(6);
+
+        let parent = node
+            .new_block_builder(None, None, None)
+            .transaction(new_tx)
+            .build();
+        let fakebase = node.new_block(None, None, None).transactions()[0].clone();
+        let cellbase = TransactionBuilder::default()
+            .output(fakebase.outputs()[0].clone())
+            .witness(fakebase.witnesses()[0].clone())
+            .input(CellInput::new_cellbase_input(parent.header().number() + 1))
+            .build();
+        let block = BlockBuilder::default()
+            .transaction(cellbase)
+            .header_builder(
+                HeaderBuilder::from_header(parent.header().to_owned())
+                    .number(parent.header().number() + 1)
+                    .timestamp(parent.header().timestamp() + 1)
+                    .parent_hash(parent.header().hash().to_owned()),
+            )
+            .build();
+        let old_tip = node.get_tip_block().header().number();
+
+        net.send(
+            NetworkProtocol::SYNC.into(),
+            peer_id,
+            build_header(parent.header()),
+        );
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            peer_id,
+            build_compact_block(&parent),
+        );
+        net.send(
+            NetworkProtocol::SYNC.into(),
+            peer_id,
+            build_header(block.header()),
+        );
+
+        // Wait until node0 send GetBlocks
+        loop {
+            let (_, _, data) = net
+                .receive_timeout(Duration::from_secs(5))
+                .expect("wait GetBlocks");
+            if let Ok(message) = get_root::<SyncMessage>(&data) {
+                if message.payload_type() == SyncPayload::GetBlocks {
+                    break;
+                }
+            }
+        }
+        net.send(NetworkProtocol::SYNC.into(), peer_id, build_block(&block));
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            peer_id,
+            build_block_transactions(&parent),
+        );
+
+        let ret = wait_until(10, move || {
+            node.get_tip_block().header().number() == old_tip + 2
+        });
+        assert!(
+            ret,
+            "relayer should process the two blocks, including the orphan block"
+        );
+    }
 }
 
 impl Spec for CompactBlockBasic {
@@ -214,6 +298,7 @@ impl Spec for CompactBlockBasic {
         self.test_empty_parent_unknown_compact_block(&net, &net.nodes[0], peer_ids[0]);
         self.test_all_prefilled_compact_block(&net, &net.nodes[0], peer_ids[0]);
         self.test_missing_txs_compact_block(&net, &net.nodes[0], peer_ids[0]);
+        self.test_relay_parent_of_orphan_block(&net, &net.nodes[0], peer_ids[0]);
         self.test_lose_get_block_transactions(&net, &net.nodes[0], &net.nodes[1], peer_ids[0]);
     }
 
