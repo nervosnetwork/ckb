@@ -394,7 +394,7 @@ impl<CS: ChainStore> ChainState<CS> {
         &self,
         tx: &'a Transaction,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
-        let tx_pool = self.tx_pool.borrow_mut();
+        let tx_pool = self.tx_pool.borrow();
         let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
         let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &proposed_provider);
         let pending_and_proposed_provider =
