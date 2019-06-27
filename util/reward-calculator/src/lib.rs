@@ -65,7 +65,8 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
         Ok((target_lock, reward))
     }
 
-    /// Miner get 60% of tx fee for tx commitment.
+    /// Miner get (tx_fee - 40% of tx fee) for tx commitment.
+    /// Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
     pub fn txs_fees(&self, target: &Header) -> Result<Capacity, FailureError> {
         let consensus = self.provider.consensus();
         let target_ext = self
@@ -122,23 +123,42 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
 
         let mut proposed = FnvHashSet::default();
         let mut index = parent.to_owned();
-        for (id, tx_fee) in store
-            .get_block_txs_hashes(index.hash())
-            .expect("block body stored")
-            .iter()
-            .skip(1)
-            .map(ProposalShortId::from_tx_hash)
-            .zip(
-                store
-                    .get_block_ext(index.hash())
-                    .expect("block body stored")
-                    .txs_fees
-                    .iter(),
-            )
-        {
-            // target block is the earliest block with effective proposals for the parent block
-            if target_proposals.remove(&id) {
-                reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
+
+        let committed_idx_proc = |hash: &H256| -> FnvHashSet<ProposalShortId> {
+            store
+                .get_block_txs_hashes(hash)
+                .expect("block body stored")
+                .iter()
+                .skip(1)
+                .map(ProposalShortId::from_tx_hash)
+                .collect()
+        };
+
+        let txs_fees_proc = |hash: &H256| -> Vec<Capacity> {
+            store
+                .get_block_ext(hash)
+                .expect("block ext stored")
+                .txs_fees
+        };
+
+        let has_committed_proc =
+            |x: &FnvHashSet<ProposalShortId>, y: &FnvHashSet<ProposalShortId>| -> bool {
+                !x.intersection(&y).collect::<FnvHashSet<_>>().is_empty()
+            };
+
+        let committed_idx = committed_idx_proc(index.hash());
+
+        let has_committed = has_committed_proc(&committed_idx, &target_proposals);
+
+        if has_committed {
+            for (id, tx_fee) in committed_idx
+                .into_iter()
+                .zip(txs_fees_proc(index.hash()).iter())
+            {
+                // target block is the earliest block with effective proposals for the parent block
+                if target_proposals.remove(&id) {
+                    reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
+                }
             }
         }
 
@@ -158,22 +178,18 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
 
             proposed.extend(previous_ids);
 
-            for (id, tx_fee) in store
-                .get_block_txs_hashes(index.hash())
-                .expect("block body stored")
-                .iter()
-                .skip(1)
-                .map(ProposalShortId::from_tx_hash)
-                .zip(
-                    store
-                        .get_block_ext(index.hash())
-                        .expect("block body stored")
-                        .txs_fees
-                        .iter(),
-                )
-            {
-                if target_proposals.remove(&id) && !proposed.contains(&id) {
-                    reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
+            let committed_idx = committed_idx_proc(index.hash());
+
+            let has_committed = has_committed_proc(&committed_idx, &target_proposals);
+
+            if has_committed {
+                for (id, tx_fee) in committed_idx
+                    .into_iter()
+                    .zip(txs_fees_proc(index.hash()).iter())
+                {
+                    if target_proposals.remove(&id) && !proposed.contains(&id) {
+                        reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
+                    }
                 }
             }
         }
