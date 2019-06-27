@@ -8,6 +8,8 @@
     *   [`get_cells_by_lock_hash`](#get_cells_by_lock_hash)
     *   [`get_current_epoch`](#get_current_epoch)
     *   [`get_epoch_by_number`](#get_epoch_by_number)
+    *   [`get_header`](#get_header)
+    *   [`get_header_by_number`](#get_header_by_number)
     *   [`get_live_cell`](#get_live_cell)
     *   [`get_tip_block_number`](#get_tip_block_number)
     *   [`get_tip_header`](#get_tip_header)
@@ -389,6 +391,98 @@ http://localhost:8114
         "length": "1250",
         "number": "0",
         "start_number": "0"
+    }
+}
+```
+
+### `get_header`
+
+Returns the information about a block header by hash.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_header",
+    "params": [
+        "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "difficulty": "0x3e8",
+        "epoch": "0",
+        "hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
+        "number": "1024",
+        "parent_hash": "0xbc3ae0b171848185e4d0c530eaaced7f05a2474f5c6a72c6568ec44474233fab",
+        "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "seal": {
+            "nonce": "0",
+            "proof": "0x"
+        },
+        "timestamp": "1557311767",
+        "transactions_root": "0xd82b0e5ade18260d822639b1310e585db39fa9fb9eea2cb1f4dfd3f62cd1330b",
+        "uncles_count": "0",
+        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "0",
+        "witnesses_root": "0x86fdbf80284ae9a87357fa7390695a09a9daaaeb9e68d4f0fd67e2cd9ff35b73"
+    }
+}
+```
+
+### `get_header_by_number`
+
+Returns the information about a block header by block number.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_header_by_number",
+    "params": [
+        "1024"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "difficulty": "0x3e8",
+        "epoch": "0",
+        "hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
+        "number": "1024",
+        "parent_hash": "0xbc3ae0b171848185e4d0c530eaaced7f05a2474f5c6a72c6568ec44474233fab",
+        "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "seal": {
+            "nonce": "0",
+            "proof": "0x"
+        },
+        "timestamp": "1557311767",
+        "transactions_root": "0xd82b0e5ade18260d822639b1310e585db39fa9fb9eea2cb1f4dfd3f62cd1330b",
+        "uncles_count": "0",
+        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "0",
+        "witnesses_root": "0x86fdbf80284ae9a87357fa7390695a09a9daaaeb9e68d4f0fd67e2cd9ff35b73"
     }
 }
 ```
