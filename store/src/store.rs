@@ -224,9 +224,9 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>> {
         self.process_get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes(), |slice| {
-            let uncles: Vec<ProposalShortId> =
+            let short_ids: Vec<ProposalShortId> =
                 protos::StoredProposalShortIds::from_slice(slice).try_into()?;
-            Ok(Some(uncles))
+            Ok(Some(short_ids))
         })
     }
 
