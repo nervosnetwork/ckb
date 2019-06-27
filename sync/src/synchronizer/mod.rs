@@ -6,7 +6,7 @@ mod get_headers_process;
 mod headers_process;
 
 use self::block_fetcher::BlockFetcher;
-use self::block_pool::OrphanBlockPool;
+pub use self::block_pool::OrphanBlockPool;
 use self::block_process::BlockProcess;
 use self::get_blocks_process::GetBlocksProcess;
 use self::get_headers_process::GetHeadersProcess;
@@ -48,7 +48,6 @@ const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 pub struct Synchronizer<CS: ChainStore> {
     chain: ChainController,
     pub shared: Arc<SyncSharedState<CS>>,
-    pub orphan_block_pool: Arc<OrphanBlockPool>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -57,7 +56,6 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
         Synchronizer {
             chain: self.chain.clone(),
             shared: Arc::clone(&self.shared),
-            orphan_block_pool: Arc::clone(&self.orphan_block_pool),
         }
     }
 }
@@ -66,14 +64,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
     pub fn new(
         chain: ChainController,
         shared: Arc<SyncSharedState<CS>>,
-        config: Config,
+        _config: Config,
     ) -> Synchronizer<CS> {
-        let orphan_block_limit = config.orphan_block_limit;
-        Synchronizer {
-            chain,
-            shared,
-            orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
-        }
+        Synchronizer { chain, shared }
     }
 
     pub fn shared(&self) -> &Arc<SyncSharedState<CS>> {
@@ -168,7 +161,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     //TODO: process block which we don't request
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
-        if self.orphan_block_pool.contains(block.header()) {
+        if self.shared().contains_orphan_block(block.header()) {
             debug!("block {:x} already in orphan pool", block.header().hash());
             return;
         }
@@ -212,7 +205,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 block.header().number(),
                 block.header().hash()
             );
-            self.orphan_block_pool.insert(block);
+            self.shared().insert_orphan_block(block);
             return;
         }
 
@@ -225,9 +218,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        let descendants = self
-            .orphan_block_pool
-            .remove_blocks_by_parent(&block.header().hash());
+        let descendants = self.shared().remove_orphan_by_parent(block.header().hash());
         for block in descendants {
             let block = Arc::new(block);
 

@@ -1,4 +1,5 @@
 use crate::relayer::compact_block::CompactBlock;
+use crate::synchronizer::OrphanBlockPool;
 use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
@@ -43,6 +44,7 @@ const GET_HEADERS_CACHE_SIZE: usize = 10000;
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
 const TX_FILTER_SIZE: usize = 50000;
 const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
+const ORPHAN_BLOCK_SIZE: usize = 1024;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with
@@ -641,6 +643,7 @@ pub struct SyncSharedState<CS> {
     pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
     pending_compact_blocks: Mutex<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>>,
+    orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
     inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
@@ -684,6 +687,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             known_txs: Mutex::new(KnownFilter::default()),
             pending_get_block_proposals: Mutex::new(FnvHashMap::default()),
             pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
             inflight_proposals: Mutex::new(FnvHashSet::default()),
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
@@ -1025,6 +1029,18 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn remove_inflight_proposals(&self, ids: &[ProposalShortId]) -> Vec<bool> {
         let mut locked = self.inflight_proposals.lock();
         ids.iter().map(|id| locked.remove(id)).collect()
+    }
+
+    pub fn contains_orphan_block(&self, header: &Header) -> bool {
+        self.orphan_block_pool.contains(header)
+    }
+
+    pub fn insert_orphan_block(&self, block: Block) {
+        self.orphan_block_pool.insert(block)
+    }
+
+    pub fn remove_orphan_by_parent(&self, parent_hash: &H256) -> Vec<Block> {
+        self.orphan_block_pool.remove_blocks_by_parent(parent_hash)
     }
 
     pub fn get_block_status(&self, block_hash: &H256) -> BlockStatus {
