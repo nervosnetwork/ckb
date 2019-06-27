@@ -51,7 +51,7 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_block",
     "params": [
-        "0x73d857817071a0352ab05ea6be1342d0980a8d4797ab015ece3d78e1d26e5b16"
+        "0x4861b7b46b3b2458dc7e73506ea242cda94097d67d66d553b55efea31a105ae9"
     ]
 }' \
 | tr -d '\n' \
@@ -67,9 +67,9 @@ http://localhost:8114
         "header": {
             "difficulty": "0x3e8",
             "epoch": "0",
-            "hash": "0x73d857817071a0352ab05ea6be1342d0980a8d4797ab015ece3d78e1d26e5b16",
+            "hash": "0x4861b7b46b3b2458dc7e73506ea242cda94097d67d66d553b55efea31a105ae9",
             "number": "2",
-            "parent_hash": "0xbd0ec245b8a5742a9733643841aa6d2064942a3f137a13d412343affebaafa4d",
+            "parent_hash": "0x13a9eda322eb4cc7534e49726e583e99cd44cfa4a4b7673a2c3cf8d8ed65cc5f",
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "seal": {
                 "nonce": "0",
@@ -148,9 +148,9 @@ http://localhost:8114
         "header": {
             "difficulty": "0x3e8",
             "epoch": "0",
-            "hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+            "hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
             "number": "1024",
-            "parent_hash": "0xbc76eadfcb64cf8d401c1a8bd2c7a5a94f5b3d03238f10540c6dfad2afdb705b",
+            "parent_hash": "0xbc3ae0b171848185e4d0c530eaaced7f05a2474f5c6a72c6568ec44474233fab",
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "seal": {
                 "nonce": "0",
@@ -225,7 +225,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "0x73d857817071a0352ab05ea6be1342d0980a8d4797ab015ece3d78e1d26e5b16"
+    "result": "0x4861b7b46b3b2458dc7e73506ea242cda94097d67d66d553b55efea31a105ae9"
 }
 ```
 
@@ -269,7 +269,7 @@ http://localhost:8114
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
             },
             "out_point": {
-                "block_hash": "0x73d857817071a0352ab05ea6be1342d0980a8d4797ab015ece3d78e1d26e5b16",
+                "block_hash": "0x4861b7b46b3b2458dc7e73506ea242cda94097d67d66d553b55efea31a105ae9",
                 "cell": {
                     "index": "0",
                     "tx_hash": "0x46ab01ddbbabef1af701f0843e11c7cfc0ce53f9aa9b554af74cadf8e3257d89"
@@ -283,7 +283,7 @@ http://localhost:8114
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
             },
             "out_point": {
-                "block_hash": "0x53a14d463327ba1fa06f649a29fb880514d5f3e67bc4034b92a321d0a95dd7d3",
+                "block_hash": "0xb41eb0f41c469e9da6348076b9c5dc6a84edc2aaea09deb0a3ad2e7e7be118bb",
                 "cell": {
                     "index": "0",
                     "tx_hash": "0x9268bf1da68c1dbd8f78018021d1b7d84a99a2c81060b699fe39fd12d6243d25"
@@ -297,7 +297,7 @@ http://localhost:8114
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
             },
             "out_point": {
-                "block_hash": "0x5f90447a3d76e412a638615957970fa0b577ff7fc48d800597f6c3bf44a564a1",
+                "block_hash": "0x8f3e5f2d4589c13e65a958f4fbcb41d8493dc04e2d926a63dcdf7cd810208dea",
                 "cell": {
                     "index": "0",
                     "tx_hash": "0x1bad8cf98d1424ec47b6b1998d503b267edc8a05ec41409782b70aa6e61850ae"
@@ -311,7 +311,7 @@ http://localhost:8114
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
             },
             "out_point": {
-                "block_hash": "0x274433300b7ce5854efb5c0ee9b9a5dc366ce1257051d5366ea99c879ac1859b",
+                "block_hash": "0xeba3aaa72e13fd1a1ba2390bad465e5c1c0405a4b8dfefc5ffaabee1a9e32528",
                 "cell": {
                     "index": "0",
                     "tx_hash": "0x26871490afa7ea889d361772f2dd4aeca17ddc8dc43411b836f7665f7d14804f"
@@ -495,9 +495,9 @@ http://localhost:8114
     "result": {
         "difficulty": "0x3e8",
         "epoch": "0",
-        "hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+        "hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
         "number": "1024",
-        "parent_hash": "0xbc76eadfcb64cf8d401c1a8bd2c7a5a94f5b3d03238f10540c6dfad2afdb705b",
+        "parent_hash": "0xbc3ae0b171848185e4d0c530eaaced7f05a2474f5c6a72c6568ec44474233fab",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "seal": {
             "nonce": "0",
@@ -569,7 +569,7 @@ http://localhost:8114
             "witnesses": []
         },
         "tx_status": {
-            "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+            "block_hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
             "status": "committed"
         }
     }
@@ -682,7 +682,7 @@ echo '{
                 {
                     "args": [],
                     "previous_output": {
-                        "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+                        "block_hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
                         "cell": {
                             "index": "0",
                             "tx_hash": "0xd82b0e5ade18260d822639b1310e585db39fa9fb9eea2cb1f4dfd3f62cd1330b"
@@ -716,7 +716,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "0x30fe101b60a8ca326221886f230f2dcabc83c6cf639e869f1abdbbb5a90c9df7"
+    "result": "0xdbdca8b0934ce7a7698f3ea80128435c9deb6f7101ab464efc796ad360a3ec3d"
 }
 ```
 
@@ -750,7 +750,7 @@ echo '{
                 {
                     "args": [],
                     "previous_output": {
-                        "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+                        "block_hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
                         "cell": {
                             "index": "0",
                             "tx_hash": "0xd82b0e5ade18260d822639b1310e585db39fa9fb9eea2cb1f4dfd3f62cd1330b"
@@ -919,7 +919,7 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": [
         {
-            "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+            "block_hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
             "block_number": "1024",
             "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
         }
@@ -1012,7 +1012,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+        "block_hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
         "block_number": "1024",
         "lock_hash": "0x9a9a6bdbc38d4905eace1822f85237e3a1e238bb3f277aa7b7c8903441123510"
     }
@@ -1155,7 +1155,7 @@ echo '{
                 {
                     "args": [],
                     "previous_output": {
-                        "block_hash": "0xf35168c2e2e0c494ec97233091d5de51b7e5af7376bbc3d7572fc6438e2bb032",
+                        "block_hash": "0x4792fee5f03941f58ac68eaa89f4b29fe4731065b34e43ea65b48eb0498cb9d4",
                         "cell": {
                             "index": "0",
                             "tx_hash": "0xd82b0e5ade18260d822639b1310e585db39fa9fb9eea2cb1f4dfd3f62cd1330b"
@@ -1189,7 +1189,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "0x63c455673efbf458259f73052e73383c9d8644396ff6d8bc26a652b68d853f0f"
+    "result": "0xc257e2ce45203575573d738c47b1f2814bf53a79fa2e17039b057e3fed5f2aea"
 }
 ```
 

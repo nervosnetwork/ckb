@@ -98,7 +98,6 @@ fn finalize_reward() {
 
     let consensus = Consensus::default()
         .set_cellbase_maturity(0)
-        .set_bootstrap_lock(always_success_script.clone())
         .set_genesis_block(genesis_block);
 
     let (chain_controller, shared, mut parent) = start_chain(Some(consensus));

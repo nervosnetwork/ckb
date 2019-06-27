@@ -10,12 +10,14 @@
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::{Consensus, GENESIS_EPOCH_LENGTH};
-use ckb_core::block::Block;
-use ckb_core::block::BlockBuilder;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-use ckb_core::{BlockNumber, Bytes, Capacity, Cycle};
+use ckb_core::{
+    block::{Block, BlockBuilder},
+    extras::EpochExt,
+    header::HeaderBuilder,
+    script::Script as CoreScript,
+    transaction::{CellInput, CellOutput, Transaction, TransactionBuilder},
+    BlockNumber, Bytes, Capacity, Cycle,
+};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::Resource;
@@ -189,7 +191,6 @@ impl ChainSpec {
             .set_epoch_reward(self.params.epoch_reward)
             .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
-            .set_bootstrap_lock(self.genesis.bootstrap_lock.clone().into())
             .set_pow(self.pow.clone());
 
         Ok(consensus)
@@ -229,6 +230,7 @@ impl Genesis {
         Ok(TransactionBuilder::default()
             .outputs(outputs)
             .input(CellInput::new_cellbase_input(0))
+            .witness(CoreScript::from(self.bootstrap_lock.clone()).into_witness())
             .build())
     }
 }

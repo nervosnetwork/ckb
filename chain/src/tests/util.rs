@@ -19,8 +19,9 @@ use numext_fixed_uint::U256;
 const MIN_CAP: Capacity = capacity_bytes!(60);
 
 pub(crate) fn create_always_success_tx() -> Transaction {
-    let (ref always_success_cell, _) = create_always_success_cell();
+    let (ref always_success_cell, ref script) = create_always_success_cell();
     TransactionBuilder::default()
+        .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .build()
@@ -40,7 +41,6 @@ pub(crate) fn start_chain(
     Header,
 ) {
     let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-    let (_, ref always_success_script) = create_always_success_cell();
 
     let consensus = consensus.unwrap_or_else(|| {
         let genesis_block = BlockBuilder::default()
@@ -48,7 +48,6 @@ pub(crate) fn start_chain(
             .build();
         Consensus::default()
             .set_cellbase_maturity(0)
-            .set_bootstrap_lock(always_success_script.clone())
             .set_genesis_block(genesis_block)
     });
     let shared = builder.consensus(consensus).build().unwrap();

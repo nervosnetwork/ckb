@@ -75,7 +75,7 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .witness(Script::default().into_witness())
+        .witness(always_success_script.clone().into_witness())
         .build();
     let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
 

@@ -59,6 +59,7 @@ fn start_chain(
 
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
+        .witness(Script::default().into_witness())
         .input(CellInput::new_cellbase_input(number))
         .output(CellOutput::new(
             Capacity::zero(),
@@ -128,7 +129,12 @@ fn prepare() -> (
         parent = new_block.header().to_owned();
     }
 
-    (shared, chain1, chain2)
+    // the second chain must have smaller hash
+    if chain1.last().unwrap().header().hash() < chain2.last().unwrap().header().hash() {
+        (shared, chain2, chain1)
+    } else {
+        (shared, chain1, chain2)
+    }
 }
 
 fn dummy_context(

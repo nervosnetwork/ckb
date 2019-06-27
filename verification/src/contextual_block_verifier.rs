@@ -232,33 +232,16 @@ where
 
     pub fn verify(&self) -> Result<Vec<Capacity>, Error> {
         let cellbase = &self.resolved[0];
-        if (self.parent.number() + 1) > self.provider.consensus().reserve_number() {
-            let (target_lock, block_reward) = self
-                .provider
-                .finalize_block_reward(self.parent)
-                .map_err(|_| Error::CannotFetchBlockReward)?;
-            if cellbase.transaction.outputs_capacity()? != block_reward {
-                return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
-            }
-            if cellbase.transaction.outputs()[0].lock != target_lock {
-                return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
-            }
-        } else {
-            if cellbase.transaction.outputs_capacity()?
-                != self
-                    .provider
-                    .consensus()
-                    .genesis_epoch_ext()
-                    .block_reward(self.parent.number() + 1)
-                    .map_err(|_| Error::CannotFetchBlockReward)?
-            {
-                return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
-            }
-            if &cellbase.transaction.outputs()[0].lock != self.provider.consensus().bootstrap_lock()
-            {
-                return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
-            }
-        };
+        let (target_lock, block_reward) = self
+            .provider
+            .finalize_block_reward(self.parent)
+            .map_err(|_| Error::CannotFetchBlockReward)?;
+        if cellbase.transaction.outputs_capacity()? != block_reward {
+            return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
+        }
+        if cellbase.transaction.outputs()[0].lock != target_lock {
+            return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
+        }
         let txs_fees = self
             .resolved
             .iter()
