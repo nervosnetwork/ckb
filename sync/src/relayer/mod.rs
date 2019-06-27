@@ -215,20 +215,22 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         }
     }
 
-    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: &Arc<Block>) {
-        let ret = self.chain.process_block(Arc::clone(&block), true);
-
-        if ret.is_ok() {
+    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: Block) {
+        let boxed = Arc::new(block);
+        if self
+            .shared()
+            .insert_new_block(&self.chain, peer, Arc::clone(&boxed))
+        {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
                 "[block_relay] relayer accept_block {:x} {}",
-                block.header().hash(),
+                boxed.header().hash(),
                 unix_time_as_millis()
             );
-            let block_hash = block.header().hash();
+            let block_hash = boxed.header().hash();
             self.shared.remove_header_view(&block_hash);
             let fbb = &mut FlatBufferBuilder::new();
-            let message = RelayMessage::build_compact_block(fbb, block, &HashSet::new());
+            let message = RelayMessage::build_compact_block(fbb, &boxed, &HashSet::new());
             fbb.finish(message, None);
             let data = fbb.finished_data().into();
 
@@ -249,12 +251,6 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                     err,
                 );
             }
-        } else {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "accept_block verify error {:?}",
-                ret
-            );
         }
     }
 

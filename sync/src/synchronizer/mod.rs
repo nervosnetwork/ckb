@@ -129,11 +129,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
         now + HEADERS_DOWNLOAD_TIMEOUT_BASE + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER * expected_headers
     }
 
-    pub fn mark_block_stored(&self, hash: H256) {
-        self.shared()
-            .insert_block_status(hash, BlockStatus::BLOCK_HAVE_MASK);
-    }
-
     pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
         if let Some(parent_view) = self.shared.get_header_view(&header.parent_hash()) {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
@@ -168,74 +163,14 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         match self.shared().get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
-                self.insert_new_block(peer, block);
+                self.shared()
+                    .insert_new_block(&self.chain, peer, Arc::new(block));
             }
             status => {
                 debug!(
                     "[Synchronizer] process_new_block unexpected status {:?}",
                     status
                 );
-            }
-        }
-    }
-
-    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
-        self.chain.process_block(Arc::clone(&block), true)?;
-        self.shared.remove_header_view(block.header().hash());
-        self.mark_block_stored(block.header().hash().to_owned());
-        self.peers()
-            .set_last_common_header(peer, block.header().clone());
-        Ok(())
-    }
-
-    // FIXME: guarantee concurrent block process
-    // TODO: limit and prune orphan pool
-    fn insert_new_block(&self, peer: PeerIndex, block: Block) {
-        let known_parent = |block: &Block| {
-            self.shared
-                .store()
-                .get_block_header(block.header().parent_hash())
-                .is_some()
-        };
-
-        // Insert the given block into orphan_block_pool if its parent is not found
-        if !known_parent(&block) {
-            debug!(
-                "insert new orphan block {} {:x}",
-                block.header().number(),
-                block.header().hash()
-            );
-            self.shared().insert_orphan_block(block);
-            return;
-        }
-
-        // Attempt to accept the given block if its parent already exist in database
-        let block = Arc::new(block);
-        if let Err(err) = self.accept_block(peer, &block) {
-            debug!("accept block {:?} error {:?}", block, err);
-            return;
-        }
-
-        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
-        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        let descendants = self.shared().remove_orphan_by_parent(block.header().hash());
-        for block in descendants {
-            let block = Arc::new(block);
-
-            // If we can not find the block's parent in database, that means it was failed to accept
-            // its parent, so we treat it as a invalid block as well.
-            if !known_parent(&block) {
-                debug!(
-                    "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
-                    block.header().number(),
-                    block.header().hash(),
-                    block.header().parent_hash(),
-                );
-                continue;
-            }
-
-            if let Err(err) = self.accept_block(peer, &block) {
-                debug!("accept descendant orphan block {:?} error {:?}", block, err);
             }
         }
     }
@@ -918,7 +853,9 @@ mod tests {
         let synchronizer = gen_synchronizer(chain_controller2.clone(), shared2.clone());
         let chain1_last_block = blocks.last().cloned().unwrap();
         blocks.into_iter().for_each(|block| {
-            synchronizer.insert_new_block(peer, block);
+            synchronizer
+                .shared()
+                .insert_new_block(&synchronizer.chain, peer, Arc::new(block));
         });
         assert_eq!(
             chain1_last_block.header(),

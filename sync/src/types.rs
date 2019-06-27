@@ -5,13 +5,14 @@ use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
 use bitflags::bitflags;
+use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Cycle;
-use ckb_logger::{debug, debug_target};
+use ckb_logger::{debug, debug_target, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
@@ -20,6 +21,7 @@ use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -1082,6 +1084,85 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.known_blocks.lock().inner.remove(&pi);
         self.inflight_blocks.write().remove_by_peer(&pi);
         self.peers().disconnected(pi)
+    }
+
+    pub fn insert_new_block(
+        &self,
+        chain: &ChainController,
+        pi: PeerIndex,
+        block: Arc<Block>,
+    ) -> bool {
+        let known_parent = |block: &Block| {
+            self.store()
+                .get_block_header(block.header().parent_hash())
+                .is_some()
+        };
+
+        // Insert the given block into orphan_block_pool if its parent is not found
+        if !known_parent(&block) {
+            debug!(
+                "insert new orphan block {} {:x}",
+                block.header().number(),
+                block.header().hash()
+            );
+            self.insert_orphan_block((*block).clone());
+            return false;
+        }
+
+        // Attempt to accept the given block if its parent already exist in database
+        if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
+            error!("accept block {:?} error {:?}", block, err);
+            return false;
+        }
+
+        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
+        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
+        let descendants = self.remove_orphan_by_parent(block.header().hash());
+        for block in descendants {
+            // If we can not find the block's parent in database, that means it was failed to accept
+            // its parent, so we treat it as a invalid block as well.
+            if !known_parent(&block) {
+                debug!(
+                    "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
+                    block.header().number(),
+                    block.header().hash(),
+                    block.header().parent_hash(),
+                );
+                continue;
+            }
+
+            let block = Arc::new(block);
+            if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
+                debug!(
+                    "accept descendant orphan block {:#x} error {:?}",
+                    block.header().hash(),
+                    err
+                );
+            }
+        }
+
+        true
+    }
+
+    fn accept_block(
+        &self,
+        chain: &ChainController,
+        peer: PeerIndex,
+        block: Arc<Block>,
+    ) -> Result<(), FailureError> {
+        if let Err(err) = chain.process_block(Arc::clone(&block), true) {
+            self.insert_block_status(block.header().hash().to_owned(), BlockStatus::FAILED_MASK);
+            return Err(err);
+        }
+
+        self.remove_header_view(block.header().hash());
+        self.insert_block_status(
+            block.header().hash().to_owned(),
+            BlockStatus::BLOCK_HAVE_MASK,
+        );
+        self.peers()
+            .set_last_common_header(peer, block.header().clone());
+        Ok(())
     }
 }
 
