@@ -1,4 +1,5 @@
-use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::block_status::BlockStatus;
+use crate::synchronizer::Synchronizer;
 use crate::MAX_HEADERS_LEN;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -336,7 +337,7 @@ where
             .shared()
             .get_block_status(&self.header.parent_hash());
 
-        if (status & BlockStatus::FAILED_MASK) == status {
+        if status.contains(BlockStatus::BLOCK_INVALID) {
             state.dos(Some(ValidationError::InvalidParent), 100);
             return Err(());
         }
@@ -386,37 +387,47 @@ where
     pub fn accept(&self) -> ValidationResult {
         let mut result = ValidationResult::default();
         if self.duplicate_check(&mut result).is_err() {
-            debug!("HeadersProcess accept {:?} duplicate", self.header.number());
+            debug!(
+                "HeadersProcess reject duplicate header: {} {:#x}",
+                self.header.number(),
+                self.header.hash()
+            );
             return result;
         }
 
         if self.prev_block_check(&mut result).is_err() {
             debug!(
-                "HeadersProcess accept {:?} prev_block",
-                self.header.number()
+                "HeadersProcess reject invalid-parent header: {} {:#x}",
+                self.header.number(),
+                self.header.hash(),
             );
             self.synchronizer
                 .shared()
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_CHILD);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
             debug!(
-                "HeadersProcess accept {:?} non_contextual",
-                self.header.number()
+                "HeadersProcess reject non-contextual header: {} {:#x}",
+                self.header.number(),
+                self.header.hash(),
             );
             self.synchronizer
                 .shared()
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_VALID);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
-            debug!("HeadersProcess accept {:?} version", self.header.number());
+            debug!(
+                "HeadersProcess reject invalid-version header {} {:#x}",
+                self.header.number(),
+                self.header.hash(),
+            );
             self.synchronizer
                 .shared()
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_VALID);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
@@ -431,7 +442,7 @@ where
         );
         self.synchronizer
             .shared()
-            .insert_block_status(self.header.hash().to_owned(), BlockStatus::VALID_MASK);
+            .insert_block_status(self.header.hash().to_owned(), BlockStatus::HEADER_VERIFIED);
         result
     }
 }

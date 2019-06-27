@@ -3,6 +3,7 @@
 //! Sync module implement ckb sync protocol as specified here:
 //! https://github.com/nervosnetwork/rfcs/tree/master/rfcs/0000-block-sync-protocol
 
+mod block_status;
 mod net_time_checker;
 mod relayer;
 mod synchronizer;

@@ -1,5 +1,5 @@
+use crate::block_status::BlockStatus;
 use crate::tests::util::{build_chain, inherit_block};
-use crate::types::BlockStatus;
 use crate::SyncSharedState;
 use ckb_chain::chain::ChainService;
 use ckb_core::block::BlockBuilder;
@@ -87,6 +87,9 @@ fn test_insert_parent_unknown_block() {
         Arc::new(invalid_orphan)
     };
     let valid_orphan = Arc::new(block);
+    let valid_hash = valid_orphan.header().hash();
+    let invalid_hash = invalid_orphan.header().hash();
+    let parent_hash = parent.header().hash();
 
     assert_eq!(
         shared
@@ -100,8 +103,14 @@ fn test_insert_parent_unknown_block() {
             .expect("insert orphan block"),
         false,
     );
-    assert!(shared.contains_orphan_block(valid_orphan.header()));
-    assert!(shared.contains_orphan_block(invalid_orphan.header()));
+    assert_eq!(
+        shared.get_block_status(valid_hash),
+        BlockStatus::BLOCK_RECEIVED
+    );
+    assert_eq!(
+        shared.get_block_status(invalid_hash),
+        BlockStatus::BLOCK_RECEIVED
+    );
 
     // After inserting parent of an orphan block
     assert_eq!(
@@ -110,16 +119,22 @@ fn test_insert_parent_unknown_block() {
             .expect("insert parent of orphan block"),
         true,
     );
-    assert!(!shared.contains_orphan_block(valid_orphan.header()));
-    assert!(!shared.contains_orphan_block(invalid_orphan.header()));
-    assert!(!shared.contains_orphan_block(parent.header()));
+    assert_eq!(
+        shared.get_block_status(valid_hash),
+        BlockStatus::BLOCK_STORED
+    );
+    assert_eq!(shared.get_block_status(invalid_hash), BlockStatus::UNKNOWN);
+    assert_eq!(
+        shared.get_block_status(parent_hash),
+        BlockStatus::BLOCK_STORED
+    );
 
     assert_eq!(
-        shared.get_block_status(valid_orphan.header().hash()),
-        BlockStatus::BLOCK_HAVE_MASK,
+        shared.get_block_status(valid_hash),
+        BlockStatus::BLOCK_STORED,
     );
     assert_eq!(
-        shared.get_block_status(invalid_orphan.header().hash()),
-        BlockStatus::FAILED_MASK,
+        shared.get_block_status(invalid_hash),
+        BlockStatus::BLOCK_INVALID,
     );
 }

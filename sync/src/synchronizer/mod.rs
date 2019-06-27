@@ -587,14 +587,6 @@ mod tests {
         Synchronizer::new(chain_controller, shared)
     }
 
-    #[test]
-    fn test_block_status() {
-        let status1 = BlockStatus::FAILED_VALID;
-        let status2 = BlockStatus::FAILED_CHILD;
-        assert!((status1 & BlockStatus::FAILED_MASK) == status1);
-        assert!((status2 & BlockStatus::FAILED_MASK) == status2);
-    }
-
     fn gen_block<CS: ChainStore>(
         shared: &Shared<CS>,
         parent_header: &Header,
