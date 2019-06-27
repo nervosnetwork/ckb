@@ -111,10 +111,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
         self.shared().peers()
     }
 
-    pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
-        self.shared().insert_block_status(hash, status);
-    }
-
     pub fn predict_headers_sync_time(&self, header: &Header) -> u64 {
         let now = unix_time_as_millis();
         let expected_headers = min(
