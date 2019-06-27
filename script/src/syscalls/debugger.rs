@@ -5,12 +5,12 @@ use ckb_vm::{
 };
 
 pub struct Debugger<'a> {
-    debug_printer: &'a Fn(&str),
+    printer: &'a Fn(&str),
 }
 
 impl<'a> Debugger<'a> {
-    pub fn new(debug_printer: &'a Fn(&str)) -> Debugger<'a> {
-        Debugger { debug_printer }
+    pub fn new(printer: &'a Fn(&str)) -> Debugger<'a> {
+        Debugger { printer }
     }
 }
 
@@ -42,7 +42,7 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for Debugger<'a> {
 
         machine.add_cycles(buffer.len() as u64 * 10)?;
         let s = String::from_utf8(buffer).map_err(|_| VMError::ParseError)?;
-        (self.debug_printer)(s.as_str());
+        (self.printer)(s.as_str());
 
         Ok(true)
     }
