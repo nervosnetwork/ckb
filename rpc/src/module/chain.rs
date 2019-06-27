@@ -22,6 +22,12 @@ pub trait ChainRpc {
     #[rpc(name = "get_block_by_number")]
     fn get_block_by_number(&self, _number: BlockNumber) -> Result<Option<BlockView>>;
 
+    #[rpc(name = "get_header")]
+    fn get_header(&self, _hash: H256) -> Result<Option<HeaderView>>;
+
+    #[rpc(name = "get_header_by_number")]
+    fn get_header_by_number(&self, _number: BlockNumber) -> Result<Option<HeaderView>>;
+
     #[rpc(name = "get_transaction")]
     fn get_transaction(&self, _hash: H256) -> Result<Option<TransactionWithStatus>>;
 
@@ -75,6 +81,29 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                 self.shared
                     .store()
                     .get_block(&hash)
+                    .as_ref()
+                    .map(Into::into)
+            }))
+    }
+
+    fn get_header(&self, hash: H256) -> Result<Option<HeaderView>> {
+        Ok(self
+            .shared
+            .store()
+            .get_block_header(&hash)
+            .as_ref()
+            .map(Into::into))
+    }
+
+    fn get_header_by_number(&self, number: BlockNumber) -> Result<Option<HeaderView>> {
+        Ok(self
+            .shared
+            .store()
+            .get_block_hash(number.0)
+            .and_then(|hash| {
+                self.shared
+                    .store()
+                    .get_block_header(&hash)
                     .as_ref()
                     .map(Into::into)
             }))
