@@ -1147,14 +1147,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     ) -> Result<bool, FailureError> {
         let ret = chain.process_block(Arc::clone(&block), true);
         if ret.is_err() {
-            self.insert_block_status(block.header().hash().to_owned(), BlockStatus::FAILED_MASK);
+            self.insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return ret;
         }
 
         self.remove_header_view(block.header().hash());
         self.insert_block_status(
             block.header().hash().to_owned(),
-            BlockStatus::BLOCK_HAVE_MASK,
+            BlockStatus::BLOCK_STORED,
         );
         self.peers()
             .set_last_common_header(peer, block.header().clone());
