@@ -21,7 +21,6 @@ ckb-pow = { path = "../../pow" }
 ckb-resource = { path = "../../resource"}
 ckb-instrument = { path = "../instrument", features = ["progress_bar"] }
 ckb-shared = { path = "../../shared" }
-ckb-sync = { path = "../../sync"}
 ckb-store = { path = "../../store" }
 ckb-network-alert = { path = "../network-alert" }
 ckb-build-info = { path = "../build-info" }

@@ -1,16 +1,18 @@
 use crate::relayer::compact_block::CompactBlock;
+use crate::synchronizer::OrphanBlockPool;
 use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
 use bitflags::bitflags;
+use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Cycle;
-use ckb_logger::{debug, debug_target};
+use ckb_logger::{debug, debug_target, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
@@ -19,6 +21,7 @@ use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -43,6 +46,7 @@ const GET_HEADERS_CACHE_SIZE: usize = 10000;
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
 const TX_FILTER_SIZE: usize = 50000;
 const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
+const ORPHAN_BLOCK_SIZE: usize = 1024;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
 // Only in effect for outbound, non-manual connections, with
@@ -641,6 +645,7 @@ pub struct SyncSharedState<CS> {
     pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
     pending_compact_blocks: Mutex<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>>,
+    orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
     inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
@@ -684,6 +689,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             known_txs: Mutex::new(KnownFilter::default()),
             pending_get_block_proposals: Mutex::new(FnvHashMap::default()),
             pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
             inflight_proposals: Mutex::new(FnvHashSet::default()),
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
@@ -1027,6 +1033,18 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         ids.iter().map(|id| locked.remove(id)).collect()
     }
 
+    pub fn contains_orphan_block(&self, header: &Header) -> bool {
+        self.orphan_block_pool.contains(header)
+    }
+
+    pub fn insert_orphan_block(&self, block: Block) {
+        self.orphan_block_pool.insert(block)
+    }
+
+    pub fn remove_orphan_by_parent(&self, parent_hash: &H256) -> Vec<Block> {
+        self.orphan_block_pool.remove_blocks_by_parent(parent_hash)
+    }
+
     pub fn get_block_status(&self, block_hash: &H256) -> BlockStatus {
         let mut locked = self.block_status_map.lock();
         match locked.get(block_hash).cloned() {
@@ -1066,6 +1084,85 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.known_blocks.lock().inner.remove(&pi);
         self.inflight_blocks.write().remove_by_peer(&pi);
         self.peers().disconnected(pi)
+    }
+
+    pub fn insert_new_block(
+        &self,
+        chain: &ChainController,
+        pi: PeerIndex,
+        block: Arc<Block>,
+    ) -> bool {
+        let known_parent = |block: &Block| {
+            self.store()
+                .get_block_header(block.header().parent_hash())
+                .is_some()
+        };
+
+        // Insert the given block into orphan_block_pool if its parent is not found
+        if !known_parent(&block) {
+            debug!(
+                "insert new orphan block {} {:x}",
+                block.header().number(),
+                block.header().hash()
+            );
+            self.insert_orphan_block((*block).clone());
+            return false;
+        }
+
+        // Attempt to accept the given block if its parent already exist in database
+        if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
+            error!("accept block {:?} error {:?}", block, err);
+            return false;
+        }
+
+        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
+        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
+        let descendants = self.remove_orphan_by_parent(block.header().hash());
+        for block in descendants {
+            // If we can not find the block's parent in database, that means it was failed to accept
+            // its parent, so we treat it as a invalid block as well.
+            if !known_parent(&block) {
+                debug!(
+                    "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
+                    block.header().number(),
+                    block.header().hash(),
+                    block.header().parent_hash(),
+                );
+                continue;
+            }
+
+            let block = Arc::new(block);
+            if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
+                debug!(
+                    "accept descendant orphan block {:#x} error {:?}",
+                    block.header().hash(),
+                    err
+                );
+            }
+        }
+
+        true
+    }
+
+    fn accept_block(
+        &self,
+        chain: &ChainController,
+        peer: PeerIndex,
+        block: Arc<Block>,
+    ) -> Result<(), FailureError> {
+        if let Err(err) = chain.process_block(Arc::clone(&block), true) {
+            self.insert_block_status(block.header().hash().to_owned(), BlockStatus::FAILED_MASK);
+            return Err(err);
+        }
+
+        self.remove_header_view(block.header().hash());
+        self.insert_block_status(
+            block.header().hash().to_owned(),
+            BlockStatus::BLOCK_HAVE_MASK,
+        );
+        self.peers()
+            .set_last_common_header(peer, block.header().clone());
+        Ok(())
     }
 }
 

@@ -3,7 +3,6 @@
 //! Sync module implement ckb sync protocol as specified here:
 //! https://github.com/nervosnetwork/rfcs/tree/master/rfcs/0000-block-sync-protocol
 
-mod config;
 mod net_time_checker;
 mod relayer;
 mod synchronizer;
@@ -12,7 +11,6 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use crate::config::Config;
 pub use crate::net_time_checker::NetTimeProtocol;
 pub use crate::relayer::Relayer;
 pub use crate::synchronizer::Synchronizer;

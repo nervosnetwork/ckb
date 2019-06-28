@@ -183,7 +183,7 @@ where
 
                 let block_status = self.synchronizer.shared().get_block_status(to_fetch_hash);
                 if block_status != BlockStatus::VALID_MASK
-                    || self.synchronizer.orphan_block_pool.contains(&to_fetch)
+                    || self.synchronizer.shared().contains_orphan_block(&to_fetch)
                 {
                     continue;
                 }

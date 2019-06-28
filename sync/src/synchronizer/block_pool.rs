@@ -47,14 +47,6 @@ impl OrphanBlockPool {
         removed
     }
 
-    pub fn len(&self) -> usize {
-        self.blocks.read().len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     pub fn contains(&self, header: &Header) -> bool {
         self.blocks
             .read()

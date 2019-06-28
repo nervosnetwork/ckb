@@ -21,8 +21,6 @@ ckb-util = { path = "../util" }
 faketime = "0.2.0"
 bitflags = "1.0"
 ckb-verification = { path = "../verification" }
-serde = "1.0"
-serde_derive = "1.0"
 flatbuffers = "0.6.0"
 ckb-chain-spec = { path = "../spec" }
 ckb-traits = { path = "../traits" }
