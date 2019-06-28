@@ -274,8 +274,8 @@ impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         // skip OutputsSumOverflow verification for resolved cellbase and DAO
         // withdraw transactions.
-        // cellbase's outputs are verified by TransactionsVerifier#InvalidReward
-        // DAO withdraw transaction is verified in TransactionScriptsVerifier
+        // cellbase's outputs are verified by RewardVerifier
+        // DAO withdraw transaction is verified via the type script of DAO cells
         if !(self.resolved_transaction.is_cellbase() || self.valid_dao_withdraw_transaction()) {
             let inputs_total = self.resolved_transaction.inputs_capacity()?;
             let outputs_total = self.resolved_transaction.outputs_capacity()?;
