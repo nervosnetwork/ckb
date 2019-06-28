@@ -112,7 +112,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                 .and_then(|index| self.store.get_epoch_ext(&index))
                 .ok_or(Error::InvalidHeader)?;
             let parent_g2 = calculate_g2(
-                parent.number(),
+                target.number(),
                 &target_epoch,
                 self.consensus.secondary_epoch_reward(),
             )?;
