@@ -388,7 +388,12 @@ where
         }
     }
 
-    fn block_median_time(&self, block_number: BlockNumber, block_hash: &H256) -> u64 {
+    // bilibili FIXME
+    fn block_median_time(&self, block_number: BlockNumber) -> u64 {
+        unimplemented!()
+    }
+
+    fn block_median_time2(&self, block_number: BlockNumber, block_hash: &H256) -> u64 {
         if let Some(median_time) = self.median_timestamps_cache.borrow().get(block_hash) {
             return *median_time;
         }

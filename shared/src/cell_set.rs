@@ -13,7 +13,7 @@ pub struct CellSetDiff {
     pub old_inputs: FnvHashSet<OutPoint>,
     pub old_outputs: FnvHashSet<H256>,
     pub new_inputs: FnvHashSet<OutPoint>,
-    pub new_outputs: FnvHashMap<H256, (u64, u64, bool, usize)>,
+    pub new_outputs: FnvHashMap<H256, (u64, u64, H256, bool, usize)>,
 }
 
 impl CellSetDiff {
@@ -28,6 +28,7 @@ impl CellSetDiff {
                 (
                     block.header().number(),
                     block.header().epoch(),
+                    block.header().hash().to_owned(),
                     tx.is_cellbase(),
                     output_len,
                 ),
@@ -94,15 +95,18 @@ impl CellSet {
             }
         }
 
-        for (hash, (number, epoch, cellbase, len)) in diff.new_outputs.clone() {
-            removed.remove(&hash);
+        for (tx_hash, (number, epoch, block_hash, cellbase, len)) in diff.new_outputs.clone() {
+            removed.remove(&tx_hash);
             if cellbase {
                 new.insert(
-                    hash,
-                    TransactionMeta::new_cellbase(number, epoch, len, false),
+                    tx_hash,
+                    TransactionMeta::new_cellbase(number, epoch, block_hash, len, false),
                 );
             } else {
-                new.insert(hash, TransactionMeta::new(number, epoch, len, false));
+                new.insert(
+                    tx_hash,
+                    TransactionMeta::new(number, epoch, block_hash, len, false),
+                );
             }
         }
 
@@ -132,6 +136,7 @@ impl CellSet {
                                 TransactionMeta::new_cellbase(
                                     header.number(),
                                     header.epoch(),
+                                    header.hash().to_owned(),
                                     tx.outputs().len(),
                                     true,
                                 )
@@ -139,6 +144,7 @@ impl CellSet {
                                 TransactionMeta::new(
                                     header.number(),
                                     header.epoch(),
+                                    header.hash().to_owned(),
                                     tx.outputs().len(),
                                     true,
                                 )
@@ -181,13 +187,14 @@ impl CellSet {
         cell: &CellOutPoint,
         number: u64,
         epoch: u64,
+        hash: H256,
         cellbase: bool,
         outputs_len: usize,
     ) -> TransactionMeta {
         let mut meta = if cellbase {
-            TransactionMeta::new_cellbase(number, epoch, outputs_len, true)
+            TransactionMeta::new_cellbase(number, epoch, hash, outputs_len, true)
         } else {
-            TransactionMeta::new(number, epoch, outputs_len, true)
+            TransactionMeta::new(number, epoch, hash, outputs_len, true)
         };
         meta.unset_dead(cell.index as usize);
         self.inner.insert(cell.tx_hash.clone(), meta.clone());
@@ -199,13 +206,14 @@ impl CellSet {
         tx_hash: H256,
         number: u64,
         epoch: u64,
+        hash: H256,
         cellbase: bool,
         outputs_len: usize,
     ) -> TransactionMeta {
         let meta = if cellbase {
-            TransactionMeta::new_cellbase(number, epoch, outputs_len, false)
+            TransactionMeta::new_cellbase(number, epoch, hash, outputs_len, false)
         } else {
-            TransactionMeta::new(number, epoch, outputs_len, false)
+            TransactionMeta::new(number, epoch, hash, outputs_len, false)
         };
         self.inner.insert(tx_hash, meta.clone());
         meta

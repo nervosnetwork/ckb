@@ -285,6 +285,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 tx_meta = TransactionMeta::new_cellbase(
                     genesis.header().number(),
                     genesis.header().epoch(),
+                    genesis.header().hash().to_owned(),
                     tx.outputs().len(),
                     false,
                 );
@@ -293,6 +294,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 tx_meta = TransactionMeta::new(
                     genesis.header().number(),
                     genesis.header().epoch(),
+                    genesis.header().hash().to_owned(),
                     tx.outputs().len(),
                     false,
                 );

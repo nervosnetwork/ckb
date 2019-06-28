@@ -2,7 +2,6 @@ use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
 use ckb_core::header::Header;
-use ckb_core::BlockNumber;
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
@@ -134,7 +133,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 );
                 let header_verifier = HeaderVerifier::new(
                     CompactBlockMedianTimeView {
-                        anchor_hash: compact_block.header.hash(),
                         fn_get_pending_header: Box::new(fn_get_pending_header),
                         shared: self.relayer.shared.shared(),
                     },
@@ -222,7 +220,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 }
 
 struct CompactBlockMedianTimeView<'a, CS> {
-    anchor_hash: &'a H256,
     fn_get_pending_header: Box<Fn(H256) -> Option<Header> + 'a>,
     shared: &'a Shared<CS>,
 }

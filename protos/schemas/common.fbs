@@ -156,6 +156,7 @@ struct EpochExt {
 table TransactionMeta {
     block_number:   uint64;
     epoch_number:   uint64;
+    block_hash:     Bytes32;
     cellbase:       bool;
     bits:           Bytes;
     len:            uint32;

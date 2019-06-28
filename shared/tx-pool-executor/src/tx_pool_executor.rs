@@ -1,4 +1,4 @@
-use ckb_core::{transaction::Transaction, BlockNumber, Cycle};
+use ckb_core::{transaction::Transaction, Cycle};
 use ckb_shared::shared::Shared;
 use ckb_shared::tx_pool::PoolError;
 use ckb_store::ChainStore;

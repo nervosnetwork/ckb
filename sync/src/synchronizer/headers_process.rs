@@ -2,7 +2,6 @@ use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::MAX_HEADERS_LEN;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
-use ckb_core::BlockNumber;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
