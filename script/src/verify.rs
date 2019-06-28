@@ -60,7 +60,7 @@ impl ScriptGroup {
 // future, we might refactor this to share buffer to achive zero-copy
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
-    debug_printer: Option<Box<dyn Fn(&str)>>,
+    debug_printer: Option<Box<dyn Fn(&H256, &str)>>,
 
     outputs: Vec<CellMeta>,
     rtx: &'a ResolvedTransaction<'a>,
@@ -183,7 +183,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         }
     }
 
-    pub fn set_debug_printer<F: Fn(&str) + 'static>(&mut self, func: F) {
+    pub fn set_debug_printer<F: Fn(&H256, &str) + 'static>(&mut self, func: F) {
         self.debug_printer = Some(Box::new(func));
     }
 
@@ -454,7 +454,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         let prefix = format!("script group: {:x}", current_script_hash);
         let debug_printer = |message: &str| {
             if let Some(ref printer) = self.debug_printer {
-                printer(message);
+                printer(&current_script_hash, message);
             } else {
                 debug!("{} DEBUG OUTPUT: {}", prefix, message);
             };
@@ -549,7 +549,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         let prefix = format!("script group: {:x}", current_script_hash);
         let debug_printer = |message: &str| {
             if let Some(ref printer) = self.debug_printer {
-                printer(message);
+                printer(&current_script_hash, message);
             } else {
                 debug!("{} DEBUG OUTPUT: {}", prefix, message);
             };
