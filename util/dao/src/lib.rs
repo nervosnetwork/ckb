@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::cell::{ResolvedCell, ResolvedTransaction};
+use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::transaction::{CellOutput, OutPoint};
@@ -159,10 +159,9 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
             .try_fold(
                 Capacity::zero(),
                 |capacities, (i, (input, resolved_input))| {
-                    let capacity: Result<Capacity, FailureError> = match &resolved_input.cell {
-                        ResolvedCell::IssuingDaoInput => Ok(Capacity::zero()),
-                        ResolvedCell::Null => Err(Error::InvalidOutPoint.into()),
-                        ResolvedCell::Cell(cell_meta) => {
+                    let capacity: Result<Capacity, FailureError> = match &resolved_input.cell() {
+                        None => Err(Error::InvalidOutPoint.into()),
+                        Some(cell_meta) => {
                             let output = self.data_loader.lazy_load_cell_output(&cell_meta);
                             if output
                                 .type_

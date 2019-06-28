@@ -98,7 +98,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             .iter()
             .enumerate()
             .map(|(i, dep_cell)| {
-                if let Some(cell_meta) = &dep_cell.cell.cell_meta() {
+                if let Some(cell_meta) = &dep_cell.cell() {
                     let hash = match cell_meta.data_hash() {
                         Some(hash) => hash.to_owned(),
                         None => {
@@ -121,7 +121,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         for (i, resolved_input) in resolved_inputs.iter().enumerate() {
             // here we are only pre-processing the data, verify method validates
             // each input has correct script setup.
-            if let Some(cell_meta) = resolved_input.cell.cell_meta() {
+            if let Some(cell_meta) = resolved_input.cell() {
                 let output = data_loader.lazy_load_cell_output(cell_meta);
                 let lock_group_entry = lock_groups
                     .entry(output.lock.hash())
@@ -243,8 +243,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         };
         match self.binary_index.get(&script.code_hash).and_then(|index| {
             self.resolved_deps()[*index]
-                .cell
-                .cell_meta()
+                .cell()
                 .map(|cell_meta| self.data_loader.lazy_load_cell_output(&cell_meta))
         }) {
             Some(cell_output) => {
@@ -259,18 +258,13 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
         let mut cycles: Cycle = 0;
-        // First, check if all inputs are resolved correctly
-        for resolved_input in self.resolved_inputs() {
-            if resolved_input.cell.is_issuing_dao_input() {
-                if !self.valid_dao_withdraw_transaction() {
-                    return Err(ScriptError::InvalidIssuingDaoInput);
-                } else {
-                    continue;
-                }
-            }
-            if resolved_input.cell.cell_meta().is_none() {
-                return Err(ScriptError::NoScript);
-            }
+        // Check if all inputs are resolved correctly
+        if self
+            .resolved_inputs()
+            .iter()
+            .any(|input| input.cell.is_none())
+        {
+            return Err(ScriptError::NoScript);
         }
 
         // Now run each script group
@@ -449,22 +443,6 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         } else {
             Err(ScriptError::ValidationFailure(code))
         }
-    }
-
-    fn valid_dao_withdraw_transaction(&self) -> bool {
-        self.resolved_inputs().iter().any(|input| {
-            input
-                .cell
-                .cell_meta()
-                .map(|cell| {
-                    let output = self.data_loader.lazy_load_cell_output(&cell);
-                    output
-                        .type_
-                        .map(|type_| type_.code_hash == CODE_HASH_DAO)
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false)
-        })
     }
 }
 
