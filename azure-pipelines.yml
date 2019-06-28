@@ -59,10 +59,15 @@ jobs:
           rustup_toolchain: '1.34.2-x86_64-pc-windows-msvc'
       - script: make prod
         displayName: Build
+      - script: |
+          curl -LO https://github.com/nervosnetwork/ckb-cli/releases/download/$(Build.SourceBranchName)/ckb-cli_$(Build.SourceBranchName)_x86_64-pc-windows-msvc.zip
+        displayName: Download ckb-cli
       - powershell: |
           mkdir ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
           cp -r target/release/ckb.exe,README.md,CHANGELOG.md,COPYING,docs ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc
           cp rpc/README.md ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc/docs/rpc.md
+          unzip ckb-cli_$(Build.SourceBranchName)_x86_64-pc-windows-msvc.zip
+          mv ckb-cli_$(Build.SourceBranchName)_x86_64-pc-windows-msvc/ckb-cli.exe ckb_$(Build.SourceBranchName)_x86_64-pc-windows-msvc/
         displayName: Prepare archive
       - task: ArchiveFiles@2
         inputs:
