@@ -115,7 +115,7 @@ pub fn test_inputs_cellbase_maturity() {
         resolved_deps: Vec::new(),
         resolved_inputs: vec![ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.clone())
-                .block_info(BlockInfo::new(30, 0))
+                .block_info(BlockInfo::new(30, 0, H256::zero()))
                 .cellbase(true)
                 .build(),
         )],

@@ -399,6 +399,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             let block_info = BlockInfo {
                 number: tx_info.block_number,
                 epoch: tx_info.block_epoch,
+                hash: tx_info.block_hash,
             };
             let (capacity, data_hash) = meta;
             CellMeta {

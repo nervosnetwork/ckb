@@ -1,3 +1,4 @@
+use crate::cell::BlockInfo;
 use bit_vec::BitVec;
 use serde_derive::{Deserialize, Serialize};
 
@@ -71,6 +72,11 @@ impl TransactionMeta {
 
     pub fn epoch_number(&self) -> u64 {
         self.epoch_number
+    }
+
+    pub fn block_info(&self) -> &BlockInfo {
+        // bilibili FIXME
+        unimplemented!()
     }
 
     pub fn is_empty(&self) -> bool {
