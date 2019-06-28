@@ -72,12 +72,6 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
         rtxs: &[ResolvedTransaction],
         parent: &Header,
     ) -> Result<Bytes, FailureError> {
-        let parent_epoch = self
-            .store
-            .get_block_epoch_index(parent.hash())
-            .and_then(|index| self.store.get_epoch_ext(&index))
-            .ok_or(Error::InvalidHeader)?;
-
         // Freed occupied capacities from consumed inputs
         let freed_occupied_capacities =
             rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
@@ -101,13 +95,8 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
 
         let (parent_ar, parent_c, parent_u) = extract_dao_data(parent.dao())?;
 
-        let parent_g2 = calculate_g2(
-            parent.number(),
-            &parent_epoch,
-            self.consensus.secondary_epoch_reward(),
-        )?;
-        let parent_g = if parent.number() == 0 {
-            Capacity::zero()
+        let (parent_g, parent_g2) = if parent.number() == 0 {
+            (Capacity::zero(), Capacity::zero())
         } else {
             let target_number = self
                 .consensus
@@ -117,8 +106,20 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                 .store
                 .get_ancestor(parent.hash(), target_number)
                 .ok_or(Error::InvalidHeader)?;
-            self.primary_block_reward(&target)
-                .and_then(|c| c.safe_add(parent_g2).map_err(Into::into))?
+            let target_epoch = self
+                .store
+                .get_block_epoch_index(target.hash())
+                .and_then(|index| self.store.get_epoch_ext(&index))
+                .ok_or(Error::InvalidHeader)?;
+            let parent_g2 = calculate_g2(
+                parent.number(),
+                &target_epoch,
+                self.consensus.secondary_epoch_reward(),
+            )?;
+            let parent_g = self
+                .primary_block_reward(&target)
+                .and_then(|c| c.safe_add(parent_g2).map_err(Into::into))?;
+            (parent_g, parent_g2)
         };
 
         let current_c = parent_c.safe_add(parent_g)?;
@@ -302,32 +303,17 @@ mod tests {
     fn prepare_store(
         consensus: &Consensus,
         parent: &Header,
-        parent_epoch_start_number: BlockNumber,
+        target_epoch_start: Option<BlockNumber>,
     ) -> Arc<ChainKVStore<MemoryKeyValueDB>> {
-        let parent_epoch_ext = EpochExt::new(
-            parent.number(),
-            Capacity::shannons(50_000_000_000),
-            Capacity::shannons(1_000_128),
-            h256!("0x1"),
-            parent_epoch_start_number,
-            2049,
-            U256::from(1u64),
-        );
         let parent_block = BlockBuilder::default().header(parent.clone()).build();
 
         let store = new_memory_store();
         let mut batch = store.new_batch().unwrap();
         batch.insert_block(&parent_block).unwrap();
         batch.attach_block(&parent_block).unwrap();
-        batch
-            .insert_block_epoch_index(parent.hash(), parent.hash())
-            .unwrap();
-        batch
-            .insert_epoch_ext(parent.hash(), &parent_epoch_ext)
-            .unwrap();
 
         if let Some(target_number) = consensus.finalize_target(parent.number()) {
-            let target_epoch_start = target_number - 5;
+            let target_epoch_start = target_epoch_start.unwrap_or(target_number - 300);
 
             let target_epoch_ext = EpochExt::new(
                 target_number,
@@ -363,7 +349,6 @@ mod tests {
         let consensus = Consensus::default();
 
         let parent_number = 12345;
-        let parent_epoch_start = parent_number - 2000;
         let parent_header = HeaderBuilder::default()
             .number(parent_number)
             .dao(pack_dao_data(
@@ -373,7 +358,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, parent_epoch_start);
+        let store = prepare_store(&consensus, &parent_header, None);
         let result = DaoCalculator::new(&consensus, store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -381,8 +366,8 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_585_651_660_639,
-                Capacity::shannons(500_079_282_699_867),
+                10_000_573_888_215_141,
+                Capacity::shannons(500_078_694_527_592),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -393,7 +378,6 @@ mod tests {
         let consensus = Consensus::default();
 
         let parent_number = 0;
-        let parent_epoch_start = 0;
         let parent_header = HeaderBuilder::default()
             .number(parent_number)
             .dao(pack_dao_data(
@@ -403,7 +387,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, parent_epoch_start);
+        let store = prepare_store(&consensus, &parent_header, None);
         let result = DaoCalculator::new(&consensus, store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -423,7 +407,6 @@ mod tests {
         let consensus = Consensus::default();
 
         let parent_number = 12340;
-        let parent_epoch_start = parent_number;
         let parent_header = HeaderBuilder::default()
             .number(parent_number)
             .dao(pack_dao_data(
@@ -433,7 +416,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, parent_epoch_start);
+        let store = prepare_store(&consensus, &parent_header, Some(12329));
         let result = DaoCalculator::new(&consensus, store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -441,8 +424,8 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_585_651_660_659,
-                Capacity::shannons(500_079_282_699_868),
+                10_000_573_888_215_161,
+                Capacity::shannons(500_078_694_527_593),
                 Capacity::shannons(600_000_000_000)
             )
         );
@@ -453,7 +436,6 @@ mod tests {
         let consensus = Consensus::default();
 
         let parent_number = 0;
-        let parent_epoch_start = 0;
         let parent_header = HeaderBuilder::default()
             .number(parent_number)
             .dao(pack_dao_data(
@@ -463,7 +445,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, parent_epoch_start);
+        let store = prepare_store(&consensus, &parent_header, None);
         let result = DaoCalculator::new(&consensus, store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -483,7 +465,6 @@ mod tests {
         let consensus = Consensus::default();
 
         let parent_number = 12345;
-        let parent_epoch_start = parent_number - 5;
         let parent_header = HeaderBuilder::default()
             .number(parent_number)
             .dao(pack_dao_data(
@@ -493,7 +474,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, parent_epoch_start);
+        let store = prepare_store(&consensus, &parent_header, None);
         let result = DaoCalculator::new(&consensus, store).dao_field(&[], &parent_header);
         assert!(result.is_err());
     }
@@ -503,7 +484,6 @@ mod tests {
         let consensus = Consensus::default();
 
         let parent_number = 12345;
-        let parent_epoch_start = parent_number - 5;
         let parent_header = HeaderBuilder::default()
             .number(parent_number)
             .dao(pack_dao_data(
@@ -513,7 +493,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, parent_epoch_start);
+        let store = prepare_store(&consensus, &parent_header, None);
         let input_cell = CellOutput::new(
             capacity_bytes!(10000),
             Bytes::from("abcde"),
@@ -543,8 +523,8 @@ mod tests {
         assert_eq!(
             dao_data,
             (
-                10_000_585_651_660_659,
-                Capacity::shannons(500_079_282_699_868),
+                10_000_573_888_215_141,
+                Capacity::shannons(500_078_694_527_592),
                 Capacity::shannons(600_500_000_000)
             )
         );
