@@ -21,6 +21,7 @@ use ckb_store::ChainKVStore;
 use ckb_sync::{Config as SyncConfig, SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::create_always_success_cell;
 use ckb_traits::chain_provider::ChainProvider;
+use difference::{Changeset, Difference};
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
@@ -29,6 +30,8 @@ use numext_fixed_uint::U256;
 use reqwest;
 use serde_derive::Deserialize;
 use serde_json::{from_reader, json, to_string_pretty, Map, Value};
+use std::env;
+use std::fmt;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,6 +45,38 @@ pub struct JsonResponse {
     pub id: usize,
     pub result: Option<Value>,
     pub error: Option<Value>,
+}
+
+struct PlainDifferenceDisplay(Changeset);
+
+impl fmt::Display for PlainDifferenceDisplay {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match env::var("CI") {
+            Ok(ref val) if !val.is_empty() => {
+                for d in &self.0.diffs {
+                    match *d {
+                        Difference::Same(ref x) => {
+                            for line in x.lines() {
+                                write!(f, "  {}{}", line, self.0.split)?;
+                            }
+                        }
+                        Difference::Add(ref x) => {
+                            for line in x.lines() {
+                                write!(f, "+ {}{}", line, self.0.split)?;
+                            }
+                        }
+                        Difference::Rem(ref x) => {
+                            for line in x.lines() {
+                                write!(f, "- {}{}", line, self.0.split)?;
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+            _ => self.0.fmt(f),
+        }
+    }
 }
 
 fn new_cellbase(number: BlockNumber, always_success_script: &Script) -> Transaction {
@@ -300,7 +335,7 @@ fn test_rpc() {
         } else if actual != expect {
             let orig = to_string_pretty(&expect).expect("expect should be in json format");
             let edit = to_string_pretty(&actual).expect("actual should be in json format");
-            let changeset = difference::Changeset::new(&orig, &edit, "\n");
+            let changeset = PlainDifferenceDisplay(Changeset::new(&orig, &edit, "\n"));
 
             assert!(
                 actual == expect,
