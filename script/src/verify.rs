@@ -13,7 +13,7 @@ use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{BlockNumber, Capacity};
 use ckb_core::{Bytes, Cycle};
 use ckb_dao::calculate_maximum_withdraw;
-use ckb_logger::info;
+use ckb_logger::{debug, info};
 use ckb_resource::Resource;
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
@@ -60,6 +60,7 @@ impl ScriptGroup {
 // future, we might refactor this to share buffer to achive zero-copy
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
+    debug_printer: Option<Box<dyn Fn(&H256, &str)>>,
 
     outputs: Vec<CellMeta>,
     rtx: &'a ResolvedTransaction<'a>,
@@ -178,7 +179,12 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             config,
             lock_groups,
             type_groups,
+            debug_printer: None,
         }
+    }
+
+    pub fn set_debug_printer<F: Fn(&H256, &str) + 'static>(&mut self, func: F) {
+        self.debug_printer = Some(Box::new(func));
     }
 
     #[inline]
@@ -446,6 +452,13 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     ) -> Result<Cycle, ScriptError> {
         let current_script_hash = script_group.script.hash();
         let prefix = format!("script group: {:x}", current_script_hash);
+        let debug_printer = |message: &str| {
+            if let Some(ref printer) = self.debug_printer {
+                printer(&current_script_hash, message);
+            } else {
+                debug!("{} DEBUG OUTPUT: {}", prefix, message);
+            };
+        };
         let current_script_hash_bytes = current_script_hash.as_bytes();
         let mut args = vec!["verify".into()];
         args.extend_from_slice(&script_group.script.args);
@@ -473,7 +486,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                         &script_group.input_indices,
                         &script_group.output_indices,
                     )))
-                    .syscall(Box::new(Debugger::new(&prefix)))
+                    .syscall(Box::new(Debugger::new(&debug_printer)))
                     .build();
                 let mut machine = AsmMachine::new(machine);
                 machine
@@ -508,7 +521,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                     &script_group.input_indices,
                     &script_group.output_indices,
                 )))
-                .syscall(Box::new(Debugger::new(&prefix)))
+                .syscall(Box::new(Debugger::new(&debug_printer)))
                 .build();
                 let mut machine = TraceMachine::new(machine);
                 machine
@@ -534,6 +547,13 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     ) -> Result<Cycle, ScriptError> {
         let current_script_hash = script_group.script.hash();
         let prefix = format!("script group: {:x}", current_script_hash);
+        let debug_printer = |message: &str| {
+            if let Some(ref printer) = self.debug_printer {
+                printer(&current_script_hash, message);
+            } else {
+                debug!("{} DEBUG OUTPUT: {}", prefix, message);
+            };
+        };
         let current_script_hash_bytes = current_script_hash.as_bytes();
         let mut args = vec!["verify".into()];
         args.extend_from_slice(&script_group.script.args);
@@ -564,7 +584,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             &script_group.input_indices,
             &script_group.output_indices,
         )))
-        .syscall(Box::new(Debugger::new(&prefix)))
+        .syscall(Box::new(Debugger::new(&debug_printer)))
         .build();
         let mut machine = TraceMachine::new(machine);
         machine
