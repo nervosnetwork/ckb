@@ -60,7 +60,6 @@ pub enum ScriptError {
     ValidationFailure(i8),
     VMError(VMInternalError),
     ExceededMaximumCycles,
-    InvalidIssuingDaoInput,
     IOError,
     InvalidDaoDepositHeader,
     InvalidDaoWithdrawHeader,

@@ -1,6 +1,7 @@
 use crate::tests::util::{
-    create_cellbase, create_multi_outputs_transaction, create_transaction,
-    create_transaction_with_out_point, start_chain, MockChain,
+    create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
+    create_transaction, create_transaction_with_out_point, dao_data, start_chain, MockChain,
+    MockStore,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -9,6 +10,7 @@ use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
+use ckb_dao_utils::genesis_dao_data;
 use ckb_shared::error::SharedError;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{build_block, header_builder};
@@ -36,9 +38,14 @@ fn test_genesis_transaction_spend() {
 
     let genesis_tx_hash = root_hash.clone();
 
+    let dao = genesis_dao_data(&tx).unwrap();
+
     let genesis_block = build_block!(
         transaction: tx,
-        header_builder: header_builder!(difficulty: U256::from(1000u64),),
+        transaction: create_always_success_tx(),
+        header_builder:
+            header_builder!(difficulty: U256::from(1000u64),
+                                        dao: dao,),
     );
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
@@ -46,14 +53,16 @@ fn test_genesis_transaction_spend() {
 
     let end = 21;
 
-    let mut chain = MockChain::new(parent.clone());
+    let mut mock_store = MockStore::new(&parent, shared.store());
+
+    let mut chain = MockChain::new(parent.clone(), shared.consensus());
 
     for i in 1..end {
         let tx = create_transaction(&root_hash, i as u8);
         root_hash = tx.hash().to_owned();
 
         // commit txs in block
-        chain.gen_block_with_commit_txs(vec![tx]);
+        chain.gen_block_with_commit_txs(vec![tx], &mut mock_store, false);
     }
 
     for block in &chain.blocks()[0..10] {
@@ -73,8 +82,9 @@ fn test_genesis_transaction_spend() {
 #[test]
 fn test_transaction_spend_in_same_block() {
     let (chain_controller, shared, parent) = start_chain(None);
-    let mut chain = MockChain::new(parent.clone());
-    chain.gen_empty_block(100u64);
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    chain.gen_empty_block(100u64, &mut mock_store);
 
     let last_cell_base = &chain.tip().cellbase();
     let last_cell_base_hash = last_cell_base.hash().to_owned();
@@ -96,11 +106,11 @@ fn test_transaction_spend_in_same_block() {
     }
 
     // proposal txs
-    chain.gen_block_with_proposal_txs(txs.clone());
+    chain.gen_block_with_proposal_txs(txs.clone(), &mut mock_store);
     // empty block
-    chain.gen_empty_block(100);
+    chain.gen_empty_block(100, &mut mock_store);
     // commit txs in block
-    chain.gen_block_with_commit_txs(txs.clone());
+    chain.gen_block_with_commit_txs(txs.clone(), &mut mock_store, false);
 
     for block in chain.blocks() {
         chain_controller
@@ -143,9 +153,10 @@ fn test_transaction_spend_in_same_block() {
 
 #[test]
 fn test_transaction_conflict_in_same_block() {
-    let (chain_controller, _shared, parent) = start_chain(None);
-    let mut chain = MockChain::new(parent.clone());
-    chain.gen_empty_block(100u64);
+    let (chain_controller, shared, parent) = start_chain(None);
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    chain.gen_empty_block(100u64, &mut mock_store);
 
     let last_cell_base = &chain.tip().cellbase();
     let tx1 = create_transaction(last_cell_base.hash(), 1);
@@ -155,11 +166,11 @@ fn test_transaction_conflict_in_same_block() {
     let txs = vec![tx1, tx2, tx3];
 
     // proposal txs
-    chain.gen_block_with_proposal_txs(txs.clone());
+    chain.gen_block_with_proposal_txs(txs.clone(), &mut mock_store);
     // empty block
-    chain.gen_empty_block(100);
+    chain.gen_empty_block(100, &mut mock_store);
     // commit txs in block
-    chain.gen_block_with_commit_txs(txs.clone());
+    chain.gen_block_with_commit_txs(txs.clone(), &mut mock_store, true);
 
     for block in chain.blocks().iter().take(3) {
         chain_controller
@@ -181,9 +192,10 @@ fn test_transaction_conflict_in_same_block() {
 
 #[test]
 fn test_transaction_conflict_in_different_blocks() {
-    let (chain_controller, _shared, parent) = start_chain(None);
-    let mut chain = MockChain::new(parent.clone());
-    chain.gen_empty_block(100u64);
+    let (chain_controller, shared, parent) = start_chain(None);
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    chain.gen_empty_block(100u64, &mut mock_store);
 
     let last_cell_base = &chain.tip().cellbase();
     let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
@@ -191,16 +203,16 @@ fn test_transaction_conflict_in_different_blocks() {
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![1]);
     let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     // proposal txs
-    chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()]);
+    chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mut mock_store);
 
     // empty N+1 block
-    chain.gen_empty_block(100);
+    chain.gen_empty_block(100, &mut mock_store);
 
     // commit tx1 and tx2 in N+2 block
-    chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()]);
+    chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mut mock_store, false);
 
     // commit tx3 in N+3 block
-    chain.gen_block_with_commit_txs(vec![tx3.clone()]);
+    chain.gen_block_with_commit_txs(vec![tx3.clone()], &mut mock_store, false);
 
     for block in chain.blocks().iter().take(4) {
         chain_controller
@@ -222,9 +234,10 @@ fn test_transaction_conflict_in_different_blocks() {
 
 #[test]
 fn test_invalid_out_point_index_in_same_block() {
-    let (chain_controller, _shared, parent) = start_chain(None);
-    let mut chain = MockChain::new(parent.clone());
-    chain.gen_empty_block(100u64);
+    let (chain_controller, shared, parent) = start_chain(None);
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    chain.gen_empty_block(100u64, &mut mock_store);
 
     let last_cell_base = &chain.tip().cellbase();
     let tx1 = create_transaction(last_cell_base.hash(), 1);
@@ -234,11 +247,11 @@ fn test_invalid_out_point_index_in_same_block() {
     let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
     // proposal txs
-    chain.gen_block_with_proposal_txs(txs.clone());
+    chain.gen_block_with_proposal_txs(txs.clone(), &mut mock_store);
     // empty N+1 block
-    chain.gen_empty_block(100);
+    chain.gen_empty_block(100, &mut mock_store);
     // commit txs in N+2 block
-    chain.gen_block_with_commit_txs(txs.clone());
+    chain.gen_block_with_commit_txs(txs.clone(), &mut mock_store, true);
 
     for block in chain.blocks().iter().take(3) {
         chain_controller
@@ -260,9 +273,10 @@ fn test_invalid_out_point_index_in_same_block() {
 
 #[test]
 fn test_invalid_out_point_index_in_different_blocks() {
-    let (chain_controller, _shared, parent) = start_chain(None);
-    let mut chain = MockChain::new(parent.clone());
-    chain.gen_empty_block(100u64);
+    let (chain_controller, shared, parent) = start_chain(None);
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    chain.gen_empty_block(100u64, &mut mock_store);
 
     let last_cell_base = &chain.tip().cellbase();
     let tx1 = create_transaction(last_cell_base.hash(), 1);
@@ -271,13 +285,13 @@ fn test_invalid_out_point_index_in_different_blocks() {
     // create an invalid OutPoint index
     let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
     // proposal txs
-    chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()]);
+    chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mut mock_store);
     // empty N+1 block
-    chain.gen_empty_block(100);
+    chain.gen_empty_block(100, &mut mock_store);
     // commit tx1 and tx2 in N+2 block
-    chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()]);
+    chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mut mock_store, false);
     // commit tx3 in N+3 block
-    chain.gen_block_with_commit_txs(vec![tx3.clone()]);
+    chain.gen_block_with_commit_txs(vec![tx3.clone()], &mut mock_store, true);
 
     for block in chain.blocks().iter().take(4) {
         chain_controller
@@ -334,18 +348,19 @@ fn test_chain_fork_by_total_difficulty() {
     let (chain_controller, shared, parent) = start_chain(None);
     let final_number = 20;
 
-    let mut chain1 = MockChain::new(parent.clone());
-    let mut chain2 = MockChain::new(parent.clone());
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     // 100 * 20 = 2000
     for _ in 0..final_number {
-        chain1.gen_empty_block_with_difficulty(100u64);
+        chain1.gen_empty_block_with_difficulty(100u64, &mut mock_store);
     }
 
     // 99 * 10 + 110 * 10 = 2090
     for i in 0..final_number {
         let j = if i > 10 { 110 } else { 99 };
-        chain2.gen_empty_block_with_difficulty(j);
+        chain2.gen_empty_block_with_difficulty(j, &mut mock_store);
     }
 
     assert!(chain2.total_difficulty() > chain1.total_difficulty());
@@ -372,23 +387,24 @@ fn test_chain_fork_by_hash() {
     let (chain_controller, shared, parent) = start_chain(None);
     let final_number = 20;
 
-    let mut chain1 = MockChain::new(parent.clone());
-    let mut chain2 = MockChain::new(parent.clone());
-    let mut chain3 = MockChain::new(parent.clone());
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain3 = MockChain::new(parent.clone(), shared.consensus());
 
     // 100 * 20 = 2000
     for _ in 0..final_number {
-        chain1.gen_empty_block_with_difficulty(100u64);
+        chain1.gen_empty_block_with_difficulty(100u64, &mut mock_store);
     }
 
     // 50 * 40 = 2000
     for _ in 0..(final_number * 2) {
-        chain2.gen_empty_block_with_difficulty(50u64);
+        chain2.gen_empty_block_with_difficulty(50u64, &mut mock_store);
     }
 
     // 20 * 100 = 2000
     for _ in 0..(final_number * 5) {
-        chain3.gen_empty_block_with_difficulty(20u64);
+        chain3.gen_empty_block_with_difficulty(20u64, &mut mock_store);
     }
 
     for chain in vec![chain1.clone(), chain2.clone(), chain3.clone()] {
@@ -431,15 +447,16 @@ fn test_chain_get_ancestor() {
     let (chain_controller, shared, parent) = start_chain(None);
     let final_number = 20;
 
-    let mut chain1 = MockChain::new(parent.clone());
-    let mut chain2 = MockChain::new(parent.clone());
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64);
+        chain1.gen_empty_block(100u64, &mut mock_store);
     }
 
     for _ in 1..final_number {
-        chain2.gen_empty_block(90u64);
+        chain2.gen_empty_block(90u64, &mut mock_store);
     }
 
     for block in chain1.blocks() {
@@ -459,6 +476,7 @@ fn test_chain_get_ancestor() {
     assert_eq!(
         *chain1.blocks()[9].header(),
         shared
+            .store()
             .get_ancestor(&chain1.tip_header().hash(), 10)
             .unwrap()
     );
@@ -466,6 +484,7 @@ fn test_chain_get_ancestor() {
     assert_eq!(
         *chain2.blocks()[9].header(),
         shared
+            .store()
             .get_ancestor(&chain2.tip_header().hash(), 10)
             .unwrap()
     );
@@ -477,8 +496,10 @@ fn test_next_epoch_ext() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
+    let dao = genesis_dao_data(&cellbase).unwrap();
     let genesis_block = build_block! {
-        header_builder: header_builder!(difficulty: U256::from(1000u64),),
+        header_builder: header_builder!(difficulty: U256::from(1000u64),
+                                        dao: dao,),
         transaction: cellbase,
     };
 
@@ -495,10 +516,25 @@ fn test_next_epoch_ext() {
     let mut parent = genesis.clone();
     let mut last_epoch = epoch.clone();
 
+    let mut mock_store = MockStore::new(&parent, shared.store());
+
     for _ in 1..final_number - 1 {
         let epoch = shared
             .next_epoch_ext(&last_epoch, &parent)
             .unwrap_or(last_epoch);
+
+        let transactions = vec![create_cellbase(
+            &mut mock_store,
+            shared.consensus(),
+            &parent,
+        )];
+        let dao = dao_data(
+            shared.consensus(),
+            &parent,
+            &transactions,
+            &mut mock_store,
+            false,
+        );
 
         let new_block = build_block!(
             from_header_builder: {
@@ -506,14 +542,16 @@ fn test_next_epoch_ext() {
                 number: parent.number() + 1,
                 timestamp: parent.timestamp() + 20_000,
                 difficulty: epoch.difficulty().clone(),
+                dao: dao,
             },
-            transaction: create_cellbase(parent.number() + 1),
+            transactions: transactions,
         );
 
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain1.push(new_block.clone());
+        mock_store.insert_block(&new_block, &epoch);
         parent = new_block.header().clone();
         last_epoch = epoch;
     }
@@ -529,14 +567,28 @@ fn test_next_epoch_ext() {
             uncles.push(chain1[i as usize].clone());
         }
 
+        let transactions = vec![create_cellbase(
+            &mut mock_store,
+            shared.consensus(),
+            &parent,
+        )];
+        let dao = dao_data(
+            shared.consensus(),
+            &parent,
+            &transactions,
+            &mut mock_store,
+            false,
+        );
+
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 timestamp: parent.timestamp() + 20_000,
                 difficulty: epoch.difficulty().clone(),
+                dao: dao,
             },
-            transaction: create_cellbase(parent.number() + 1),
+            transactions: transactions,
             uncles: uncles.clone(),
         );
 
@@ -544,6 +596,7 @@ fn test_next_epoch_ext() {
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain2.push(new_block.clone());
+        mock_store.insert_block(&new_block, &epoch);
         parent = new_block.header().clone();
         last_epoch = epoch;
     }
@@ -620,14 +673,28 @@ fn test_next_epoch_ext() {
             uncles.push(chain1[i as usize].clone());
         }
 
+        let transactions = vec![create_cellbase(
+            &mut mock_store,
+            shared.consensus(),
+            &parent,
+        )];
+        let dao = dao_data(
+            shared.consensus(),
+            &parent,
+            &transactions,
+            &mut mock_store,
+            false,
+        );
+
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 timestamp: parent.timestamp() + 20_000,
                 difficulty: epoch.difficulty().clone(),
+                dao: dao,
             },
-            transaction: create_cellbase(parent.number() + 1),
+            transactions: transactions,
             uncles: uncles,
         );
 
@@ -635,6 +702,7 @@ fn test_next_epoch_ext() {
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain2.push(new_block.clone());
+        mock_store.insert_block(&new_block, &epoch);
         parent = new_block.header().clone();
         last_epoch = epoch;
     }
@@ -674,14 +742,29 @@ fn test_next_epoch_ext() {
         if i < 151 {
             uncles.push(chain1[i as usize].clone());
         }
+
+        let transactions = vec![create_cellbase(
+            &mut mock_store,
+            shared.consensus(),
+            &parent,
+        )];
+        let dao = dao_data(
+            shared.consensus(),
+            &parent,
+            &transactions,
+            &mut mock_store,
+            false,
+        );
+
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 timestamp: parent.timestamp() + 20_000,
                 difficulty: epoch.difficulty().clone(),
+                dao: dao,
             },
-            transaction: create_cellbase(parent.number() + 1),
+            transactions: transactions,
             uncles: uncles,
         );
 
@@ -689,6 +772,7 @@ fn test_next_epoch_ext() {
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain2.push(new_block.clone());
+        mock_store.insert_block(&new_block, &epoch);
         parent = new_block.header().clone();
         last_epoch = epoch;
     }

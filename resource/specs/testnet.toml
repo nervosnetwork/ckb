@@ -7,7 +7,7 @@ timestamp = 1560578400858
 difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x58ec5bf9e6a3851c80dca1aeaf2d94b8bb5c2051e81df54f6b2a18f1d63a4ebc"
+hash = "0xb143225a1132509b8754eaa9881f09ececa3ff4e7ee0cd4fa68d1663987ff959"
 issued_cells = []
 
 [genesis.seal]
@@ -25,7 +25,8 @@ args = []
 # the directory containing this config file.
 [genesis.system_cells]
 files = [
-  { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+  { bundled = "specs/cells/dao" }
 ]
 
 [genesis.system_cells.lock]

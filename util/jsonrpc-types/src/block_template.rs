@@ -1,6 +1,6 @@
 use crate::{
-    BlockNumber, Cycle, EpochNumber, Header, ProposalShortId, Timestamp, Transaction, Unsigned,
-    Version,
+    bytes::JsonBytes, BlockNumber, Cycle, EpochNumber, Header, ProposalShortId, Timestamp,
+    Transaction, Unsigned, Version,
 };
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
@@ -27,6 +27,7 @@ pub struct BlockTemplate {
     pub proposals: Vec<ProposalShortId>,
     pub cellbase: CellbaseTemplate,
     pub work_id: Unsigned,
+    pub dao: JsonBytes,
 }
 
 impl From<BlockTemplate> for BlockBuilder {
@@ -42,6 +43,7 @@ impl From<BlockTemplate> for BlockBuilder {
             transactions,
             proposals,
             cellbase,
+            dao,
             ..
         } = block_template;
 
@@ -51,7 +53,8 @@ impl From<BlockTemplate> for BlockBuilder {
             .epoch(epoch.0)
             .difficulty(difficulty)
             .timestamp(current_time.0)
-            .parent_hash(parent_hash);
+            .parent_hash(parent_hash)
+            .dao(dao.into_bytes());
 
         BlockBuilder::from_header_builder(header_builder)
             .uncles(uncles)

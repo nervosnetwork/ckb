@@ -4,6 +4,7 @@ use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
+use ckb_dao_utils::genesis_dao_data;
 use ckb_occupied_capacity::Ratio;
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
@@ -108,15 +109,16 @@ pub struct Consensus {
 // genesis difficulty should not be zero
 impl Default for Consensus {
     fn default() -> Self {
-        let genesis_block =
-            BlockBuilder::from_header_builder(HeaderBuilder::default().difficulty(U256::one()))
-                .transaction(
-                    TransactionBuilder::default()
-                        .input(CellInput::new_cellbase_input(0))
-                        .witness(Script::default().into_witness())
-                        .build(),
-                )
-                .build();
+        let cellbase = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(0))
+            .witness(Script::default().into_witness())
+            .build();
+        let dao = genesis_dao_data(&cellbase).unwrap();
+        let genesis_block = BlockBuilder::from_header_builder(
+            HeaderBuilder::default().difficulty(U256::one()).dao(dao),
+        )
+        .transaction(cellbase)
+        .build();
 
         let block_reward = Capacity::shannons(DEFAULT_EPOCH_REWARD.as_u64() / GENESIS_EPOCH_LENGTH);
         let remainder_reward =

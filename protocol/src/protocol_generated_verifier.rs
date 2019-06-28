@@ -1958,6 +1958,21 @@ pub mod ckb {
                     }
                 }
 
+                if Self::VT_DAO as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_DAO) as usize;
+                    if voffset > 0 {
+                        if voffset + 4 > object_inline_num_bytes {
+                            return Err(Error::OutOfBounds);
+                        }
+
+                        if let Some(f) = self.dao() {
+                            f.verify()?;
+                        }
+                    }
+                }
+
                 Ok(())
             }
         }

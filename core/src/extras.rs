@@ -12,18 +12,7 @@ pub struct BlockExt {
     pub total_difficulty: U256,
     pub total_uncles_count: u64,
     pub verified: Option<bool>,
-    pub dao_stats: DaoStats,
     pub txs_fees: Vec<Capacity>,
-}
-
-#[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
-pub struct DaoStats {
-    // DAO related fields
-    // accmulated rate is multiplied by 10**16 to keep as much decimals
-    // as we can. In this case, we can still represent a maximum value
-    // of around 1844.6744073709551, which is good enough for our case.
-    pub accumulated_rate: u64,
-    pub accumulated_capacity: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]

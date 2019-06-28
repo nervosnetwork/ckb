@@ -168,6 +168,10 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
                 .proof()
                 .and_then(|p| p.seq())
                 .map(ckb_core::Bytes::from))?)
+            .dao(cast!(header
+                .dao()
+                .and_then(|d| d.seq())
+                .map(ckb_core::Bytes::from))?)
             .uncles_count(header.uncles_count())
             .build())
     }

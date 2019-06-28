@@ -514,12 +514,14 @@ mod tests {
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
+    use ckb_core::cell::resolve_transaction;
     use ckb_core::extras::EpochExt;
     use ckb_core::header::BlockNumber;
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_core::Bytes;
+    use ckb_dao::DaoCalculator;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
@@ -606,13 +608,27 @@ mod tests {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(shared, parent_header, number);
+        let dao = {
+            let chain_state = shared.lock_chain_state();
+            let resolved_cellbase = resolve_transaction(
+                &cellbase,
+                &mut Default::default(),
+                &*chain_state,
+                &*chain_state,
+            )
+            .unwrap();
+            DaoCalculator::new(shared.consensus(), Arc::clone(shared.store()))
+                .dao_field(&[resolved_cellbase], parent_header)
+                .unwrap()
+        };
         let header_builder = HeaderBuilder::default()
             .parent_hash(parent_header.hash().to_owned())
             .timestamp(now)
             .epoch(epoch.number())
             .number(number)
             .difficulty(epoch.difficulty().clone())
-            .nonce(nonce);
+            .nonce(nonce)
+            .dao(dao);
 
         BlockBuilder::default()
             .transaction(cellbase)

@@ -23,4 +23,5 @@ ckb-logger = { path = "../util/logger" }
 tempfile = "3.0"
 ckb-chain =  { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
+ckb-resource = { path = "../resource" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

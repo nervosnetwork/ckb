@@ -4,12 +4,14 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::script::Script;
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Capacity;
+use ckb_dao::DaoCalculator;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use failure::{Error as FailureError, Fail};
 use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use std::cmp;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
 pub enum Error {
@@ -29,7 +31,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     }
 
     /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
-    /// block reward consists of three parts: base block reward, tx fee, proposal reward.
+    /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
     pub fn block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
         let consensus = self.provider.consensus();
         let store = self.provider.store();
@@ -41,6 +43,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
 
         let target = self
             .provider
+            .store()
             .get_ancestor(parent.hash(), target_number)
             .ok_or_else(|| Error::Target(block_number))?;
 
@@ -178,12 +181,14 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     }
 
     fn base_block_reward(&self, target: &Header) -> Result<Capacity, FailureError> {
-        let epoch = self
-            .provider
-            .get_block_epoch(target.hash())
-            .expect("get reward target epoch");
+        let consensus = &self.provider.consensus();
+        let calculator = DaoCalculator::new(consensus, Arc::clone(self.provider.store()));
+        let primary_block_reward = calculator.primary_block_reward(target)?;
+        let secondary_block_reward = calculator.secondary_block_reward(target)?;
 
-        epoch.block_reward(target.number()).map_err(Into::into)
+        primary_block_reward
+            .safe_add(secondary_block_reward)
+            .map_err(Into::into)
     }
 
     fn get_proposal_ids_by_hash(&self, hash: &H256) -> FnvHashSet<ProposalShortId> {

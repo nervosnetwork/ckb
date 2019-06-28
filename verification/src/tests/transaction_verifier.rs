@@ -7,8 +7,16 @@ use ckb_core::cell::{BlockInfo, CellMeta, CellMetaBuilder, ResolvedOutPoint, Res
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity, Version};
+use ckb_db::MemoryKeyValueDB;
+use ckb_resource::CODE_HASH_DAO;
+use ckb_store::{ChainKVStore, COLUMNS};
 use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::{h256, H256};
+use std::sync::Arc;
+
+fn new_memory_store() -> Arc<ChainKVStore<MemoryKeyValueDB>> {
+    Arc::new(ChainKVStore::new(MemoryKeyValueDB::open(COLUMNS as usize)))
+}
 
 #[test]
 pub fn test_empty() {
@@ -65,7 +73,8 @@ pub fn test_capacity_outofbound() {
             &CellOutput::new(capacity_bytes!(50), Bytes::new(), Script::default(), None),
         ))],
     };
-    let verifier = CapacityVerifier::new(&rtx);
+    let store = new_memory_store();
+    let verifier = CapacityVerifier::new(&rtx, &store);
 
     assert_eq!(
         verifier.verify().err(),
@@ -76,21 +85,21 @@ pub fn test_capacity_outofbound() {
 #[test]
 pub fn test_skip_dao_capacity_check() {
     let transaction = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new_issuing_dao(), 0))
         .output(CellOutput::new(
             capacity_bytes!(500),
             Bytes::from(vec![1; 10]),
             Script::default(),
-            None,
+            Some(Script::new(vec![], CODE_HASH_DAO)),
         ))
         .build();
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_deps: Vec::new(),
-        resolved_inputs: vec![ResolvedOutPoint::issuing_dao()],
+        resolved_inputs: vec![],
     };
-    let verifier = CapacityVerifier::new(&rtx);
+    let store = new_memory_store();
+    let verifier = CapacityVerifier::new(&rtx, &store);
 
     assert!(verifier.verify().is_ok());
 }
@@ -206,7 +215,8 @@ pub fn test_capacity_invalid() {
             ))),
         ],
     };
-    let verifier = CapacityVerifier::new(&rtx);
+    let store = new_memory_store();
+    let verifier = CapacityVerifier::new(&rtx, &store);
 
     assert_eq!(
         verifier.verify().err(),

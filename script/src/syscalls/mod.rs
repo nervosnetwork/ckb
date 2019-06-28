@@ -48,6 +48,7 @@ enum CellField {
     LockHash = 4,
     Type = 5,
     TypeHash = 6,
+    OccupiedCapacity = 7,
 }
 
 impl CellField {
@@ -60,6 +61,7 @@ impl CellField {
             4 => Ok(CellField::LockHash),
             5 => Ok(CellField::Type),
             6 => Ok(CellField::TypeHash),
+            7 => Ok(CellField::OccupiedCapacity),
             _ => Err(Error::ParseError),
         }
     }

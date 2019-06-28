@@ -16,6 +16,7 @@ table Header {
     uncles_hash:            Bytes32;
     uncles_count:           uint32;
     epoch:                  uint64;
+    dao:                    Bytes;
 }
 
 table Block {

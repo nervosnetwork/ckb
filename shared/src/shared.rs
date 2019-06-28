@@ -3,7 +3,7 @@ use crate::error::SharedError;
 use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::extras::EpochExt;
-use ckb_core::header::{BlockNumber, Header};
+use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::Capacity;
 use ckb_core::Cycle;
@@ -90,40 +90,6 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
 
     fn genesis_hash(&self) -> &H256 {
         self.consensus.genesis_hash()
-    }
-
-    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
-        // if base in the main chain
-        if let Some(n_number) = self.store.get_block_number(base) {
-            if number > n_number {
-                return None;
-            } else {
-                return self
-                    .store
-                    .get_block_hash(number)
-                    .and_then(|hash| self.store.get_block_header(&hash));
-            }
-        }
-
-        // if base in the fork
-        if let Some(header) = self.store.get_block_header(base) {
-            let mut n_number = header.number();
-            let mut index_walk = header;
-            if number > n_number {
-                return None;
-            }
-
-            while n_number > number {
-                if let Some(header) = self.store.get_block_header(&index_walk.parent_hash()) {
-                    index_walk = header;
-                    n_number -= 1;
-                } else {
-                    return None;
-                }
-            }
-            return Some(index_walk);
-        }
-        None
     }
 
     fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt> {

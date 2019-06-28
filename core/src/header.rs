@@ -66,6 +66,8 @@ pub struct RawHeader {
     uncles_count: u32,
     /// Epoch sequence number
     epoch: EpochNumber,
+    /// Statistic data used in NervosDAO calculation
+    dao: Bytes,
 }
 
 impl RawHeader {
@@ -258,6 +260,10 @@ impl Header {
         &self.seal.proof
     }
 
+    pub fn dao(&self) -> &Bytes {
+        &self.raw.dao
+    }
+
     pub fn nonce(&self) -> u64 {
         self.seal.nonce
     }
@@ -368,6 +374,11 @@ impl HeaderBuilder {
 
     pub fn proof(mut self, proof: Bytes) -> Self {
         self.seal.proof = proof;
+        self
+    }
+
+    pub fn dao(mut self, dao: Bytes) -> Self {
+        self.raw.dao = dao;
         self
     }
 

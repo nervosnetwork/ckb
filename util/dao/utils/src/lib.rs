@@ -1,81 +1,60 @@
-use ckb_core::cell::{ResolvedCell, ResolvedTransaction};
-use ckb_core::script::DAO_CODE_HASH;
+use byteorder::{ByteOrder, LittleEndian};
+use ckb_core::transaction::Transaction;
 use ckb_core::{Bytes, Capacity};
-use ckb_dao::calculate_maximum_withdraw;
-use ckb_script_data_loader::DataLoader;
-use numext_fixed_hash::H256;
+use failure::{Error as FailureError, Fail};
 
-// With DAO in consideration, transaction fee calculation is getting more
-// complicated, this utility provides a quicker way to calculate fees.
-// Notice this is just a tool focusing on calculating transactino fees, it
-// would just emit None silently for cases like missing/invalid block hash.
-// Those validation work is left to other verifiers to check.
-// TODO: revisit it here to see if we need to return correct error once we
-// manage to revise error handling in verification package
-pub fn calculate_transaction_fee<DL: DataLoader>(
-    data_loader: &DL,
-    rtx: &ResolvedTransaction,
-) -> Option<Capacity> {
-    rtx.transaction
-        .inputs()
+// This is multiplied by 10**16 to make sure we have enough precision.
+pub const DEFAULT_ACCUMULATED_RATE: u64 = 10_000_000_000_000_000;
+
+pub const DAO_VERSION: u8 = 1;
+
+#[derive(Debug, PartialEq, Clone, Eq, Fail)]
+pub enum Error {
+    #[fail(display = "Unknown")]
+    Unknown,
+    #[fail(display = "InvalidHeader")]
+    InvalidHeader,
+    #[fail(display = "InvalidOutPoint")]
+    InvalidOutPoint,
+    #[fail(display = "Format")]
+    Format,
+}
+
+pub fn genesis_dao_data(genesis_cellbase_tx: &Transaction) -> Result<Bytes, FailureError> {
+    let c = genesis_cellbase_tx
+        .outputs()
         .iter()
-        .enumerate()
-        .zip(rtx.resolved_inputs.iter())
-        .try_fold(
-            Capacity::zero(),
-            |input_capacities, ((i, input), resolved_input)| {
-                let capacity = match &resolved_input.cell {
-                    ResolvedCell::IssuingDaoInput => Some(Capacity::zero()),
-                    ResolvedCell::Null => None,
-                    ResolvedCell::Cell(cell_meta) => {
-                        let output = data_loader.lazy_load_cell_output(&cell_meta);
-                        if output.lock.code_hash == DAO_CODE_HASH {
-                            let deposit_ext = input
-                                .previous_output
-                                .block_hash
-                                .as_ref()
-                                .and_then(|block_hash| data_loader.get_block_ext(&block_hash));
-                            // The last item of matched witness should contain withdraw
-                            // block hash.
-                            let withdraw_ext = rtx
-                                .transaction
-                                .witnesses()
-                                .get(i)
-                                .and_then(|witness| witness.get(2))
-                                .and_then(|arg: &Bytes| {
-                                    H256::from_slice(&arg).ok().as_ref().and_then(|block_hash| {
-                                        data_loader.get_block_ext(block_hash)
-                                    })
-                                });
-                            match (deposit_ext, withdraw_ext) {
-                                (Some(deposit_ext), Some(withdraw_ext)) => {
-                                    calculate_maximum_withdraw(
-                                        &output,
-                                        &deposit_ext.dao_stats,
-                                        &withdraw_ext.dao_stats,
-                                    )
-                                    .ok()
-                                }
-                                _ => None,
-                            }
-                        } else {
-                            Some(output.capacity)
-                        }
-                    }
-                };
-                capacity.and_then(|c| c.safe_add(input_capacities).ok())
-            },
-        )
-        .and_then(|x| {
-            rtx.transaction
-                .outputs_capacity()
-                .and_then(|y| {
-                    if x > y {
-                        x.safe_sub(y)
-                    } else {
-                        Ok(Capacity::zero())
-                    }
-                })
-                .ok()
-        })
+        .try_fold(Capacity::zero(), |capacity, output| {
+            capacity.safe_add(output.capacity)
+        })?;
+    let u =
+        genesis_cellbase_tx
+            .outputs()
+            .iter()
+            .try_fold(Capacity::zero(), |capacity, output| {
+                output
+                    .occupied_capacity()
+                    .and_then(|c| capacity.safe_add(c))
+            })?;
+    Ok(pack_dao_data(DEFAULT_ACCUMULATED_RATE, c, u))
+}
+
+pub fn extract_dao_data(data: &[u8]) -> Result<(u64, Capacity, Capacity), FailureError> {
+    if data.len() != 32 || data[0] != DAO_VERSION {
+        return Err(Error::Format.into());
+    }
+
+    let ar = LittleEndian::read_u64(&data[8..16]);
+    let c = Capacity::shannons(LittleEndian::read_u64(&data[16..24]));
+    let u = Capacity::shannons(LittleEndian::read_u64(&data[24..32]));
+    Ok((ar, c, u))
+}
+
+pub fn pack_dao_data(ar: u64, c: Capacity, u: Capacity) -> Bytes {
+    let mut buf = [0u8; 32];
+    buf[0] = DAO_VERSION;
+    LittleEndian::write_u64(&mut buf[8..16], ar);
+    LittleEndian::write_u64(&mut buf[16..24], c.as_u64());
+    LittleEndian::write_u64(&mut buf[24..32], u.as_u64());
+    (&buf[..]).into()
 }

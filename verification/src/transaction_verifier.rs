@@ -6,7 +6,9 @@ use ckb_core::{
     BlockNumber, Cycle, EpochNumber,
 };
 use ckb_logger::info_target;
+use ckb_resource::CODE_HASH_DAO;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
+use ckb_script_data_loader::DataLoader;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
@@ -47,7 +49,7 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub size: SizeVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub maturity: MaturityVerifier<'a>,
-    pub capacity: CapacityVerifier<'a>,
+    pub capacity: CapacityVerifier<'a, CS>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
     pub script: ScriptVerifier<'a, CS>,
     pub since: SinceVerifier<'a, M>,
@@ -74,7 +76,7 @@ where
             maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, chain_store, script_config),
-            capacity: CapacityVerifier::new(rtx),
+            capacity: CapacityVerifier::new(rtx, chain_store),
             since: SinceVerifier::new(rtx, median_time_context, block_number, epoch_number),
         }
     }
@@ -256,13 +258,15 @@ impl<'a> DuplicateDepsVerifier<'a> {
     }
 }
 
-pub struct CapacityVerifier<'a> {
+pub struct CapacityVerifier<'a, CS> {
+    chain_store: &'a Arc<CS>,
     resolved_transaction: &'a ResolvedTransaction<'a>,
 }
 
-impl<'a> CapacityVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction, chain_store: &'a Arc<CS>) -> Self {
         CapacityVerifier {
+            chain_store,
             resolved_transaction,
         }
     }
@@ -270,14 +274,9 @@ impl<'a> CapacityVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         // skip OutputsSumOverflow verification for resolved cellbase and DAO
         // withdraw transactions.
-        // cellbase's outputs are verified by TransactionsVerifier#InvalidReward
-        // DAO withdraw transaction is verified in TransactionScriptsVerifier
-        if !(self.resolved_transaction.is_cellbase()
-            || self
-                .resolved_transaction
-                .transaction
-                .is_withdrawing_from_dao())
-        {
+        // cellbase's outputs are verified by RewardVerifier
+        // DAO withdraw transaction is verified via the type script of DAO cells
+        if !(self.resolved_transaction.is_cellbase() || self.valid_dao_withdraw_transaction()) {
             let inputs_total = self.resolved_transaction.inputs_capacity()?;
             let outputs_total = self.resolved_transaction.outputs_capacity()?;
 
@@ -293,6 +292,25 @@ impl<'a> CapacityVerifier<'a> {
         }
 
         Ok(())
+    }
+
+    fn valid_dao_withdraw_transaction(&self) -> bool {
+        let data_loader = DataLoaderWrapper::new(Arc::clone(&self.chain_store));
+        self.resolved_transaction
+            .resolved_inputs
+            .iter()
+            .any(|input| {
+                input
+                    .cell()
+                    .map(|cell| {
+                        let output = data_loader.lazy_load_cell_output(&cell);
+                        output
+                            .type_
+                            .map(|type_| type_.code_hash == CODE_HASH_DAO)
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false)
+            })
     }
 }
 
