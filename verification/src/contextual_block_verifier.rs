@@ -47,14 +47,6 @@ impl<'a, P: ChainProvider> BlockMedianTimeContext for ForkContext<'a, P> {
             .expect("[ForkContext] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.attached_blocks
-            .iter()
-            .find(|b| b.header().number() == block_number)
-            .and_then(|b| Some(b.header().hash().to_owned()))
-            .or_else(|| self.provider.store().get_block_hash(block_number))
-    }
 }
 
 pub(crate) struct UncleVerifierContext<'a, P> {

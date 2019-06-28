@@ -84,13 +84,6 @@ impl<'a, CS: ChainStore + 'a> BlockMedianTimeContext for VerifierResolver<'a, CS
             .expect("[VerifierResolver] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.synchronizer
-            .shared
-            .store()
-            .get_block_hash(block_number)
-    }
 }
 
 impl<'a, CS: ChainStore> HeaderResolver for VerifierResolver<'a, CS> {

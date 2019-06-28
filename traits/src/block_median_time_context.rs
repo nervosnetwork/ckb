@@ -7,7 +7,7 @@ use std::cmp::min;
 pub trait BlockMedianTimeContext {
     fn median_block_count(&self) -> u64;
 
-    /// Return timestamp of the correspoding bloch_hash, and hash of parent block
+    /// Return timestamp of the corresponding bloch_hash, and hash of parent block
     ///
     /// Fake implementation:
     /// ```ignore
@@ -34,12 +34,4 @@ pub trait BlockMedianTimeContext {
         timestamps.sort();
         timestamps[timestamps.len() >> 1]
     }
-
-    /// Return the corresponding block_hash
-    ///
-    /// It's just a convenience way that constructing a BlockMedianContext, to get the
-    /// corresponding block_hash when you only know a block_number.
-    ///
-    /// Often used in verifying "since by block number".
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256>;
 }

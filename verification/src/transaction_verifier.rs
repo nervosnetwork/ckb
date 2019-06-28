@@ -12,6 +12,7 @@ use ckb_script_data_loader::DataLoader;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -364,7 +365,7 @@ pub struct SinceVerifier<'a, M> {
     block_median_time_context: &'a M,
     block_number: BlockNumber,
     epoch_number: EpochNumber,
-    median_timestamps_cache: RefCell<LruCache<BlockNumber, u64>>,
+    median_timestamps_cache: RefCell<LruCache<H256, u64>>,
 }
 
 impl<'a, M> SinceVerifier<'a, M>
@@ -387,31 +388,18 @@ where
         }
     }
 
-    fn block_median_time(&self, n: BlockNumber) -> u64 {
-        let result = self.median_timestamps_cache.borrow().get(&n).cloned();
-        match result {
-            Some(median_time) => median_time,
-            None => {
-                let median_time = self
-                    .block_median_time_context
-                    .get_block_hash(n)
-                    .map(|block_hash| {
-                        self.block_median_time_context
-                            .block_median_time(n, &block_hash)
-                    })
-                    .unwrap_or(0);
-                info_target!(
-                    crate::LOG_TARGET,
-                    "median_time {}, number {}",
-                    median_time,
-                    n
-                );
-                self.median_timestamps_cache
-                    .borrow_mut()
-                    .insert(n, median_time);
-                median_time
-            }
+    fn block_median_time(&self, block_number: BlockNumber, block_hash: &H256) -> u64 {
+        if let Some(median_time) = self.median_timestamps_cache.borrow().get(block_hash) {
+            return *median_time;
         }
+
+        let median_time = self
+            .block_median_time_context
+            .block_median_time(block_number, block_hash);
+        self.median_timestamps_cache
+            .borrow_mut()
+            .insert(block_hash.clone(), median_time);
+        median_time
     }
 
     fn verify_absolute_lock(&self, since: Since) -> Result<(), TransactionError> {

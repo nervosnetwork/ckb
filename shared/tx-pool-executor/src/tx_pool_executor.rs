@@ -26,10 +26,6 @@ impl<CS: ChainStore> BlockMedianTimeContext for StoreBlockMedianTimeContext<CS> 
             .expect("[StoreBlockMedianTimeContext] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.store.get_block_hash(block_number)
-    }
 }
 
 /// TxPoolExecutor

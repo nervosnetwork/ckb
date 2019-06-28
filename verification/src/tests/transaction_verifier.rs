@@ -250,23 +250,22 @@ impl BlockMedianTimeContext for FakeMedianTime {
 
     fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
         for i in 0..self.timestamps.len() {
-            if &self.get_block_hash(i as u64).unwrap() == block_hash {
+            if &self.get_block_hash(i as u64) == block_hash {
                 if i == 0 {
                     return (self.timestamps[i], H256::zero());
                 } else {
-                    return (
-                        self.timestamps[i],
-                        self.get_block_hash(i as u64 - 1).unwrap(),
-                    );
+                    return (self.timestamps[i], self.get_block_hash(i as u64 - 1));
                 }
             }
         }
         unreachable!()
     }
+}
 
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
+impl FakeMedianTime {
+    fn get_block_hash(&self, block_number: BlockNumber) -> H256 {
         let vec: Vec<u8> = (0..32).map(|_| block_number as u8).collect();
-        Some(H256::from_slice(vec.as_slice()).unwrap())
+        H256::from_slice(vec.as_slice()).unwrap()
     }
 }
 
