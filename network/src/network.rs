@@ -387,33 +387,35 @@ impl NetworkState {
         self.dialing_addrs.write().remove(&peer_id);
     }
 
+    /// Dial
+    /// return value indicates the dialing is actually sent or denied.
     pub fn dial(
         &self,
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
         mut addr: Multiaddr,
         target: DialProtocol,
-    ) {
-        if !self.can_dial(peer_id, &addr) {
-            return;
-        }
-
-        match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
-            Ok(peer_id_hash) => {
-                addr.push(multiaddr::Protocol::P2p(peer_id_hash));
-                debug!("dialing {} with {:?}", addr, target);
-                if let Err(err) = p2p_control.dial(addr.clone(), target) {
-                    debug!("dial failed: {:?}", err);
-                } else {
-                    self.dialing_addrs
-                        .write()
-                        .insert(peer_id.to_owned(), Instant::now());
+    ) -> bool {
+        if self.can_dial(peer_id, &addr) {
+            match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
+                Ok(peer_id_hash) => {
+                    addr.push(multiaddr::Protocol::P2p(peer_id_hash));
+                    debug!("dialing {} with {:?}", addr, target);
+                    if let Err(err) = p2p_control.dial(addr.clone(), target) {
+                        debug!("dial failed: {:?}", err);
+                    } else {
+                        self.dialing_addrs
+                            .write()
+                            .insert(peer_id.to_owned(), Instant::now());
+                        return true;
+                    }
+                }
+                Err(err) => {
+                    error!("failed to convert peer_id to addr: {}", err);
                 }
             }
-            Err(err) => {
-                error!("failed to convert peer_id to addr: {}", err);
-            }
         }
+        false
     }
 
     /// Dial just identify protocol
@@ -428,12 +430,16 @@ impl NetworkState {
 
     /// Dial just feeler protocol
     pub fn dial_feeler(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
-        self.dial(
+        if self.dial(
             p2p_control,
             peer_id,
             addr,
             DialProtocol::Single(FEELER_PROTOCOL_ID.into()),
-        );
+        ) {
+            self.with_peer_registry_mut(|reg| {
+                reg.add_feeler(peer_id.clone());
+            });
+        }
     }
 }
 
