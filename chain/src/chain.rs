@@ -222,6 +222,16 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
     }
 
     fn insert_block(&self, block: Arc<Block>, need_verify: bool) -> Result<(), FailureError> {
+        // skip stored block
+        if self
+            .shared
+            .store()
+            .get_block_header(block.header().hash())
+            .is_some()
+        {
+            return Ok(());
+        }
+
         if need_verify {
             let block_verifier = BlockVerifier::new(self.shared.clone());
             block_verifier.verify(&block).map_err(|e| {
