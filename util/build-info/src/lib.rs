@@ -60,7 +60,7 @@ impl std::fmt::Display for Version {
 
 pub fn get_commit_describe() -> Option<String> {
     std::process::Command::new("git")
-        .args(&["describe", "--dirty", "--always", "--exclude", "*"])
+        .args(&["describe", "--dirty", "--always", "--match", "__EXCLUDE__"])
         .output()
         .ok()
         .and_then(|r| {
