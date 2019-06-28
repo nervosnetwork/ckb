@@ -27,6 +27,7 @@ use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use numext_fixed_uint::U256;
+use pretty_assertions::assert_eq as pretty_assert_eq;
 use reqwest;
 use serde_derive::Deserialize;
 use serde_json::{from_reader, json, to_string_pretty, Map, Value};
@@ -298,19 +299,12 @@ fn test_rpc() {
         if print_mode {
             case.insert("result".to_owned(), actual.clone());
             outputs.push(Value::Object(case.clone()));
-        } else if actual != expect {
-            let orig = to_string_pretty(&expect).expect("expect should be in json format");
-            let edit = to_string_pretty(&actual).expect("actual should be in json format");
-            let changeset = difference::Changeset::new(&orig, &edit, "\n");
-
-            assert!(
-                actual == expect,
-                "\nexpect of {}:\n{}\
-                 \ndiff of {}:\n{}",
-                case.get("method").expect("get jsonrpc method"),
-                orig,
-                case.get("method").expect("get jsonrpc method"),
-                changeset,
+        } else {
+            pretty_assert_eq!(
+                expect,
+                actual,
+                "Expect RPC {}",
+                case.get("method").expect("get jsonrpc method")
             );
         }
 
