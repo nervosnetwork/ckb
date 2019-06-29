@@ -1,6 +1,6 @@
 use ckb_build_info::Version;
 use ckb_resource::{DEFAULT_P2P_PORT, DEFAULT_RPC_PORT, DEFAULT_SPEC};
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
 pub const CMD_RUN: &str = "run";
 pub const CMD_MINER: &str = "miner";
@@ -33,12 +33,12 @@ pub const ARG_BA_DATA: &str = "ba-data";
 pub const ARG_FROM: &str = "from";
 pub const ARG_TO: &str = "to";
 
-pub fn get_matches(version: &Version) -> ArgMatches<'static> {
+const GROUP_BA: &str = "ba";
+
+fn basic_app<'b>() -> App<'static, 'b> {
     App::new("ckb")
         .author("Nervos Core Dev <dev@nervos.org>")
         .about("Nervos CKB - The Common Knowledge Base")
-        .version(version.short().as_str())
-        .long_version(version.long().as_str())
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .arg(
             Arg::with_name(ARG_CONFIG_DIR)
@@ -58,6 +58,12 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
         .subcommand(init())
         .subcommand(prof())
         .subcommand(stats())
+}
+
+pub fn get_matches(version: &Version) -> ArgMatches<'static> {
+    basic_app()
+        .version(version.short().as_str())
+        .long_version(version.long().as_str())
         .get_matches()
 }
 
@@ -280,11 +286,13 @@ fn init() -> App<'static, 'static> {
                 .number_of_values(1)
                 .help("Sets args in [block_assembler]"),
         )
+        .group(ArgGroup::with_name(GROUP_BA).args(&[ARG_BA_CODE_HASH, ARG_BA_ARG]))
         .arg(
             Arg::with_name(ARG_BA_DATA)
                 .long(ARG_BA_DATA)
                 .value_name("data")
                 .validator(is_hex)
+                .requires(GROUP_BA)
                 .help("Sets data in [block_assembler]"),
         )
         .arg(
@@ -321,5 +329,54 @@ fn is_hex(hex: String) -> Result<(), String> {
         Ok(())
     } else {
         Err("Must 0x-prefixed hexadecimal string".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ba_data_requires_ba_arg_or_ba_code_hash() {
+        let ok_ba_arg = basic_app().get_matches_from_safe(&[
+            "ckb",
+            "init",
+            "--ba-data",
+            "0x00",
+            "--ba-arg",
+            "0x00",
+        ]);
+        let ok_ba_code_hash = basic_app().get_matches_from_safe(&[
+            "ckb",
+            "init",
+            "--ba-data",
+            "0x00",
+            "--ba-code-hash",
+            "0x00",
+        ]);
+        let err = basic_app().get_matches_from_safe(&["ckb", "init", "--ba-data", "0x00"]);
+
+        assert!(
+            ok_ba_arg.is_ok(),
+            "--ba-data is ok with --ba-arg, but gets error: {:?}",
+            ok_ba_arg.err()
+        );
+        assert!(
+            ok_ba_code_hash.is_ok(),
+            "--ba-data is ok with --ba-code-hash, but gets error: {:?}",
+            ok_ba_code_hash.err()
+        );
+        assert!(
+            err.is_err(),
+            "--ba-data requires --ba-arg or --ba-code-hash"
+        );
+
+        let err = err.err().unwrap();
+        assert_eq!(clap::ErrorKind::MissingRequiredArgument, err.kind);
+        assert!(err
+            .message
+            .contains("The following required arguments were not provided"));
+        assert!(err.message.contains("--ba-arg"));
+        assert!(err.message.contains("--ba-code-hash"));
     }
 }
