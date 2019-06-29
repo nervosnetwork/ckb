@@ -43,7 +43,7 @@ where
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        *header.total_difficulty() >= self.total_difficulty
+        header.is_better_than(&self.total_difficulty, self.tip_header.hash())
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
