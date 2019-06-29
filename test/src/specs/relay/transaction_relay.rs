@@ -43,6 +43,10 @@ impl Spec for TransactionRelayBasic {
         });
         assert!(ret, "Transaction should be relayed to node2");
     }
+
+    fn num_nodes(&self) -> usize {
+        3
+    }
 }
 
 const MIN_CAPACITY: u64 = 60_0000_0000;

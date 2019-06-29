@@ -24,7 +24,7 @@ pub trait Spec {
     fn run(&self, net: Net);
 
     fn num_nodes(&self) -> usize {
-        3
+        1
     }
 
     fn connect_all(&self) -> bool {

@@ -26,10 +26,6 @@ impl Spec for ValidSince {
         // self.test_since_and_proposal(&net.nodes[1]);
     }
 
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         let cellbase_maturity = self.cellbase_maturity();
         Box::new(move |spec_config: &mut ChainSpec| {

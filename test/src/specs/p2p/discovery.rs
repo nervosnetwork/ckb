@@ -23,4 +23,8 @@ impl Spec for Discovery {
             "the address of node0 should be discovered by node2 and connected"
         );
     }
+
+    fn num_nodes(&self) -> usize {
+        3
+    }
 }
