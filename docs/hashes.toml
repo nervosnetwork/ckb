@@ -9,8 +9,8 @@ index = 1
 code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
 
 [ckb_testnet]
-genesis = "0x10a3911c72f5d337be5276866f76564847038cf8b3dbd4a9488c57b5411a34c4"
-cellbase = "0x16e2a23e82f9cf16e53cb76996c1f0aa3cfffc1707307a41ea717c2a535da536"
+genesis = "0xd5c54b0c699ef009edfedb00d8fb8198ac5ce1e9e266b9110a8972e1b05aba88"
+cellbase = "0xbfad4ae78c2f66c142decfbaa2336acdc39442a827b9c8599ff7f722ba3f50bc"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
