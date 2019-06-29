@@ -215,6 +215,17 @@ impl Node {
             .into()
     }
 
+    pub fn get_tip_block_number(&self) -> BlockNumber {
+        self.rpc_client().get_tip_block_number()
+    }
+
+    pub fn get_block_by_number(&self, number: BlockNumber) -> Block {
+        self.rpc_client()
+            .get_block_by_number(number)
+            .expect("block exists")
+            .into()
+    }
+
     pub fn new_block(
         &self,
         bytes_limit: Option<u64>,

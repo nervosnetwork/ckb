@@ -1009,7 +1009,9 @@ name = "ckb-test-chain-utils"
 version = "0.16.0-pre"
 dependencies = [
  "ckb-core 0.16.0-pre",
+ "ckb-db 0.16.0-pre",
  "ckb-hash 0.16.0-pre",
+ "ckb-store 0.16.0-pre",
  "lazy_static 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
