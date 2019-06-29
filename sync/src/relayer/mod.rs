@@ -34,7 +34,6 @@ use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSessi
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
-use ckb_shared::chain_state::ChainState;
 use ckb_store::ChainStore;
 use ckb_tx_pool_executor::TxPoolExecutor;
 use failure::Error as FailureError;
@@ -175,7 +174,6 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
     pub fn request_proposal_txs(
         &self,
-        chain_state: &ChainState<CS>,
         nc: &CKBProtocolContext,
         peer: PeerIndex,
         block: &CompactBlock,
@@ -184,10 +182,14 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             .proposals
             .iter()
             .chain(block.uncles.iter().flat_map(UncleBlock::proposals));
-        let fresh_proposals: Vec<ProposalShortId> = proposals
-            .filter(|id| !chain_state.tx_pool().contains_proposal_id(id))
-            .cloned()
-            .collect();
+        let fresh_proposals: Vec<ProposalShortId> = {
+            let chain_state = self.shared.lock_chain_state();
+            let tx_pool = chain_state.tx_pool();
+            proposals
+                .filter(|id| !tx_pool.contains_proposal_id(id))
+                .cloned()
+                .collect()
+        };
         let to_ask_proposals: Vec<ProposalShortId> = self
             .shared()
             .insert_inflight_proposals(fresh_proposals.clone())
@@ -257,7 +259,6 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
     pub fn reconstruct_block(
         &self,
-        chain_state: &ChainState<CS>,
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
     ) -> Result<Block, Vec<usize>> {
@@ -279,8 +280,8 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             .collect();
 
         if short_ids_set.is_empty() {
-            let tx_pool = chain_state.tx_pool();
-            for entry in tx_pool.proposed_txs_iter() {
+            let chain_state = self.shared().lock_chain_state();
+            for entry in chain_state.tx_pool().proposed_txs_iter() {
                 let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
                 if short_ids_set.remove(&short_id) {
                     txs_map.insert(short_id, entry.transaction.clone());

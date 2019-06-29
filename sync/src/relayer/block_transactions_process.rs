@@ -45,11 +45,7 @@ impl<'a, CS: ChainStore + 'static> BlockTransactionsProcess<'a, CS> {
                         .map(TryInto::try_into)
                         .collect::<Result<_, FailureError>>()?;
 
-                let ret = {
-                    let chain_state = self.relayer.shared.lock_chain_state();
-                    self.relayer
-                        .reconstruct_block(&chain_state, compact_block, transactions)
-                };
+                let ret = self.relayer.reconstruct_block(compact_block, transactions);
 
                 // TODO Add this (compact_block, peer) into RecentRejects if reconstruct_block failed?
                 // TODO Add this block into RecentRejects if accept_block failed?

@@ -153,9 +153,8 @@ fn test_reconstruct_block() {
             .collect();
         let transactions: Vec<Transaction> = prepare.iter().skip(1).cloned().collect();
         compact.short_ids = short_ids;
-        let chain_state = relayer.shared.lock_chain_state();
         assert_eq!(
-            relayer.reconstruct_block(&chain_state, &compact, transactions),
+            relayer.reconstruct_block(&compact, transactions),
             Err(vec![0]),
         );
     }
@@ -179,9 +178,8 @@ fn test_reconstruct_block() {
             .map(|(i, _)| i)
             .collect();
         compact.short_ids = short_ids;
-        let chain_state = relayer.shared.lock_chain_state();
         assert_eq!(
-            relayer.reconstruct_block(&chain_state, &compact, transactions),
+            relayer.reconstruct_block(&compact, transactions),
             Err(missing),
         );
     }
@@ -226,9 +224,8 @@ fn test_reconstruct_block() {
                 .expect("adding transaction into pool");
         });
 
-        let chain_state = relayer.shared.lock_chain_state();
         assert_eq!(
-            relayer.reconstruct_block(&chain_state, &compact, short_transactions),
+            relayer.reconstruct_block(&compact, short_transactions),
             Err(vec![0, 2]),
         );
     }
