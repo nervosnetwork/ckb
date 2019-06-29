@@ -3,12 +3,12 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1560578400858
-# Difficulty of the block 161029 in rylai-v2
-difficulty = "0x9292"
+timestamp = 1561788000134
+# Double the difficulty of the block 161029 in rylai-v2
+difficulty = "0x12524"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x81299410cc1609d40ed98777d6d0f3febea432b5c3f058b539bf35c4950fea9c"
+hash = "0x10a3911c72f5d337be5276866f76564847038cf8b3dbd4a9488c57b5411a34c4"
 issued_cells = []
 
 [genesis.seal]
@@ -16,7 +16,7 @@ nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = "rylai-v4"
+message = "rylai-v4 3f6b717c feat: proposer reward <zhangsoledad 2019-05-30 20:47:11 +0800>"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
