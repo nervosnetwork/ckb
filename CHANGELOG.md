@@ -1,6 +1,79 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [v0.15.0](https://github.com/nervosnetwork/ckb/compare/v0.14.2...v0.15.0) (2019-06-29)
+
+**Important:** The default secp256k1 has changed. Now its code hash is
+
+    0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933
+
+### Highlights
+
+* #922: Feat: proposer reward (@zhangsoledad)
+
+    This is a breaking change: b:consensus
+
+    1. earliest transaction proposer get 40% of the transaction fee as a reward.
+    2. block reward finalized after proposal window close.
+    3. enforce one-input one-output one-witness on cellbase.
+
+* #1054: Replace system cell (@driftluo, @jjyr)
+
+    See [feat: use recoverable signature to reduce tx size by jjyr · Pull Request #15 · nervosnetwork/ckb-system-scripts](https://github.com/nervosnetwork/ckb-system-scripts/pull/15)
+
+    BREAKING CHANGE: It changes the default secp256k1 script, which now uses recoverable signature.
+
+### Features
+
+* #937: Initial windows support (@xxuejie)
+* #931: Add a function to select all tx-hashes from storage for a block (@yangby-cryptape)
+* #910: Implement the alert system in CKB for urgent situation (@jjyr)
+
+    This is a breaking change: b:p2p, b:rpc
+
+* #939: Explicitly specify bundled or file system (@doitian)
+* #972: Add `load_code` syscall (@xxuejie)
+* #977: Upgrade p2p (@driftluo)
+
+    - upgrade p2p dependence
+    - support `upnp` optional
+
+* #978: Use new identify protocol (@driftluo)
+
+    The current identify protocol does not play a role in identifying the capabilities of both parties, and the message structure is not reasonable.
+
+    So, I rewrote it and added the capability ID and network ID.
+
+
+* #1000: Allow miner add an arbitrary message into the cellbase (@driftluo)
+* #1047: Stats uncle rate (@zhangsoledad)
+* #905: Add indexer related rpc (@quake)
+* #1035: `ckb init` allows setting `ba-data` (@driftluo)
+* #1088: Revise epoch rpc (@zhangsoledad)
+
+    This is a breaking change: b:rpc
+
+### Bug Fixes
+
+* #969: Update code hashes to correct value (@xxuejie)
+* #998: Fix confusing JsonBytes deserializing error message (@driftluo)
+* #1011: `witnesses_root` calculation should include cellbase (@u2)
+* #1022: Avoid dummy worker re-solve the same works (@keroro520)
+* #1044: Peer_store time calculation overflow (@jjyr)
+* #1066: Check new block based on orphan block pool (@keroro520)
+* #1077: Resolve `ChainSpec` script deserialize issue (@quake)
+* #1084: Cellset consistency (@zhangsoledad)
+
+### Improvements
+
+* #938: Remove low S check from util-crypto (@jjyr)
+* #959: Remove redundant interface from ChainProvider (@zhangsoledad)
+* #970 **sync:** Fix get ancestor performance issue (@TheWaWaR)
+* #976: Flatten network protocol state into `SyncSharedState` (@keroro520)
+* #1051: Get `tip_header` from store instead of from `chain_state` (@jjyr)
+* #971: Abstract data loader layer to decouple `ckb-script` and `ckb-store` (@jjyr)
+* #994: Wrap lock methods to avoid locking a long time (@keroro520)
+
 # [v0.14.2](https://github.com/nervosnetwork/ckb/compare/v0.14.1...v0.14.2) (2019-06-21)
 
 ### Bug Fixes

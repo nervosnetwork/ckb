@@ -22,7 +22,7 @@ impl<CS: ChainStore> BlockMedianTimeContext for StoreBlockMedianTimeContext<CS> 
     fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
         let header = self
             .store
-            .get_header(block_hash)
+            .get_block_header(block_hash)
             .expect("[StoreBlockMedianTimeContext] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }
@@ -194,7 +194,7 @@ mod tests {
         let (always_success_cell, always_success_script) = create_always_success_cell();
         let always_success_tx = TransactionBuilder::default()
             .input(CellInput::new(OutPoint::null(), 0))
-            .output(always_success_cell)
+            .output(always_success_cell.clone())
             .build();
         let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
 
@@ -284,7 +284,10 @@ mod tests {
     #[test]
     fn test_verify_and_add_tx_to_pool() {
         let (shared, always_success_out_point) = setup(10);
-        let last_block = shared.block(&shared.lock_chain_state().tip_hash()).unwrap();
+        let last_block = shared
+            .store()
+            .get_block(&shared.lock_chain_state().tip_hash())
+            .unwrap();
         let last_cellbase = last_block.transactions().first().unwrap();
 
         // building 10 txs and broadcast some

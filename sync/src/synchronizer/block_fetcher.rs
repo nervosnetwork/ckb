@@ -36,7 +36,7 @@ where
         }
     }
     pub fn reached_inflight_limit(&self) -> bool {
-        let inflight = self.synchronizer.peers.blocks_inflight.read();
+        let inflight = self.synchronizer.shared().read_inflight_blocks();
 
         // Can't download any more from this peer
         inflight.peer_inflight_count(&self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
@@ -47,7 +47,7 @@ where
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
-        self.synchronizer.peers.get_best_known_header(self.peer)
+        self.synchronizer.peers().get_best_known_header(self.peer)
     }
 
     pub fn last_common_header(&self, best: &HeaderView) -> Option<Header> {
@@ -55,8 +55,15 @@ where
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
                 Some(header)
             } else if best.number() < self.tip_header.number() {
-                let last_common_hash = self.synchronizer.shared.block_hash(best.number())?;
-                self.synchronizer.shared.block_header(&last_common_hash)
+                let last_common_hash = self
+                    .synchronizer
+                    .shared
+                    .store()
+                    .get_block_hash(best.number())?;
+                self.synchronizer
+                    .shared
+                    .store()
+                    .get_block_header(&last_common_hash)
             } else {
                 Some(self.tip_header.clone())
             }
@@ -78,7 +85,7 @@ where
 
     // this peer's tip is wherethe the ancestor of global_best_known_header
     pub fn is_known_best(&self, header: &HeaderView) -> bool {
-        let global_best_known_header = self.synchronizer.shared.best_known_header();
+        let global_best_known_header = self.synchronizer.shared.shared_best_header();
         if let Some(ancestor) = self
             .synchronizer
             .shared
@@ -158,7 +165,7 @@ where
         let mut fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
 
         {
-            let mut inflight = self.synchronizer.peers.blocks_inflight.write();
+            let mut inflight = self.synchronizer.shared().write_inflight_blocks();
             let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
                 .saturating_sub(inflight.peer_inflight_count(&self.peer));
             let max_height_header = self
@@ -174,7 +181,7 @@ where
                     .get_ancestor(max_height_header.hash(), index_height)?;
                 let to_fetch_hash = to_fetch.hash();
 
-                let block_status = self.synchronizer.get_block_status(to_fetch_hash);
+                let block_status = self.synchronizer.shared().get_block_status(to_fetch_hash);
                 if block_status == BlockStatus::VALID_MASK
                     && inflight.insert(self.peer, to_fetch_hash.to_owned())
                 {

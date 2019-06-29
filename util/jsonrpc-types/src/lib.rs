@@ -1,9 +1,11 @@
+mod alert;
 mod block_template;
 mod blockchain;
 mod bytes;
 mod cell;
 mod chain_info;
 mod experiment;
+mod indexer;
 mod net;
 mod pool;
 mod proposal_short_id;
@@ -31,11 +33,12 @@ pub struct Timestamp(#[serde(with = "string")] pub u64);
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Unsigned(#[serde(with = "string")] pub u64);
 
+pub use self::alert::{Alert, AlertMessage};
 pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 pub use self::blockchain::{
-    Block, BlockView, CellInput, CellOutPoint, CellOutput, EpochExt, Header, HeaderView, OutPoint,
+    Block, BlockView, CellInput, CellOutPoint, CellOutput, EpochView, Header, HeaderView, OutPoint,
     Script, Seal, Transaction, TransactionView, TransactionWithStatus, TxStatus, UncleBlock,
     UncleBlockView, Witness,
 };
@@ -43,6 +46,7 @@ pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
 pub use self::experiment::DryRunResult;
+pub use self::indexer::{CellTransaction, LiveCell, LockHashIndexState, TransactionPoint};
 pub use self::net::{Node, NodeAddress};
 pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;

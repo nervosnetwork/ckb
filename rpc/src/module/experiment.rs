@@ -151,7 +151,7 @@ impl<'a, CS: ChainStore> HeaderProvider for DryRunner<'a, CS> {
         let block_hash = o.block_hash.as_ref().expect("checked below");
         self.chain_state
             .store()
-            .get_header(&block_hash)
+            .get_block_header(&block_hash)
             .map(|header| HeaderStatus::Live(Box::new(header)))
             .unwrap_or(HeaderStatus::Unknown)
     }

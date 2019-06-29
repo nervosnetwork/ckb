@@ -10,6 +10,7 @@ use ckb_core::transaction::{
     Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
+use ckb_core::Capacity as CoreCapacity;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -225,10 +226,10 @@ impl From<Transaction> for CoreTransaction {
 
         TransactionBuilder::default()
             .version(version.0)
-            .deps(deps.into_iter().map(Into::into).collect::<Vec<_>>())
-            .inputs(inputs.into_iter().map(Into::into).collect::<Vec<_>>())
-            .outputs(outputs.into_iter().map(Into::into).collect::<Vec<_>>())
-            .witnesses(witnesses.into_iter().map(Into::into).collect::<Vec<_>>())
+            .deps(deps)
+            .inputs(inputs)
+            .outputs(outputs)
+            .witnesses(witnesses)
             .build()
     }
 }
@@ -525,10 +526,10 @@ impl From<Block> for CoreBlock {
         } = json;
 
         BlockBuilder::default()
-            .header(header.into())
-            .uncles(uncles.into_iter().map(Into::into).collect::<Vec<_>>())
-            .transactions(transactions.into_iter().map(Into::into).collect::<Vec<_>>())
-            .proposals(proposals.into_iter().map(Into::into).collect::<Vec<_>>())
+            .header(header)
+            .uncles(uncles)
+            .transactions(transactions)
+            .proposals(proposals)
             .build()
     }
 }
@@ -543,69 +544,32 @@ impl From<BlockView> for CoreBlock {
         } = json;
 
         BlockBuilder::default()
-            .header(header.into())
-            .uncles(uncles.into_iter().map(Into::into).collect::<Vec<_>>())
-            .transactions(transactions.into_iter().map(Into::into).collect::<Vec<_>>())
-            .proposals(proposals.into_iter().map(Into::into).collect::<Vec<_>>())
+            .header(header)
+            .uncles(uncles)
+            .transactions(transactions)
+            .proposals(proposals)
             .build()
     }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct EpochExt {
+pub struct EpochView {
     pub number: EpochNumber,
-    pub block_reward: Capacity,
-    pub last_block_hash_in_previous_epoch: H256,
+    pub epoch_reward: Capacity,
     pub start_number: BlockNumber,
     pub length: BlockNumber,
     pub difficulty: U256,
-    pub remainder_reward: Capacity,
 }
 
-impl From<CoreEpochExt> for EpochExt {
-    fn from(core: CoreEpochExt) -> EpochExt {
-        let (
-            number,
-            block_reward,
-            remainder_reward,
-            last_block_hash_in_previous_epoch,
-            start_number,
-            length,
-            difficulty,
-        ) = core.destruct();
-
-        EpochExt {
-            number: EpochNumber(number),
-            block_reward: Capacity(block_reward),
-            remainder_reward: Capacity(remainder_reward),
-            last_block_hash_in_previous_epoch,
-            start_number: BlockNumber(start_number),
-            length: BlockNumber(length),
-            difficulty,
+impl EpochView {
+    pub fn from_ext(epoch_reward: CoreCapacity, ext: &CoreEpochExt) -> EpochView {
+        EpochView {
+            number: EpochNumber(ext.number()),
+            start_number: BlockNumber(ext.start_number()),
+            length: BlockNumber(ext.length()),
+            difficulty: ext.difficulty().clone(),
+            epoch_reward: Capacity(epoch_reward),
         }
-    }
-}
-
-impl From<EpochExt> for CoreEpochExt {
-    fn from(json: EpochExt) -> Self {
-        let EpochExt {
-            number,
-            block_reward,
-            last_block_hash_in_previous_epoch,
-            start_number,
-            length,
-            difficulty,
-            remainder_reward,
-        } = json;
-        CoreEpochExt::new(
-            number.0,
-            block_reward.0,
-            remainder_reward.0,
-            last_block_hash_in_previous_epoch,
-            start_number.0,
-            length.0,
-            difficulty,
-        )
     }
 }
 

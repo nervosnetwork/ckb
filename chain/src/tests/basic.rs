@@ -1,19 +1,20 @@
 use crate::tests::util::{
-    create_multi_outputs_transaction, create_transaction, create_transaction_with_out_point,
-    gen_block, start_chain,
+    create_cellbase, create_multi_outputs_transaction, create_transaction,
+    create_transaction_with_out_point, start_chain, MockChain,
 };
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::Block;
-use ckb_core::block::BlockBuilder;
+use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMetaBuilder, CellProvider, CellStatus, UnresolvableError};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_shared::error::SharedError;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
+use test_chain_utils::{build_block, header_builder};
 
 #[test]
 fn test_genesis_transaction_spend() {
@@ -34,34 +35,27 @@ fn test_genesis_transaction_spend() {
 
     let genesis_tx_hash = root_hash.clone();
 
-    let genesis_block = BlockBuilder::default()
-        .transaction(tx)
-        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
-        .build();
+    let genesis_block = build_block!(
+        transaction: tx,
+        header_builder: header_builder!(difficulty: U256::from(1000u64),),
+    );
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
-    let (chain_controller, shared) = start_chain(Some(consensus));
+    let (chain_controller, shared, parent) = start_chain(Some(consensus));
 
     let end = 21;
 
-    let mut blocks1: Vec<Block> = vec![];
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut chain = MockChain::new(parent.clone());
+
     for i in 1..end {
-        let difficulty = parent.difficulty().to_owned();
         let tx = create_transaction(&root_hash, i as u8);
         root_hash = tx.hash().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(1u64),
-            vec![tx],
-            vec![],
-            vec![],
-        );
-        blocks1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+
+        // commit txs in block
+        chain.gen_block_with_commit_txs(vec![tx]);
     }
 
-    for block in &blocks1[0..10] {
+    for block in &chain.blocks()[0..10] {
         assert!(chain_controller
             .process_block(Arc::new(block.clone()), false)
             .is_ok());
@@ -77,23 +71,11 @@ fn test_genesis_transaction_spend() {
 
 #[test]
 fn test_transaction_spend_in_same_block() {
-    let (chain_controller, shared) = start_chain(None);
-    let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    let (chain_controller, shared, parent) = start_chain(None);
+    let mut chain = MockChain::new(parent.clone());
+    chain.gen_empty_block(100u64);
 
-    let last_cell_base = &chain.last().unwrap().transactions()[0];
+    let last_cell_base = &chain.tip().cellbase();
     let last_cell_base_hash = last_cell_base.hash().to_owned();
     let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash().to_owned();
@@ -111,45 +93,15 @@ fn test_transaction_spend_in_same_block() {
             CellStatus::Unknown
         );
     }
+
     // proposal txs
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            txs.clone(),
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
-    // empty N+1 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
-    // commit txs in N+2 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            txs.clone(),
-            vec![],
-            vec![],
-        );
-        chain.push(new_block);
-    }
-    for block in &chain {
+    chain.gen_block_with_proposal_txs(txs.clone());
+    // empty block
+    chain.gen_empty_block(100);
+    // commit txs in block
+    chain.gen_block_with_commit_txs(txs.clone());
+
+    for block in chain.blocks() {
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
@@ -190,67 +142,25 @@ fn test_transaction_spend_in_same_block() {
 
 #[test]
 fn test_transaction_conflict_in_same_block() {
-    let (chain_controller, shared) = start_chain(None);
-    let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    let (chain_controller, _shared, parent) = start_chain(None);
+    let mut chain = MockChain::new(parent.clone());
+    chain.gen_empty_block(100u64);
 
-    let last_cell_base = &chain.last().unwrap().transactions()[0];
+    let last_cell_base = &chain.tip().cellbase();
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     let tx3 = create_transaction(&tx1_hash, 3);
     let txs = vec![tx1, tx2, tx3];
+
     // proposal txs
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            txs.clone(),
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
-    // empty N+1 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
-    // commit txs in N+2 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            txs.clone(),
-            vec![],
-            vec![],
-        );
-        chain.push(new_block);
-    }
-    for block in chain.iter().take(3) {
+    chain.gen_block_with_proposal_txs(txs.clone());
+    // empty block
+    chain.gen_empty_block(100);
+    // commit txs in block
+    chain.gen_block_with_commit_txs(txs.clone());
+
+    for block in chain.blocks().iter().take(3) {
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
@@ -261,7 +171,7 @@ fn test_transaction_conflict_in_same_block() {
             0
         ))),
         chain_controller
-            .process_block(Arc::new(chain[3].clone()), true)
+            .process_block(Arc::new(chain.blocks()[3].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -270,79 +180,28 @@ fn test_transaction_conflict_in_same_block() {
 
 #[test]
 fn test_transaction_conflict_in_different_blocks() {
-    let (chain_controller, shared) = start_chain(None);
-    let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    let (chain_controller, _shared, parent) = start_chain(None);
+    let mut chain = MockChain::new(parent.clone());
+    chain.gen_empty_block(100u64);
 
-    let last_cell_base = &chain.last().unwrap().transactions()[0];
+    let last_cell_base = &chain.tip().cellbase();
     let tx1 = create_multi_outputs_transaction(&last_cell_base, vec![0], 2, vec![1]);
     let tx1_hash = tx1.hash();
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![1]);
     let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     // proposal txs
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![tx1.clone(), tx2.clone(), tx3.clone()],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()]);
+
     // empty N+1 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    chain.gen_empty_block(100);
+
     // commit tx1 and tx2 in N+2 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![tx1.clone(), tx2.clone()],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()]);
+
     // commit tx3 in N+3 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![tx3.clone()],
-            vec![],
-            vec![],
-        );
-        chain.push(new_block);
-    }
-    for block in chain.iter().take(4) {
+    chain.gen_block_with_commit_txs(vec![tx3.clone()]);
+
+    for block in chain.blocks().iter().take(4) {
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
@@ -353,7 +212,7 @@ fn test_transaction_conflict_in_different_blocks() {
             0
         ))),
         chain_controller
-            .process_block(Arc::new(chain[4].clone()), true)
+            .process_block(Arc::new(chain.blocks()[4].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -362,23 +221,11 @@ fn test_transaction_conflict_in_different_blocks() {
 
 #[test]
 fn test_invalid_out_point_index_in_same_block() {
-    let (chain_controller, shared) = start_chain(None);
-    let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    let (chain_controller, _shared, parent) = start_chain(None);
+    let mut chain = MockChain::new(parent.clone());
+    chain.gen_empty_block(100u64);
 
-    let last_cell_base = &chain.last().unwrap().transactions()[0];
+    let last_cell_base = &chain.tip().cellbase();
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
@@ -386,44 +233,13 @@ fn test_invalid_out_point_index_in_same_block() {
     let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
     // proposal txs
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            txs.clone(),
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    chain.gen_block_with_proposal_txs(txs.clone());
     // empty N+1 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    chain.gen_empty_block(100);
     // commit txs in N+2 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            txs.clone(),
-            vec![],
-            vec![],
-        );
-        chain.push(new_block);
-    }
-    for block in chain.iter().take(3) {
+    chain.gen_block_with_commit_txs(txs.clone());
+
+    for block in chain.blocks().iter().take(3) {
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
@@ -434,7 +250,7 @@ fn test_invalid_out_point_index_in_same_block() {
             1,
         )])),
         chain_controller
-            .process_block(Arc::new(chain[3].clone()), true)
+            .process_block(Arc::new(chain.blocks()[3].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -443,80 +259,26 @@ fn test_invalid_out_point_index_in_same_block() {
 
 #[test]
 fn test_invalid_out_point_index_in_different_blocks() {
-    let (chain_controller, shared) = start_chain(None);
-    let mut chain: Vec<Block> = Vec::new();
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    let (chain_controller, _shared, parent) = start_chain(None);
+    let mut chain = MockChain::new(parent.clone());
+    chain.gen_empty_block(100u64);
 
-    let last_cell_base = &chain.last().unwrap().transactions()[0];
+    let last_cell_base = &chain.tip().cellbase();
     let tx1 = create_transaction(last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(tx1_hash, 2);
     // create an invalid OutPoint index
     let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
     // proposal txs
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![tx1.clone(), tx2.clone(), tx3.clone()],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()]);
     // empty N+1 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    chain.gen_empty_block(100);
     // commit tx1 and tx2 in N+2 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![tx1.clone(), tx2.clone()],
-            vec![],
-            vec![],
-        );
-        parent = new_block.header().to_owned();
-        chain.push(new_block);
-    }
+    chain.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()]);
     // commit tx3 in N+3 block
-    {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![tx3.clone()],
-            vec![],
-            vec![],
-        );
-        chain.push(new_block);
-    }
-    for block in chain.iter().take(4) {
+    chain.gen_block_with_commit_txs(vec![tx3.clone()]);
+
+    for block in chain.blocks().iter().take(4) {
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
@@ -528,7 +290,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
             1,
         )])),
         chain_controller
-            .process_block(Arc::new(chain[4].clone()), true)
+            .process_block(Arc::new(chain.blocks()[4].clone()), true)
             .unwrap_err()
             .downcast()
             .unwrap()
@@ -558,7 +320,7 @@ fn test_genesis_transaction_fetch() {
         .build();
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
-    let (_chain_controller, shared) = start_chain(Some(consensus));
+    let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
 
     let out_point = OutPoint::new_cell(root_hash, 0);
     let state = shared.lock_chain_state().cell(&out_point);
@@ -567,215 +329,179 @@ fn test_genesis_transaction_fetch() {
 
 #[test]
 fn test_chain_fork_by_total_difficulty() {
-    let (chain_controller, shared) = start_chain(None);
+    let (chain_controller, shared, parent) = start_chain(None);
     let final_number = 20;
 
-    let mut chain1: Vec<Block> = Vec::new();
-    let mut chain2: Vec<Block> = Vec::new();
+    let mut chain1 = MockChain::new(parent.clone());
+    let mut chain2 = MockChain::new(parent.clone());
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for _ in 1..final_number {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        chain1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+    // 100 * 20 = 2000
+    for _ in 0..final_number {
+        chain1.gen_empty_block_with_difficulty(100u64);
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for i in 1..final_number {
-        let difficulty = parent.difficulty().to_owned();
+    // 99 * 10 + 110 * 10 = 2090
+    for i in 0..final_number {
         let j = if i > 10 { 110 } else { 99 };
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(j as u32),
-            vec![],
-            vec![],
-            vec![],
-        );
-        chain2.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        chain2.gen_empty_block_with_difficulty(j);
     }
 
-    for block in &chain1 {
+    assert!(chain2.total_difficulty() > chain1.total_difficulty());
+
+    for block in chain1.blocks() {
         chain_controller
             .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
 
-    for block in &chain2 {
+    for block in chain2.blocks() {
         chain_controller
             .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
     assert_eq!(
-        shared.block_hash(8),
-        chain2.get(7).map(|b| b.header().hash().to_owned())
+        shared.store().get_block_hash(8),
+        chain2.blocks().get(7).map(|b| b.header().hash().to_owned())
     );
 }
 
 #[test]
 fn test_chain_fork_by_hash() {
-    let (chain_controller, shared) = start_chain(None);
+    let (chain_controller, shared, parent) = start_chain(None);
     let final_number = 20;
 
-    let mut chain1: Vec<Block> = Vec::new();
-    let mut chain2: Vec<Block> = Vec::new();
+    let mut chain1 = MockChain::new(parent.clone());
+    let mut chain2 = MockChain::new(parent.clone());
+    let mut chain3 = MockChain::new(parent.clone());
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for _ in 1..final_number {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        chain1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+    // 100 * 20 = 2000
+    for _ in 0..final_number {
+        chain1.gen_empty_block_with_difficulty(100u64);
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
-    for _ in 1..final_number {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        chain2.push(new_block.clone());
-        parent = new_block.header().to_owned();
+    // 50 * 40 = 2000
+    for _ in 0..(final_number * 2) {
+        chain2.gen_empty_block_with_difficulty(50u64);
     }
 
-    for block in &chain1 {
-        chain_controller
-            .process_block(Arc::new(block.clone()), false)
-            .expect("process block ok");
+    // 20 * 100 = 2000
+    for _ in 0..(final_number * 5) {
+        chain3.gen_empty_block_with_difficulty(20u64);
     }
 
-    for block in &chain2 {
-        chain_controller
-            .process_block(Arc::new(block.clone()), false)
-            .expect("process block ok");
+    for chain in vec![chain1.clone(), chain2.clone(), chain3.clone()] {
+        for block in chain.blocks() {
+            chain_controller
+                .process_block(Arc::new(block.clone()), false)
+                .expect("process block ok");
+        }
     }
 
-    //if total_difficulty equal, we chose block which have smaller hash as best
-    assert!(chain1
-        .iter()
-        .zip(chain2.iter())
-        .all(|(a, b)| a.header().difficulty() == b.header().difficulty()));
+    // if total_difficulty equal, we chose block which have smaller hash as best
+    assert_eq!(chain1.total_difficulty(), chain2.total_difficulty());
+    assert_eq!(chain1.total_difficulty(), chain3.total_difficulty());
 
-    let best = if chain1[(final_number - 2) as usize].header().hash()
-        < chain2[(final_number - 2) as usize].header().hash()
-    {
-        chain1
-    } else {
-        chain2
+    let hash1 = chain1.tip_header().hash();
+    let hash2 = chain2.tip_header().hash();
+    let hash3 = chain3.tip_header().hash();
+
+    let tips = vec![hash1.clone(), hash2.clone(), hash3.clone()];
+    let v = tips.iter().min().unwrap();
+
+    let best = match v {
+        hash if hash == hash1 => chain1,
+        hash if hash == hash2 => chain2,
+        _ => chain3,
     };
+
     assert_eq!(
-        shared.block_hash(8),
-        best.get(7).map(|b| b.header().hash().to_owned())
+        shared.store().get_block_hash(8),
+        best.blocks().get(7).map(|b| b.header().hash().to_owned())
     );
     assert_eq!(
-        shared.block_hash(19),
-        best.get(18).map(|b| b.header().hash().to_owned())
+        shared.store().get_block_hash(19),
+        best.blocks().get(18).map(|b| b.header().hash().to_owned())
     );
 }
 
 #[test]
 fn test_chain_get_ancestor() {
-    let (chain_controller, shared) = start_chain(None);
+    let (chain_controller, shared, parent) = start_chain(None);
     let final_number = 20;
 
-    let mut chain1: Vec<Block> = Vec::new();
-    let mut chain2: Vec<Block> = Vec::new();
+    let mut chain1 = MockChain::new(parent.clone());
+    let mut chain2 = MockChain::new(parent.clone());
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..final_number {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        chain1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        chain1.gen_empty_block(100u64);
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
     for _ in 1..final_number {
-        let difficulty = parent.difficulty().to_owned();
-        let new_block = gen_block(
-            &parent,
-            difficulty + U256::from(100u64),
-            vec![],
-            vec![],
-            vec![],
-        );
-        chain2.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        chain2.gen_empty_block(90u64);
     }
 
-    for block in &chain1 {
+    for block in chain1.blocks() {
         chain_controller
             .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
 
-    for block in &chain2 {
+    for block in chain2.blocks() {
         chain_controller
             .process_block(Arc::new(block.clone()), false)
             .expect("process block ok");
     }
+
+    assert!(chain1.tip_header().hash() != chain2.tip_header().hash());
 
     assert_eq!(
-        *chain1[9].header(),
+        *chain1.blocks()[9].header(),
         shared
-            .get_ancestor(&chain1.last().unwrap().header().hash(), 10)
+            .get_ancestor(&chain1.tip_header().hash(), 10)
             .unwrap()
     );
 
     assert_eq!(
-        *chain2[9].header(),
+        *chain2.blocks()[9].header(),
         shared
-            .get_ancestor(&chain2.last().unwrap().header().hash(), 10)
+            .get_ancestor(&chain2.tip_header().hash(), 10)
             .unwrap()
     );
 }
 
 #[test]
 fn test_next_epoch_ext() {
-    let genesis_block = BlockBuilder::default()
-        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
-        .build();
+    let genesis_block =
+        build_block!(header_builder: header_builder!(difficulty: U256::from(1000u64),),);
+
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
     consensus.genesis_epoch_ext.set_length(400);
     let epoch = consensus.genesis_epoch_ext.clone();
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()));
+    let (chain_controller, shared, genesis) = start_chain(Some(consensus.clone()));
     let final_number = shared.consensus().genesis_epoch_ext().length();
 
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    let mut parent = genesis.clone();
     let mut last_epoch = epoch.clone();
 
     for _ in 1..final_number - 1 {
         let epoch = shared
             .next_epoch_ext(&last_epoch, &parent)
             .unwrap_or(last_epoch);
-        let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], vec![]);
+
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                timestamp: parent.timestamp() + 20_000,
+                difficulty: epoch.difficulty().clone(),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+        );
+
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
@@ -784,7 +510,7 @@ fn test_next_epoch_ext() {
         last_epoch = epoch;
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = genesis;
     let mut last_epoch = epoch.clone();
     for i in 1..final_number {
         let epoch = shared
@@ -792,9 +518,20 @@ fn test_next_epoch_ext() {
             .unwrap_or(last_epoch);
         let mut uncles = vec![];
         if i < 26 {
-            uncles.push(chain1[i as usize].clone().into());
+            uncles.push(chain1[i as usize].clone());
         }
-        let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
+
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                timestamp: parent.timestamp() + 20_000,
+                difficulty: epoch.difficulty().clone(),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+            uncles: uncles.clone(),
+        );
+
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
@@ -805,7 +542,11 @@ fn test_next_epoch_ext() {
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
         assert_eq!(total_uncles_count, 25);
 
         let epoch = shared
@@ -853,7 +594,7 @@ fn test_next_epoch_ext() {
         );
     }
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()));
+    let (chain_controller, shared, genesis) = start_chain(Some(consensus.clone()));
     let mut chain2: Vec<Block> = Vec::new();
     for i in 1..final_number - 1 {
         chain_controller
@@ -861,16 +602,27 @@ fn test_next_epoch_ext() {
             .expect("process block ok");
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = genesis.clone();
     for i in 1..final_number {
         let epoch = shared
             .next_epoch_ext(&last_epoch, &parent)
             .unwrap_or(last_epoch);
         let mut uncles = vec![];
         if i < 11 {
-            uncles.push(chain1[i as usize].clone().into());
+            uncles.push(chain1[i as usize].clone());
         }
-        let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
+
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                timestamp: parent.timestamp() + 20_000,
+                difficulty: epoch.difficulty().clone(),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+            uncles: uncles,
+        );
+
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
@@ -882,7 +634,11 @@ fn test_next_epoch_ext() {
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
         assert_eq!(total_uncles_count, 10);
 
         let epoch = shared
@@ -892,7 +648,7 @@ fn test_next_epoch_ext() {
         assert_eq!(epoch.difficulty(), &U256::from(1000u64));
     }
 
-    let (chain_controller, shared) = start_chain(Some(consensus.clone()));
+    let (chain_controller, shared, genesis) = start_chain(Some(consensus.clone()));
     let mut chain2: Vec<Block> = Vec::new();
     for i in 1..final_number - 1 {
         chain_controller
@@ -900,7 +656,7 @@ fn test_next_epoch_ext() {
             .expect("process block ok");
     }
 
-    parent = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+    parent = genesis.clone();
     let mut last_epoch = epoch.clone();
     for i in 1..final_number {
         let epoch = shared
@@ -908,9 +664,19 @@ fn test_next_epoch_ext() {
             .unwrap_or(last_epoch);
         let mut uncles = vec![];
         if i < 151 {
-            uncles.push(chain1[i as usize].clone().into());
+            uncles.push(chain1[i as usize].clone());
         }
-        let new_block = gen_block(&parent, epoch.difficulty().clone(), vec![], vec![], uncles);
+        let new_block = build_block!(
+            from_header_builder: {
+                parent_hash: parent.hash().to_owned(),
+                number: parent.number() + 1,
+                timestamp: parent.timestamp() + 20_000,
+                difficulty: epoch.difficulty().clone(),
+            },
+            transaction: create_cellbase(parent.number() + 1),
+            uncles: uncles,
+        );
+
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
@@ -922,7 +688,11 @@ fn test_next_epoch_ext() {
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared.block_ext(&tip.hash()).unwrap().total_uncles_count;
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
         assert_eq!(total_uncles_count, 150);
 
         let epoch = shared

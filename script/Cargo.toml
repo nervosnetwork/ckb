@@ -1,18 +1,17 @@
 [package]
 name = "ckb-script"
-version = "0.14.2"
+version = "0.15.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
+ckb-script-data-loader = { path = "data-loader" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 byteorder = "1.3.1"
-crypto = {path = "../util/crypto"}
 ckb-core = { path = "../core" }
-ckb-store = { path = "../store" }
 hash = {path = "../util/hash"}
-ckb-vm = { git = "https://github.com/nervosnetwork/ckb-vm", rev = "d926277", features = ["asm"] }
+ckb-vm = { version = "0.13.0", features = ["asm"] }
 faster-hex = "0.3"
 fnv = "1.0.3"
 flatbuffers = "0.6.0"
@@ -26,5 +25,7 @@ ckb-resource = { path = "../resource" }
 [dev-dependencies]
 proptest = "0.9"
 ckb-db = { path = "../db" }
+ckb-store = { path = "../store" }
 test-chain-utils = { path = "../util/test-chain-utils" }
 tiny-keccak = "1.4"
+crypto = {path = "../util/crypto"}

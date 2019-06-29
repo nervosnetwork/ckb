@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.14.2"
+version = "0.15.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -17,6 +17,7 @@ ckb-bin = { path = "ckb-bin" }
 
 [workspace]
 members = [
+    "util/network-alert",
     "util/multisig",
     "util/logger",
     "util/hash",
@@ -28,6 +29,8 @@ members = [
     "util/occupied-capacity",
     "util/stop-handler",
     "util/app-config",
+    "script/data-loader",
+    "util/reward-calculator",
     "shared/tx-pool-executor",
     "ckb-bin",
     "traits",
@@ -48,6 +51,7 @@ members = [
     "pow",
     "benches",
     "resource",
+    "indexer",
 ]
 
 [profile.release]

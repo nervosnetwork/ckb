@@ -25,7 +25,7 @@ addons:
       - libtool
 
 before_install:
-  - cargo sweep --version || cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
+  - cargo sweep --version || travis_retry cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e
   - cargo sweep -s
 
 before_script:
@@ -34,7 +34,7 @@ before_script:
 script: make test
 
 before_cache:
-  - rm -rf ./target/release
+  - rm -rf ./target/release/incremental/
   - rm -rf ./target/debug/incremental/
   - cargo sweep -f
 
@@ -54,27 +54,25 @@ deploy:
 matrix:
   include:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
-    # If you want to see the tests result in CI before submitting PR, name the branch with prefix "test".
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: linux
     - name: Linters
-      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      env: CACHE_NAME=linters
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: linux
       install:
-        - cargo fmt --version || rustup component add rustfmt
-        - cargo clippy --version || rustup component add clippy
-        - cargo audit --version || cargo install cargo-audit
+        - cargo fmt --version || travis_retry rustup component add rustfmt
+        - cargo clippy --version || travis_retry rustup component add clippy
       script:
-        - make security-audit
         - make fmt
         - make clippy
         - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type == pull_request OR branch = master OR branch =~ /^test/)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
       os: linux
       cache: false
       addons: { apt: { packages: [] } }
@@ -85,13 +83,24 @@ matrix:
         - make check-dirty-doc
 
     - name: Integration on macOS
-      if: 'tag IS NOT present AND type != pull_request'
+      env: CACHE_NAME=integration
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
       os: osx
-      script: make integration
+      script: make integration-release
     - name: Integration on Linux
-      if: 'tag IS NOT present AND type != pull_request'
+      env: CACHE_NAME=integration
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
       os: linux
-      script: make integration
+      script: make integration-release
+    - name: Code Coverage
+      if: 'tag IS NOT present AND branch = master'
+      os: linux
+      install:
+        - cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin
+      script:
+        - make cov
+      after_success:
+        - bash <(curl -s https://codecov.io/bash)
 
     - name: Package for macOS
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'

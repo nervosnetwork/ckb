@@ -1,13 +1,13 @@
 use crate::error::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::transaction::{Capacity, Transaction, TX_VERSION};
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
+    transaction::{Transaction, TX_VERSION},
     BlockNumber, Cycle, EpochNumber,
 };
 use ckb_logger::info_target;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
-use ckb_store::ChainStore;
+use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
 use std::cell::RefCell;
@@ -152,9 +152,10 @@ impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
+        let data_loader = DataLoaderWrapper::new(Arc::clone(&self.chain_store));
         TransactionScriptsVerifier::new(
             &self.resolved_transaction,
-            Arc::clone(&self.chain_store),
+            &data_loader,
             &self.script_config,
         )
         .verify(max_cycles)
@@ -277,25 +278,8 @@ impl<'a> CapacityVerifier<'a> {
                 .transaction
                 .is_withdrawing_from_dao())
         {
-            let inputs_total = self.resolved_transaction.resolved_inputs.iter().try_fold(
-                Capacity::zero(),
-                |acc, resolved_out_point| {
-                    let capacity = resolved_out_point
-                        .cell()
-                        .map(|cell_meta| cell_meta.capacity)
-                        .unwrap_or_else(Capacity::zero);
-                    acc.safe_add(capacity)
-                },
-            )?;
-
-            let outputs_total = self
-                .resolved_transaction
-                .transaction
-                .outputs()
-                .iter()
-                .try_fold(Capacity::zero(), |acc, output| {
-                    acc.safe_add(output.capacity)
-                })?;
+            let inputs_total = self.resolved_transaction.inputs_capacity()?;
+            let outputs_total = self.resolved_transaction.outputs_capacity()?;
 
             if inputs_total < outputs_total {
                 return Err(TransactionError::OutputsSumOverflow);
@@ -325,7 +309,7 @@ enum SinceMetric {
 
 /// RFC 0017
 #[derive(Copy, Clone, Debug)]
-struct Since(u64);
+pub(crate) struct Since(pub(crate) u64);
 
 impl Since {
     pub fn is_absolute(self) -> bool {
@@ -339,7 +323,7 @@ impl Since {
 
     pub fn flags_is_valid(self) -> bool {
         (self.0 & REMAIN_FLAGS_BITS == 0)
-            && ((self.0 & METRIC_TYPE_FLAG_MASK) != (0b0110_0000 << 56))
+            && ((self.0 & METRIC_TYPE_FLAG_MASK) != METRIC_TYPE_FLAG_MASK)
     }
 
     fn extract_metric(self) -> Option<SinceMetric> {

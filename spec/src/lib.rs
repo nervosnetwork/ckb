@@ -14,18 +14,16 @@ use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
 use ckb_core::{BlockNumber, Bytes, Capacity, Cycle};
 use ckb_pow::{Pow, PowEngine};
-use ckb_resource::{Resource, ResourceLocator};
+use ckb_resource::Resource;
+use jsonrpc_types::Script;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use occupied_capacity::OccupiedCapacity;
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 pub mod consensus;
@@ -57,6 +55,7 @@ pub struct Genesis {
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: SystemCells,
+    pub bootstrap_lock: Script,
     pub seal: Seal,
 }
 
@@ -68,9 +67,7 @@ pub struct Seal {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SystemCells {
-    pub files: Vec<PathBuf>,
-    #[serde(skip)]
-    pub resources: Vec<Resource>,
+    pub files: Vec<Resource>,
     pub lock: Script,
 }
 
@@ -128,15 +125,10 @@ impl fmt::Display for SpecLoadError {
 }
 
 impl ChainSpec {
-    pub fn resolve_relative_to(
-        locator: &ResourceLocator,
-        spec_path: PathBuf,
-        config_file: &Resource,
-    ) -> Result<ChainSpec, Box<dyn Error>> {
-        let resource = match locator.resolve_relative_to(spec_path, config_file) {
-            Some(r) => r,
-            None => return Err(SpecLoadError::file_not_found()),
-        };
+    pub fn load_from(resource: &Resource) -> Result<ChainSpec, Box<dyn Error>> {
+        if !resource.exists() {
+            return Err(SpecLoadError::file_not_found());
+        }
         let config_bytes = resource.get()?;
         let mut spec: ChainSpec = toml::from_slice(&config_bytes)?;
         if !(resource.is_bundled() || spec.name == "ckb_dev" || spec.name == "ckb_integration_test")
@@ -144,19 +136,11 @@ impl ChainSpec {
             return Err(SpecLoadError::chain_name_not_allowed(spec.name.clone()));
         }
 
-        let system_cells_resources = spec
-            .genesis
-            .system_cells
-            .files
-            .iter()
-            .map(|path| {
-                locator
-                    .resolve_relative_to(path.clone(), &resource)
-                    .ok_or(SpecLoadError::FileNotFound)
-            })
-            .collect::<Result<Vec<_>, SpecLoadError>>()?;
-
-        spec.genesis.system_cells.resources = system_cells_resources;
+        if let Some(parent) = resource.parent() {
+            for r in spec.genesis.system_cells.files.iter_mut() {
+                r.absolutize(parent)
+            }
+        }
 
         Ok(spec)
     }
@@ -170,8 +154,8 @@ impl ChainSpec {
             let actual = genesis.header().hash();
             if actual != expect {
                 return Err(SpecLoadError::genesis_mismatch(
-                    actual.clone(),
                     expect.clone(),
+                    actual.clone(),
                 ));
             }
         }
@@ -205,6 +189,7 @@ impl ChainSpec {
             .set_epoch_reward(self.params.epoch_reward)
             .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
+            .set_bootstrap_lock(self.genesis.bootstrap_lock.clone().into())
             .set_pow(self.pow.clone());
 
         Ok(consensus)
@@ -234,9 +219,11 @@ impl Genesis {
         // Layout of genesis cellbase:
         // - genesis cell, which contains a message and can never be spent.
         // - system cells, which stores the built-in code blocks.
+        // - foundation cells
         // - issued cells
         outputs.push(self.genesis_cell.build_output()?);
         self.system_cells.build_outputs_into(&mut outputs)?;
+        outputs.push(build_bootstrap_output(&self.bootstrap_lock)?);
         outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
 
         Ok(TransactionBuilder::default()
@@ -250,16 +237,23 @@ impl GenesisCell {
     fn build_output(&self) -> Result<CellOutput, Box<dyn Error>> {
         let mut cell = CellOutput::default();
         cell.data = self.message.as_bytes().into();
-        cell.lock.clone_from(&self.lock);
+        cell.lock = self.lock.clone().into();
         cell.capacity = cell.occupied_capacity()?;
         Ok(cell)
     }
 }
 
+fn build_bootstrap_output(lock: &Script) -> Result<CellOutput, Box<dyn Error>> {
+    let mut cell = CellOutput::default();
+    cell.lock = lock.clone().into();
+    cell.capacity = cell.occupied_capacity()?;
+    Ok(cell)
+}
+
 impl IssuedCell {
     fn build_output(&self) -> CellOutput {
         let mut cell = CellOutput::default();
-        cell.lock = self.lock.clone();
+        cell.lock = self.lock.clone().into();
         cell.capacity = self.capacity;
         cell
     }
@@ -271,12 +265,11 @@ impl SystemCells {
     }
 
     fn build_outputs_into(&self, outputs: &mut Vec<CellOutput>) -> Result<(), Box<dyn Error>> {
-        assert_eq!(self.files.len(), self.resources.len());
-        for res in &self.resources {
+        for res in &self.files {
             let data = res.get()?;
             let mut cell = CellOutput::default();
             cell.data = data.into_owned().into();
-            cell.lock.clone_from(&self.lock);
+            cell.lock = self.lock.clone().into();
             cell.capacity = cell.occupied_capacity()?;
             outputs.push(cell);
         }
@@ -288,7 +281,6 @@ impl SystemCells {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use ckb_core::script::Script;
     use serde_derive::{Deserialize, Serialize};
     use std::collections::HashMap;
 
@@ -297,7 +289,6 @@ pub mod test {
         pub path: String,
         pub index: usize,
         pub code_hash: H256,
-        pub script_hash: H256,
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -308,15 +299,13 @@ pub mod test {
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
-        let spec_path = match name {
-            "ckb_dev" => PathBuf::from("specs/dev.toml"),
-            "ckb_testnet" => PathBuf::from("specs/testnet.toml"),
+        let res = match name {
+            "ckb_dev" => Resource::bundled("specs/dev.toml".to_string()),
+            "ckb_testnet" => Resource::bundled("specs/testnet.toml".to_string()),
             _ => panic!("Unknown spec name {}", name),
         };
 
-        let locator = ResourceLocator::current_dir().unwrap();
-        let ckb = Resource::Bundled("ckb.toml".to_string());
-        ChainSpec::resolve_relative_to(&locator, spec_path, &ckb).expect("load spec by name")
+        ChainSpec::load_from(&res).expect("load spec by name")
     }
 
     #[test]
@@ -339,7 +328,9 @@ pub mod test {
                 assert_eq!(genesis_hash, &spec_hashes.genesis, "{}", bundled_spec_err);
             }
 
-            let consensus = spec.build_consensus().expect("spec to consensus");
+            let consensus = spec.build_consensus();
+            assert!(consensus.is_ok(), "{}", consensus.unwrap_err());
+            let consensus = consensus.unwrap();
             let block = consensus.genesis_block();
             let cellbase = &block.transactions()[0];
 
@@ -353,10 +344,8 @@ pub mod test {
                 .enumerate()
             {
                 let code_hash = output.data_hash();
-                let script_hash = Script::new(vec![], code_hash.clone()).hash();
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
                 assert_eq!(cell.code_hash, code_hash, "{}", bundled_spec_err);
-                assert_eq!(cell.script_hash, script_hash, "{}", bundled_spec_err);
             }
         }
     }

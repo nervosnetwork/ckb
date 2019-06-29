@@ -8,7 +8,7 @@ use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use jsonrpc_types::{
     BlockNumber, BlockView, Capacity, CellOutPoint, CellOutputWithOutPoint, CellWithStatus,
-    EpochExt, EpochNumber, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
+    EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
 };
 use numext_fixed_hash::H256;
 
@@ -46,10 +46,10 @@ pub trait ChainRpc {
     fn get_tip_block_number(&self) -> Result<BlockNumber>;
 
     #[rpc(name = "get_current_epoch")]
-    fn get_current_epoch(&self) -> Result<EpochExt>;
+    fn get_current_epoch(&self) -> Result<EpochView>;
 
     #[rpc(name = "get_epoch_by_number")]
-    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochExt>>;
+    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochView>>;
 }
 
 pub(crate) struct ChainRpcImpl<CS> {
@@ -58,14 +58,26 @@ pub(crate) struct ChainRpcImpl<CS> {
 
 impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     fn get_block(&self, hash: H256) -> Result<Option<BlockView>> {
-        Ok(self.shared.block(&hash).as_ref().map(Into::into))
+        Ok(self
+            .shared
+            .store()
+            .get_block(&hash)
+            .as_ref()
+            .map(Into::into))
     }
 
     fn get_block_by_number(&self, number: BlockNumber) -> Result<Option<BlockView>> {
         Ok(self
             .shared
-            .block_hash(number.0)
-            .and_then(|hash| self.shared.block(&hash).as_ref().map(Into::into)))
+            .store()
+            .get_block_hash(number.0)
+            .and_then(|hash| {
+                self.shared
+                    .store()
+                    .get_block(&hash)
+                    .as_ref()
+                    .map(Into::into)
+            }))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithStatus>> {
@@ -87,13 +99,14 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
 
         Ok(tx.or_else(|| {
             self.shared
+                .store()
                 .get_transaction(&hash)
                 .map(|(tx, block_hash)| TransactionWithStatus::with_committed(tx, block_hash))
         }))
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
-        Ok(self.shared.block_hash(number.0))
+        Ok(self.shared.store().get_block_hash(number.0))
     }
 
     fn get_tip_header(&self) -> Result<HeaderView> {
@@ -106,21 +119,26 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             .expect("tip header exists"))
     }
 
-    fn get_current_epoch(&self) -> Result<EpochExt> {
+    fn get_current_epoch(&self) -> Result<EpochView> {
         Ok(self
             .shared
             .store()
             .get_current_epoch_ext()
-            .map(Into::into)
+            .map(|ext| EpochView::from_ext(self.shared.consensus().epoch_reward(), &ext))
             .expect("current_epoch exists"))
     }
 
-    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochExt>> {
+    fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochView>> {
         Ok(self
             .shared
             .store()
             .get_epoch_index(number.0)
-            .and_then(|hash| self.shared.store().get_epoch_ext(&hash).map(Into::into)))
+            .and_then(|hash| {
+                self.shared
+                    .store()
+                    .get_epoch_ext(&hash)
+                    .map(|ext| EpochView::from_ext(self.shared.consensus().epoch_reward(), &ext))
+            }))
     }
 
     // TODO: we need to build a proper index instead of scanning every time
@@ -147,7 +165,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
         }
 
         for block_number in from..=to {
-            let block_hash = self.shared.block_hash(block_number);
+            let block_hash = self.shared.store().get_block_hash(block_number);
             if block_hash.is_none() {
                 break;
             }
@@ -155,7 +173,8 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             let block_hash = block_hash.unwrap();
             let block = self
                 .shared
-                .block(&block_hash)
+                .store()
+                .get_block(&block_hash)
                 .ok_or_else(Error::internal_error)?;
             for transaction in block.transactions() {
                 if let Some(transaction_meta) = chain_state.cell_set().get(&transaction.hash()) {

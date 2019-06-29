@@ -64,16 +64,16 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 
         {
             let parent = parent.unwrap();
-            let best_known_header = self.relayer.shared.best_known_header();
+            let shared_best_header = self.relayer.shared.shared_best_header();
             let current_total_difficulty =
                 parent.total_difficulty() + compact_block.header.difficulty();
-            if current_total_difficulty <= *best_known_header.total_difficulty() {
+            if current_total_difficulty <= *shared_best_header.total_difficulty() {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
                     block_hash,
                     current_total_difficulty,
-                    best_known_header.total_difficulty(),
+                    shared_best_header.total_difficulty(),
                 );
                 return Ok(());
             }
@@ -81,9 +81,8 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 
         if let Some(flight) = self
             .relayer
-            .peers
-            .blocks_inflight
-            .read()
+            .shared()
+            .read_inflight_blocks()
             .inflight_state_by_block(&block_hash)
         {
             if flight.peers.contains(&self.peer) {
@@ -100,12 +99,12 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let mut missing_indexes: Vec<usize> = Vec::new();
         {
             // Verify compact block
-            let mut pending_compact_blocks = self.relayer.state.pending_compact_blocks.lock();
+            let mut pending_compact_blocks = self.relayer.shared().pending_compact_blocks();
             if pending_compact_blocks
                 .get(&block_hash)
                 .map(|(_, peers_set)| peers_set.contains(&self.peer))
                 .unwrap_or(false)
-                || self.relayer.shared.get_block(&block_hash).is_some()
+                || self.relayer.shared.store().get_block(&block_hash).is_some()
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -180,9 +179,8 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         if !missing_indexes.is_empty() {
             if !self
                 .relayer
-                .peers
-                .blocks_inflight
-                .write()
+                .shared()
+                .write_inflight_blocks()
                 .insert(self.peer, block_hash.to_owned())
             {
                 debug_target!(
@@ -222,7 +220,8 @@ where
     CS: ChainStore,
 {
     fn get_header(&self, hash: &H256) -> Option<Header> {
-        (self.fn_get_pending_header)(hash.to_owned()).or_else(|| self.shared.block_header(hash))
+        (self.fn_get_pending_header)(hash.to_owned())
+            .or_else(|| self.shared.store().get_block_header(hash))
     }
 }
 
@@ -249,9 +248,15 @@ where
             }
 
             // The current `hash` is the common ancestor of tip chain and `self.anchor_hash`,
-            // so we can get the target hash via `self.shared.block_hash`, since it is in tip chain
-            if self.shared.block_hash(header.number()).expect("tip chain") == hash {
-                return self.shared.block_hash(block_number);
+            // so we can get the target hash via `self.shared.store().get_block_hash`, since it is in tip chain
+            if self
+                .shared
+                .store()
+                .get_block_hash(header.number())
+                .expect("tip chain")
+                == hash
+            {
+                return self.shared.store().get_block_hash(block_number);
             }
 
             hash = header.parent_hash().to_owned();

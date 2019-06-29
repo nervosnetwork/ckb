@@ -9,26 +9,29 @@ CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use 
 test: ## Run all tests.
 	cargo test ${VERBOSE} --all -- --nocapture
 
+# Tarpaulin only supports x86_64 processors running Linux.
+# https://github.com/xd009642/tarpaulin/issues/161
+# https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
+cov: ## Run code coverage.
+	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --timeout 300 --exclude-files protocol/src/protocol_generated* test/* */tests/ --all -v --out Xml
+
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
 	rm -rf test/target && ln -snf ../target/ test/target
 
-setup-ckb-tools:
-	cd devtools/jsonfmt && cargo clean
-	cp -f Cargo.lock ./devtools/jsonfmt/
-
 integration: setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build ${VERBOSE}
-	cd test && cargo run ../target/debug/ckb
+	cd test && cargo run ${VERBOSE} -- ../target/debug/ckb
 
 integration-windows:
 	cp -f Cargo.lock test/Cargo.lock
 	cargo build ${VERBOSE}
-	cd test && cargo run ../target/debug/ckb
+	mv target test/
+	cd test && cargo run ${VERBOSE} -- target/debug/ckb
 
 integration-release: setup-ckb-test
 	cargo build ${VERBOSE} --release
-	cd test && cargo run --release -- ../target/release/ckb
+	cd test && cargo run ${VERBOSE} --release -- ../target/release/ckb
 
 ##@ Document
 doc: ## Build the documentation for the local package.
@@ -70,15 +73,13 @@ docker-publish:
 	docker push nervos/ckb:latest
 
 ##@ Code Quality
-fmt: setup-ckb-test setup-ckb-tools ## Check Rust source code format to keep to the same style.
+fmt: setup-ckb-test ## Check Rust source code format to keep to the same style.
 	cargo fmt ${VERBOSE} --all -- --check
 	cd test && cargo fmt ${VERBOSE} --all -- --check
-	cd devtools/jsonfmt && cargo fmt ${VERBOSE} --all -- --check
 
-clippy: setup-ckb-test setup-ckb-tools ## Run linter to examine Rust source codes.
+clippy: setup-ckb-test ## Run linter to examine Rust source codes.
 	cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 	cd test && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
-	cd devtools/jsonfmt && cargo clippy ${VERBOSE} --all --all-targets --all-features -- ${CLIPPY_OPTS}
 
 security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security vulnerabilities.
 	@cargo audit --version || cargo install cargo-audit
@@ -94,13 +95,10 @@ ci: cargo-license fmt check-dirty-doc clippy security-audit test
 cargo-license:
 	FILES="$$(find . -name Cargo.toml | xargs grep -L '^license')"; if [ -n "$$FILES" ]; then echo "Missing license in: $${FILES}"; false; fi
 
-check-dirty-doc: jsonfmt
+check-dirty-doc:
+	./devtools/doc/jsonfmt.py rpc/json/rpc.json
 	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
-	./devtools/jsonfmt/target/release/ckb-jsonfmt rpc/json/rpc.json
 	git diff --exit-code rpc/README.md rpc/json/rpc.json
-
-jsonfmt: setup-ckb-tools
-	cd devtools/jsonfmt && cargo build ${VERBOSE} --release
 
 ##@ Generates Files
 GEN_FILES := protocol/src/protocol_generated.rs protocol/src/protocol_generated_verifier.rs
@@ -136,7 +134,6 @@ help:  ## Display help message.
 
 .PHONY: build prod prod-test prod-docker docker docker-publish
 .PHONY: gen gen-clean clean clean-all check-cfbc-version
-.PHONY: fmt test clippy doc doc-deps gen-doc gen-hashes check stats check-dirty-doc
+.PHONY: fmt test clippy doc doc-deps gen-doc gen-hashes check stats check-dirty-doc cov
 .PHONY: ci security-audit
 .PHONY: integration integration-release setup-ckb-test
-.PHONY: setup-ckb-tools jsonfmt

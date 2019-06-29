@@ -114,7 +114,7 @@ impl<'a> TryFrom<ckb_protocol::Block<'a>> for ckb_core::block::Block {
         let header = cast!(block.header())?;
 
         Ok(ckb_core::block::BlockBuilder::default()
-            .header(TryInto::try_into(header)?)
+            .header(TryInto::<ckb_core::header::Header>::try_into(header)?)
             .uncles(uncles?)
             .transactions(transactions?)
             .proposals(proposals?)
@@ -343,5 +343,45 @@ impl<'a> TryFrom<ckb_protocol::IndexTransaction<'a>> for ckb_core::transaction::
             index: it.index() as usize,
             transaction: TryInto::try_into(transaction)?,
         })
+    }
+}
+
+impl<'a> TryFrom<ckb_protocol::Alert<'a>> for ckb_core::alert::Alert {
+    type Error = FailureError;
+
+    fn try_from(alert: ckb_protocol::Alert<'a>) -> Result<Self, Self::Error> {
+        let message = String::from_utf8(cast!(alert.message().and_then(|m| m.seq()))?.to_owned())?;
+        let min_version: Option<String> = match alert
+            .min_version()
+            .and_then(|m| m.seq().map(|s| String::from_utf8(s.to_vec())))
+        {
+            Some(min_version) => Some(min_version?),
+            None => None,
+        };
+        let max_version: Option<String> = match alert
+            .max_version()
+            .and_then(|m| m.seq().map(|s| String::from_utf8(s.to_vec())))
+        {
+            Some(max_version) => Some(max_version?),
+            None => None,
+        };
+        let signatures: Result<Vec<ckb_core::Bytes>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(alert.signatures())?)
+                .map(|s| {
+                    cast!(s.seq())
+                        .map(ckb_core::Bytes::from)
+                        .map_err(Into::into)
+                })
+                .collect();
+        Ok(ckb_core::alert::AlertBuilder::default()
+            .id(alert.id())
+            .cancel(alert.cancel())
+            .min_version(min_version)
+            .max_version(max_version)
+            .priority(alert.priority())
+            .signatures(signatures?)
+            .notice_until(alert.notice_until())
+            .message(message)
+            .build())
     }
 }

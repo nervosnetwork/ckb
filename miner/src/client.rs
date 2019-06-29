@@ -1,8 +1,5 @@
 use crate::{ClientConfig, Work};
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_core::uncle::UncleBlock;
+use ckb_core::block::Block;
 use ckb_logger::{debug, error, warn};
 use crossbeam_channel::Sender;
 use failure::Error;
@@ -15,12 +12,11 @@ use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
 use jsonrpc_types::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
     request::MethodCall, response::Output, version::Version, Block as JsonBlock, BlockTemplate,
-    CellbaseTemplate,
 };
 use numext_fixed_hash::H256;
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
-use std::convert::TryInto;
+use std::convert::Into;
 use std::thread;
 use std::time;
 use stop_handler::{SignalSender, StopHandler};
@@ -206,60 +202,7 @@ impl Client {
     }
 
     fn notify_new_work(&self, block_template: BlockTemplate) -> Result<(), Error> {
-        let BlockTemplate {
-            version,
-            difficulty,
-            current_time,
-            number,
-            epoch,
-            parent_hash,
-            uncles,
-            transactions,
-            proposals,
-            cellbase,
-            work_id,
-            ..
-        } = block_template;
-
-        let cellbase = {
-            let CellbaseTemplate { data, .. } = cellbase;
-            data
-        };
-
-        let header_builder = HeaderBuilder::default()
-            .version(version.0)
-            .number(number.0)
-            .epoch(epoch.0)
-            .difficulty(difficulty)
-            .timestamp(current_time.0)
-            .parent_hash(parent_hash);
-
-        let uncles: Vec<UncleBlock> = uncles
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()?;
-
-        let transactions: Vec<Transaction> = transactions
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()?;
-
-        let proposals: Vec<ProposalShortId> = proposals
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()?;
-
-        let block = BlockBuilder::from_header_builder(header_builder)
-            .uncles(uncles)
-            .transaction(cellbase.try_into()?)
-            .transactions(transactions)
-            .proposals(proposals)
-            .build();
-
-        let work = Work {
-            work_id: work_id.0,
-            block,
-        };
+        let work: Work = block_template.into();
         self.new_work_tx.send(work)?;
         Ok(())
     }

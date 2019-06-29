@@ -84,7 +84,7 @@ impl Dummy {
     }
 
     fn poll_worker_message(&mut self) {
-        if let Ok(msg) = self.worker_rx.try_recv() {
+        if let Ok(msg) = self.worker_rx.recv() {
             match msg {
                 WorkerMessage::NewWork(pow_hash) => self.pow_hash = Some(pow_hash),
                 WorkerMessage::Stop => {
@@ -108,15 +108,16 @@ impl Dummy {
 
 impl Worker for Dummy {
     fn run(&mut self, _progress_bar: ProgressBar) {
+        let mut current = self.pow_hash.clone();
         loop {
             self.poll_worker_message();
-            if self.start {
+            if current != self.pow_hash && self.start {
                 if let Some(pow_hash) = &self.pow_hash {
                     self.solve(pow_hash, random());
                 }
-            } else {
-                thread::sleep(Duration::from_millis(100));
             }
+
+            current = self.pow_hash.clone();
         }
     }
 }

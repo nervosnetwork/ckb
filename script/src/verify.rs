@@ -1,9 +1,10 @@
 use crate::{
     cost_model::instruction_cycles,
     syscalls::{
-        Debugger, LoadCell, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash, LoadWitness,
+        Debugger, LoadCell, LoadCode, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash,
+        LoadWitness,
     },
-    ScriptConfig, ScriptError,
+    DataLoader, ScriptConfig, ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::extras::BlockExt;
@@ -12,8 +13,7 @@ use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{BlockNumber, Capacity};
 use ckb_core::{Bytes, Cycle};
 use ckb_logger::info;
-use ckb_resource::bundled;
-use ckb_store::{ChainStore, LazyLoadCellOutput};
+use ckb_resource::Resource;
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
     WXorXMemory,
@@ -22,8 +22,6 @@ use dao::calculate_maximum_withdraw;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
 use std::cmp::min;
-use std::path::PathBuf;
-use std::sync::Arc;
 
 #[cfg(all(unix, target_pointer_width = "64"))]
 use crate::Runner;
@@ -59,20 +57,14 @@ impl ScriptGroup {
 // This struct leverages CKB VM to verify transaction inputs.
 // FlatBufferBuilder owned Vec<u8> that grows as needed, in the
 // future, we might refactor this to share buffer to achive zero-copy
-pub struct TransactionScriptsVerifier<'a, CS> {
-    store: Arc<CS>,
+pub struct TransactionScriptsVerifier<'a, DL> {
+    data_loader: &'a DL,
 
-    // TODO: those are all cached data directly from ResolvedTransaction,
-    // should we change the code to include ResolvedTransaction directly?
-    inputs: Vec<&'a CellInput>,
     outputs: Vec<CellMeta>,
-    resolved_inputs: Vec<&'a ResolvedOutPoint>,
-    resolved_deps: Vec<&'a ResolvedOutPoint>,
-    witnesses: Vec<&'a Witness>,
-    hash: H256,
+    rtx: &'a ResolvedTransaction<'a>,
 
     binary_index: FnvHashMap<H256, usize>,
-    block_data: FnvHashMap<H256, (BlockNumber, BlockExt)>,
+    block_data: FnvHashMap<&'a H256, (BlockNumber, BlockExt)>,
     lock_groups: FnvHashMap<H256, ScriptGroup>,
     type_groups: FnvHashMap<H256, ScriptGroup>,
 
@@ -83,17 +75,15 @@ pub struct TransactionScriptsVerifier<'a, CS> {
     config: &'a ScriptConfig,
 }
 
-impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
+impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     pub fn new(
         rtx: &'a ResolvedTransaction,
-        store: Arc<CS>,
+        data_loader: &'a DL,
         config: &'a ScriptConfig,
-    ) -> TransactionScriptsVerifier<'a, CS> {
+    ) -> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
-        let resolved_deps: Vec<&'a ResolvedOutPoint> = rtx.resolved_deps.iter().collect();
-        let resolved_inputs: Vec<&'a ResolvedOutPoint> = rtx.resolved_inputs.iter().collect();
-        let inputs: Vec<&'a CellInput> = rtx.transaction.inputs().iter().collect();
-        let witnesses: Vec<&'a Witness> = rtx.transaction.witnesses().iter().collect();
+        let resolved_deps = &rtx.resolved_deps;
+        let resolved_inputs = &rtx.resolved_inputs;
         let outputs = rtx
             .transaction
             .outputs()
@@ -120,7 +110,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     let hash = match cell_meta.data_hash() {
                         Some(hash) => hash.to_owned(),
                         None => {
-                            let output = store.lazy_load_cell_output(cell_meta);
+                            let output = data_loader.lazy_load_cell_output(cell_meta);
                             output.data_hash()
                         }
                     };
@@ -132,19 +122,19 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
             .filter_map(|x| x)
             .collect();
 
-        let mut block_data = FnvHashMap::<H256, (BlockNumber, BlockExt)>::default();
+        let mut block_data = FnvHashMap::<&'a H256, (BlockNumber, BlockExt)>::default();
         let mut lock_groups = FnvHashMap::default();
         let mut type_groups = FnvHashMap::default();
         for (i, resolved_input) in resolved_inputs.iter().enumerate() {
             if let Some(header) = &resolved_input.header {
-                if let Some(block_ext) = store.get_block_ext(header.hash()) {
-                    block_data.insert(header.hash().to_owned(), (header.number(), block_ext));
+                if let Some(block_ext) = data_loader.get_block_ext(header.hash()) {
+                    block_data.insert(header.hash(), (header.number(), block_ext));
                 }
             }
             // here we are only pre-processing the data, verify method validates
             // each input has correct script setup.
             if let Some(cell_meta) = resolved_input.cell.cell_meta() {
-                let output = store.lazy_load_cell_output(cell_meta);
+                let output = data_loader.lazy_load_cell_output(cell_meta);
                 let lock_group_entry = lock_groups
                     .entry(output.lock.hash())
                     .or_insert_with(|| ScriptGroup::new(&output.lock));
@@ -165,51 +155,87 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 type_group_entry.output_indices.push(i);
             }
         }
-        for dep in &resolved_deps {
+        for dep in resolved_deps {
             if let Some(header) = &dep.header {
-                if let Some(block_ext) = store.get_block_ext(header.hash()) {
-                    block_data.insert(header.hash().to_owned(), (header.number(), block_ext));
+                if let Some(block_ext) = data_loader.get_block_ext(header.hash()) {
+                    block_data.insert(header.hash(), (header.number(), block_ext));
                 }
             }
         }
 
         TransactionScriptsVerifier {
-            store,
+            data_loader,
             binary_index,
             block_data,
-            inputs,
             outputs,
-            resolved_inputs,
-            resolved_deps,
-            witnesses,
+            rtx,
             config,
             lock_groups,
             type_groups,
-            hash: tx_hash.to_owned(),
         }
     }
 
+    #[inline]
+    fn inputs(&self) -> &[CellInput] {
+        self.rtx.transaction.inputs()
+    }
+
+    #[inline]
+    fn resolved_inputs(&self) -> &Vec<ResolvedOutPoint> {
+        &self.rtx.resolved_inputs
+    }
+
+    #[inline]
+    fn resolved_deps(&self) -> &Vec<ResolvedOutPoint> {
+        &self.rtx.resolved_deps
+    }
+
+    #[inline]
+    fn witnesses(&self) -> &[Witness] {
+        self.rtx.transaction.witnesses()
+    }
+
+    #[inline]
+    fn hash(&self) -> &H256 {
+        self.rtx.transaction.hash()
+    }
+
     fn build_load_tx_hash(&self) -> LoadTxHash {
-        LoadTxHash::new(&self.hash.as_bytes())
+        LoadTxHash::new(self.hash().as_bytes())
     }
 
     fn build_load_cell(
         &'a self,
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCell<'a, CS> {
+    ) -> LoadCell<'a, DL> {
         LoadCell::new(
-            Arc::clone(&self.store),
+            &self.data_loader,
             &self.outputs,
-            &self.resolved_inputs,
-            &self.resolved_deps,
+            self.resolved_inputs(),
+            self.resolved_deps(),
+            group_inputs,
+            group_outputs,
+        )
+    }
+
+    fn build_load_code(
+        &'a self,
+        group_inputs: &'a [usize],
+        group_outputs: &'a [usize],
+    ) -> LoadCode<'a, DL> {
+        LoadCode::new(
+            &self.data_loader,
+            &self.outputs,
+            self.resolved_inputs(),
+            self.resolved_deps(),
             group_inputs,
             group_outputs,
         )
     }
 
     fn build_load_input(&self, group_inputs: &'a [usize]) -> LoadInput {
-        LoadInput::new(&self.inputs, group_inputs)
+        LoadInput::new(self.inputs(), group_inputs)
     }
 
     fn build_load_script_hash(&'a self, hash: &'a [u8]) -> LoadScriptHash<'a> {
@@ -217,20 +243,20 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
     }
 
     fn build_load_header(&'a self, group_inputs: &'a [usize]) -> LoadHeader<'a> {
-        LoadHeader::new(&self.resolved_inputs, &self.resolved_deps, group_inputs)
+        LoadHeader::new(self.resolved_inputs(), self.resolved_deps(), group_inputs)
     }
 
     fn build_load_witness(&'a self, group_inputs: &'a [usize]) -> LoadWitness<'a> {
-        LoadWitness::new(&self.witnesses, group_inputs)
+        LoadWitness::new(&self.witnesses(), group_inputs)
     }
 
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
         match self.binary_index.get(&script.code_hash).and_then(|index| {
-            self.resolved_deps[*index]
+            self.resolved_deps()[*index]
                 .cell
                 .cell_meta()
-                .map(|cell_meta| self.store.lazy_load_cell_output(&cell_meta))
+                .map(|cell_meta| self.data_loader.lazy_load_cell_output(&cell_meta))
         }) {
             Some(cell_output) => Ok(cell_output.data),
             None => Err(ScriptError::InvalidReferenceIndex),
@@ -240,7 +266,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
         let mut cycles: Cycle = 0;
         // First, check if all inputs are resolved correctly
-        for resolved_input in &self.resolved_inputs {
+        for resolved_input in self.resolved_inputs() {
             if resolved_input.cell.is_issuing_dao_input() {
                 if !self.valid_dao_withdraw_transaction() {
                     return Err(ScriptError::InvalidIssuingDaoInput);
@@ -265,7 +291,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 info!(
                     "Error validating script group {:x} of transaction {:x}: {:?}",
                     group.script.hash(),
-                    self.hash,
+                    self.hash(),
                     e
                 );
                 e
@@ -303,36 +329,35 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         let mut maximum_output_capacities = Capacity::zero();
         for input_index in &script_group.input_indices {
             // Each DAO witness should contain 3 arguments in the following order:
-            // 0. pubkey(33 bytes) from witness
-            // 1. signature from witness
-            // 2. withdraw block hash(32 bytes) from input args
+            // 0. signature from witness
+            // 1. withdraw block hash(32 bytes) from input args
             let witness = self
-                .witnesses
+                .witnesses()
                 .get(*input_index)
                 .ok_or(ScriptError::NoWitness)?;
-            if witness.len() != 3 {
+            if witness.len() != 2 {
                 return Err(ScriptError::ArgumentNumber);
             }
             let withdraw_header_hash =
-                H256::from_slice(&witness[2]).map_err(|_| ScriptError::IOError)?;
+                H256::from_slice(&witness[1]).map_err(|_| ScriptError::IOError)?;
             let (withdraw_block_number, withdraw_block_ext) = self
                 .block_data
                 .get(&withdraw_header_hash)
                 .ok_or(ScriptError::InvalidDaoWithdrawHeader)?;
 
             let input = self
-                .inputs
+                .inputs()
                 .get(*input_index)
                 .ok_or(ScriptError::ArgumentError)?;
             let resolved_input = self
-                .resolved_inputs
+                .resolved_inputs()
                 .get(*input_index)
                 .ok_or(ScriptError::ArgumentError)?;
             if resolved_input.cell().is_none() {
                 return Err(ScriptError::ArgumentError);
             }
             let cell_meta = resolved_input.cell().unwrap();
-            let output = self.store.lazy_load_cell_output(&cell_meta);
+            let output = self.data_loader.lazy_load_cell_output(&cell_meta);
             if output.lock.code_hash != DAO_CODE_HASH {
                 return Err(ScriptError::ArgumentError);
             }
@@ -391,8 +416,7 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         // TODO: this is a temporary solution for now, later NervosDAO will be
         // implemented as a type script, while the default lock remains a lock
         // script.
-        let program = bundled(PathBuf::from("specs/cells/secp256k1_blake160_sighash_all"))
-            .ok_or(ScriptError::NoScript)?
+        let program = Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
             .get()
             .map_err(|_| ScriptError::IOError)?;
 
@@ -431,6 +455,10 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                     .syscall(Box::new(
                         self.build_load_witness(&script_group.input_indices),
                     ))
+                    .syscall(Box::new(self.build_load_code(
+                        &script_group.input_indices,
+                        &script_group.output_indices,
+                    )))
                     .syscall(Box::new(Debugger::new(&prefix)))
                     .build();
                 let mut machine = AsmMachine::new(machine);
@@ -462,6 +490,10 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
                 .syscall(Box::new(
                     self.build_load_witness(&script_group.input_indices),
                 ))
+                .syscall(Box::new(self.build_load_code(
+                    &script_group.input_indices,
+                    &script_group.output_indices,
+                )))
                 .syscall(Box::new(Debugger::new(&prefix)))
                 .build();
                 let mut machine = TraceMachine::new(machine);
@@ -514,6 +546,10 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
         .syscall(Box::new(
             self.build_load_witness(&script_group.input_indices),
         ))
+        .syscall(Box::new(self.build_load_code(
+            &script_group.input_indices,
+            &script_group.output_indices,
+        )))
         .syscall(Box::new(Debugger::new(&prefix)))
         .build();
         let mut machine = TraceMachine::new(machine);
@@ -529,12 +565,12 @@ impl<'a, CS: ChainStore> TransactionScriptsVerifier<'a, CS> {
     }
 
     fn valid_dao_withdraw_transaction(&self) -> bool {
-        self.resolved_inputs.iter().any(|input| {
+        self.resolved_inputs().iter().any(|input| {
             input
                 .cell
                 .cell_meta()
                 .map(|cell| {
-                    let output = self.store.lazy_load_cell_output(&cell);
+                    let output = self.data_loader.lazy_load_cell_output(&cell);
                     output.lock.code_hash == DAO_CODE_HASH
                 })
                 .unwrap_or(false)
@@ -554,7 +590,9 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
-    use ckb_store::{ChainKVStore, StoreBatch, COLUMNS};
+    use ckb_store::{
+        data_loader_wrapper::DataLoaderWrapper, ChainKVStore, ChainStore, StoreBatch, COLUMNS,
+    };
     use crypto::secp::{Generator, Privkey};
     use faster_hex::hex_encode;
     use hash::blake2b_256;
@@ -584,7 +622,7 @@ mod tests {
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            always_success_script,
+            always_success_script.clone(),
             None,
         );
         let input = CellInput::new(OutPoint::null(), 0);
@@ -597,7 +635,7 @@ mod tests {
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(always_success_cell)
+            CellMetaBuilder::from_cell_output(always_success_cell.clone())
                 .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
@@ -609,11 +647,12 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100).is_ok());
     }
@@ -683,11 +722,12 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -757,10 +797,11 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let verifier = TransactionScriptsVerifier::new(
             &rtx,
-            store,
+            &data_loader,
             &ScriptConfig {
                 runner: Runner::Rust,
             },
@@ -835,10 +876,11 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let verifier = TransactionScriptsVerifier::new(
             &rtx,
-            store,
+            &data_loader,
             &ScriptConfig {
                 runner: Runner::Assembly,
             },
@@ -913,11 +955,12 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100).is_err());
     }
@@ -990,10 +1033,11 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1051,10 +1095,11 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1092,7 +1137,7 @@ mod tests {
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            always_success_script,
+            always_success_script.clone(),
             None,
         );
         let dummy_cell = ResolvedOutPoint::cell_only(
@@ -1101,7 +1146,7 @@ mod tests {
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(always_success_cell)
+            CellMetaBuilder::from_cell_output(always_success_cell.clone())
                 .block_info(BlockInfo::new(1, 0))
                 .build(),
         );
@@ -1143,10 +1188,11 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1187,7 +1233,7 @@ mod tests {
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
-            always_success_script,
+            always_success_script.clone(),
             None,
         );
         let dummy_cell = ResolvedOutPoint::cell_only(
@@ -1237,11 +1283,12 @@ mod tests {
         };
 
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1265,11 +1312,12 @@ mod tests {
             resolved_inputs: vec![ResolvedOutPoint::issuing_dao()],
         };
         let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1323,7 +1371,7 @@ mod tests {
         let signature = privkey
             .sign_recoverable(&blake2b_256(&message).into())
             .unwrap();
-        let signature_der = signature.serialize_der();
+        let signature_ser = signature.serialize();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1332,8 +1380,7 @@ mod tests {
             .dep(OutPoint::new_block_hash(withdraw_header.hash().to_owned()))
             .witness(vec![])
             .witness(vec![
-                Bytes::from(pubkey),
-                Bytes::from(signature_der),
+                Bytes::from(signature_ser),
                 Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
@@ -1376,7 +1423,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1430,7 +1478,7 @@ mod tests {
         let signature = privkey
             .sign_recoverable(&blake2b_256(&message).into())
             .unwrap();
-        let signature_der = signature.serialize_der();
+        let signature_ser = signature.serialize();
 
         let transaction = TransactionBuilder::default()
             .input(input)
@@ -1439,8 +1487,7 @@ mod tests {
             .dep(OutPoint::new_block_hash(withdraw_header.hash().to_owned()))
             .witness(vec![])
             .witness(vec![
-                Bytes::from(pubkey),
-                Bytes::from(signature_der),
+                Bytes::from(signature_ser),
                 Bytes::from(withdraw_header.hash().as_bytes()),
             ])
             .build();
@@ -1483,7 +1530,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -1577,7 +1625,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1684,7 +1733,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100).is_err());
     }
@@ -1779,7 +1829,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1886,7 +1937,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -1993,7 +2045,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_err());
     }
@@ -2071,7 +2124,8 @@ mod tests {
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let verifier = TransactionScriptsVerifier::new(&rtx, store, &config);
+        let data_loader = DataLoaderWrapper::new(store);
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         // Cycles can tell that both lock and type scripts are executed
         assert_eq!(verifier.verify(100_000_000), Ok(2_818_104));

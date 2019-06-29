@@ -1,10 +1,13 @@
+use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_sync::Synchronizer;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_util::Mutex;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{ChainInfo, EpochNumber, PeerState, Timestamp};
+use jsonrpc_types::{AlertMessage, ChainInfo, EpochNumber, PeerState, Timestamp};
+use std::sync::Arc;
 
 #[rpc]
 pub trait StatsRpc {
@@ -21,6 +24,7 @@ where
 {
     pub shared: Shared<CS>,
     pub synchronizer: Synchronizer<CS>,
+    pub alert_notifier: Arc<Mutex<AlertNotifier>>,
 }
 
 impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
@@ -36,6 +40,16 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
         let epoch = tip_header.epoch();
         let difficulty = tip_header.difficulty().clone();
         let is_initial_block_download = self.synchronizer.shared.is_initial_block_download();
+        let alerts: Vec<AlertMessage> = {
+            let now = faketime::unix_time_as_millis();
+            let mut notifier = self.alert_notifier.lock();
+            notifier.clear_expired_alerts(now);
+            notifier
+                .noticed_alerts()
+                .iter()
+                .map(|alert| AlertMessage::from(alert.as_ref()))
+                .collect()
+        };
 
         Ok(ChainInfo {
             chain,
@@ -43,7 +57,7 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
             epoch: EpochNumber(epoch),
             difficulty,
             is_initial_block_download,
-            warnings: String::new(),
+            alerts,
         })
     }
 
@@ -51,9 +65,8 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
         // deprecated
         Ok(self
             .synchronizer
-            .peers()
-            .blocks_inflight
-            .read()
+            .shared()
+            .read_inflight_blocks()
             .blocks_iter()
             .map(|(peer, blocks)| PeerState::new(peer.value(), 0, blocks.len()))
             .collect())

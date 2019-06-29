@@ -1,6 +1,6 @@
 [package]
 name = "ckb-bin"
-version = "0.14.2"
+version = "0.15.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,7 +10,6 @@ clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
 toml = "0.5"
-futures = "0.1"
 crossbeam-channel = "0.3"
 ckb-app-config = { path = "../util/app-config" }
 ckb-logger = { path = "../util/logger" }
@@ -23,12 +22,11 @@ ckb-chain-spec = {path = "../spec"}
 ckb-notify = { path = "../notify"}
 ckb-miner = { path = "../miner" }
 ckb-db = { path = "../db" }
-ckb-pow = { path = "../pow" }
 ckb-network = { path = "../network"}
 ckb-rpc = { path = "../rpc"}
 ckb-resource = { path = "../resource"}
+ckb-network-alert = { path = "../util/network-alert" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ctrlc = { version = "3.1", features = ["termination"] }
 ckb-sync = { path = "../sync"}
 crypto = { path = "../util/crypto"}
@@ -36,7 +34,6 @@ ckb-instrument = { path = "../util/instrument", features = ["progress_bar"] }
 hash = { path = "../util/hash"}
 build-info = { path = "../util/build-info" }
 ckb-traits = { path = "../traits" }
-sentry = "^0.15.4"
 ckb-verification = { path = "../verification" }
 tempfile = "3.0"
 faster-hex = "0.3"

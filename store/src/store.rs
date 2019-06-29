@@ -1,6 +1,7 @@
 use crate::flat_block_body::{
-    deserialize_block_body, deserialize_transaction, serialize_block_body,
-    serialize_block_body_size, TransactionAddressInner, TransactionAddressStored,
+    deserialize_block_body, deserialize_block_body_for_hashes_only, deserialize_transaction,
+    serialize_block_body, serialize_block_body_size, TransactionAddressInner,
+    TransactionAddressStored,
 };
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
@@ -91,9 +92,11 @@ pub trait ChainStore: Sync + Send {
     /// Get block by block header hash
     fn get_block(&self, block_hash: &H256) -> Option<Block>;
     /// Get header by block header hash
-    fn get_header(&self, block_hash: &H256) -> Option<Header>;
+    fn get_block_header(&self, block_hash: &H256) -> Option<Header>;
     /// Get block body by block header hash
     fn get_block_body(&self, block_hash: &H256) -> Option<Vec<Transaction>>;
+    /// Get all transaction-hashes in block body by block header hash
+    fn get_block_txs_hashes(&self, block_hash: &H256) -> Option<Vec<H256>>;
     /// Get proposal short id by block header hash
     fn get_block_proposal_txs_ids(&self, h: &H256) -> Option<Vec<ProposalShortId>>;
     /// Get block uncles by block header hash
@@ -121,11 +124,12 @@ pub trait ChainStore: Sync + Send {
     fn get_epoch_index(&self, number: EpochNumber) -> Option<H256>;
     // Get epoch index by block hash
     fn get_block_epoch_index(&self, h256: &H256) -> Option<H256>;
-
     fn traverse_cell_set<F>(&self, callback: F) -> Result<(), Error>
     where
         F: FnMut(H256, TransactionMeta) -> Result<(), Error>;
     fn is_uncle(&self, hash: &H256) -> bool;
+    // Get cellbase by block hash
+    fn get_cellbase(&self, hash: &H256) -> Option<Transaction>;
 }
 
 pub trait StoreBatch {
@@ -159,7 +163,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_block(&self, h: &H256) -> Option<Block> {
-        self.get_header(h).map(|header| {
+        self.get_block_header(h).map(|header| {
             let transactions = self
                 .get_block_body(h)
                 .expect("block transactions must be stored");
@@ -182,7 +186,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         self.get(COLUMN_UNCLES, hash.as_bytes()).is_some()
     }
 
-    fn get_header(&self, hash: &H256) -> Option<Header> {
+    fn get_block_header(&self, hash: &H256) -> Option<Header> {
         let mut header_cache_unlocked = self
             .header_cache
             .lock()
@@ -224,6 +228,20 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 self.get(COLUMN_BLOCK_BODY, h.as_bytes())
                     .map(|serialized_body| {
                         deserialize_block_body(&serialized_body, &tx_addresses[..])
+                            .expect("deserialize block body should be ok")
+                    })
+            })
+    }
+
+    fn get_block_txs_hashes(&self, block_hash: &H256) -> Option<Vec<H256>> {
+        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, block_hash.as_bytes())
+            .and_then(|serialized_addresses| {
+                let tx_addresses: Vec<TransactionAddressInner> = deserialize(&serialized_addresses)
+                    .expect("flat deserialize address should be ok");
+                self.get(COLUMN_BLOCK_BODY, block_hash.as_bytes())
+                    .map(|serialized_body| {
+                        deserialize_block_body_for_hashes_only(&serialized_body, &tx_addresses[..])
+                            .expect("deserialize block body hashes should be ok")
                     })
             })
     }
@@ -242,7 +260,8 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             received_at: genesis.header().timestamp(),
             total_difficulty: genesis.header().difficulty().clone(),
             total_uncles_count: 0,
-            txs_verified: Some(true),
+            verified: Some(true),
+            txs_fees: vec![],
             dao_stats: DaoStats {
                 accumulated_rate: DEFAULT_ACCUMULATED_RATE,
                 accumulated_capacity: genesis
@@ -311,7 +330,9 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn get_tip_header(&self) -> Option<Header> {
         self.get(COLUMN_META, META_TIP_HEADER_KEY)
-            .and_then(|raw| self.get_header(&H256::from_slice(&raw[..]).expect("db safe access")))
+            .and_then(|raw| {
+                self.get_block_header(&H256::from_slice(&raw[..]).expect("db safe access"))
+            })
             .map(Into::into)
     }
 
@@ -373,6 +394,27 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             CellKey::calculate(tx_hash, index).as_ref(),
         )
         .map(|raw| deserialize(&raw[..]).expect("deserialize cell meta should be ok"))
+    }
+
+    fn get_cellbase(&self, h: &H256) -> Option<Transaction> {
+        self.get(COLUMN_BLOCK_TRANSACTION_ADDRESSES, h.as_bytes())
+            .and_then(|serialized_addresses| {
+                let addresses: Vec<TransactionAddressInner> =
+                    deserialize(&serialized_addresses).expect("deserialize address should be ok");
+                let cellbase_address = addresses.get(0).expect("cellbase address should exist");
+                self.partial_get(
+                    COLUMN_BLOCK_BODY,
+                    h.as_bytes(),
+                    &(cellbase_address.offset..(cellbase_address.offset + cellbase_address.length)),
+                )
+                .map(|ref serialized_transaction| {
+                    deserialize_transaction(
+                        &serialized_transaction,
+                        &cellbase_address.outputs_addresses,
+                    )
+                    .expect("deserialize tx should be ok")
+                })
+            })
     }
 
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
@@ -646,7 +688,8 @@ mod tests {
             received_at: block.header().timestamp(),
             total_difficulty: block.header().difficulty().to_owned(),
             total_uncles_count: block.uncles().len() as u64,
-            txs_verified: Some(true),
+            verified: Some(true),
+            txs_fees: vec![],
             dao_stats: DaoStats {
                 accumulated_rate: DEFAULT_ACCUMULATED_RATE,
                 accumulated_capacity: block.outputs_capacity().unwrap().as_u64(),

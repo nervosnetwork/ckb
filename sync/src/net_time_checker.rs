@@ -1,9 +1,9 @@
 use crate::BAD_MESSAGE_BAN_TIME;
+use ckb_logger::{debug, info, warn};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{get_root, TimeMessage};
 use ckb_util::RwLock;
 use flatbuffers::FlatBufferBuilder;
-use log::{debug, info, warn};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -129,7 +129,10 @@ impl CKBProtocolHandler for NetTimeProtocol {
         data: bytes::Bytes,
     ) {
         if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
-            info!(target: "network", "Peer {} is not outbound but sends us time message", peer_index);
+            info!(
+                "Peer {} is not outbound but sends us time message",
+                peer_index
+            );
         }
 
         let timestamp = match get_root::<TimeMessage>(&data)
@@ -139,7 +142,7 @@ impl CKBProtocolHandler for NetTimeProtocol {
         {
             Some(timestamp) => timestamp,
             None => {
-                info!(target: "network", "Peer {} sends us malformed message", peer_index);
+                info!("Peer {} sends us malformed message", peer_index);
                 nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
@@ -148,10 +151,10 @@ impl CKBProtocolHandler for NetTimeProtocol {
         let now: u64 = faketime::unix_time_as_millis();
         let offset: i64 = (i128::from(now) - i128::from(timestamp)) as i64;
         let mut net_time_checker = self.checker.write();
-        debug!(target: "network", "new net time offset sample {}ms", offset);
+        debug!("new net time offset sample {}ms", offset);
         net_time_checker.add_sample(offset);
         if let Err(offset) = net_time_checker.check() {
-            warn!(target: "network", "Please check your computer's local clock({}ms offset from network peers), If your clock is wrong, it may cause unexpected errors.", offset);
+            warn!("Please check your computer's local clock({}ms offset from network peers), If your clock is wrong, it may cause unexpected errors.", offset);
         }
     }
 }

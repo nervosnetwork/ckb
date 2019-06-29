@@ -31,6 +31,7 @@ fn main() {
     specs.insert("chain_fork_6", Box::new(ChainFork6));
     specs.insert("chain_fork_7", Box::new(ChainFork7));
     specs.insert("mining_basic", Box::new(MiningBasic));
+    specs.insert("mining_bootstrap_cellbase", Box::new(BootstrapCellbase));
     specs.insert("mining_template_size_limit", Box::new(TemplateSizeLimit));
     specs.insert("pool_reconcile", Box::new(PoolReconcile));
     specs.insert("pool_resurrect", Box::new(PoolResurrect));
@@ -55,6 +56,9 @@ fn main() {
     specs.insert("invalid_locator_size", Box::new(InvalidLocatorSize));
     specs.insert("tx_pool_size_limit", Box::new(SizeLimit));
     specs.insert("tx_pool_cycles_limit", Box::new(CyclesLimit));
+    specs.insert("alert_propagation", Box::new(AlertPropagation::default()));
+    specs.insert("indexer_basic", Box::new(IndexerBasic));
+    specs.insert("genesis_issued_cells", Box::new(GenesisIssuedCells));
 
     if let Some(spec_name) = env::args().nth(3) {
         if let Some(spec) = specs.get(spec_name.as_str()) {

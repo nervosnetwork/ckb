@@ -50,13 +50,13 @@ impl Signature {
         Signature(sig)
     }
 
-    /// Check if this is a "low" signature.
-    pub fn is_low_s(&self) -> bool {
-        if let Ok(h_s) = H256::from_slice(self.s()) {
-            h_s <= HALF_N
-        } else {
-            false
+    pub fn from_slice(data: &[u8]) -> Result<Self, Error> {
+        if data.len() != 65 {
+            Err(Error::InvalidSignature)?;
         }
+        let mut sig = [0u8; 65];
+        sig[..].copy_from_slice(data);
+        Ok(Signature(sig))
     }
 
     /// Check if each component of the signature is in range.

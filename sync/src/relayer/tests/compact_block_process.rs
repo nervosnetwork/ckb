@@ -4,6 +4,7 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
 use ckb_core::transaction::{
     CellInput, CellOutput, IndexTransaction, OutPoint, Transaction, TransactionBuilder,
 };
@@ -12,7 +13,7 @@ use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
+use ckb_store::{ChainKVStore, ChainStore};
 use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
 use numext_fixed_uint::U256;
@@ -47,7 +48,8 @@ fn new_transaction(
         let block = relayer
             .shared
             .shared()
-            .block(&tip_hash)
+            .store()
+            .get_block(&tip_hash)
             .expect("getting tip block");
         let cellbase = block
             .transactions()
@@ -72,7 +74,8 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
     let (always_success_cell, always_success_script) = create_always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
-        .output(always_success_cell)
+        .output(always_success_cell.clone())
+        .witness(Script::default().into_witness())
         .build();
     let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
 
@@ -101,8 +104,9 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
     // Build 1 ~ (tip-1) heights
     for i in 0..tip {
         let parent = shared
-            .block_hash(i)
-            .and_then(|block_hash| shared.block(&block_hash))
+            .store()
+            .get_block_hash(i)
+            .and_then(|block_hash| shared.store().get_block(&block_hash))
             .unwrap();
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))
@@ -112,6 +116,7 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
                 always_success_script.to_owned(),
                 None,
             ))
+            .witness(Script::default().into_witness())
             .build();
         let block = BlockBuilder::from_header_builder(new_header_builder(&shared, &parent))
             .transaction(cellbase)
@@ -123,11 +128,7 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared));
     (
-        Relayer::new(
-            chain_controller,
-            sync_shared_state,
-            Arc::new(Default::default()),
-        ),
+        Relayer::new(chain_controller, sync_shared_state),
         always_success_out_point,
     )
 }

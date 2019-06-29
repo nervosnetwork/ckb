@@ -122,7 +122,9 @@ impl CellSet {
                         store
                             .get_transaction(&cell_input.tx_hash)
                             .and_then(|(tx, block_hash)| {
-                                store.get_header(&block_hash).map(|header| (tx, header))
+                                store
+                                    .get_block_header(&block_hash)
+                                    .map(|header| (tx, header))
                             })
                     {
                         let meta = new.entry(cell_input.tx_hash.clone()).or_insert_with(|| {

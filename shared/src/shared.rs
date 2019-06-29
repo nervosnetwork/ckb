@@ -2,19 +2,20 @@ use crate::chain_state::ChainState;
 use crate::error::SharedError;
 use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::Block;
-use ckb_core::extras::{BlockExt, EpochExt};
+use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_core::uncle::UncleBlock;
+use ckb_core::script::Script;
+use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainKVStore, ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
+use failure::Error as FailureError;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
+use reward_calculator::RewardCalculator;
 use std::sync::Arc;
 
 const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
@@ -87,60 +88,25 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         &self.script_config
     }
 
-    fn block(&self, hash: &H256) -> Option<Block> {
-        self.store.get_block(hash)
-    }
-
-    fn block_body(&self, hash: &H256) -> Option<Vec<Transaction>> {
-        self.store.get_block_body(hash)
-    }
-
-    fn block_header(&self, hash: &H256) -> Option<Header> {
-        self.store.get_header(hash)
-    }
-
-    fn block_proposal_txs_ids(&self, hash: &H256) -> Option<Vec<ProposalShortId>> {
-        self.store.get_block_proposal_txs_ids(hash)
-    }
-
-    fn uncles(&self, hash: &H256) -> Option<Vec<UncleBlock>> {
-        self.store.get_block_uncles(hash)
-    }
-
-    fn block_hash(&self, number: BlockNumber) -> Option<H256> {
-        self.store.get_block_hash(number)
-    }
-
-    fn block_ext(&self, hash: &H256) -> Option<BlockExt> {
-        self.store.get_block_ext(hash)
-    }
-
-    fn block_number(&self, hash: &H256) -> Option<BlockNumber> {
-        self.store.get_block_number(hash)
-    }
-
     fn genesis_hash(&self) -> &H256 {
         self.consensus.genesis_hash()
     }
 
-    fn get_transaction(&self, hash: &H256) -> Option<(Transaction, H256)> {
-        self.store.get_transaction(hash)
-    }
-
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
         // if base in the main chain
-        if let Some(n_number) = self.block_number(base) {
+        if let Some(n_number) = self.store.get_block_number(base) {
             if number > n_number {
                 return None;
             } else {
                 return self
-                    .block_hash(number)
-                    .and_then(|hash| self.block_header(&hash));
+                    .store
+                    .get_block_hash(number)
+                    .and_then(|hash| self.store.get_block_header(&hash));
             }
         }
 
         // if base in the fork
-        if let Some(header) = self.block_header(base) {
+        if let Some(header) = self.store.get_block_header(base) {
             let mut n_number = header.number();
             let mut index_walk = header;
             if number > n_number {
@@ -148,7 +114,7 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
             }
 
             while n_number > number {
-                if let Some(header) = self.block_header(&index_walk.parent_hash()) {
+                if let Some(header) = self.store.get_block_header(&index_walk.parent_hash()) {
                     index_walk = header;
                     n_number -= 1;
                 } else {
@@ -170,9 +136,17 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         self.consensus.next_epoch_ext(
             last_epoch,
             header,
-            |hash| self.block_header(hash),
-            |hash| self.block_ext(hash).map(|ext| ext.total_uncles_count),
+            |hash| self.store.get_block_header(hash),
+            |hash| {
+                self.store
+                    .get_block_ext(hash)
+                    .map(|ext| ext.total_uncles_count)
+            },
         )
+    }
+
+    fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
+        RewardCalculator::new(self).block_reward(parent)
     }
 
     fn consensus(&self) -> &Consensus {

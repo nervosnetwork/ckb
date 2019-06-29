@@ -2,7 +2,6 @@ use ckb_core::extras::{DaoStats, EpochExt};
 use ckb_core::transaction::CellOutput;
 use ckb_core::{BlockNumber, Capacity};
 use failure::Error as FailureError;
-use occupied_capacity::OccupiedCapacity;
 use std::cmp::max;
 
 pub fn calculate_dao_data(

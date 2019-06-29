@@ -1,6 +1,6 @@
 [package]
 name = "ckb-test"
-version = "0.14.2"
+version = "0.15.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -16,7 +16,9 @@ ckb-sync = { path = "../sync" }
 ckb-protocol = { path = "../protocol"}
 ckb-util = { path = "../util" }
 ckb-chain-spec = { path = "../spec" }
-ckb-resource = { path = "../resource" }
+ckb-rpc= { path = "../rpc" }
+ckb-network-alert = { path = "../util/network-alert" }
+crypto = { path = "../util/crypto" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 tempfile = "3.0"
 jsonrpc-client-core = "0.5.0"
@@ -27,6 +29,7 @@ bytes = "0.4.12"
 crossbeam-channel = "0.3"
 flatbuffers = "0.6.0"
 regex = "1"
+faketime = "0.2"
 
 # Prevent this from interfering with workspaces
 [workspace]

@@ -1,6 +1,6 @@
 use ckb_app_config::{ExitCode, InitArgs};
 use ckb_resource::{
-    TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME,
+    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME,
     CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
     SPEC_DEV_FILE_NAME,
 };
@@ -15,10 +15,18 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     }
 
     let runner = Runner::default().to_string();
-    let block_assembler = match args.block_assembler_code_hash {
+    let default_hash = format!("{:#x}", CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL);
+    let block_assembler_code_hash = args.block_assembler_code_hash.as_ref().or_else(|| {
+        if !args.block_assembler_args.is_empty() {
+            Some(&default_hash)
+        } else {
+            None
+        }
+    });
+
+    let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
-            let default_hash = format!("{:#x}", CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL);
-            if default_hash != hash {
+            if default_hash != *hash {
                 eprintln!(
                     "WARN: the default secp256k1 code hash is `{}`, you are using `{}`",
                     default_hash, hash
@@ -27,9 +35,12 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             format!(
                 "[block_assembler]\n\
                  code_hash = \"{}\"\n\
-                 args = [ \"{}\" ]",
+                 args = [ \"{}\" ]\n\
+                 data = \"{}\"",
                 hash,
-                args.block_assembler_args.join("\", \"")
+                args.block_assembler_args.join("\", \""),
+                args.block_assembler_data
+                    .unwrap_or_else(|| "0x".to_string())
             )
         }
         None => {
@@ -38,7 +49,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                 "# secp256k1_blake160_sighash_all example:\n\
                  # [block_assembler]\n\
                  # code_hash = \"{:#x}\"\n\
-                 # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]",
+                 # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]\n\
+                 # data = \"A 0x-prefixed hex string\"",
                 CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
             )
         }
@@ -54,7 +66,7 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         block_assembler: &block_assembler,
     };
 
-    let exported = args.locator.exported();
+    let exported = Resource::exported_in(&args.root_dir);
     if !args.force && exported {
         eprintln!("Config files already exists, use --force to overwrite.");
         return Err(ExitCode::Failure);
@@ -67,17 +79,17 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         } else {
             "Reinitialized"
         },
-        args.locator.root_dir().display()
+        args.root_dir.display()
     );
 
     println!("create {}", CKB_CONFIG_FILE_NAME);
-    args.locator.export_ckb(&context)?;
+    Resource::bundled_ckb_config().export(&context, &args.root_dir)?;
     println!("create {}", MINER_CONFIG_FILE_NAME);
-    args.locator.export_miner(&context)?;
+    Resource::bundled_miner_config().export(&context, &args.root_dir)?;
 
     if args.chain == DEFAULT_SPEC {
         println!("create {}", SPEC_DEV_FILE_NAME);
-        args.locator.export(SPEC_DEV_FILE_NAME, &context)?;
+        Resource::bundled(SPEC_DEV_FILE_NAME.to_string()).export(&context, &args.root_dir)?;
     }
 
     Ok(())

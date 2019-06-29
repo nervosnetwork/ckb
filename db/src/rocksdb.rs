@@ -1,6 +1,12 @@
-use crate::{Col, DBConfig, DbBatch, Error, KeyValueDB, Result};
-use log::{info, warn};
-use rocksdb::{ColumnFamily, Error as RdbError, IteratorMode, Options, WriteBatch, DB};
+use crate::{
+    Col, DBConfig, DbBatch, Direction, Error, IterableKeyValueDB, KeyValueDB, KeyValueIteratorItem,
+    Result,
+};
+use ckb_logger::{info, warn};
+use rocksdb::{
+    ColumnFamily, Direction as RdbDirection, Error as RdbError, IteratorMode, Options, WriteBatch,
+    DB,
+};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -9,7 +15,7 @@ use std::sync::Arc;
 //      - If the data can be migrated manually: update "x.y1.z" to "x.y2.0".
 //      - If the data can not be migrated: update "x1.y.z" to "x2.0.0".
 pub(crate) const VERSION_KEY: &str = "db-version";
-pub(crate) const VERSION_VALUE: &str = "0.1400.0";
+pub(crate) const VERSION_VALUE: &str = "0.1500.0";
 
 pub struct RocksDB {
     inner: Arc<DB>,
@@ -159,6 +165,26 @@ impl KeyValueDB for RocksDB {
     }
 }
 
+impl IterableKeyValueDB for RocksDB {
+    fn iter<'a>(
+        &'a self,
+        col: Col,
+        from_key: &'a [u8],
+        direction: Direction,
+    ) -> Result<Box<Iterator<Item = KeyValueIteratorItem> + 'a>> {
+        let cf = cf_handle(&self.inner, col)?;
+        let iter_direction = match direction {
+            Direction::Forward => RdbDirection::Forward,
+            Direction::Reverse => RdbDirection::Reverse,
+        };
+        let mode = IteratorMode::From(from_key, iter_direction);
+        self.inner
+            .iterator_cf(cf, mode)
+            .map(|iter| Box::new(iter) as Box<_>)
+            .map_err(Into::into)
+    }
+}
+
 pub struct RocksdbBatch {
     db: Arc<DB>,
     wb: WriteBatch,
@@ -256,6 +282,8 @@ mod tests {
         let mut batch = db.batch().unwrap();
         batch.insert(0, &[0, 0], &[0, 0, 0]).unwrap();
         batch.insert(1, &[1, 1], &[1, 1, 1]).unwrap();
+        batch.insert(1, &[2], &[1, 1, 1]).unwrap();
+        batch.delete(1, &[2]).unwrap();
         batch.commit().unwrap();
 
         assert_eq!(Some(vec![0, 0, 0]), db.read(0, &[0, 0]).unwrap());
@@ -263,6 +291,17 @@ mod tests {
 
         assert_eq!(None, db.read(1, &[0, 0]).unwrap());
         assert_eq!(Some(vec![1, 1, 1]), db.read(1, &[1, 1]).unwrap());
+
+        assert_eq!(None, db.read(1, &[2]).unwrap());
+
+        let mut r = HashMap::new();
+        let callback = |k: &[u8], v: &[u8]| -> Result<()> {
+            r.insert(k.to_vec(), v.to_vec());
+            Ok(())
+        };
+        db.traverse(1, callback).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r.get(&vec![1, 1]), Some(&vec![1, 1, 1]));
     }
 
     #[test]
@@ -291,7 +330,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn test_version_is_not_matched() {
         let tmp_dir = tempfile::Builder::new()
             .prefix("test_version_is_not_matched")
@@ -302,7 +340,13 @@ mod tests {
             ..Default::default()
         };
         let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.1.0");
-        let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.2.0").unwrap();
+        let r = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.2.0");
+        assert_eq!(
+            r.err(),
+            Some(Error::DBError(
+                "the database version is not matched, require 0.2.0 but it's 0.1.0".to_owned()
+            ))
+        );
     }
 
     #[test]
@@ -317,5 +361,50 @@ mod tests {
         };
         let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, VERSION_VALUE).unwrap();
         let _ = RocksDB::open_with_check(&config, 1, VERSION_KEY, VERSION_VALUE).unwrap();
+    }
+
+    #[test]
+    fn iter() {
+        let db = setup_db("iter", 1);
+
+        let mut batch = db.batch().unwrap();
+        batch.insert(0, &[0, 0, 1], &[0, 0, 1]).unwrap();
+        batch.insert(0, &[0, 1, 1], &[0, 1, 1]).unwrap();
+        batch.insert(0, &[0, 1, 2], &[0, 1, 2]).unwrap();
+        batch.insert(0, &[0, 1, 3], &[0, 1, 3]).unwrap();
+        batch.insert(0, &[0, 2, 1], &[0, 2, 1]).unwrap();
+        batch.commit().unwrap();
+
+        let mut iter = db.iter(0, &[0, 1], Direction::Forward).unwrap();
+        assert_eq!(
+            (
+                vec![0, 1, 1].into_boxed_slice(),
+                vec![0, 1, 1].into_boxed_slice()
+            ),
+            iter.next().unwrap()
+        );
+        assert_eq!(
+            (
+                vec![0, 1, 2].into_boxed_slice(),
+                vec![0, 1, 2].into_boxed_slice()
+            ),
+            iter.next().unwrap()
+        );
+
+        let mut iter = db.iter(0, &[0, 2], Direction::Reverse).unwrap();
+        assert_eq!(
+            (
+                vec![0, 1, 3].into_boxed_slice(),
+                vec![0, 1, 3].into_boxed_slice()
+            ),
+            iter.next().unwrap()
+        );
+        assert_eq!(
+            (
+                vec![0, 1, 2].into_boxed_slice(),
+                vec![0, 1, 2].into_boxed_slice()
+            ),
+            iter.next().unwrap()
+        );
     }
 }

@@ -1,21 +1,16 @@
 use crate::rpc::RpcClient;
 use crate::utils::wait_until;
-use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig, MinerAppConfig};
+use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
+use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::{HeaderBuilder, Seal};
 use ckb_core::script::Script;
-use ckb_core::transaction::{
-    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
-};
-use ckb_core::uncle::UncleBlock;
+use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
-use ckb_resource::Resource;
-use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
+use jsonrpc_types::JsonBytes;
 use log::info;
 use numext_fixed_hash::H256;
-use rand;
-use std::convert::TryInto;
+use std::convert::Into;
 use std::fs;
 use std::io::Error;
 use std::path::Path;
@@ -31,6 +26,7 @@ pub struct Node {
     genesis_cellbase_hash: H256,
     always_success_code_hash: H256,
     guard: Option<ProcessGuard>,
+    pub consensus: Option<Consensus>,
 }
 
 struct ProcessGuard(pub Child);
@@ -41,6 +37,7 @@ impl Drop for ProcessGuard {
             Err(e) => info!("Could not kill ckb process: {}", e),
             Ok(_) => info!("Successfully killed ckb process"),
         }
+        let _ = self.0.wait();
     }
 }
 
@@ -57,6 +54,7 @@ impl Node {
             guard: None,
             genesis_cellbase_hash: Default::default(),
             always_success_code_hash: Default::default(),
+            consensus: None,
         }
     }
 
@@ -200,10 +198,7 @@ impl Node {
     // generate a transaction which spend tip block's cellbase
     pub fn new_transaction_spend_tip_cellbase(&self) -> Transaction {
         let block = self.get_tip_block();
-        let cellbase: Transaction = block.transactions()[0]
-            .clone()
-            .try_into()
-            .expect("parse cellbase transaction failed");
+        let cellbase = &block.transactions()[0];
         self.new_transaction(cellbase.hash().to_owned())
     }
 
@@ -217,8 +212,7 @@ impl Node {
         rpc_client
             .get_block_by_number(tip_number)
             .expect("tip block exists")
-            .try_into()
-            .unwrap()
+            .into()
     }
 
     pub fn new_block(
@@ -240,55 +234,8 @@ impl Node {
         let template =
             self.rpc_client()
                 .get_block_template(bytes_limit, proposals_limit, max_version);
-        let BlockTemplate {
-            version,
-            difficulty,
-            current_time,
-            number,
-            parent_hash,
-            uncles,       // Vec<UncleTemplate>
-            transactions, // Vec<TransactionTemplate>
-            proposals,    // Vec<ProposalShortId>
-            cellbase,     // CellbaseTemplate
-            ..
-        } = template;
 
-        let cellbase = {
-            let CellbaseTemplate { data, .. } = cellbase;
-            data
-        };
-
-        let header_builder = HeaderBuilder::default()
-            .version(version.0)
-            .number(number.0)
-            .difficulty(difficulty)
-            .timestamp(current_time.0)
-            .parent_hash(parent_hash)
-            .seal(Seal::new(rand::random(), Bytes::default()));
-
-        let uncles: Vec<UncleBlock> = uncles
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()
-            .expect("parse uncles failed");
-        let transactions: Vec<Transaction> = transactions
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()
-            .expect("parse commit transactions failed");
-
-        let proposals: Vec<ProposalShortId> = proposals
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()
-            .expect("parse proposal transactions failed");
-
-        BlockBuilder::default()
-            .uncles(uncles)
-            .transaction(cellbase.try_into().expect("parse cellbase failed"))
-            .transactions(transactions)
-            .proposals(proposals)
-            .header_builder(header_builder)
+        template.into()
     }
 
     pub fn new_transaction(&self, hash: H256) -> Transaction {
@@ -313,7 +260,6 @@ impl Node {
 
     fn prepare_chain_spec(
         &mut self,
-        config_path: &str,
         modify_chain_spec: Box<dyn Fn(&mut ChainSpec) -> ()>,
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
@@ -325,7 +271,9 @@ impl Node {
 
         let mut spec: ChainSpec =
             toml::from_slice(&integration_spec[..]).expect("chain spec config");
-        spec.genesis.system_cells.resources = vec![Resource::FileSystem(always_success_path)];
+        for r in spec.genesis.system_cells.files.iter_mut() {
+            r.absolutize(Path::new(&self.dir).join("specs"));
+        }
         modify_chain_spec(&mut spec);
 
         let consensus = spec.build_consensus().expect("build consensus");
@@ -334,40 +282,32 @@ impl Node {
         self.always_success_code_hash =
             consensus.genesis_block().transactions()[0].outputs()[1].data_hash();
 
+        self.consensus = Some(consensus);
+
         // write to dir
         fs::write(
-            &config_path,
+            Path::new(&self.dir).join("specs/integration.toml"),
             toml::to_string(&spec).expect("chain spec serialize"),
         )
     }
 
     fn rewrite_spec(
         &self,
-        config_path: &str,
         modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
     ) -> Result<(), Error> {
         // rewrite ckb.toml
         let ckb_config_path = format!("{}/ckb.toml", self.dir);
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
-        ckb_config.chain.spec = config_path.into();
         ckb_config.block_assembler = Some(BlockAssemblerConfig {
             code_hash: self.always_success_code_hash.clone(),
             args: Default::default(),
+            data: JsonBytes::default(),
         });
         modify_ckb_config(&mut ckb_config);
         fs::write(
             &ckb_config_path,
             toml::to_string(&ckb_config).expect("ckb config serialize"),
-        )?;
-        // rewrite ckb-miner.toml
-        let miner_config_path = format!("{}/ckb-miner.toml", self.dir);
-        let mut miner_config: MinerAppConfig =
-            toml::from_slice(&fs::read(&miner_config_path)?).expect("miner config");
-        miner_config.chain.spec = config_path.into();
-        fs::write(
-            &miner_config_path,
-            toml::to_string(&miner_config).expect("miner config serialize"),
         )
     }
 
@@ -394,9 +334,8 @@ impl Node {
             .output()
             .map(|_| ())?;
 
-        let spec_config_path = format!("{}/specs/integration.toml", self.dir);
-        self.prepare_chain_spec(&spec_config_path, modify_chain_spec)?;
-        self.rewrite_spec(&spec_config_path, modify_ckb_config)?;
+        self.prepare_chain_spec(modify_chain_spec)?;
+        self.rewrite_spec(modify_ckb_config)?;
         Ok(())
     }
 

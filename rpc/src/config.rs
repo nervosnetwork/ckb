@@ -6,10 +6,11 @@ pub enum Module {
     Chain,
     Miner,
     Pool,
-    Trace,
     Experiment,
     Stats,
+    Indexer,
     IntegrationTest,
+    Alert,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -45,7 +46,15 @@ impl Config {
         self.modules.contains(&Module::Stats)
     }
 
+    pub fn indexer_enable(&self) -> bool {
+        self.modules.contains(&Module::Indexer)
+    }
+
     pub fn integration_test_enable(&self) -> bool {
         self.modules.contains(&Module::IntegrationTest)
+    }
+
+    pub(crate) fn alert_enable(&self) -> bool {
+        self.modules.contains(&Module::Alert)
     }
 }

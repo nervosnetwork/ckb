@@ -5,6 +5,7 @@ use fnv::{FnvHashMap, FnvHashSet};
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use std::iter::FromIterator;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
@@ -46,11 +47,7 @@ impl PeerRegistry {
         reserved_only: bool,
         reserved_peers: Vec<PeerId>,
     ) -> Self {
-        let mut reserved_peers_set =
-            FnvHashSet::with_capacity_and_hasher(reserved_peers.len(), Default::default());
-        for reserved_peer in reserved_peers {
-            reserved_peers_set.insert(reserved_peer);
-        }
+        let reserved_peers_set = FnvHashSet::from_iter(reserved_peers);
         PeerRegistry {
             peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
             reserved_peers: reserved_peers_set,
@@ -157,7 +154,7 @@ impl PeerRegistry {
             peer2.connected_time.cmp(&peer1.connected_time)
         });
 
-        // Grop peers by network group
+        // Group peers by network group
         let evict_group = candidate_peers
             .into_iter()
             .fold(FnvHashMap::default(), |mut groups, peer| {

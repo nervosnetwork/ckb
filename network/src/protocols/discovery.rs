@@ -267,9 +267,14 @@ pub struct DiscoveryAddressManager {
 }
 
 impl AddressManager for DiscoveryAddressManager {
-    fn add_new_addr(&mut self, _session_id: SessionId, _addr: Multiaddr) {}
+    fn add_new_addr(&mut self, session_id: SessionId, addr: Multiaddr) {
+        self.add_new_addrs(session_id, vec![addr])
+    }
 
     fn add_new_addrs(&mut self, session_id: SessionId, addrs: Vec<Multiaddr>) {
+        if addrs.is_empty() {
+            return;
+        }
         let event = DiscoveryEvent::AddNewAddrs { session_id, addrs };
         if self.event_sender.unbounded_send(event).is_err() {
             debug!("receiver maybe dropped! (DiscoveryAddressManager::add_new_addrs)");

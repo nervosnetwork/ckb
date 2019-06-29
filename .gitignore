@@ -48,3 +48,6 @@ tags
 
 # tmp files
 *.pyc
+
+# code coverage report
+cobertura.xml

@@ -1,17 +1,55 @@
 use serde_derive::{Deserialize, Serialize};
 
-use crate::OccupiedCapacity;
-
 // The inner is the amount of `Shannons`.
 #[derive(
     Debug, Clone, Copy, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
 )]
 pub struct Capacity(u64);
 
-// Be careful: if the inner type of `Capacity` was changed, update this!
-impl OccupiedCapacity for Capacity {
-    fn occupied_capacity(&self) -> Result<Capacity> {
-        self.0.occupied_capacity()
+#[derive(Clone, PartialEq, Debug, Eq, Copy)]
+pub struct Ratio(pub u64, pub u64);
+
+impl Ratio {
+    pub fn numer(&self) -> u64 {
+        self.0
+    }
+
+    pub fn denom(&self) -> u64 {
+        self.1
+    }
+}
+
+pub trait AsCapacity {
+    fn as_capacity(self) -> Capacity;
+}
+
+impl AsCapacity for Capacity {
+    fn as_capacity(self) -> Capacity {
+        self
+    }
+}
+
+impl AsCapacity for u64 {
+    fn as_capacity(self) -> Capacity {
+        Capacity::shannons(self)
+    }
+}
+
+impl AsCapacity for u32 {
+    fn as_capacity(self) -> Capacity {
+        Capacity::shannons(u64::from(self))
+    }
+}
+
+impl AsCapacity for u16 {
+    fn as_capacity(self) -> Capacity {
+        Capacity::shannons(u64::from(self))
+    }
+}
+
+impl AsCapacity for u8 {
+    fn as_capacity(self) -> Capacity {
+        Capacity::shannons(u64::from(self))
     }
 }
 
@@ -57,16 +95,31 @@ impl Capacity {
         self.0
     }
 
-    pub fn safe_add(self, rhs: Self) -> Result<Self> {
+    pub fn safe_add<C: AsCapacity>(self, rhs: C) -> Result<Self> {
         self.0
-            .checked_add(rhs.0)
+            .checked_add(rhs.as_capacity().0)
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }
 
-    pub fn safe_sub(self, rhs: Self) -> Result<Self> {
+    pub fn safe_sub<C: AsCapacity>(self, rhs: C) -> Result<Self> {
         self.0
-            .checked_sub(rhs.0)
+            .checked_sub(rhs.as_capacity().0)
+            .map(Capacity::shannons)
+            .ok_or(Error::Overflow)
+    }
+
+    pub fn safe_mul<C: AsCapacity>(self, rhs: C) -> Result<Self> {
+        self.0
+            .checked_mul(rhs.as_capacity().0)
+            .map(Capacity::shannons)
+            .ok_or(Error::Overflow)
+    }
+
+    pub fn safe_mul_ratio(self, ratio: Ratio) -> Result<Self> {
+        self.0
+            .checked_mul(ratio.numer())
+            .and_then(|ret| ret.checked_div(ratio.denom()))
             .map(Capacity::shannons)
             .ok_or(Error::Overflow)
     }

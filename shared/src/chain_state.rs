@@ -16,7 +16,7 @@ use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
-use ckb_store::{ChainStore, StoreBatch};
+use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore, StoreBatch};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_util::LinkedFnvHashSet;
 use ckb_util::{FnvHashMap, FnvHashSet};
@@ -122,7 +122,7 @@ impl<CS: ChainStore> ChainState<CS> {
         tip_number: u64,
     ) -> TxProposalTable {
         let mut proposal_ids = TxProposalTable::new(proposal_window);
-        let proposal_start = tip_number.saturating_sub(proposal_window.start());
+        let proposal_start = tip_number.saturating_sub(proposal_window.farthest());
         for bn in proposal_start..=tip_number {
             if let Some(hash) = store.get_block_hash(bn) {
                 let mut ids_set = FnvHashSet::default();
@@ -489,11 +489,14 @@ impl<CS: ChainStore> ChainState<CS> {
         match self.resolve_tx_from_proposed(&tx, tx_pool) {
             Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
                 Ok(cycles) => {
-                    let fee = calculate_transaction_fee(Arc::clone(self.store()), &rtx)
-                        .ok_or_else(|| {
-                            tx_pool.update_statics_for_remove_tx(size, cycles);
-                            PoolError::TxFee
-                        })?;
+                    let fee = calculate_transaction_fee(
+                        &DataLoaderWrapper::new(Arc::clone(self.store())),
+                        &rtx,
+                    )
+                    .ok_or_else(|| {
+                        tx_pool.update_statics_for_remove_tx(size, cycles);
+                        PoolError::TxFee
+                    })?;
                     tx_pool.add_proposed(cycles, fee, size, tx);
                     Ok(cycles)
                 }
@@ -758,7 +761,7 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
 impl<CS: ChainStore> HeaderProvider for ChainState<CS> {
     fn header(&self, out_point: &OutPoint) -> HeaderStatus {
         if let Some(block_hash) = &out_point.block_hash {
-            match self.store.get_header(&block_hash) {
+            match self.store.get_block_header(&block_hash) {
                 Some(header) => {
                     if let Some(cell_out_point) = &out_point.cell {
                         self.store
@@ -829,7 +832,7 @@ impl<CS: ChainStore> BlockMedianTimeContext for &ChainState<CS> {
     fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
         let header = self
             .store
-            .get_header(&block_hash)
+            .get_block_header(&block_hash)
             .expect("[ChainState] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }

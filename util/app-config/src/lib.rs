@@ -5,7 +5,7 @@ mod exit_code;
 mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
-pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs};
+pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs, StatsArgs};
 pub use ckb_miner::BlockAssemblerConfig;
 pub use exit_code::ExitCode;
 
@@ -13,15 +13,13 @@ use build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
 use ckb_logger::{info_target, LoggerInitGuard};
-use ckb_resource::ResourceLocator;
-use clap::{value_t, ArgMatches};
+use clap::{value_t, ArgMatches, ErrorKind};
 use std::path::PathBuf;
 
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
 
 pub struct Setup {
     subcommand_name: String,
-    resource_locator: ResourceLocator,
     config: AppConfig,
     is_sentry_enabled: bool,
 }
@@ -43,18 +41,12 @@ impl Setup {
             }
         };
 
-        let resource_locator = Self::locator_from_matches(matches)?;
-        let config = AppConfig::load_for_subcommand(&resource_locator, subcommand_name)?;
-        if config.is_bundled() {
-            eprintln!("Not a CKB directory, initialize one with `ckb init`.");
-            return Err(ExitCode::Config);
-        }
-
+        let root_dir = Self::root_dir_from_matches(matches)?;
+        let config = AppConfig::load_for_subcommand(&root_dir, subcommand_name)?;
         let is_sentry_enabled = is_daemon(&subcommand_name) && config.sentry().is_enabled();
 
         Ok(Setup {
             subcommand_name: subcommand_name.to_string(),
-            resource_locator,
             config,
             is_sentry_enabled,
         })
@@ -117,10 +109,38 @@ impl Setup {
     pub fn prof<'m>(self, matches: &ArgMatches<'m>) -> Result<ProfArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
-        let from = value_t!(matches.value_of("from"), u64)?;
-        let to = value_t!(matches.value_of("to"), u64)?;
+        let from = value_t!(matches, cli::ARG_FROM, u64)?;
+        let to = value_t!(matches, cli::ARG_TO, u64)?;
 
         Ok(ProfArgs {
+            config,
+            consensus,
+            from,
+            to,
+        })
+    }
+
+    pub fn stats<'m>(self, matches: &ArgMatches<'m>) -> Result<StatsArgs, ExitCode> {
+        let consensus = self.consensus()?;
+        let config = self.config.into_ckb()?;
+        // There are two types of errors,
+        // parse failures and those where the argument wasn't present
+        let from = match value_t!(matches, cli::ARG_FROM, u64) {
+            Ok(from) => Some(from),
+            Err(ref e) if e.kind == ErrorKind::ArgumentNotFound => None,
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
+        let to = match value_t!(matches, cli::ARG_TO, u64) {
+            Ok(to) => Some(to),
+            Err(ref e) if e.kind == ErrorKind::ArgumentNotFound => None,
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
+
+        Ok(StatsArgs {
             config,
             consensus,
             from,
@@ -169,7 +189,7 @@ impl Setup {
             eprintln!("Deprecated: Option `--export-specs` is deprecated");
         }
 
-        let locator = Self::locator_from_matches(matches)?;
+        let root_dir = Self::root_dir_from_matches(matches)?;
         let list_chains =
             matches.is_present(cli::ARG_LIST_CHAINS) || matches.is_present("list-specs");
         let force = matches.is_present(cli::ARG_FORCE);
@@ -193,9 +213,10 @@ impl Setup {
             .unwrap_or_default()
             .map(str::to_string)
             .collect();
+        let block_assembler_data = matches.value_of(cli::ARG_BA_DATA).map(str::to_string);
 
         Ok(InitArgs {
-            locator,
+            root_dir,
             chain,
             rpc_port,
             p2p_port,
@@ -205,19 +226,21 @@ impl Setup {
             log_to_stdout,
             block_assembler_code_hash,
             block_assembler_args,
+            block_assembler_data,
         })
     }
 
-    pub fn locator_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<ResourceLocator, ExitCode> {
+    pub fn root_dir_from_matches<'m>(matches: &ArgMatches<'m>) -> Result<PathBuf, ExitCode> {
         let config_dir = match matches.value_of(cli::ARG_CONFIG_DIR) {
             Some(arg_config_dir) => PathBuf::from(arg_config_dir),
             None => ::std::env::current_dir()?,
         };
-        ResourceLocator::with_root_dir(config_dir).map_err(Into::into)
+        std::fs::create_dir_all(&config_dir)?;
+        Ok(config_dir)
     }
 
     fn chain_spec(&self) -> Result<ChainSpec, ExitCode> {
-        let result = self.config.chain_spec(&self.resource_locator);
+        let result = self.config.chain_spec();
         if let Ok(spec) = &result {
             if self.is_sentry_enabled {
                 sentry::configure_scope(|scope| {
@@ -258,4 +281,36 @@ fn consensus_from_spec(spec: &ChainSpec) -> Result<Consensus, ExitCode> {
         eprintln!("chainspec error: {}", err);
         ExitCode::Config
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::CMD_STATS;
+    use clap::{App, AppSettings};
+
+    #[test]
+    fn stats_args() {
+        let app = App::new("stats_args_test")
+            .setting(AppSettings::SubcommandRequiredElseHelp)
+            .subcommand(cli::stats());
+
+        let stats = app.clone().get_matches_from_safe(vec!["", CMD_STATS]);
+        assert!(stats.is_ok());
+
+        let stats = app
+            .clone()
+            .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10"]);
+        assert!(stats.is_ok());
+
+        let stats = app
+            .clone()
+            .get_matches_from_safe(vec!["", CMD_STATS, "--to", "100"]);
+        assert!(stats.is_ok());
+
+        let stats = app
+            .clone()
+            .get_matches_from_safe(vec!["", CMD_STATS, "--from", "10", "--to", "100"]);
+        assert!(stats.is_ok());
+    }
 }

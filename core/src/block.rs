@@ -8,26 +8,23 @@ use hash::new_blake2b;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::ToOwned;
+use std::iter::FromIterator;
+use std::ops::Deref;
 
 fn cal_transactions_root(vec: &[Transaction]) -> H256 {
     merkle_root(
         &vec.iter()
-            .map(Transaction::hash)
-            .map(ToOwned::to_owned)
+            .map(|tx| tx.hash().to_owned())
             .collect::<Vec<_>>(),
     )
 }
 
 fn cal_witnesses_root(vec: &[Transaction]) -> H256 {
-    // The witness hash of cellbase transaction is assumed to be zero 0x0000....0000
-    let mut witnesses = vec![H256::zero()];
-    witnesses.extend(
-        vec.iter()
-            .skip(1)
-            .map(Transaction::witness_hash)
-            .map(ToOwned::to_owned),
-    );
-    merkle_root(&witnesses[..])
+    merkle_root(
+        &vec.iter()
+            .map(|tx| tx.witness_hash().to_owned())
+            .collect::<Vec<_>>(),
+    )
 }
 
 pub(crate) fn cal_proposals_hash(vec: &[ProposalShortId]) -> H256 {
@@ -37,7 +34,7 @@ pub(crate) fn cal_proposals_hash(vec: &[ProposalShortId]) -> H256 {
         let mut ret = [0u8; 32];
         let mut blake2b = new_blake2b();
         for id in vec.iter() {
-            blake2b.update(&(&id as &[u8; 10])[..]);
+            blake2b.update(id.deref());
         }
         blake2b.finalize(&mut ret);
         ret.into()
@@ -79,6 +76,10 @@ impl Block {
         &self.transactions
     }
 
+    pub fn cellbase(&self) -> &Transaction {
+        &self.transactions.get(0).expect("get cellbase transaction")
+    }
+
     pub fn proposals(&self) -> &[ProposalShortId] {
         &self.proposals
     }
@@ -92,9 +93,7 @@ impl Block {
     }
 
     pub fn union_proposal_ids(&self) -> FnvHashSet<ProposalShortId> {
-        let mut ids = FnvHashSet::default();
-
-        ids.extend(self.proposals());
+        let mut ids = FnvHashSet::from_iter(self.proposals().to_owned());
 
         for uc in &self.uncles {
             ids.extend(uc.proposals());
@@ -122,12 +121,15 @@ impl Block {
                 .iter()
                 .map(|u| u.serialized_size(proof_size))
                 .sum::<usize>()
+            + 4
             + self.proposals.len() * ProposalShortId::serialized_size()
+            + 4
             + self
                 .transactions()
                 .iter()
                 .map(Transaction::serialized_size)
                 .sum::<usize>()
+            + 4
     }
 
     pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
@@ -193,41 +195,64 @@ impl BlockBuilder {
         self
     }
 
-    pub fn header(mut self, header: Header) -> Self {
-        self.header_builder = HeaderBuilder::from_header(header);
+    pub fn header<T>(mut self, header: T) -> Self
+    where
+        T: Into<Header>,
+    {
+        self.header_builder = HeaderBuilder::from_header(header.into());
         self
     }
 
-    pub fn uncle(mut self, uncle: UncleBlock) -> Self {
-        self.uncles.push(uncle);
+    pub fn uncle<T>(mut self, uncle: T) -> Self
+    where
+        T: Into<UncleBlock>,
+    {
+        self.uncles.push(uncle.into());
         self
     }
 
-    pub fn uncles(mut self, uncles: impl IntoIterator<Item = UncleBlock>) -> Self {
-        self.uncles.extend(uncles);
+    pub fn uncles<I, T>(mut self, uncles: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<UncleBlock>,
+    {
+        self.uncles.extend(uncles.into_iter().map(Into::into));
         self
     }
 
-    pub fn transaction(mut self, transaction: Transaction) -> Self {
-        self.transactions.push(transaction);
+    pub fn transaction<T>(mut self, transaction: T) -> Self
+    where
+        T: Into<Transaction>,
+    {
+        self.transactions.push(transaction.into());
         self
     }
 
-    pub fn transactions(mut self, transactions: impl IntoIterator<Item = Transaction>) -> Self {
-        self.transactions.extend(transactions);
+    pub fn transactions<I, T>(mut self, transactions: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Transaction>,
+    {
+        self.transactions
+            .extend(transactions.into_iter().map(Into::into));
         self
     }
 
-    pub fn proposal(mut self, proposal_short_id: ProposalShortId) -> Self {
-        self.proposals.push(proposal_short_id);
+    pub fn proposal<T>(mut self, proposal_short_id: T) -> Self
+    where
+        T: Into<ProposalShortId>,
+    {
+        self.proposals.push(proposal_short_id.into());
         self
     }
 
-    pub fn proposals(
-        mut self,
-        proposal_short_ids: impl IntoIterator<Item = ProposalShortId>,
-    ) -> Self {
-        self.proposals.extend(proposal_short_ids);
+    pub fn proposals<I, T>(mut self, proposal_short_ids: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<ProposalShortId>,
+    {
+        self.proposals
+            .extend(proposal_short_ids.into_iter().map(Into::into));
         self
     }
 
@@ -273,5 +298,29 @@ impl BlockBuilder {
             transactions,
             proposals,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use numext_fixed_hash::H256;
+
+    #[test]
+    fn test_cal_proposals_hash() {
+        let proposal1 = ProposalShortId::new([1; 10]);
+        let proposal2 = ProposalShortId::new([2; 10]);
+        let proposals = [proposal1, proposal2];
+
+        let id = cal_proposals_hash(&proposals);
+
+        assert_eq!(
+            id,
+            H256([
+                0xd1, 0x67, 0x0e, 0x45, 0xaf, 0x1d, 0xeb, 0x9c, 0xc0, 0x09, 0x51, 0xd7, 0x1c, 0x09,
+                0xce, 0x80, 0x93, 0x2e, 0x7d, 0xdf, 0x9f, 0xb1, 0x51, 0xd7, 0x44, 0x43, 0x6b, 0xd0,
+                0x4a, 0xc4, 0xa5, 0x62
+            ])
+        );
     }
 }

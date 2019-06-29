@@ -2,10 +2,12 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
+use ckb_core::script::Script;
 use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
+use occupied_capacity::Ratio;
 use std::cmp;
 use std::sync::Arc;
 
@@ -36,17 +38,40 @@ pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * 200 * 8;
 pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
 pub(crate) const BLOCK_VERSION: u32 = 0;
+pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
+/// Two protocol parameters w_close and w_far define the closest
+/// and farthest on-chain distance between a transaction’s proposal
+/// and commitment.
+///
+/// A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
+/// 1) it is proposed at height h_p of the same chain, where w_close ≤ h_c − h_p ≤ w_far ;
+/// 2) it is in the commitment zone of the main chain block with height h_c ;
+///
+///   ProposalWindow (2, 10)
+///       proposal
+///          \
+///           \
+///           13 14 [15 16 17 18 19 20 21 22 23]
+///                  \_______________________/
+///                               \
+///                             commit
+///
+
 impl ProposalWindow {
-    pub fn end(&self) -> BlockNumber {
+    pub fn closest(&self) -> BlockNumber {
         self.0
     }
 
-    pub fn start(&self) -> BlockNumber {
+    pub fn farthest(&self) -> BlockNumber {
         self.1
+    }
+
+    pub fn length(&self) -> BlockNumber {
+        self.1 - self.0 + 1
     }
 }
 
@@ -61,6 +86,7 @@ pub struct Consensus {
     pub orphan_rate_target_recip: u64,
     pub epoch_duration_target: u64,
     pub tx_proposal_window: ProposalWindow,
+    pub proposer_reward_ratio: Ratio,
     pub pow: Pow,
     // For each input, if the referenced output transaction is cellbase,
     // it must have at least `cellbase_maturity` confirmations;
@@ -77,6 +103,7 @@ pub struct Consensus {
     // block version number supported
     pub max_block_proposals_limit: u64,
     pub genesis_epoch_ext: EpochExt,
+    pub bootstrap_lock: Script,
 }
 
 // genesis difficulty should not be zero
@@ -117,7 +144,9 @@ impl Default for Consensus {
             max_block_bytes: MAX_BLOCK_BYTES,
             genesis_epoch_ext,
             block_version: BLOCK_VERSION,
+            proposer_reward_ratio: PROPOSER_REWARD_RATIO,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
+            bootstrap_lock: Default::default(),
         }
     }
 }
@@ -165,6 +194,16 @@ impl Consensus {
         self
     }
 
+    #[must_use]
+    pub fn set_bootstrap_lock(mut self, lock: Script) -> Self {
+        self.bootstrap_lock = lock;
+        self
+    }
+
+    pub fn bootstrap_lock(&self) -> &Script {
+        &self.bootstrap_lock
+    }
+
     pub fn set_tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.tx_proposal_window = proposal_window;
         self
@@ -177,6 +216,27 @@ impl Consensus {
 
     pub fn genesis_block(&self) -> &Block {
         &self.genesis_block
+    }
+
+    pub fn proposer_reward_ratio(&self) -> Ratio {
+        self.proposer_reward_ratio
+    }
+
+    pub fn reserve_number(&self) -> BlockNumber {
+        self.finalization_delay_length()
+    }
+
+    pub fn finalization_delay_length(&self) -> BlockNumber {
+        self.tx_proposal_window.farthest() + 1
+    }
+
+    pub fn finalize_target(&self, block_number: BlockNumber) -> Option<BlockNumber> {
+        let finalize_target = block_number.checked_sub(self.finalization_delay_length())?;
+        // we should not reward genesis
+        if finalize_target < 1 {
+            return None;
+        }
+        Some(finalize_target)
     }
 
     pub fn genesis_hash(&self) -> &H256 {
@@ -275,7 +335,7 @@ impl Consensus {
         &self,
         last_epoch: &EpochExt,
         header: &Header,
-        get_header: A,
+        get_block_header: A,
         total_uncles_count: B,
     ) -> Option<EpochExt>
     where
@@ -296,7 +356,7 @@ impl Consensus {
         let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {
             self.genesis_block().header().clone()
         } else {
-            get_header(last_epoch.last_block_hash_in_previous_epoch())?
+            get_block_header(last_epoch.last_block_hash_in_previous_epoch())?
         };
 
         let start_total_uncles_count =
@@ -360,5 +420,10 @@ impl Consensus {
         };
 
         Some(epoch_ext)
+    }
+
+    pub fn identify_name(&self) -> String {
+        let genesis_hash = format!("{:x}", &self.genesis_hash);
+        format!("/{}/{}", self.id, &genesis_hash[..8])
     }
 }

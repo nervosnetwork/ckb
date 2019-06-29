@@ -10,12 +10,11 @@ use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::{DBConfig, RocksDB};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
+use ckb_store::{ChainKVStore, ChainStore};
 use ckb_traits::chain_provider::ChainProvider;
 use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use occupied_capacity::OccupiedCapacity;
 use rand::random;
 use std::sync::Arc;
 use tempfile::{tempdir, TempDir};
@@ -30,7 +29,8 @@ fn bench(c: &mut Criterion) {
             b.iter_with_setup(
                 || {
                     let (chain, shared, dir, system_cell_hash, data_hash) = new_chain(*txs_size);
-                    let mut blocks = vec![shared.block(&shared.genesis_hash()).unwrap()];
+                    let mut blocks =
+                        vec![shared.store().get_block(&shared.genesis_hash()).unwrap()];
                     (0..20).for_each(|_| {
                         let parent_index = blocks.len() - 1;
                         gen_block(&mut blocks, parent_index, &system_cell_hash, &data_hash);
@@ -59,7 +59,8 @@ fn bench(c: &mut Criterion) {
             b.iter_with_setup(
                 || {
                     let (chain, shared, dir, system_cell_hash, data_hash) = new_chain(*txs_size);
-                    let mut blocks = vec![shared.block(&shared.genesis_hash()).unwrap()];
+                    let mut blocks =
+                        vec![shared.store().get_block(&shared.genesis_hash()).unwrap()];
                     (0..5).for_each(|_| {
                         let parent_index = blocks.len() - 1;
                         gen_block(&mut blocks, parent_index, &system_cell_hash, &data_hash);
@@ -102,7 +103,8 @@ fn bench(c: &mut Criterion) {
             b.iter_with_setup(
                 || {
                     let (chain, shared, dir, system_cell_hash, data_hash) = new_chain(*txs_size);
-                    let mut blocks = vec![shared.block(&shared.genesis_hash()).unwrap()];
+                    let mut blocks =
+                        vec![shared.store().get_block(&shared.genesis_hash()).unwrap()];
                     (0..5).for_each(|_| {
                         let parent_index = blocks.len() - 1;
                         gen_block(&mut blocks, parent_index, &system_cell_hash, &data_hash);

@@ -1,12 +1,10 @@
 [package]
 name = "occupied-capacity-core"
-version = "0.14.2"
+version = "0.15.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 serde = "1.0"
 serde_derive = "1.0"
-bytes = "0.4.12"

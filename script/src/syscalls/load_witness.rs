@@ -12,12 +12,12 @@ use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]
 pub struct LoadWitness<'a> {
-    witnesses: &'a [&'a Witness],
+    witnesses: &'a [Witness],
     group_inputs: &'a [usize],
 }
 
 impl<'a> LoadWitness<'a> {
-    pub fn new(witnesses: &'a [&'a Witness], group_inputs: &'a [usize]) -> LoadWitness<'a> {
+    pub fn new(witnesses: &'a [Witness], group_inputs: &'a [usize]) -> LoadWitness<'a> {
         LoadWitness {
             witnesses,
             group_inputs,
@@ -29,8 +29,8 @@ impl<'a> LoadWitness<'a> {
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
-                .and_then(|actual_index| self.witnesses.get(*actual_index).cloned()),
-            Source::Transaction(SourceEntry::Input) => self.witnesses.get(index).cloned(),
+                .and_then(|actual_index| self.witnesses.get(*actual_index)),
+            Source::Transaction(SourceEntry::Input) => self.witnesses.get(index),
             _ => None,
         }
     }

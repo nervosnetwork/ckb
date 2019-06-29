@@ -4,7 +4,9 @@ use crate::Verifier;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
+use ckb_core::script::Script;
 use ckb_core::transaction::CellInput;
+use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use std::collections::HashSet;
 
@@ -51,6 +53,10 @@ impl CellbaseVerifier {
     }
 
     pub fn verify(&self, block: &Block) -> Result<(), Error> {
+        if block.is_genesis() {
+            return Ok(());
+        }
+
         let cellbase_len = block
             .transactions()
             .iter()
@@ -63,8 +69,26 @@ impl CellbaseVerifier {
         }
 
         let cellbase_transaction = &block.transactions()[0];
+
         if !cellbase_transaction.is_cellbase() {
             return Err(Error::Cellbase(CellbaseError::InvalidPosition));
+        }
+
+        if cellbase_transaction
+            .witnesses()
+            .get(0)
+            .and_then(|witness| Script::from_witness(witness))
+            .is_none()
+        {
+            return Err(Error::Cellbase(CellbaseError::InvalidWitness));
+        }
+
+        if cellbase_transaction
+            .outputs()
+            .iter()
+            .any(|output| output.type_.is_some())
+        {
+            return Err(Error::Cellbase(CellbaseError::InvalidTypeScript));
         }
 
         let cellbase_input = &cellbase_transaction.inputs()[0];
@@ -134,12 +158,12 @@ impl<'a> HeaderResolverWrapper<'a> {
     where
         CP: ChainProvider,
     {
-        let parent = provider.block_header(&header.parent_hash());
+        let parent = provider.store().get_block_header(header.parent_hash());
         let epoch = parent
             .as_ref()
             .and_then(|parent| {
                 provider
-                    .get_block_epoch(&parent.hash())
+                    .get_block_epoch(parent.hash())
                     .map(|ext| (parent, ext))
             })
             .map(|(parent, last_epoch)| {

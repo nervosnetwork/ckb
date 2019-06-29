@@ -2,6 +2,8 @@ pub(crate) mod discovery;
 pub(crate) mod feeler;
 pub(crate) mod identify;
 pub(crate) mod ping;
+#[cfg(test)]
+mod test;
 
 use ckb_logger::{debug, error, trace};
 use futures::Future;

@@ -1,6 +1,6 @@
 [package]
 name = "occupied-capacity-macros"
-version = "0.14.2"
+version = "0.15.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -9,7 +9,6 @@ license = "MIT"
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "0.4"
 quote = "0.6"
 syn = "0.15"
 proc-macro-hack = "0.5"

@@ -1,6 +1,6 @@
 [package]
 name = "ckb-traits"
-version = "0.14.2"
+version = "0.15.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -11,3 +11,4 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 ckb-chain-spec = {path = "../spec"}
 ckb-store = { path = "../store" }
 ckb-script = { path = "../script" }
+failure = "0.1.5"

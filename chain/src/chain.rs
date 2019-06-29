@@ -230,7 +230,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             })?
         }
 
-        let mut new_best_block = false;
         let mut total_difficulty = U256::zero();
 
         let mut fork = ForkChanges::default();
@@ -239,12 +238,14 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let parent_ext = self
             .shared
-            .block_ext(&block.header().parent_hash())
+            .store()
+            .get_block_ext(&block.header().parent_hash())
             .expect("parent already store");
 
         let parent_header = self
             .shared
-            .block_header(&block.header().parent_hash())
+            .store()
+            .get_block_header(&block.header().parent_hash())
             .expect("parent already store");
 
         let cannon_total_difficulty =
@@ -256,7 +257,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             current_total_difficulty, cannon_total_difficulty,
         );
 
-        if parent_ext.txs_verified == Some(false) {
+        if parent_ext.verified == Some(false) {
             Err(SharedError::InvalidParentBlock)?;
         }
 
@@ -286,7 +287,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             received_at: unix_time_as_millis(),
             total_difficulty: cannon_total_difficulty.clone(),
             total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
-            txs_verified: None,
+            verified: None,
+            txs_fees: vec![],
             dao_stats: DaoStats {
                 accumulated_rate: ar,
                 accumulated_capacity: c.as_u64(),
@@ -299,10 +301,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         )?;
         batch.insert_epoch_ext(epoch.last_block_hash_in_previous_epoch(), &epoch)?;
 
-        if (cannon_total_difficulty > current_total_difficulty)
+        let new_best_block = (cannon_total_difficulty > current_total_difficulty)
             || ((current_total_difficulty == cannon_total_difficulty)
-                && (block.header().hash() < chain_state.tip_hash()))
-        {
+                && (block.header().hash() < chain_state.tip_hash()));
+
+        if new_best_block {
             debug!(
                 "new best block found: {} => {:#x}, difficulty diff = {:#x}",
                 block.header().number(),
@@ -329,7 +332,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             if new_epoch || fork.has_detached() {
                 batch.insert_current_epoch_ext(&epoch)?;
             }
-            new_best_block = true;
 
             total_difficulty = cannon_total_difficulty.clone();
         } else {
@@ -417,11 +419,13 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             for bn in new_tip_number..=current_tip_number {
                 let hash = self
                     .shared
-                    .block_hash(bn)
+                    .store()
+                    .get_block_hash(bn)
                     .expect("block hash stored before alignment_fork");
                 let old_block = self
                     .shared
-                    .block(&hash)
+                    .store()
+                    .get_block(&hash)
                     .expect("block data stored before alignment_fork");
                 fork.detached_blocks.push_front(old_block);
             }
@@ -430,9 +434,10 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 if index.unseen {
                     let ext = self
                         .shared
-                        .block_ext(&index.hash)
+                        .store()
+                        .get_block_ext(&index.hash)
                         .expect("block ext stored before alignment_fork");
-                    if ext.txs_verified.is_none() {
+                    if ext.verified.is_none() {
                         fork.dirty_exts.push_front(ext)
                     } else {
                         index.unseen = false;
@@ -440,7 +445,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 }
                 let new_block = self
                     .shared
-                    .block(&index.hash)
+                    .store()
+                    .get_block(&index.hash)
                     .expect("block data stored before alignment_fork");
                 index.forward(new_block.header().parent_hash().to_owned());
                 fork.attached_blocks.push_front(new_block);
@@ -455,23 +461,26 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             }
             let detached_hash = self
                 .shared
-                .block_hash(index.number)
+                .store()
+                .get_block_hash(index.number)
                 .expect("detached hash stored before find_fork_until_latest_common");
             if detached_hash == index.hash {
                 break;
             }
             let detached_blocks = self
                 .shared
-                .block(&detached_hash)
+                .store()
+                .get_block(&detached_hash)
                 .expect("detached block stored before find_fork_until_latest_common");
             fork.detached_blocks.push_front(detached_blocks);
 
             if index.unseen {
                 let ext = self
                     .shared
-                    .block_ext(&index.hash)
+                    .store()
+                    .get_block_ext(&index.hash)
                     .expect("block ext stored before find_fork_until_latest_common");
-                if ext.txs_verified.is_none() {
+                if ext.verified.is_none() {
                     fork.dirty_exts.push_front(ext)
                 } else {
                     index.unseen = false;
@@ -480,7 +489,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
             let attached_block = self
                 .shared
-                .block(&index.hash)
+                .store()
+                .get_block(&index.hash)
                 .expect("attached block stored before find_fork_until_latest_common");
             index.forward(attached_block.header().parent_hash().to_owned());
             fork.attached_blocks.push_front(attached_block);
@@ -517,7 +527,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         self.find_fork_until_latest_common(fork, &mut index);
     }
 
-    // we found new best_block total_difficulty > old_chain.total_difficulty
+    // we found new best_block
     pub(crate) fn reconcile_main_chain(
         &self,
         batch: &mut StoreBatch,
@@ -535,12 +545,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             .dirty_exts
             .iter()
             .zip(fork.attached_blocks().iter().skip(verified_len))
-            .map(|(ext, b)| (b.header().hash().to_owned(), ext.txs_verified))
+            .map(|(ext, b)| (b.header().hash().to_owned(), ext.verified, vec![]))
             .collect::<Vec<_>>();
 
         let mut found_error = None;
         // verify transaction
-        for ((_, verified), b) in verify_results
+        for ((_, verified, l_txs_fees), b) in verify_results
             .iter_mut()
             .zip(fork.attached_blocks.iter().skip(verified_len))
         {
@@ -578,7 +588,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     {
                         Ok(resolved) => {
                             match contextual_block_verifier.verify(&resolved, b, txs_verify_cache) {
-                                Ok(cycles) => {
+                                Ok((cycles, txs_fees)) => {
                                     cell_set_diff.push_new(b);
                                     outputs.extend(
                                         b.transactions()
@@ -586,6 +596,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                             .map(|tx| (tx.hash().to_owned(), tx.outputs())),
                                     );
                                     *verified = Some(true);
+                                    l_txs_fees.extend(txs_fees);
                                     let proof_size =
                                         self.shared.consensus().pow_engine().proof_size();
                                     if b.transactions().len() > 1 {
@@ -640,8 +651,9 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         // update exts
-        for (ext, (hash, verified)) in fork.dirty_exts.iter_mut().zip(verify_results) {
-            ext.txs_verified = verified;
+        for (ext, (hash, verified, txs_fees)) in fork.dirty_exts.iter_mut().zip(verify_results) {
+            ext.verified = verified;
+            ext.txs_fees = txs_fees;
             batch.insert_block_ext(&hash, ext)?;
         }
 
@@ -661,9 +673,13 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let bottom = tip - cmp::min(tip, len);
 
         for number in (bottom..=tip).rev() {
-            let hash = self.shared.block_hash(number).unwrap_or_else(|| {
-                panic!(format!("invaild block number({}), tip={}", number, tip))
-            });
+            let hash = self
+                .shared
+                .store()
+                .get_block_hash(number)
+                .unwrap_or_else(|| {
+                    panic!(format!("invaild block number({}), tip={}", number, tip))
+                });
             debug!("   {} => {:x}", number, hash);
         }
 

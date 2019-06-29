@@ -68,7 +68,8 @@ impl OutboundPeerService {
                 });
                 self.network_state.dial_feeler(&p2p_control, &peer_id, addr);
             } else {
-                self.network_state.dial_all(&p2p_control, &peer_id, addr);
+                self.network_state
+                    .dial_identify(&p2p_control, &peer_id, addr);
             }
         }
     }

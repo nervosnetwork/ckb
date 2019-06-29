@@ -1,5 +1,6 @@
 use super::super::block_verifier::{
-    BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier,
+    BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier, DuplicateVerifier,
+    MerkleRootVerifier,
 };
 use super::super::error::{CellbaseError, Error as VerifyError};
 use ckb_core::block::BlockBuilder;
@@ -20,6 +21,7 @@ fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transac
             Script::default(),
             None,
         ))
+        .witness(Script::default().into_witness())
         .build()
 }
 
@@ -32,6 +34,7 @@ fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction 
             Script::default(),
             None,
         ))
+        .witness(Script::default().into_witness())
         .build()
 }
 
@@ -53,7 +56,7 @@ fn create_normal_transaction() -> Transaction {
 
 #[test]
 pub fn test_block_without_cellbase() {
-    let block = BlockBuilder::default()
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(1))
         .transaction(TransactionBuilder::default().build())
         .build();
     let verifier = CellbaseVerifier::new();
@@ -67,8 +70,8 @@ pub fn test_block_without_cellbase() {
 pub fn test_block_with_one_cellbase_at_first() {
     let transaction = create_normal_transaction();
 
-    let block = BlockBuilder::default()
-        .transaction(create_cellbase_transaction())
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(1))
+        .transaction(create_cellbase_transaction_with_block_number(1))
         .transaction(transaction)
         .build();
 
@@ -101,7 +104,7 @@ pub fn test_block_with_incorrect_cellbase_number() {
 
 #[test]
 pub fn test_block_with_one_cellbase_at_last() {
-    let block = BlockBuilder::default()
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2))
         .transaction(create_normal_transaction())
         .transaction(create_cellbase_transaction())
         .build();
@@ -114,8 +117,91 @@ pub fn test_block_with_one_cellbase_at_last() {
 }
 
 #[test]
+pub fn test_block_with_duplicated_txs() {
+    let tx = create_normal_transaction();
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2))
+        .transaction(tx.clone())
+        .transaction(tx)
+        .build();
+
+    let verifier = DuplicateVerifier::new();
+    assert_eq!(
+        verifier.verify(&block),
+        Err(VerifyError::CommitTransactionDuplicate)
+    );
+}
+
+#[test]
+pub fn test_block_with_duplicated_proposals() {
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2))
+        .proposal(ProposalShortId::zero())
+        .proposal(ProposalShortId::zero())
+        .build();
+
+    let verifier = DuplicateVerifier::new();
+    assert_eq!(
+        verifier.verify(&block),
+        Err(VerifyError::ProposalTransactionDuplicate)
+    );
+}
+
+#[test]
+pub fn test_transaction_root() {
+    let header = HeaderBuilder::default()
+        .number(2)
+        .transactions_root(H256::zero());
+    let block = unsafe {
+        BlockBuilder::from_header_builder(header)
+            .transaction(create_normal_transaction())
+            .build_unchecked()
+    };
+
+    let verifier = MerkleRootVerifier::new();
+    assert_eq!(
+        verifier.verify(&block),
+        Err(VerifyError::CommitTransactionsRoot)
+    );
+}
+
+#[test]
+pub fn test_proposals_root() {
+    let header = HeaderBuilder::default()
+        .number(2)
+        .proposals_hash(h256!("0x1"));
+    let block = unsafe {
+        BlockBuilder::from_header_builder(header)
+            .transaction(create_normal_transaction())
+            .build_unchecked()
+    };
+
+    let verifier = MerkleRootVerifier::new();
+    assert_eq!(
+        verifier.verify(&block),
+        Err(VerifyError::CommitTransactionsRoot)
+    );
+}
+
+#[test]
+pub fn test_witnesses_root() {
+    let header = HeaderBuilder::default()
+        .number(2)
+        .witnesses_root(h256!("0x1"));
+    let block = unsafe {
+        BlockBuilder::from_header_builder(header)
+            .proposal(ProposalShortId::zero())
+            .build_unchecked()
+    };
+
+    let verifier = MerkleRootVerifier::new();
+    assert_eq!(
+        verifier.verify(&block),
+        Err(VerifyError::WitnessesMerkleRoot)
+    );
+}
+
+#[test]
 pub fn test_block_with_two_cellbases() {
-    let block = BlockBuilder::default()
+    let block = BlockBuilder::from_header_builder(HeaderBuilder::default().number(2))
         .transaction(create_cellbase_transaction())
         .transaction(create_cellbase_transaction())
         .build();

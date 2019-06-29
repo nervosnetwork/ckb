@@ -2,14 +2,12 @@ use crate::Net;
 use bytes::Bytes;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder, Seal};
-use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_core::uncle::UncleBlock;
 use ckb_core::BlockNumber;
 use ckb_protocol::{RelayMessage, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_types::BlockTemplate;
 use std::collections::HashSet;
-use std::convert::TryInto;
+use std::convert::Into;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -65,32 +63,11 @@ pub fn new_block_with_template(template: BlockTemplate) -> Block {
         .parent_hash(template.parent_hash)
         .seal(Seal::new(rand::random(), Bytes::new()));
 
-    let uncles: Vec<UncleBlock> = template
-        .uncles
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()
-        .expect("parse uncles failed");
-
-    let transactions: Vec<Transaction> = template
-        .transactions
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()
-        .expect("parse commit transactions failed");
-
-    let proposals: Vec<ProposalShortId> = template
-        .proposals
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<_, _>>()
-        .expect("parse proposal transactions failed");
-
     BlockBuilder::default()
-        .uncles(uncles)
-        .transaction(cellbase.try_into().expect("parse cellbase failed"))
-        .transactions(transactions)
-        .proposals(proposals)
+        .uncles(template.uncles)
+        .transaction(cellbase)
+        .transactions(template.transactions)
+        .proposals(template.proposals)
         .header_builder(header_builder)
         .build()
 }

@@ -6,9 +6,6 @@ parent_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 timestamp = 0
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-# run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xfc3ad90e38598032598c90b4ad4fefb420bacabaa7c5b40111daca7dfcc1f9d4"
-issued_cells = []
 
 [genesis.seal]
 nonce = 0
@@ -25,12 +22,29 @@ args = []
 # the directory containing this config file.
 [genesis.system_cells]
 files = [
-  "cells/secp256k1_blake160_sighash_all"
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
 ]
 
 [genesis.system_cells.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
+
+
+[genesis.bootstrap_lock]
+code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
+args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
+
+# issue 5M cell for random generated private key: d00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc
+[[genesis.issued_cells]]
+capacity = 5_000_000_00000000
+lock.code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
+lock.args = ["0xc8328aabcd9b9e8e64fbc566c4385c3bdeb219d7"]
+
+# issue 5M cell for random generated private key: 63d86723e08f0f813a36ce6aa123bb2289d90680ae1e99d4de8cdb334553f24d
+[[genesis.issued_cells]]
+capacity = 5_000_000_00000000
+lock.code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
+lock.args = ["0x470dcdc5e44064909650113a274b3b36aecb6dc7"]
 
 [params]
 epoch_reward = 1_250_000_00000000
@@ -39,13 +53,4 @@ max_block_cycles = 10_000_000_000
 cellbase_maturity = 0
 
 [pow]
-func = "Cuckoo"
-
-[pow.params]
-# the 2-log of the graph size, which is the size in bits of the node
-# identifiers
-edge_bits = 15
-
-# length of the cycle to be found, must be an even number, a minimum of 12 is
-# recommended
-cycle_length = 12
+func = "Dummy"

@@ -7,11 +7,11 @@ data_dir = "data"
 
 [chain]
 # Choose the kind of chains to run, possible values:
-# - specs/dev.toml
-# - specs/testnet.toml
-spec = "specs/dev.toml" # {{
-# testnet => spec = "specs/testnet.toml"
-# integration => spec = "specs/integration.toml"
+# - { file = "specs/dev.toml" }
+# - { bundled = "specs/testnet.toml" }
+spec = { file = "specs/dev.toml" } # {{
+# testnet => spec = { bundled = "specs/testnet.toml" }
+# integration => spec = { file = "specs/integration.toml" }
 # }}
 
 [logger]
@@ -53,6 +53,12 @@ ping_interval_secs = 120
 # 20 minutes
 ping_timeout_secs = 1200
 connect_outbound_interval_secs = 15
+# If set to true, try to register upnp
+upnp = false
+# If set to true, network service will add discovered local address to peer store, it's helpful for private net development
+discovery_local_address = false # {{
+# dev => discovery_local_address = true
+# }}
 
 [rpc]
 listen_address = "127.0.0.1:8114" # {{
@@ -62,9 +68,9 @@ listen_address = "127.0.0.1:8114" # {{
 # Default is 10MiB = 10 * 1024 * 1024
 max_request_body_size = 10485760
 
-# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"]
+# List of API modules: ["Net", "Pool", "Miner", "Chain", "Stats", "Indexer", "Experiment"]
 modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
-# integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "IntegrationTest"]
+# integration => modules = ["Net", "Pool", "Miner", "Chain", "Experiment", "Stats", "Indexer", "IntegrationTest"]
 # }}
 
 [sync]
@@ -76,7 +82,7 @@ max_cycles = 200_000_000_000
 max_verfify_cache_size = 100_000
 
 [script]
-runner = "Assembly" # {{
+runner = "Rust" # {{
 # _ => runner = "{runner}"
 # }}
 
@@ -124,6 +130,14 @@ cell_output_cache_size  = 128
 # The two commands can be combined together:
 #
 #     ckb init $(ckb cli secp256k1-lock <pubkey> --format cmd)
+#
+# Also, ckb allows the miners to add any data to the cellbase that they have dug out.
+# The data must be A 0x-prefixed hex string.
+#
+# note: The data field is optional.
+#
+# **WARNING**: if data is larger than the capacity value of the current cellbase,
+# it will be truncated
 #
 # # {{
 # _ => {block_assembler}

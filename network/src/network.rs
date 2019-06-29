@@ -47,10 +47,10 @@ use std::usize;
 use stop_handler::{SignalSender, StopHandler};
 use tokio::runtime;
 
-const PING_PROTOCOL_ID: usize = 0;
-const DISCOVERY_PROTOCOL_ID: usize = 1;
-const IDENTIFY_PROTOCOL_ID: usize = 2;
-const FEELER_PROTOCOL_ID: usize = 3;
+pub(crate) const PING_PROTOCOL_ID: usize = 0;
+pub(crate) const DISCOVERY_PROTOCOL_ID: usize = 1;
+pub(crate) const IDENTIFY_PROTOCOL_ID: usize = 2;
+pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
 
 const ADDR_LIMIT: u32 = 3;
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
@@ -67,12 +67,12 @@ pub struct SessionInfo {
 }
 
 pub struct NetworkState {
-    peer_registry: RwLock<PeerRegistry>,
-    peer_store: Mutex<Box<dyn PeerStore>>,
+    pub(crate) peer_registry: RwLock<PeerRegistry>,
+    pub(crate) peer_store: Mutex<Box<dyn PeerStore>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<FnvHashMap<PeerId, Instant>>,
 
-    protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
+    pub(crate) protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
     listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
     // Send disconnect message but not disconnected yet
     disconnecting_sessions: RwLock<FnvHashSet<SessionId>>,
@@ -200,17 +200,7 @@ impl NetworkState {
     }
 
     pub(crate) fn query_session_id(&self, peer_id: &PeerId) -> Option<SessionId> {
-        let mut target_session_id = None;
-        // Create a scope for avoid dead lock
-        {
-            let peer_registry = self.peer_registry.read();
-            for peer in peer_registry.peers().values() {
-                if &peer.peer_id == peer_id {
-                    target_session_id = Some(peer.session_id);
-                }
-            }
-        }
-        target_session_id
+        self.with_peer_registry(|registry| registry.get_key_by_peer_id(peer_id))
     }
 
     pub(crate) fn accept_peer(
@@ -318,7 +308,7 @@ impl NetworkState {
         peer_id: &PeerId,
         address: Multiaddr,
     ) {
-        self.dial_all(p2p_control, peer_id, address.clone());
+        self.dial_identify(p2p_control, peer_id, address.clone());
     }
 
     fn to_external_url(&self, addr: &Multiaddr) -> String {
@@ -426,10 +416,14 @@ impl NetworkState {
         }
     }
 
-    /// Dial all protocol except feeler
-    pub fn dial_all(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
-        let ids = self.get_protocol_ids(|id| id != FEELER_PROTOCOL_ID.into());
-        self.dial(p2p_control, peer_id, addr, DialProtocol::Multi(ids));
+    /// Dial just identify protocol
+    pub fn dial_identify(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
+        self.dial(
+            p2p_control,
+            peer_id,
+            addr,
+            DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+        );
     }
 
     /// Dial just feeler protocol
@@ -444,7 +438,7 @@ impl NetworkState {
 }
 
 pub struct EventHandler {
-    network_state: Arc<NetworkState>,
+    pub(crate) network_state: Arc<NetworkState>,
 }
 
 impl ServiceHandle for EventHandler {
@@ -698,7 +692,11 @@ pub struct NetworkService {
 }
 
 impl NetworkService {
-    pub fn new(network_state: Arc<NetworkState>, protocols: Vec<CKBProtocol>) -> NetworkService {
+    pub fn new(
+        network_state: Arc<NetworkState>,
+        protocols: Vec<CKBProtocol>,
+        name: String,
+    ) -> NetworkService {
         let config = &network_state.config;
 
         // == Build special protocols
@@ -730,7 +728,7 @@ impl NetworkService {
             .build();
 
         // Identify protocol
-        let identify_callback = IdentifyCallback::new(Arc::clone(&network_state));
+        let identify_callback = IdentifyCallback::new(Arc::clone(&network_state), name);
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
             .service_handle(move || {
@@ -769,6 +767,7 @@ impl NetworkService {
         };
         let p2p_service = service_builder
             .key_pair(network_state.local_private_key.clone())
+            .upnp(config.upnp)
             .forever(true)
             .build(event_handler);
 
@@ -840,7 +839,7 @@ impl NetworkService {
         for (peer_id, addr) in config.reserved_peers()? {
             debug!("dial reserved_peers {:?} {:?}", peer_id, addr);
             self.network_state
-                .dial_all(self.p2p_service.control(), &peer_id, addr);
+                .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }
 
         let bootnodes = self.network_state.with_peer_store(|peer_store| {
@@ -850,7 +849,7 @@ impl NetworkService {
         for (peer_id, addr) in bootnodes {
             debug!("dial bootnode {:?} {:?}", peer_id, addr);
             self.network_state
-                .dial_all(self.p2p_service.control(), &peer_id, addr);
+                .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }
         let p2p_control = self.p2p_service.control().to_owned();
         let network_state = Arc::clone(&self.network_state);

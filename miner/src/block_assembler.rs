@@ -1,23 +1,21 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_core::block::Block;
-use ckb_core::cell::ResolvedTransaction;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{
-    Capacity, CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
+    CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
-use ckb_core::BlockNumber;
-use ckb_core::{Bytes, Cycle, Version};
+use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, Version};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_verification::ScriptVerifier;
+use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -317,16 +315,15 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .collect();
 
         let cellbase_lock = Script::new(cellbase_lock_args, self.config.code_hash.clone());
-        let (dummy_cellbase, cellbase_size, cellbase_cycle) =
-            self.dummy_cellbase_transaction(&tip_header, cellbase_lock, None)?;
+
+        let (cellbase, cellbase_size) = self.build_cellbase(&tip_header, cellbase_lock)?;
 
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
         let proposals = chain_state.get_proposals(proposals_limit as usize);
         let txs_size_limit =
             self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
-        let txs_cycles_limit = cycles_limit - cellbase_cycle;
-        let (entries, size, cycles) =
-            chain_state.get_proposed_txs(txs_size_limit, txs_cycles_limit);
+
+        let (entries, size, cycles) = chain_state.get_proposed_txs(txs_size_limit, cycles_limit);
         if !entries.is_empty() {
             info!(
                 "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
@@ -334,14 +331,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 size,
                 txs_size_limit,
                 cycles,
-                txs_cycles_limit
+                cycles_limit
             );
         }
+
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
-
-        let cellbase =
-            self.rebuild_cellbase(&tip_header, &dummy_cellbase, &current_epoch, &entries)?;
 
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
@@ -378,59 +373,102 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         Ok(template)
     }
 
-    fn dummy_cellbase_transaction(
+    /// Miner mined block H(c), the block reward will be finalized at H(c + w_far + 1).
+    /// Miner specify own lock in cellbase witness.
+    /// The cellbase have only one output,
+    /// if H(c) > reserve_number, miner should collect the block reward for finalize target H(c - w_far - 1)
+    /// otherwise miner create a output with bootstrap lock.
+    fn build_cellbase(
         &self,
         tip: &Header,
         lock: Script,
-        type_: Option<Script>,
-    ) -> Result<(Transaction, usize, Cycle), FailureError> {
-        // NOTE: To generate different cellbase txid, we put header number in the input script
-        let input = CellInput::new_cellbase_input(tip.number() + 1);
-        // NOTE: We could've just used byteorder to serialize u64 and hex string into bytes,
-        // but the truth is we will modify this after we designed lock script anyway, so let's
-        // stick to the simpler way and just convert everything to a single string, then to UTF8
-        // bytes, they really serve the same purpose at the moment
+    ) -> Result<(Transaction, usize), FailureError> {
+        let candidate_number = tip.number() + 1;
 
-        let output = CellOutput::new(Capacity::zero(), Bytes::new(), lock, type_);
+        let tx = if candidate_number > (self.shared.consensus().reserve_number()) {
+            self.ordinary_cellbase(tip, lock)
+        } else {
+            self.bootstrap_cellbase(candidate_number, lock)
+        }?;
 
-        let tx = TransactionBuilder::default()
-            .input(input)
-            .output(output)
-            .build();
-
-        let rtx = ResolvedTransaction {
-            transaction: &tx,
-            resolved_deps: vec![],
-            resolved_inputs: vec![],
-        };
-
-        let script_verifier =
-            ScriptVerifier::new(&rtx, self.shared.store(), self.shared.script_config());
-        let cycle = script_verifier.verify(self.shared.consensus().max_block_cycles())?;
         let serialized_size = tx.serialized_size();
-        Ok((tx, serialized_size, cycle))
+        Ok((tx, serialized_size))
     }
 
-    fn rebuild_cellbase(
+    fn bootstrap_cellbase(
         &self,
-        tip: &Header,
-        dummy_cellbase: &Transaction,
-        current_epoch: &EpochExt,
-        pes: &[ProposedEntry],
+        candidate_number: BlockNumber,
+        lock: Script,
     ) -> Result<Transaction, FailureError> {
-        let block_reward = current_epoch.block_reward(tip.number() + 1)?;
-        let mut fee = Capacity::zero();
-        for pe in pes {
-            fee = fee.safe_add(pe.fee)?;
-        }
-        let input = dummy_cellbase.inputs()[0].clone();
-        let mut output = dummy_cellbase.outputs()[0].clone();
-        output.capacity = block_reward.safe_add(fee)?;
+        let witness = lock.into_witness();
+        let input = CellInput::new_cellbase_input(candidate_number);
+
+        let block_reward = self
+            .shared
+            .consensus()
+            .genesis_epoch_ext()
+            .block_reward(candidate_number)?;
+
+        let raw_output = CellOutput::new(
+            block_reward,
+            Bytes::default(),
+            self.shared.consensus().bootstrap_lock().clone(),
+            None,
+        );
+
+        let output = self.custom_output(block_reward, raw_output)?;
 
         Ok(TransactionBuilder::default()
             .input(input)
             .output(output)
+            .witness(witness)
             .build())
+    }
+
+    fn ordinary_cellbase(&self, tip: &Header, lock: Script) -> Result<Transaction, FailureError> {
+        let candidate_number = tip.number() + 1;
+        let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
+
+        let witness = lock.into_witness();
+        let input = CellInput::new_cellbase_input(candidate_number);
+
+        let raw_output = CellOutput::new(block_reward, Bytes::default(), target_lock, None);
+
+        let output = self.custom_output(block_reward, raw_output)?;
+
+        Ok(TransactionBuilder::default()
+            .input(input)
+            .output(output)
+            .witness(witness)
+            .build())
+    }
+
+    fn custom_output(
+        &self,
+        reward: Capacity,
+        mut output: CellOutput,
+    ) -> Result<CellOutput, FailureError> {
+        let occupied_capacity = output.occupied_capacity()?;
+
+        if reward < occupied_capacity {
+            return Err(TransactionError::InsufficientCellCapacity.into());
+        }
+
+        let mut data = self.config.data.clone().into_bytes();
+
+        if !data.is_empty() {
+            let data_max_len = (reward.as_u64() - occupied_capacity.as_u64()) as usize;
+
+            // User-defined data has a risk of exceeding capacity
+            // just truncate it
+            if data.len() > data_max_len {
+                data.truncate(data_max_len);
+            }
+
+            output.data = data;
+        }
+
+        Ok(output)
     }
 
     /// A block B1 is considered to be the uncle of
@@ -498,9 +536,7 @@ mod tests {
     use ckb_store::{ChainKVStore, ChainStore};
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
-    use jsonrpc_types::{BlockTemplate, CellbaseTemplate};
     use numext_fixed_hash::H256;
-    use std::convert::TryInto;
     use std::sync::Arc;
 
     fn start_chain(
@@ -536,6 +572,7 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: H256::zero(),
             args: vec![],
+            data: JsonBytes::default(),
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
         let mut candidate_uncles = LruCache::new(MAX_CANDIDATE_UNCLES);
@@ -544,60 +581,8 @@ mod tests {
             .get_block_template(None, None, None, &mut candidate_uncles)
             .unwrap();
 
-        let BlockTemplate {
-            version,
-            difficulty,
-            current_time,
-            number,
-            epoch,
-            parent_hash,
-            uncles, // Vec<UncleTemplate>
-            transactions, // Vec<TransactionTemplate>
-            proposals, // Vec<ProposalShortId>
-            cellbase, // CellbaseTemplate
-            ..
-                // cycles_limit,
-                // bytes_limit,
-                // uncles_count_limit,
-        } = block_template;
-
-        let cellbase = {
-            let CellbaseTemplate { data, .. } = cellbase;
-            data
-        };
-
-        let header_builder = HeaderBuilder::default()
-            .version(version.0)
-            .number(number.0)
-            .epoch(epoch.0)
-            .difficulty(difficulty)
-            .timestamp(current_time.0)
-            .parent_hash(parent_hash);
-
-        let uncles: Vec<UncleBlock> = uncles
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()
-            .unwrap();
-        let transactions: Vec<Transaction> = transactions
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()
-            .unwrap();
-
-        let proposals: Vec<ProposalShortId> = proposals
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<_, _>>()
-            .unwrap();
-
-        let block = BlockBuilder::default()
-            .uncles(uncles)
-            .transaction(cellbase.try_into().unwrap())
-            .transactions(transactions)
-            .proposals(proposals)
-            .header_builder(header_builder)
-            .build();
+        let block: BlockBuilder = block_template.into();
+        let block = block.build();
 
         let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
         let header_verify_result = {
@@ -654,12 +639,16 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: H256::zero(),
             args: vec![],
+            data: JsonBytes::default(),
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
         let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");
         let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
 
-        let genesis = shared.block_header(&shared.block_hash(0).unwrap()).unwrap();
+        let genesis = shared
+            .store()
+            .get_block_header(&shared.store().get_block_hash(0).unwrap())
+            .unwrap();
 
         let block0_0 = gen_block(&genesis, 11, &epoch);
         let block0_1 = gen_block(&genesis, 10, &epoch);

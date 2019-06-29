@@ -3,20 +3,19 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1560578400858
-# Difficulty of the block 161029 in rylai-v2
-difficulty = "0x9292"
+timestamp = 1561788000134
+# Double the difficulty of the block 161029 in rylai-v2
+difficulty = "0x12524"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xc3b42742ea8658c93de23f16a10c43212bd8b24a6bde5a93b8446dba3fb2a728"
-issued_cells = []
+hash = "0xd5c54b0c699ef009edfedb00d8fb8198ac5ce1e9e266b9110a8972e1b05aba88"
 
 [genesis.seal]
 nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = "rylai-v3 ab14b977 feat: `ckb init` supports setting block assembler <ian 2019-06-13 14:33:58 +0800>"
+message = "rylai-v4 3f6b717c feat: proposer reward <zhangsoledad 2019-05-30 20:47:11 +0800>"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
@@ -26,12 +25,31 @@ args = []
 # the directory containing this config file.
 [genesis.system_cells]
 files = [
-  "cells/secp256k1_blake160_sighash_all"
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
 ]
 
 [genesis.system_cells.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
+
+[genesis.bootstrap_lock]
+code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
+# Lock for developers to run tests
+args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+
+# Locks for developers to run tests
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
+lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
+lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
+lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 
 [params]
 epoch_reward = 1_250_000_00000000
