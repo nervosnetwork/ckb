@@ -558,6 +558,11 @@ impl HeaderView {
         }
         Some(current.clone()).map(HeaderView::into_inner)
     }
+
+    pub fn is_better_than(&self, total_difficulty: &U256, hash: &H256) -> bool {
+        self.total_difficulty() > total_difficulty
+            || (self.total_difficulty() == total_difficulty && self.hash() < hash)
+    }
 }
 
 // Compute what height to jump back to with the skip pointer.
