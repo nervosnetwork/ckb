@@ -3,12 +3,11 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1560578400858
+timestamp = 1561788000134
 difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xb143225a1132509b8754eaa9881f09ececa3ff4e7ee0cd4fa68d1663987ff959"
-issued_cells = []
+hash = "0x3213bf2e4331a54a45e688dde88f3d536a07687ba17c5df7cc4ad66cebdb4ec4"
 
 [genesis.seal]
 nonce = 0
@@ -34,8 +33,23 @@ code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
 
 [genesis.bootstrap_lock]
-code_hash = "0x9e3b3557f11b2b3532ce352bfe8017e9fd11d154c4c7f9b7aaaa1e621b539a08"
-args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
+code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+# Lock for developers to run tests
+args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+
+# Locks for developers to run tests
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 
 [params]
 epoch_reward = 1_250_000_00000000
