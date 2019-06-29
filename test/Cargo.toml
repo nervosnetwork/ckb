@@ -19,6 +19,9 @@ ckb-chain-spec = { path = "../spec" }
 ckb-rpc= { path = "../rpc" }
 ckb-network-alert = { path = "../util/network-alert" }
 ckb-crypto = { path = "../util/crypto" }
+ckb-dao = { path = "../util/dao" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils" }
+fnv = "1.0.3"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 tempfile = "3.0"
 jsonrpc-client-core = "0.5.0"

@@ -67,6 +67,26 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
         Ok(Capacity::shannons(reward as u64))
     }
 
+    // Notice unlike primary_block_reward and secondary_epoch_reward above,
+    // this starts calculating from parent, not target header.
+    pub fn base_block_reward(&self, parent: &Header) -> Result<Capacity, FailureError> {
+        let target_number = self
+            .consensus
+            .finalize_target(parent.number() + 1)
+            .ok_or(Error::InvalidHeader)?;
+        let target = self
+            .store
+            .get_ancestor(parent.hash(), target_number)
+            .ok_or(Error::InvalidHeader)?;
+
+        let primary_block_reward = self.primary_block_reward(&target)?;
+        let secondary_block_reward = self.secondary_block_reward(&target)?;
+
+        primary_block_reward
+            .safe_add(secondary_block_reward)
+            .map_err(Into::into)
+    }
+
     pub fn dao_field(
         &self,
         rtxs: &[ResolvedTransaction],

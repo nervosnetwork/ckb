@@ -7,5 +7,7 @@ license = "MIT"
 
 [dependencies]
 ckb-core = { path = "../../core" }
+ckb-db = { path = "../../db" }
 ckb-hash = { path = "../hash" }
+ckb-store = { path = "../../store" }
 lazy_static = "1.3.0"

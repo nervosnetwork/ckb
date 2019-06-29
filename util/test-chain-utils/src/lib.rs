@@ -1,5 +1,6 @@
 #[macro_use]
 mod macros;
+mod mock_store;
 
 use ckb_core::script::Script;
 use ckb_core::transaction::CellOutput;
@@ -9,6 +10,8 @@ use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+
+pub use mock_store::MockStore;
 
 lazy_static! {
     static ref SUCCESS_CELL: (CellOutput, Script) = {

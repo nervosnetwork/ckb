@@ -5,13 +5,18 @@ use crate::utils::{
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::BlockBuilder;
+use ckb_core::cell::{resolve_transaction, ResolvedTransaction};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, TransactionBuilder};
+use ckb_dao::DaoCalculator;
 use ckb_network::PeerIndex;
 use ckb_protocol::{get_root, RelayMessage, RelayPayload, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
+use ckb_test_chain_utils::MockStore;
+use fnv::FnvHashSet;
 use log::info;
 use numext_fixed_hash::{h256, H256};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub struct CompactBlockBasic;
@@ -214,23 +219,57 @@ impl CompactBlockBasic {
         );
         node.generate_blocks(6);
 
+        let consensus = node.consensus.as_ref().unwrap();
+        let mut mock_store = MockStore::default();
+        for i in 0..=node.get_tip_block_number() {
+            mock_store.insert_block(&node.get_block_by_number(i), consensus.genesis_epoch_ext());
+        }
+
         let parent = node
             .new_block_builder(None, None, None)
             .transaction(new_tx)
             .build();
+        let mut seen_inputs = FnvHashSet::default();
+        let rtxs: Vec<ResolvedTransaction> = parent
+            .transactions()
+            .iter()
+            .map(|tx| resolve_transaction(&tx, &mut seen_inputs, &mock_store, &mock_store).unwrap())
+            .collect();
+        let calculator = DaoCalculator::new(&consensus, Arc::clone(&mock_store.0));
+        let dao = calculator
+            .dao_field(&rtxs, node.get_tip_block().header())
+            .unwrap();
+        let header = HeaderBuilder::from_header(parent.header().to_owned())
+            .dao(dao)
+            .build();
+        let parent = BlockBuilder::from_block(parent).header(header).build();
+        mock_store.insert_block(&parent, consensus.genesis_epoch_ext());
+
         let fakebase = node.new_block(None, None, None).transactions()[0].clone();
+        let mut output = fakebase.outputs()[0].clone();
+
+        output.capacity = calculator.base_block_reward(parent.header()).unwrap();
         let cellbase = TransactionBuilder::default()
-            .output(fakebase.outputs()[0].clone())
+            .output(output)
             .witness(fakebase.witnesses()[0].clone())
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))
             .build();
+        let rtxs =
+            vec![
+                resolve_transaction(&cellbase, &mut Default::default(), &mock_store, &mock_store)
+                    .unwrap(),
+            ];
+        let dao = DaoCalculator::new(&consensus, Arc::clone(&mock_store.0))
+            .dao_field(&rtxs, parent.header())
+            .unwrap();
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header_builder(
                 HeaderBuilder::from_header(parent.header().to_owned())
                     .number(parent.header().number() + 1)
                     .timestamp(parent.header().timestamp() + 1)
-                    .parent_hash(parent.header().hash().to_owned()),
+                    .parent_hash(parent.header().hash().to_owned())
+                    .dao(dao),
             )
             .build();
         let old_tip = node.get_tip_block().header().number();
@@ -269,7 +308,7 @@ impl CompactBlockBasic {
             build_block_transactions(&parent),
         );
 
-        let ret = wait_until(10, move || {
+        let ret = wait_until(20, move || {
             node.get_tip_block().header().number() == old_tip + 2
         });
         assert!(
