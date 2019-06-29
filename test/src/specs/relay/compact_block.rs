@@ -308,7 +308,7 @@ impl CompactBlockBasic {
             build_block_transactions(&parent),
         );
 
-        let ret = wait_until(10, move || {
+        let ret = wait_until(20, move || {
             node.get_tip_block().header().number() == old_tip + 2
         });
         assert!(
