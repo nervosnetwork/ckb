@@ -185,7 +185,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             .iter()
             .chain(block.uncles.iter().flat_map(UncleBlock::proposals));
         let fresh_proposals: Vec<ProposalShortId> = proposals
-            .filter(|id| !chain_state.contains_proposal_id(id))
+            .filter(|id| !chain_state.tx_pool().contains_proposal_id(id))
             .cloned()
             .collect();
         let to_ask_proposals: Vec<ProposalShortId> = self
