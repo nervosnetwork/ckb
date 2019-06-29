@@ -27,4 +27,8 @@ impl Spec for BlockRelayBasic {
         let ret = wait_until(10, || rpc_client.get_block(hash.clone()).is_some());
         assert!(ret, "Block should be relayed to node2");
     }
+
+    fn num_nodes(&self) -> usize {
+        3
+    }
 }

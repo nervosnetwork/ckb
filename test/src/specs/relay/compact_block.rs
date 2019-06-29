@@ -354,4 +354,8 @@ impl Spec for CompactBlockBasic {
             spec_config.params.cellbase_maturity = 5;
         })
     }
+
+    fn num_nodes(&self) -> usize {
+        2
+    }
 }
