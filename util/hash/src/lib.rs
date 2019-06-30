@@ -8,6 +8,35 @@ pub const BLANK_HASH: [u8; 32] = [
     67, 211, 136, 197, 161, 47, 66, 181, 99, 61, 22, 62,
 ];
 
+pub struct Blake2bWriter(Blake2b);
+impl Blake2bWriter {
+    pub fn new() -> Blake2bWriter {
+        Blake2bWriter(new_blake2b())
+    }
+
+    pub fn finalize(self) -> [u8; 32] {
+        let mut result = [0u8; 32];
+        self.0.finalize(&mut result);
+        result
+    }
+}
+
+impl Default for Blake2bWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::io::Write for Blake2bWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 pub fn new_blake2b() -> Blake2b {
     Blake2bBuilder::new(32)
         .personal(CKB_HASH_PERSONALIZATION)

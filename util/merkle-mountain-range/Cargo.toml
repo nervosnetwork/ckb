@@ -1,0 +1,14 @@
+[package]
+name = "merkle-mountain-range"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+failure = "0.1.5"
+bytes = "0.4.12"
+ckb-hash = { path = "../hash" }
+ckb-db = { path = "../../db" }
+
+[dev-dependencies]
+faster-hex = "0.3"
