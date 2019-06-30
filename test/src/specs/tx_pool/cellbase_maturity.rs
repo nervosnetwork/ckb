@@ -47,10 +47,6 @@ impl Spec for CellbaseMaturity {
         node.assert_tx_pool_size(0, 0);
     }
 
-    fn num_nodes(&self) -> usize {
-        1
-    }
-
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
             spec_config.params.cellbase_maturity = MATURITY;

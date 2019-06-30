@@ -42,10 +42,6 @@ impl Spec for SizeLimit {
         node.assert_tx_pool_statics(0, 0);
     }
 
-    fn num_nodes(&self) -> usize {
-        1
-    }
-
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         Box::new(|config| {
             config.tx_pool.max_mem_size = 740;
@@ -92,10 +88,6 @@ impl Spec for CyclesLimit {
         });
         node.generate_block();
         node.assert_tx_pool_statics(0, 0);
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {

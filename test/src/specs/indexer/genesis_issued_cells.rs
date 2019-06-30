@@ -34,10 +34,6 @@ impl Spec for GenesisIssuedCells {
         }
     }
 
-    fn num_nodes(&self) -> usize {
-        1
-    }
-
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
             spec_config.genesis.issued_cells = vec![IssuedCell {

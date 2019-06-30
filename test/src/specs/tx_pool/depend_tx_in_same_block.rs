@@ -41,8 +41,4 @@ impl Spec for DepentTxInSameBlock {
         assert!(commit_txs_hash.contains(&&tx_hash_0));
         assert!(commit_txs_hash.contains(&&tx_hash_1));
     }
-
-    fn num_nodes(&self) -> usize {
-        1
-    }
 }

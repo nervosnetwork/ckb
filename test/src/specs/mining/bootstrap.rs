@@ -51,10 +51,6 @@ impl Spec for BootstrapCellbase {
         )
     }
 
-    fn num_nodes(&self) -> usize {
-        1
-    }
-
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
             spec_config.genesis.bootstrap_lock = CoreScript {

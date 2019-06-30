@@ -32,8 +32,4 @@ impl Spec for TemplateSizeLimit {
         let new_block = node.new_block(Some(1000), None, None);
         assert_eq!(new_block.transactions().len(), 5);
     }
-
-    fn num_nodes(&self) -> usize {
-        1
-    }
 }

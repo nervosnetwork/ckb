@@ -17,10 +17,6 @@ impl Spec for MiningBasic {
         self.test_basic(node);
         self.test_block_template_cache(node);
     }
-
-    fn num_nodes(&self) -> usize {
-        1
-    }
 }
 
 impl MiningBasic {

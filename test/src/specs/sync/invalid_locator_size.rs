@@ -39,10 +39,6 @@ impl Spec for InvalidLocatorSize {
         assert!(!ret, "Node0 should ban test node");
     }
 
-    fn num_nodes(&self) -> usize {
-        1
-    }
-
     fn test_protocols(&self) -> Vec<TestProtocol> {
         vec![TestProtocol::sync()]
     }
