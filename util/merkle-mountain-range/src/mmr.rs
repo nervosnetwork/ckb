@@ -4,45 +4,21 @@
 //! https://github.com/mimblewimble/grin/blob/master/doc/mmr.md#structure
 //! https://github.com/mimblewimble/grin/blob/0ff6763ee64e5a14e70ddd4642b99789a1648a32/core/src/core/pmmr.rs#L606
 
-use bytes::Bytes;
-use ckb_db::{Col, DbBatch, KeyValueDB, Result as DbResult};
-use ckb_hash::Blake2bWriter;
-use failure::Error;
+use crate::error::Result;
+use crate::mmr_store::MMRStore;
+use crate::MerkleElem;
+use ckb_db::KeyValueDB;
+use std::borrow::Cow;
 use std::convert::TryInto;
-use std::io::Write;
+use std::marker::PhantomData;
 
-pub struct MMR<DB> {
+pub struct MMR<Elem, DB> {
     mmr_size: u64,
-    store: MMRStore<DB>,
+    store: MMRStore<Elem, DB>,
+    merkle_elem: PhantomData<Elem>,
 }
 
-pub type Result<T> = ::std::result::Result<T, Error>;
-
-pub trait Hashable {
-    fn hash<W: Write>(self, hasher: &mut W) -> Result<()>;
-}
-
-impl Hashable for &Bytes {
-    fn hash<W: Write>(self, hasher: &mut W) -> Result<()> {
-        hasher.write_all(self)?;
-        Ok(())
-    }
-}
-
-fn merge_hash<H: Hashable>(lhs: H, rhs: H) -> Result<Bytes> {
-    let mut hasher = Blake2bWriter::new();
-    lhs.hash(&mut hasher)?;
-    rhs.hash(&mut hasher)?;
-    Ok(Bytes::from(&hasher.finalize()[..]))
-}
-
-fn get_hash<H: Hashable>(elem: H) -> Result<Bytes> {
-    let mut hasher = Blake2bWriter::new();
-    elem.hash(&mut hasher)?;
-    Ok(Bytes::from(&hasher.finalize()[..]))
-}
-
-fn tree_height(mut pos: u64) -> u64 {
+fn pos_height_in_tree(mut pos: u64) -> u64 {
     pos += 1;
     fn all_ones(num: u64) -> bool {
         num.count_zeros() == num.leading_zeros()
@@ -60,8 +36,12 @@ fn tree_height(mut pos: u64) -> u64 {
     (64 - pos.leading_zeros() - 1).into()
 }
 
+fn parent_offset(height: u32) -> u64 {
+    2 << height
+}
+
 fn sibling_offset(height: u32) -> u64 {
-    return (2 << height) - 1;
+    (2 << height) - 1
 }
 
 fn get_peaks(mmr_size: u64) -> Vec<u64> {
@@ -89,7 +69,7 @@ fn get_right_peak(mut height: u32, mut pos: u64, mmr_size: u64) -> Option<(u32, 
             return None;
         }
         // move to left child
-        pos -= 2 << height - 1;
+        pos -= parent_offset(height - 1);
         height -= 1;
     }
     Some((height, pos))
@@ -110,101 +90,82 @@ fn left_peak_height_pos(mmr_size: u64) -> (u32, u64) {
     (height - 1, prev_pos)
 }
 
-pub struct MMRStore<DB: Sized> {
-    db: DB,
-    col: Col,
-}
-
-impl<DB: KeyValueDB> MMRStore<DB> {
-    pub fn new(db: DB, col: Col) -> Self {
-        MMRStore { db, col }
-    }
-    fn get_data(&self, pos: u64) -> DbResult<Option<Bytes>> {
-        self.db
-            .read(self.col, &pos.to_le_bytes()[..])
-            .map(|r| r.map(Into::into))
-    }
-    fn append(&self, pos: u64, hashes: &[Bytes]) -> DbResult<()> {
-        let mut batch = self.db.batch()?;
-        for (offset, hash) in hashes.into_iter().enumerate() {
-            let pos: u64 = pos + (offset as u64);
-            batch.insert(self.col, &pos.to_le_bytes()[..], hash)?;
+impl<Elem: MerkleElem + Clone + Eq, DB: KeyValueDB> MMR<Elem, DB> {
+    pub fn new(mmr_size: u64, store: MMRStore<Elem, DB>) -> Self {
+        MMR {
+            store,
+            mmr_size,
+            merkle_elem: PhantomData,
         }
-        batch.commit()
-    }
-}
-
-impl<DB: KeyValueDB> MMR<DB> {
-    pub fn new(mmr_size: u64, store: MMRStore<DB>) -> Self {
-        MMR { store, mmr_size }
     }
 
     // get data from memory hashes
-    fn get_mem_data(&self, pos: u64, hashes: &[Bytes]) -> DbResult<Bytes> {
+    fn get_mem_data<'a>(&self, pos: u64, hashes: &'a [Elem]) -> Result<Cow<'a, Elem>> {
         let pos_offset = pos.checked_sub(self.mmr_size);
         match pos_offset.and_then(|i| hashes.get(i as usize)) {
-            Some(hash) => Ok(hash.to_owned()),
-            None => Ok(self.store.get_data(pos)?.expect("must exists")),
+            Some(elem) => Ok(Cow::Borrowed(elem)),
+            None => Ok(Cow::Owned(self.store.get_data(pos)?.expect("must exists"))),
         }
     }
     // push a element and return position
-    pub fn push<T: Hashable>(&mut self, elem: T) -> Result<u64> {
-        let mut hashes = Vec::new();
+    pub fn push(&mut self, elem: Elem) -> Result<u64> {
+        let mut elems: Vec<Elem> = Vec::new();
         // position of new elem
         let elem_pos = self.mmr_size;
-        hashes.push(get_hash(elem)?);
-        let mut height = 0;
+        elems.push(elem);
+        let mut height = 0u32;
         let mut pos = elem_pos;
         // continue to merge tree node if next pos heigher than current
-        while tree_height(pos + 1) > height {
+        while pos_height_in_tree(pos + 1) > u64::from(height) {
             pos += 1;
-            let left_pos = pos - (2 << height);
+            let left_pos = pos - parent_offset(height);
             let right_pos = left_pos + sibling_offset(height.try_into()?);
-            let left_elem = self.get_mem_data(left_pos, &hashes)?;
-            let right_elem = self.get_mem_data(right_pos, &hashes)?;
-            hashes.push(merge_hash(&left_elem, &right_elem)?);
+            let left_elem = self.get_mem_data(left_pos, &elems)?;
+            let right_elem = self.get_mem_data(right_pos, &elems)?;
+            elems.push(Elem::merge(&left_elem, &right_elem)?);
             height += 1
         }
         // store hashes
-        self.store.append(elem_pos, &hashes)?;
+        self.store.append(elem_pos, &elems)?;
         // update mmr_size
         self.mmr_size = pos + 1;
         Ok(elem_pos)
     }
 
     /// get_root
-    pub fn get_root(&self) -> Result<Option<Bytes>> {
+    pub fn get_root(&self) -> Result<Option<Elem>> {
         let peaks = get_peaks(self.mmr_size);
         self.bag_rhs_peaks(0, &peaks)
     }
 
-    fn bag_rhs_peaks(&self, skip_peak_pos: u64, peaks: &[u64]) -> Result<Option<Bytes>> {
-        let mut rhs_peak_hashes: Vec<Bytes> = peaks
+    fn bag_rhs_peaks(&self, skip_peak_pos: u64, peaks: &[u64]) -> Result<Option<Elem>> {
+        let mut rhs_peak_hashes: Vec<Elem> = peaks
             .into_iter()
             .filter(|&&p| p > skip_peak_pos)
             .map(|&p| self.store.get_data(p))
-            .collect::<DbResult<Option<_>>>()?
+            .collect::<Result<Option<_>>>()?
             .expect("data must exists");
         while rhs_peak_hashes.len() > 1 {
             let right_peak = rhs_peak_hashes.pop().expect("pop");
             let left_peak = rhs_peak_hashes.pop().expect("pop");
-            rhs_peak_hashes.push(merge_hash(&right_peak, &left_peak)?);
+            rhs_peak_hashes.push(Elem::merge(&right_peak, &left_peak)?);
         }
         Ok(rhs_peak_hashes.pop())
     }
 
-    pub fn gen_proof(&self, mut pos: u64) -> Result<MerkleProof> {
-        let mut proof = Vec::new();
+    pub fn gen_proof(&self, mut pos: u64) -> Result<MerkleProof<Elem>> {
+        let mut proof: Vec<Elem> = Vec::new();
         let mut height = 0;
         while pos < self.mmr_size {
-            let pos_height = tree_height(pos);
-            let next_height = tree_height(pos + 1);
+            let pos_height = pos_height_in_tree(pos);
+            let next_height = pos_height_in_tree(pos + 1);
             if next_height > pos_height {
                 let sib_pos = pos - sibling_offset(height);
                 if sib_pos > self.mmr_size - 1 {
                     break;
                 }
                 proof.push(self.store.get_data(sib_pos)?.expect("must exists"));
+                // go to next pos
                 pos += 1;
             } else {
                 let sib_pos = pos + sibling_offset(height);
@@ -212,7 +173,7 @@ impl<DB: KeyValueDB> MMR<DB> {
                     break;
                 }
                 proof.push(self.store.get_data(sib_pos)?.expect("must exists"));
-                pos += 2 << height;
+                pos += parent_offset(height);
             }
             height += 1;
         }
@@ -228,50 +189,51 @@ impl<DB: KeyValueDB> MMR<DB> {
             .filter(|&&p| p < peak_pos)
             .map(|&p| self.store.get_data(p))
             .rev()
-            .collect::<DbResult<Option<_>>>()?
+            .collect::<Result<Option<_>>>()?
             .expect("must exists");
         proof.extend(lhs_peaks);
         Ok(MerkleProof::new(self.mmr_size, proof))
     }
 }
 
-pub struct MerkleProof {
+pub struct MerkleProof<Elem> {
     mmr_size: u64,
-    proof: Vec<Bytes>,
+    proof: Vec<Elem>,
 }
 
-impl MerkleProof {
-    pub fn new(mmr_size: u64, proof: Vec<Bytes>) -> Self {
+impl<Elem: MerkleElem + Eq> MerkleProof<Elem> {
+    pub fn new(mmr_size: u64, proof: Vec<Elem>) -> Self {
         MerkleProof { mmr_size, proof }
     }
 
-    pub fn verify<H: Hashable>(&self, root: Bytes, mut pos: u64, elem: H) -> Result<bool> {
+    pub fn verify(&self, root: Elem, mut pos: u64, elem: Elem) -> Result<bool> {
         let peaks = get_peaks(self.mmr_size);
-        let mut elem_hash = get_hash(elem)?;
+        let mut sum_elem = elem;
         let mut height = 0;
         for proof in &self.proof {
             if peaks.contains(&pos) {
-                elem_hash = if Some(&pos) == peaks.last() {
-                    merge_hash(&elem_hash, &proof)?
+                sum_elem = if Some(&pos) == peaks.last() {
+                    Elem::merge(&sum_elem, &proof)?
                 } else {
                     pos = *peaks.last().expect("must exists");
-                    merge_hash(proof, &elem_hash)?
+                    Elem::merge(proof, &sum_elem)?
                 };
                 continue;
             }
 
             // verify merkle path
-            let pos_height = tree_height(pos);
-            let next_height = tree_height(pos + 1);
-            elem_hash = if next_height > pos_height {
+            let pos_height = pos_height_in_tree(pos);
+            let next_height = pos_height_in_tree(pos + 1);
+            sum_elem = if next_height > pos_height {
+                // to next pos
                 pos += 1;
-                merge_hash(proof, &elem_hash)?
+                Elem::merge(proof, &sum_elem)?
             } else {
-                pos += 2 << height;
-                merge_hash(&elem_hash, proof)?
+                pos += parent_offset(height);
+                Elem::merge(&sum_elem, proof)?
             };
             height += 1
         }
-        Ok(root == elem_hash)
+        Ok(root == sum_elem)
     }
 }

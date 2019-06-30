@@ -2104,7 +2104,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "merkle-mountain-range"
 version = "0.1.0"
 dependencies = [
- "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-db 0.16.0-pre",
  "ckb-hash 0.16.0-pre",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
