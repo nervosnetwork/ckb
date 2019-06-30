@@ -104,7 +104,7 @@ impl<Elem: MerkleElem + Clone + Eq, DB: KeyValueDB> MMR<Elem, DB> {
         let pos_offset = pos.checked_sub(self.mmr_size);
         match pos_offset.and_then(|i| hashes.get(i as usize)) {
             Some(elem) => Ok(Cow::Borrowed(elem)),
-            None => Ok(Cow::Owned(self.store.get_data(pos)?.expect("must exists"))),
+            None => Ok(Cow::Owned(self.store.get_elem(pos)?.expect("must exists"))),
         }
     }
     // push a element and return position
@@ -134,23 +134,26 @@ impl<Elem: MerkleElem + Clone + Eq, DB: KeyValueDB> MMR<Elem, DB> {
 
     /// get_root
     pub fn get_root(&self) -> Result<Option<Elem>> {
+        if self.mmr_size == 1 {
+            return self.store.get_elem(0);
+        }
         let peaks = get_peaks(self.mmr_size);
         self.bag_rhs_peaks(0, &peaks)
     }
 
     fn bag_rhs_peaks(&self, skip_peak_pos: u64, peaks: &[u64]) -> Result<Option<Elem>> {
-        let mut rhs_peak_hashes: Vec<Elem> = peaks
+        let mut rhs_peak_elems: Vec<Elem> = peaks
             .into_iter()
             .filter(|&&p| p > skip_peak_pos)
-            .map(|&p| self.store.get_data(p))
+            .map(|&p| self.store.get_elem(p))
             .collect::<Result<Option<_>>>()?
             .expect("data must exists");
-        while rhs_peak_hashes.len() > 1 {
-            let right_peak = rhs_peak_hashes.pop().expect("pop");
-            let left_peak = rhs_peak_hashes.pop().expect("pop");
-            rhs_peak_hashes.push(Elem::merge(&right_peak, &left_peak)?);
+        while rhs_peak_elems.len() > 1 {
+            let right_peak = rhs_peak_elems.pop().expect("pop");
+            let left_peak = rhs_peak_elems.pop().expect("pop");
+            rhs_peak_elems.push(Elem::merge(&right_peak, &left_peak)?);
         }
-        Ok(rhs_peak_hashes.pop())
+        Ok(rhs_peak_elems.pop())
     }
 
     pub fn gen_proof(&self, mut pos: u64) -> Result<MerkleProof<Elem>> {
@@ -164,7 +167,7 @@ impl<Elem: MerkleElem + Clone + Eq, DB: KeyValueDB> MMR<Elem, DB> {
                 if sib_pos > self.mmr_size - 1 {
                     break;
                 }
-                proof.push(self.store.get_data(sib_pos)?.expect("must exists"));
+                proof.push(self.store.get_elem(sib_pos)?.expect("must exists"));
                 // go to next pos
                 pos += 1;
             } else {
@@ -172,7 +175,7 @@ impl<Elem: MerkleElem + Clone + Eq, DB: KeyValueDB> MMR<Elem, DB> {
                 if sib_pos > self.mmr_size - 1 {
                     break;
                 }
-                proof.push(self.store.get_data(sib_pos)?.expect("must exists"));
+                proof.push(self.store.get_elem(sib_pos)?.expect("must exists"));
                 pos += parent_offset(height);
             }
             height += 1;
@@ -187,7 +190,7 @@ impl<Elem: MerkleElem + Clone + Eq, DB: KeyValueDB> MMR<Elem, DB> {
         let lhs_peaks: Vec<_> = peaks
             .iter()
             .filter(|&&p| p < peak_pos)
-            .map(|&p| self.store.get_data(p))
+            .map(|&p| self.store.get_elem(p))
             .rev()
             .collect::<Result<Option<_>>>()?
             .expect("must exists");

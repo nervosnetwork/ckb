@@ -17,7 +17,7 @@ impl<Elem: MerkleElem, DB: KeyValueDB> MMRStore<Elem, DB> {
             merkle_elem: PhantomData,
         }
     }
-    pub fn get_data(&self, pos: u64) -> Result<Option<Elem>> {
+    pub fn get_elem(&self, pos: u64) -> Result<Option<Elem>> {
         match self.db.read(self.col, &pos.to_le_bytes()[..])? {
             Some(data) => Ok(Some(Elem::deserialize(data)?)),
             None => Ok(None),

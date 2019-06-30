@@ -86,3 +86,14 @@ fn test_mmr_first_elem_proof() {
 fn test_mmr_last_elem_proof() {
     test_mmr(11, 10);
 }
+
+#[test]
+fn test_mmr_1_elem() {
+    test_mmr(1, 0);
+}
+
+#[test]
+fn test_mmr_2_elems() {
+    test_mmr(2, 0);
+    test_mmr(2, 1);
+}
