@@ -607,6 +607,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-merkle-mountain-range"
+version = "0.1.0"
+dependencies = [
+ "ckb-db 0.16.0-pre",
+ "ckb-hash 0.16.0-pre",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "ckb-merkle-tree"
 version = "0.17.0-pre"
 dependencies = [
@@ -2099,16 +2109,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "merkle-cbt"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "merkle-mountain-range"
-version = "0.1.0"
-dependencies = [
- "ckb-db 0.16.0-pre",
- "ckb-hash 0.16.0-pre",
- "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
 
 [[package]]
 name = "mime"
