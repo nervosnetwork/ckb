@@ -329,32 +329,25 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let old_tip = node.get_tip_block().header().number();
 
         net.send(
-            NetworkProtocol::SYNC.into(),
-            peer_id,
-            build_header(parent.header()),
-        );
-        net.send(
             NetworkProtocol::RELAY.into(),
             peer_id,
             build_compact_block(&parent),
+        );
+        // pending for GetBlockTransactions
+        clear_messages(&net);
+
+        net.send(
+            NetworkProtocol::SYNC.into(),
+            peer_id,
+            build_header(parent.header()),
         );
         net.send(
             NetworkProtocol::SYNC.into(),
             peer_id,
             build_header(block.header()),
         );
+        clear_messages(&net);
 
-        // Wait until node0 send GetBlocks
-        loop {
-            let (_, _, data) = net
-                .receive_timeout(Duration::from_secs(10))
-                .expect("wait GetBlocks");
-            if let Ok(message) = get_root::<SyncMessage>(&data) {
-                if message.payload_type() == SyncPayload::GetBlocks {
-                    break;
-                }
-            }
-        }
         net.send(NetworkProtocol::SYNC.into(), peer_id, build_block(&block));
         net.send(
             NetworkProtocol::RELAY.into(),
