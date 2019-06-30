@@ -5,14 +5,12 @@ use ckb_core::block::Block;
 use ckb_core::script::Script as CoreScript;
 use ckb_core::Bytes;
 use ckb_jsonrpc_types::JsonBytes;
-use log::info;
 use numext_fixed_hash::{h256, H256};
 
 pub struct BootstrapCellbase;
 
 impl Spec for BootstrapCellbase {
     fn run(&self, net: Net) {
-        info!("Running BootstrapCellbase");
         let node = &net.nodes[0];
 
         let blk_hashes: Vec<_> = (0..=DEFAULT_TX_PROPOSAL_WINDOW.1)

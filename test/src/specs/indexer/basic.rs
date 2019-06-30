@@ -6,7 +6,6 @@ pub struct IndexerBasic;
 
 impl Spec for IndexerBasic {
     fn run(&self, net: Net) {
-        info!("Running IndexerBasic");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
 

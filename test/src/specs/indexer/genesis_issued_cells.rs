@@ -10,7 +10,6 @@ pub struct GenesisIssuedCells;
 
 impl Spec for GenesisIssuedCells {
     fn run(&self, net: Net) {
-        info!("Running GenesisIssuedCells");
         let node0 = &net.nodes[0];
 
         let lock_hash = Script {

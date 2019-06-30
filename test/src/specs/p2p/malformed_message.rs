@@ -8,8 +8,6 @@ pub struct MalformedMessage;
 
 impl Spec for MalformedMessage {
     fn run(&self, net: Net) {
-        info!("Running MalformedMessage");
-
         info!("Connect node0");
         let node0 = &net.nodes[0];
         net.connect(node0);

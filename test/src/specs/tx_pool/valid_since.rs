@@ -16,7 +16,6 @@ pub struct ValidSince;
 // TODO add cases verify compact block(forks) including transaction of which since != 0
 impl Spec for ValidSince {
     fn run(&self, net: Net) {
-        info!("Running ValidSince");
         self.test_since_relative_block_number(&net.nodes[0]);
         self.test_since_absolute_block_number(&net.nodes[0]);
         self.test_since_relative_median_time(&net.nodes[0]);

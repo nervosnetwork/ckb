@@ -7,7 +7,6 @@ pub struct DifferentTxsWithSameInput;
 
 impl Spec for DifferentTxsWithSameInput {
     fn run(&self, net: Net) {
-        info!("Running DifferentTxsWithSameInput");
         let node0 = &net.nodes[0];
 
         node0.generate_block();

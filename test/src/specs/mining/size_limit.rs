@@ -5,7 +5,6 @@ pub struct TemplateSizeLimit;
 
 impl Spec for TemplateSizeLimit {
     fn run(&self, net: Net) {
-        info!("Running TemplateSizeLimit");
         let node = &net.nodes[0];
 
         info!("Generate 1 block");

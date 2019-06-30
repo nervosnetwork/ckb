@@ -6,7 +6,6 @@ pub struct SizeLimit;
 
 impl Spec for SizeLimit {
     fn run(&self, net: Net) {
-        info!("Running TxPoolSizeLimit");
         let node = &net.nodes[0];
 
         info!("Generate 1 block on node");
@@ -54,7 +53,6 @@ pub struct CyclesLimit;
 
 impl Spec for CyclesLimit {
     fn run(&self, net: Net) {
-        info!("Running TxPoolCyclesLimit");
         let node = &net.nodes[0];
 
         info!("Generate 1 block on node");

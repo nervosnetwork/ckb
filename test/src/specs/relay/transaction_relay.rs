@@ -8,7 +8,6 @@ pub struct TransactionRelayBasic;
 
 impl Spec for TransactionRelayBasic {
     fn run(&self, net: Net) {
-        info!("Running TransactionRelayBasic");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -55,8 +54,6 @@ pub struct TransactionRelayMultiple;
 
 impl Spec for TransactionRelayMultiple {
     fn run(&self, net: Net) {
-        info!("Running TransactionRelayMultiple");
-
         let node0 = &net.nodes[0];
         // generate 1 block to exit IBD mode.
         let block = node0.new_block(None, None, None);

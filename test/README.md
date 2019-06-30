@@ -8,3 +8,9 @@ The following command assumes that CKB binary is built as `../target/release/ckb
 ```bash
 cargo run
 ```
+
+Run single spec:
+
+```bash
+cargo run ../target/debug/ckb 9000 spec_name
+```

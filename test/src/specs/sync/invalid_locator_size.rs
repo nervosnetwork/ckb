@@ -10,8 +10,6 @@ pub struct InvalidLocatorSize;
 
 impl Spec for InvalidLocatorSize {
     fn run(&self, net: Net) {
-        info!("Running InvalidLocatorSize");
-
         info!("Connect node0");
         let node0 = &net.nodes[0];
         net.connect(node0);

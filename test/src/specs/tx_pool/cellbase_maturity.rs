@@ -9,7 +9,6 @@ pub struct CellbaseMaturity;
 
 impl Spec for CellbaseMaturity {
     fn run(&self, net: Net) {
-        info!("Running CellbaseMaturity");
         let node = &net.nodes[0];
 
         info!("Generate 1 block");

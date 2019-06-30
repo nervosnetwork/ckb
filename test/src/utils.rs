@@ -97,7 +97,7 @@ where
 
 // Clear net message channel
 pub fn clear_messages(net: &Net) {
-    while let Ok(_) = net.receive_timeout(Duration::new(0, 100)) {}
+    while let Ok(_) = net.receive_timeout(Duration::new(10, 0)) {}
 }
 
 pub fn since_from_relative_block_number(block_number: BlockNumber) -> u64 {

@@ -1,6 +1,7 @@
 use ckb_logger::{self, Config};
 use ckb_test::specs::*;
 use ckb_test::Spec;
+use log::info;
 use std::collections::HashMap;
 use std::env;
 
@@ -21,7 +22,13 @@ fn main() {
         .expect("invalid port number");
     let mut specs: HashMap<&str, Box<dyn Spec>> = HashMap::new();
     specs.insert("block_relay_basic", Box::new(BlockRelayBasic));
-    specs.insert("block_sync_basic", Box::new(BlockSyncBasic));
+    specs.insert("block_sync_from_one", Box::new(BlockSyncFromOne));
+    specs.insert("block_sync_forks", Box::new(BlockSyncForks));
+    specs.insert(
+        "block_sync_duplicated_and_reconnect",
+        Box::new(BlockSyncDuplicatedAndReconnect),
+    );
+    specs.insert("block_sync_orphan_blocks", Box::new(BlockSyncOrphanBlocks));
     specs.insert("sync_timeout", Box::new(SyncTimeout));
     specs.insert("chain_fork_1", Box::new(ChainFork1));
     specs.insert("chain_fork_2", Box::new(ChainFork2));
@@ -52,7 +59,24 @@ fn main() {
         "different_txs_with_same_input",
         Box::new(DifferentTxsWithSameInput),
     );
-    specs.insert("compact_block_basic", Box::new(CompactBlockBasic));
+    specs.insert("compact_block_empty", Box::new(CompactBlockEmpty));
+    specs.insert(
+        "compact_block_empty_parent_unknown",
+        Box::new(CompactBlockEmptyParentUnknown),
+    );
+    specs.insert("compact_block_prefilled", Box::new(CompactBlockPrefilled));
+    specs.insert(
+        "compact_block_missing_txs",
+        Box::new(CompactBlockMissingTxs),
+    );
+    specs.insert(
+        "compact_block_lose_get_block_transactions",
+        Box::new(CompactBlockLoseGetBlockTransactions),
+    );
+    specs.insert(
+        "compact_block_relay_parent_of_orphan_block",
+        Box::new(CompactBlockRelayParentOfOrphanBlock),
+    );
     specs.insert("invalid_locator_size", Box::new(InvalidLocatorSize));
     specs.insert("tx_pool_size_limit", Box::new(SizeLimit));
     specs.insert("tx_pool_cycles_limit", Box::new(CyclesLimit));
@@ -66,7 +90,8 @@ fn main() {
             spec.run(net);
         }
     } else {
-        specs.values().for_each(|spec| {
+        specs.iter().for_each(|(spec_name, spec)| {
+            info!("Running {}", spec_name);
             let net = spec.setup_net(&binary, start_port);
             spec.run(net);
         })

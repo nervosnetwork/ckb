@@ -5,16 +5,17 @@ use ckb_jsonrpc_types::{ChainInfo, Timestamp};
 use ckb_network::PeerIndex;
 use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
-use log::info;
 use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::Duration;
 
-pub struct BlockSyncBasic;
+pub struct BlockSyncFromOne;
 
-impl BlockSyncBasic {
+impl Spec for BlockSyncFromOne {
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
-    fn test_sync_from_one(&self, _net: &Net, node0: &Node, node1: &Node) {
+    fn run(&self, net: Net) {
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
         assert_eq!(0, rpc_client1.get_tip_block_number());
@@ -36,8 +37,26 @@ impl BlockSyncBasic {
         );
     }
 
+    fn num_nodes(&self) -> usize {
+        2
+    }
+
+    fn connect_all(&self) -> bool {
+        false
+    }
+
+    fn test_protocols(&self) -> Vec<TestProtocol> {
+        vec![TestProtocol::sync()]
+    }
+}
+
+pub struct BlockSyncForks;
+
+impl Spec for BlockSyncForks {
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
-    fn test_sync_forks(&self, _net: &Net, node0: &Node, node1: &Node) {
+    fn run(&self, net: Net) {
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
         assert_eq!(0, rpc_client0.get_tip_block_number());
         assert_eq!(0, rpc_client1.get_tip_block_number());
@@ -84,8 +103,25 @@ impl BlockSyncBasic {
         assert_eq!(medians.len(), 2);
     }
 
+    fn num_nodes(&self) -> usize {
+        2
+    }
+
+    fn connect_all(&self) -> bool {
+        false
+    }
+
+    fn test_protocols(&self) -> Vec<TestProtocol> {
+        vec![TestProtocol::sync()]
+    }
+}
+
+pub struct BlockSyncDuplicatedAndReconnect;
+
+impl Spec for BlockSyncDuplicatedAndReconnect {
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
-    pub fn test_sync_duplicated_and_reconnect(&self, net: &Net, node: &Node) {
+    fn run(&self, net: Net) {
+        let node = &net.nodes[0];
         net.connect(node);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -96,7 +132,7 @@ impl BlockSyncBasic {
 
         // Sync a new header to `node`, `node` should send back a corresponding GetBlocks message
         let block = node.new_block(None, None, None);
-        sync_header(net, peer_id, &block);
+        sync_header(&net, peer_id, &block);
         let (_, _, data) = net
             .receive_timeout(Duration::new(10, 0))
             .expect("Expect SyncMessage");
@@ -110,7 +146,7 @@ impl BlockSyncBasic {
 
         // Sync duplicated header again, `node` should discard the duplicated one.
         // So we will not receive any response messages
-        sync_header(net, peer_id, &block);
+        sync_header(&net, peer_id, &block);
         assert!(
             net.receive_timeout(Duration::new(10, 0)).is_err(),
             "node should discard duplicated sync headers",
@@ -126,7 +162,7 @@ impl BlockSyncBasic {
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
             .expect("build connection with node");
-        sync_header(net, peer_id, &block);
+        sync_header(&net, peer_id, &block);
         let (_, _, data) = net
             .receive_timeout(Duration::new(10, 0))
             .expect("Expect SyncMessage");
@@ -139,13 +175,22 @@ impl BlockSyncBasic {
         );
 
         // Sync corresponding block entity, `node` should accept the block as tip block
-        sync_block(net, peer_id, &block);
+        sync_block(&net, peer_id, &block);
         let hash = block.header().hash().clone();
         let rpc_client = node.rpc_client();
         wait_until(10, || rpc_client.get_tip_header().hash == hash);
     }
 
-    pub fn test_sync_orphan_blocks(&self, net: &Net, node0: &Node, node1: &Node) {
+    fn test_protocols(&self) -> Vec<TestProtocol> {
+        vec![TestProtocol::sync()]
+    }
+}
+pub struct BlockSyncOrphanBlocks;
+
+impl Spec for BlockSyncOrphanBlocks {
+    fn run(&self, net: Net) {
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
         // Exit IBD mode
         node0.generate_block();
         net.connect(node0);
@@ -166,7 +211,7 @@ impl BlockSyncBasic {
 
         // Send headers to node0, keep blocks body
         blocks.iter().for_each(|block| {
-            sync_header(net, peer_id, block);
+            sync_header(&net, peer_id, block);
         });
 
         // Wait for block fetch timer
@@ -175,29 +220,19 @@ impl BlockSyncBasic {
         // Skip the next block, send the rest blocks to node0
         let first = blocks.remove(0);
         blocks.into_iter().for_each(|block| {
-            sync_block(net, peer_id, &block);
+            sync_block(&net, peer_id, &block);
         });
         let ret = wait_until(5, || rpc_client.get_tip_block_number() > tip_number);
         assert!(!ret, "node0 should stay the same");
 
         // Send that skipped first block to node0
-        sync_block(net, peer_id, &first);
+        sync_block(&net, peer_id, &first);
         let ret = wait_until(10, || rpc_client.get_tip_block_number() > tip_number + 2);
         assert!(ret, "node0 should grow up");
     }
-}
-
-impl Spec for BlockSyncBasic {
-    fn run(&self, net: Net) {
-        info!("Running BlockSyncBasic");
-        self.test_sync_forks(&net, &net.nodes[0], &net.nodes[1]);
-        self.test_sync_from_one(&net, &net.nodes[2], &net.nodes[3]);
-        self.test_sync_duplicated_and_reconnect(&net, &net.nodes[4]);
-        self.test_sync_orphan_blocks(&net, &net.nodes[5], &net.nodes[6]);
-    }
 
     fn num_nodes(&self) -> usize {
-        7
+        2
     }
 
     fn connect_all(&self) -> bool {

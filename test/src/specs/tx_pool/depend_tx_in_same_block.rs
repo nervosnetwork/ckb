@@ -6,7 +6,6 @@ pub struct DepentTxInSameBlock;
 
 impl Spec for DepentTxInSameBlock {
     fn run(&self, net: Net) {
-        info!("Running DepentTxInSameBlock");
         let node0 = &net.nodes[0];
 
         info!("Generate 2 tx in same block");
