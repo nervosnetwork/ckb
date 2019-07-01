@@ -25,7 +25,7 @@ impl<Elem: MerkleElem, DB: KeyValueDB> MMRStore<Elem, DB> {
     }
     pub fn append(&self, pos: u64, elems: &[Elem]) -> Result<()> {
         let mut batch = self.db.batch()?;
-        for (offset, elem) in elems.into_iter().enumerate() {
+        for (offset, elem) in elems.iter().enumerate() {
             let pos: u64 = pos + (offset as u64);
             batch.insert(self.col, &pos.to_le_bytes()[..], &elem.serialize()?)?;
         }

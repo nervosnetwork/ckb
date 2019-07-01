@@ -4,6 +4,7 @@ mod mmr;
 mod mmr_store;
 #[cfg(test)]
 mod tests;
+pub mod tests_util;
 
 pub use error::{Error, Result};
 pub use merkle_elem::MerkleElem;

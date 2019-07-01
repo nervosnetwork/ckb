@@ -22,9 +22,9 @@ impl Header {
     fn default() -> Self {
         Header {
             number: 0,
-            parent_hash: vec![0; 32].into(),
+            parent_hash: vec![0; 32],
             difficulty: 0,
-            chain_commitment: vec![0; 32].into(),
+            chain_commitment: vec![0; 32],
         }
     }
 

@@ -144,7 +144,7 @@ impl<Elem: MerkleElem + Clone + Eq + Debug, DB: KeyValueDB> MMR<Elem, DB> {
 
     fn bag_rhs_peaks(&self, skip_peak_pos: u64, peaks: &[u64]) -> Result<Option<Elem>> {
         let mut rhs_peak_elems: Vec<Elem> = peaks
-            .into_iter()
+            .iter()
             .filter(|&&p| p > skip_peak_pos)
             .map(|&p| self.store.get_elem(p))
             .collect::<Result<Option<_>>>()?

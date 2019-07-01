@@ -1,13 +1,20 @@
 [package]
 name = "ckb-merkle-mountain-range"
-version = "0.1.0"
+version = "0.16.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
+license = "MIT"
 
 [dependencies]
 failure = "0.1.5"
 ckb-db = { path = "../../db" }
+ckb-hash = { path = "../hash" }
 
 [dev-dependencies]
 faster-hex = "0.3"
-ckb-hash = { path = "../hash" }
+criterion = "0.2"
+rand = "0.6"
+
+[[bench]]
+name = "mmr_benchmark"
+harness = false

@@ -1,39 +1,13 @@
-use crate::{MMRStore, MerkleElem, MMR};
+use crate::{tests_util::NumberHash, MMRStore, MMR};
 use ckb_db::MemoryKeyValueDB;
-use ckb_hash::Blake2bWriter;
-use failure::Error;
 use faster_hex::hex_string;
-use std::io::Write;
+use std::convert::TryFrom;
 use std::sync::Arc;
-
-#[derive(Eq, PartialEq, Clone, Debug)]
-struct NumberHash(Vec<u8>);
-impl From<u32> for NumberHash {
-    fn from(num: u32) -> Self {
-        let mut hasher = Blake2bWriter::new();
-        hasher.write_all(&num.to_le_bytes()).unwrap();
-        NumberHash(hasher.finalize().to_vec())
-    }
-}
-impl MerkleElem for NumberHash {
-    fn merge(lhs: &Self, rhs: &Self) -> Result<Self, Error> {
-        let mut hasher = Blake2bWriter::new();
-        hasher.write_all(&lhs.0)?;
-        hasher.write_all(&rhs.0)?;
-        Ok(NumberHash(hasher.finalize().to_vec()))
-    }
-    fn deserialize(data: Vec<u8>) -> Result<Self, Error> {
-        Ok(NumberHash(data))
-    }
-    fn serialize(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.clone())
-    }
-}
 
 fn test_mmr(count: u32, proof_elem: u32) {
     let mut mmr = MMR::new(0, Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0)));
     let positions: Vec<u64> = (0u32..count)
-        .map(|i| mmr.push(NumberHash::from(i)).unwrap())
+        .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
         .collect();
     let root = mmr.get_root().expect("get root").unwrap();
     let proof = mmr
@@ -43,7 +17,7 @@ fn test_mmr(count: u32, proof_elem: u32) {
         .verify(
             root,
             positions[proof_elem as usize],
-            NumberHash::from(proof_elem),
+            NumberHash::try_from(proof_elem).unwrap(),
         )
         .unwrap();
     assert!(result);
@@ -53,7 +27,7 @@ fn test_mmr(count: u32, proof_elem: u32) {
 fn test_mmr_root() {
     let mut mmr = MMR::new(0, Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0)));
     (0u32..11).for_each(|i| {
-        mmr.push(NumberHash::from(i)).unwrap();
+        mmr.push(NumberHash::try_from(i).unwrap()).unwrap();
     });
     let root = mmr.get_root().expect("get root").unwrap();
     let hex_root = hex_string(&root.0).unwrap();
