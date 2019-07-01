@@ -2,4 +2,4 @@
 
 mod units;
 
-pub use units::{Capacity, Error, Ratio, Result};
+pub use units::{AsCapacity, Capacity, Error, Ratio, Result};
