@@ -11,10 +11,11 @@ use ckb_db::KeyValueDB;
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 pub struct MMR<Elem, DB> {
     mmr_size: u64,
-    store: MMRStore<Elem, DB>,
+    store: Arc<MMRStore<Elem, DB>>,
     merkle_elem: PhantomData<Elem>,
 }
 
@@ -90,8 +91,8 @@ fn left_peak_height_pos(mmr_size: u64) -> (u32, u64) {
     (height - 1, prev_pos)
 }
 
-impl<Elem: MerkleElem + Clone + Eq, DB: KeyValueDB> MMR<Elem, DB> {
-    pub fn new(mmr_size: u64, store: MMRStore<Elem, DB>) -> Self {
+impl<Elem: MerkleElem + Clone + Eq + Debug, DB: KeyValueDB> MMR<Elem, DB> {
+    pub fn new(mmr_size: u64, store: Arc<MMRStore<Elem, DB>>) -> Self {
         MMR {
             store,
             mmr_size,
@@ -199,12 +200,15 @@ impl<Elem: MerkleElem + Clone + Eq, DB: KeyValueDB> MMR<Elem, DB> {
     }
 }
 
+#[derive(Debug)]
 pub struct MerkleProof<Elem> {
     mmr_size: u64,
     proof: Vec<Elem>,
 }
 
-impl<Elem: MerkleElem + Eq> MerkleProof<Elem> {
+use std::fmt::Debug;
+
+impl<Elem: MerkleElem + Eq + Debug> MerkleProof<Elem> {
     pub fn new(mmr_size: u64, proof: Vec<Elem>) -> Self {
         MerkleProof { mmr_size, proof }
     }

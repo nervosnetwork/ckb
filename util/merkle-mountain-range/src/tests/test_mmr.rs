@@ -4,8 +4,9 @@ use ckb_hash::Blake2bWriter;
 use failure::Error;
 use faster_hex::hex_string;
 use std::io::Write;
+use std::sync::Arc;
 
-#[derive(Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 struct NumberHash(Vec<u8>);
 impl From<u32> for NumberHash {
     fn from(num: u32) -> Self {
@@ -30,7 +31,7 @@ impl MerkleElem for NumberHash {
 }
 
 fn test_mmr(count: u32, proof_elem: u32) {
-    let mut mmr = MMR::new(0, MMRStore::new(MemoryKeyValueDB::open(1), 0));
+    let mut mmr = MMR::new(0, Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0)));
     let positions: Vec<u64> = (0u32..count)
         .map(|i| mmr.push(NumberHash::from(i)).unwrap())
         .collect();
@@ -50,7 +51,7 @@ fn test_mmr(count: u32, proof_elem: u32) {
 
 #[test]
 fn test_mmr_root() {
-    let mut mmr = MMR::new(0, MMRStore::new(MemoryKeyValueDB::open(1), 0));
+    let mut mmr = MMR::new(0, Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0)));
     (0u32..11).for_each(|i| {
         mmr.push(NumberHash::from(i)).unwrap();
     });
