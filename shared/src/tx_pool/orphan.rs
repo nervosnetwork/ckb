@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::tx_pool::types::DefectEntry;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
@@ -20,10 +18,6 @@ impl OrphanPool {
         OrphanPool::default()
     }
 
-    pub(crate) fn capacity(&self) -> usize {
-        self.vertices.len()
-    }
-
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&DefectEntry> {
         self.vertices.get(id)
     }
@@ -32,6 +26,7 @@ impl OrphanPool {
         self.get(id).map(|x| &x.transaction)
     }
 
+    #[cfg(test)]
     pub(crate) fn contains(&self, tx: &Transaction) -> bool {
         self.vertices.contains_key(&tx.proposal_short_id())
     }
