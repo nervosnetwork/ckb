@@ -57,11 +57,11 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         }
         // resolve txs
         // early release the chain_state lock because tx verification is slow
-        let (resolved_txs, cached_txs, unresolvable_txs, consensus, tip_number, epoch_number) = {
+        let (resolved_txs, cached_txs, unresolvable_txs, consensus, block_number, epoch_number) = {
             let chain_state = self.shared.lock_chain_state();
             let txs_verify_cache = self.shared.lock_txs_verify_cache();
             let consensus = chain_state.consensus();
-            let tip_number = chain_state.tip_number();
+            let block_number = chain_state.tip_number() + 1;
             let epoch_number = chain_state.current_epoch_ext().number();
             let mut resolved_txs = Vec::with_capacity(txs.len());
             let mut unresolvable_txs = Vec::with_capacity(txs.len());
@@ -84,7 +84,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 cached_txs,
                 unresolvable_txs,
                 consensus,
-                tip_number,
+                block_number,
                 epoch_number,
             )
         };
@@ -109,7 +109,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 let verified_result = TransactionVerifier::new(
                     &tx,
                     &block_median_time_context,
-                    tip_number,
+                    block_number,
                     epoch_number,
                     &consensus,
                     self.shared.script_config(),
@@ -187,6 +187,7 @@ mod tests {
     use ckb_store::ChainKVStore;
     use ckb_test_chain_utils::create_always_success_cell;
     use ckb_traits::ChainProvider;
+    use ckb_verification::TransactionError;
     use faketime::{self, unix_time_as_millis};
     use numext_fixed_uint::U256;
 
@@ -345,6 +346,55 @@ mod tests {
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
                 txs[13].inputs()[0].previous_output.to_owned()
             )))
+        );
+    }
+
+    #[test]
+    fn test_verify_and_add_invalid_since_tx_to_pool() {
+        let (shared, always_success_out_point) = setup(10);
+        let last_block = shared
+            .store()
+            .get_block(&shared.lock_chain_state().tip_hash())
+            .unwrap();
+        let last_cellbase = last_block.transactions().first().unwrap();
+        let tip_number = shared.lock_chain_state().tip_number();
+
+        let transactions: Vec<Transaction> = (tip_number - 1..=tip_number + 2)
+            .map(|number| {
+                let since = number;
+                TransactionBuilder::default()
+                    .input(CellInput::new(
+                        OutPoint::new_cell(last_cellbase.hash().to_owned(), 0),
+                        since,
+                    ))
+                    .output(CellOutput::new(
+                        capacity_bytes!(50),
+                        Bytes::default(),
+                        Script::default(),
+                        None,
+                    ))
+                    .dep(always_success_out_point.to_owned())
+                    .build()
+            })
+            .collect();
+
+        let tx_pool_executor = TxPoolExecutor::new(shared.clone());
+
+        assert_eq!(
+            tx_pool_executor.verify_and_add_tx_to_pool(transactions[0].clone()),
+            Ok(12),
+        );
+        assert_eq!(
+            tx_pool_executor.verify_and_add_tx_to_pool(transactions[1].clone()),
+            Ok(12),
+        );
+        assert_eq!(
+            tx_pool_executor.verify_and_add_tx_to_pool(transactions[2].clone()),
+            Ok(12),
+        );
+        assert_eq!(
+            tx_pool_executor.verify_and_add_tx_to_pool(transactions[3].clone()),
+            Err(PoolError::InvalidTx(TransactionError::Immature)),
         );
     }
 }
