@@ -1,6 +1,6 @@
 [package]
 name = "occupied-capacity-macros"
-version = "0.15.2"
+version = "0.15.3"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
