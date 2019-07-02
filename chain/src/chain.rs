@@ -7,7 +7,7 @@ use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
 use ckb_core::{BlockNumber, Cycle};
-use ckb_logger::{self, debug, error, info, log_enabled, warn};
+use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
@@ -613,7 +613,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                     }
                                 }
                                 Err(err) => {
-                                    error!("block {:?} verify error{:?}", b, err);
+                                    error!("block verify error, block number: {}, hash: {:#x}, error: {:?}", b.header().number(),
+                                            b.header().hash(), err);
+                                    if log_enabled!(ckb_logger::Level::Trace) {
+                                        trace!("block {}", serde_json::to_string(b).unwrap());
+                                    }
                                     found_error =
                                         Some(SharedError::InvalidTransaction(err.to_string()));
                                     *verified = Some(false);
@@ -648,7 +652,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         if let Some(err) = found_error {
-            error!("fork {}", serde_json::to_string(&fork).unwrap());
             Err(err)?
         } else {
             Ok(cell_set_diff)
