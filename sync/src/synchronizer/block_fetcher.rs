@@ -83,26 +83,6 @@ where
         Some(fixed_last_common_header)
     }
 
-    // this peer's tip is wherethe the ancestor of global_best_known_header
-    pub fn is_known_best(&self, header: &HeaderView) -> bool {
-        let global_best_known_header = self.synchronizer.shared.shared_best_header();
-        if let Some(ancestor) = self
-            .synchronizer
-            .shared
-            .get_ancestor(&global_best_known_header.hash(), header.number())
-        {
-            if &ancestor != header.inner() {
-                debug!(
-                    "[block downloader] peer best_known_header is not ancestor of global_best_known_header"
-                );
-                return false;
-            }
-        } else {
-            return false;
-        }
-        true
-    }
-
     pub fn fetch(self) -> Option<Vec<H256>> {
         trace!("[block downloader] BlockFetcher process");
 
@@ -132,10 +112,6 @@ where
                 best_known_header.total_difficulty(),
                 self.total_difficulty
             );
-            return None;
-        }
-
-        if !self.is_known_best(&best_known_header) {
             return None;
         }
 
