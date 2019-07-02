@@ -454,18 +454,6 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
-        // if base in the main chain
-        if let Some(n_number) = self.get_block_number(base) {
-            if number > n_number {
-                return None;
-            } else {
-                return self
-                    .get_block_hash(number)
-                    .and_then(|hash| self.get_block_header(&hash));
-            }
-        }
-
-        // if base in the fork
         if let Some(header) = self.get_block_header(base) {
             let mut n_number = header.number();
             let mut index_walk = header;

@@ -610,10 +610,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                     }
                                 }
                                 Err(err) => {
-                                    error!(
-                                        "cell_set_diff {}",
-                                        serde_json::to_string(&cell_set_diff).unwrap()
-                                    );
                                     error!("block {}", serde_json::to_string(b).unwrap());
                                     found_error =
                                         Some(SharedError::InvalidTransaction(err.to_string()));
@@ -628,13 +624,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     }
                 } else {
                     *verified = Some(false);
-                }
-
-                if found_error.is_some() {
-                    error!(
-                        "cell_set {}",
-                        serde_json::to_string(&chain_state.cell_set()).unwrap()
-                    );
                 }
             } else {
                 cell_set_diff.push_new(b);

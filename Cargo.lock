@@ -816,6 +816,7 @@ dependencies = [
  "ckb-core 0.16.0-pre",
  "ckb-dao 0.16.0-pre",
  "ckb-db 0.16.0-pre",
+ "ckb-logger 0.16.0-pre",
  "ckb-occupied-capacity 0.16.0-pre",
  "ckb-script 0.16.0-pre",
  "ckb-store 0.16.0-pre",

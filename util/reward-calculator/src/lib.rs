@@ -5,6 +5,7 @@ use ckb_core::script::Script;
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Capacity;
 use ckb_dao::DaoCalculator;
+use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use failure::{Error as FailureError, Fail};
@@ -62,6 +63,17 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
         let reward = txs_fees
             .safe_add(proposal_reward)?
             .safe_add(base_block_reward)?;
+
+        debug!(
+            "[RewardCalculator] target {} {:x}\n
+             txs_fees {:?}, proposal_reward {:?}, base_block_reward {:?}, totol_reward {:?}",
+            target_number,
+            target.hash(),
+            txs_fees,
+            proposal_reward,
+            base_block_reward,
+            reward,
+        );
         Ok((target_lock, reward))
     }
 

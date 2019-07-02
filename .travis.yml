@@ -13,6 +13,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
+    # - CKB_CLI_VERSION=v0.15.0
 
 addons:
   apt:
