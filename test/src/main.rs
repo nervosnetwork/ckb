@@ -43,10 +43,11 @@ fn main() {
     specs.insert("pool_reconcile", Box::new(PoolReconcile));
     specs.insert("pool_resurrect", Box::new(PoolResurrect));
     specs.insert("transaction_relay_basic", Box::new(TransactionRelayBasic));
-    specs.insert(
-        "transaction_relay_multiple",
-        Box::new(TransactionRelayMultiple),
-    );
+    // FIXME: There is a probability of failure on low resouce CI server
+    // specs.insert(
+    //     "transaction_relay_multiple",
+    //     Box::new(TransactionRelayMultiple),
+    // );
     specs.insert("discovery", Box::new(Discovery));
     // TODO enable this after p2p lib resolve close timeout issue
     // specs.insert("disconnect", Box::new(Disconnect));
