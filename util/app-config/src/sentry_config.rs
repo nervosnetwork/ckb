@@ -67,8 +67,10 @@ fn before_send(mut event: Event<'static>) -> Option<Event<'static>> {
     // Group events via fingerprint, or ignore
 
     if ex.starts_with("DBError failed to open the database") {
+        event.level = Level::Warning;
         event.fingerprint = Cow::Borrowed(DB_OPEN_FINGERPRINT);
     } else if ex.contains("SqliteFailure") {
+        event.level = Level::Warning;
         event.fingerprint = Cow::Borrowed(SQLITE_FINGERPRINT);
     } else if ex.starts_with("DBError the database version")
         || ex.contains("kind: AddrInUse")
