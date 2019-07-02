@@ -5,10 +5,10 @@ version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 timestamp = 1561788000134
 # Double the difficulty of the block 161029 in rylai-v2
-difficulty = "0x12524"
+difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xd5c54b0c699ef009edfedb00d8fb8198ac5ce1e9e266b9110a8972e1b05aba88"
+hash = "0x1bb8542e1563cfb84f6fa637d8d88d0e4e4bd8088f204cc85b5fcd95c0e281e5"
 
 [genesis.seal]
 nonce = 0
