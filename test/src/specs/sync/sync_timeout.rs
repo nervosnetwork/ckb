@@ -6,7 +6,6 @@ pub struct SyncTimeout;
 
 impl Spec for SyncTimeout {
     fn run(&self, net: Net) {
-        info!("Running SyncTimeout");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];

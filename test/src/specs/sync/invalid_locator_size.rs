@@ -10,8 +10,6 @@ pub struct InvalidLocatorSize;
 
 impl Spec for InvalidLocatorSize {
     fn run(&self, net: Net) {
-        info!("Running InvalidLocatorSize");
-
         info!("Connect node0");
         let node0 = &net.nodes[0];
         net.connect(node0);
@@ -37,10 +35,6 @@ impl Spec for InvalidLocatorSize {
         net.connect(node0);
         let ret = wait_until(10, || !rpc_client.get_peers().is_empty());
         assert!(!ret, "Node0 should ban test node");
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
     }
 
     fn test_protocols(&self) -> Vec<TestProtocol> {

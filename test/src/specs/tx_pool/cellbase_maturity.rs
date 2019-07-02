@@ -9,7 +9,6 @@ pub struct CellbaseMaturity;
 
 impl Spec for CellbaseMaturity {
     fn run(&self, net: Net) {
-        info!("Running CellbaseMaturity");
         let node = &net.nodes[0];
 
         info!("Generate 1 block");
@@ -45,10 +44,6 @@ impl Spec for CellbaseMaturity {
         node.assert_tx_pool_size(0, 1);
         node.generate_block();
         node.assert_tx_pool_size(0, 0);
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
     }
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {

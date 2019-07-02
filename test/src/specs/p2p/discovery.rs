@@ -6,7 +6,6 @@ pub struct Discovery;
 
 impl Spec for Discovery {
     fn run(&self, net: Net) {
-        info!("Running Discovery");
         let node0_id = &net.nodes[0].node_id().clone().unwrap();
         let node2 = &net.nodes[2];
         let rpc_client = node2.rpc_client();

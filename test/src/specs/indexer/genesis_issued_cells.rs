@@ -10,7 +10,6 @@ pub struct GenesisIssuedCells;
 
 impl Spec for GenesisIssuedCells {
     fn run(&self, net: Net) {
-        info!("Running GenesisIssuedCells");
         let node0 = &net.nodes[0];
 
         let lock_hash = Script {
@@ -32,10 +31,6 @@ impl Spec for GenesisIssuedCells {
         if !result {
             panic!("Wrong indexer store index data");
         }
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
     }
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {

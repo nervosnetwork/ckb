@@ -6,7 +6,6 @@ pub struct SizeLimit;
 
 impl Spec for SizeLimit {
     fn run(&self, net: Net) {
-        info!("Running TxPoolSizeLimit");
         let node = &net.nodes[0];
 
         info!("Generate 1 block on node");
@@ -42,10 +41,6 @@ impl Spec for SizeLimit {
         node.assert_tx_pool_statics(0, 0);
     }
 
-    fn num_nodes(&self) -> usize {
-        1
-    }
-
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         Box::new(|config| {
             config.tx_pool.max_mem_size = 740;
@@ -58,7 +53,6 @@ pub struct CyclesLimit;
 
 impl Spec for CyclesLimit {
     fn run(&self, net: Net) {
-        info!("Running TxPoolCyclesLimit");
         let node = &net.nodes[0];
 
         info!("Generate 1 block on node");
@@ -92,10 +86,6 @@ impl Spec for CyclesLimit {
         });
         node.generate_block();
         node.assert_tx_pool_statics(0, 0);
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {

@@ -14,7 +14,6 @@ impl Spec for ChainFork1 {
     // node0 genesis -> A -> B -> C
     // node1                 \ -> D -> E
     fn run(&self, net: Net) {
-        info!("Running ChainFork1");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
 
@@ -55,7 +54,6 @@ impl Spec for ChainFork2 {
     // node1                 \ -> D -> E
     // node2                 \ -> C -> F -> G
     fn run(&self, net: Net) {
-        info!("Running ChainFork2");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -114,7 +112,6 @@ impl Spec for ChainFork3 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: Net) {
-        info!("Running ChainFork3");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -186,7 +183,6 @@ impl Spec for ChainFork4 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: Net) {
-        info!("Running ChainFork4");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -258,7 +254,6 @@ impl Spec for ChainFork5 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: Net) {
-        info!("Running ChainFork5");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -334,7 +329,6 @@ impl Spec for ChainFork6 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: Net) {
-        info!("Running ChainFork6");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -402,7 +396,6 @@ impl Spec for ChainFork7 {
     // node1                 \ -> D -> E -> F
     // node2                 \ -> C -> G
     fn run(&self, net: Net) {
-        info!("Running ChainFork7");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];

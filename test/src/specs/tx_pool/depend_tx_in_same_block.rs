@@ -6,7 +6,6 @@ pub struct DepentTxInSameBlock;
 
 impl Spec for DepentTxInSameBlock {
     fn run(&self, net: Net) {
-        info!("Running DepentTxInSameBlock");
         let node0 = &net.nodes[0];
 
         info!("Generate 2 tx in same block");
@@ -40,9 +39,5 @@ impl Spec for DepentTxInSameBlock {
 
         assert!(commit_txs_hash.contains(&&tx_hash_0));
         assert!(commit_txs_hash.contains(&&tx_hash_1));
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
     }
 }

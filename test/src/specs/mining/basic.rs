@@ -11,15 +11,10 @@ pub struct MiningBasic;
 
 impl Spec for MiningBasic {
     fn run(&self, net: Net) {
-        info!("Running MiningBasic");
         let node = &net.nodes[0];
 
         self.test_basic(node);
         self.test_block_template_cache(node);
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
     }
 }
 

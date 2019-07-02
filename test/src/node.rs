@@ -78,7 +78,7 @@ impl Node {
             .env("RUST_BACKTRACE", "full")
             .args(&["-C", &self.dir, "run"])
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .expect("failed to run binary");

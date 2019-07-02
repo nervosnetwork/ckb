@@ -25,8 +25,6 @@ impl Default for AlertPropagation {
 
 impl Spec for AlertPropagation {
     fn run(&self, net: Net) {
-        info!("Running AlertPropagation");
-
         let node0 = &net.nodes[0];
         let warning1 = "pretend we are in dangerous status";
         let id1 = 42;
