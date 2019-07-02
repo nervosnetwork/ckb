@@ -1,5 +1,11 @@
 # need 2 signatures to send alert
 signatures_threshold = 2
 public_keys = [
+  # testnet key1
+  "0x035bfb6e2e89d66d2f684fa80356611f1185863a84bc23db5df484f4b1b89cacaf",
+  # testnet key2
+  "0x02a8c9d3cef12bbcf7c5901b5801dc87db1c3f79ce4ac48a1545a1eddac17fea34",
+  # testnet key3
+  "0x03d73c8baa8cc093d1b8c85ffe280dd7cdeb0b271dc149b4c2fec4786d5de4221d",
 ]
 
