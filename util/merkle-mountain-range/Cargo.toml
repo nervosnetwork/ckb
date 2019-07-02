@@ -18,3 +18,7 @@ rand = "0.6"
 [[bench]]
 name = "mmr_benchmark"
 harness = false
+
+[[bench]]
+name = "helper_benchmark"
+harness = false

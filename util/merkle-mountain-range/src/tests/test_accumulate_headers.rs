@@ -3,7 +3,7 @@
 // 2. simulate block header accumulation
 // 3. benchmark
 
-use crate::{MMRStore, MerkleElem, MerkleProof, Result, MMR};
+use crate::{leaf_index_to_pos, MMRStore, MerkleElem, MerkleProof, Result, MMR};
 use ckb_db::MemoryKeyValueDB;
 use ckb_hash::Blake2bWriter;
 use std::io::Write;
@@ -163,25 +163,6 @@ impl Prover {
 
 #[test]
 fn test_insert_header() {
-    fn leaf_index_to_pos(index: u64) -> u64 {
-        if index == 0 {
-            return 0;
-        }
-        let mut count = index + 1;
-        let mut pos = 0;
-        while count > 1 {
-            let height = (count as f64).log2() as u64;
-            let peak_leafs = 1 << height;
-            pos += (1 << (height + 1)) - 1;
-            count -= peak_leafs;
-        }
-        if count > 0 {
-            pos += 1;
-        } else {
-            pos -= 3;
-        }
-        pos
-    }
     let mut prover = Prover::new();
     prover.gen_blocks(30).expect("gen blocks");
     let h1 = 11;
