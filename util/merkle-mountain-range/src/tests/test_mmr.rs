@@ -1,6 +1,8 @@
-use crate::{tests_util::NumberHash, MMRStore, MMR};
+use crate::{leaf_index_to_pos, tests_util::NumberHash, MMRStore, MMR};
 use ckb_db::MemoryKeyValueDB;
 use faster_hex::hex_string;
+use lazy_static::lazy_static;
+use proptest::prelude::*;
 use std::convert::TryFrom;
 use std::sync::Arc;
 
@@ -71,4 +73,33 @@ fn test_mmr_1_elem() {
 fn test_mmr_2_elems() {
     test_mmr(2, 0);
     test_mmr(2, 1);
+}
+
+prop_compose! {
+    fn count_elem(count: u32)
+                (elem in 0..count)
+                -> (u32, u32) {
+                    (count, elem)
+    }
+}
+lazy_static! {
+    static ref POSITIONS: Vec<u64> = {
+        let mut mmr = MMR::new(0, Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0)));
+        (0u32..100_000)
+            .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
+            .collect()
+    };
+}
+
+proptest! {
+    #[test]
+    fn test_random_mmr((count , elem) in count_elem(500)) {
+        test_mmr(count, elem);
+    }
+
+    #[test]
+    fn test_leaf_index_to_pos(index in 0..POSITIONS.len()) {
+        let pos = leaf_index_to_pos(index as u64);
+        assert_eq!(pos, POSITIONS[index]);
+    }
 }
