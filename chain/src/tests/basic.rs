@@ -148,12 +148,7 @@ fn test_transaction_spend_in_same_block() {
         chain
             .blocks()
             .last()
-            .map(|block| {
-                (
-                    block.header().parent_hash().clone(),
-                    block.header().number(),
-                )
-            })
+            .map(|block| (block.header().hash().clone(), block.header().number()))
             .unwrap()
     };
 
