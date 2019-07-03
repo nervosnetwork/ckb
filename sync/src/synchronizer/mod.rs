@@ -167,15 +167,15 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
+    pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
         if self.orphan_block_pool.contains(&block) {
             debug!("block {:x} already in orphan pool", block.header().hash());
-            return;
+            return Ok(());
         }
 
         match self.shared().get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
-                self.insert_new_block(peer, block);
+                self.insert_new_block(peer, block)?;
             }
             status => {
                 debug!(
@@ -184,6 +184,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 );
             }
         }
+        Ok(())
     }
 
     fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
@@ -197,7 +198,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     // FIXME: guarantee concurrent block process
     // TODO: limit and prune orphan pool
-    fn insert_new_block(&self, peer: PeerIndex, block: Block) {
+    fn insert_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
         let known_parent = |block: &Block| {
             self.shared
                 .store()
@@ -213,14 +214,14 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 block.header().hash()
             );
             self.orphan_block_pool.insert(block);
-            return;
+            return Ok(());
         }
 
         // Attempt to accept the given block if its parent already exist in database
         let block = Arc::new(block);
         if let Err(err) = self.accept_block(peer, &block) {
             debug!("accept block {:?} error {:?}", block, err);
-            return;
+            return Err(err);
         }
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
@@ -247,6 +248,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 debug!("accept descendant orphan block {:?} error {:?}", block, err);
             }
         }
+        Ok(())
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
@@ -912,7 +914,9 @@ mod tests {
         let synchronizer = gen_synchronizer(chain_controller2.clone(), shared2.clone());
         let chain1_last_block = blocks.last().cloned().unwrap();
         blocks.into_iter().for_each(|block| {
-            synchronizer.insert_new_block(peer, block);
+            synchronizer
+                .insert_new_block(peer, block)
+                .expect("Insert new block failed");
         });
         assert_eq!(
             chain1_last_block.header(),
