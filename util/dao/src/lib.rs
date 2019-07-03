@@ -323,44 +323,63 @@ mod tests {
         consensus: &Consensus,
         parent: &Header,
         target_epoch_start: Option<BlockNumber>,
-    ) -> Arc<ChainKVStore<MemoryKeyValueDB>> {
-        let parent_block = BlockBuilder::default().header(parent.clone()).build();
-
+    ) -> (Arc<ChainKVStore<MemoryKeyValueDB>>, Header) {
         let store = new_memory_store();
         let mut batch = store.new_batch().unwrap();
-        batch.insert_block(&parent_block).unwrap();
-        batch.attach_block(&parent_block).unwrap();
 
         if let Some(target_number) = consensus.finalize_target(parent.number()) {
             let target_epoch_start = target_epoch_start.unwrap_or(target_number - 300);
-
-            let target_epoch_ext = EpochExt::new(
-                target_number,
-                Capacity::shannons(50_000_000_000),
-                Capacity::shannons(1_000_128),
-                h256!("0x1"),
-                target_epoch_start,
-                2091,
-                U256::from(1u64),
-            );
-            let target_header = HeaderBuilder::default().number(target_number).build();
-            let target_block = BlockBuilder::default()
-                .header(target_header.clone())
+            let mut index: Header = HeaderBuilder::default()
+                .number(target_epoch_start - 1)
                 .build();
+            // TODO: should make it simple after refactor get_ancestor
+            for number in target_epoch_start..parent.number() {
+                let epoch_ext = EpochExt::new(
+                    number,
+                    Capacity::shannons(50_000_000_000),
+                    Capacity::shannons(1_000_128),
+                    h256!("0x1"),
+                    target_epoch_start,
+                    2091,
+                    U256::from(1u64),
+                );
 
-            batch.insert_block(&target_block).unwrap();
-            batch.attach_block(&target_block).unwrap();
-            batch
-                .insert_block_epoch_index(target_header.hash(), target_header.hash())
-                .unwrap();
-            batch
-                .insert_epoch_ext(target_header.hash(), &target_epoch_ext)
-                .unwrap();
+                let header = HeaderBuilder::default()
+                    .number(number)
+                    .parent_hash(index.hash().clone())
+                    .build();
+                let block = BlockBuilder::default().header(header.clone()).build();
+
+                index = header.clone();
+
+                batch.insert_block(&block).unwrap();
+                batch.attach_block(&block).unwrap();
+                batch
+                    .insert_block_epoch_index(header.hash(), header.hash())
+                    .unwrap();
+                batch.insert_epoch_ext(header.hash(), &epoch_ext).unwrap();
+            }
+
+            let parent = HeaderBuilder::from_header(parent.clone())
+                .parent_hash(index.hash().clone())
+                .build();
+            let parent_block = BlockBuilder::default().header(parent.clone()).build();
+
+            batch.insert_block(&parent_block).unwrap();
+            batch.attach_block(&parent_block).unwrap();
+
+            batch.commit().unwrap();
+
+            return (Arc::new(store), parent.clone());
+        } else {
+            let parent_block = BlockBuilder::default().header(parent.clone()).build();
+            batch.insert_block(&parent_block).unwrap();
+            batch.attach_block(&parent_block).unwrap();
+
+            batch.commit().unwrap();
+
+            return (Arc::new(store), parent.clone());
         }
-
-        batch.commit().unwrap();
-
-        Arc::new(store)
     }
 
     #[test]
@@ -377,7 +396,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
         let result = DaoCalculator::new(&consensus, store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -406,7 +425,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
         let result = DaoCalculator::new(&consensus, store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -435,7 +454,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, Some(12329));
+        let (store, parent_header) = prepare_store(&consensus, &parent_header, Some(12329));
         let result = DaoCalculator::new(&consensus, store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -464,7 +483,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
         let result = DaoCalculator::new(&consensus, store)
             .dao_field(&[], &parent_header)
             .unwrap();
@@ -493,7 +512,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
         let result = DaoCalculator::new(&consensus, store).dao_field(&[], &parent_header);
         assert!(result.is_err());
     }
@@ -512,7 +531,7 @@ mod tests {
             ))
             .build();
 
-        let store = prepare_store(&consensus, &parent_header, None);
+        let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
         let input_cell = CellOutput::new(
             capacity_bytes!(10000),
             Bytes::from("abcde"),
