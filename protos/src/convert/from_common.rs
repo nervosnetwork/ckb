@@ -276,7 +276,15 @@ impl<'a> TryFrom<protos::Script<'a>> for Script {
             .collect::<Option<_>>()
             .unwrap_some()?;
         let code_hash = script.code_hash().unwrap_some()?.try_into()?;
-        let ret = Script { args, code_hash };
+        let hash_type = script
+            .hash_type()
+            .try_into()
+            .map_err(|_| Error::Deserialize)?;
+        let ret = Script {
+            args,
+            code_hash,
+            hash_type,
+        };
         Ok(ret)
     }
 }

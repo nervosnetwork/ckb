@@ -7,7 +7,7 @@ use crate::{
     DataLoader, ScriptConfig, ScriptError,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{Bytes, Cycle};
 use ckb_logger::{debug, info};
@@ -17,7 +17,6 @@ use ckb_vm::{
 };
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
-use std::cell::RefCell;
 
 #[cfg(all(unix, target_pointer_width = "64"))]
 use crate::Runner;
@@ -54,8 +53,8 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     outputs: Vec<CellMeta>,
     rtx: &'a ResolvedTransaction<'a>,
 
-    binary_index: FnvHashMap<H256, usize>,
-    binary_data: RefCell<FnvHashMap<H256, Bytes>>,
+    binaries_by_data_hash: FnvHashMap<H256, Bytes>,
+    binaries_by_type_hash: FnvHashMap<H256, Bytes>,
     lock_groups: FnvHashMap<H256, ScriptGroup>,
     type_groups: FnvHashMap<H256, ScriptGroup>,
 
@@ -75,7 +74,6 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         let tx_hash = rtx.transaction.hash();
         let resolved_deps = &rtx.resolved_deps;
         let resolved_inputs = &rtx.resolved_inputs;
-        let mut binary_data: FnvHashMap<H256, Bytes> = FnvHashMap::default();
         let outputs = rtx
             .transaction
             .outputs()
@@ -94,27 +92,17 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             })
             .collect();
 
-        let binary_index: FnvHashMap<H256, usize> = resolved_deps
-            .iter()
-            .enumerate()
-            .map(|(i, dep_cell)| {
-                if let Some(cell_meta) = &dep_cell.cell() {
-                    let hash = match cell_meta.data_hash() {
-                        Some(hash) => hash.to_owned(),
-                        None => {
-                            let output = data_loader.lazy_load_cell_output(cell_meta);
-                            let hash = output.data_hash();
-                            binary_data.insert(hash.clone(), output.data);
-                            hash
-                        }
-                    };
-                    Some((hash, i))
-                } else {
-                    None
+        let mut binaries_by_data_hash: FnvHashMap<H256, Bytes> = FnvHashMap::default();
+        let mut binaries_by_type_hash: FnvHashMap<H256, Bytes> = FnvHashMap::default();
+        for resolved_dep in resolved_deps {
+            if let Some(cell_meta) = &resolved_dep.cell() {
+                let output = data_loader.lazy_load_cell_output(cell_meta);
+                binaries_by_data_hash.insert(output.data_hash(), output.data.to_owned());
+                if let Some(t) = &output.type_ {
+                    binaries_by_type_hash.insert(t.hash(), output.data.to_owned());
                 }
-            })
-            .filter_map(|x| x)
-            .collect();
+            }
+        }
 
         let mut lock_groups = FnvHashMap::default();
         let mut type_groups = FnvHashMap::default();
@@ -146,8 +134,8 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
         TransactionScriptsVerifier {
             data_loader,
-            binary_index,
-            binary_data: RefCell::new(binary_data),
+            binaries_by_data_hash,
+            binaries_by_type_hash,
             outputs,
             rtx,
             config,
@@ -238,22 +226,14 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
-        if let Some(data) = self.binary_data.borrow().get(&script.code_hash) {
+        let binaries = match script.hash_type {
+            ScriptHashType::Data => &self.binaries_by_data_hash,
+            ScriptHashType::Type => &self.binaries_by_type_hash,
+        };
+        if let Some(data) = binaries.get(&script.code_hash) {
             return Ok(data.to_owned());
         };
-        match self.binary_index.get(&script.code_hash).and_then(|index| {
-            self.resolved_deps()[*index]
-                .cell()
-                .map(|cell_meta| self.data_loader.lazy_load_cell_output(&cell_meta))
-        }) {
-            Some(cell_output) => {
-                self.binary_data
-                    .borrow_mut()
-                    .insert(script.code_hash.clone(), cell_output.data.clone());
-                Ok(cell_output.data)
-            }
-            None => Err(ScriptError::InvalidReferenceIndex),
-        }
+        Err(ScriptError::InvalidCodeHash)
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
@@ -452,7 +432,7 @@ mod tests {
     #[cfg(not(all(unix, target_pointer_width = "64")))]
     use crate::Runner;
     use ckb_core::cell::{BlockInfo, CellMetaBuilder};
-    use ckb_core::script::Script;
+    use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Capacity};
     use ckb_crypto::secp::{Generator, Privkey};
@@ -565,7 +545,7 @@ mod tests {
                 .build(),
         );
 
-        let script = Script::new(args, code_hash);
+        let script = Script::new(args, code_hash, ScriptHashType::Data);
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
@@ -640,7 +620,7 @@ mod tests {
                 .build(),
         );
 
-        let script = Script::new(args, code_hash);
+        let script = Script::new(args, code_hash, ScriptHashType::Data);
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
@@ -719,7 +699,7 @@ mod tests {
                 .build(),
         );
 
-        let script = Script::new(args, code_hash);
+        let script = Script::new(args, code_hash, ScriptHashType::Data);
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
@@ -749,6 +729,86 @@ mod tests {
                 runner: Runner::Assembly,
             },
         );
+
+        assert!(verifier.verify(100_000_000).is_ok());
+    }
+
+    #[test]
+    fn check_signature_referenced_via_type_hash() {
+        let mut file = open_cell_verify();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+
+        let gen = Generator::new();
+        let privkey = gen.random_privkey();
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+
+        let mut bytes = vec![];
+        for argument in &args {
+            bytes.write_all(argument).unwrap();
+        }
+        let hash1 = sha3_256(&bytes);
+        let hash2 = sha3_256(hash1);
+        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
+
+        let pubkey = privkey.pubkey().unwrap().serialize();
+        let mut hex_pubkey = vec![0; pubkey.len() * 2];
+        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
+        args.push(Bytes::from(hex_pubkey));
+
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        args.push(Bytes::from(hex_signature));
+
+        let code_hash: H256 = (&blake2b_256(&buffer)).into();
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
+        let output = CellOutput::new(
+            Capacity::bytes(buffer.len()).unwrap(),
+            Bytes::from(buffer),
+            Script::default(),
+            Some(Script::new(
+                vec![],
+                h256!("0x123456abcd90"),
+                ScriptHashType::Data,
+            )),
+        );
+        let type_hash: H256 = output.type_.as_ref().unwrap().hash();
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_info(BlockInfo::new(1, 0))
+                .data_hash(code_hash.to_owned())
+                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .build(),
+        );
+
+        let script = Script::new(args, type_hash, ScriptHashType::Type);
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default()
+            .input(input.clone())
+            .dep(dep_out_point)
+            .build();
+
+        let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output)
+                .block_info(BlockInfo::new(1, 0))
+                .build(),
+        );
+
+        let rtx = ResolvedTransaction {
+            transaction: &transaction,
+            resolved_deps: vec![dep_cell],
+            resolved_inputs: vec![dummy_cell],
+        };
+        let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
+
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
     }
@@ -797,7 +857,7 @@ mod tests {
                 .build(),
         );
 
-        let script = Script::new(args, code_hash);
+        let script = Script::new(args, code_hash, ScriptHashType::Data);
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
@@ -875,7 +935,7 @@ mod tests {
                 .build(),
         );
 
-        let script = Script::new(args, code_hash);
+        let script = Script::new(args, code_hash, ScriptHashType::Data);
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
@@ -937,7 +997,7 @@ mod tests {
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let script = Script::new(args, code_hash);
+        let script = Script::new(args, code_hash, ScriptHashType::Data);
         let input = CellInput::new(OutPoint::null(), 0);
 
         let transaction = TransactionBuilder::default()
@@ -1015,11 +1075,11 @@ mod tests {
                 .build(),
         );
 
-        let script = Script::new(args, (&blake2b_256(&buffer)).into());
+        let script = Script::new(args, (&blake2b_256(&buffer)).into(), ScriptHashType::Data);
         let output = CellOutput::new(
             Capacity::zero(),
             Bytes::default(),
-            Script::new(vec![], H256::zero()),
+            Script::new(vec![], H256::zero(), ScriptHashType::Data),
             Some(script),
         );
 
@@ -1111,7 +1171,7 @@ mod tests {
                 .build(),
         );
 
-        let script = Script::new(args, (&blake2b_256(&buffer)).into());
+        let script = Script::new(args, (&blake2b_256(&buffer)).into(), ScriptHashType::Data);
         let output = CellOutput::new(
             Capacity::zero(),
             Bytes::default(),
@@ -1185,7 +1245,7 @@ mod tests {
         args.push(Bytes::from(hex_signature));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let script = Script::new(args, code_hash.to_owned());
+        let script = Script::new(args, code_hash.to_owned(), ScriptHashType::Data);
 
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
         let output = CellOutput::new(

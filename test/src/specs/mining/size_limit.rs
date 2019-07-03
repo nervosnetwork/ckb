@@ -25,7 +25,7 @@ impl Spec for TemplateSizeLimit {
         let _ = node.generate_block(); // skip
 
         let new_block = node.new_block(None, None, None);
-        assert_eq!(new_block.serialized_size(0), 1240);
+        assert_eq!(new_block.serialized_size(0), 1247);
         assert_eq!(new_block.transactions().len(), 7);
 
         let new_block = node.new_block(Some(1000), None, None);

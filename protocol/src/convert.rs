@@ -291,6 +291,7 @@ impl<'a> TryFrom<ckb_protocol::Script<'a>> for ckb_core::script::Script {
                 .map(ckb_core::Bytes::from)
                 .collect(),
             code_hash: cast!(code_hash)?,
+            hash_type: script.hash_type().try_into()?,
         })
     }
 }

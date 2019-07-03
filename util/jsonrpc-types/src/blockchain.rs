@@ -3,7 +3,7 @@ use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsi
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::extras::EpochExt as CoreEpochExt;
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
-use ckb_core::script::Script as CoreScript;
+use ckb_core::script::{Script as CoreScript, ScriptHashType};
 use ckb_core::transaction::{
     CellInput as CoreCellInput, CellOutPoint as CoreCellOutPoint, CellOutput as CoreCellOutput,
     OutPoint as CoreOutPoint, Transaction as CoreTransaction, TransactionBuilder,
@@ -14,29 +14,41 @@ use ckb_core::Capacity as CoreCapacity;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
+use std::convert::TryInto;
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {
     pub args: Vec<JsonBytes>,
     pub code_hash: H256,
+    pub hash_type: u8,
 }
 
 impl From<Script> for CoreScript {
     fn from(json: Script) -> Self {
-        let Script { args, code_hash } = json;
+        let Script {
+            args,
+            code_hash,
+            hash_type,
+        } = json;
+        // For simplicity, we are now treating all values that doesn't equal
+        // 1 as data script hash type, this can save us from converting script
+        // structs and all the structs containing script into TryFrom form.
+        let hash_type = hash_type.try_into().unwrap_or(ScriptHashType::Data);
         CoreScript::new(
             args.into_iter().map(JsonBytes::into_bytes).collect(),
             code_hash,
+            hash_type,
         )
     }
 }
 
 impl From<CoreScript> for Script {
     fn from(core: CoreScript) -> Script {
-        let (args, code_hash) = core.destruct();
+        let (args, code_hash, hash_type) = core.destruct();
         Script {
             code_hash,
             args: args.into_iter().map(JsonBytes::from_bytes).collect(),
+            hash_type: hash_type as u8,
         }
     }
 }
@@ -580,12 +592,13 @@ impl EpochView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ckb_core::script::ScriptHashType;
     use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
     use ckb_core::{Bytes, Capacity};
     use proptest::{collection::size_range, prelude::*};
 
     fn mock_script(arg: Bytes) -> CoreScript {
-        CoreScript::new(vec![arg], H256::default())
+        CoreScript::new(vec![arg], H256::default(), ScriptHashType::Data)
     }
 
     fn mock_cell_output(data: Bytes, arg: Bytes) -> CoreCellOutput {

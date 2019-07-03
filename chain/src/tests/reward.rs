@@ -5,7 +5,7 @@ use crate::tests::util::{
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
@@ -147,11 +147,13 @@ fn finalize_reward() {
     let bob = Script {
         args: vec![Bytes::from(b"b0b".to_vec())],
         code_hash: always_success_script.code_hash.clone(),
+        hash_type: ScriptHashType::Data,
     };
 
     let alice = Script {
         args: vec![Bytes::from(b"a11ce".to_vec())],
         code_hash: always_success_script.code_hash.clone(),
+        hash_type: ScriptHashType::Data,
     };
 
     for i in 1..23 {

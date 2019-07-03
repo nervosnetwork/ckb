@@ -70,6 +70,7 @@ table CellOutput {
 table Script {
     args:           [Bytes];
     code_hash:      Bytes32;
+    hash_type:      uint8;
 }
 
 struct ProposalShortId {

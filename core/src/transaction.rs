@@ -758,7 +758,7 @@ impl ProposalShortId {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{capacity_bytes, Bytes, Capacity};
+    use crate::{capacity_bytes, script::ScriptHashType, Bytes, Capacity};
 
     #[test]
     fn tx_hash() {
@@ -775,25 +775,29 @@ mod test {
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "572dfb5f543d43c9a411c36d733655f0a4c2ea729f260d9b3d3085b84834bb4f"
+            "6e9d9e6a6d5be5adafe7eac9f159b439cf4a4a400400cf98c231a341eb318bc2"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "816db0491b8dfa92ec7a77e07d98c47105fe5a33ddb05ef9f2b24132ac3cc793"
+            "0da5b490459dc2001928bed2fec5fbf5d8fab5932e4d1cd83ce9c9d9bd3d866c"
         );
     }
 
     #[test]
     fn min_cell_output_capacity() {
-        let lock = Script::new(vec![], H256::default());
+        let lock = Script::new(vec![], H256::default(), ScriptHashType::Data);
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(40));
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(41));
     }
 
     #[test]
     fn min_secp256k1_cell_output_capacity() {
-        let lock = Script::new(vec![vec![0u8; 20].into()], H256::default());
+        let lock = Script::new(
+            vec![vec![0u8; 20].into()],
+            H256::default(),
+            ScriptHashType::Data,
+        );
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(60));
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(61));
     }
 }
