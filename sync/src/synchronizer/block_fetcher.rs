@@ -39,7 +39,7 @@ where
         let inflight = self.synchronizer.shared().read_inflight_blocks();
 
         // Can't download any more from this peer
-        inflight.peer_inflight_count(&self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
+        inflight.peer_inflight_count(self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
@@ -143,7 +143,7 @@ where
         {
             let mut inflight = self.synchronizer.shared().write_inflight_blocks();
             let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
-                .saturating_sub(inflight.peer_inflight_count(&self.peer));
+                .saturating_sub(inflight.peer_inflight_count(self.peer));
             let max_height_header = self
                 .synchronizer
                 .shared

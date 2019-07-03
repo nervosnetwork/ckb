@@ -62,7 +62,7 @@ const ORPHAN_BLOCK_SIZE: usize = 1024;
 //     If their best known block is still behind when that new timeout is
 //     reached, disconnect.
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ChainSyncState {
     pub timeout: u64,
     pub work_header: Option<Header>,
@@ -85,7 +85,7 @@ impl Default for ChainSyncState {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug)]
 pub struct PeerState {
     pub sync_started: bool,
     pub headers_sync_timeout: Option<u64>,
@@ -273,9 +273,8 @@ impl Default for InflightState {
 }
 
 impl InflightState {
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn remove(&mut self, peer: &PeerIndex) {
-        self.peers.remove(peer);
+    pub fn remove(&mut self, peer: PeerIndex) {
+        self.peers.remove(&peer);
     }
 }
 
@@ -324,13 +323,11 @@ impl InflightBlocks {
         self.states.len()
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn peer_inflight_count(&self, peer: &PeerIndex) -> usize {
-        self.blocks.get(peer).map(HashSet::len).unwrap_or(0)
+    pub fn peer_inflight_count(&self, peer: PeerIndex) -> usize {
+        self.blocks.get(&peer).map(HashSet::len).unwrap_or(0)
     }
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn inflight_block_by_peer(&self, peer: &PeerIndex) -> Option<&FnvHashSet<H256>> {
-        self.blocks.get(peer)
+    pub fn inflight_block_by_peer(&self, peer: PeerIndex) -> Option<&FnvHashSet<H256>> {
+        self.blocks.get(&peer)
     }
 
     pub fn inflight_state_by_block(&self, block: &H256) -> Option<&InflightState> {
@@ -344,7 +341,7 @@ impl InflightBlocks {
             let outdate = (v.timestamp + BLOCK_DOWNLOAD_TIMEOUT) < now;
             if outdate {
                 for peer in &v.peers {
-                    blocks.get_mut(peer).map(|set| set.remove(&k));
+                    blocks.get_mut(peer).map(|set| set.remove(k));
                 }
             }
             !outdate
@@ -368,10 +365,9 @@ impl InflightBlocks {
         ret
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn remove_by_peer(&mut self, peer: &PeerIndex) -> bool {
+    pub fn remove_by_peer(&mut self, peer: PeerIndex) -> bool {
         self.blocks
-            .remove(peer)
+            .remove(&peer)
             .map(|blocks| {
                 for block in blocks {
                     if let Some(state) = self.states.get_mut(&block) {
@@ -447,10 +443,7 @@ impl Peers {
     pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
         if let Some(peer_state) = self.state.write().get_mut(&peer) {
             if let Some(ref hv) = peer_state.best_known_header {
-                if header_view.total_difficulty() > hv.total_difficulty()
-                    || (header_view.total_difficulty() == hv.total_difficulty()
-                        && header_view.hash() < hv.hash())
-                {
+                if header_view.is_better_than(hv.total_difficulty(), hv.hash()) {
                     peer_state.best_known_header = Some(header_view.clone());
                 }
             } else {
@@ -1089,7 +1082,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
         self.known_txs.lock().inner.remove(&pi);
         self.known_blocks.lock().inner.remove(&pi);
-        self.inflight_blocks.write().remove_by_peer(&pi);
+        self.inflight_blocks.write().remove_by_peer(pi);
         self.peers().disconnected(pi)
     }
 
