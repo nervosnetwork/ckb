@@ -297,12 +297,13 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn start_sync_headers(&self, nc: &CKBProtocolContext) {
         let now = unix_time_as_millis();
+        let ibd = self.shared().is_initial_block_download();
         let peers: Vec<PeerIndex> = self
             .peers()
             .state
             .read()
             .iter()
-            .filter(|(_, state)| state.can_sync(now))
+            .filter(|(_, state)| state.can_sync(now, ibd))
             .map(|(peer_id, _)| peer_id)
             .cloned()
             .collect();
@@ -332,9 +333,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
-            if self.shared.is_initial_block_download()
-                && self.shared().n_sync_started().load(Ordering::Acquire) != 0
-            {
+            if ibd && self.shared().n_sync_started().load(Ordering::Acquire) != 0 {
                 break;
             }
             {

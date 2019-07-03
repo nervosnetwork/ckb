@@ -121,8 +121,10 @@ impl PeerState {
         }
     }
 
-    pub fn can_sync(&self, now: u64) -> bool {
-        !self.sync_started
+    pub fn can_sync(&self, now: u64, ibd: bool) -> bool {
+        // only sync with outbound peer in IBD
+        (self.is_outbound || !ibd)
+            && !self.sync_started
             && self
                 .chain_sync
                 .not_sync_until
