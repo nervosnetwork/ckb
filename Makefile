@@ -105,10 +105,13 @@ gen: ${GEN_FILES} # Generate Protocol Files
 gen-clean: # Clean Protocol Failes
 	rm -f ${GEN_FILES}
 
+check-flatc-version:
+	test "$$(${FLATC} --version | awk -F'version' '{ print $$2 }' | tr -d ' ')" = 1.11.0
+
 check-cfbc-version:
 	test "$$($(CFBC) --version)" = 0.1.9
 
-%_generated.rs: %.fbs
+%_generated.rs: %.fbs check-flatc-version
 	$(FLATC) -r -o $(shell dirname $@) $<
 
 %_generated_verifier.rs: %.fbs check-cfbc-version
