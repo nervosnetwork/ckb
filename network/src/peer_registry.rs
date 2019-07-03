@@ -149,7 +149,7 @@ impl PeerRegistry {
             },
         );
         // Protect half peers which have the longest connection time
-        let protect_peers = candidate_peers.len() / 2;
+        let protect_peers = candidate_peers.len() >> 1;
         sort_then_drop(&mut candidate_peers, protect_peers, |peer1, peer2| {
             peer2.connected_time.cmp(&peer1.connected_time)
         });

@@ -32,7 +32,7 @@ pub trait BlockMedianTimeContext {
 
         // return greater one if count is even.
         timestamps.sort();
-        timestamps[timestamps.len() / 2]
+        timestamps[timestamps.len() >> 1]
     }
 
     /// Return the corresponding block_hash

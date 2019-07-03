@@ -849,7 +849,7 @@ impl NetworkService {
         }
 
         let bootnodes = self.network_state.with_peer_store(|peer_store| {
-            peer_store.bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
+            peer_store.bootnodes(max((config.max_outbound_peers >> 1) as u32, 1))
         });
         // dial half bootnodes
         for (peer_id, addr) in bootnodes {

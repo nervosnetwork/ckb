@@ -44,13 +44,13 @@ impl NetTimeChecker {
         }
         let mut samples = self.samples.iter().cloned().collect::<Vec<_>>();
         samples.sort();
-        if samples.len() % 2 == 0 {
+        let mid = samples.len() >> 1;
+        if samples.len() & 0x1 == 0 {
             // samples is even
-            let i = samples.len() / 2;
-            Some((samples[i - 1] + samples[i]) / 2)
+            Some((samples[mid - 1] + samples[mid]) >> 1)
         } else {
             // samples is odd
-            samples.get(samples.len() / 2).cloned()
+            samples.get(mid).cloned()
         }
     }
 

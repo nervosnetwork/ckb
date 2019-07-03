@@ -63,7 +63,7 @@ impl<'b> serde::de::Visitor<'b> for BytesVisitor {
         if bytes.is_empty() {
             return Ok(JsonBytes::default());
         }
-        let mut buffer = vec![0; bytes.len() / 2]; // we checked length
+        let mut buffer = vec![0; bytes.len() >> 1]; // we checked length
         hex_decode(bytes, &mut buffer).map_err(|e| E::custom(format_args!("{:?}", e)))?;
         Ok(JsonBytes::from_vec(buffer))
     }
