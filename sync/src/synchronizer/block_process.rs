@@ -1,6 +1,6 @@
-use crate::synchronizer::Synchronizer;
+use crate::{synchronizer::Synchronizer, BAD_MESSAGE_BAN_TIME};
 use ckb_core::block::Block;
-use ckb_logger::debug;
+use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::Block as PBlock;
 use ckb_store::ChainStore;
@@ -11,6 +11,7 @@ pub struct BlockProcess<'a, CS: ChainStore + 'a> {
     message: &'a PBlock<'a>,
     synchronizer: &'a Synchronizer<CS>,
     peer: PeerIndex,
+    nc: &'a CKBProtocolContext,
 }
 
 impl<'a, CS> BlockProcess<'a, CS>
@@ -21,12 +22,13 @@ where
         message: &'a PBlock,
         synchronizer: &'a Synchronizer<CS>,
         peer: PeerIndex,
-        _nc: &'a CKBProtocolContext,
+        nc: &'a CKBProtocolContext,
     ) -> Self {
         BlockProcess {
             message,
             synchronizer,
             peer,
+            nc,
         }
     }
 
@@ -38,9 +40,20 @@ where
             block.header().hash()
         );
 
-        if self.synchronizer.shared().new_block_received(&block) {
-            self.synchronizer.process_new_block(self.peer, block);
+        if self.synchronizer.shared().new_block_received(&block)
+            && self
+                .synchronizer
+                .process_new_block(self.peer, block)
+                .is_err()
+        {
+            info!(
+                "Ban peer {:?} for {} seconds because send us a invalid block",
+                self.peer,
+                BAD_MESSAGE_BAN_TIME.as_secs()
+            );
+            self.nc.ban_peer(self.peer, BAD_MESSAGE_BAN_TIME);
         }
+
         Ok(())
     }
 }
