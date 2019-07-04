@@ -17,10 +17,10 @@ impl Spec for SyncTimeout {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        node0.connect(node1);
-        node0.connect(node2);
-        node0.connect(node3);
-        node0.connect(node4);
+        node1.connect(node0);
+        node2.connect(node0);
+        node3.connect(node0);
+        node4.connect(node0);
         net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");

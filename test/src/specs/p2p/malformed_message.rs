@@ -12,6 +12,8 @@ impl Spec for MalformedMessage {
 
         info!("Connect node0");
         let node0 = &net.nodes[0];
+        // exit IBD mode
+        node0.generate_block();
         net.connect(node0);
 
         info!("Test node should receive GetHeaders message from node0");
