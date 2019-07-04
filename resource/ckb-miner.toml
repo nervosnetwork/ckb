@@ -29,6 +29,9 @@ log_to_stdout = true # {{
 dsn = "" # {{
 # testnet => dsn = "https://48c6a88d92e246478e2d53b5917a887c@sentry.io/1422795"
 # }}
+# if you are willing to help us to improve,
+# please leave a way to contact you when we have troubles to reproduce the errors.
+# org_contact = ""
 
 [miner.client]
 rpc_url = "http://127.0.0.1:8114/" # {{

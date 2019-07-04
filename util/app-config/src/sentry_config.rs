@@ -4,7 +4,7 @@ use sentry::{
     integrations::panic::register_panic_handler,
     internals::{ClientInitGuard, Dsn},
     protocol::Event,
-    ClientOptions,
+    ClientOptions, Level,
 };
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -13,6 +13,8 @@ use std::sync::Arc;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SentryConfig {
     pub dsn: String,
+    pub org_ident: Option<String>,
+    pub org_contact: Option<String>,
 }
 
 impl SentryConfig {
@@ -22,6 +24,12 @@ impl SentryConfig {
             configure_scope(|scope| {
                 scope.set_tag("release.pre", version.is_pre());
                 scope.set_tag("release.dirty", version.is_dirty());
+                if let Some(org_ident) = &self.org_ident {
+                    scope.set_tag("org_ident", org_ident);
+                }
+                if let Some(org_contact) = &self.org_contact {
+                    scope.set_extra("org_contact", org_contact.clone().into());
+                }
             });
 
             register_panic_handler();
@@ -67,8 +75,10 @@ fn before_send(mut event: Event<'static>) -> Option<Event<'static>> {
     // Group events via fingerprint, or ignore
 
     if ex.starts_with("DBError failed to open the database") {
+        event.level = Level::Warning;
         event.fingerprint = Cow::Borrowed(DB_OPEN_FINGERPRINT);
     } else if ex.contains("SqliteFailure") {
+        event.level = Level::Warning;
         event.fingerprint = Cow::Borrowed(SQLITE_FINGERPRINT);
     } else if ex.starts_with("DBError the database version")
         || ex.contains("kind: AddrInUse")

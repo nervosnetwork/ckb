@@ -612,7 +612,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                     }
                                 }
                                 Err(err) => {
-                                    error!("block {}", serde_json::to_string(b).unwrap());
+                                    error!("block {:?} verify error{:?}", b, err);
                                     found_error =
                                         Some(SharedError::InvalidTransaction(err.to_string()));
                                     *verified = Some(false);
