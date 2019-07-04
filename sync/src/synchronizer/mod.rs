@@ -141,6 +141,11 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .insert_block_status(hash, BlockStatus::BLOCK_HAVE_MASK);
     }
 
+    pub fn mark_block_invalid(&self, hash: H256) {
+        self.shared()
+            .insert_block_status(hash, BlockStatus::FAILED_VALID);
+    }
+
     pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
         if let Some(parent_view) = self.shared.get_header_view(&header.parent_hash()) {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();

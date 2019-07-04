@@ -406,7 +406,7 @@ where
                 self.header.number()
             );
             self.synchronizer
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_CHILD);
             return result;
         }
 
@@ -416,14 +416,14 @@ where
                 self.header.number()
             );
             self.synchronizer
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_VALID);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
             debug!("HeadersProcess accept {:?} version", self.header.number());
             self.synchronizer
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_MASK);
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_VALID);
             return result;
         }
 
