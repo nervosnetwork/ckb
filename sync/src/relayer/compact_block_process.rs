@@ -1,3 +1,4 @@
+use crate::block_status::BlockStatus;
 use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
@@ -111,7 +112,10 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 .get(&block_hash)
                 .map(|(_, peers_set)| peers_set.contains(&self.peer))
                 .unwrap_or(false)
-                || self.relayer.shared.store().get_block(&block_hash).is_some()
+                || self
+                    .relayer
+                    .shared()
+                    .contains_block_status(&block_hash, BlockStatus::BLOCK_STORED)
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,

@@ -147,24 +147,21 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     //TODO: process block which we don't request
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
-        if self.shared().contains_orphan_block(block.header()) {
-            debug!("block {:x} already in orphan pool", block.header().hash());
-            return Ok(());
+        let block_hash = block.header().hash();
+        let status = self.shared().get_block_status(block_hash);
+        if status.contains(BlockStatus::BLOCK_RECEIVED) {
+            debug!("block {:x} already received", block_hash);
+            Ok(())
+        } else if status.contains(BlockStatus::HEADER_VERIFIED) {
+            self.shared()
+                .insert_new_block(&self.chain, peer, Arc::new(block))
+        } else {
+            debug!(
+                "Synchronizer process_new_block unexpected status {:?} {:#x}",
+                status, block_hash,
+            );
+            Ok(())
         }
-
-        match self.shared().get_block_status(&block.header().hash()) {
-            BlockStatus::VALID_MASK => {
-                self.shared()
-                    .insert_new_block(&self.chain, peer, Arc::new(block))?;
-            }
-            status => {
-                debug!(
-                    "[Synchronizer] process_new_block unexpected status {:?}",
-                    status
-                );
-            }
-        }
-        Ok(())
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {

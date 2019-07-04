@@ -160,8 +160,7 @@ where
                 if self
                     .synchronizer
                     .shared()
-                    .get_block_status(to_fetch_hash)
-                    .contains(BlockStatus::BLOCK_RECEIVED)
+                    .contains_block_status(to_fetch_hash, BlockStatus::BLOCK_RECEIVED)
                 {
                     continue;
                 }

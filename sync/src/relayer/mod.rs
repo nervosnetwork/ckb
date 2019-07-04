@@ -22,6 +22,7 @@ use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transaction_process::GetTransactionProcess;
 use self::transaction_hash_process::TransactionHashProcess;
 use self::transaction_process::TransactionProcess;
+use crate::block_status::BlockStatus;
 use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::SyncSharedState;
 use crate::BAD_MESSAGE_BAN_TIME;
@@ -216,6 +217,13 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
     }
 
     pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: Block) {
+        if self
+            .shared()
+            .contains_block_status(block.header().hash(), BlockStatus::BLOCK_STORED)
+        {
+            return;
+        }
+
         let boxed = Arc::new(block);
         if self
             .shared()

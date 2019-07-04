@@ -1038,6 +1038,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         }
     }
 
+    pub fn contains_block_status(&self, block_hash: &H256, status: BlockStatus) -> bool {
+        self.get_block_status(block_hash).contains(status)
+    }
+
+    pub fn unknown_block_status(&self, block_hash: &H256) -> bool {
+        self.get_block_status(block_hash) == BlockStatus::UNKNOWN
+    }
+
     pub fn insert_block_status(&self, block_hash: H256, status: BlockStatus) {
         self.block_status_map.lock().insert(block_hash, status);
     }

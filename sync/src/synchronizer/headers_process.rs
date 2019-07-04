@@ -136,7 +136,7 @@ where
 
     fn received_new_header(&self, headers: &[Header]) -> bool {
         let last = headers.last().expect("empty checked");
-        self.synchronizer.shared().get_block_status(&last.hash()) == BlockStatus::UNKNOWN
+        self.synchronizer.shared().unknown_block_status(last.hash())
     }
 
     pub fn accept_first(&self, first: &Header) -> ValidationResult {
@@ -332,12 +332,11 @@ where
     }
 
     pub fn prev_block_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        let status = self
+        if self
             .synchronizer
             .shared()
-            .get_block_status(&self.header.parent_hash());
-
-        if status.contains(BlockStatus::BLOCK_INVALID) {
+            .contains_block_status(self.header.parent_hash(), BlockStatus::BLOCK_INVALID)
+        {
             state.dos(Some(ValidationError::InvalidParent), 100);
             return Err(());
         }
@@ -386,6 +385,19 @@ where
 
     pub fn accept(&self) -> ValidationResult {
         let mut result = ValidationResult::default();
+
+        // FIXME If status == BLOCK_INVALID then return early. But which error
+        // type should we return?
+        if self
+            .synchronizer
+            .shared()
+            .contains_block_status(self.header.hash(), BlockStatus::HEADER_VERIFIED)
+        {
+            self.synchronizer
+                .insert_header_view(&self.header, self.peer);
+            return result;
+        }
+
         if self.duplicate_check(&mut result).is_err() {
             debug!(
                 "HeadersProcess reject duplicate header: {} {:#x}",
