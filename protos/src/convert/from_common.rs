@@ -161,6 +161,8 @@ impl<'a> protos::Header<'a> {
             .map(Bytes::from)
             .unwrap_some()?;
 
+        let chain_commitment = self.chain_commitment().unwrap_some()?;
+
         let builder = HeaderBuilder::default()
             .version(self.version())
             .parent_hash(parent_hash.try_into()?)
@@ -175,7 +177,8 @@ impl<'a> protos::Header<'a> {
             .nonce(self.nonce())
             .proof(proof)
             .dao(dao)
-            .uncles_count(self.uncles_count());
+            .uncles_count(self.uncles_count())
+            .chain_commitment(chain_commitment.try_into()?);
 
         let header = unsafe { builder.build_unchecked(hash) };
         Ok(header)

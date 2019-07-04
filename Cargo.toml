@@ -18,6 +18,7 @@ ckb-bin = { path = "ckb-bin" }
 [workspace]
 members = [
     "util/merkle-mountain-range",
+    "util/merkle-mountain-range/core",
     "util/network-alert",
     "util/multisig",
     "util/logger",

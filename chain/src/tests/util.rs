@@ -174,20 +174,36 @@ pub(crate) fn create_transaction_with_out_point(
         .build()
 }
 
+use ckb_core::hash_with_td::HashWithTD;
+use ckb_merkle_mountain_range::{tests_util::MemStore, MMRBatch, MMR};
+
 #[derive(Clone)]
 pub struct MockChain<'a> {
     blocks: Vec<Block>,
     parent: Header,
     consensus: &'a Consensus,
+    mmr: MMR<HashWithTD, MemStore<HashWithTD>>,
 }
 
 impl<'a> MockChain<'a> {
     pub fn new(parent: Header, consensus: &'a Consensus) -> Self {
-        Self {
+        let mmr = MMR::new(0, MemStore::default());
+        let mut chain = Self {
             blocks: vec![],
             parent,
             consensus,
-        }
+            mmr,
+        };
+        chain.push_mmr(&consensus.genesis_block);
+        chain
+    }
+
+    fn push_mmr(&mut self, new_block: &Block) {
+        let mut batch = MMRBatch::new();
+        self.mmr
+            .push(&mut batch, new_block.header().into())
+            .expect("push");
+        self.mmr.store().commit(batch).expect("write to store");
     }
 
     pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<Transaction>, store: &mut MockStore) {
@@ -201,16 +217,24 @@ impl<'a> MockChain<'a> {
             store,
             false,
         );
+        let chain_commitment = self
+            .mmr
+            .get_root(None)
+            .expect("get root")
+            .map(|elem| elem.hash().to_owned())
+            .unwrap_or_else(H256::zero);
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 difficulty: difficulty + U256::from(100u64),
+                chain_commitment: chain_commitment,
                 dao: dao,
             },
             transaction: cellbase,
             proposals: txs.iter().map(Transaction::proposal_short_id),
         );
+        self.push_mmr(&new_block);
         store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
@@ -225,15 +249,23 @@ impl<'a> MockChain<'a> {
             store,
             false,
         );
+        let chain_commitment = self
+            .mmr
+            .get_root(None)
+            .expect("get root")
+            .map(|elem| elem.hash().to_owned())
+            .unwrap_or_else(H256::zero);
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 difficulty: U256::from(difficulty),
                 dao: dao,
+                chain_commitment: chain_commitment,
             },
             transaction: cellbase,
         );
+        self.push_mmr(&new_block);
         store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
@@ -249,15 +281,23 @@ impl<'a> MockChain<'a> {
             store,
             false,
         );
+        let chain_commitment = self
+            .mmr
+            .get_root(None)
+            .expect("get root")
+            .map(|elem| elem.hash().to_owned())
+            .unwrap_or_else(H256::zero);
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 difficulty: difficulty + U256::from(diff),
                 dao: dao,
+                chain_commitment: chain_commitment,
             },
             transaction: cellbase,
         );
+        self.push_mmr(&new_block);
         store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
@@ -280,16 +320,24 @@ impl<'a> MockChain<'a> {
             store,
             ignore_resolve_error,
         );
+        let chain_commitment = self
+            .mmr
+            .get_root(None)
+            .expect("get root")
+            .map(|elem| elem.hash().to_owned())
+            .unwrap_or_else(H256::zero);
         let new_block = build_block!(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
                 difficulty: difficulty + U256::from(100u64),
                 dao: dao,
+                chain_commitment: chain_commitment,
             },
             transaction: cellbase,
             transactions: txs,
         );
+        self.push_mmr(&new_block);
         store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
@@ -311,9 +359,14 @@ impl<'a> MockChain<'a> {
     }
 
     pub fn total_difficulty(&self) -> U256 {
-        self.blocks()
-            .iter()
-            .fold(U256::from(0u64), |sum, b| sum + b.header().difficulty())
+        self.blocks().iter().fold(
+            self.consensus
+                .genesis_block
+                .header()
+                .difficulty()
+                .to_owned(),
+            |sum, b| sum + b.header().difficulty(),
+        )
     }
 }
 

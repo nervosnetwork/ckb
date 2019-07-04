@@ -3,24 +3,30 @@ extern crate criterion;
 
 use criterion::Criterion;
 
-use ckb_db::MemoryKeyValueDB;
-use ckb_merkle_mountain_range::{tests_util::NumberHash, MMRStore, MMR};
+use ckb_merkle_mountain_range::{
+    tests_util::{MemStore, NumberHash},
+    MMRBatch, MMRStore, MMR,
+};
 use rand::{seq::SliceRandom, thread_rng};
 use std::convert::TryFrom;
-use std::sync::Arc;
 
 type PrepareResult = (
-    MMR<NumberHash, MemoryKeyValueDB>,
-    Arc<MMRStore<NumberHash, MemoryKeyValueDB>>,
+    MMR<NumberHash, MemStore<NumberHash>>,
+    MemStore<NumberHash>,
     Vec<u64>,
 );
 
 fn prepare_mmr(count: u32) -> PrepareResult {
-    let mmr_store = Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0));
-    let mut mmr = MMR::new(0, Arc::clone(&mmr_store));
+    let mmr_store = MemStore::default();
+    let mut mmr = MMR::new(0, mmr_store.clone());
+    let mut batch = MMRBatch::new();
     let positions: Vec<u64> = (0u32..count)
-        .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
+        .map(|i| {
+            mmr.push(&mut batch, NumberHash::try_from(i).unwrap())
+                .unwrap()
+        })
         .collect();
+    mmr_store.commit(batch).expect("write to store");
     (mmr, mmr_store, positions)
 }
 
@@ -42,7 +48,7 @@ fn bench(c: &mut Criterion) {
     c.bench_function("MMR verify", |b| {
         let (mmr, mmr_store, positions) = prepare_mmr(100_0000);
         let mut rng = thread_rng();
-        let root: NumberHash = mmr.get_root().unwrap().unwrap();
+        let root: NumberHash = mmr.get_root(None).unwrap().unwrap();
         let proofs: Vec<_> = (0..10_000)
             .map(|_| {
                 let pos = positions.choose(&mut rng).unwrap();

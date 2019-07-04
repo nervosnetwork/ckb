@@ -1,10 +1,11 @@
-use crate::{MerkleElem, Result};
+use crate::{Error, MMRBatch, MMRStore, MerkleElem, Result};
 use ckb_hash::Blake2bWriter;
-use failure::Error;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, Default)]
 pub struct NumberHash(pub Vec<u8>);
 impl TryFrom<u32> for NumberHash {
     type Error = Error;
@@ -26,5 +27,26 @@ impl MerkleElem for NumberHash {
     }
     fn serialize(&self) -> Result<Vec<u8>> {
         Ok(self.0.clone())
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct MemStore<Elem>(Arc<Mutex<HashMap<u64, Elem>>>);
+
+impl<Elem: MerkleElem> MemStore<Elem> {
+    pub fn commit(&self, batch: MMRBatch<Elem>) -> Result<()> {
+        let mut store = self.0.lock().unwrap();
+        for (pos, elems) in batch.into_iter() {
+            for (i, elem) in elems.into_iter().enumerate() {
+                store.insert(pos + i as u64, elem);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<Elem: MerkleElem + Clone> MMRStore<Elem> for MemStore<Elem> {
+    fn get_elem(&self, pos: u64) -> Result<Option<Elem>> {
+        Ok(self.0.lock().unwrap().get(&pos).map(Clone::clone))
     }
 }

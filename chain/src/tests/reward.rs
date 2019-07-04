@@ -4,6 +4,7 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::hash_with_td::HashWithTD;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
@@ -12,6 +13,7 @@ use ckb_core::transaction::{
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao_utils::genesis_dao_data;
+use ckb_merkle_mountain_range::{tests_util::MemStore, MMRBatch, MMR};
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
 use std::sync::Arc;
@@ -40,8 +42,15 @@ pub(crate) fn create_cellbase(
         .build()
 }
 
+fn push_mmr(mmr: &mut MMR<HashWithTD, MemStore<HashWithTD>>, block: &Block) {
+    let mut batch = MMRBatch::new();
+    mmr.push(&mut batch, block.header().into()).expect("push");
+    mmr.store().commit(batch).expect("write to store");
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_block(
+    mmr: &mut MMR<HashWithTD, MemStore<HashWithTD>>,
     parent_header: &Header,
     transactions: Vec<Transaction>,
     proposals: Vec<ProposalShortId>,
@@ -65,13 +74,19 @@ pub(crate) fn gen_block(
     txs.extend_from_slice(&transactions);
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
+    let chain_commitment = mmr
+        .get_root(None)
+        .expect("get root")
+        .map(|elem| elem.hash().to_owned())
+        .unwrap();
 
     let header_builder = HeaderBuilder::default()
         .parent_hash(parent_header.hash().to_owned())
         .timestamp(parent_header.timestamp() + 20_000)
         .number(number)
         .difficulty(parent_header.difficulty().clone())
-        .dao(dao);
+        .dao(dao)
+        .chain_commitment(chain_commitment);
 
     let block = BlockBuilder::default()
         .transactions(txs)
@@ -81,6 +96,7 @@ pub(crate) fn gen_block(
         .build();
 
     store.insert_block(&block, consensus.genesis_epoch_ext());
+    push_mmr(mmr, &block);
 
     block
 }
@@ -106,6 +122,7 @@ pub(crate) fn create_transaction(parent: &Transaction, index: u32) -> Transactio
 
 #[test]
 fn finalize_reward() {
+    let mut mmr = MMR::new(0, MemStore::default());
     let (_, always_success_script) = always_success_cell();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
@@ -125,6 +142,8 @@ fn finalize_reward() {
         .transaction(tx.clone())
         .header_builder(header_builder)
         .build();
+
+    push_mmr(&mut mmr, &genesis_block);
 
     let consensus = Consensus::default()
         .set_cellbase_maturity(0)
@@ -180,6 +199,7 @@ fn finalize_reward() {
         };
 
         let block = gen_block(
+            &mut mmr,
             &parent,
             block_txs,
             proposals,
@@ -215,6 +235,7 @@ fn finalize_reward() {
     assert_eq!(reward, bob_reward,);
 
     let block = gen_block(
+        &mut mmr,
         &parent,
         txs.iter().skip(12).cloned().collect(),
         vec![],
@@ -249,6 +270,7 @@ fn finalize_reward() {
     assert_eq!(reward, alice_reward);
 
     let block = gen_block(
+        &mut mmr,
         &parent,
         vec![],
         vec![],

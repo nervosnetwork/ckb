@@ -1,17 +1,25 @@
-use crate::{leaf_index_to_pos, tests_util::NumberHash, MMRStore, MMR};
-use ckb_db::MemoryKeyValueDB;
+use crate::{
+    leaf_index_to_pos,
+    tests_util::{MemStore, NumberHash},
+    MMRBatch, MMR,
+};
 use faster_hex::hex_string;
 use lazy_static::lazy_static;
 use proptest::prelude::*;
 use std::convert::TryFrom;
-use std::sync::Arc;
 
 fn test_mmr(count: u32, proof_elem: u32) {
-    let mut mmr = MMR::new(0, Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0)));
+    let store = MemStore::default();
+    let mut batch = MMRBatch::new();
+    let mut mmr = MMR::new(0, store.clone());
     let positions: Vec<u64> = (0u32..count)
-        .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
+        .map(|i| {
+            mmr.push(&mut batch, NumberHash::try_from(i).unwrap())
+                .unwrap()
+        })
         .collect();
-    let root = mmr.get_root().expect("get root").unwrap();
+    store.commit(batch).expect("write changes");
+    let root = mmr.get_root(None).expect("get root").unwrap();
     let proof = mmr
         .gen_proof(positions[proof_elem as usize])
         .expect("gen proof");
@@ -27,11 +35,14 @@ fn test_mmr(count: u32, proof_elem: u32) {
 
 #[test]
 fn test_mmr_root() {
-    let mut mmr = MMR::new(0, Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0)));
+    let store = MemStore::default();
+    let mut batch = MMRBatch::new();
+    let mut mmr = MMR::new(0, store);
     (0u32..11).for_each(|i| {
-        mmr.push(NumberHash::try_from(i).unwrap()).unwrap();
+        mmr.push(&mut batch, NumberHash::try_from(i).unwrap())
+            .unwrap();
     });
-    let root = mmr.get_root().expect("get root").unwrap();
+    let root = mmr.get_root(Some(&batch)).expect("get root").unwrap();
     let hex_root = hex_string(&root.0).unwrap();
     assert_eq!(
         "d4aa7a8acce692f046d3b968650723b627b1a0431a659f190823a3bf4c918f0b",
@@ -84,9 +95,14 @@ prop_compose! {
 }
 lazy_static! {
     static ref POSITIONS: Vec<u64> = {
-        let mut mmr = MMR::new(0, Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0)));
+        let store = MemStore::default();
+        let mut batch = MMRBatch::new();
+        let mut mmr = MMR::new(0, store);
         (0u32..100_000)
-            .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
+            .map(|i| {
+                mmr.push(&mut batch, NumberHash::try_from(i).unwrap())
+                    .unwrap()
+            })
             .collect()
     };
 }

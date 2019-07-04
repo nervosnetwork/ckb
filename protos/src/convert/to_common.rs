@@ -258,6 +258,7 @@ impl<'a> CanBuild<'a> for protos::Header<'a> {
         let proof = protos::Bytes::build(fbb, &header.proof());
         let dao = protos::Bytes::build(fbb, &header.dao());
         let uncles_hash = header.uncles_hash().into();
+        let chain_commitment = header.chain_commitment().into();
         let mut builder = protos::HeaderBuilder::new(fbb);
         builder.add_version(header.version());
         builder.add_parent_hash(&parent_hash);
@@ -271,6 +272,7 @@ impl<'a> CanBuild<'a> for protos::Header<'a> {
         builder.add_nonce(header.nonce());
         builder.add_proof(proof);
         builder.add_dao(dao);
+        builder.add_chain_commitment(&chain_commitment);
         builder.add_uncles_hash(&uncles_hash);
         builder.add_uncles_count(header.uncles_count());
         builder.finish()

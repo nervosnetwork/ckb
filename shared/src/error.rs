@@ -14,4 +14,6 @@ pub enum SharedError {
     InvalidData(String),
     #[fail(display = "DB error: {}", _0)]
     DB(DBError),
+    #[fail(display = "InvalidChainCommitment")]
+    InvalidChainCommitment,
 }

@@ -4,41 +4,52 @@
 //! https://github.com/mimblewimble/grin/blob/master/doc/mmr.md#structure
 //! https://github.com/mimblewimble/grin/blob/0ff6763ee64e5a14e70ddd4642b99789a1648a32/core/src/core/pmmr.rs#L606
 
-use crate::error::Result;
 use crate::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset};
-use crate::mmr_store::MMRStore;
+use crate::mmr_store::{MMRBatch, MMRStore};
 use crate::MerkleElem;
-use ckb_db::KeyValueDB;
+use crate::Result;
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
-pub struct MMR<Elem, DB> {
+#[derive(Clone)]
+pub struct MMR<Elem, Store> {
     mmr_size: u64,
-    store: Arc<MMRStore<Elem, DB>>,
+    store: Store,
     merkle_elem: PhantomData<Elem>,
 }
 
-impl<Elem: MerkleElem + Clone + Eq + Debug, DB: KeyValueDB> MMR<Elem, DB> {
-    pub fn new(mmr_size: u64, store: Arc<MMRStore<Elem, DB>>) -> Self {
+impl<Elem: MerkleElem + Clone + Eq + Debug, Store: MMRStore<Elem>> MMR<Elem, Store> {
+    pub fn new(mmr_size: u64, store: Store) -> Self {
         MMR {
-            store,
             mmr_size,
+            store,
             merkle_elem: PhantomData,
         }
     }
 
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
     // get data from memory hashes
-    fn get_mem_data<'a>(&self, pos: u64, hashes: &'a [Elem]) -> Result<Cow<'a, Elem>> {
+    fn get_mem_data<'a>(
+        &self,
+        pos: u64,
+        batch: &'a MMRBatch<Elem>,
+        hashes: &'a [Elem],
+    ) -> Result<Cow<'a, Elem>> {
         let pos_offset = pos.checked_sub(self.mmr_size);
-        match pos_offset.and_then(|i| hashes.get(i as usize)) {
-            Some(elem) => Ok(Cow::Borrowed(elem)),
-            None => Ok(Cow::Owned(self.store.get_elem(pos)?.expect("must exists"))),
+        if let Some(elem) = pos_offset.and_then(|i| hashes.get(i as usize)) {
+            return Ok(Cow::Borrowed(elem));
         }
+        if let Some(elem) = batch.get_elem(pos)? {
+            return Ok(Cow::Borrowed(elem));
+        }
+        Ok(Cow::Owned(self.store.get_elem(pos)?.expect("must exists")))
     }
     // push a element and return position
-    pub fn push(&mut self, elem: Elem) -> Result<u64> {
+    pub fn push(&mut self, batch: &mut MMRBatch<Elem>, elem: Elem) -> Result<u64> {
         let mut elems: Vec<Elem> = Vec::new();
         // position of new elem
         let elem_pos = self.mmr_size;
@@ -50,32 +61,51 @@ impl<Elem: MerkleElem + Clone + Eq + Debug, DB: KeyValueDB> MMR<Elem, DB> {
             pos += 1;
             let left_pos = pos - parent_offset(height);
             let right_pos = left_pos + sibling_offset(height.try_into()?);
-            let left_elem = self.get_mem_data(left_pos, &elems)?;
-            let right_elem = self.get_mem_data(right_pos, &elems)?;
+            let left_elem = self.get_mem_data(left_pos, &batch, &elems)?;
+            let right_elem = self.get_mem_data(right_pos, &batch, &elems)?;
             elems.push(Elem::merge(&left_elem, &right_elem)?);
             height += 1
         }
         // store hashes
-        self.store.append(elem_pos, &elems)?;
+        batch.append(elem_pos, elems)?;
         // update mmr_size
         self.mmr_size = pos + 1;
         Ok(elem_pos)
     }
 
     /// get_root
-    pub fn get_root(&self) -> Result<Option<Elem>> {
-        if self.mmr_size == 1 {
+    pub fn get_root(&self, batch: Option<&MMRBatch<Elem>>) -> Result<Option<Elem>> {
+        if self.mmr_size == 0 {
+            return Ok(None);
+        } else if self.mmr_size == 1 {
+            if let Some(result) = batch.map(|b| b.get_elem(0)) {
+                return result.map(|o| o.map(Clone::clone));
+            }
             return self.store.get_elem(0);
         }
         let peaks = get_peaks(self.mmr_size);
-        self.bag_rhs_peaks(0, &peaks)
+        self.bag_rhs_peaks(batch, 0, &peaks)
     }
 
-    fn bag_rhs_peaks(&self, skip_peak_pos: u64, peaks: &[u64]) -> Result<Option<Elem>> {
+    fn bag_rhs_peaks(
+        &self,
+        batch: Option<&MMRBatch<Elem>>,
+        skip_peak_pos: u64,
+        peaks: &[u64],
+    ) -> Result<Option<Elem>> {
         let mut rhs_peak_elems: Vec<Elem> = peaks
             .iter()
             .filter(|&&p| p > skip_peak_pos)
-            .map(|&p| self.store.get_elem(p))
+            .map(|&p| {
+                match batch {
+                    Some(b) => match b.get_elem(p)? {
+                        Some(v) => Ok(Some(v.clone())),
+                        None => self.store.get_elem(p),
+                    },
+                    None => self.store.get_elem(p),
+                }
+                // batch.and_then(|b| b.get_elem(p).map(|o|o.map(Clone::clone))).or_else(||self.store.get_elem(p))
+            })
             .collect::<Result<Option<_>>>()?
             .expect("data must exists");
         while rhs_peak_elems.len() > 1 {
@@ -114,7 +144,7 @@ impl<Elem: MerkleElem + Clone + Eq + Debug, DB: KeyValueDB> MMR<Elem, DB> {
         let peak_pos = pos;
         // calculate bagging proof
         let peaks = get_peaks(self.mmr_size);
-        if let Some(rhs_peak_hash) = self.bag_rhs_peaks(peak_pos, &peaks[..])? {
+        if let Some(rhs_peak_hash) = self.bag_rhs_peaks(None, peak_pos, &peaks[..])? {
             proof.push(rhs_peak_hash);
         }
         let lhs_peaks: Vec<_> = peaks

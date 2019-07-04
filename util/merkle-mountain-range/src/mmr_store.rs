@@ -1,35 +1,40 @@
 use crate::MerkleElem;
 use crate::Result;
-use ckb_db::{Col, DbBatch, KeyValueDB};
-use std::marker::PhantomData;
 
-pub struct MMRStore<Elem, DB: Sized> {
-    db: DB,
-    col: Col,
-    merkle_elem: PhantomData<Elem>,
-}
+#[derive(Default)]
+pub struct MMRBatch<Elem: MerkleElem>(Vec<(u64, Vec<Elem>)>);
 
-impl<Elem: MerkleElem, DB: KeyValueDB> MMRStore<Elem, DB> {
-    pub fn new(db: DB, col: Col) -> Self {
-        MMRStore {
-            db,
-            col,
-            merkle_elem: PhantomData,
-        }
+impl<Elem: MerkleElem> MMRBatch<Elem> {
+    pub fn new() -> Self {
+        MMRBatch(Vec::new())
     }
-    pub fn get_elem(&self, pos: u64) -> Result<Option<Elem>> {
-        match self.db.read(self.col, &pos.to_le_bytes()[..])? {
-            Some(data) => Ok(Some(Elem::deserialize(data)?)),
-            None => Ok(None),
-        }
-    }
-    pub fn append(&self, pos: u64, elems: &[Elem]) -> Result<()> {
-        let mut batch = self.db.batch()?;
-        for (offset, elem) in elems.iter().enumerate() {
-            let pos: u64 = pos + (offset as u64);
-            batch.insert(self.col, &pos.to_le_bytes()[..], &elem.serialize()?)?;
-        }
-        batch.commit()?;
+    pub fn append(&mut self, pos: u64, elems: Vec<Elem>) -> Result<()> {
+        self.0.push((pos, elems));
         Ok(())
     }
+    pub fn get_elem(&self, pos: u64) -> Result<Option<&Elem>> {
+        for (start_pos, elems) in self.0.iter().rev() {
+            if pos < *start_pos {
+                continue;
+            } else if pos < start_pos + elems.len() as u64 {
+                return Ok(elems.get((pos - start_pos) as usize));
+            } else {
+                break;
+            }
+        }
+        Ok(None)
+    }
+}
+
+impl<Elem: MerkleElem> IntoIterator for MMRBatch<Elem> {
+    type Item = (u64, Vec<Elem>);
+    type IntoIter = ::std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+pub trait MMRStore<Elem: MerkleElem> {
+    fn get_elem(&self, pos: u64) -> Result<Option<Elem>>;
 }

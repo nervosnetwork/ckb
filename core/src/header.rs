@@ -68,6 +68,8 @@ pub struct RawHeader {
     epoch: EpochNumber,
     /// Statistic data used in NervosDAO calculation
     dao: Bytes,
+    /// Chain commitment
+    chain_commitment: H256,
 }
 
 impl Default for RawHeader {
@@ -121,7 +123,7 @@ impl RawHeader {
     // temp
     pub const fn serialized_size() -> usize {
         mem::size_of::<Version>()
-            + H256::size_of() * 5
+            + H256::size_of() * 6
             + U256::size_of()
             + mem::size_of::<u64>() * 3
             + mem::size_of::<u32>()
@@ -226,6 +228,10 @@ impl fmt::Debug for Header {
                 &format_args!("{:#x}", self.raw.proposals_hash),
             )
             .field("difficulty", &format_args!("{:#x}", self.raw.difficulty))
+            .field(
+                "chain_commitment",
+                &format_args!("{:#x}", self.raw.chain_commitment),
+            )
             .field("uncles_count", &self.raw.uncles_count)
             .field("uncles_hash", &format_args!("{:#x}", self.raw.uncles_hash))
             .field("epoch", &self.raw.epoch)
@@ -317,6 +323,10 @@ impl Header {
 
     pub fn uncles_hash(&self) -> &H256 {
         &self.raw.uncles_hash
+    }
+
+    pub fn chain_commitment(&self) -> &H256 {
+        &self.raw.chain_commitment
     }
 
     pub fn raw(&self) -> &RawHeader {
@@ -433,6 +443,11 @@ impl HeaderBuilder {
 
     pub fn uncles_count(mut self, uncles_count: u32) -> Self {
         self.raw.uncles_count = uncles_count;
+        self
+    }
+
+    pub fn chain_commitment(mut self, chain_commitment: H256) -> Self {
+        self.raw.chain_commitment = chain_commitment;
         self
     }
 

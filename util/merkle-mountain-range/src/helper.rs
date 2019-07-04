@@ -4,7 +4,6 @@ pub fn leaf_index_to_pos(index: u64) -> u64 {
     }
     // leaf_count
     let mut leaves = index + 1;
-    dbg!(leaves);
     let mut tree_node_count = 0;
     let mut height = 0u32;
     while leaves > 1 {
@@ -26,6 +25,15 @@ pub fn leaf_index_to_pos(index: u64) -> u64 {
         let pos = tree_node_count - 1;
         pos - u64::from(height)
     }
+}
+
+// TODO optimize
+pub fn leaf_index_to_mmr_size(index: u64) -> u64 {
+    let mut pos = leaf_index_to_pos(index);
+    while pos_height_in_tree(pos + 1) > pos_height_in_tree(pos) {
+        pos += 1
+    }
+    pos + 1
 }
 
 pub fn pos_height_in_tree(mut pos: u64) -> u64 {

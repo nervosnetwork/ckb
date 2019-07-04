@@ -15,6 +15,7 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 ckb-chain-spec = { path = "../spec" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-script-data-loader = { path = "../script/data-loader" }
+ckb-merkle-mountain-range = { path = "../util/merkle-mountain-range" }
 
 [dev-dependencies]
 tempfile = "3.0"

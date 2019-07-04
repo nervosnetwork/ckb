@@ -256,9 +256,25 @@ fn test_invalid_out_point_index_in_different_blocks() {
     );
 }
 
+use ckb_core::hash_with_td::HashWithTD;
+use ckb_merkle_mountain_range::{tests_util::MemStore, MMRBatch, MMR};
+
+fn push_mmr(mmr: &mut MMR<HashWithTD, MemStore<HashWithTD>>, block: &Block) {
+    let mut batch = MMRBatch::new();
+    mmr.push(&mut batch, block.header().into()).expect("push");
+    mmr.store().commit(batch).expect("write to store");
+}
+
 #[test]
 fn test_full_dead_transaction() {
+    let mut chain1_mmr = MMR::new(0, MemStore::default());
+    let mut chain2_mmr = MMR::new(0, MemStore::default());
     let (chain_controller, shared, mut parent) = start_chain(None);
+    {
+        let genesis_block = &shared.consensus().genesis_block();
+        push_mmr(&mut chain1_mmr, &genesis_block);
+        push_mmr(&mut chain2_mmr, &genesis_block);
+    }
     let final_number = 20;
     let switch_fork_number = 10;
     let proposal_number = 3;
@@ -278,24 +294,39 @@ fn test_full_dead_transaction() {
     );
 
     let difficulty = parent.difficulty().to_owned();
+    let chain_commitment = chain1_mmr
+        .get_root(None)
+        .unwrap()
+        .unwrap()
+        .hash()
+        .to_owned();
     let block = build_block!(
         from_header_builder: {
             parent_hash: parent.hash().to_owned(),
             number: parent.number() + 1,
             difficulty: difficulty + U256::from(100u64),
             dao: dao,
+            chain_commitment: chain_commitment,
         },
         transaction: cellbase_tx,
     );
     chain1.push(block.clone());
     chain2.push(block.clone());
     mock_store.insert_block(&block, shared.consensus().genesis_epoch_ext());
+    push_mmr(&mut chain1_mmr, &block);
+    push_mmr(&mut chain2_mmr, &block);
     let root_tx = &block.transactions()[0];
     let tx1 = create_multi_outputs_transaction(&root_tx, vec![0], 1, vec![1]);
 
     parent = block.header().to_owned();
     for i in 2..switch_fork_number {
         let difficulty = parent.difficulty().to_owned();
+        let chain_commitment = chain1_mmr
+            .get_root(None)
+            .unwrap()
+            .unwrap()
+            .hash()
+            .to_owned();
         let new_block = if i == proposal_number {
             let transactions = vec![create_cellbase(
                 &mut mock_store,
@@ -315,6 +346,7 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(100u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 transactions: transactions,
                 proposals: vec![tx1.proposal_short_id()],
@@ -337,6 +369,7 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(100u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 transactions: transactions,
             )
@@ -359,6 +392,7 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(100u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 transactions: transactions,
             )
@@ -366,6 +400,8 @@ fn test_full_dead_transaction() {
         chain1.push(new_block.clone());
         chain2.push(new_block.clone());
         mock_store.insert_block(&new_block, shared.consensus().genesis_epoch_ext());
+        push_mmr(&mut chain1_mmr, &new_block);
+        push_mmr(&mut chain2_mmr, &new_block);
         parent = new_block.header().to_owned();
     }
 
@@ -374,6 +410,12 @@ fn test_full_dead_transaction() {
 
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
+        let chain_commitment = chain1_mmr
+            .get_root(None)
+            .unwrap()
+            .unwrap()
+            .hash()
+            .to_owned();
         let new_block = if i == final_number - 3 {
             let transactions = vec![create_cellbase(
                 &mut mock_store,
@@ -393,6 +435,7 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(100u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 proposals: vec![tx2.proposal_short_id(), tx3.proposal_short_id()],
                 transactions: transactions,
@@ -416,6 +459,7 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(100u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 transactions: transactions,
             )
@@ -438,18 +482,26 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(100u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 transactions: transactions,
             )
         };
         chain1.push(new_block.clone());
         mock_store.insert_block(&new_block, shared.consensus().genesis_epoch_ext());
+        push_mmr(&mut chain1_mmr, &new_block);
         parent = new_block.header().to_owned();
     }
 
     parent = chain2.last().unwrap().header().clone();
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
+        let chain_commitment = chain2_mmr
+            .get_root(None)
+            .unwrap()
+            .unwrap()
+            .hash()
+            .to_owned();
         let new_block = if i == final_number - 3 {
             let transactions = vec![create_cellbase(
                 &mut mock_store,
@@ -469,6 +521,7 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(101u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 transactions: transactions,
                 proposals: vec![tx2.proposal_short_id(), tx3.proposal_short_id()],
@@ -492,6 +545,7 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(101u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 transactions: transactions,
             )
@@ -514,12 +568,14 @@ fn test_full_dead_transaction() {
                     number: parent.number() + 1,
                     difficulty: difficulty + U256::from(101u64),
                     dao: dao,
+                    chain_commitment: chain_commitment,
                 },
                 transactions: transactions,
             )
         };
         chain2.push(new_block.clone());
         mock_store.insert_block(&new_block, shared.consensus().genesis_epoch_ext());
+        push_mmr(&mut chain2_mmr, &new_block);
         parent = new_block.header().to_owned();
     }
 

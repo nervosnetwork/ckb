@@ -755,6 +755,9 @@ impl<'a> Header<'a> {
         builder.add_nonce(args.nonce);
         builder.add_number(args.number);
         builder.add_timestamp(args.timestamp);
+        if let Some(x) = args.chain_commitment {
+            builder.add_chain_commitment(x);
+        }
         if let Some(x) = args.dao {
             builder.add_dao(x);
         }
@@ -798,6 +801,7 @@ impl<'a> Header<'a> {
     pub const VT_UNCLES_COUNT: flatbuffers::VOffsetT = 26;
     pub const VT_EPOCH: flatbuffers::VOffsetT = 28;
     pub const VT_DAO: flatbuffers::VOffsetT = 30;
+    pub const VT_CHAIN_COMMITMENT: flatbuffers::VOffsetT = 32;
 
     #[inline]
     pub fn version(&self) -> u32 {
@@ -859,6 +863,10 @@ impl<'a> Header<'a> {
         self._tab
             .get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_DAO, None)
     }
+    #[inline]
+    pub fn chain_commitment(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(Header::VT_CHAIN_COMMITMENT, None)
+    }
 }
 
 pub struct HeaderArgs<'a> {
@@ -876,6 +884,7 @@ pub struct HeaderArgs<'a> {
     pub uncles_count: u32,
     pub epoch: u64,
     pub dao: Option<flatbuffers::WIPOffset<Bytes<'a>>>,
+    pub chain_commitment: Option<&'a Bytes32>,
 }
 impl<'a> Default for HeaderArgs<'a> {
     #[inline]
@@ -895,6 +904,7 @@ impl<'a> Default for HeaderArgs<'a> {
             uncles_count: 0,
             epoch: 0,
             dao: None,
+            chain_commitment: None,
         }
     }
 }
@@ -968,6 +978,11 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
     pub fn add_dao(&mut self, dao: flatbuffers::WIPOffset<Bytes<'b>>) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_DAO, dao);
+    }
+    #[inline]
+    pub fn add_chain_commitment(&mut self, chain_commitment: &'b Bytes32) {
+        self.fbb_
+            .push_slot_always::<&Bytes32>(Header::VT_CHAIN_COMMITMENT, chain_commitment);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> HeaderBuilder<'a, 'b> {

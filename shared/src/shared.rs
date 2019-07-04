@@ -20,7 +20,6 @@ use std::sync::Arc;
 
 const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
 
-#[derive(Debug)]
 pub struct Shared<CS> {
     store: Arc<CS>,
     chain_state: Arc<Mutex<ChainState<CS>>>,

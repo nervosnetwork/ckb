@@ -8,13 +8,14 @@ use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
 use ckb_core::{BlockNumber, Cycle};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMRBatch, MMR};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
-use ckb_store::{ChainStore, StoreBatch};
+use ckb_store::{ChainStore, MMRStoreWrapper, StoreBatch};
 use ckb_traits::ChainProvider;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, ForkContext, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -319,6 +320,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 fork.detached_blocks.iter(),
                 fork.attached_blocks.iter(),
             )?;
+            self.process_chain_commitment(&mut batch, need_verify, fork.attached_blocks.iter())?;
             // MUST update index before reconcile_main_chain
             let cell_set_diff = self.reconcile_main_chain(
                 &mut batch,
@@ -406,6 +408,40 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         for block in attached_blocks {
             batch.attach_block(block)?;
         }
+        Ok(())
+    }
+
+    pub(crate) fn process_chain_commitment<'a>(
+        &'a self,
+        batch: &mut StoreBatch,
+        need_verify: bool,
+        mut attached_blocks: impl Iterator<Item = &'a Block>,
+    ) -> Result<(), FailureError> {
+        let block = match attached_blocks.next() {
+            Some(b) => b,
+            None => return Ok(()),
+        };
+        let mmr_store = MMRStoreWrapper::new(Arc::clone(self.shared.store()));
+        // get previous mmr_size
+        // TODO read from DB
+        let mmr_size = leaf_index_to_mmr_size(block.header().number() - 1);
+        let mut mmr = MMR::new(mmr_size, mmr_store);
+        let root = mmr.get_root(None)?.expect("must exists");
+        // check first block chain_comitment
+        if need_verify && root.hash() != block.header().chain_commitment() {
+            Err(SharedError::InvalidChainCommitment)?;
+        }
+        let mut mmr_batch = MMRBatch::new();
+        mmr.push(&mut mmr_batch, block.header().into())?;
+        for block in attached_blocks {
+            let root = mmr.get_root(Some(&mmr_batch))?.expect("must exists");
+
+            if need_verify && root.hash() != block.header().chain_commitment() {
+                Err(SharedError::InvalidChainCommitment)?
+            }
+            mmr.push(&mut mmr_batch, block.header().into())?;
+        }
+        batch.write_mmr(mmr_batch)?;
         Ok(())
     }
 
@@ -602,14 +638,14 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                         self.shared.consensus().pow_engine().proof_size();
                                     if b.transactions().len() > 1 {
                                         info!(
-                                            "[block_verifier] block number: {}, hash: {:#x}, size:{}/{}, cycles: {}/{}",
-                                            b.header().number(),
-                                            b.header().hash(),
-                                            b.serialized_size(proof_size),
-                                            self.shared.consensus().max_block_bytes(),
-                                            cycles,
-                                            self.shared.consensus().max_block_cycles()
-                                        );
+                                                    "[block_verifier] block number: {}, hash: {:#x}, size:{}/{}, cycles: {}/{}",
+                                                    b.header().number(),
+                                                    b.header().hash(),
+                                                    b.serialized_size(proof_size),
+                                                    self.shared.consensus().max_block_bytes(),
+                                                    cycles,
+                                                    self.shared.consensus().max_block_cycles()
+                                                );
                                     }
                                 }
                                 Err(err) => {

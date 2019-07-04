@@ -1,13 +1,9 @@
-// TODO
-// Done 1. optimize backend interface and performance
-// 2. simulate block header accumulation
-// 3. benchmark
-
-use crate::{leaf_index_to_pos, MMRStore, MerkleElem, MerkleProof, Result, MMR};
-use ckb_db::MemoryKeyValueDB;
+use crate::{
+    leaf_index_to_pos, tests_util::MemStore, MMRBatch, MMRStore, MerkleElem, MerkleProof, Result,
+    MMR,
+};
 use ckb_hash::Blake2bWriter;
 use std::io::Write;
-use std::sync::Arc;
 
 #[derive(Clone)]
 struct Header {
@@ -40,7 +36,7 @@ impl Header {
     }
 }
 
-#[derive(Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone, Default)]
 struct HashWithTD {
     hash: Vec<u8>,
     td: u64,
@@ -89,14 +85,14 @@ impl MerkleElem for HashWithTD {
 struct Prover {
     headers: Vec<(Header, u64)>,
     positions: Vec<u64>,
-    mmr_store: Arc<MMRStore<HashWithTD, MemoryKeyValueDB>>,
-    mmr: MMR<HashWithTD, MemoryKeyValueDB>,
+    mmr_store: MemStore<HashWithTD>,
+    mmr: MMR<HashWithTD, MemStore<HashWithTD>>,
 }
 
 impl Prover {
-    fn new() -> Self {
-        let mmr_store = Arc::new(MMRStore::new(MemoryKeyValueDB::open(1), 0));
-        let mmr = MMR::new(0, Arc::clone(&mmr_store));
+    fn new() -> Prover {
+        let mmr_store = MemStore::default();
+        let mmr = MMR::new(0, mmr_store.clone());
         Prover {
             headers: Vec::new(),
             positions: Vec::new(),
@@ -106,6 +102,7 @@ impl Prover {
     }
 
     fn gen_blocks(&mut self, count: u64) -> Result<()> {
+        let mut batch = MMRBatch::new();
         let mut previous = if let Some(pos) = self.positions.last() {
             self.mmr_store.get_elem(*pos)?.expect("exists")
         } else {
@@ -116,7 +113,7 @@ impl Prover {
                 td: genesis.difficulty,
             };
             self.headers.push((genesis, previous.td));
-            let pos = self.mmr.push(previous.clone())?;
+            let pos = self.mmr.push(&mut batch, previous.clone())?;
             self.positions.push(pos);
             previous
         };
@@ -126,17 +123,17 @@ impl Prover {
                 number: i,
                 parent_hash: previous.hash.clone(),
                 difficulty: i,
-                chain_commitment: self.mmr.get_root()?.unwrap().serialize()?,
+                chain_commitment: self.mmr.get_root(Some(&batch))?.unwrap().serialize()?,
             };
             previous = HashWithTD {
                 hash: block.hash(),
-                td: previous.td + block.difficulty,
+                td: block.difficulty,
             };
-            let pos = self.mmr.push(previous.clone())?;
+            let pos = self.mmr.push(&mut batch, previous.clone())?;
             self.positions.push(pos);
             self.headers.push((block, previous.td));
         }
-        Ok(())
+        self.mmr_store.commit(batch)
     }
 
     fn get_header(&self, number: u64) -> (Header, u64) {
@@ -148,9 +145,9 @@ impl Prover {
         assert!(number < later_number);
         let pos = self.positions[number as usize];
         let later_pos = self.positions[later_number as usize];
-        let mmr = MMR::new(later_pos, Arc::clone(&self.mmr_store));
+        let mmr = MMR::new(later_pos, self.mmr_store.clone());
         assert_eq!(
-            mmr.get_root()?.unwrap().serialize()?,
+            mmr.get_root(None)?.unwrap().serialize()?,
             self.headers[later_number as usize].0.chain_commitment
         );
         mmr.gen_proof(pos)

@@ -7,6 +7,7 @@ pub mod block;
 pub mod cell;
 pub mod difficulty;
 pub mod extras;
+pub mod hash_with_td;
 pub mod header;
 pub mod script;
 pub mod service;

@@ -1,24 +1,27 @@
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
+    COLUMN_INDEX, COLUMN_META, COLUMN_MMR, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMeta};
 use ckb_core::extras::{BlockExt, EpochExt, TransactionInfo};
+use ckb_core::hash_with_td::HashWithTD;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{CellKey, CellOutPoint, CellOutput, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Capacity, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
+use ckb_merkle_mountain_range::{Error as MMRError, MMRBatch, MMRStore, MerkleElem};
 use ckb_protos::{self as protos, CanBuild};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::ops::Range;
+use std::sync::Arc;
 use std::sync::Mutex;
 
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
@@ -139,8 +142,9 @@ pub trait ChainStore: Sync + Send {
     fn get_cellbase(&self, hash: &H256) -> Option<Transaction>;
     // Get the ancestor of a base block by a block number
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
-
     fn block_exists(&self, hash: &H256) -> bool;
+    // MMR get elem
+    fn get_mmr_elem(&self, pos: u64) -> Option<HashWithTD>;
 }
 
 pub trait StoreBatch {
@@ -161,6 +165,8 @@ pub trait StoreBatch {
     fn update_cell_set(&mut self, tx_hash: &H256, meta: &TransactionMeta) -> Result<(), Error>;
     fn delete_cell_set(&mut self, tx_hash: &H256) -> Result<(), Error>;
 
+    fn write_mmr(&mut self, mmr_batch: MMRBatch<HashWithTD>) -> Result<(), Error>;
+
     fn commit(self) -> Result<(), Error>;
 }
 
@@ -171,6 +177,11 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         Ok(DefaultStoreBatch {
             inner: self.db.batch()?,
         })
+    }
+
+    fn get_mmr_elem(&self, pos: u64) -> Option<HashWithTD> {
+        self.get(COLUMN_MMR, &pos.to_le_bytes()[..])
+            .map(|data| <HashWithTD as MerkleElem>::deserialize(data).expect("deserialize"))
     }
 
     fn get_block(&self, h: &H256) -> Option<Block> {
@@ -313,6 +324,12 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         batch.insert_block_epoch_index(&genesis_hash, epoch.last_block_hash_in_previous_epoch())?;
         batch.insert_epoch_ext(epoch.last_block_hash_in_previous_epoch(), &epoch)?;
         batch.attach_block(genesis)?;
+        // init mmr for genesis
+        let mut mmr_batch = MMRBatch::new();
+        mmr_batch
+            .append(0, vec![HashWithTD::from(genesis.header())])
+            .map_err(|e| Error::DBError(format!("{}", e)))?;
+        batch.write_mmr(mmr_batch)?;
         batch.commit()
     }
 
@@ -624,8 +641,37 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         self.delete(COLUMN_CELL_SET, tx_hash.as_bytes())
     }
 
+    fn write_mmr(&mut self, mmr_batch: MMRBatch<HashWithTD>) -> Result<(), Error> {
+        for (pos, elems) in mmr_batch.into_iter() {
+            for (offset, elem) in elems.iter().enumerate() {
+                let pos: u64 = pos + (offset as u64);
+                self.insert_raw(
+                    COLUMN_MMR,
+                    &pos.to_le_bytes()[..],
+                    &elem.serialize().expect("serialize"),
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn commit(self) -> Result<(), Error> {
         self.inner.commit()
+    }
+}
+
+pub struct MMRStoreWrapper<Store>(Arc<Store>);
+
+impl<CS: ChainStore> MMRStoreWrapper<CS> {
+    pub fn new(store: Arc<CS>) -> Self {
+        MMRStoreWrapper(store)
+    }
+}
+
+impl<CS: ChainStore> MMRStore<HashWithTD> for MMRStoreWrapper<CS> {
+    fn get_elem(&self, pos: u64) -> Result<Option<HashWithTD>, MMRError> {
+        Ok(self.0.get_mmr_elem(pos))
     }
 }
 
