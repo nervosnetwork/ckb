@@ -64,16 +64,21 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 
         {
             let parent = parent.unwrap();
-            let shared_best_header = self.relayer.shared.shared_best_header();
+            let tip_header = self.relayer.shared.tip_header();
+            let tip_header_view = self
+                .relayer
+                .shared
+                .get_header_view(tip_header.hash())
+                .expect("Get tip header view failed");
             let current_total_difficulty =
                 parent.total_difficulty() + compact_block.header.difficulty();
-            if current_total_difficulty <= *shared_best_header.total_difficulty() {
+            if current_total_difficulty <= *tip_header_view.total_difficulty() {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
                     block_hash,
                     current_total_difficulty,
-                    shared_best_header.total_difficulty(),
+                    tip_header_view.total_difficulty(),
                 );
                 return Ok(());
             }
