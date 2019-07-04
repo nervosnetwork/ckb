@@ -43,6 +43,20 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash().to_owned();
 
+        let status = self.relayer.shared().get_block_status(&block_hash);
+        if status.contains(BlockStatus::BLOCK_STORED) {
+            return Ok(());
+        } else if status.contains(BlockStatus::BLOCK_INVALID) {
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "receive a compact block with invalid status, {:#x}, peer: {}",
+                block_hash,
+                self.peer
+            );
+            // TODO ban/punish this peer
+            return Ok(());
+        }
+
         let parent = self
             .relayer
             .shared
@@ -112,10 +126,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 .get(&block_hash)
                 .map(|(_, peers_set)| peers_set.contains(&self.peer))
                 .unwrap_or(false)
-                || self
-                    .relayer
-                    .shared()
-                    .contains_block_status(&block_hash, BlockStatus::BLOCK_STORED)
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
