@@ -171,73 +171,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
         Ok(())
     }
 
-<<<<<<< HEAD
-=======
-    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
-        self.chain.process_block(Arc::clone(&block), true)?;
-        self.shared.remove_header_view(block.header().hash());
-        self.mark_block_stored(block.header().hash().to_owned());
-        self.peers()
-            .set_last_common_header(peer, block.header().clone());
-        Ok(())
-    }
-
-    // FIXME: guarantee concurrent block process
-    // TODO: limit and prune orphan pool
-    fn insert_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
-        let known_parent = |block: &Block| {
-            self.shared
-                .store()
-                .get_block_header(block.header().parent_hash())
-                .is_some()
-        };
-
-        // Insert the given block into orphan_block_pool if its parent is not found
-        if !known_parent(&block) {
-            debug!(
-                "insert new orphan block {} {:x}",
-                block.header().number(),
-                block.header().hash()
-            );
-            self.orphan_block_pool.insert(block);
-            return Ok(());
-        }
-
-        // Attempt to accept the given block if its parent already exist in database
-        let block = Arc::new(block);
-        if let Err(err) = self.accept_block(peer, &block) {
-            debug!("accept block {:?} error {:?}", block, err);
-            return Err(err);
-        }
-
-        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
-        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        let descendants = self
-            .orphan_block_pool
-            .remove_blocks_by_parent(&block.header().hash());
-        for block in descendants {
-            let block = Arc::new(block);
-
-            // If we can not find the block's parent in database, that means it was failed to accept
-            // its parent, so we treat it as a invalid block as well.
-            if !known_parent(&block) {
-                debug!(
-                    "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
-                    block.header().number(),
-                    block.header().hash(),
-                    block.header().parent_hash(),
-                );
-                continue;
-            }
-
-            if let Err(err) = self.accept_block(peer, &block) {
-                debug!("accept descendant orphan block {:?} error {:?}", block, err);
-            }
-        }
-        Ok(())
-    }
-
->>>>>>> master
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
         BlockFetcher::new(self.clone(), peer).fetch()
     }
@@ -932,13 +865,8 @@ mod tests {
         let chain1_last_block = blocks.last().cloned().unwrap();
         blocks.into_iter().for_each(|block| {
             synchronizer
-<<<<<<< HEAD
                 .shared()
                 .insert_new_block(&synchronizer.chain, peer, Arc::new(block));
-=======
-                .insert_new_block(peer, block)
-                .expect("Insert new block failed");
->>>>>>> master
         });
         assert_eq!(
             chain1_last_block.header(),
