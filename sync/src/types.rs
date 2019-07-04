@@ -12,7 +12,7 @@ use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Cycle;
-use ckb_logger::{debug, debug_target};
+use ckb_logger::{debug, debug_target, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
@@ -1138,12 +1138,14 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     ) -> Result<bool, FailureError> {
         let ret = chain.process_block(Arc::clone(&block), true);
         if ret.is_err() {
+            error!("accept block {:?} {:?}", block, ret);
             self.insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return ret;
+        } else {
+            self.insert_block_status(block_hash, BlockStatus::BLOCK_STORED);
         }
 
         self.remove_header_view(block.header().hash());
-        self.insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_STORED);
         self.peers()
             .set_last_common_header(peer, block.header().clone());
         ret
