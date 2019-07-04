@@ -220,7 +220,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         if self
             .shared()
             .insert_new_block(&self.chain, peer, Arc::clone(&boxed))
-            .is_ok()
+            .unwrap_or(false)
         {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
