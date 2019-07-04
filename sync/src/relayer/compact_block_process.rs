@@ -162,6 +162,9 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     return Ok(());
                 }
                 compact_block_verifier.verify(&compact_block)?;
+                self.relayer
+                    .shared()
+                    .insert_block_status(block_hash.to_owned(), BlockStatus::HEADER_VERIFIED);
             }
 
             // Reconstruct block
