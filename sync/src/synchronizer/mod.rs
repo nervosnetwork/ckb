@@ -150,16 +150,16 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, peer: PeerIndex, block: Block) {
+    pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
         if self.shared().contains_orphan_block(block.header()) {
             debug!("block {:x} already in orphan pool", block.header().hash());
-            return;
+            return Ok(());
         }
 
         match self.shared().get_block_status(&block.header().hash()) {
             BlockStatus::VALID_MASK => {
                 self.shared()
-                    .insert_new_block(&self.chain, peer, Arc::new(block));
+                    .insert_new_block(&self.chain, peer, Arc::new(block))?;
             }
             status => {
                 debug!(
@@ -168,6 +168,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 );
             }
         }
+        Ok(())
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
@@ -297,12 +298,13 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
     fn start_sync_headers(&self, nc: &CKBProtocolContext) {
         let now = unix_time_as_millis();
+        let ibd = self.shared().is_initial_block_download();
         let peers: Vec<PeerIndex> = self
             .peers()
             .state
             .read()
             .iter()
-            .filter(|(_, state)| state.can_sync(now))
+            .filter(|(_, state)| state.can_sync(now, ibd))
             .map(|(peer_id, _)| peer_id)
             .cloned()
             .collect();
@@ -332,9 +334,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
 
         for peer in peers {
             // Only sync with 1 peer if we're in IBD
-            if self.shared.is_initial_block_download()
-                && self.shared().n_sync_started().load(Ordering::Acquire) != 0
-            {
+            if ibd && self.shared().n_sync_started().load(Ordering::Acquire) != 0 {
                 break;
             }
             {
@@ -866,7 +866,8 @@ mod tests {
         blocks.into_iter().for_each(|block| {
             synchronizer
                 .shared()
-                .insert_new_block(&synchronizer.chain, peer, Arc::new(block));
+                .insert_new_block(&synchronizer.chain, peer, Arc::new(block))
+                .expect("Insert new block failed");
         });
         assert_eq!(
             chain1_last_block.header(),

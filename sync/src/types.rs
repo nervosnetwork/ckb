@@ -12,7 +12,7 @@ use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Cycle;
-use ckb_logger::{debug, debug_target, error};
+use ckb_logger::{debug, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
@@ -121,8 +121,10 @@ impl PeerState {
         }
     }
 
-    pub fn can_sync(&self, now: u64) -> bool {
-        !self.sync_started
+    pub fn can_sync(&self, now: u64, ibd: bool) -> bool {
+        // only sync with outbound peer in IBD
+        (self.is_outbound || !ibd)
+            && !self.sync_started
             && self
                 .chain_sync
                 .not_sync_until
@@ -1096,7 +1098,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         chain: &ChainController,
         pi: PeerIndex,
         block: Arc<Block>,
-    ) -> bool {
+    ) -> Result<(), FailureError> {
         let known_parent = |block: &Block| {
             self.store()
                 .get_block_header(block.header().parent_hash())
@@ -1111,13 +1113,13 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 block.header().hash()
             );
             self.insert_orphan_block((*block).clone());
-            return false;
+            return Ok(());
         }
 
         // Attempt to accept the given block if its parent already exist in database
         if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
-            error!("accept block {:?} error {:?}", block, err);
-            return false;
+            debug!("accept block {:?} error {:?}", block, err);
+            return Err(err);
         }
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
@@ -1146,7 +1148,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             }
         }
 
-        true
+        Ok(())
     }
 
     fn accept_block(
