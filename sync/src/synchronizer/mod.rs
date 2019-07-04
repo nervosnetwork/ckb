@@ -1010,7 +1010,7 @@ mod tests {
             unimplemented!();
         }
         fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {}
-        fn ban_peer(&self, _peer_index: PeerIndex, _timeout: Duration) {}
+        fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration) {}
         // Other methods
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();

@@ -172,12 +172,12 @@ impl NetworkState {
         &self,
         p2p_control: &ServiceControl,
         session_id: SessionId,
-        timeout: Duration,
+        duration: Duration,
     ) {
         if let Some(peer_id) =
             self.with_peer_registry(|reg| reg.get_peer(session_id).map(|peer| peer.peer_id.clone()))
         {
-            self.ban_peer(p2p_control, &peer_id, timeout);
+            self.ban_peer(p2p_control, &peer_id, duration);
         } else {
             debug!("Ban session({}) failed: not in peer registry", session_id);
         }
@@ -187,12 +187,12 @@ impl NetworkState {
         &self,
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
-        timeout: Duration,
+        duration: Duration,
     ) {
-        info!("ban peer {:?} with {:?}", peer_id, timeout);
+        info!("ban peer {:?} with {:?}", peer_id, duration);
         let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer_opt {
-            self.peer_store.lock().ban_addr(&peer.address, timeout);
+            self.peer_store.lock().ban_addr(&peer.address, duration);
             if let Err(err) = p2p_control.disconnect(peer.session_id) {
                 debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
             }

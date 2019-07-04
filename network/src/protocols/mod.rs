@@ -57,7 +57,7 @@ pub trait CKBProtocolContext: Send {
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
     fn connected_peers(&self) -> Vec<PeerIndex>;
     fn report_peer(&self, peer_index: PeerIndex, behaviour: Behaviour);
-    fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration);
+    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration);
     // Other methods
     fn protocol_id(&self) -> ProtocolId;
 }
@@ -340,9 +340,9 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         self.network_state
             .report_session(&self.p2p_control, peer_index, behaviour);
     }
-    fn ban_peer(&self, peer_index: PeerIndex, timeout: Duration) {
+    fn ban_peer(&self, peer_index: PeerIndex, duration: Duration) {
         self.network_state
-            .ban_session(&self.p2p_control, peer_index, timeout);
+            .ban_session(&self.p2p_control, peer_index, duration);
     }
 
     fn protocol_id(&self) -> ProtocolId {
