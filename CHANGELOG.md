@@ -1,11 +1,28 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
-# [v0.15.1](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.15.1) (2019-07-01)
+# [v0.15.4](https://github.com/nervosnetwork/ckb/compare/v0.15.3...v0.15.4) (2019-07-04)
+
+### Features
+
+* #1151: Allow providing extra sentry info in config (@doitian)
+
+### Bug Fixes
+
+* #1164: Ban peer when validate received block failed (@TheWaWaR)
+* #1167: Proposal reward calculate consistency (@zhangsoledad)
+* #1169: Only sync with outbound peer in IBD mode (@quake)
+
+
+# [v0.15.3](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.15.3) (2019-07-02)
 
 ### Bug Fixes
 
 * #1143: `get_ancestor` is inconsistent (@zhangsoledad)
+* #1148: Sync block download filter (@zhangsoledad)
+
+    Node should fetch download from all peers which have better chain,
+    no matter it's known best's ancestor or not.
 
 
 # [v0.15.0](https://github.com/nervosnetwork/ckb/compare/v0.14.2...v0.15.0) (2019-06-29)
