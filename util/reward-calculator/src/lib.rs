@@ -181,9 +181,10 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
             let competing_proposal_start =
                 cmp::max(index.number().saturating_sub(proposal_window.farthest()), 1);
 
-            let previous_ids = store
-                .get_block_hash(competing_proposal_start)
-                .map(|hash| self.get_proposal_ids_by_hash(&hash))
+            let previous_ids = self
+                .provider
+                .get_ancestor(parent.hash(), competing_proposal_start)
+                .map(|header| self.get_proposal_ids_by_hash(header.hash()))
                 .expect("finalize target exist");
 
             proposed.extend(previous_ids);
