@@ -36,12 +36,26 @@ where
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block_hashes = cast!(self.message.block_hashes())?;
+        let store = self.synchronizer.shared.store();
 
         let n_limit = min(MAX_BLOCKS_IN_TRANSIT_PER_PEER as usize, block_hashes.len());
         for fbs_h256 in block_hashes.iter().take(n_limit) {
             let block_hash = fbs_h256.try_into()?;
             debug!("get_blocks {:x} from peer {:?}", block_hash, self.peer);
-            if let Some(block) = self.synchronizer.shared.store().get_block(&block_hash) {
+
+            if store
+                .get_block_ext(&block_hash)
+                .map(|ext| !ext.verified.unwrap_or(false))
+                .unwrap_or(true)
+            {
+                debug!(
+                    "ignoring get_block {:x} request from peer={} for unverified",
+                    block_hash, self.peer
+                );
+                continue;
+            }
+
+            if let Some(block) = store.get_block(&block_hash) {
                 debug!(
                     "respond_block {} {:x} to peer {:?}",
                     block.header().number(),
