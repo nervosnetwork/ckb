@@ -169,13 +169,7 @@ where
             return Ok(());
         }
 
-        let shared_best_known = self.synchronizer.shared.shared_best_header();
         if headers.len() == 0 {
-            // Update peer's best known header
-            self.synchronizer
-                .peers()
-                .set_best_known_header(self.peer, shared_best_known);
-
             // Reset headers sync timeout
             self.synchronizer
                 .peers()
@@ -237,6 +231,7 @@ where
 
         if log_enabled!(Level::Debug) {
             let chain_state = self.synchronizer.shared.lock_chain_state();
+            let shared_best_known = self.synchronizer.shared.shared_best_header();
             let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
             debug!(
                 "chain: num={}, diff={:#x};",
