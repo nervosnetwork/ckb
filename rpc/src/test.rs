@@ -6,6 +6,7 @@ use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
+use ckb_core::hash_with_td::HashWithTD;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
@@ -14,6 +15,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
+use ckb_merkle_mountain_range::{tests_util::MemStore, MMRBatch, MMR};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -79,6 +81,8 @@ fn setup_node(
         .output(always_success_cell.clone())
         .build();
     let dao = genesis_dao_data(&always_success_tx).unwrap();
+    let mut mmr: MMR<HashWithTD, MemStore<HashWithTD>> = MMR::new(0, MemStore::default());
+    let mut mmr_batch = MMRBatch::new();
 
     let consensus = {
         let genesis = BlockBuilder::default()
@@ -94,6 +98,8 @@ fn setup_node(
             .set_genesis_block(genesis)
             .set_cellbase_maturity(0)
     };
+    mmr.push(&mut mmr_batch, consensus.genesis_block().header().into())
+        .expect("mmr push");
     let shared = SharedBuilder::<MemoryKeyValueDB>::new()
         .consensus(consensus)
         .build()
@@ -120,6 +126,12 @@ fn setup_node(
         };
         let cellbase = new_cellbase(parent.header().number() + 1, &always_success_script);
         let dao = genesis_dao_data(&cellbase).unwrap();
+        let chain_commitment = mmr
+            .get_root(Some(&mmr_batch))
+            .expect("get root")
+            .unwrap()
+            .hash()
+            .to_owned();
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header_builder(
@@ -129,9 +141,12 @@ fn setup_node(
                     .epoch(epoch.number())
                     .timestamp(parent.header().timestamp() + 1)
                     .difficulty(epoch.difficulty().clone())
-                    .dao(dao),
+                    .dao(dao)
+                    .chain_commitment(chain_commitment),
             )
             .build();
+        mmr.push(&mut mmr_batch, block.header().into())
+            .expect("mmr push");
         chain_controller
             .process_block(Arc::new(block.clone()), false)
             .expect("processing new block should be ok");

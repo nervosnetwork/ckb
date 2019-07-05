@@ -87,6 +87,7 @@ impl Default for RawHeader {
             uncles_count: Default::default(),
             epoch: Default::default(),
             dao: Default::default(),
+            chain_commitment: Default::default(),
         }
     }
 }

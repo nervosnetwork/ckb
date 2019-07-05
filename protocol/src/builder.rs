@@ -58,6 +58,7 @@ impl<'a> FbsHeader<'a> {
         let proof = FbsBytes::build(fbb, &header.proof());
         let dao = FbsBytes::build(fbb, &header.dao());
         let uncles_hash = header.uncles_hash().into();
+        let chain_commitment = header.chain_commitment().into();
         let mut builder = HeaderBuilder::new(fbb);
         builder.add_version(header.version());
         builder.add_parent_hash(&parent_hash);
@@ -73,6 +74,7 @@ impl<'a> FbsHeader<'a> {
         builder.add_dao(dao);
         builder.add_uncles_hash(&uncles_hash);
         builder.add_uncles_count(header.uncles_count());
+        builder.add_chain_commitment(&chain_commitment);
         builder.finish()
     }
 }

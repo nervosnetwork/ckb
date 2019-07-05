@@ -1030,6 +1030,7 @@ impl<'a> Header<'a> {
       builder.add_nonce(args.nonce);
       builder.add_number(args.number);
       builder.add_timestamp(args.timestamp);
+      if let Some(x) = args.chain_commitment { builder.add_chain_commitment(x); }
       if let Some(x) = args.dao { builder.add_dao(x); }
       builder.add_uncles_count(args.uncles_count);
       if let Some(x) = args.uncles_hash { builder.add_uncles_hash(x); }
@@ -1057,6 +1058,7 @@ impl<'a> Header<'a> {
     pub const VT_UNCLES_COUNT: flatbuffers::VOffsetT = 26;
     pub const VT_EPOCH: flatbuffers::VOffsetT = 28;
     pub const VT_DAO: flatbuffers::VOffsetT = 30;
+    pub const VT_CHAIN_COMMITMENT: flatbuffers::VOffsetT = 32;
 
   #[inline]
   pub fn version(&self) -> u32 {
@@ -1114,6 +1116,10 @@ impl<'a> Header<'a> {
   pub fn dao(&self) -> Option<Bytes<'a>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_DAO, None)
   }
+  #[inline]
+  pub fn chain_commitment(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(Header::VT_CHAIN_COMMITMENT, None)
+  }
 }
 
 pub struct HeaderArgs<'a> {
@@ -1131,6 +1137,7 @@ pub struct HeaderArgs<'a> {
     pub uncles_count: u32,
     pub epoch: u64,
     pub dao: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
+    pub chain_commitment: Option<&'a  H256>,
 }
 impl<'a> Default for HeaderArgs<'a> {
     #[inline]
@@ -1150,6 +1157,7 @@ impl<'a> Default for HeaderArgs<'a> {
             uncles_count: 0,
             epoch: 0,
             dao: None,
+            chain_commitment: None,
         }
     }
 }
@@ -1213,6 +1221,10 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
   #[inline]
   pub fn add_dao(&mut self, dao: flatbuffers::WIPOffset<Bytes<'b >>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_DAO, dao);
+  }
+  #[inline]
+  pub fn add_chain_commitment(&mut self, chain_commitment: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(Header::VT_CHAIN_COMMITMENT, chain_commitment);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> HeaderBuilder<'a, 'b> {

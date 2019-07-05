@@ -7,9 +7,10 @@ use ckb_core::transaction::Transaction;
 use ckb_core::BlockNumber;
 use ckb_dao::DaoCalculator;
 use ckb_db::MemoryKeyValueDB;
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMRBatch, MMR};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::{ChainKVStore, ChainStore};
+use ckb_store::{ChainKVStore, ChainStore, MMRStoreWrapper};
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
@@ -42,18 +43,32 @@ pub fn generate_blocks(
 ) {
     let parent_number = shared.lock_chain_state().tip_number();
     let mut parent_hash = shared.lock_chain_state().tip_hash().clone();
+
+    let mut mmr_batch = MMRBatch::new();
+    let mmr_store = MMRStoreWrapper::new(Arc::clone(shared.store()));
+    let mmr_size = leaf_index_to_mmr_size(parent_number);
+    let mut mmr = MMR::new(mmr_size, mmr_store);
     for _block_number in parent_number + 1..=target_tip {
-        let block = inherit_block(shared, &parent_hash).build();
-        parent_hash = block.header().hash().to_owned();
+        let root = mmr
+            .get_root(Some(&mmr_batch))
+            .expect("get root")
+            .expect("must exists");
+        let chain_commitment = root.hash();
+        let block = inherit_block(shared, &parent_hash, chain_commitment).build();
+        let header = block.header().to_owned();
+        parent_hash = header.hash().to_owned();
         chain_controller
             .process_block(Arc::new(block), false)
             .expect("processing block should be ok");
+        mmr.push(&mut mmr_batch, (&header).into())
+            .expect("mmr push");
     }
 }
 
 pub fn inherit_block(
     shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
     parent_hash: &H256,
+    chain_commitment: &H256,
 ) -> BlockBuilder {
     let parent = shared.store().get_block(parent_hash).unwrap();
     let parent_epoch = shared.get_block_epoch(parent_hash).unwrap();
@@ -86,6 +101,7 @@ pub fn inherit_block(
             .timestamp(parent.header().timestamp() + 1)
             .epoch(epoch.number())
             .difficulty(epoch.difficulty().to_owned())
+            .chain_commitment(chain_commitment.to_owned())
             .dao(dao),
     )
     .transaction(inherit_cellbase(shared, parent_number))

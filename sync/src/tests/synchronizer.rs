@@ -8,12 +8,14 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::cell::resolve_transaction;
+use ckb_core::hash_with_td::HashWithTD;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::Bytes;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_db::memorydb::MemoryKeyValueDB;
+use ckb_merkle_mountain_range::{tests_util::MemStore, MMRBatch, MMR};
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -85,6 +87,8 @@ fn setup_node(
         .build();
 
     let dao = genesis_dao_data(&always_success_tx).unwrap();
+    let mut mmr: MMR<HashWithTD, MemStore<HashWithTD>> = MMR::new(0, MemStore::default());
+    let mut mmr_batch = MMRBatch::new();
 
     let mut block = BlockBuilder::default()
         .header_builder(
@@ -103,6 +107,11 @@ fn setup_node(
         .consensus(consensus)
         .build()
         .unwrap();
+    mmr.push(
+        &mut mmr_batch,
+        shared.consensus().genesis_block().header().into(),
+    )
+    .expect("mmr push");
     let notify = NotifyService::default().start(Some(thread_name));
 
     let chain_service = ChainService::new(shared.clone(), notify);
@@ -143,6 +152,12 @@ fn setup_node(
                 .dao_field(&[resolved_cellbase], block.header())
                 .unwrap()
         };
+        let chain_commitment = mmr
+            .get_root(Some(&mmr_batch))
+            .expect("get root")
+            .unwrap()
+            .hash()
+            .to_owned();
 
         let header_builder = HeaderBuilder::default()
             .parent_hash(block.header().hash().to_owned())
@@ -150,12 +165,16 @@ fn setup_node(
             .epoch(epoch.number())
             .timestamp(timestamp)
             .difficulty(epoch.difficulty().clone())
-            .dao(dao);
+            .dao(dao)
+            .chain_commitment(chain_commitment);
 
         block = BlockBuilder::default()
             .transaction(cellbase)
             .header_builder(header_builder)
             .build();
+
+        mmr.push(&mut mmr_batch, block.header().into())
+            .expect("mmr push");
 
         chain_controller
             .process_block(Arc::new(block.clone()), false)

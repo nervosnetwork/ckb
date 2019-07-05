@@ -18,10 +18,12 @@ use ckb_jsonrpc_types::{
     UncleTemplate, Unsigned, Version as JsonVersion,
 };
 use ckb_logger::{error, info};
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
+use ckb_store::MMRStoreWrapper;
 use ckb_traits::ChainProvider;
 use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -373,6 +375,12 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .map_err(|_| Error::InvalidInput)?;
         let dao = DaoCalculator::new(&chain_state.consensus(), Arc::clone(chain_state.store()))
             .dao_field(&rtxs, &tip_header)?;
+        let chain_commitment = {
+            let mmr_size = leaf_index_to_mmr_size(candidate_number - 1);
+            let mmr = MMR::new(mmr_size, MMRStoreWrapper::new(Arc::clone(&store)));
+            let root = mmr.get_root(None)?.expect("should exists");
+            root.hash().to_owned()
+        };
 
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
@@ -398,6 +406,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             cellbase: Self::transform_cellbase(&cellbase, None),
             work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
             dao: JsonBytes::from_bytes(dao),
+            chain_commitment,
         };
 
         self.template_caches.insert(

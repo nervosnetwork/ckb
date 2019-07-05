@@ -323,7 +323,12 @@ pub mod test {
             let spec = load_spec_by_name(name);
             assert_eq!(name, &spec.name, "{}", bundled_spec_err);
             if let Some(genesis_hash) = &spec.genesis.hash {
-                assert_eq!(genesis_hash, &spec_hashes.genesis, "{}", bundled_spec_err);
+                assert_eq!(
+                    format!("{:x}", genesis_hash),
+                    format!("{:x}", spec_hashes.genesis),
+                    "{}",
+                    bundled_spec_err
+                );
             }
 
             let consensus = spec.build_consensus();
@@ -332,7 +337,10 @@ pub mod test {
             let block = consensus.genesis_block();
             let cellbase = &block.transactions()[0];
 
-            assert_eq!(&spec_hashes.cellbase, cellbase.hash());
+            assert_eq!(
+                format!("{:x}", spec_hashes.cellbase),
+                format!("{:x}", cellbase.hash())
+            );
 
             for (index_minus_one, (output, cell)) in cellbase
                 .outputs()
@@ -343,7 +351,12 @@ pub mod test {
             {
                 let code_hash = output.data_hash();
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
-                assert_eq!(cell.code_hash, code_hash, "{}", bundled_spec_err);
+                assert_eq!(
+                    format!("{:x}", cell.code_hash),
+                    format!("{:x}", code_hash),
+                    "{}",
+                    bundled_spec_err
+                );
             }
         }
     }

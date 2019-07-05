@@ -427,7 +427,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         let mmr_size = leaf_index_to_mmr_size(block.header().number() - 1);
         let mut mmr = MMR::new(mmr_size, mmr_store);
         let root = mmr.get_root(None)?.expect("must exists");
-        // check first block chain_comitment
+        // check block chain_comitment
         if need_verify && root.hash() != block.header().chain_commitment() {
             Err(SharedError::InvalidChainCommitment)?;
         }
@@ -638,14 +638,14 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                         self.shared.consensus().pow_engine().proof_size();
                                     if b.transactions().len() > 1 {
                                         info!(
-                                                    "[block_verifier] block number: {}, hash: {:#x}, size:{}/{}, cycles: {}/{}",
-                                                    b.header().number(),
-                                                    b.header().hash(),
-                                                    b.serialized_size(proof_size),
-                                                    self.shared.consensus().max_block_bytes(),
-                                                    cycles,
-                                                    self.shared.consensus().max_block_cycles()
-                                                );
+                                            "[block_verifier] block number: {}, hash: {:#x}, size:{}/{}, cycles: {}/{}",
+                                            b.header().number(),
+                                            b.header().hash(),
+                                            b.serialized_size(proof_size),
+                                            self.shared.consensus().max_block_bytes(),
+                                            cycles,
+                                            self.shared.consensus().max_block_cycles()
+                                        );
                                     }
                                 }
                                 Err(err) => {

@@ -491,6 +491,7 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::cell::resolve_transaction;
     use ckb_core::extras::EpochExt;
+    use ckb_core::hash_with_td::HashWithTD;
     use ckb_core::header::BlockNumber;
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
@@ -498,6 +499,7 @@ mod tests {
     use ckb_core::Bytes;
     use ckb_dao::DaoCalculator;
     use ckb_db::memorydb::MemoryKeyValueDB;
+    use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, tests_util::MemStore, MMRBatch, MMR};
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
         TargetSession,
@@ -566,11 +568,19 @@ mod tests {
         Synchronizer::new(chain_controller, shared)
     }
 
+    fn new_mmr(mmr_size: u64) -> (MMR<HashWithTD, MemStore<HashWithTD>>, MMRBatch<HashWithTD>) {
+        let mmr: MMR<HashWithTD, MemStore<HashWithTD>> = MMR::new(mmr_size, MemStore::default());
+        let mmr_batch = MMRBatch::new();
+
+        (mmr, mmr_batch)
+    }
+
     fn gen_block<CS: ChainStore>(
         shared: &Shared<CS>,
         parent_header: &Header,
         epoch: &EpochExt,
         nonce: u64,
+        chain_commitment: H256,
     ) -> Block {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
@@ -595,7 +605,8 @@ mod tests {
             .number(number)
             .difficulty(epoch.difficulty().clone())
             .nonce(nonce)
-            .dao(dao);
+            .dao(dao)
+            .chain_commitment(chain_commitment);
 
         BlockBuilder::default()
             .transaction(cellbase)
@@ -608,7 +619,8 @@ mod tests {
         shared: &Shared<CS>,
         nonce: u64,
         number: BlockNumber,
-    ) {
+        chain_commitment: H256,
+    ) -> Block {
         let parent = shared
             .store()
             .get_block_header(&shared.store().get_block_hash(number - 1).unwrap())
@@ -618,16 +630,24 @@ mod tests {
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
 
-        let block = gen_block(shared, &parent, &epoch, nonce);
+        let block = gen_block(shared, &parent, &epoch, nonce, chain_commitment);
 
         chain_controller
-            .process_block(Arc::new(block), true)
+            .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
+        block
     }
 
     #[test]
     fn test_locator() {
         let (chain_controller, shared, _notify) = start_chain(None, None);
+        let mut mmr: MMR<HashWithTD, MemStore<HashWithTD>> = MMR::new(0, MemStore::default());
+        let mut mmr_batch = MMRBatch::new();
+        mmr.push(
+            &mut mmr_batch,
+            shared.consensus().genesis_block().header().into(),
+        )
+        .expect("mmr push");
 
         let num = 200;
         let index = [
@@ -635,7 +655,15 @@ mod tests {
         ];
 
         for i in 1..num {
-            insert_block(&chain_controller, &shared, i, i);
+            let chain_commitment = mmr
+                .get_root(Some(&mmr_batch))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let block = insert_block(&chain_controller, &shared, i, i, chain_commitment);
+            mmr.push(&mut mmr_batch, block.header().into())
+                .expect("mmr push");
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -660,14 +688,42 @@ mod tests {
         let consensus = Consensus::default();
         let (chain_controller1, shared1, _notify1) = start_chain(Some(consensus.clone()), None);
         let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
+        let (mut mmr1, mut mmr_batch1) = new_mmr(0);
+        let (mut mmr2, mut mmr_batch2) = new_mmr(0);
+        mmr1.push(
+            &mut mmr_batch1,
+            shared1.consensus().genesis_block().header().into(),
+        )
+        .expect("push mmr");
+        mmr2.push(
+            &mut mmr_batch2,
+            shared2.consensus().genesis_block().header().into(),
+        )
+        .expect("push mmr");
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller1, &shared1, i, i);
+            let chain_commitment = mmr1
+                .get_root(Some(&mmr_batch1))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let block = insert_block(&chain_controller1, &shared1, i, i, chain_commitment);
+            mmr1.push(&mut mmr_batch1, block.header().into())
+                .expect("push mmr");
         }
 
         for i in 1..num {
-            insert_block(&chain_controller2, &shared2, i + 1, i);
+            let chain_commitment = mmr2
+                .get_root(Some(&mmr_batch2))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let block = insert_block(&chain_controller2, &shared2, i + 1, i, chain_commitment);
+            mmr2.push(&mut mmr_batch2, block.header().into())
+                .expect("push mmr");
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -685,10 +741,24 @@ mod tests {
         assert_eq!(latest_common, Some(0));
 
         let (chain_controller3, shared3, _notify3) = start_chain(Some(consensus), None);
+        let (mut mmr3, mut mmr_batch3) = new_mmr(0);
+        mmr3.push(
+            &mut mmr_batch3,
+            shared3.consensus().genesis_block().header().into(),
+        )
+        .expect("push mmr");
 
         for i in 1..num {
+            let chain_commitment = mmr3
+                .get_root(Some(&mmr_batch3))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
             let j = if i > 192 { i + 1 } else { i };
-            insert_block(&chain_controller3, &shared3, j, i);
+            let block = insert_block(&chain_controller3, &shared3, j, i, chain_commitment);
+            mmr3.push(&mut mmr_batch3, block.header().into())
+                .expect("push mmr");
         }
 
         let synchronizer3 = gen_synchronizer(chain_controller3.clone(), shared3.clone());
@@ -704,16 +774,28 @@ mod tests {
         let consensus = Consensus::default();
         let (chain_controller1, shared1, _notify1) = start_chain(Some(consensus.clone()), None);
         let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
+        let (mut mmr1, mut mmr_batch1) = new_mmr(0);
+        let (mut mmr2, mut mmr_batch2) = new_mmr(0);
         let block_number = 200;
 
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = consensus.genesis_block().header().to_owned();
         for i in 1..block_number {
+            mmr1.push(&mut mmr_batch1, (&parent).into())
+                .expect("push mmr");
+            mmr2.push(&mut mmr_batch2, (&parent).into())
+                .expect("push mmr");
             let parent_epoch = shared1.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&shared1, &parent, &epoch, i);
+            let chain_commitment = mmr1
+                .get_root(Some(&mmr_batch1))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let new_block = gen_block(&shared1, &parent, &epoch, i, chain_commitment);
             blocks.push(new_block.clone());
 
             chain_controller1
@@ -726,13 +808,23 @@ mod tests {
         }
 
         parent = blocks[150].header().to_owned();
+        let (mut fork_mmr, _) = new_mmr(leaf_index_to_mmr_size(149));
         let fork = parent.number();
         for i in 1..=block_number {
+            fork_mmr
+                .push(&mut mmr_batch2, (&parent).into())
+                .expect("push mmr");
             let parent_epoch = shared2.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared2
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
+            let chain_commitment = mmr1
+                .get_root(Some(&mmr_batch1))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let new_block = gen_block(&shared2, &parent, &epoch, i + 100, chain_commitment);
 
             chain_controller2
                 .process_block(Arc::new(new_block.clone()), false)
@@ -769,10 +861,24 @@ mod tests {
     fn test_get_ancestor() {
         let consensus = Consensus::default();
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
+        let (mut mmr, mut mmr_batch) = new_mmr(0);
+        mmr.push(
+            &mut mmr_batch,
+            shared.consensus().genesis_block().header().into(),
+        )
+        .expect("push mmr");
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller, &shared, i, i);
+            let chain_commitment = mmr
+                .get_root(Some(&mmr_batch))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let block = insert_block(&chain_controller, &shared, i, i, chain_commitment);
+            mmr.push(&mut mmr_batch, block.header().into())
+                .expect("push mmr");
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -809,6 +915,8 @@ mod tests {
         let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
         let block_number = 2000;
         let peer: PeerIndex = 0.into();
+        let mut mmr: MMR<HashWithTD, MemStore<HashWithTD>> = MMR::new(0, MemStore::default());
+        let mut mmr_batch = MMRBatch::new();
 
         let mut blocks: Vec<Block> = Vec::new();
         let mut parent = shared1
@@ -816,11 +924,19 @@ mod tests {
             .get_block_header(&shared1.store().get_block_hash(0).unwrap())
             .unwrap();
         for i in 1..block_number {
+            mmr.push(&mut mmr_batch, (&parent).into())
+                .expect("mmr push");
             let parent_epoch = shared1.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
+            let chain_commitment = mmr
+                .get_root(Some(&mmr_batch))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let new_block = gen_block(&shared1, &parent, &epoch, i + 100, chain_commitment);
 
             chain_controller1
                 .process_block(Arc::new(new_block.clone()), false)
@@ -846,6 +962,7 @@ mod tests {
     fn test_get_locator_response() {
         let consensus = Consensus::default();
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
+        let (mut mmr, mut mmr_batch) = new_mmr(0);
         let block_number = 200;
 
         let mut blocks: Vec<Block> = Vec::new();
@@ -854,11 +971,19 @@ mod tests {
             .get_block_header(&shared.store().get_block_hash(0).unwrap())
             .unwrap();
         for i in 1..=block_number {
+            mmr.push(&mut mmr_batch, (&parent).into())
+                .expect("mmr push");
             let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&shared, &parent, &epoch, i + 100);
+            let chain_commitment = mmr
+                .get_root(Some(&mmr_batch))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let new_block = gen_block(&shared, &parent, &epoch, i + 100, chain_commitment);
             blocks.push(new_block.clone());
 
             chain_controller
@@ -1008,10 +1133,30 @@ mod tests {
             start_chain(Some(consensus.clone()), Some(notify.clone()));
         let (chain_controller2, shared2, _) =
             start_chain(Some(consensus.clone()), Some(notify.clone()));
+        let (mut mmr1, mut mmr_batch1) = new_mmr(0);
+        let (mut mmr2, mut mmr_batch2) = new_mmr(0);
+        mmr1.push(
+            &mut mmr_batch1,
+            shared1.consensus().genesis_block().header().into(),
+        )
+        .expect("push mmr");
+        mmr2.push(
+            &mut mmr_batch2,
+            shared2.consensus().genesis_block().header().into(),
+        )
+        .expect("push mmr");
         let num = 200;
 
         for i in 1..num {
-            insert_block(&chain_controller1, &shared1, i, i);
+            let chain_commitment = mmr1
+                .get_root(Some(&mmr_batch1))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
+            let block = insert_block(&chain_controller1, &shared1, i, i, chain_commitment);
+            mmr1.push(&mut mmr_batch1, block.header().into())
+                .expect("push mmr");
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -1021,8 +1166,16 @@ mod tests {
             .get_locator(&shared1.lock_chain_state().tip_header());
 
         for i in 1..=num {
+            let chain_commitment = mmr2
+                .get_root(Some(&mmr_batch2))
+                .expect("get root")
+                .unwrap()
+                .hash()
+                .to_owned();
             let j = if i > 192 { i + 1 } else { i };
-            insert_block(&chain_controller2, &shared2, j, i);
+            let block = insert_block(&chain_controller2, &shared2, j, i, chain_commitment);
+            mmr2.push(&mut mmr_batch2, block.header().into())
+                .expect("push mmr");
         }
 
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());

@@ -149,6 +149,7 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
         let witnesses_root = cast!(header.witnesses_root())?;
         let proposals_hash = cast!(header.proposals_hash())?;
         let uncles_hash = cast!(header.uncles_hash())?;
+        let chain_commitment = cast!(header.chain_commitment())?;
 
         Ok(ckb_core::header::HeaderBuilder::default()
             .version(header.version())
@@ -173,6 +174,7 @@ impl<'a> TryFrom<ckb_protocol::Header<'a>> for ckb_core::header::Header {
                 .and_then(|d| d.seq())
                 .map(ckb_core::Bytes::from))?)
             .uncles_count(header.uncles_count())
+            .chain_commitment(TryInto::try_into(chain_commitment)?)
             .build())
     }
 }

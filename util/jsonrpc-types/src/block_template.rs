@@ -28,6 +28,7 @@ pub struct BlockTemplate {
     pub cellbase: CellbaseTemplate,
     pub work_id: Unsigned,
     pub dao: JsonBytes,
+    pub chain_commitment: H256,
 }
 
 impl From<BlockTemplate> for BlockBuilder {
@@ -44,6 +45,7 @@ impl From<BlockTemplate> for BlockBuilder {
             proposals,
             cellbase,
             dao,
+            chain_commitment,
             ..
         } = block_template;
 
@@ -54,7 +56,8 @@ impl From<BlockTemplate> for BlockBuilder {
             .difficulty(difficulty)
             .timestamp(current_time.0)
             .parent_hash(parent_hash)
-            .dao(dao.into_bytes());
+            .dao(dao.into_bytes())
+            .chain_commitment(chain_commitment);
 
         BlockBuilder::from_header_builder(header_builder)
             .uncles(uncles)

@@ -48,6 +48,7 @@ table Header {
     uncles_count:           uint32;
     epoch:                  uint64;
     dao:                    Bytes;
+    chain_commitment:       H256;
 }
 
 table Block {

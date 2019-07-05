@@ -388,6 +388,7 @@ pub struct Header {
     pub uncles_hash: H256,
     pub uncles_count: Unsigned,
     pub dao: JsonBytes,
+    pub chain_commitment: H256,
     pub seal: Seal,
 }
 
@@ -413,6 +414,7 @@ impl<'a> From<&'a CoreHeader> for Header {
             uncles_hash: core.uncles_hash().to_owned(),
             uncles_count: Unsigned(u64::from(core.uncles_count())),
             dao: JsonBytes::from_bytes(core.dao().to_owned()),
+            chain_commitment: core.chain_commitment().to_owned(),
             seal: core.seal().to_owned().into(),
         }
     }
@@ -443,6 +445,7 @@ impl From<Header> for CoreHeader {
             uncles_count,
             seal,
             dao,
+            chain_commitment,
         } = json;
 
         HeaderBuilder::default()
@@ -459,6 +462,7 @@ impl From<Header> for CoreHeader {
             .uncles_count(uncles_count.0 as u32)
             .seal(seal.into())
             .dao(dao.into_bytes())
+            .chain_commitment(chain_commitment)
             .build()
     }
 }

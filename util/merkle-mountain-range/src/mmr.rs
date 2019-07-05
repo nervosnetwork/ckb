@@ -63,7 +63,8 @@ impl<Elem: MerkleElem + Clone + Eq + Debug, Store: MMRStore<Elem>> MMR<Elem, Sto
             let right_pos = left_pos + sibling_offset(height.try_into()?);
             let left_elem = self.get_mem_data(left_pos, &batch, &elems)?;
             let right_elem = self.get_mem_data(right_pos, &batch, &elems)?;
-            elems.push(Elem::merge(&left_elem, &right_elem)?);
+            let parent_elem = Elem::merge(&left_elem, &right_elem)?;
+            elems.push(parent_elem);
             height += 1
         }
         // store hashes
@@ -78,8 +79,8 @@ impl<Elem: MerkleElem + Clone + Eq + Debug, Store: MMRStore<Elem>> MMR<Elem, Sto
         if self.mmr_size == 0 {
             return Ok(None);
         } else if self.mmr_size == 1 {
-            if let Some(result) = batch.map(|b| b.get_elem(0)) {
-                return result.map(|o| o.map(Clone::clone));
+            if let Some(Ok(Some(elem))) = batch.map(|b| b.get_elem(0)) {
+                return Ok(Some(elem.to_owned()));
             }
             return self.store.get_elem(0);
         }

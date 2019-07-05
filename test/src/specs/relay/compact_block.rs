@@ -3,11 +3,14 @@ use crate::utils::{
     build_header, build_headers, clear_messages, wait_until,
 };
 use crate::{Net, Spec, TestProtocol};
-use ckb_core::block::BlockBuilder;
+use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{resolve_transaction, ResolvedTransaction};
-use ckb_core::header::{Header, HeaderBuilder};
+use ckb_core::hash_with_td::HashWithTD;
+use ckb_core::header::Header;
+use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellInput, TransactionBuilder};
 use ckb_dao::DaoCalculator;
+use ckb_merkle_mountain_range::{tests_util::MemStore, MMRBatch, MMR};
 use ckb_protocol::{get_root, RelayMessage, RelayPayload, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
 use ckb_test_chain_utils::MockStore;
@@ -364,6 +367,37 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let dao = DaoCalculator::new(&consensus, Arc::clone(&mock_store.0))
             .dao_field(&rtxs, parent.header())
             .unwrap();
+        let old_tip = node.get_tip_block().header().number();
+        // calculate chain_commitment for block
+        let chain_commitment = {
+            let mut mmr_batch = MMRBatch::new();
+            let mmr_store = MemStore::<HashWithTD>::default();
+            let mut mmr = MMR::new(0, mmr_store);
+            for number in 0..=old_tip {
+                let block: Block = node
+                    .rpc_client()
+                    .get_block_by_number(number)
+                    .expect("get block")
+                    .into();
+                mmr.push(&mut mmr_batch, block.header().into())
+                    .expect("mmr push");
+            }
+            let root = mmr
+                .get_root(Some(&mmr_batch))
+                .expect("get root")
+                .expect("exists")
+                .hash()
+                .to_owned();
+            assert_eq!(&root, parent.header().chain_commitment());
+            mmr.push(&mut mmr_batch, parent.header().into())
+                .expect("mmr push");
+            mmr.get_root(Some(&mmr_batch))
+                .expect("get root")
+                .expect("exists")
+                .hash()
+                .to_owned()
+        };
+
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header_builder(
@@ -371,10 +405,10 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
                     .number(parent.header().number() + 1)
                     .timestamp(parent.header().timestamp() + 1)
                     .parent_hash(parent.header().hash().to_owned())
-                    .dao(dao),
+                    .dao(dao)
+                    .chain_commitment(chain_commitment),
             )
             .build();
-        let old_tip = node.get_tip_block().header().number();
 
         net.send(
             NetworkProtocol::RELAY.into(),
@@ -406,6 +440,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let ret = wait_until(20, move || {
             node.get_tip_block().header().number() == old_tip + 2
         });
+        node.submit_block(&block);
         assert!(
             ret,
             "relayer should process the two blocks, including the orphan block"
