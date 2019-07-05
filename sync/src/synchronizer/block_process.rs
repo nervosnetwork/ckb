@@ -1,4 +1,7 @@
-use crate::{synchronizer::Synchronizer, BAD_MESSAGE_BAN_TIME};
+use crate::{
+    synchronizer::{BlockStatus, Synchronizer},
+    BAD_MESSAGE_BAN_TIME,
+};
 use ckb_core::block::Block;
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -53,7 +56,7 @@ where
                 BAD_MESSAGE_BAN_TIME.as_secs()
             );
             self.synchronizer
-                .insert_block_status(hash, BlockStatus::FAILED_VALID);
+                .insert_block_status(block_hash, BlockStatus::FAILED_VALID);
             self.nc.ban_peer(self.peer, BAD_MESSAGE_BAN_TIME);
         }
 

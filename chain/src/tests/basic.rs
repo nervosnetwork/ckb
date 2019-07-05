@@ -19,6 +19,39 @@ use numext_fixed_uint::U256;
 use std::sync::Arc;
 
 #[test]
+fn repeat_process_block() {
+    let (chain_controller, shared, parent) = start_chain(None);
+    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    chain.gen_empty_block(100u64, &mut mock_store);
+    let block = Arc::new(chain.blocks().last().unwrap().clone());
+
+    assert!(chain_controller
+        .process_block(Arc::clone(&block), true)
+        .expect("process block ok"));
+    assert_eq!(
+        shared
+            .store()
+            .get_block_ext(block.header().hash())
+            .unwrap()
+            .verified,
+        Some(true)
+    );
+
+    assert!(!chain_controller
+        .process_block(Arc::clone(&block), true)
+        .expect("process block ok"));
+    assert_eq!(
+        shared
+            .store()
+            .get_block_ext(block.header().hash())
+            .unwrap()
+            .verified,
+        Some(true)
+    );
+}
+
+#[test]
 fn test_genesis_transaction_spend() {
     let tx = TransactionBuilder::default()
         .witness(Script::default().into_witness())

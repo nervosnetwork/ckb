@@ -29,7 +29,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::{cmp, thread};
 
-type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<(), FailureError>>;
+type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<bool, FailureError>>;
 
 #[derive(Clone)]
 pub struct ChainController {
@@ -44,7 +44,11 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    pub fn process_block(&self, block: Arc<Block>, need_verify: bool) -> Result<(), FailureError> {
+    pub fn process_block(
+        &self,
+        block: Arc<Block>,
+        need_verify: bool,
+    ) -> Result<bool, FailureError> {
         Request::call(&self.process_block_sender, (block, need_verify))
             .expect("process_block() failed")
     }
@@ -206,7 +210,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         &mut self,
         block: Arc<Block>,
         need_verify: bool,
-    ) -> Result<(), FailureError> {
+    ) -> Result<bool, FailureError> {
         debug!("begin processing block: {:x}", block.header().hash());
         if block.header().number() < 1 {
             warn!(
@@ -215,32 +219,31 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 block.header().hash()
             );
         }
-        self.insert_block(block, need_verify)?;
-        debug!("finish processing block");
-        Ok(())
+        self.insert_block(block, need_verify).map(|ret| {
+            debug!("finish processing block");
+            ret
+        })
     }
 
-    fn insert_block(&self, block: Arc<Block>, need_verify: bool) -> Result<(), FailureError> {
-        // skip stored block
-        if self
-            .shared
-            .store()
-            .get_block_header(block.header().hash())
-            .is_some()
-        {
-            return Ok(());
-        }
+    fn non_contextual_verify(&self, block: &Block) -> Result<(), FailureError> {
+        let block_verifier = BlockVerifier::new(self.shared.clone());
+        block_verifier.verify(&block).map_err(|e| {
+            debug!("[process_block] verification error {:?}", e);
+            e.into()
+        })
+    }
 
+    fn insert_block(&self, block: Arc<Block>, need_verify: bool) -> Result<bool, FailureError> {
+        // insert_block are assumed be executed in single thread
+        if self.shared.store().block_exists(block.header().hash()) {
+            return Ok(false);
+        }
+        // non-contextual verify
         if need_verify {
-            let block_verifier = BlockVerifier::new(self.shared.clone());
-            block_verifier.verify(&block).map_err(|e| {
-                debug!("[process_block] verification error {:?}", e);
-                e
-            })?
+            self.non_contextual_verify(&block)?;
         }
 
         let mut total_difficulty = U256::zero();
-
         let mut fork = ForkChanges::default();
         let mut chain_state = self.shared.lock_chain_state();
         let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
@@ -378,7 +381,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             self.notify.notify_new_uncle(block);
         }
 
-        Ok(())
+        Ok(true)
     }
 
     pub(crate) fn update_proposal_ids(&self, chain_state: &mut ChainState<CS>, fork: &ForkChanges) {

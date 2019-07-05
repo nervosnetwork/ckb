@@ -62,6 +62,10 @@ impl<T: KeyValueDB> ChainKVStore<T> {
         self.db.read(col, key).expect("db operation should be ok")
     }
 
+    pub fn exists(&self, col: Col, key: &[u8]) -> bool {
+        self.get(col, key).is_some()
+    }
+
     pub fn partial_get(&self, col: Col, key: &[u8], range: &Range<usize>) -> Option<Vec<u8>> {
         self.db
             .partial_read(col, key, range)
@@ -135,6 +139,8 @@ pub trait ChainStore: Sync + Send {
     fn get_cellbase(&self, hash: &H256) -> Option<Transaction>;
     // Get the ancestor of a base block by a block number
     fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header>;
+
+    fn block_exists(&self, hash: &H256) -> bool;
 }
 
 pub trait StoreBatch {
@@ -189,6 +195,10 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
 
     fn is_uncle(&self, hash: &H256) -> bool {
         self.get(COLUMN_UNCLES, hash.as_bytes()).is_some()
+    }
+
+    fn block_exists(&self, hash: &H256) -> bool {
+        self.get(COLUMN_BLOCK_HEADER, hash.as_bytes()).is_some()
     }
 
     fn get_block_header(&self, hash: &H256) -> Option<Header> {
