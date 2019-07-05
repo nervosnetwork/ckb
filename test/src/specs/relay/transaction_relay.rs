@@ -8,14 +8,11 @@ pub struct TransactionRelayBasic;
 
 impl Spec for TransactionRelayBasic {
     fn run(&self, net: Net) {
+        net.exit_ibd_mode();
+
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
-        // generate 1 block to exit IBD mode.
-        let block = node0.new_block(None, None, None);
-        node0.submit_block(&block);
-        node1.submit_block(&block);
-        node2.submit_block(&block);
 
         info!("Generate new transaction on node1");
         node1.generate_block();
@@ -54,13 +51,8 @@ pub struct TransactionRelayMultiple;
 
 impl Spec for TransactionRelayMultiple {
     fn run(&self, net: Net) {
+        let block = net.exit_ibd_mode();
         let node0 = &net.nodes[0];
-        // generate 1 block to exit IBD mode.
-        let block = node0.new_block(None, None, None);
-        net.nodes.iter().for_each(|node| {
-            node.submit_block(&block);
-        });
-
         info!("Use generated block's cellbase as tx input");
         let reward = block.transactions()[0].outputs()[0].capacity;
         let txs_num = reward.as_u64() / MIN_CAPACITY;

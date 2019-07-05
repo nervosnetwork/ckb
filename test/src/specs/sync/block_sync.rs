@@ -24,7 +24,7 @@ impl Spec for BlockSyncFromOne {
             node0.generate_block();
         });
 
-        node0.connect(node1);
+        node1.connect(node0);
 
         let ret = wait_until(10, || {
             let header0 = rpc_client0.get_tip_header();
@@ -122,13 +122,11 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
+        net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
             .expect("build connection with node");
-
-        // Exit IBD mode
-        node.generate_block();
 
         // Sync a new header to `node`, `node` should send back a corresponding GetBlocks message
         let block = node.new_block(None, None, None);
@@ -191,8 +189,7 @@ impl Spec for BlockSyncOrphanBlocks {
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
-        // Exit IBD mode
-        node0.generate_block();
+        net.exit_ibd_mode();
         net.connect(node0);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))

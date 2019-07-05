@@ -10,6 +10,7 @@ impl Spec for MalformedMessage {
     fn run(&self, net: Net) {
         info!("Connect node0");
         let node0 = &net.nodes[0];
+        net.exit_ibd_mode();
         net.connect(node0);
 
         info!("Test node should receive GetHeaders message from node0");
