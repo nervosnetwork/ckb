@@ -1109,19 +1109,6 @@ mod tests {
             .execute()
             .expect("Process headers from peer1 failed");
 
-        let fbb = &mut FlatBufferBuilder::new();
-        // empty headers message (means already synchronized)
-        let fbs_headers = FbsHeaders::build(fbb, &[]);
-        fbb.finish(fbs_headers, None);
-        let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
-        HeadersProcess::new(&fbs_headers, &synchronizer1, peer2, &mock_nc)
-            .execute()
-            .expect("Process headers from peer2 failed");
-        assert_eq!(
-            synchronizer1.peers().get_best_known_header(peer1),
-            synchronizer1.peers().get_best_known_header(peer2)
-        );
-
         let best_known_header = synchronizer1.peers().get_best_known_header(peer1);
 
         assert_eq!(best_known_header.unwrap().inner(), headers.last().unwrap());
