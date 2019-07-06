@@ -52,7 +52,6 @@ impl OutboundPeerService {
             }
             paddrs
         });
-        let p2p_control = self.p2p_control.clone();
         trace!(
             "count={}, attempt_peers: {:?} is_feeler: {}",
             count,
@@ -62,10 +61,26 @@ impl OutboundPeerService {
         for paddr in attempt_peers {
             let PeerAddr { peer_id, addr, .. } = paddr;
             if is_feeler {
-                self.network_state.dial_feeler(&p2p_control, &peer_id, addr);
+                self.network_state
+                    .dial_feeler(&self.p2p_control, &peer_id, addr);
             } else {
                 self.network_state
-                    .dial_identify(&p2p_control, &peer_id, addr);
+                    .dial_identify(&self.p2p_control, &peer_id, addr);
+            }
+        }
+    }
+
+    fn try_dial_reserved(&self) {
+        // This will never panic because network start has already been checked
+        for (peer_id, addr) in self
+            .network_state
+            .config
+            .reserved_peers()
+            .expect("address must be correct")
+        {
+            if self.network_state.query_session_id(&peer_id).is_none() {
+                self.network_state
+                    .dial_identify(&self.p2p_control, &peer_id, addr);
             }
         }
     }
@@ -86,7 +101,9 @@ impl Future for OutboundPeerService {
                     if last_connect > self.try_connect_interval {
                         let status = self.network_state.connection_status();
                         let new_outbound = status.max_outbound - status.unreserved_outbound;
-                        if new_outbound > 0 {
+                        if self.network_state.config.reserved_only {
+                            self.try_dial_reserved()
+                        } else if new_outbound > 0 {
                             // dial peers
                             self.dial_peers(false, new_outbound as u32);
                         } else {
