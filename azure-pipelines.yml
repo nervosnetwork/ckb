@@ -7,7 +7,7 @@ trigger:
     - '*'
 
 variables:
-  CKBClientVersion: $(Build.SourceBranchName)
+  CKBClientVersion: v0.15.0
 
 jobs:
   - job: UnitTest
