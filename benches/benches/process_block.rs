@@ -41,7 +41,7 @@ fn bench(c: &mut Criterion) {
                     blocks.into_iter().skip(1).for_each(|block| {
                         chain
                             .process_block(Arc::new(block), true)
-                            .expect("process block OK")
+                            .expect("process block OK");
                     });
                 },
             )
@@ -77,7 +77,7 @@ fn bench(c: &mut Criterion) {
                         .for_each(|block| {
                             chain
                                 .process_block(Arc::new(block), true)
-                                .expect("process block OK")
+                                .expect("process block OK");
                         });
                     (chain, blocks, dir)
                 },
@@ -85,7 +85,7 @@ fn bench(c: &mut Criterion) {
                     blocks.into_iter().skip(6).for_each(|block| {
                         chain
                             .process_block(Arc::new(block), true)
-                            .expect("process block OK")
+                            .expect("process block OK");
                     });
                 },
             )
@@ -121,7 +121,7 @@ fn bench(c: &mut Criterion) {
                         .for_each(|block| {
                             chain
                                 .process_block(Arc::new(block), true)
-                                .expect("process block OK")
+                                .expect("process block OK");
                         });
                     (chain, blocks, dir)
                 },
@@ -129,7 +129,7 @@ fn bench(c: &mut Criterion) {
                     blocks.into_iter().skip(8).for_each(|block| {
                         chain
                             .process_block(Arc::new(block), true)
-                            .expect("process block OK")
+                            .expect("process block OK");
                     });
                 },
             )

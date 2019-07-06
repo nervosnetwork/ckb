@@ -34,10 +34,11 @@ where
 
     pub fn execute(self) -> Result<(), FailureError> {
         let block: Block = (*self.message).try_into()?;
+        let block_hash = block.header().hash().to_owned();
         debug!(
             "BlockProcess received block {} {:x}",
             block.header().number(),
-            block.header().hash()
+            block_hash
         );
 
         if self.synchronizer.shared().new_block_received(&block)
@@ -51,6 +52,7 @@ where
                 self.peer,
                 BAD_MESSAGE_BAN_TIME.as_secs()
             );
+            self.synchronizer.mark_block_invalid(block_hash);
             self.nc.ban_peer(self.peer, BAD_MESSAGE_BAN_TIME);
         }
 
