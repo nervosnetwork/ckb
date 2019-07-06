@@ -17,6 +17,38 @@ use std::sync::Arc;
 use test_chain_utils::{build_block, header_builder};
 
 #[test]
+fn repeat_process_block() {
+    let (chain_controller, shared, parent) = start_chain(None);
+    let mut chain = MockChain::new(parent.clone());
+    chain.gen_empty_block(100u64);
+    let block = Arc::new(chain.blocks().last().unwrap().clone());
+
+    assert!(chain_controller
+        .process_block(Arc::clone(&block), true)
+        .expect("process block ok"));
+    assert_eq!(
+        shared
+            .store()
+            .get_block_ext(block.header().hash())
+            .unwrap()
+            .verified,
+        Some(true)
+    );
+
+    assert!(!chain_controller
+        .process_block(Arc::clone(&block), true)
+        .expect("process block ok"));
+    assert_eq!(
+        shared
+            .store()
+            .get_block_ext(block.header().hash())
+            .unwrap()
+            .verified,
+        Some(true)
+    );
+}
+
+#[test]
 fn test_genesis_transaction_spend() {
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))

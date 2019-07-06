@@ -22,7 +22,7 @@ impl Spec for ChainFork1 {
         node0.generate_blocks(2);
 
         info!("Connect node0 to node1");
-        node0.connect(node1);
+        node1.connect(node0);
         node0.waiting_for_sync(node1, 2);
         info!("Disconnect node1");
         node0.disconnect(node1);
@@ -64,8 +64,8 @@ impl Spec for ChainFork2 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        node0.connect(node1);
-        node0.connect(node2);
+        node1.connect(node0);
+        node2.connect(node0);
         net.waiting_for_sync(2);
         info!("Disconnect all nodes");
         net.disconnect_all();
@@ -123,8 +123,8 @@ impl Spec for ChainFork3 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        node0.connect(node1);
-        node0.connect(node2);
+        node1.connect(node0);
+        node2.connect(node0);
         net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
@@ -195,8 +195,8 @@ impl Spec for ChainFork4 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        node0.connect(node1);
-        node0.connect(node2);
+        node1.connect(node0);
+        node2.connect(node0);
         net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
@@ -270,8 +270,8 @@ impl Spec for ChainFork5 {
         node0.submit_transaction(&transaction);
         node0.generate_blocks(1);
         info!("Connect all nodes");
-        node0.connect(node1);
-        node0.connect(node2);
+        node1.connect(node0);
+        node2.connect(node0);
         net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
@@ -343,8 +343,8 @@ impl Spec for ChainFork6 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        node0.connect(node1);
-        node0.connect(node2);
+        node1.connect(node0);
+        node2.connect(node0);
         net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");
@@ -411,8 +411,8 @@ impl Spec for ChainFork7 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        node0.connect(node1);
-        node0.connect(node2);
+        node1.connect(node0);
+        node2.connect(node0);
         net.waiting_for_sync(2);
 
         info!("Disconnect all nodes");

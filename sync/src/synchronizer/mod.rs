@@ -141,6 +141,11 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .insert_block_status(hash, BlockStatus::BLOCK_HAVE_MASK);
     }
 
+    pub fn mark_block_invalid(&self, hash: H256) {
+        self.shared()
+            .insert_block_status(hash, BlockStatus::FAILED_VALID);
+    }
+
     pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
         if let Some(parent_view) = self.shared.get_header_view(&header.parent_hash()) {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
@@ -1103,19 +1108,6 @@ mod tests {
         HeadersProcess::new(&fbs_headers, &synchronizer1, peer1, &mock_nc)
             .execute()
             .expect("Process headers from peer1 failed");
-
-        let fbb = &mut FlatBufferBuilder::new();
-        // empty headers message (means already synchronized)
-        let fbs_headers = FbsHeaders::build(fbb, &[]);
-        fbb.finish(fbs_headers, None);
-        let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
-        HeadersProcess::new(&fbs_headers, &synchronizer1, peer2, &mock_nc)
-            .execute()
-            .expect("Process headers from peer2 failed");
-        assert_eq!(
-            synchronizer1.peers().get_best_known_header(peer1),
-            synchronizer1.peers().get_best_known_header(peer2)
-        );
 
         let best_known_header = synchronizer1.peers().get_best_known_header(peer1);
 
