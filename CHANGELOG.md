@@ -1,7 +1,8 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
-# [v0.15.4](https://github.com/nervosnetwork/ckb/compare/v0.15.3...v0.15.4) (2019-07-04)
+# [v0.15.5](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.15.5) (2019-07-06)
+
 
 ### Features
 
@@ -9,15 +10,20 @@ See [Conventional Commits](https://conventionalcommits.org) for commit guideline
 
 ### Bug Fixes
 
+* #1176: Use tip header to ignore compact block (@TheWaWaR)
+* #1179: Random failure caused by dirty exit in RPC test (@doitian)
+
+    Close the server before exit RPC test.
+
+* #1195: Hotfix rc0.15 (@zhangsoledad)
+
+    * fix fetch invalid block
+    * fix response invalid block
+    * fix repeat process block overwrite block ext
+
 * #1164: Ban peer when validate received block failed (@TheWaWaR)
 * #1167: Proposal reward calculate consistency (@zhangsoledad)
 * #1169: Only sync with outbound peer in IBD mode (@quake)
-
-
-# [v0.15.3](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.15.3) (2019-07-02)
-
-### Bug Fixes
-
 * #1143: `get_ancestor` is inconsistent (@zhangsoledad)
 * #1148: Sync block download filter (@zhangsoledad)
 
