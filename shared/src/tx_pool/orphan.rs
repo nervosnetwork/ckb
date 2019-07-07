@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::tx_pool::types::DefectEntry;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
@@ -20,10 +18,6 @@ impl OrphanPool {
         OrphanPool::default()
     }
 
-    pub(crate) fn capacity(&self) -> usize {
-        self.vertices.len()
-    }
-
     pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&DefectEntry> {
         self.vertices.get(id)
     }
@@ -32,6 +26,7 @@ impl OrphanPool {
         self.get(id).map(|x| &x.transaction)
     }
 
+    #[cfg(test)]
     pub(crate) fn contains(&self, tx: &Transaction) -> bool {
         self.vertices.contains_key(&tx.proposal_short_id())
     }
@@ -158,19 +153,37 @@ mod tests {
 
         let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
 
+        // the tx5 and its descendants(tx6) conflict with tx1
+        let tx5 = build_tx(vec![(&H256::zero(), 0)], 2);
+        let tx5_hash = tx5.hash();
+
+        let tx6 = build_tx(vec![(tx5_hash, 0)], 1);
+
         pool.add_tx(None, MOCK_SIZE, tx2.clone(), tx1.output_pts().into_iter());
         pool.add_tx(None, MOCK_SIZE, tx3.clone(), tx2.output_pts().into_iter());
         pool.add_tx(None, MOCK_SIZE, tx4.clone(), tx3.output_pts().into_iter());
+        pool.add_tx(
+            None,
+            MOCK_SIZE,
+            tx5.clone(),
+            tx1.inputs().to_vec().into_iter().map(|x| x.previous_output),
+        );
+        pool.add_tx(None, MOCK_SIZE, tx6.clone(), tx5.output_pts().into_iter());
 
         assert!(pool.contains(&tx2));
         assert!(pool.contains(&tx3));
         assert!(pool.contains(&tx4));
+        assert!(pool.contains(&tx5));
+        assert!(pool.contains(&tx6));
 
         let txs: Vec<_> = pool
             .remove_by_ancestor(&tx1)
             .into_iter()
             .map(|e| e.transaction)
             .collect();
+
+        assert!(!pool.contains(&tx5));
+        assert!(!pool.contains(&tx6));
 
         assert_eq!(txs, vec![tx2, tx3, tx4]);
     }
@@ -201,6 +214,10 @@ mod tests {
             .map(|e| e.transaction)
             .collect();
         assert!(txs.is_empty());
+
+        assert_eq!(txs, vec![]);
+        assert!(pool.contains(&tx3));
+        assert!(pool.contains(&tx4));
 
         let txs: Vec<_> = pool
             .remove_by_ancestor(&tx2)
