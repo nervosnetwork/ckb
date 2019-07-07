@@ -339,12 +339,12 @@ impl InflightBlocks {
 
     pub fn prune(&mut self) {
         let now = unix_time_as_millis();
-        let block = &mut self.blocks;
+        let blocks = &mut self.blocks;
         self.states.retain(|k, v| {
             let outdate = (v.timestamp + BLOCK_DOWNLOAD_TIMEOUT) < now;
             if outdate {
                 for peer in &v.peers {
-                    block.get_mut(peer).map(|set| set.remove(&k));
+                    blocks.get_mut(peer).map(|set| set.remove(&k));
                 }
             }
             !outdate

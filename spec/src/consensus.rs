@@ -315,7 +315,7 @@ impl Consensus {
     }
 
     pub fn revision_epoch_difficulty(&self, last: U256, raw: U256) -> U256 {
-        let min_difficulty = cmp::max(self.min_difficulty().clone(), &last / 2u64);
+        let min_difficulty = cmp::max(self.min_difficulty().clone(), &last >> 1);
         let max_difficulty = last * 2u32;
 
         if raw > max_difficulty {
@@ -400,7 +400,7 @@ impl Consensus {
             )
         } else {
             let next_epoch_length = self.max_epoch_length();
-            let difficulty = cmp::max(self.min_difficulty().clone(), last_difficulty / 2u64);
+            let difficulty = cmp::max(self.min_difficulty().clone(), last_difficulty >> 1);
 
             let block_reward = Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
             let remainder_reward =
