@@ -1098,7 +1098,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         chain: &ChainController,
         pi: PeerIndex,
         block: Arc<Block>,
-    ) -> Result<(), FailureError> {
+    ) -> Result<bool, FailureError> {
         let known_parent = |block: &Block| {
             self.store()
                 .get_block_header(block.header().parent_hash())
@@ -1113,7 +1113,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 block.header().hash()
             );
             self.insert_orphan_block((*block).clone());
-            return Ok(());
+            return Ok(false);
         }
 
         // Attempt to accept the given block if its parent already exist in database
@@ -1148,7 +1148,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     fn accept_block(
