@@ -146,12 +146,12 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
+    pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<bool, FailureError> {
         let block_hash = block.header().hash();
         let status = self.shared().get_block_status(block_hash);
         if status.contains(BlockStatus::BLOCK_RECEIVED) {
             debug!("block {:x} already received", block_hash);
-            Ok(())
+            Ok(false)
         } else if status.contains(BlockStatus::HEADER_VERIFIED) {
             self.shared()
                 .insert_new_block(&self.chain, peer, Arc::new(block))
@@ -160,7 +160,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 "Synchronizer process_new_block unexpected status {:?} {:#x}",
                 status, block_hash,
             );
-            Ok(())
+            // TODO which error should we return?
+            Ok(false)
         }
     }
 

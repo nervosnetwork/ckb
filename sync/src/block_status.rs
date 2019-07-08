@@ -4,22 +4,23 @@ bitflags! {
     pub struct BlockStatus: u32 {
         const UNKNOWN                 =     0;
 
-        const HEADER_VERIFIED         =     1;
-        const BLOCK_RECEIVED          =     Self::HEADER_VERIFIED.bits | 2;
-        const BLOCK_STORED            =     Self::HEADER_VERIFIED.bits | Self::BLOCK_RECEIVED.bits | 16;
+        const HEADER_VALID            =     0b0000_0000_0000_0001;
+        const BLOCK_RECEIVED          =     Self::HEADER_VALID.bits | 0b0000_0000_0000_0010;
+        const BLOCK_STORED            =     Self::HEADER_VALID.bits | Self::BLOCK_RECEIVED.bits | 0b0000_0000_0000_1000;
 
-        const BLOCK_INVALID           =    32;
+        const BLOCK_INVALID           =     0b0010_0000_0000_0000;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::block_status::BlockStatus;
+    use std::collections::HashSet;
 
     fn all() -> Vec<BlockStatus> {
         vec![
             BlockStatus::UNKNOWN,
-            BlockStatus::HEADER_VERIFIED,
+            BlockStatus::HEADER_VALID,
             BlockStatus::BLOCK_RECEIVED,
             BlockStatus::BLOCK_STORED,
             BlockStatus::BLOCK_INVALID,
@@ -50,15 +51,21 @@ mod tests {
     }
 
     #[test]
+    fn test_all_different() {
+        let set: HashSet<_> = all().into_iter().collect();
+        assert_eq!(set.len(), all().len());
+    }
+
+    #[test]
     fn test_unknown() {
         assert!(BlockStatus::UNKNOWN.is_empty());
     }
 
     #[test]
-    fn test_header_verified() {
-        let target = BlockStatus::HEADER_VERIFIED;
+    fn test_header_valid() {
+        let target = BlockStatus::HEADER_VALID;
         let includes = vec![
-            BlockStatus::HEADER_VERIFIED,
+            BlockStatus::HEADER_VALID,
             BlockStatus::BLOCK_RECEIVED,
             BlockStatus::BLOCK_STORED,
         ];
