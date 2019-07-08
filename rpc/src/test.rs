@@ -20,7 +20,7 @@ use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
 use ckb_sync::{SyncSharedState, Synchronizer};
-use ckb_test_chain_utils::create_always_success_cell;
+use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::chain_provider::ChainProvider;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
@@ -70,7 +70,7 @@ fn setup_node(
     ChainController,
     RpcServer,
 ) {
-    let (always_success_cell, always_success_script) = create_always_success_cell();
+    let (always_success_cell, always_success_script) = always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .witness(always_success_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))

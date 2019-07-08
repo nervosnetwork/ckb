@@ -441,7 +441,7 @@ mod tests {
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainKVStore, COLUMNS};
     use faster_hex::hex_encode;
 
-    use ckb_test_chain_utils::create_always_success_cell;
+    use ckb_test_chain_utils::always_success_cell;
     use ckb_vm::Error as VMInternalError;
     use numext_fixed_hash::{h256, H256};
     use std::fs::File;
@@ -492,7 +492,7 @@ mod tests {
 
     #[test]
     fn check_always_success_hash() {
-        let (always_success_cell, always_success_script) = create_always_success_cell();
+        let (always_success_cell, always_success_script) = always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
@@ -941,7 +941,7 @@ mod tests {
         args.push(Bytes::from(to_hex_signature(&signature)));
 
         let input = CellInput::new(OutPoint::null(), 0);
-        let (always_success_cell, always_success_script) = create_always_success_cell();
+        let (always_success_cell, always_success_script) = always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),
@@ -1021,7 +1021,7 @@ mod tests {
         args.push(Bytes::from(to_hex_signature(&signature)));
 
         let input = CellInput::new(OutPoint::null(), 0);
-        let (always_success_cell, always_success_script) = create_always_success_cell();
+        let (always_success_cell, always_success_script) = always_success_cell();
         let output = CellOutput::new(
             capacity_bytes!(100),
             Bytes::default(),

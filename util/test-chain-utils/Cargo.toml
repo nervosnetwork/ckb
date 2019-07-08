@@ -10,4 +10,8 @@ ckb-core = { path = "../../core" }
 ckb-db = { path = "../../db" }
 ckb-hash = { path = "../hash" }
 ckb-store = { path = "../../store" }
+ckb-chain-spec = { path = "../../spec" }
+ckb-dao-utils = { path = "../dao/utils" }
 lazy_static = "1.3.0"
+faketime = "0.2.0"
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
