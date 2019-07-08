@@ -38,6 +38,8 @@ impl ValidSince {
         DEFAULT_TX_PROPOSAL_WINDOW.0 + 2
     }
 
+    // (current, current+cellbase_maturity): Err(InvalidTx(CellbaseImmaturity))
+    // [current+cellbase_maturity, current+relative_number): Err(InvalidTx(Immature))
     pub fn test_since_relative_block_number(&self, node: &Node) {
         node.generate_block();
         let relative: BlockNumber = self.cellbase_maturity() + 5;
@@ -48,7 +50,7 @@ impl ValidSince {
         };
 
         // Failed to send transaction since CellbaseImmaturity
-        for _ in 0..self.cellbase_maturity() {
+        for _ in 1..self.cellbase_maturity() {
             assert_send_transaction_fail(node, &transaction, "InvalidTx(CellbaseImmaturity)");
             node.generate_block();
         }
@@ -71,6 +73,8 @@ impl ValidSince {
         );
     }
 
+    // (current, current+cellbase_maturity): Err(InvalidTx(CellbaseImmaturity))
+    // [current+cellbase_maturity, absolute_number): Err(InvalidTx(Immature))
     pub fn test_since_absolute_block_number(&self, node: &Node) {
         node.generate_block();
         let absolute: BlockNumber =
@@ -82,14 +86,14 @@ impl ValidSince {
         };
 
         // Failed to send transaction since CellbaseImmaturity
-        for _ in 0..self.cellbase_maturity() {
+        for _ in 1..self.cellbase_maturity() {
             assert_send_transaction_fail(node, &transaction, "InvalidTx(CellbaseImmaturity)");
             node.generate_block();
         }
 
         // Failed to send transaction since SinceImmaturity
         let tip_number = node.rpc_client().get_tip_block_number();
-        for _ in tip_number..absolute {
+        for _ in tip_number + 1..absolute {
             assert_send_transaction_fail(node, &transaction, "InvalidTx(Immature)");
             node.generate_block();
         }
