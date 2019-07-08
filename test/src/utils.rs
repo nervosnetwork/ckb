@@ -47,8 +47,12 @@ pub fn build_block_transactions(block: &Block) -> Bytes {
 }
 
 pub fn build_header(header: &Header) -> Bytes {
+    build_headers(&[header.clone()])
+}
+
+pub fn build_headers(headers: &[Header]) -> Bytes {
     let fbb = &mut FlatBufferBuilder::new();
-    let message = SyncMessage::build_headers(fbb, &[header.clone()]);
+    let message = SyncMessage::build_headers(fbb, headers);
     fbb.finish(message, None);
     fbb.finished_data().into()
 }
