@@ -11,8 +11,10 @@ use std::thread;
 use std::time::Duration;
 
 mod inflight_blocks;
+mod sync_shared_state;
 #[cfg(not(disable_faketime))]
 mod synchronizer;
+mod util;
 
 const DEFAULT_CHANNEL: usize = 128;
 
