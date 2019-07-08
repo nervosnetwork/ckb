@@ -2,7 +2,7 @@ use crate::specs::TestProtocol;
 use crate::utils::wait_until;
 use crate::Node;
 use bytes::Bytes;
-use ckb_core::BlockNumber;
+use ckb_core::{block::Block, BlockNumber};
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
     NetworkService, NetworkState, PeerIndex, ProtocolId,
@@ -143,6 +143,15 @@ impl Net {
                 }
             })
         });
+    }
+
+    // generate a same block on all nodes, exit IBD mode and return the tip block
+    pub fn exit_ibd_mode(&self) -> Block {
+        let block = self.nodes[0].new_block(None, None, None);
+        self.nodes.iter().for_each(|node| {
+            node.submit_block(&block);
+        });
+        block
     }
 
     pub fn waiting_for_sync(&self, target: BlockNumber) {

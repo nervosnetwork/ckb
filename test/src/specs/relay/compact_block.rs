@@ -22,6 +22,7 @@ impl Spec for CompactBlockEmptyParentUnknown {
     // Case: Sent to node0 a parent-unknown empty block, node0 should be unable to reconstruct
     // it and send us back a `GetHeaders` message
     fn run(&self, net: Net) {
+        net.exit_ibd_mode();
         let node = &net.nodes[0];
         net.connect(node);
         let (peer_id, _, _) = net.receive();
@@ -62,11 +63,9 @@ impl Spec for CompactBlockEmpty {
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
+        net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
-
-        node.generate_block();
-        let _ = net.receive();
 
         let new_empty_block = node.new_block(None, None, None);
         net.send(
@@ -89,11 +88,9 @@ impl Spec for CompactBlockPrefilled {
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
+        net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
-
-        node.generate_block();
-        let _ = net.receive();
 
         // Proposal a tx, and grow up into proposal window
         let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
@@ -134,6 +131,7 @@ impl Spec for CompactBlockMissingTxs {
     // back for requesting these missing txs
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
+        net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
@@ -182,6 +180,7 @@ pub struct CompactBlockLoseGetBlockTransactions;
 
 impl Spec for CompactBlockLoseGetBlockTransactions {
     fn run(&self, net: Net) {
+        net.exit_ibd_mode();
         let node0 = &net.nodes[0];
         net.connect(node0);
         let (peer_id0, _, _) = net.receive();
@@ -189,7 +188,6 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         net.connect(node1);
         let _ = net.receive();
 
-        node0.generate_block();
         let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash().clone());
         node0.submit_block(
             &node0
@@ -258,10 +256,9 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
     // orphan_block_pool now
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
+        net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net.receive();
-
-        node.generate_block();
 
         // Proposal a tx, and grow up into proposal window
         let new_tx = node.new_transaction_spend_tip_cellbase();

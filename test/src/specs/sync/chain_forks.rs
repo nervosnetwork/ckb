@@ -21,7 +21,7 @@ impl Spec for ChainFork1 {
         node0.generate_blocks(2);
 
         info!("Connect node0 to node1");
-        node0.connect(node1);
+        node1.connect(node0);
         node0.waiting_for_sync(node1, 2);
         info!("Disconnect node1");
         node0.disconnect(node1);
@@ -62,8 +62,8 @@ impl Spec for ChainFork2 {
         node0.generate_blocks(2);
 
         info!("Connect all nodes");
-        node0.connect(node1);
-        node0.connect(node2);
+        node1.connect(node0);
+        node2.connect(node0);
         net.waiting_for_sync(2);
         info!("Disconnect all nodes");
         net.disconnect_all();

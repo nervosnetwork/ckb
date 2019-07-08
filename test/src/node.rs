@@ -109,14 +109,14 @@ impl Node {
         }
     }
 
-    pub fn connect(&self, node: &Node) {
-        let node_info = node.rpc_client().local_node_info();
+    pub fn connect(&self, outbound_peer: &Node) {
+        let node_info = outbound_peer.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
         let rpc_client = self.rpc_client();
         rpc_client.add_node(
             node_id.clone(),
-            format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port),
+            format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
         );
 
         let result = wait_until(5, || {
@@ -125,7 +125,7 @@ impl Node {
         });
 
         if !result {
-            panic!("Connect timeout, node {}", node_id);
+            panic!("Connect outbound peer timeout, node id: {}", node_id);
         }
     }
 

@@ -11,12 +11,11 @@ pub struct InvalidLocatorSize;
 impl Spec for InvalidLocatorSize {
     fn run(&self, net: Net) {
         info!("Connect node0");
+        net.exit_ibd_mode();
         let node0 = &net.nodes[0];
         net.connect(node0);
         // get peer_id from GetHeaders message
         let (peer_id, _, _) = net.receive();
-        // generate 1 block on node0, to exit IBD mode.
-        node0.generate_block();
 
         let hashes: Vec<_> = (0..=MAX_LOCATOR_SIZE).map(|_| h256!("0x1")).collect();
         let fbb = &mut FlatBufferBuilder::new();
