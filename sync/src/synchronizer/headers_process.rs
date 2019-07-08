@@ -231,7 +231,6 @@ where
 
         if log_enabled!(Level::Debug) {
             // Regain the updated best known
-            let shared_best_known = self.synchronizer.shared.shared_best_header();
             let chain_state = self.synchronizer.shared.lock_chain_state();
             let shared_best_known = self.synchronizer.shared.shared_best_header();
             let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
