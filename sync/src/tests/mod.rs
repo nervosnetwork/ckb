@@ -234,7 +234,7 @@ impl CKBProtocolContext for TestNetworkContext {
         self.msg_senders.keys().map(|k| k.1).collect::<Vec<_>>()
     }
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {}
-    fn ban_peer(&self, _peer_index: PeerIndex, _timeout: Duration) {}
+    fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration) {}
     // Other methods
     fn protocol_id(&self) -> ProtocolId {
         self.protocol

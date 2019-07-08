@@ -87,6 +87,7 @@ fn inflight_blocks_state() {
     );
 }
 
+#[cfg(not(disable_faketime))]
 #[test]
 fn inflight_blocks_timeout() {
     let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
