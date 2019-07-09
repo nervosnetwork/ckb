@@ -1110,9 +1110,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         }
 
         // Attempt to accept the given block if its parent already exist in database
-        if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
-            debug!("accept block {:?} error {:?}", block, err);
-            return Err(err);
+        let ret = self.accept_block(chain, pi, Arc::clone(&block));
+        if ret.is_err() {
+            debug!("accept block {:?} {:?}", block, ret);
+            return ret;
         }
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
@@ -1141,7 +1142,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             }
         }
 
-        Ok(true)
+        ret
     }
 
     fn accept_block(
@@ -1149,10 +1150,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         chain: &ChainController,
         peer: PeerIndex,
         block: Arc<Block>,
-    ) -> Result<(), FailureError> {
-        if let Err(err) = chain.process_block(Arc::clone(&block), true) {
+    ) -> Result<bool, FailureError> {
+        let ret = chain.process_block(Arc::clone(&block), true);
+        if ret.is_err() {
             self.insert_block_status(block.header().hash().to_owned(), BlockStatus::FAILED_MASK);
-            return Err(err);
+            return ret;
         }
 
         self.remove_header_view(block.header().hash());
@@ -1162,7 +1164,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         );
         self.peers()
             .set_last_common_header(peer, block.header().clone());
-        Ok(())
+        ret
     }
 }
 
