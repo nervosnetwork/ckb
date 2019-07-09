@@ -208,8 +208,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
     pub fn eviction(&self, nc: &CKBProtocolContext) {
         let mut peer_states = self.peers().state.write();
         let is_initial_header_sync = self.shared.is_initial_header_sync();
+        let inbound_eviction = nc.inbound_eviction_condition();
         let mut eviction = Vec::new();
-        for (peer, state) in peer_states.iter_mut() {
+        for (index, (peer, state)) in peer_states.iter_mut().enumerate() {
             let now = unix_time_as_millis();
 
             // headers_sync_timeout
@@ -286,6 +287,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
                         );
                     }
                 }
+            }
+            if inbound_eviction && !state.is_outbound && index & 0x1 != 0 {
+                state.disconnect = true;
+                eviction.push(*peer);
             }
         }
         for peer in eviction {

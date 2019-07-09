@@ -60,6 +60,10 @@ pub trait CKBProtocolContext: Send {
     fn ban_peer(&self, peer_index: PeerIndex, duration: Duration);
     // Other methods
     fn protocol_id(&self) -> ProtocolId;
+    /// inbound state
+    fn inbound_eviction_condition(&self) -> bool {
+        false
+    }
 }
 
 pub trait CKBProtocolHandler: Sync + Send {
@@ -347,5 +351,18 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
     fn protocol_id(&self) -> ProtocolId {
         self.proto_id
+    }
+
+    fn inbound_eviction_condition(&self) -> bool {
+        let status = self.network_state.connection_status();
+        let connected_inbound_num = self.network_state.with_peer_registry(|registry| {
+            registry
+                .peers()
+                .values()
+                .filter(|peer| peer.is_inbound())
+                .count()
+        });
+        self.network_state.config.bootnode_mode
+            && (status.max_inbound - connected_inbound_num as u32) < 10
     }
 }
