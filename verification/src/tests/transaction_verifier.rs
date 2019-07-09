@@ -4,7 +4,7 @@ use super::super::transaction_verifier::{
 };
 use crate::error::TransactionError;
 use ckb_core::cell::{BlockInfo, CellMeta, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity, Version};
 use ckb_db::MemoryKeyValueDB;
@@ -89,7 +89,7 @@ pub fn test_skip_dao_capacity_check() {
             capacity_bytes!(500),
             Bytes::from(vec![1; 10]),
             Script::default(),
-            Some(Script::new(vec![], CODE_HASH_DAO)),
+            Some(Script::new(vec![], CODE_HASH_DAO, ScriptHashType::Data)),
         ))
         .build();
 

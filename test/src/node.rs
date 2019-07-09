@@ -4,7 +4,7 @@ use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_jsonrpc_types::JsonBytes;
@@ -255,7 +255,11 @@ impl Node {
 
     pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> Transaction {
         let always_success_out_point = OutPoint::new_cell(self.genesis_cellbase_hash.clone(), 1);
-        let always_success_script = Script::new(vec![], self.always_success_code_hash.clone());
+        let always_success_script = Script::new(
+            vec![],
+            self.always_success_code_hash.clone(),
+            ScriptHashType::Data,
+        );
 
         TransactionBuilder::default()
             .dep(always_success_out_point)

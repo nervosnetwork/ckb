@@ -18,6 +18,7 @@ message = ""
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
+hash_type = "Data"
 
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
@@ -29,10 +30,12 @@ files = [
 [genesis.system_cells.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
+hash_type = "Data"
 
 [genesis.bootstrap_lock]
 code_hash = "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
 args = []
+hash_type = "Data"
 
 [params]
 epoch_reward = 1_250_000_00000000

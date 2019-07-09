@@ -93,6 +93,7 @@ impl<'a> CanBuild<'a> for protos::Script<'a> {
         let mut builder = protos::ScriptBuilder::new(fbb);
         builder.add_args(args);
         builder.add_code_hash(&code_hash);
+        builder.add_hash_type(script.hash_type.to_owned() as u8);
         builder.finish()
     }
 }

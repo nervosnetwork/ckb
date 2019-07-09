@@ -147,7 +147,7 @@ mod tests {
     use byteorder::{LittleEndian, WriteBytesExt};
     use ckb_core::cell::{CellMeta, ResolvedOutPoint};
     use ckb_core::header::HeaderBuilder;
-    use ckb_core::script::Script;
+    use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{CellOutPoint, CellOutput};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
@@ -845,7 +845,7 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A7, LOAD_SCRIPT_HASH_SYSCALL_NUMBER); // syscall number
 
-        let script = Script::new(vec![Bytes::from(data)], H256::zero());
+        let script = Script::new(vec![Bytes::from(data)], H256::zero(), ScriptHashType::Data);
         let h = script.hash();
         let hash = h.as_bytes();
         let mut load_script_hash = LoadScriptHash::new(hash);
@@ -897,7 +897,7 @@ mod tests {
         machine.set_register(A5, CellField::LockHash as u64); //field: 2 lock hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let script = Script::new(vec![Bytes::from(data)], H256::zero());
+        let script = Script::new(vec![Bytes::from(data)], H256::zero(), ScriptHashType::Data);
         let h = script.hash();
         let hash = h.as_bytes();
 

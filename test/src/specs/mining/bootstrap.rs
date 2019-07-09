@@ -2,7 +2,7 @@ use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::Block;
-use ckb_core::script::Script as CoreScript;
+use ckb_core::script::{Script as CoreScript, ScriptHashType};
 use ckb_core::Bytes;
 use ckb_jsonrpc_types::JsonBytes;
 use numext_fixed_hash::{h256, H256};
@@ -20,11 +20,13 @@ impl Spec for BootstrapCellbase {
         let bootstrap_lock = CoreScript {
             args: vec![Bytes::from(vec![1]), Bytes::from(vec![2])],
             code_hash: h256!("0xa1"),
+            hash_type: ScriptHashType::Data,
         };
 
         let miner = CoreScript {
             args: vec![Bytes::from(vec![2]), Bytes::from(vec![1])],
             code_hash: h256!("0xa2"),
+            hash_type: ScriptHashType::Data,
         };
 
         let is_bootstrap_cellbase = |blk_hash: &H256| {
@@ -54,6 +56,7 @@ impl Spec for BootstrapCellbase {
             spec_config.genesis.bootstrap_lock = CoreScript {
                 args: vec![Bytes::from(vec![1]), Bytes::from(vec![2])],
                 code_hash: h256!("0xa1"),
+                hash_type: ScriptHashType::Data,
             }
             .into();
         })

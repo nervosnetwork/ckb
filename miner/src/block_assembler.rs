@@ -4,7 +4,7 @@ use ckb_core::block::Block;
 use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
@@ -316,7 +316,11 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .map(JsonBytes::into_bytes)
             .collect();
 
-        let cellbase_lock = Script::new(cellbase_lock_args, self.config.code_hash.clone());
+        let cellbase_lock = Script::new(
+            cellbase_lock_args,
+            self.config.code_hash.clone(),
+            ScriptHashType::Data,
+        );
 
         let (cellbase, cellbase_size) = self.build_cellbase(&tip_header, cellbase_lock)?;
 

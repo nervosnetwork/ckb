@@ -97,6 +97,7 @@ table CellOutput {
 table Script {
     args:           [Bytes];
     code_hash:      H256;
+    hash_type:      uint8;
 }
 
 root_type SyncMessage;

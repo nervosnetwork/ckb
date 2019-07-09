@@ -2,7 +2,7 @@
 mod macros;
 mod mock_store;
 
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::CellOutput;
 use ckb_core::Capacity;
 use ckb_hash::blake2b_256;
@@ -29,7 +29,7 @@ lazy_static! {
             None,
         );
 
-        let script = Script::new(vec![], blake2b_256(&cell.data).into());
+        let script = Script::new(vec![], blake2b_256(&cell.data).into(), ScriptHashType::Data);
 
         (cell, script)
     };

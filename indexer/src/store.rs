@@ -650,7 +650,7 @@ mod tests {
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::HeaderBuilder;
-    use ckb_core::script::Script;
+    use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::{DBConfig, MemoryKeyValueDB};
@@ -702,7 +702,7 @@ mod tests {
     #[test]
     fn get_live_cells() {
         let (store, chain, shared) = setup("get_live_cells");
-        let script1 = Script::new(Vec::new(), CODE_HASH_DAO);
+        let script1 = Script::new(Vec::new(), CODE_HASH_DAO, ScriptHashType::Data);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
         store.insert_lock_hash(&script2.hash(), None);
@@ -843,7 +843,7 @@ mod tests {
     #[test]
     fn get_transactions() {
         let (store, chain, shared) = setup("get_transactions");
-        let script1 = Script::new(Vec::new(), CODE_HASH_DAO);
+        let script1 = Script::new(Vec::new(), CODE_HASH_DAO, ScriptHashType::Data);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
         store.insert_lock_hash(&script2.hash(), None);
@@ -993,7 +993,7 @@ mod tests {
     #[test]
     fn sync_index_states() {
         let (store, chain, shared) = setup("sync_index_states");
-        let script1 = Script::new(Vec::new(), CODE_HASH_DAO);
+        let script1 = Script::new(Vec::new(), CODE_HASH_DAO, ScriptHashType::Data);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
         store.insert_lock_hash(&script2.hash(), None);
@@ -1142,7 +1142,7 @@ mod tests {
     #[test]
     fn consume_txs_in_same_block() {
         let (store, chain, shared) = setup("consume_txs_in_same_block");
-        let script1 = Script::new(Vec::new(), CODE_HASH_DAO);
+        let script1 = Script::new(Vec::new(), CODE_HASH_DAO, ScriptHashType::Data);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
         let cells = store.get_live_cells(&script1.hash(), 0, 100, false);
@@ -1222,7 +1222,7 @@ mod tests {
     #[test]
     fn detach_blocks() {
         let (store, chain, shared) = setup("detach_blocks");
-        let script1 = Script::new(Vec::new(), CODE_HASH_DAO);
+        let script1 = Script::new(Vec::new(), CODE_HASH_DAO, ScriptHashType::Data);
         let script2 = Script::default();
         store.insert_lock_hash(&script1.hash(), None);
         let cells = store.get_live_cells(&script1.hash(), 0, 100, false);

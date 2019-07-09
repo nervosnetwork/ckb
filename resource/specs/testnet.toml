@@ -7,18 +7,19 @@ timestamp = 1561788000134
 difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x1acc28ff8f9662262e440adff58d29a6358522ed5fafd0cc971ab5b23ccdac69"
+hash = "0x0848ebfee918574890c3fd806af1b6c82296f89a8f608015999ae4db7eb674be"
 
 [genesis.seal]
 nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = "rylai-v6"
+message = "rylai-v5"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
+hash_type = "Data"
 
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
@@ -31,25 +32,30 @@ files = [
 [genesis.system_cells.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
+hash_type = "Data"
 
 [genesis.bootstrap_lock]
 code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
 # Lock for developers to run tests
 args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+hash_type = "Data"
 
 # Locks for developers to run tests
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
 lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
 lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+lock.hash_type = "Data"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
 lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
 lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
+lock.hash_type = "Data"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
 lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
+lock.hash_type = "Data"
 
 [params]
 epoch_reward = 1_250_000_00000000
