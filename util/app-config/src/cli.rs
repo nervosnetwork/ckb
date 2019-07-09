@@ -286,7 +286,11 @@ fn init() -> App<'static, 'static> {
                 .number_of_values(1)
                 .help("Sets args in [block_assembler]"),
         )
-        .group(ArgGroup::with_name(GROUP_BA).args(&[ARG_BA_CODE_HASH, ARG_BA_ARG]))
+        .group(
+            ArgGroup::with_name(GROUP_BA)
+                .args(&[ARG_BA_CODE_HASH, ARG_BA_ARG])
+                .multiple(true),
+        )
         .arg(
             Arg::with_name(ARG_BA_DATA)
                 .long(ARG_BA_DATA)
@@ -378,5 +382,22 @@ mod tests {
             .contains("The following required arguments were not provided"));
         assert!(err.message.contains("--ba-arg"));
         assert!(err.message.contains("--ba-code-hash"));
+    }
+
+    #[test]
+    fn ba_arg_and_ba_code_hash() {
+        let ok_matches = basic_app().get_matches_from_safe(&[
+            "ckb",
+            "init",
+            "--ba-code-hash",
+            "0x00",
+            "--ba-arg",
+            "0x00",
+        ]);
+        assert!(
+            ok_matches.is_ok(),
+            "--ba-code-hash is OK with --ba-arg, but gets error: {:?}",
+            ok_matches.err()
+        );
     }
 }
