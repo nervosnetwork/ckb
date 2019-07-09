@@ -162,7 +162,7 @@ fn setup_node(
             .expect("process block should be OK");
     }
 
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone(), None));
     let synchronizer = Synchronizer::new(chain_controller, sync_shared_state);
     let mut node = TestNode::default();
     let protocol = Arc::new(RwLock::new(synchronizer)) as Arc<_>;

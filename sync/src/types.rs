@@ -658,10 +658,13 @@ pub struct SyncSharedState<CS> {
     inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     inflight_transactions: Mutex<LruCache<H256, Instant>>,
     inflight_blocks: RwLock<InflightBlocks>,
+
+    /// ibd time range
+    max_tip_age: u64,
 }
 
 impl<CS: ChainStore> SyncSharedState<CS> {
-    pub fn new(shared: Shared<CS>) -> SyncSharedState<CS> {
+    pub fn new(shared: Shared<CS>, max_tip_age: Option<u64>) -> SyncSharedState<CS> {
         let (total_difficulty, header, total_uncles_count) = {
             let chain_state = shared.lock_chain_state();
             let block_ext = shared
@@ -701,6 +704,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
+            max_tip_age: max_tip_age.unwrap_or(MAX_TIP_AGE),
         }
     }
 
@@ -768,7 +772,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         // Once this function has returned false, it must remain false.
         if self.ibd_finished.load(Ordering::Relaxed) {
             false
-        } else if unix_time_as_millis().saturating_sub(self.tip_header().timestamp()) > MAX_TIP_AGE
+        } else if unix_time_as_millis().saturating_sub(self.tip_header().timestamp())
+            > self.max_tip_age
         {
             true
         } else {
@@ -778,7 +783,8 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn is_initial_header_sync(&self) -> bool {
-        unix_time_as_millis().saturating_sub(self.shared_best_header().timestamp()) > MAX_TIP_AGE
+        unix_time_as_millis().saturating_sub(self.shared_best_header().timestamp())
+            > self.max_tip_age
     }
 
     pub fn shared_best_header(&self) -> HeaderView {

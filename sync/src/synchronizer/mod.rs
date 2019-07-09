@@ -592,7 +592,7 @@ mod tests {
         chain_controller: ChainController,
         shared: Shared<CS>,
     ) -> Synchronizer<CS> {
-        let shared = Arc::new(SyncSharedState::new(shared));
+        let shared = Arc::new(SyncSharedState::new(shared, None));
         Synchronizer::new(chain_controller, shared)
     }
 
