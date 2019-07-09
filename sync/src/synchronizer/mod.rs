@@ -292,17 +292,21 @@ impl<CS: ChainStore> Synchronizer<CS> {
     //     reached, disconnect.
     pub fn eviction(&self, nc: &CKBProtocolContext) {
         let mut peer_states = self.peers().state.write();
-        let is_initial_block_download = self.shared.is_initial_block_download();
+        let is_initial_header_sync = self.shared.is_initial_header_sync();
         let mut eviction = Vec::new();
         for (peer, state) in peer_states.iter_mut() {
             let now = unix_time_as_millis();
 
             // headers_sync_timeout
             if let Some(timeout) = state.headers_sync_timeout {
-                if now > timeout && is_initial_block_download && !state.disconnect {
-                    eviction.push(*peer);
-                    state.disconnect = true;
-                    continue;
+                if is_initial_header_sync {
+                    if now > timeout && !state.disconnect {
+                        eviction.push(*peer);
+                        state.disconnect = true;
+                        continue;
+                    }
+                } else {
+                    state.headers_sync_timeout = None
                 }
             }
 
@@ -387,6 +391,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
             .map(|(peer_id, _)| peer_id)
             .cloned()
             .collect();
+
+        if peers.is_empty() {
+            return;
+        }
 
         let tip = {
             let (header, total_difficulty) = {
@@ -525,6 +533,13 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
                     == 0
             {
                 panic!("Synchronizer n_sync overflow");
+            }
+
+            // Protection node disconnected
+            if peer_state.chain_sync.protect {
+                self.shared()
+                    .n_protected_outbound_peers()
+                    .fetch_sub(1, Ordering::Release);
             }
         }
     }
