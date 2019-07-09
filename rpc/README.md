@@ -106,7 +106,7 @@ http://localhost:8114
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": 0
+                            "hash_type": "Data"
                         },
                         "type": null
                     }
@@ -189,7 +189,7 @@ http://localhost:8114
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": 0
+                            "hash_type": "Data"
                         },
                         "type": null
                     }
@@ -273,7 +273,7 @@ http://localhost:8114
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": 0
+                "hash_type": "Data"
             },
             "out_point": {
                 "block_hash": "0x2d6d06b953787bc8b4ff3d4d812413487022860f09c5026f9ca0c130c583a344",
@@ -288,7 +288,7 @@ http://localhost:8114
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": 0
+                "hash_type": "Data"
             },
             "out_point": {
                 "block_hash": "0xf458a2800aa1da2b05656f966bb8d3a2326a04c38f355beebb48bde31c053ab7",
@@ -303,7 +303,7 @@ http://localhost:8114
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": 0
+                "hash_type": "Data"
             },
             "out_point": {
                 "block_hash": "0xa191d9800b19475b2541feef25559fe137f4cd86ad52d0eaddc0c4e0ec1257de",
@@ -318,7 +318,7 @@ http://localhost:8114
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": 0
+                "hash_type": "Data"
             },
             "out_point": {
                 "block_hash": "0xd010752a6a30ecb8303b844320d9f577d840f2a050c010e8f33ba46f3a1d13c7",
@@ -538,7 +538,7 @@ http://localhost:8114
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": 0
+                "hash_type": "Data"
             },
             "type": null
         },
@@ -667,7 +667,7 @@ http://localhost:8114
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": 0
+                        "hash_type": "Data"
                     },
                     "type": null
                 }
@@ -744,7 +744,7 @@ echo '{
                 "0x678900"
             ],
             "code_hash": "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee",
-            "hash_type": 0
+            "hash_type": "Data"
         }
     ]
 }' \
@@ -806,7 +806,7 @@ echo '{
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": 0
+                        "hash_type": "Data"
                     },
                     "type": null
                 }
@@ -875,7 +875,7 @@ echo '{
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": 0
+                        "hash_type": "Data"
                     },
                     "type": null
                 }
@@ -975,7 +975,7 @@ http://localhost:8114
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                    "hash_type": 0
+                    "hash_type": "Data"
                 },
                 "type": null
             },
@@ -992,7 +992,7 @@ http://localhost:8114
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                    "hash_type": 0
+                    "hash_type": "Data"
                 },
                 "type": null
             },
@@ -1283,7 +1283,7 @@ echo '{
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": 0
+                        "hash_type": "Data"
                     },
                     "type": null
                 }

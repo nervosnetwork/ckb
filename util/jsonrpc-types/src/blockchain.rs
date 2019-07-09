@@ -3,7 +3,7 @@ use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsi
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::extras::EpochExt as CoreEpochExt;
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
-use ckb_core::script::{Script as CoreScript, ScriptHashType};
+use ckb_core::script::{Script as CoreScript, ScriptHashType as CoreScriptHashType};
 use ckb_core::transaction::{
     CellInput as CoreCellInput, CellOutPoint as CoreCellOutPoint, CellOutput as CoreCellOutput,
     OutPoint as CoreOutPoint, Transaction as CoreTransaction, TransactionBuilder,
@@ -14,13 +14,42 @@ use ckb_core::Capacity as CoreCapacity;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
-use std::convert::TryInto;
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub enum ScriptHashType {
+    Data,
+    Type,
+}
+
+impl Default for ScriptHashType {
+    fn default() -> Self {
+        ScriptHashType::Data
+    }
+}
+
+impl From<ScriptHashType> for CoreScriptHashType {
+    fn from(json: ScriptHashType) -> Self {
+        match json {
+            ScriptHashType::Data => CoreScriptHashType::Data,
+            ScriptHashType::Type => CoreScriptHashType::Type,
+        }
+    }
+}
+
+impl From<CoreScriptHashType> for ScriptHashType {
+    fn from(core: CoreScriptHashType) -> ScriptHashType {
+        match core {
+            CoreScriptHashType::Data => ScriptHashType::Data,
+            CoreScriptHashType::Type => ScriptHashType::Type,
+        }
+    }
+}
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Script {
     pub args: Vec<JsonBytes>,
     pub code_hash: H256,
-    pub hash_type: u8,
+    pub hash_type: ScriptHashType,
 }
 
 impl From<Script> for CoreScript {
@@ -30,14 +59,10 @@ impl From<Script> for CoreScript {
             code_hash,
             hash_type,
         } = json;
-        // For simplicity, we are now treating all values that doesn't equal
-        // 1 as data script hash type, this can save us from converting script
-        // structs and all the structs containing script into TryFrom form.
-        let hash_type = hash_type.try_into().unwrap_or(ScriptHashType::Data);
         CoreScript::new(
             args.into_iter().map(JsonBytes::into_bytes).collect(),
             code_hash,
-            hash_type,
+            hash_type.into(),
         )
     }
 }
@@ -48,7 +73,7 @@ impl From<CoreScript> for Script {
         Script {
             code_hash,
             args: args.into_iter().map(JsonBytes::from_bytes).collect(),
-            hash_type: hash_type as u8,
+            hash_type: hash_type.into(),
         }
     }
 }
