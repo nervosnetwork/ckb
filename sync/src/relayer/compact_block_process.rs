@@ -9,7 +9,7 @@ use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderResolver, HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashSet;
@@ -162,9 +162,12 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     return Ok(());
                 }
                 compact_block_verifier.verify(&compact_block)?;
+
+                // Header has been verified ok, update state
+                let epoch = resolver.epoch().expect("epoch verified").clone();
                 self.relayer
                     .shared()
-                    .insert_block_status(block_hash.to_owned(), BlockStatus::HEADER_VERIFIED);
+                    .insert_valid_header(self.peer, &compact_block.header, epoch);
             }
 
             // Reconstruct block

@@ -756,10 +756,40 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         *self.shared_best_header.write() = header;
     }
 
-    pub fn insert_header_view(&self, hash: H256, mut view: HeaderView) {
-        view.build_skip(|hash| self.get_header_view(hash));
-        self.header_map.write().insert(hash, view);
+    // Update the shared_best_header if need
+    // Update the peer's best_known_header
+    // Update the header_map
+    // Update the epoch_map
+    // Update the block_status_map
+    pub fn insert_valid_header(&self, peer: PeerIndex, header: &Header, epoch: EpochExt) {
+        let parent_view = self
+            .get_header_view(header.parent_hash())
+            .expect("parent should be verified");
+        let mut header_view = {
+            let total_difficulty = parent_view.total_difficulty() + header.difficulty();
+            let total_uncles_count =
+                parent_view.total_uncles_count() + u64::from(header.uncles_count());
+            HeaderView::new(header.clone(), total_difficulty, total_uncles_count)
+        };
+
+        // Update shared_best_header if the arrived header has greater difficulty
+        let shared_best_header = self.shared_best_header();
+        if header_view.is_better_than(
+            shared_best_header.total_difficulty(),
+            shared_best_header.hash(),
+        ) {
+            self.set_shared_best_header(header_view.clone());
+        }
+
+        self.peers().new_header_received(peer, &header_view);
+        header_view.build_skip(|hash| self.get_header_view(hash));
+        self.header_map
+            .write()
+            .insert(header.hash().to_owned(), header_view);
+        self.insert_epoch(header, epoch);
+        self.insert_block_status(header.hash().to_owned(), BlockStatus::HEADER_VALID);
     }
+
     pub fn remove_header_view(&self, hash: &H256) {
         self.header_map.write().remove(hash);
     }
@@ -1136,10 +1166,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         peer: PeerIndex,
         block: Arc<Block>,
     ) -> Result<bool, FailureError> {
+        let block_hash = block.header().hash().to_owned();
         let ret = chain.process_block(Arc::clone(&block), true);
         if ret.is_err() {
             error!("accept block {:?} {:?}", block, ret);
-            self.insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
+            self.insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
             return ret;
         } else {
             self.insert_block_status(block_hash, BlockStatus::BLOCK_STORED);

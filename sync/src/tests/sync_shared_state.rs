@@ -123,7 +123,10 @@ fn test_insert_parent_unknown_block() {
         shared.get_block_status(valid_hash),
         BlockStatus::BLOCK_STORED
     );
-    assert_eq!(shared.get_block_status(invalid_hash), BlockStatus::UNKNOWN);
+    assert_eq!(
+        shared.get_block_status(invalid_hash),
+        BlockStatus::BLOCK_INVALID
+    );
     assert_eq!(
         shared.get_block_status(parent_hash),
         BlockStatus::BLOCK_STORED

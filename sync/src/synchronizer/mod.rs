@@ -120,31 +120,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
         now + HEADERS_DOWNLOAD_TIMEOUT_BASE + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER * expected_headers
     }
 
-    pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
-        if let Some(parent_view) = self.shared.get_header_view(&header.parent_hash()) {
-            let total_difficulty = parent_view.total_difficulty() + header.difficulty();
-            let total_uncles_count =
-                parent_view.total_uncles_count() + u64::from(header.uncles_count());
-            let header_view = {
-                let shared_best_header = self.shared.shared_best_header();
-                let header_view =
-                    HeaderView::new(header.clone(), total_difficulty.clone(), total_uncles_count);
-
-                if total_difficulty.gt(shared_best_header.total_difficulty())
-                    || (&total_difficulty == shared_best_header.total_difficulty()
-                        && header.hash() < shared_best_header.hash())
-                {
-                    self.shared.set_shared_best_header(header_view.clone());
-                }
-                header_view
-            };
-
-            self.peers().new_header_received(peer, &header_view);
-            self.shared
-                .insert_header_view(header.hash().to_owned(), header_view);
-        }
-    }
-
     //TODO: process block which we don't request
     pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<bool, FailureError> {
         let block_hash = block.header().hash();
@@ -152,7 +127,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         if status.contains(BlockStatus::BLOCK_RECEIVED) {
             debug!("block {:x} already received", block_hash);
             Ok(false)
-        } else if status.contains(BlockStatus::HEADER_VERIFIED) {
+        } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared()
                 .insert_new_block(&self.chain, peer, Arc::new(block))
         } else {

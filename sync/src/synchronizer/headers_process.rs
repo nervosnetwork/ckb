@@ -391,10 +391,16 @@ where
         if self
             .synchronizer
             .shared()
-            .contains_block_status(self.header.hash(), BlockStatus::HEADER_VERIFIED)
+            .contains_block_status(self.header.hash(), BlockStatus::HEADER_VALID)
         {
+            let header_view = self
+                .synchronizer
+                .shared()
+                .get_header_view(self.header.hash())
+                .expect("header with HEADER_VALID should exist");
             self.synchronizer
-                .insert_header_view(&self.header, self.peer);
+                .peers()
+                .new_header_received(self.peer, &header_view);
             return result;
         }
 
@@ -443,18 +449,10 @@ where
             return result;
         }
 
-        self.synchronizer
-            .insert_header_view(&self.header, self.peer);
-        self.synchronizer.shared.insert_epoch(
-            &self.header,
-            self.resolver
-                .epoch()
-                .expect("epoch should be verified")
-                .clone(),
-        );
+        let epoch = self.resolver.epoch().expect("epoch verified").clone();
         self.synchronizer
             .shared()
-            .insert_block_status(self.header.hash().to_owned(), BlockStatus::HEADER_VERIFIED);
+            .insert_valid_header(self.peer, &self.header, epoch);
         result
     }
 }
