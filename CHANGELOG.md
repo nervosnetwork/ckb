@@ -1,8 +1,17 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
-# [v0.15.5](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.15.5) (2019-07-06)
+# [v0.15.6](https://github.com/nervosnetwork/ckb/compare/v0.15.5...v0.15.6) (2019-07-09)
 
+### Bug Fixes
+
+* #1183: Ibd should remain false once returned false (@quake)
+* #1190: Fix sync logic (@driftluo, @quake)
+* #1189: Fix debug log state error (@driftluo, @quake)
+* #1185: Resolve fresh proposal txs checking bug (@quake)
+
+
+# [v0.15.5](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.15.5) (2019-07-06)
 
 ### Features
 
