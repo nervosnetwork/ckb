@@ -6,7 +6,7 @@ use crate::error::TransactionError;
 use ckb_core::cell::{BlockInfo, CellMeta, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity, Version};
+use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity, EpochNumber, Version};
 use ckb_db::MemoryKeyValueDB;
 use ckb_resource::CODE_HASH_DAO;
 use ckb_store::{ChainKVStore, COLUMNS};
@@ -115,7 +115,7 @@ pub fn test_inputs_cellbase_maturity() {
         resolved_deps: Vec::new(),
         resolved_inputs: vec![ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.clone())
-                .block_info(BlockInfo::new(30, 0))
+                .block_info(make_block_info(30, 0))
                 .cellbase(true)
                 .build(),
         )],
@@ -147,13 +147,13 @@ pub fn test_deps_cellbase_maturity() {
         resolved_deps: vec![
             ResolvedOutPoint::cell_only(
                 CellMetaBuilder::from_cell_output(output.clone())
-                    .block_info(BlockInfo::new(30, 0))
+                    .block_info(make_block_info(30, 0))
                     .cellbase(true)
                     .build(),
             ),
             ResolvedOutPoint::cell_only(
                 CellMetaBuilder::from_cell_output(output.clone())
-                    .block_info(BlockInfo::new(40, 0))
+                    .block_info(make_block_info(40, 0))
                     .cellbase(false)
                     .build(),
             ),
@@ -250,24 +250,46 @@ impl BlockMedianTimeContext for FakeMedianTime {
 
     fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
         for i in 0..self.timestamps.len() {
-            if &self.get_block_hash(i as u64).unwrap() == block_hash {
+            if &get_block_hash(i as u64) == block_hash {
                 if i == 0 {
                     return (self.timestamps[i], H256::zero());
                 } else {
-                    return (
-                        self.timestamps[i],
-                        self.get_block_hash(i as u64 - 1).unwrap(),
-                    );
+                    return (self.timestamps[i], get_block_hash(i as u64 - 1));
                 }
             }
         }
         unreachable!()
     }
+}
 
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        let vec: Vec<u8> = (0..32).map(|_| block_number as u8).collect();
-        Some(H256::from_slice(vec.as_slice()).unwrap())
-    }
+fn get_block_hash(block_number: BlockNumber) -> H256 {
+    let vec: Vec<u8> = (0..32).map(|_| block_number as u8).collect();
+    H256::from_slice(vec.as_slice()).unwrap()
+}
+
+fn make_block_info(block_number: BlockNumber, epoch_number: EpochNumber) -> BlockInfo {
+    let block_hash = get_block_hash(block_number);
+    BlockInfo::new(block_number, epoch_number, block_hash)
+}
+
+fn verify_since<'a, M>(
+    rtx: &'a ResolvedTransaction,
+    block_median_time_context: &'a M,
+    block_number: BlockNumber,
+    epoch_number: BlockNumber,
+) -> Result<(), TransactionError>
+where
+    M: BlockMedianTimeContext,
+{
+    let parent_hash = Arc::new(get_block_hash(block_number - 1));
+    SinceVerifier::new(
+        rtx,
+        block_median_time_context,
+        block_number,
+        epoch_number,
+        &parent_hash,
+    )
+    .verify()
 }
 
 #[test]
@@ -331,14 +353,13 @@ fn create_resolve_tx_with_block_info(
 fn test_invalid_since_verify() {
     // use remain flags
     let tx = create_tx_with_lock(0x0100_0000_0000_0001);
-    let rtx = create_resolve_tx_with_block_info(&tx, BlockInfo::new(1, 0));
+    let rtx = create_resolve_tx_with_block_info(&tx, make_block_info(1, 0));
 
     let median_time_context = FakeMedianTime {
         timestamps: vec![0; 11],
     };
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 5, 1);
     assert_eq!(
-        verifier.verify().err(),
+        verify_since(&rtx, &median_time_context, 5, 1).err(),
         Some(TransactionError::InvalidSince)
     );
 }
@@ -347,70 +368,74 @@ fn test_invalid_since_verify() {
 pub fn test_absolute_block_number_lock() {
     // absolute lock until block number 0xa
     let tx = create_tx_with_lock(0x0000_0000_0000_000a);
-    let rtx = create_resolve_tx_with_block_info(&tx, BlockInfo::new(1, 0));
-
+    let rtx = create_resolve_tx_with_block_info(&tx, make_block_info(1, 0));
     let median_time_context = FakeMedianTime {
         timestamps: vec![0; 11],
     };
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 5, 1);
-    assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
+
+    assert_eq!(
+        verify_since(&rtx, &median_time_context, 5, 1).err(),
+        Some(TransactionError::Immature)
+    );
     // spent after 10 height
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 10, 1);
-    assert!(verifier.verify().is_ok());
+    assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
 }
 
 #[test]
 pub fn test_absolute_epoch_number_lock() {
     // absolute lock until epoch number 0xa
     let tx = create_tx_with_lock(0x2000_0000_0000_000a);
-    let rtx = create_resolve_tx_with_block_info(&tx, BlockInfo::new(1, 0));
+    let rtx = create_resolve_tx_with_block_info(&tx, make_block_info(1, 0));
 
     let median_time_context = FakeMedianTime {
         timestamps: vec![0; 11],
     };
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 5, 1);
-    assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
+    assert_eq!(
+        verify_since(&rtx, &median_time_context, 5, 1).err(),
+        Some(TransactionError::Immature)
+    );
     // spent after 10 epoch
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 100, 10);
-    assert!(verifier.verify().is_ok());
+    assert!(verify_since(&rtx, &median_time_context, 100, 10).is_ok());
 }
 
 #[test]
 pub fn test_relative_timestamp_lock() {
     // relative lock timestamp lock
     let tx = create_tx_with_lock(0xc000_0000_0000_0002);
-    let rtx = create_resolve_tx_with_block_info(&tx, BlockInfo::new(1, 0));
+    let rtx = create_resolve_tx_with_block_info(&tx, make_block_info(1, 0));
 
     let median_time_context = FakeMedianTime {
         timestamps: vec![0; 11],
     };
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 1);
-    assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
+    assert_eq!(
+        verify_since(&rtx, &median_time_context, 4, 1).err(),
+        Some(TransactionError::Immature)
+    );
 
     // spent after 1024 seconds
     // fake median time: 1124
     let median_time_context = FakeMedianTime {
         timestamps: vec![0, 100_000, 1_124_000, 2_000_000, 3_000_000],
     };
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 1);
-    assert!(verifier.verify().is_ok());
+    assert!(verify_since(&rtx, &median_time_context, 4, 1).is_ok());
 }
 
 #[test]
 pub fn test_relative_epoch() {
     // next epoch
     let tx = create_tx_with_lock(0xa000_0000_0000_0001);
-    let rtx = create_resolve_tx_with_block_info(&tx, BlockInfo::new(1, 1));
+    let rtx = create_resolve_tx_with_block_info(&tx, make_block_info(1, 1));
 
     let median_time_context = FakeMedianTime {
         timestamps: vec![0; 11],
     };
 
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 1);
-    assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
+    assert_eq!(
+        verify_since(&rtx, &median_time_context, 4, 1).err(),
+        Some(TransactionError::Immature)
+    );
 
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 2);
-    assert!(verifier.verify().is_ok());
+    assert!(verify_since(&rtx, &median_time_context, 4, 2).is_ok());
 }
 
 #[test]
@@ -426,15 +451,17 @@ pub fn test_since_both() {
         ])
         .build();
 
-    let rtx = create_resolve_tx_with_block_info(&transaction, BlockInfo::new(1, 0));
+    let rtx = create_resolve_tx_with_block_info(&transaction, make_block_info(1, 0));
     // spent after 1024 seconds and 4 blocks (less than 10 blocks)
     // fake median time: 1124
     let median_time_context = FakeMedianTime {
         timestamps: vec![0, 100_000, 1_124_000, 2_000_000, 3_000_000],
     };
 
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 4, 1);
-    assert_eq!(verifier.verify().err(), Some(TransactionError::Immature));
+    assert_eq!(
+        verify_since(&rtx, &median_time_context, 4, 1).err(),
+        Some(TransactionError::Immature)
+    );
     // spent after 1024 seconds and 10 blocks
     // fake median time: 1124
     let median_time_context = FakeMedianTime {
@@ -443,6 +470,5 @@ pub fn test_since_both() {
             6_000_000,
         ],
     };
-    let verifier = SinceVerifier::new(&rtx, &median_time_context, 10, 1);
-    assert!(verifier.verify().is_ok());
+    assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
 }

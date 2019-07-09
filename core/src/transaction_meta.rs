@@ -1,4 +1,5 @@
 use bit_vec::BitVec;
+use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -22,6 +23,7 @@ impl From<BitVecSerde> for BitVec {
 pub struct TransactionMeta {
     block_number: u64,
     epoch_number: u64,
+    block_hash: H256,
     cellbase: bool,
     /// each bits indicate if transaction has dead cells
     #[serde(with = "BitVecSerde")]
@@ -32,12 +34,14 @@ impl TransactionMeta {
     pub fn new(
         block_number: u64,
         epoch_number: u64,
+        block_hash: H256,
         outputs_count: usize,
         all_dead: bool,
     ) -> TransactionMeta {
         TransactionMeta {
             block_number,
             epoch_number,
+            block_hash,
             cellbase: false,
             dead_cell: BitVec::from_elem(outputs_count, all_dead),
         }
@@ -47,10 +51,17 @@ impl TransactionMeta {
     pub fn new_cellbase(
         block_number: u64,
         epoch_number: u64,
+        block_hash: H256,
         outputs_count: usize,
         all_dead: bool,
     ) -> Self {
-        let mut result = Self::new(block_number, epoch_number, outputs_count, all_dead);
+        let mut result = Self::new(
+            block_number,
+            epoch_number,
+            block_hash,
+            outputs_count,
+            all_dead,
+        );
         result.cellbase = true;
         result
     }
@@ -71,6 +82,10 @@ impl TransactionMeta {
 
     pub fn epoch_number(&self) -> u64 {
         self.epoch_number
+    }
+
+    pub fn block_hash(&self) -> &H256 {
+        &self.block_hash
     }
 
     pub fn is_empty(&self) -> bool {
@@ -97,12 +112,13 @@ impl TransactionMeta {
         }
     }
 
-    pub fn destruct(&self) -> (u64, u64, bool, Vec<u8>, usize) {
+    pub fn destruct(&self) -> (u64, u64, &H256, bool, Vec<u8>, usize) {
         let len = self.dead_cell.len();
         let bits = self.dead_cell.to_bytes();
         (
             self.block_number,
             self.epoch_number,
+            &self.block_hash,
             self.cellbase,
             bits,
             len,
@@ -114,6 +130,7 @@ impl TransactionMeta {
 pub struct TransactionMetaBuilder {
     block_number: u64,
     epoch_number: u64,
+    block_hash: H256,
     cellbase: bool,
     bits: Vec<u8>,
     len: usize,
@@ -127,6 +144,11 @@ impl TransactionMetaBuilder {
 
     pub fn epoch_number(mut self, epoch_number: u64) -> Self {
         self.epoch_number = epoch_number;
+        self
+    }
+
+    pub fn block_hash(mut self, block_hash: H256) -> Self {
+        self.block_hash = block_hash;
         self
     }
 
@@ -149,6 +171,7 @@ impl TransactionMetaBuilder {
         let TransactionMetaBuilder {
             block_number,
             epoch_number,
+            block_hash,
             cellbase,
             bits,
             len,
@@ -158,6 +181,7 @@ impl TransactionMetaBuilder {
         TransactionMeta {
             block_number,
             epoch_number,
+            block_hash,
             cellbase,
             dead_cell,
         }
@@ -168,10 +192,11 @@ impl TransactionMetaBuilder {
 mod tests {
     use super::*;
     use bincode;
+    use numext_fixed_hash::H256;
 
     #[test]
     fn transaction_meta_serde() {
-        let mut original = TransactionMeta::new(0, 0, 4, false);
+        let mut original = TransactionMeta::new(0, 0, H256::zero(), 4, false);
         original.set_dead(1);
         original.set_dead(3);
 
@@ -187,7 +212,7 @@ mod tests {
 
     #[test]
     fn set_unset_dead_out_of_bounds() {
-        let mut meta = TransactionMeta::new(0, 0, 4, false);
+        let mut meta = TransactionMeta::new(0, 0, H256::zero(), 4, false);
         meta.set_dead(3);
         assert!(meta.is_dead(3) == Some(true));
         meta.unset_dead(3);

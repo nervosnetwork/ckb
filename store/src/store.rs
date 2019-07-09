@@ -285,6 +285,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 tx_meta = TransactionMeta::new_cellbase(
                     genesis.header().number(),
                     genesis.header().epoch(),
+                    genesis.header().hash().to_owned(),
                     tx.outputs().len(),
                     false,
                 );
@@ -293,6 +294,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 tx_meta = TransactionMeta::new(
                     genesis.header().number(),
                     genesis.header().epoch(),
+                    genesis.header().hash().to_owned(),
                     tx.outputs().len(),
                     false,
                 );
@@ -399,6 +401,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
             let block_info = BlockInfo {
                 number: tx_info.block_number,
                 epoch: tx_info.block_epoch,
+                hash: tx_info.block_hash,
             };
             let (capacity, data_hash) = meta;
             CellMeta {

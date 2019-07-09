@@ -382,6 +382,7 @@ impl TryFrom<&protos::EpochExt> for EpochExt {
 impl<'a> TryFrom<protos::TransactionMeta<'a>> for TransactionMeta {
     type Error = Error;
     fn try_from(proto: protos::TransactionMeta<'a>) -> Result<Self> {
+        let block_hash = proto.block_hash().unwrap_some()?;
         let bits = proto
             .bits()
             .and_then(|p| p.seq())
@@ -390,6 +391,7 @@ impl<'a> TryFrom<protos::TransactionMeta<'a>> for TransactionMeta {
         let ret = TransactionMetaBuilder::default()
             .block_number(proto.block_number())
             .epoch_number(proto.epoch_number())
+            .block_hash(block_hash.try_into()?)
             .cellbase(proto.cellbase())
             .bits(bits)
             .len(proto.len() as usize)

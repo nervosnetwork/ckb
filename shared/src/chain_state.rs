@@ -269,6 +269,7 @@ impl<CS: ChainStore> ChainState<CS> {
                                 &cell,
                                 block.header().number(),
                                 block.header().epoch(),
+                                block.header().hash().to_owned(),
                                 cellbase,
                                 tx.outputs().len(),
                             );
@@ -288,11 +289,12 @@ impl<CS: ChainStore> ChainState<CS> {
 
         let inserted_new_outputs = new_outputs
             .into_iter()
-            .map(|(tx_hash, (number, epoch, cellbase, len))| {
+            .map(|(tx_hash, (number, epoch, hash, cellbase, len))| {
                 let tx_meta = self.cell_set.insert_transaction(
                     tx_hash.to_owned(),
                     number,
                     epoch,
+                    hash,
                     cellbase,
                     len,
                 );
@@ -423,8 +425,9 @@ impl<CS: ChainStore> ChainState<CS> {
                 ContextualTransactionVerifier::new(
                     &rtx,
                     &self,
-                    self.tx_verify_block_number(),
+                    self.tip_number() + 1,
                     self.current_epoch_ext().number(),
+                    self.tip_hash(),
                     &self.consensus(),
                 )
                 .verify()
@@ -436,8 +439,9 @@ impl<CS: ChainStore> ChainState<CS> {
                 let cycles = TransactionVerifier::new(
                     &rtx,
                     &self,
-                    self.tx_verify_block_number(),
+                    self.tip_number() + 1,
                     self.current_epoch_ext().number(),
+                    self.tip_hash(),
                     &self.consensus(),
                     &self.script_config,
                     &self.store,
@@ -469,11 +473,6 @@ impl<CS: ChainStore> ChainState<CS> {
                 tx_pool.enqueue_tx(entry.cycles, entry.size, entry.transaction);
             }
         }
-    }
-
-    // assume block_number = self.tip_number() + 1 when verify tx in tx_pool
-    pub(crate) fn tx_verify_block_number(&self) -> BlockNumber {
-        self.tip_number() + 1
     }
 
     pub(crate) fn proposed_tx(
@@ -805,6 +804,7 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                                     .block_info(BlockInfo::new(
                                         tx_meta.block_number(),
                                         tx_meta.epoch_number(),
+                                        tx_meta.block_hash().to_owned(),
                                     ))
                                     .cellbase(tx_meta.is_cellbase())
                                     .build()
@@ -839,9 +839,5 @@ impl<CS: ChainStore> BlockMedianTimeContext for &ChainState<CS> {
             .get_block_header(&block_hash)
             .expect("[ChainState] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
-    }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.store.get_block_hash(block_number)
     }
 }

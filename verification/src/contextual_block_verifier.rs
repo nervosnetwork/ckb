@@ -47,14 +47,6 @@ impl<'a, P: ChainProvider> BlockMedianTimeContext for ForkContext<'a, P> {
             .expect("[ForkContext] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
     }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.attached_blocks
-            .iter()
-            .find(|b| b.header().number() == block_number)
-            .and_then(|b| Some(b.header().hash().to_owned()))
-            .or_else(|| self.provider.store().get_block_hash(block_number))
-    }
 }
 
 pub(crate) struct UncleVerifierContext<'a, P> {
@@ -310,6 +302,7 @@ struct BlockTxsVerifier<'a, P> {
     context: &'a ForkContext<'a, P>,
     block_number: BlockNumber,
     epoch_number: EpochNumber,
+    parent_hash: &'a H256,
     resolved: &'a [ResolvedTransaction<'a>],
 }
 
@@ -322,12 +315,14 @@ where
         context: &'a ForkContext<'a, P>,
         block_number: BlockNumber,
         epoch_number: EpochNumber,
+        parent_hash: &'a H256,
         resolved: &'a [ResolvedTransaction<'a>],
     ) -> BlockTxsVerifier<'a, P> {
         BlockTxsVerifier {
             context,
             block_number,
             epoch_number,
+            parent_hash,
             resolved,
         }
     }
@@ -346,6 +341,7 @@ where
                         self.context,
                         self.block_number,
                         self.epoch_number,
+                        self.parent_hash,
                         self.context.provider.consensus(),
                     )
                     .verify()
@@ -357,6 +353,7 @@ where
                         self.context,
                         self.block_number,
                         self.epoch_number,
+                        self.parent_hash,
                         self.context.provider.consensus(),
                         self.context.provider.script_config(),
                         self.context.provider.store(),
@@ -439,6 +436,7 @@ where
             self.context,
             block.header().number(),
             block.header().epoch(),
+            block.header().parent_hash(),
             resolved,
         )
         .verify(txs_verify_cache)?;

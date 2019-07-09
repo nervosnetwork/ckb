@@ -1,4 +1,4 @@
-use ckb_core::{transaction::Transaction, BlockNumber, Cycle};
+use ckb_core::{transaction::Transaction, Cycle};
 use ckb_shared::shared::Shared;
 use ckb_shared::tx_pool::PoolError;
 use ckb_store::ChainStore;
@@ -25,10 +25,6 @@ impl<CS: ChainStore> BlockMedianTimeContext for StoreBlockMedianTimeContext<CS> 
             .get_block_header(block_hash)
             .expect("[StoreBlockMedianTimeContext] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
-    }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.store.get_block_hash(block_number)
     }
 }
 
@@ -57,11 +53,20 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
         }
         // resolve txs
         // early release the chain_state lock because tx verification is slow
-        let (resolved_txs, cached_txs, unresolvable_txs, consensus, block_number, epoch_number) = {
+        let (
+            resolved_txs,
+            cached_txs,
+            unresolvable_txs,
+            consensus,
+            parent_number,
+            epoch_number,
+            parent_hash,
+        ) = {
             let chain_state = self.shared.lock_chain_state();
             let txs_verify_cache = self.shared.lock_txs_verify_cache();
             let consensus = chain_state.consensus();
-            let block_number = chain_state.tip_number() + 1;
+            let parent_number = chain_state.tip_number();
+            let parent_hash = chain_state.tip_hash().to_owned();
             let epoch_number = chain_state.current_epoch_ext().number();
             let mut resolved_txs = Vec::with_capacity(txs.len());
             let mut unresolvable_txs = Vec::with_capacity(txs.len());
@@ -84,8 +89,9 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 cached_txs,
                 unresolvable_txs,
                 consensus,
-                block_number,
+                parent_number,
                 epoch_number,
+                parent_hash,
             )
         };
 
@@ -109,8 +115,9 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                 let verified_result = TransactionVerifier::new(
                     &tx,
                     &block_median_time_context,
-                    block_number,
+                    parent_number + 1,
                     epoch_number,
+                    &parent_hash,
                     &consensus,
                     self.shared.script_config(),
                     &store,

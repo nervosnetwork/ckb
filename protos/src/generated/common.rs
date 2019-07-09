@@ -2276,15 +2276,19 @@ impl<'a> TransactionMeta<'a> {
         if let Some(x) = args.bits {
             builder.add_bits(x);
         }
+        if let Some(x) = args.block_hash {
+            builder.add_block_hash(x);
+        }
         builder.add_cellbase(args.cellbase);
         builder.finish()
     }
 
     pub const VT_BLOCK_NUMBER: flatbuffers::VOffsetT = 4;
     pub const VT_EPOCH_NUMBER: flatbuffers::VOffsetT = 6;
-    pub const VT_CELLBASE: flatbuffers::VOffsetT = 8;
-    pub const VT_BITS: flatbuffers::VOffsetT = 10;
-    pub const VT_LEN: flatbuffers::VOffsetT = 12;
+    pub const VT_BLOCK_HASH: flatbuffers::VOffsetT = 8;
+    pub const VT_CELLBASE: flatbuffers::VOffsetT = 10;
+    pub const VT_BITS: flatbuffers::VOffsetT = 12;
+    pub const VT_LEN: flatbuffers::VOffsetT = 14;
 
     #[inline]
     pub fn block_number(&self) -> u64 {
@@ -2297,6 +2301,11 @@ impl<'a> TransactionMeta<'a> {
         self._tab
             .get::<u64>(TransactionMeta::VT_EPOCH_NUMBER, Some(0))
             .unwrap()
+    }
+    #[inline]
+    pub fn block_hash(&self) -> Option<&'a Bytes32> {
+        self._tab
+            .get::<Bytes32>(TransactionMeta::VT_BLOCK_HASH, None)
     }
     #[inline]
     pub fn cellbase(&self) -> bool {
@@ -2320,6 +2329,7 @@ impl<'a> TransactionMeta<'a> {
 pub struct TransactionMetaArgs<'a> {
     pub block_number: u64,
     pub epoch_number: u64,
+    pub block_hash: Option<&'a Bytes32>,
     pub cellbase: bool,
     pub bits: Option<flatbuffers::WIPOffset<Bytes<'a>>>,
     pub len: u32,
@@ -2330,6 +2340,7 @@ impl<'a> Default for TransactionMetaArgs<'a> {
         TransactionMetaArgs {
             block_number: 0,
             epoch_number: 0,
+            block_hash: None,
             cellbase: false,
             bits: None,
             len: 0,
@@ -2350,6 +2361,11 @@ impl<'a: 'b, 'b> TransactionMetaBuilder<'a, 'b> {
     pub fn add_epoch_number(&mut self, epoch_number: u64) {
         self.fbb_
             .push_slot::<u64>(TransactionMeta::VT_EPOCH_NUMBER, epoch_number, 0);
+    }
+    #[inline]
+    pub fn add_block_hash(&mut self, block_hash: &'b Bytes32) {
+        self.fbb_
+            .push_slot_always::<&Bytes32>(TransactionMeta::VT_BLOCK_HASH, block_hash);
     }
     #[inline]
     pub fn add_cellbase(&mut self, cellbase: bool) {

@@ -2,7 +2,6 @@ use crate::synchronizer::{BlockStatus, Synchronizer};
 use crate::MAX_HEADERS_LEN;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
-use ckb_core::BlockNumber;
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
@@ -83,13 +82,6 @@ impl<'a, CS: ChainStore + 'a> BlockMedianTimeContext for VerifierResolver<'a, CS
             .get_header(&block_hash)
             .expect("[VerifierResolver] blocks used for median time exist");
         (header.timestamp(), header.parent_hash().to_owned())
-    }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.synchronizer
-            .shared
-            .store()
-            .get_block_hash(block_number)
     }
 }
 

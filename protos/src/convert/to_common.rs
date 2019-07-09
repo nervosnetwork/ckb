@@ -410,11 +410,13 @@ impl<'a> CanBuild<'a> for protos::TransactionMeta<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         meta: &Self::Input,
     ) -> WIPOffset<protos::TransactionMeta<'b>> {
-        let (block_number, epoch_number, cellbase, bits, len) = meta.destruct();
+        let (block_number, epoch_number, block_hash, cellbase, bits, len) = meta.destruct();
+        let block_hash = block_hash.into();
         let bits = protos::Bytes::build(fbb, &bits);
         let mut builder = protos::TransactionMetaBuilder::new(fbb);
         builder.add_block_number(block_number);
         builder.add_epoch_number(epoch_number);
+        builder.add_block_hash(&block_hash);
         builder.add_cellbase(cellbase);
         builder.add_bits(bits);
         builder.add_len(len as u32);
