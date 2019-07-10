@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::SignatureConfig;
 use ckb_core::alert::Alert;
 use ckb_logger::{debug, trace};
 use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
@@ -6,12 +6,12 @@ use failure::Error;
 use fnv::FnvHashSet;
 
 pub struct Verifier {
-    config: Config,
+    config: SignatureConfig,
     pubkeys: FnvHashSet<Pubkey>,
 }
 
 impl Verifier {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: SignatureConfig) -> Self {
         let pubkeys = config
             .public_keys
             .iter()

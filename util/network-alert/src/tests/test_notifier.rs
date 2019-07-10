@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 #[test]
 fn test_notice_alerts_by_version() {
-    let mut notifier = Notifier::new("0.9.0".into());
+    let mut notifier = Notifier::new("0.9.0".into(), Default::default());
     let alert1 = Arc::new(
         AlertBuilder::default()
             .id(1)
@@ -26,7 +26,7 @@ fn test_notice_alerts_by_version() {
 
 #[test]
 fn test_received_alerts() {
-    let mut notifier = Notifier::new("0.1.0".into());
+    let mut notifier = Notifier::new("0.1.0".into(), Default::default());
     let alert1 = Arc::new(
         AlertBuilder::default()
             .id(1)
@@ -44,7 +44,7 @@ fn test_received_alerts() {
 
 #[test]
 fn test_cancel_alert() {
-    let mut notifier = Notifier::new("0.1.0".into());
+    let mut notifier = Notifier::new("0.1.0".into(), Default::default());
     let alert1 = Arc::new(
         AlertBuilder::default()
             .id(1)
@@ -65,7 +65,7 @@ fn test_cancel_alert() {
 
 #[test]
 fn test_clear_expired_alerts() {
-    let mut notifier = Notifier::new("0.1.0".into());
+    let mut notifier = Notifier::new("0.1.0".into(), Default::default());
     let notice_until = 1_561_084_974_000;
     let before_expired_time = notice_until - 1000;
     let after_expired_time = notice_until + 1000;

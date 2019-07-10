@@ -15,7 +15,9 @@ use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
-use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConfig};
+use ckb_network_alert::{
+    alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
+};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
@@ -184,7 +186,11 @@ fn setup_node(
         }
         .to_delegate(),
     );
-    let alert_relayer = AlertRelayer::new("0.1.0".to_string(), AlertConfig::default());
+    let alert_relayer = AlertRelayer::new(
+        "0.1.0".to_string(),
+        Default::default(),
+        AlertSignatureConfig::default(),
+    );
 
     let alert_notifier = {
         let alert_notifier = alert_relayer.notifier();

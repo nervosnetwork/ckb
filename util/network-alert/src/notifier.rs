@@ -1,7 +1,9 @@
+use crate::config::NotifierConfig;
 use ckb_core::alert::Alert;
-use ckb_logger::warn;
+use ckb_logger::{error, info, warn};
 use fnv::FnvHashMap;
 use lru_cache::LruCache;
+use std::process::Command;
 use std::sync::Arc;
 
 const CANCEL_FILTER_SIZE: usize = 128;
@@ -14,15 +16,17 @@ pub struct Notifier {
     /// alerts that self node should notice
     noticed_alerts: Vec<Arc<Alert>>,
     client_version: String,
+    config: NotifierConfig,
 }
 
 impl Notifier {
-    pub fn new(client_version: String) -> Self {
+    pub fn new(client_version: String, config: NotifierConfig) -> Self {
         Notifier {
             cancel_filter: LruCache::new(CANCEL_FILTER_SIZE),
             received_alerts: Default::default(),
             noticed_alerts: Vec::new(),
             client_version,
+            config,
         }
     }
 
@@ -60,11 +64,28 @@ impl Notifier {
         if self.noticed_alerts.contains(&alert) {
             return;
         }
-        warn!("receive a new alert: {}", alert.message);
+        self.notify(&alert);
         self.noticed_alerts.push(alert);
         // sort by priority
         self.noticed_alerts
             .sort_by_key(|a| std::u32::MAX - a.priority);
+    }
+
+    fn notify(&self, alert: &Alert) {
+        warn!("receive a new alert: {}", alert.message);
+        if let Some(notify_script) = self.config.notify_script.as_ref() {
+            match Command::new(notify_script)
+                .args(&[alert.message.to_owned()])
+                .status()
+            {
+                Ok(exit_status) => {
+                    info!("send alert to notify script. {}", exit_status);
+                }
+                Err(err) => {
+                    error!("failed to run notify script: {}", err);
+                }
+            }
+        }
     }
 
     pub fn cancel(&mut self, cancel_id: u32) {

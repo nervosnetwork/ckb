@@ -6,7 +6,7 @@
 //! A cli to generate alert message,
 //! A config option to set alert messages to broard cast.
 //
-use crate::config::Config;
+use crate::config::{NotifierConfig, SignatureConfig};
 use crate::notifier::Notifier;
 use crate::verifier::Verifier;
 use crate::BAD_MESSAGE_BAN_TIME;
@@ -33,10 +33,14 @@ pub struct AlertRelayer {
 }
 
 impl AlertRelayer {
-    pub fn new(client_version: String, config: Config) -> Self {
+    pub fn new(
+        client_version: String,
+        notifier_config: NotifierConfig,
+        signature_config: SignatureConfig,
+    ) -> Self {
         AlertRelayer {
-            notifier: Arc::new(Mutex::new(Notifier::new(client_version))),
-            verifier: Arc::new(Verifier::new(config)),
+            notifier: Arc::new(Mutex::new(Notifier::new(client_version, notifier_config))),
+            verifier: Arc::new(Verifier::new(signature_config)),
             known_lists: LruCache::new(KNOWN_LIST_SIZE),
         }
     }
