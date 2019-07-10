@@ -235,13 +235,10 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             fbb.finish(message, None);
             let data = fbb.finished_data().into();
 
-            let mut known_blocks = self.shared().known_blocks();
             let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
                 .into_iter()
-                .filter(|target_peer| {
-                    known_blocks.insert(*target_peer, block_hash.clone()) && (peer != *target_peer)
-                })
+                .filter(|target_peer| peer != *target_peer)
                 .take(MAX_RELAY_PEERS)
                 .collect();
             if let Err(err) = nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data)
