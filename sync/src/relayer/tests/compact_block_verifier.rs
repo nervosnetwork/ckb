@@ -1,21 +1,9 @@
+use super::helper::new_index_transaction;
 use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
 use crate::relayer::compact_block_verifier::{PrefilledVerifier, ShortIdsVerifier};
-use crate::relayer::error::Error;
-use ckb_core::transaction::{CellOutput, IndexTransaction, TransactionBuilder};
-use ckb_core::Capacity;
+use crate::relayer::error::{Error, Misbehavior};
+use ckb_core::transaction::IndexTransaction;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
-
-fn new_index_transaction(index: usize) -> IndexTransaction {
-    let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(
-            Capacity::bytes(index).unwrap(),
-            Default::default(),
-            Default::default(),
-            None,
-        ))
-        .build();
-    IndexTransaction { index, transaction }
-}
 
 #[test]
 fn test_unordered_prefilled() {
@@ -27,7 +15,9 @@ fn test_unordered_prefilled() {
     block.prefilled_transactions = prefilled;
     assert_eq!(
         PrefilledVerifier::new().verify(&block),
-        Err(Error::UnorderedPrefilledTransactions),
+        Err(Error::Misbehavior(
+            Misbehavior::UnorderedPrefilledTransactions
+        )),
     );
 }
 
@@ -36,7 +26,7 @@ fn test_ordered_prefilled() {
     let mut block = CompactBlock::default();
     let prefilled: Vec<IndexTransaction> = (0..5).map(new_index_transaction).collect();
     block.prefilled_transactions = prefilled;
-    assert_eq!(PrefilledVerifier::new().verify(&block), Ok(()),);
+    assert_eq!(PrefilledVerifier::new().verify(&block), Ok(()));
 }
 
 #[test]
@@ -49,7 +39,9 @@ fn test_overflow_prefilled() {
     block.prefilled_transactions = prefilled;
     assert_eq!(
         PrefilledVerifier::new().verify(&block),
-        Err(Error::OverflowPrefilledTransactions),
+        Err(Error::Misbehavior(
+            Misbehavior::OverflowPrefilledTransactions
+        )),
     );
 }
 
@@ -58,7 +50,7 @@ fn test_cellbase_not_prefilled() {
     let block = CompactBlock::default();
     assert_eq!(
         PrefilledVerifier::new().verify(&block),
-        Err(Error::CellbaseNotPrefilled)
+        Err(Error::Misbehavior(Misbehavior::CellbaseNotPrefilled)),
     );
 
     let mut block = CompactBlock::default();
@@ -66,7 +58,7 @@ fn test_cellbase_not_prefilled() {
     block.prefilled_transactions = prefilled;
     assert_eq!(
         PrefilledVerifier::new().verify(&block),
-        Err(Error::CellbaseNotPrefilled),
+        Err(Error::Misbehavior(Misbehavior::CellbaseNotPrefilled))
     );
 }
 
@@ -84,7 +76,7 @@ fn test_duplicated_short_ids() {
     block.short_ids = short_ids;
     assert_eq!(
         ShortIdsVerifier::new().verify(&block),
-        Err(Error::DuplicatedShortIds),
+        Err(Error::Misbehavior(Misbehavior::DuplicatedShortIds)),
     );
 }
 
@@ -103,7 +95,9 @@ fn test_intersected_short_ids() {
     block.short_ids = short_ids;
     assert_eq!(
         ShortIdsVerifier::new().verify(&block),
-        Err(Error::IntersectedPrefilledTransactions),
+        Err(Error::Misbehavior(
+            Misbehavior::IntersectedPrefilledTransactions
+        )),
     );
 }
 
@@ -124,5 +118,5 @@ fn test_normal() {
         .collect();
     block.prefilled_transactions = prefilled;
     block.short_ids = short_ids;
-    assert_eq!(ShortIdsVerifier::new().verify(&block), Ok(()),);
+    assert_eq!(ShortIdsVerifier::new().verify(&block), Ok(()));
 }
