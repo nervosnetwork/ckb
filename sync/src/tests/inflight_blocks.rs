@@ -17,11 +17,11 @@ fn inflight_blocks_count() {
     assert!(inflight_blocks.insert(1.into(), h256!("0x2")));
 
     assert_eq!(inflight_blocks.total_inflight_count(), 2); // 0x1 0x2
-    assert_eq!(inflight_blocks.peer_inflight_count(&(1.into())), 2);
-    assert_eq!(inflight_blocks.peer_inflight_count(&(2.into())), 1); // one block inflight
+    assert_eq!(inflight_blocks.peer_inflight_count(1.into()), 2);
+    assert_eq!(inflight_blocks.peer_inflight_count(2.into()), 1); // one block inflight
     assert_eq!(
         inflight_blocks
-            .inflight_block_by_peer(&(1.into()))
+            .inflight_block_by_peer(1.into())
             .map(|set| set.iter().collect()),
         Some(vec![&h256!("0x1"), &h256!("0x2")])
     );
@@ -30,11 +30,11 @@ fn inflight_blocks_count() {
     inflight_blocks.remove_by_block(&h256!("0x1"));
 
     assert_eq!(inflight_blocks.total_inflight_count(), 1); // 0x2
-    assert_eq!(inflight_blocks.peer_inflight_count(&(1.into())), 1);
-    assert_eq!(inflight_blocks.peer_inflight_count(&(2.into())), 0);
+    assert_eq!(inflight_blocks.peer_inflight_count(1.into()), 1);
+    assert_eq!(inflight_blocks.peer_inflight_count(2.into()), 0);
     assert_eq!(
         inflight_blocks
-            .inflight_block_by_peer(&(1.into()))
+            .inflight_block_by_peer(1.into())
             .map(|set| set.iter().collect()),
         Some(vec![&h256!("0x2")])
     );
@@ -69,8 +69,8 @@ fn inflight_blocks_state() {
     );
 
     // peer 1 disconnect
-    inflight_blocks.remove_by_peer(&(1.into()));
-    assert_eq!(inflight_blocks.inflight_block_by_peer(&(1.into())), None);
+    inflight_blocks.remove_by_peer(1.into());
+    assert_eq!(inflight_blocks.inflight_block_by_peer(1.into()), None);
 
     assert_eq!(
         inflight_blocks
