@@ -1,21 +1,9 @@
+use super::helper::new_index_transaction;
 use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
 use crate::relayer::compact_block_verifier::{PrefilledVerifier, ShortIdsVerifier};
 use crate::relayer::error::Error;
-use ckb_core::transaction::{CellOutput, IndexTransaction, TransactionBuilder};
-use ckb_core::Capacity;
+use ckb_core::transaction::IndexTransaction;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
-
-fn new_index_transaction(index: usize) -> IndexTransaction {
-    let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(
-            Capacity::bytes(index).unwrap(),
-            Default::default(),
-            Default::default(),
-            None,
-        ))
-        .build();
-    IndexTransaction { index, transaction }
-}
 
 #[test]
 fn test_unordered_prefilled() {

@@ -23,6 +23,18 @@ pub struct CompactBlockProcess<'a, CS> {
     peer: PeerIndex,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum Status {
+    UnknownParent,
+    NotBetter,
+    AlreadyInFlight,
+    AlreadyPending,
+    HeaderVerifyFailed,
+    InflightBlocksReachLimit,
+    SendMissingIndexes,
+    NoMissingIndexes,
+}
+
 impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
     pub fn new(
         message: &'a FbsCompactBlock,
@@ -38,7 +50,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Result<Status, FailureError> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash().to_owned();
 
@@ -58,7 +70,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 self.peer,
                 self.relayer.shared.lock_chain_state().tip_header(),
             );
-            return Ok(());
+            return Ok(Status::UnknownParent);
         }
 
         {
@@ -82,7 +94,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     current_total_difficulty,
                     tip_header_view.total_difficulty(),
                 );
-                return Ok(());
+                return Ok(Status::NotBetter);
             }
         }
 
@@ -98,7 +110,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     "discard already in-flight compact block {:x}",
                     block_hash,
                 );
-                return Ok(());
+                return Ok(Status::AlreadyInFlight);
             }
         }
 
@@ -118,7 +130,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     "discard already pending compact block {:x}",
                     block_hash
                 );
-                return Ok(());
+                return Ok(Status::AlreadyPending);
             } else {
                 let fn_get_pending_header = {
                     |block_hash| {
@@ -145,7 +157,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                         "unexpected header verify failed: {}",
                         err
                     );
-                    return Ok(());
+                    return Ok(Status::HeaderVerifyFailed);
                 }
                 compact_block_verifier.verify(&compact_block)?;
             }
@@ -195,7 +207,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     self.peer,
                     block_hash,
                 );
-                return Ok(());
+                return Ok(Status::InflightBlocksReachLimit);
             }
 
             let fbb = &mut FlatBufferBuilder::new();
@@ -214,8 +226,9 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             {
                 ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
             }
+            return Ok(Status::SendMissingIndexes);
         }
-        Ok(())
+        Ok(Status::NoMissingIndexes)
     }
 }
 
