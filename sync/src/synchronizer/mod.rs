@@ -287,8 +287,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                         );
                     }
                 }
-            }
-            if inbound_eviction && !state.is_outbound && index & 0x1 != 0 {
+            } else if inbound_eviction && index & 0x1 != 0 {
                 state.disconnect = true;
                 eviction.push(*peer);
             }

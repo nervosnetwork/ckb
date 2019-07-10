@@ -354,15 +354,18 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     }
 
     fn inbound_eviction_condition(&self) -> bool {
-        let status = self.network_state.connection_status();
-        let connected_inbound_num = self.network_state.with_peer_registry(|registry| {
-            registry
-                .peers()
-                .values()
-                .filter(|peer| peer.is_inbound())
-                .count()
-        });
-        self.network_state.config.bootnode_mode
-            && (status.max_inbound - connected_inbound_num as u32) < 10
+        if self.network_state.config.bootnode_mode {
+            let status = self.network_state.connection_status();
+            let connected_inbound_num = self.network_state.with_peer_registry(|registry| {
+                registry
+                    .peers()
+                    .values()
+                    .filter(|peer| peer.is_inbound())
+                    .count()
+            });
+            (status.max_inbound - connected_inbound_num as u32) < 10
+        } else {
+            false
+        }
     }
 }
