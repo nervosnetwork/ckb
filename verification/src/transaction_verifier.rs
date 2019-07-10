@@ -405,21 +405,19 @@ where
         }
     }
 
-    fn parent_median_time(&self, block_number: BlockNumber, block_hash: &H256) -> u64 {
-        let (_, parent_hash) = self
+    fn parent_median_time(&self, block_hash: &H256) -> u64 {
+        let (_, _, parent_hash) = self
             .block_median_time_context
             .timestamp_and_parent(block_hash);
-        self.block_median_time(block_number - 1, &parent_hash)
+        self.block_median_time(&parent_hash)
     }
 
-    fn block_median_time(&self, block_number: BlockNumber, block_hash: &H256) -> u64 {
+    fn block_median_time(&self, block_hash: &H256) -> u64 {
         if let Some(median_time) = self.median_timestamps_cache.borrow().get(block_hash) {
             return *median_time;
         }
 
-        let median_time = self
-            .block_median_time_context
-            .block_median_time(block_number, block_hash);
+        let median_time = self.block_median_time_context.block_median_time(block_hash);
         self.median_timestamps_cache
             .borrow_mut()
             .insert(block_hash.clone(), median_time);
@@ -440,8 +438,7 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self
-                        .block_median_time(self.block_number.saturating_sub(1), self.parent_hash);
+                    let tip_timestamp = self.block_median_time(self.parent_hash);
                     if tip_timestamp < timestamp {
                         return Err(TransactionError::Immature);
                     }
@@ -480,9 +477,8 @@ where
                     // parent of current block.
                     // pass_median_time(input_cell's block) starts with cell_block_number - 1,
                     // which is the parent of input_cell's block
-                    let cell_median_timestamp = self.parent_median_time(cell.number, &cell.hash);
-                    let current_median_time = self
-                        .block_median_time(self.block_number.saturating_sub(1), self.parent_hash);
+                    let cell_median_timestamp = self.parent_median_time(&cell.hash);
+                    let current_median_time = self.block_median_time(self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
                         return Err(TransactionError::Immature);
                     }

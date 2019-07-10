@@ -39,14 +39,14 @@ fn test_block_median_time() {
     let shared = new_shared();
     let chain_state = shared.lock_chain_state();
     let hash = shared.store().get_block_hash(0).unwrap();
-    assert_eq!((&*chain_state).block_median_time(0, &hash), 0);
+    assert_eq!((&*chain_state).block_median_time(&hash), 0);
     let now = faketime::unix_time_as_millis();
     insert_block_timestamps(shared.store(), &[now]);
     let hash = shared.store().get_block_hash(1).unwrap();
-    assert_eq!((&*chain_state).block_median_time(1, &hash), now);
+    assert_eq!((&*chain_state).block_median_time(&hash), now);
     let timestamps = (1..=22).collect::<Vec<_>>();
     insert_block_timestamps(shared.store(), &timestamps);
     let block_number = *timestamps.last().expect("last");
     let hash = shared.store().get_block_hash(block_number).unwrap();
-    assert_eq!((&*chain_state).block_median_time(block_number, &hash), 17);
+    assert_eq!((&*chain_state).block_median_time(&hash), 17);
 }

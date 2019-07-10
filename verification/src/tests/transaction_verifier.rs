@@ -248,13 +248,13 @@ impl BlockMedianTimeContext for FakeMedianTime {
         11
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
         for i in 0..self.timestamps.len() {
             if &get_block_hash(i as u64) == block_hash {
                 if i == 0 {
-                    return (self.timestamps[i], H256::zero());
+                    return (self.timestamps[i], i as u64, H256::zero());
                 } else {
-                    return (self.timestamps[i], get_block_hash(i as u64 - 1));
+                    return (self.timestamps[i], i as u64, get_block_hash(i as u64 - 1));
                 }
             }
         }
