@@ -452,11 +452,7 @@ impl EventHandler {
         if self.network_state.config.bootnode_mode {
             let status = self.network_state.connection_status();
 
-            if status.max_inbound
-                - status.unreserved_inbound
-                - self.network_state.config.reserved_peers.len() as u32
-                <= 10
-            {
+            if status.max_inbound <= status.unreserved_inbound.saturating_add(10) {
                 for (index, peer) in self
                     .network_state
                     .with_peer_registry(|registry| {

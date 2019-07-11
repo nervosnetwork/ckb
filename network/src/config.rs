@@ -69,7 +69,7 @@ impl NetworkConfig {
     }
 
     pub fn max_inbound_peers(&self) -> u32 {
-        self.max_peers - self.max_outbound_peers
+        self.max_peers.saturating_sub(self.max_outbound_peers)
     }
 
     pub fn max_outbound_peers(&self) -> u32 {
