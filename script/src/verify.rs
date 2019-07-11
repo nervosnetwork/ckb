@@ -435,13 +435,14 @@ mod tests {
     use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Capacity};
-    use ckb_crypto::secp::{Generator, Privkey};
+    use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
     use ckb_db::MemoryKeyValueDB;
     use ckb_hash::blake2b_256;
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainKVStore, COLUMNS};
     use faster_hex::hex_encode;
 
     use ckb_test_chain_utils::create_always_success_cell;
+    use ckb_vm::Error as VMInternalError;
     use numext_fixed_hash::{h256, H256};
     use std::fs::File;
     use std::io::{Read, Write};
@@ -458,6 +459,35 @@ mod tests {
 
     fn new_memory_store() -> ChainKVStore<MemoryKeyValueDB> {
         ChainKVStore::new(MemoryKeyValueDB::open(COLUMNS as usize))
+    }
+
+    fn random_keypair() -> (Privkey, Pubkey) {
+        let gen = Generator::new();
+        gen.random_keypair()
+    }
+
+    fn to_hex_pubkey(pubkey: &Pubkey) -> Vec<u8> {
+        let pubkey = pubkey.serialize();
+        let mut hex_pubkey = vec![0; pubkey.len() * 2];
+        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
+        hex_pubkey
+    }
+
+    fn to_hex_signature(signature: &Signature) -> Vec<u8> {
+        let signature_der = signature.serialize_der();
+        let mut hex_signature = vec![0; signature_der.len() * 2];
+        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
+        hex_signature
+    }
+
+    fn sign_args(args: &[Bytes], privkey: &Privkey) -> Signature {
+        let mut bytes = vec![];
+        for argument in args.iter() {
+            bytes.write_all(argument).unwrap();
+        }
+        let hash1 = sha3_256(&bytes);
+        let hash2 = sha3_256(hash1);
+        privkey.sign_recoverable(&hash2.into()).unwrap()
     }
 
     #[test]
@@ -507,27 +537,12 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let (privkey, pubkey) = random_keypair();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
+        let signature = sign_args(&args, &privkey);
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -573,76 +588,16 @@ mod tests {
         };
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
+        // Default Runner
         assert!(verifier.verify(100_000_000).is_ok());
-    }
 
-    #[test]
-    fn check_signature_rust() {
-        let mut file = open_cell_verify();
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).unwrap();
-
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
-
-        let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
-        let output = CellOutput::new(
-            Capacity::bytes(buffer.len()).unwrap(),
-            Bytes::from(buffer),
-            Script::default(),
-            None,
-        );
-        let dep_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(output)
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .data_hash(code_hash.to_owned())
-                .out_point(dep_out_point.cell.clone().unwrap())
-                .build(),
+        // Not enought cycles
+        assert_eq!(
+            verifier.verify(100).err(),
+            Some(ScriptError::VMError(VMInternalError::InvalidCycles))
         );
 
-        let script = Script::new(args, code_hash, ScriptHashType::Data);
-        let input = CellInput::new(OutPoint::null(), 0);
-
-        let transaction = TransactionBuilder::default()
-            .input(input.clone())
-            .dep(dep_out_point)
-            .build();
-
-        let output = CellOutput::new(capacity_bytes!(100), Bytes::default(), script, None);
-        let dummy_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(output.to_owned())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .build(),
-        );
-
-        let rtx = ResolvedTransaction {
-            transaction: &transaction,
-            resolved_deps: vec![dep_cell],
-            resolved_inputs: vec![dummy_cell],
-        };
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
-
+        // Rust Runner
         let verifier = TransactionScriptsVerifier::new(
             &rtx,
             &data_loader,
@@ -661,27 +616,12 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let (privkey, pubkey) = random_keypair();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
+        let signature = sign_args(&args, &privkey);
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -739,27 +679,12 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let (privkey, pubkey) = random_keypair();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
+        let signature = sign_args(&args, &privkey);
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -895,30 +820,15 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let (privkey, pubkey) = random_keypair();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
+        let signature = sign_args(&args, &privkey);
 
         // This line makes the verification invalid
         args.push(Bytes::from(b"extrastring".to_vec()));
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
@@ -963,7 +873,10 @@ mod tests {
         };
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
-        assert!(verifier.verify(100_000_000).is_err());
+        assert_eq!(
+            verifier.verify(100_000_000).err(),
+            Some(ScriptError::ValidationFailure(2))
+        );
     }
 
     #[test]
@@ -972,27 +885,11 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let (privkey, pubkey) = random_keypair();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
+        let signature = sign_args(&args, &privkey);
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
 
         let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
 
@@ -1025,7 +922,10 @@ mod tests {
         };
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
-        assert!(verifier.verify(100_000_000).is_err());
+        assert_eq!(
+            verifier.verify(100_000_000).err(),
+            Some(ScriptError::InvalidCodeHash)
+        );
     }
 
     #[test]
@@ -1034,27 +934,11 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let (privkey, pubkey) = random_keypair();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex privkey");
-        args.push(Bytes::from(hex_signature));
+        let signature = sign_args(&args, &privkey);
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
 
         let input = CellInput::new(OutPoint::null(), 0);
         let (always_success_cell, always_success_script) = create_always_success_cell();
@@ -1127,30 +1011,14 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let (privkey, pubkey) = random_keypair();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
+        let signature = sign_args(&args, &privkey);
         // This line makes the verification invalid
         args.push(Bytes::from(b"extrastring".to_vec()));
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
 
         let input = CellInput::new(OutPoint::null(), 0);
         let (always_success_cell, always_success_script) = create_always_success_cell();
@@ -1214,7 +1082,10 @@ mod tests {
         };
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
-        assert!(verifier.verify(100_000_000).is_err());
+        assert_eq!(
+            verifier.verify(100_000_000).err(),
+            Some(ScriptError::ValidationFailure(2))
+        );
     }
 
     #[test]
@@ -1224,25 +1095,12 @@ mod tests {
         file.read_to_end(&mut buffer).unwrap();
 
         let privkey = Privkey::from_slice(&[1; 32][..]);
+        let pubkey = privkey.pubkey().unwrap();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
+        let signature = sign_args(&args, &privkey);
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
 
         let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let script = Script::new(args, code_hash.to_owned(), ScriptHashType::Data);
