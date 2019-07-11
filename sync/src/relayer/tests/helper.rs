@@ -18,6 +18,13 @@ use faketime::{self, unix_time_as_millis};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
+use ckb_network::{Behaviour, Error, Peer};
+use ckb_network::{CKBProtocolContext, PeerIndex};
+use futures::Future;
+use p2p::{service::TargetSession, ProtocolId};
+use std::cell::RefCell;
+use std::time::Duration;
+
 pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
     let transaction = TransactionBuilder::default()
         .output(CellOutput::new(
@@ -141,4 +148,74 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyVa
         Relayer::new(chain_controller, sync_shared_state),
         always_success_out_point,
     )
+}
+
+#[derive(Default)]
+pub(crate) struct MockProtocalContext {
+    pub sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, Bytes)>>,
+    pub sent_messages_to: RefCell<Vec<(PeerIndex, Bytes)>>,
+}
+
+impl CKBProtocolContext for MockProtocalContext {
+    fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
+        unimplemented!()
+    }
+    fn quick_send_message(
+        &self,
+        _proto_id: ProtocolId,
+        _peer_index: PeerIndex,
+        _data: Bytes,
+    ) -> Result<(), Error> {
+        unimplemented!();
+    }
+    fn quick_send_message_to(&self, _peer_index: PeerIndex, _data: Bytes) -> Result<(), Error> {
+        unimplemented!();
+    }
+    fn quick_filter_broadcast(&self, _target: TargetSession, _data: Bytes) -> Result<(), Error> {
+        unimplemented!();
+    }
+
+    fn future_task(
+        &self,
+        _task: Box<Future<Item = (), Error = ()> + 'static + Send>,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+    fn send_message(
+        &self,
+        proto_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: Bytes,
+    ) -> Result<(), Error> {
+        self.sent_messages
+            .borrow_mut()
+            .push((proto_id, peer_index, data));
+        Ok(())
+    }
+    fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error> {
+        self.sent_messages_to.borrow_mut().push((peer_index, data));
+        Ok(())
+    }
+
+    fn filter_broadcast(&self, _target: TargetSession, _data: Bytes) -> Result<(), Error> {
+        unimplemented!();
+    }
+    fn disconnect(&self, _peer_index: PeerIndex) -> Result<(), Error> {
+        unimplemented!();
+    }
+    fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {
+        unimplemented!();
+    }
+    fn connected_peers(&self) -> Vec<PeerIndex> {
+        unimplemented!();
+    }
+    fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {
+        unimplemented!();
+    }
+    fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration) {
+        unimplemented!();
+    }
+    fn protocol_id(&self) -> ProtocolId {
+        unimplemented!();
+    }
 }

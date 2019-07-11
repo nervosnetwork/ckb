@@ -13,14 +13,21 @@ use std::sync::Arc;
 pub struct BlockProposalProcess<'a, CS> {
     message: &'a BlockProposal<'a>,
     relayer: &'a Relayer<CS>,
-    nc: Arc<dyn CKBProtocolContext + Sync>,
+    nc: Arc<dyn CKBProtocolContext>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Status {
+    NoUnknown,
+    NotAsked,
+    Ok,
 }
 
 impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
     pub fn new(
         message: &'a BlockProposal,
         relayer: &'a Relayer<CS>,
-        nc: Arc<dyn CKBProtocolContext + Sync>,
+        nc: Arc<dyn CKBProtocolContext>,
     ) -> Self {
         BlockProposalProcess {
             message,
@@ -29,7 +36,7 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Result<Status, FailureError> {
         let txs: Vec<Transaction> =
             FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
                 .map(TryInto::try_into)
@@ -47,7 +54,7 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
             })
             .collect();
         if unknown_txs.is_empty() {
-            return Ok(());
+            return Ok(Status::NoUnknown);
         }
 
         let proposals: Vec<ProposalShortId> = unknown_txs
@@ -61,6 +68,10 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
                 self.relayer.shared().mark_as_known_tx(tx_hash);
                 asked_txs.push(transaction);
             }
+        }
+
+        if asked_txs.is_empty() {
+            return Ok(Status::NotAsked);
         }
 
         if let Err(err) = self.nc.future_task({
@@ -83,6 +94,6 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
                 err,
             );
         }
-        Ok(())
+        Ok(Status::Ok)
     }
 }

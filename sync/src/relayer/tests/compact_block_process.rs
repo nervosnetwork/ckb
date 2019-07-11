@@ -4,19 +4,12 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellOutput, TransactionBuilder};
 use ckb_core::Capacity;
-use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_network::PeerIndex;
 use ckb_protocol::{get_root, CompactBlock as FbsCompactBlock, RelayMessage, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
-use futures::Future;
 use std::collections::HashSet;
 
-use p2p::{bytes::Bytes, service::TargetSession, ProtocolId};
-use std::iter::FromIterator;
-use std::time::Duration;
-
-use ckb_network::{Behaviour, Error, Peer};
-
-use crate::relayer::tests::helper::{build_chain, new_header_builder};
+use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocalContext};
 use crate::types::InflightBlocks;
 use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
@@ -25,77 +18,8 @@ use fnv::FnvHashSet;
 use numext_fixed_uint::U256;
 use std::cell::RefCell;
 use std::convert::TryInto;
+use std::iter::FromIterator;
 use std::sync::Arc;
-
-#[derive(Default)]
-struct MockProtocalContext {
-    pub sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, Bytes)>>,
-    pub sent_messages_to: RefCell<Vec<(PeerIndex, Bytes)>>,
-}
-
-impl CKBProtocolContext for MockProtocalContext {
-    fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
-        unimplemented!()
-    }
-    fn quick_send_message(
-        &self,
-        _proto_id: ProtocolId,
-        _peer_index: PeerIndex,
-        _data: Bytes,
-    ) -> Result<(), Error> {
-        unimplemented!();
-    }
-    fn quick_send_message_to(&self, _peer_index: PeerIndex, _data: Bytes) -> Result<(), Error> {
-        unimplemented!();
-    }
-    fn quick_filter_broadcast(&self, _target: TargetSession, _data: Bytes) -> Result<(), Error> {
-        unimplemented!();
-    }
-
-    fn future_task(
-        &self,
-        _task: Box<Future<Item = (), Error = ()> + 'static + Send>,
-    ) -> Result<(), Error> {
-        unimplemented!();
-    }
-    fn send_message(
-        &self,
-        proto_id: ProtocolId,
-        peer_index: PeerIndex,
-        data: Bytes,
-    ) -> Result<(), Error> {
-        self.sent_messages
-            .borrow_mut()
-            .push((proto_id, peer_index, data));
-        Ok(())
-    }
-    fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error> {
-        self.sent_messages_to.borrow_mut().push((peer_index, data));
-        Ok(())
-    }
-
-    fn filter_broadcast(&self, _target: TargetSession, _data: Bytes) -> Result<(), Error> {
-        unimplemented!();
-    }
-    fn disconnect(&self, _peer_index: PeerIndex) -> Result<(), Error> {
-        unimplemented!();
-    }
-    fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {
-        unimplemented!();
-    }
-    fn connected_peers(&self) -> Vec<PeerIndex> {
-        unimplemented!();
-    }
-    fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {
-        unimplemented!();
-    }
-    fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration) {
-        unimplemented!();
-    }
-    fn protocol_id(&self) -> ProtocolId {
-        unimplemented!();
-    }
-}
 
 // send_getheaders_to_peer when UnknownParent
 #[test]
