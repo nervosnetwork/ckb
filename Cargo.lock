@@ -926,6 +926,7 @@ dependencies = [
  "ckb-reward-calculator 0.17.0-pre",
  "ckb-script 0.17.0-pre",
  "ckb-store 0.17.0-pre",
+ "ckb-test-chain-utils 0.17.0-pre",
  "ckb-traits 0.17.0-pre",
  "ckb-util 0.17.0-pre",
  "ckb-verification 0.17.0-pre",
