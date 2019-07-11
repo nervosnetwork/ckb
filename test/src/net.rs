@@ -82,7 +82,6 @@ impl Net {
                     discovery_local_address: true,
                     upnp: false,
                     bootnode_mode: false,
-                    max_tip_age: None,
                 };
 
                 let network_state =

@@ -59,10 +59,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             }
         };
 
-    let sync_shared_state = Arc::new(SyncSharedState::new(
-        shared.clone(),
-        args.config.network.max_tip_age,
-    ));
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );

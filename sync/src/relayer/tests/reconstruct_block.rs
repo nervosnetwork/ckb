@@ -126,7 +126,7 @@ fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, Ou
             .expect("processing block should be ok");
     }
 
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared, None));
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared));
     (
         Relayer::new(chain_controller, sync_shared_state),
         always_success_out_point,

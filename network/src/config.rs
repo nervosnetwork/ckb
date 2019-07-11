@@ -36,8 +36,6 @@ pub struct NetworkConfig {
     pub upnp: bool,
     #[serde(default)]
     pub bootnode_mode: bool,
-    #[serde(default)]
-    pub max_tip_age: Option<u64>,
 }
 
 fn generate_random_key() -> [u8; 32] {

@@ -65,8 +65,6 @@ discovery_local_address = false # {{
 # If set to true, random cleanup when there are too many inbound nodes
 # Ensure that itself can continue to serve as a bootnode node
 bootnode_mode = false
-# ibd time range, default is 24 hours
-max_tip_age = 86400000
 
 [rpc]
 listen_address = "127.0.0.1:8114" # {{

@@ -208,9 +208,8 @@ impl<CS: ChainStore> Synchronizer<CS> {
     pub fn eviction(&self, nc: &CKBProtocolContext) {
         let mut peer_states = self.peers().state.write();
         let is_initial_header_sync = self.shared.is_initial_header_sync();
-        let inbound_eviction = nc.inbound_eviction_condition();
         let mut eviction = Vec::new();
-        for (index, (peer, state)) in peer_states.iter_mut().enumerate() {
+        for (peer, state) in peer_states.iter_mut() {
             let now = unix_time_as_millis();
 
             // headers_sync_timeout
@@ -287,9 +286,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
                         );
                     }
                 }
-            } else if inbound_eviction && index & 0x1 != 0 {
-                state.disconnect = true;
-                eviction.push(*peer);
             }
         }
         for peer in eviction {
@@ -591,7 +587,7 @@ mod tests {
         chain_controller: ChainController,
         shared: Shared<CS>,
     ) -> Synchronizer<CS> {
-        let shared = Arc::new(SyncSharedState::new(shared, None));
+        let shared = Arc::new(SyncSharedState::new(shared));
         Synchronizer::new(chain_controller, shared)
     }
 
