@@ -59,10 +59,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             }
         };
 
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
 
     let relayer = Relayer::new(chain_controller.clone(), sync_shared_state);

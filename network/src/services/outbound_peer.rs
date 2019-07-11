@@ -100,7 +100,9 @@ impl Future for OutboundPeerService {
                         .unwrap_or(Duration::from_secs(std::u64::MAX));
                     if last_connect > self.try_connect_interval {
                         let status = self.network_state.connection_status();
-                        let new_outbound = status.max_outbound - status.unreserved_outbound;
+                        let new_outbound = status
+                            .max_outbound
+                            .saturating_sub(status.unreserved_outbound);
                         if self.network_state.config.reserved_only {
                             self.try_dial_reserved()
                         } else if new_outbound > 0 {

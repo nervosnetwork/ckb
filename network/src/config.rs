@@ -32,7 +32,10 @@ pub struct NetworkConfig {
     pub public_addresses: Vec<Multiaddr>,
     pub bootnodes: Vec<Multiaddr>,
     pub reserved_peers: Vec<Multiaddr>,
+    #[serde(default)]
     pub upnp: bool,
+    #[serde(default)]
+    pub bootnode_mode: bool,
 }
 
 fn generate_random_key() -> [u8; 32] {
@@ -66,7 +69,7 @@ impl NetworkConfig {
     }
 
     pub fn max_inbound_peers(&self) -> u32 {
-        self.max_peers - self.max_outbound_peers
+        self.max_peers.saturating_sub(self.max_outbound_peers)
     }
 
     pub fn max_outbound_peers(&self) -> u32 {

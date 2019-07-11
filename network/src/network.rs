@@ -447,6 +447,37 @@ pub struct EventHandler {
     pub(crate) network_state: Arc<NetworkState>,
 }
 
+impl EventHandler {
+    fn inbound_eviction(&self, context: &mut ServiceContext) {
+        if self.network_state.config.bootnode_mode {
+            let status = self.network_state.connection_status();
+
+            if status.max_inbound <= status.unreserved_inbound.saturating_add(10) {
+                for (index, peer) in self
+                    .network_state
+                    .with_peer_registry(|registry| {
+                        registry
+                            .peers()
+                            .values()
+                            .filter(|peer| peer.is_inbound() && !peer.is_reserved)
+                            .map(|peer| peer.session_id)
+                            .collect::<Vec<SessionId>>()
+                    })
+                    .into_iter()
+                    .enumerate()
+                {
+                    if index & 0x1 != 0 {
+                        if let Err(err) = context.disconnect(peer) {
+                            debug!("Inbound eviction failed {:?}, error: {:?}", peer, err);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl ServiceHandle for EventHandler {
     fn handle_error(&mut self, context: &mut ServiceContext, error: ServiceError) {
         match error {
@@ -539,6 +570,8 @@ impl ServiceHandle for EventHandler {
 
                 self.network_state.dial_success(&peer_id);
 
+                self.inbound_eviction(context);
+
                 if self
                     .network_state
                     .with_peer_registry(|reg| reg.is_feeler(&peer_id))
@@ -591,9 +624,6 @@ impl ServiceHandle for EventHandler {
                     .map(PublicKey::peer_id)
                     .expect("Secio must enabled");
 
-                self.network_state.with_peer_registry_mut(|reg| {
-                    reg.remove_feeler(&peer_id);
-                });
                 self.network_state
                     .disconnecting_sessions
                     .write()
