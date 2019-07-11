@@ -25,7 +25,7 @@ pub struct TransactionInfo {
     pub index: usize,
 }
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug, Default)]
 pub struct EpochExt {
     pub(crate) number: EpochNumber,
     pub(crate) block_reward: Capacity,
