@@ -1,11 +1,11 @@
 use crate::utils::{
     build_block, build_block_transactions, build_compact_block, build_compact_block_with_prefilled,
-    build_header, clear_messages, wait_until,
+    build_header, build_headers, clear_messages, wait_until,
 };
 use crate::{Net, Spec, TestProtocol};
 use ckb_core::block::BlockBuilder;
 use ckb_core::cell::{resolve_transaction, ResolvedTransaction};
-use ckb_core::header::HeaderBuilder;
+use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{CellInput, TransactionBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_protocol::{get_root, RelayMessage, RelayPayload, SyncMessage, SyncPayload};
@@ -363,5 +363,63 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 
     fn test_protocols(&self) -> Vec<TestProtocol> {
         vec![TestProtocol::sync(), TestProtocol::relay()]
+    }
+}
+
+pub struct CompactBlockRelayLessThenSharedBestKnown;
+
+impl Spec for CompactBlockRelayLessThenSharedBestKnown {
+    // Case: Relay a compact block which has lower total difficulty than shared_best_known
+    // 1. Synchronize Headers[Tip+1, Tip+10]
+    // 2. Relay CompactBlock[Tip+1]
+    fn run(&self, net: Net) {
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        net.exit_ibd_mode();
+        net.connect(node0);
+        let (peer_id, _, _) = net.receive();
+
+        assert_eq!(node0.get_tip_block(), node1.get_tip_block());
+        let old_tip = node1.get_tip_block_number();
+        node1.generate_blocks(10);
+        let headers: Vec<Header> = (old_tip + 1..node1.get_tip_block_number())
+            .map(|i| node1.rpc_client().get_header_by_number(i).unwrap().into())
+            .collect();
+        net.send(
+            NetworkProtocol::SYNC.into(),
+            peer_id,
+            build_headers(&headers),
+        );
+        {
+            let (_, _, data) = net.receive_timeout(Duration::from_secs(5)).expect("");
+            assert_eq!(
+                get_root::<SyncMessage>(&data).unwrap().payload_type(),
+                SyncPayload::GetBlocks,
+                "Node0 should send GetBlocks message",
+            );
+        }
+
+        let new_block = node0.new_block(None, None, None);
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            peer_id,
+            build_compact_block(&new_block),
+        );
+        assert!(
+            wait_until(20, move || node0.get_tip_block().header().number() == old_tip + 1),
+            "node0 should process the new block, even its difficulty is less then best_shared_known",
+        );
+    }
+
+    fn num_nodes(&self) -> usize {
+        2
+    }
+
+    fn test_protocols(&self) -> Vec<TestProtocol> {
+        vec![TestProtocol::sync(), TestProtocol::relay()]
+    }
+
+    fn connect_all(&self) -> bool {
+        false
     }
 }

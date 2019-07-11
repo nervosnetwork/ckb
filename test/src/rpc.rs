@@ -47,6 +47,22 @@ impl RpcClient {
             .expect("rpc call get_block_by_number")
     }
 
+    pub fn get_header(&self, hash: H256) -> Option<HeaderView> {
+        self.inner
+            .lock()
+            .get_header(hash)
+            .call()
+            .expect("rpc call get_header")
+    }
+
+    pub fn get_header_by_number(&self, number: CoreBlockNumber) -> Option<HeaderView> {
+        self.inner
+            .lock()
+            .get_header_by_number(BlockNumber(number))
+            .call()
+            .expect("rpc call get_header_by_number")
+    }
+
     pub fn get_transaction(&self, hash: H256) -> Option<TransactionWithStatus> {
         self.inner
             .lock()
@@ -287,6 +303,8 @@ impl RpcClient {
 jsonrpc_client!(pub struct Inner {
     pub fn get_block(&mut self, _hash: H256) -> RpcRequest<Option<BlockView>>;
     pub fn get_block_by_number(&mut self, _number: BlockNumber) -> RpcRequest<Option<BlockView>>;
+    pub fn get_header(&mut self, _hash: H256) -> RpcRequest<Option<HeaderView>>;
+    pub fn get_header_by_number(&mut self, _number: BlockNumber) -> RpcRequest<Option<HeaderView>>;
     pub fn get_transaction(&mut self, _hash: H256) -> RpcRequest<Option<TransactionWithStatus>>;
     pub fn get_block_hash(&mut self, _number: BlockNumber) -> RpcRequest<Option<H256>>;
     pub fn get_tip_header(&mut self) -> RpcRequest<HeaderView>;

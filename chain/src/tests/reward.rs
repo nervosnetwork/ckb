@@ -12,7 +12,7 @@ use ckb_core::transaction::{
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao_utils::genesis_dao_data;
-use ckb_test_chain_utils::create_always_success_cell;
+use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
 use std::sync::Arc;
 
@@ -86,7 +86,7 @@ pub(crate) fn gen_block(
 }
 
 pub(crate) fn create_transaction(parent: &Transaction, index: u32) -> Transaction {
-    let (_, always_success_script) = create_always_success_cell();
+    let (_, always_success_script) = always_success_cell();
     let always_success_out_point = create_always_success_out_point();
 
     TransactionBuilder::default()
@@ -106,7 +106,7 @@ pub(crate) fn create_transaction(parent: &Transaction, index: u32) -> Transactio
 
 #[test]
 fn finalize_reward() {
-    let (_, always_success_script) = create_always_success_cell();
+    let (_, always_success_script) = always_success_cell();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(CellOutput::new(

@@ -14,7 +14,7 @@ use ckb_notify::NotifyService;
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainKVStore, ChainStore};
-use ckb_test_chain_utils::create_always_success_cell;
+use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
 use numext_fixed_uint::U256;
@@ -71,7 +71,7 @@ fn new_transaction(
 }
 
 fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
-    let (always_success_cell, always_success_script) = create_always_success_cell();
+    let (always_success_cell, always_success_script) = always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())

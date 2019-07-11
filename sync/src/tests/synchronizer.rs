@@ -18,7 +18,7 @@ use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
-use ckb_test_chain_utils::create_always_success_cell;
+use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
 use faketime::{self, unix_time_as_millis};
@@ -77,7 +77,7 @@ fn setup_node(
     thread_name: &str,
     height: u64,
 ) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
-    let (always_success_cell, always_success_script) = create_always_success_cell();
+    let (always_success_cell, always_success_script) = always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .witness(always_success_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))

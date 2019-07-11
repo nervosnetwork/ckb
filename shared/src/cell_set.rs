@@ -314,11 +314,11 @@ mod tests {
         let tx2 = build_tx(vec![(tx1_hash, 0), (txa_hash, 0)], 1);
         let tx2_hash = tx2.hash();
 
-        let header = HeaderBuilder::default().number(1).build();
         let block = BlockBuilder::default()
-            .header(header.clone())
+            .header_builder(HeaderBuilder::default().number(1))
             .transactions(vec![tx1.clone(), txa.clone(), tx2.clone()])
             .build();
+        let header = block.header();
 
         let epoch = EpochExt::default();
         store.insert_block(&block, &epoch);
@@ -328,12 +328,18 @@ mod tests {
             tx1_hash.clone(),
             header.number(),
             header.epoch(),
+            header.hash().to_owned(),
             false,
             tx1.outputs().len(),
         );
 
-        let tx1_meta =
-            TransactionMeta::new(header.number(), header.epoch(), tx1.outputs().len(), false);
+        let tx1_meta = TransactionMeta::new(
+            header.number(),
+            header.epoch(),
+            header.hash().to_owned(),
+            tx1.outputs().len(),
+            false,
+        );
 
         assert_eq!(meta, tx1_meta);
         let cell = CellOutPoint {
@@ -352,13 +358,13 @@ mod tests {
             tx2_hash.clone(),
             header.number(),
             header.epoch(),
+            header.hash().to_owned(),
             false,
             tx2.outputs().len(),
         );
 
-        let old_header = HeaderBuilder::default().number(2).build();
         let old_block = BlockBuilder::default()
-            .header(old_header.clone())
+            .header_builder(HeaderBuilder::default().number(2))
             .transaction(tx2.clone())
             .build();
 
@@ -368,11 +374,11 @@ mod tests {
         let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
         let tx4_hash = tx4.hash();
 
-        let new_header = HeaderBuilder::default().number(2).build();
         let new_block = BlockBuilder::default()
-            .header(new_header.clone())
+            .header_builder(HeaderBuilder::default().number(2))
             .transactions(vec![tx3.clone(), tx4.clone()])
             .build();
+        let new_header = new_block.header();
 
         let mut diff = CellSetDiff::default();
         diff.push_old(&old_block);
@@ -380,8 +386,13 @@ mod tests {
 
         let overlay = set.new_overlay(&diff, &store.0);
 
-        let mut tx1_meta =
-            TransactionMeta::new(header.number(), header.epoch(), tx1.outputs().len(), false);
+        let mut tx1_meta = TransactionMeta::new(
+            header.number(),
+            header.epoch(),
+            header.hash().to_owned(),
+            tx1.outputs().len(),
+            false,
+        );
         // new transaction(tx3) consumed tx1-outputs-1
         tx1_meta.set_dead(1);
 
@@ -392,6 +403,7 @@ mod tests {
         let mut tx3_meta = TransactionMeta::new(
             new_header.number(),
             new_header.epoch(),
+            new_header.hash().to_owned(),
             tx3.outputs().len(),
             false,
         );
@@ -402,14 +414,20 @@ mod tests {
         let tx4_meta = TransactionMeta::new(
             new_header.number(),
             new_header.epoch(),
+            new_header.hash().to_owned(),
             tx4.outputs().len(),
             false,
         );
 
         assert_eq!(overlay.get(&tx4_hash), Some(&tx4_meta));
 
-        let txa_meta =
-            TransactionMeta::new(header.number(), header.epoch(), txa.outputs().len(), false);
+        let txa_meta = TransactionMeta::new(
+            header.number(),
+            header.epoch(),
+            header.hash().to_owned(),
+            txa.outputs().len(),
+            false,
+        );
         assert_eq!(overlay.get(&txa_hash), Some(&txa_meta));
     }
 }
