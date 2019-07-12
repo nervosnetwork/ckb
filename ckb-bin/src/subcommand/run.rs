@@ -67,8 +67,13 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let relayer = Relayer::new(chain_controller.clone(), sync_shared_state);
     let net_timer = NetTimeProtocol::default();
-    let alert_config = args.config.alert.unwrap_or_default();
-    let alert_relayer = AlertRelayer::new(version.to_string(), alert_config);
+    let alert_signature_config = args.config.alert_signature.unwrap_or_default();
+    let alert_notifier_config = args.config.alert_notifier.unwrap_or_default();
+    let alert_relayer = AlertRelayer::new(
+        version.to_string(),
+        alert_notifier_config,
+        alert_signature_config,
+    );
 
     let alert_notifier = Arc::clone(alert_relayer.notifier());
     let alert_verifier = Arc::clone(alert_relayer.verifier());

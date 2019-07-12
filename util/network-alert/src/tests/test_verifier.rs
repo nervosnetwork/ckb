@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::SignatureConfig;
 use crate::verifier::Verifier;
 use ckb_core::alert::AlertBuilder;
 use ckb_crypto::secp::Generator;
@@ -9,7 +9,7 @@ fn test_veirifer() {
     let keypairs: Vec<_> = (0..3)
         .map(move |_| Generator::new().random_keypair())
         .collect();
-    let config = Config {
+    let config = SignatureConfig {
         signatures_threshold: 2,
         public_keys: keypairs
             .iter()

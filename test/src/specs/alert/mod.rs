@@ -4,7 +4,7 @@ pub use alert_propagation::AlertPropagation;
 
 use ckb_crypto::secp::Privkey;
 use ckb_jsonrpc_types::JsonBytes;
-use ckb_network_alert::config::Config as AlertConfig;
+use ckb_network_alert::config::SignatureConfig as AlertSignatureConfig;
 use rand::{thread_rng, Rng};
 
 pub(crate) fn random_privkey() -> Privkey {
@@ -22,9 +22,9 @@ pub(crate) fn random_privkey() -> Privkey {
 pub(crate) fn new_alert_config(
     signatures_threshold: usize,
     key_num: usize,
-) -> (AlertConfig, Vec<Privkey>) {
+) -> (AlertSignatureConfig, Vec<Privkey>) {
     let privkeys: Vec<_> = (0..key_num).map(|_| random_privkey()).collect();
-    let alert_config = AlertConfig {
+    let alert_config = AlertSignatureConfig {
         signatures_threshold,
         public_keys: privkeys
             .iter()

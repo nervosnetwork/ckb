@@ -93,6 +93,10 @@ runner = "Rust" # {{
 header_cache_size       = 4096
 cell_output_cache_size  = 128
 
+# [alert_notifier]
+# # Script will be notified when node received an alert, first arg is alert message string.
+# notify_script = "echo"
+
 # Set the lock script to protect mined CKB.
 #
 # CKB uses CS architecture for miner. Miner process (ckb miner) gets block
