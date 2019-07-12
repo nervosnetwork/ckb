@@ -8,12 +8,6 @@ use std::mem;
 use std::time::Instant;
 
 fn main() {
-    let log_config = Config {
-        filter: Some("info".to_owned()),
-        ..Default::default()
-    };
-    let _logger_guard = ckb_logger::init(log_config).expect("init Logger");
-
     let clap_app = App::new("ckb-test")
         .arg(
             Arg::with_name("binary")
@@ -34,6 +28,7 @@ fn main() {
                 .help("Starting port number used to start ckb nodes")
                 .default_value("9000"),
         )
+        .arg(Arg::with_name("list-specs").long("list-specs"))
         .arg(Arg::with_name("specs").multiple(true));
     let matches = clap_app.get_matches();
 
@@ -42,6 +37,14 @@ fn main() {
     let spec_names_to_run: Vec<_> = matches.values_of("specs").unwrap_or_default().collect();
 
     let mut specs = build_specs();
+
+    if matches.is_present("list-specs") {
+        for spec_name in specs.keys() {
+            println!("{}", spec_name);
+        }
+        return;
+    }
+
     if !spec_names_to_run.is_empty() {
         let mut remaining_specs = mem::replace(&mut specs, HashMap::new());
         for spec_name in spec_names_to_run {
@@ -53,6 +56,12 @@ fn main() {
             );
         }
     }
+
+    let log_config = Config {
+        filter: Some("info".to_owned()),
+        ..Default::default()
+    };
+    let _logger_guard = ckb_logger::init(log_config).expect("init Logger");
 
     info!("binary: {}", binary);
     info!("start port: {}", start_port);
