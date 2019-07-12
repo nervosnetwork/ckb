@@ -152,15 +152,9 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
 
             // Reconstruct block
             let ret = {
-                let chain_state = self.relayer.shared.lock_chain_state();
-                self.relayer.request_proposal_txs(
-                    &chain_state,
-                    self.nc.as_ref(),
-                    self.peer,
-                    &compact_block,
-                );
                 self.relayer
-                    .reconstruct_block(&chain_state, &compact_block, Vec::new())
+                    .request_proposal_txs(self.nc.as_ref(), self.peer, &compact_block);
+                self.relayer.reconstruct_block(&compact_block, Vec::new())
             };
 
             // Accept block
