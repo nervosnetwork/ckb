@@ -66,13 +66,16 @@ fn main() {
     info!("binary: {}", binary);
     info!("start port: {}", start_port);
 
-    for (spec_name, spec) in specs {
-        info!("Running {}", spec_name);
+    let total = specs.len();
+    for (index, (spec_name, spec)) in specs.into_iter().enumerate() {
+        info!("Running {}/{}: {}", index + 1, total, spec_name);
         let now = Instant::now();
         let net = spec.setup_net(&binary, start_port);
         spec.run(net);
         info!(
-            "Complete {} in {} seconds",
+            "Complete {}/{}: {} in {} seconds",
+            index + 1,
+            total,
             spec_name,
             now.elapsed().as_secs()
         );
