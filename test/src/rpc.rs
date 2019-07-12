@@ -157,6 +157,21 @@ impl RpcClient {
             .expect("rpc call get_banned_addresses")
     }
 
+    pub fn set_ban(
+        &self,
+        address: String,
+        command: String,
+        ban_time: Option<Timestamp>,
+        absolute: Option<bool>,
+        reason: Option<String>,
+    ) {
+        self.inner
+            .lock()
+            .set_ban(address, command, ban_time, absolute, reason)
+            .call()
+            .expect("rpc call set_ban")
+    }
+
     pub fn get_block_template(
         &self,
         bytes_limit: Option<u64>,

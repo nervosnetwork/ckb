@@ -40,14 +40,11 @@ fn main() {
     );
     specs.insert("chain_fork_1", Box::new(ChainFork1));
     specs.insert("chain_fork_2", Box::new(ChainFork2));
-    // FIXME these 4 tests will fail, because of https://github.com/nervosnetwork/ckb/pull/1164
-    // node will be banned, we need to add `listbanned` rpc and modify test code to assert that node has been banned
-    // https://bitcoincore.org/en/doc/0.16.0/rpc/network/listbanned/
-    // specs.insert("chain_fork_3", Box::new(ChainFork3));
-    // specs.insert("chain_fork_4", Box::new(ChainFork4));
-    // specs.insert("chain_fork_5", Box::new(ChainFork5));
-    // specs.insert("chain_fork_6", Box::new(ChainFork6));
-    // specs.insert("chain_fork_7", Box::new(ChainFork7));
+    specs.insert("chain_fork_3", Box::new(ChainFork3));
+    specs.insert("chain_fork_4", Box::new(ChainFork4));
+    specs.insert("chain_fork_5", Box::new(ChainFork5));
+    specs.insert("chain_fork_6", Box::new(ChainFork6));
+    specs.insert("chain_fork_7", Box::new(ChainFork7));
     specs.insert("mining_basic", Box::new(MiningBasic));
     specs.insert("mining_bootstrap_cellbase", Box::new(BootstrapCellbase));
     specs.insert("mining_template_size_limit", Box::new(TemplateSizeLimit));
