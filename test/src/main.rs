@@ -5,6 +5,7 @@ use clap::{value_t_or_exit, App, Arg};
 use log::info;
 use std::collections::HashMap;
 use std::mem;
+use std::time::Instant;
 
 fn main() {
     let log_config = Config {
@@ -58,8 +59,14 @@ fn main() {
 
     for (spec_name, spec) in specs {
         info!("Running {}", spec_name);
+        let now = Instant::now();
         let net = spec.setup_net(&binary, start_port);
         spec.run(net);
+        info!(
+            "Complete {} in {} seconds",
+            spec_name,
+            now.elapsed().as_secs()
+        );
     }
 }
 
