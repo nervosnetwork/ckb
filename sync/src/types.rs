@@ -1169,7 +1169,7 @@ mod tests {
     use ckb_core::header::HeaderBuilder;
     use rand::{thread_rng, Rng};
 
-    const SKIPLIST_LENGTH: u64 = 500_000;
+    const SKIPLIST_LENGTH: u64 = 10_000;
 
     #[test]
     fn test_get_ancestor_use_skip_list() {
@@ -1222,7 +1222,7 @@ mod tests {
 
             header
         };
-        for _ in 0..1000 {
+        for _ in 0..100 {
             let from: u64 = rng.gen_range(0, SKIPLIST_LENGTH);
             let to: u64 = rng.gen_range(0, from);
             let view_from = &header_map[&hashes[&from]];
