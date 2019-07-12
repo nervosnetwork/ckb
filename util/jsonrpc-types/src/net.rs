@@ -1,4 +1,4 @@
-use crate::Unsigned;
+use crate::{Timestamp, Unsigned};
 use serde_derive::{Deserialize, Serialize};
 
 // TODO add more fields from PeerIdentifyInfo
@@ -14,4 +14,12 @@ pub struct Node {
 pub struct NodeAddress {
     pub address: String,
     pub score: Unsigned,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BannedAddress {
+    pub address: String,
+    pub ban_until: Timestamp,
+    pub ban_reason: String,
+    pub created_at: Timestamp,
 }

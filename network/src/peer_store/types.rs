@@ -1,7 +1,8 @@
 use crate::peer_store::{
-    Multiaddr, PeerId, Score, SessionType, Status, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES,
-    ADDR_TIMEOUT_MS,
+    PeerId, Score, SessionType, Status, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES, ADDR_TIMEOUT_MS,
 };
+use ipnetwork::IpNetwork;
+use p2p::multiaddr::{Multiaddr, Protocol};
 
 #[derive(Debug)]
 pub struct PeerInfo {
@@ -86,4 +87,23 @@ impl PeerAddr {
         // reset attemps
         self.attempts_count = 0;
     }
+}
+
+#[derive(Debug)]
+pub struct BannedAddress {
+    pub address: IpNetwork,
+    pub ban_until: u64,
+    pub ban_reason: String,
+    pub created_at: u64,
+}
+
+pub fn multiaddr_to_ip_network(multiaddr: &Multiaddr) -> Option<IpNetwork> {
+    for addr_component in multiaddr {
+        match addr_component {
+            Protocol::Ip4(ipv4) => return Some(IpNetwork::V4(ipv4.into())),
+            Protocol::Ip6(ipv6) => return Some(IpNetwork::V6(ipv6.into())),
+            _ => (),
+        }
+    }
+    None
 }

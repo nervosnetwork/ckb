@@ -1,9 +1,12 @@
-use ckb_jsonrpc_types::{Node, NodeAddress, Unsigned};
+use crate::error::RPCError;
+use ckb_jsonrpc_types::{BannedAddress, Node, NodeAddress, Timestamp, Unsigned};
 use ckb_network::NetworkController;
+use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 
 const MAX_ADDRS: usize = 50;
+const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
 
 #[rpc]
 pub trait NetworkRpc {
@@ -14,6 +17,21 @@ pub trait NetworkRpc {
     // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_peers","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
     #[rpc(name = "get_peers")]
     fn get_peers(&self) -> Result<Vec<Node>>;
+
+    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"get_banned_addresses","params": []}' -H 'content-type:application/json' 'http://localhost:8114'
+    #[rpc(name = "get_banned_addresses")]
+    fn get_banned_addresses(&self) -> Result<Vec<BannedAddress>>;
+
+    // curl -d '{"id": 2, "jsonrpc": "2.0", "method":"set_ban","params": ["192.168.0.0/24", "insert"]}' -H 'content-type:application/json' 'http://localhost:8114'
+    #[rpc(name = "set_ban")]
+    fn set_ban(
+        &self,
+        address: String,
+        command: String,
+        ban_time: Option<Timestamp>,
+        absolute: Option<bool>,
+        reason: Option<String>,
+    ) -> Result<()>;
 }
 
 pub(crate) struct NetworkRpcImpl {
@@ -59,5 +77,52 @@ impl NetworkRpc for NetworkRpcImpl {
                     .collect(),
             })
             .collect())
+    }
+
+    fn get_banned_addresses(&self) -> Result<Vec<BannedAddress>> {
+        Ok(self
+            .network_controller
+            .get_banned_addresses()
+            .into_iter()
+            .map(|banned| BannedAddress {
+                address: banned.address.to_string(),
+                ban_until: Timestamp(banned.ban_until),
+                ban_reason: banned.ban_reason,
+                created_at: Timestamp(banned.created_at),
+            })
+            .collect())
+    }
+
+    fn set_ban(
+        &self,
+        address: String,
+        command: String,
+        ban_time: Option<Timestamp>,
+        absolute: Option<bool>,
+        reason: Option<String>,
+    ) -> Result<()> {
+        let ip_network = address
+            .parse()
+            .map_err(|_| RPCError::custom(RPCError::Invalid, "invalid address".to_owned()))?;
+        match command.as_ref() {
+            "insert" => {
+                let ban_until = if absolute.unwrap_or(false) {
+                    ban_time.unwrap_or_default().0
+                } else {
+                    unix_time_as_millis() + ban_time.unwrap_or(Timestamp(DEFAULT_BAN_DURATION)).0
+                };
+                self.network_controller.insert_ban(
+                    ip_network,
+                    ban_until,
+                    &reason.unwrap_or_default(),
+                )
+            }
+            "delete" => self.network_controller.delete_ban(&ip_network),
+            _ => Err(RPCError::custom(
+                RPCError::Invalid,
+                "invalid command".to_owned(),
+            ))?,
+        }
+        Ok(())
     }
 }

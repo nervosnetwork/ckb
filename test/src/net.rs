@@ -62,7 +62,7 @@ impl Net {
                 let (tx, rx) = crossbeam_channel::unbounded();
 
                 let config = NetworkConfig {
-                    listen_addresses: vec![format!("/ip4/0.0.0.0/tcp/{}", self.start_port)
+                    listen_addresses: vec![format!("/ip4/127.0.0.1/tcp/{}", self.start_port)
                         .parse()
                         .expect("invalid address")],
                     public_addresses: vec![],

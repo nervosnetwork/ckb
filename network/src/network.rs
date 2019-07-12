@@ -1,6 +1,10 @@
 use crate::errors::Error;
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
-use crate::peer_store::{sqlite::SqlitePeerStore, types::PeerAddr, PeerStore, Status};
+use crate::peer_store::{
+    sqlite::SqlitePeerStore,
+    types::{BannedAddress, PeerAddr},
+    PeerStore, Status,
+};
 use crate::protocols::feeler::Feeler;
 use crate::protocols::{
     discovery::{DiscoveryProtocol, DiscoveryService},
@@ -21,6 +25,7 @@ use futures::sync::mpsc::channel;
 use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use futures::Stream;
+use ipnetwork::IpNetwork;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     bytes::Bytes,
@@ -991,6 +996,21 @@ impl NetworkController {
                 error!("Cannot find peer {:?}", peer_id);
             }
         })
+    }
+
+    pub fn get_banned_addresses(&self) -> Vec<BannedAddress> {
+        self.network_state.peer_store.lock().get_banned_addresses()
+    }
+
+    pub fn insert_ban(&self, address: IpNetwork, ban_until: u64, ban_reason: &str) {
+        self.network_state
+            .peer_store
+            .lock()
+            .insert_ban(address, ban_until, ban_reason)
+    }
+
+    pub fn delete_ban(&self, address: &IpNetwork) {
+        self.network_state.peer_store.lock().delete_ban(address);
     }
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {

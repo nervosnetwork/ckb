@@ -371,6 +371,43 @@
         "skip": true
     },
     {
+        "description": "Returns all banned IPs/Subnets.",
+        "method": "get_banned_addresses",
+        "module": "net",
+        "params": [],
+        "result": [
+            {
+                "address": "192.168.0.2/32",
+                "ban_until": "1840546800000",
+                "ban_reason": "",
+                "created_at": "1562803123000"
+            }
+        ],
+        "skip": true
+    },
+    {
+        "description": "Insert or delete an IP/Subnet from the banned list",
+        "method": "set_ban",
+        "module": "net",
+        "params": [
+            "192.168.0.2",
+            "insert",
+            "1840546800000",
+            true,
+            "test set_ban rpc"
+        ],
+        "result": null,
+        "types": [
+            {
+                "address": "The IP/Subnet with an optional netmask (default is /32 = single IP)",
+                "command": "`insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list",
+                "ban_time": "Time in milliseconds how long (or until when if [absolute] is set) the IP is banned, optional parameter, null means using the default time of 24h",
+                "absolute": "If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter",
+                "reason": "Ban reason, optional parameter"
+            }
+        ]
+    },
+    {
         "description": "Return state info of blockchain",
         "method": "get_blockchain_info",
         "module": "stats",
