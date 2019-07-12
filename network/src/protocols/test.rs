@@ -105,6 +105,7 @@ fn net_service_start(name: String) -> Node {
         discovery_local_address: true,
         upnp: false,
         bootnode_mode: true,
+        max_send_buffer: None,
     };
 
     let network_state =

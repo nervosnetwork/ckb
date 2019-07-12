@@ -55,6 +55,14 @@ where
                 continue;
             }
 
+            if self.nc.pause_send() {
+                debug!(
+                    "Session send buffer is full, stop send blocks to peer {:?}",
+                    self.peer
+                );
+                break;
+            }
+
             if let Some(block) = store.get_block(&block_hash) {
                 debug!(
                     "respond_block {} {:x} to peer {:?}",

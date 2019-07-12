@@ -977,6 +977,9 @@ mod tests {
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
         }
+        fn pause_send(&self) -> bool {
+            false
+        }
     }
 
     fn mock_network_context(peer_num: usize) -> DummyNetworkContext {
