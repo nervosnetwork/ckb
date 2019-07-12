@@ -1,4 +1,4 @@
-use ckb_core::{transaction::Transaction, Cycle};
+use ckb_core::{transaction::Transaction, BlockNumber, Cycle};
 use ckb_shared::shared::Shared;
 use ckb_shared::tx_pool::PoolError;
 use ckb_store::ChainStore;
@@ -19,12 +19,16 @@ impl<CS: ChainStore> BlockMedianTimeContext for StoreBlockMedianTimeContext<CS> 
         self.median_time_block_count
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
         let header = self
             .store
             .get_block_header(block_hash)
             .expect("[StoreBlockMedianTimeContext] blocks used for median time exist");
-        (header.timestamp(), header.parent_hash().to_owned())
+        (
+            header.timestamp(),
+            header.number(),
+            header.parent_hash().to_owned(),
+        )
     }
 }
 

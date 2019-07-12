@@ -833,11 +833,15 @@ impl<CS: ChainStore> BlockMedianTimeContext for &ChainState<CS> {
         self.consensus.median_time_block_count() as u64
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
         let header = self
             .store
             .get_block_header(&block_hash)
             .expect("[ChainState] blocks used for median time exist");
-        (header.timestamp(), header.parent_hash().to_owned())
+        (
+            header.timestamp(),
+            header.number(),
+            header.parent_hash().to_owned(),
+        )
     }
 }

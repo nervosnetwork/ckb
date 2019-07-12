@@ -3,6 +3,7 @@ use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
 use ckb_core::header::Header;
+use ckb_core::BlockNumber;
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
@@ -256,10 +257,14 @@ where
         self.shared.consensus().median_time_block_count() as u64
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
         let header = self
             .get_header(&block_hash)
             .expect("[CompactBlockMedianTimeView] blocks used for median time exist");
-        (header.timestamp(), header.parent_hash().to_owned())
+        (
+            header.timestamp(),
+            header.number(),
+            header.parent_hash().to_owned(),
+        )
     }
 }

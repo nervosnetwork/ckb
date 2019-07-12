@@ -33,8 +33,7 @@ impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
         let (tip_header, median_time) = {
             let chain_state = self.shared.lock_chain_state();
             let tip_header = chain_state.tip_header().clone();
-            let median_time =
-                (&*chain_state).block_median_time(tip_header.number(), tip_header.hash());
+            let median_time = (&*chain_state).block_median_time(tip_header.hash());
             (tip_header, median_time)
         };
         let epoch = tip_header.epoch();
