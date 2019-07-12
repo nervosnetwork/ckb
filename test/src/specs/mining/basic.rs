@@ -2,6 +2,7 @@ use crate::{Net, Node, Spec};
 use ckb_core::block::Block;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::ProposalShortId;
+use ckb_jsonrpc_types::BlockTemplate;
 use log::info;
 use std::convert::Into;
 use std::thread::sleep;
@@ -72,8 +73,8 @@ impl MiningBasic {
         sleep(Duration::new(0, 200));
         let template2 = rpc_client.get_block_template(None, None, None);
         assert_eq!(block_hash1, template1.parent_hash);
-        assert_eq!(
-            template1, template2,
+        assert!(
+            is_block_template_equal(&template1, &template2),
             "templates keep same since block template cache",
         );
 
@@ -87,4 +88,10 @@ impl MiningBasic {
             "New tip block, new template",
         );
     }
+}
+
+fn is_block_template_equal(template1: &BlockTemplate, template2: &BlockTemplate) -> bool {
+    let mut temp = template1.clone();
+    temp.current_time = template2.current_time.clone();
+    &temp == template2
 }
