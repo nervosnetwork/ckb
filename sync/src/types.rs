@@ -638,7 +638,6 @@ pub struct SyncSharedState<CS> {
     /* Status relevant to peers */
     peers: Peers,
     misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
-    known_blocks: Mutex<KnownFilter>,
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
@@ -685,7 +684,6 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
             misbehavior: RwLock::new(FnvHashMap::default()),
-            known_blocks: Mutex::new(KnownFilter::default()),
             known_txs: Mutex::new(KnownFilter::default()),
             pending_get_block_proposals: Mutex::new(FnvHashMap::default()),
             pending_compact_blocks: Mutex::new(FnvHashMap::default()),
@@ -717,9 +715,6 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 .and_modify(|s| *s += score)
                 .or_insert_with(|| score);
         }
-    }
-    pub fn known_blocks(&self) -> MutexGuard<KnownFilter> {
-        self.known_blocks.lock()
     }
     pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
         self.known_txs.lock()
@@ -1081,7 +1076,6 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn disconnected(&self, pi: PeerIndex) -> Option<PeerState> {
         self.known_txs.lock().inner.remove(&pi);
-        self.known_blocks.lock().inner.remove(&pi);
         self.inflight_blocks.write().remove_by_peer(pi);
         self.peers().disconnected(pi)
     }
