@@ -3,8 +3,8 @@ use ckb_test::specs::*;
 use ckb_test::Spec;
 use clap::{value_t_or_exit, App, Arg};
 use log::info;
+use rand::{seq::SliceRandom, thread_rng};
 use std::collections::HashMap;
-use std::mem;
 use std::time::Instant;
 
 fn main() {
@@ -36,26 +36,33 @@ fn main() {
     let start_port = value_t_or_exit!(matches, "port", u16);
     let spec_names_to_run: Vec<_> = matches.values_of("specs").unwrap_or_default().collect();
 
-    let mut specs = build_specs();
+    let mut all_specs = build_specs();
 
     if matches.is_present("list-specs") {
-        for spec_name in specs.keys() {
+        let mut names: Vec<_> = all_specs.keys().collect();
+        names.sort();
+        for spec_name in names {
             println!("{}", spec_name);
         }
         return;
     }
 
-    if !spec_names_to_run.is_empty() {
-        let mut remaining_specs = mem::replace(&mut specs, HashMap::new());
+    let specs = if spec_names_to_run.is_empty() {
+        let mut specs: Vec<_> = all_specs.into_iter().collect();
+        specs.shuffle(&mut thread_rng());
+        specs
+    } else {
+        let mut specs = Vec::with_capacity(spec_names_to_run.len());
         for spec_name in spec_names_to_run {
-            specs.insert(
+            specs.push((
                 spec_name,
-                remaining_specs
+                all_specs
                     .remove(spec_name)
                     .expect(&format!("expect spec {}", spec_name)),
-            );
+            ));
         }
-    }
+        specs
+    };
 
     let log_config = Config {
         filter: Some("info".to_owned()),
@@ -68,12 +75,17 @@ fn main() {
 
     let total = specs.len();
     for (index, (spec_name, spec)) in specs.into_iter().enumerate() {
-        info!("Running {}/{}: {}", index + 1, total, spec_name);
+        info!(
+            "{}/{} .............. Running {}",
+            index + 1,
+            total,
+            spec_name
+        );
         let now = Instant::now();
         let net = spec.setup_net(&binary, start_port);
         spec.run(net);
         info!(
-            "Complete {}/{}: {} in {} seconds",
+            "{}/{} -------------> Completed {} in {} seconds",
             index + 1,
             total,
             spec_name,
