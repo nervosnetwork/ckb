@@ -1,9 +1,10 @@
 use ckb_logger::{self, Config};
 use ckb_test::specs::*;
 use ckb_test::Spec;
+use clap::{value_t_or_exit, App, Arg};
 use log::info;
 use std::collections::HashMap;
-use std::env;
+use std::mem;
 
 fn main() {
     let log_config = Config {
@@ -12,15 +13,61 @@ fn main() {
     };
     let _logger_guard = ckb_logger::init(log_config).expect("init Logger");
 
-    let binary = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "../target/release/ckb".to_string());
-    let start_port = env::args()
-        .nth(2)
-        .unwrap_or_else(|| "9000".to_string())
-        .parse()
-        .expect("invalid port number");
-    let mut specs: HashMap<&str, Box<dyn Spec>> = HashMap::new();
+    let clap_app = App::new("ckb-test")
+        .arg(
+            Arg::with_name("binary")
+                .short("b")
+                .long("bin")
+                .required(true)
+                .takes_value(true)
+                .value_name("PATH")
+                .help("Path to ckb executable")
+                .default_value("../target/release/ckb"),
+        )
+        .arg(
+            Arg::with_name("port")
+                .short("p")
+                .long("port")
+                .required(true)
+                .takes_value(true)
+                .help("Starting port number used to start ckb nodes")
+                .default_value("9000"),
+        )
+        .arg(Arg::with_name("specs").multiple(true));
+    let matches = clap_app.get_matches();
+
+    let binary = matches.value_of("binary").unwrap();
+    let start_port = value_t_or_exit!(matches, "port", u16);
+    let spec_names_to_run: Vec<_> = matches.values_of("specs").unwrap_or_default().collect();
+
+    let mut specs = build_specs();
+    if !spec_names_to_run.is_empty() {
+        let mut remaining_specs = mem::replace(&mut specs, HashMap::new());
+        for spec_name in spec_names_to_run {
+            specs.insert(
+                spec_name,
+                remaining_specs
+                    .remove(spec_name)
+                    .expect(&format!("expect spec {}", spec_name)),
+            );
+        }
+    }
+
+    info!("binary: {}", binary);
+    info!("start port: {}", start_port);
+
+    for (spec_name, spec) in specs {
+        info!("Running {}", spec_name);
+        let net = spec.setup_net(&binary, start_port);
+        spec.run(net);
+    }
+}
+
+type SpecMap = HashMap<&'static str, Box<dyn Spec>>;
+
+fn build_specs() -> SpecMap {
+    let mut specs = SpecMap::new();
+
     specs.insert("block_relay_basic", Box::new(BlockRelayBasic));
     specs.insert("block_sync_from_one", Box::new(BlockSyncFromOne));
     specs.insert("block_sync_forks", Box::new(BlockSyncForks));
@@ -92,16 +139,5 @@ fn main() {
     specs.insert("indexer_basic", Box::new(IndexerBasic));
     specs.insert("genesis_issued_cells", Box::new(GenesisIssuedCells));
 
-    if let Some(spec_name) = env::args().nth(3) {
-        if let Some(spec) = specs.get(spec_name.as_str()) {
-            let net = spec.setup_net(&binary, start_port);
-            spec.run(net);
-        }
-    } else {
-        specs.iter().for_each(|(spec_name, spec)| {
-            info!("Running {}", spec_name);
-            let net = spec.setup_net(&binary, start_port);
-            spec.run(net);
-        })
-    }
+    specs
 }
