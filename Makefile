@@ -21,17 +21,17 @@ setup-ckb-test:
 
 integration: setup-ckb-test ## Run integration tests in "test" dir.
 	cargo build ${VERBOSE}
-	cd test && cargo run ${VERBOSE} -- --bin ../target/debug/ckb
+	cd test && cargo run ${VERBOSE} -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
 
 integration-windows:
 	cp -f Cargo.lock test/Cargo.lock
 	cargo build ${VERBOSE}
 	mv target test/
-	cd test && cargo run ${VERBOSE} -- --bin target/debug/ckb
+	cd test && cargo run ${VERBOSE} -- --bin target/debug/ckb ${CKB_TEST_ARGS}
 
 integration-release: setup-ckb-test
 	cargo build ${VERBOSE} --release
-	cd test && cargo run ${VERBOSE} --release -- --bin ../target/release/ckb
+	cd test && cargo run ${VERBOSE} --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
 
 ##@ Document
 doc: ## Build the documentation for the local package.
