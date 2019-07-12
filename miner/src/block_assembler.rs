@@ -280,7 +280,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         )) {
             // check template cache outdate time
             if !template_cache.is_outdate(current_time) {
-                return Ok(template_cache.template.clone());
+                let mut template = template_cache.template.clone();
+                template.current_time = JsonTimestamp(current_time);
+                return Ok(template);
             }
         }
 
@@ -299,7 +301,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             // check our tx_pool wether is modified
             // we can reuse cache if it is not modidied
             if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
-                return Ok(template_cache.template.clone());
+                let mut template = template_cache.template.clone();
+                template.current_time = JsonTimestamp(current_time);
+                return Ok(template);
             }
         }
 
