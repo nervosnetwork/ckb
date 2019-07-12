@@ -1,3 +1,4 @@
+use crate::block_status::BlockStatus;
 use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::Relayer;
@@ -8,7 +9,7 @@ use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderResolver, HeaderResolverWrapper, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashSet;
@@ -41,6 +42,20 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
     pub fn execute(self) -> Result<(), FailureError> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash().to_owned();
+
+        let status = self.relayer.shared().get_block_status(&block_hash);
+        if status.contains(BlockStatus::BLOCK_STORED) {
+            return Ok(());
+        } else if status.contains(BlockStatus::BLOCK_INVALID) {
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "receive a compact block with invalid status, {:#x}, peer: {}",
+                block_hash,
+                self.peer
+            );
+            // TODO ban/punish this peer
+            return Ok(());
+        }
 
         let parent = self
             .relayer
@@ -111,7 +126,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 .get(&block_hash)
                 .map(|(_, peers_set)| peers_set.contains(&self.peer))
                 .unwrap_or(false)
-                || self.relayer.shared.store().get_block(&block_hash).is_some()
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -148,6 +162,12 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     return Ok(());
                 }
                 compact_block_verifier.verify(&compact_block)?;
+
+                // Header has been verified ok, update state
+                let epoch = resolver.epoch().expect("epoch verified").clone();
+                self.relayer
+                    .shared()
+                    .insert_valid_header(self.peer, &compact_block.header, epoch);
             }
 
             // Reconstruct block

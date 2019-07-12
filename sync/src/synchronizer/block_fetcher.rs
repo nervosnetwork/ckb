@@ -1,4 +1,5 @@
-use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::block_status::BlockStatus;
+use crate::synchronizer::Synchronizer;
 use crate::types::HeaderView;
 use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 use ckb_core::header::Header;
@@ -156,10 +157,10 @@ where
                     .shared
                     .get_ancestor(max_height_header.hash(), index_height)?;
                 let to_fetch_hash = to_fetch.hash();
-
-                let block_status = self.synchronizer.shared().get_block_status(to_fetch_hash);
-                if block_status != BlockStatus::VALID_MASK
-                    || self.synchronizer.shared().contains_orphan_block(&to_fetch)
+                if self
+                    .synchronizer
+                    .shared()
+                    .contains_block_status(to_fetch_hash, BlockStatus::BLOCK_RECEIVED)
                 {
                     continue;
                 }

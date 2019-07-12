@@ -1,10 +1,10 @@
+use crate::block_status::BlockStatus;
 use crate::relayer::compact_block::CompactBlock;
 use crate::synchronizer::OrphanBlockPool;
 use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
-use bitflags::bitflags;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
@@ -12,7 +12,7 @@ use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Cycle;
-use ckb_logger::{debug, debug_target};
+use ckb_logger::{debug, debug_target, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
@@ -601,26 +601,6 @@ impl EpochIndices {
     }
 }
 
-bitflags! {
-    pub struct BlockStatus: u32 {
-        const UNKNOWN            = 0;
-        const VALID_HEADER       = 1;
-        const VALID_TREE         = 2;
-        const VALID_TRANSACTIONS = 3;
-        const VALID_CHAIN        = 4;
-        const VALID_SCRIPTS      = 5;
-
-        const VALID_MASK         = Self::VALID_HEADER.bits | Self::VALID_TREE.bits | Self::VALID_TRANSACTIONS.bits |
-                                   Self::VALID_CHAIN.bits | Self::VALID_SCRIPTS.bits;
-        const BLOCK_HAVE_DATA    = 8;
-        const BLOCK_HAVE_UNDO    = 16;
-        const BLOCK_HAVE_MASK    = Self::BLOCK_HAVE_DATA.bits | Self::BLOCK_HAVE_UNDO.bits;
-        const FAILED_VALID       = 32;
-        const FAILED_CHILD       = 64;
-        const FAILED_MASK        = Self::FAILED_VALID.bits | Self::FAILED_CHILD.bits;
-    }
-}
-
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
 
@@ -776,10 +756,40 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         *self.shared_best_header.write() = header;
     }
 
-    pub fn insert_header_view(&self, hash: H256, mut view: HeaderView) {
-        view.build_skip(|hash| self.get_header_view(hash));
-        self.header_map.write().insert(hash, view);
+    // Update the shared_best_header if need
+    // Update the peer's best_known_header
+    // Update the header_map
+    // Update the epoch_map
+    // Update the block_status_map
+    pub fn insert_valid_header(&self, peer: PeerIndex, header: &Header, epoch: EpochExt) {
+        let parent_view = self
+            .get_header_view(header.parent_hash())
+            .expect("parent should be verified");
+        let mut header_view = {
+            let total_difficulty = parent_view.total_difficulty() + header.difficulty();
+            let total_uncles_count =
+                parent_view.total_uncles_count() + u64::from(header.uncles_count());
+            HeaderView::new(header.clone(), total_difficulty, total_uncles_count)
+        };
+
+        // Update shared_best_header if the arrived header has greater difficulty
+        let shared_best_header = self.shared_best_header();
+        if header_view.is_better_than(
+            shared_best_header.total_difficulty(),
+            shared_best_header.hash(),
+        ) {
+            self.set_shared_best_header(header_view.clone());
+        }
+
+        self.peers().new_header_received(peer, &header_view);
+        header_view.build_skip(|hash| self.get_header_view(hash));
+        self.header_map
+            .write()
+            .insert(header.hash().to_owned(), header_view);
+        self.insert_epoch(header, epoch);
+        self.insert_block_status(header.hash().to_owned(), BlockStatus::HEADER_VALID);
     }
+
     pub fn remove_header_view(&self, hash: &H256) {
         self.header_map.write().remove(hash);
     }
@@ -1028,16 +1038,19 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         ids.iter().map(|id| locked.remove(id)).collect()
     }
 
-    pub fn contains_orphan_block(&self, header: &Header) -> bool {
-        self.orphan_block_pool.contains(header)
-    }
-
     pub fn insert_orphan_block(&self, block: Block) {
-        self.orphan_block_pool.insert(block)
+        let block_hash = block.header().hash().to_owned();
+        self.orphan_block_pool.insert(block);
+        self.insert_block_status(block_hash, BlockStatus::BLOCK_RECEIVED);
     }
 
     pub fn remove_orphan_by_parent(&self, parent_hash: &H256) -> Vec<Block> {
-        self.orphan_block_pool.remove_blocks_by_parent(parent_hash)
+        let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
+        let mut block_status_map = self.block_status_map.lock();
+        blocks.iter().for_each(|b| {
+            block_status_map.remove(b.header().hash());
+        });
+        blocks
     }
 
     pub fn get_block_status(&self, block_hash: &H256) -> BlockStatus {
@@ -1046,13 +1059,21 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             Some(status) => status,
             None => {
                 if self.shared.store().get_block_header(block_hash).is_some() {
-                    locked.insert(block_hash.clone(), BlockStatus::BLOCK_HAVE_MASK);
-                    BlockStatus::BLOCK_HAVE_MASK
+                    locked.insert(block_hash.clone(), BlockStatus::BLOCK_STORED);
+                    BlockStatus::BLOCK_STORED
                 } else {
                     BlockStatus::UNKNOWN
                 }
             }
         }
+    }
+
+    pub fn contains_block_status(&self, block_hash: &H256, status: BlockStatus) -> bool {
+        self.get_block_status(block_hash).contains(status)
+    }
+
+    pub fn unknown_block_status(&self, block_hash: &H256) -> bool {
+        self.get_block_status(block_hash) == BlockStatus::UNKNOWN
     }
 
     pub fn insert_block_status(&self, block_hash: H256, status: BlockStatus) {
@@ -1145,17 +1166,17 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         peer: PeerIndex,
         block: Arc<Block>,
     ) -> Result<bool, FailureError> {
+        let block_hash = block.header().hash().to_owned();
         let ret = chain.process_block(Arc::clone(&block), true);
         if ret.is_err() {
-            self.insert_block_status(block.header().hash().to_owned(), BlockStatus::FAILED_MASK);
+            error!("accept block {:?} {:?}", block, ret);
+            self.insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
             return ret;
+        } else {
+            self.insert_block_status(block_hash, BlockStatus::BLOCK_STORED);
         }
 
         self.remove_header_view(block.header().hash());
-        self.insert_block_status(
-            block.header().hash().to_owned(),
-            BlockStatus::BLOCK_HAVE_MASK,
-        );
         self.peers()
             .set_last_common_header(peer, block.header().clone());
         ret

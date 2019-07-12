@@ -1,5 +1,4 @@
 use ckb_core::block::Block;
-use ckb_core::header::Header;
 use ckb_util::RwLock;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
@@ -7,6 +6,8 @@ use std::collections::VecDeque;
 
 pub type ParentHash = H256;
 
+// NOTE: Never use `LruCache` as container. We have to ensure synchronizing between
+// orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
 #[derive(Default)]
 pub struct OrphanBlockPool {
     blocks: RwLock<FnvHashMap<ParentHash, FnvHashMap<H256, Block>>>,
@@ -45,14 +46,6 @@ impl OrphanBlockPool {
             }
         }
         removed
-    }
-
-    pub fn contains(&self, header: &Header) -> bool {
-        self.blocks
-            .read()
-            .get(header.parent_hash())
-            .map(|blocks| blocks.contains_key(header.hash()))
-            .unwrap_or(false)
     }
 }
 

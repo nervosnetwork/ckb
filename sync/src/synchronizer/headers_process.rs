@@ -1,4 +1,5 @@
-use crate::synchronizer::{BlockStatus, Synchronizer};
+use crate::block_status::BlockStatus;
+use crate::synchronizer::Synchronizer;
 use crate::MAX_HEADERS_LEN;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -135,7 +136,7 @@ where
 
     fn received_new_header(&self, headers: &[Header]) -> bool {
         let last = headers.last().expect("empty checked");
-        self.synchronizer.shared().get_block_status(&last.hash()) == BlockStatus::UNKNOWN
+        self.synchronizer.shared().unknown_block_status(last.hash())
     }
 
     pub fn accept_first(&self, first: &Header) -> ValidationResult {
@@ -331,12 +332,11 @@ where
     }
 
     pub fn prev_block_check(&self, state: &mut ValidationResult) -> Result<(), ()> {
-        let status = self
+        if self
             .synchronizer
             .shared()
-            .get_block_status(&self.header.parent_hash());
-
-        if (status & BlockStatus::FAILED_MASK) == status {
+            .contains_block_status(self.header.parent_hash(), BlockStatus::BLOCK_INVALID)
+        {
             state.dos(Some(ValidationError::InvalidParent), 100);
             return Err(());
         }
@@ -385,49 +385,74 @@ where
 
     pub fn accept(&self) -> ValidationResult {
         let mut result = ValidationResult::default();
+
+        // FIXME If status == BLOCK_INVALID then return early. But which error
+        // type should we return?
+        if self
+            .synchronizer
+            .shared()
+            .contains_block_status(self.header.hash(), BlockStatus::HEADER_VALID)
+        {
+            let header_view = self
+                .synchronizer
+                .shared()
+                .get_header_view(self.header.hash())
+                .expect("header with HEADER_VALID should exist");
+            self.synchronizer
+                .peers()
+                .new_header_received(self.peer, &header_view);
+            return result;
+        }
+
         if self.duplicate_check(&mut result).is_err() {
-            debug!("HeadersProcess accept {:?} duplicate", self.header.number());
+            debug!(
+                "HeadersProcess reject duplicate header: {} {:#x}",
+                self.header.number(),
+                self.header.hash()
+            );
             return result;
         }
 
         if self.prev_block_check(&mut result).is_err() {
             debug!(
-                "HeadersProcess accept {:?} prev_block",
-                self.header.number()
+                "HeadersProcess reject invalid-parent header: {} {:#x}",
+                self.header.number(),
+                self.header.hash(),
             );
             self.synchronizer
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_CHILD);
+                .shared()
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
         if self.non_contextual_check(&mut result).is_err() {
             debug!(
-                "HeadersProcess accept {:?} non_contextual",
-                self.header.number()
+                "HeadersProcess reject non-contextual header: {} {:#x}",
+                self.header.number(),
+                self.header.hash(),
             );
             self.synchronizer
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_VALID);
+                .shared()
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
         if self.version_check(&mut result).is_err() {
-            debug!("HeadersProcess accept {:?} version", self.header.number());
+            debug!(
+                "HeadersProcess reject invalid-version header {} {:#x}",
+                self.header.number(),
+                self.header.hash(),
+            );
             self.synchronizer
-                .insert_block_status(self.header.hash().to_owned(), BlockStatus::FAILED_VALID);
+                .shared()
+                .insert_block_status(self.header.hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return result;
         }
 
+        let epoch = self.resolver.epoch().expect("epoch verified").clone();
         self.synchronizer
-            .insert_header_view(&self.header, self.peer);
-        self.synchronizer.shared.insert_epoch(
-            &self.header,
-            self.resolver
-                .epoch()
-                .expect("epoch should be verified")
-                .clone(),
-        );
-        self.synchronizer
-            .insert_block_status(self.header.hash().to_owned(), BlockStatus::VALID_MASK);
+            .shared()
+            .insert_valid_header(self.peer, &self.header, epoch);
         result
     }
 }

@@ -11,7 +11,7 @@ use self::block_process::BlockProcess;
 use self::get_blocks_process::GetBlocksProcess;
 use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
-use crate::types::BlockStatus;
+use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, Peers, SyncSharedState};
 use crate::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
@@ -111,10 +111,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
         self.shared().peers()
     }
 
-    pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
-        self.shared().insert_block_status(hash, status);
-    }
-
     pub fn predict_headers_sync_time(&self, header: &Header) -> u64 {
         let now = unix_time_as_millis();
         let expected_headers = min(
@@ -124,51 +120,24 @@ impl<CS: ChainStore> Synchronizer<CS> {
         now + HEADERS_DOWNLOAD_TIMEOUT_BASE + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER * expected_headers
     }
 
-    pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
-        if let Some(parent_view) = self.shared.get_header_view(&header.parent_hash()) {
-            let total_difficulty = parent_view.total_difficulty() + header.difficulty();
-            let total_uncles_count =
-                parent_view.total_uncles_count() + u64::from(header.uncles_count());
-            let header_view = {
-                let shared_best_header = self.shared.shared_best_header();
-                let header_view =
-                    HeaderView::new(header.clone(), total_difficulty.clone(), total_uncles_count);
-
-                if total_difficulty.gt(shared_best_header.total_difficulty())
-                    || (&total_difficulty == shared_best_header.total_difficulty()
-                        && header.hash() < shared_best_header.hash())
-                {
-                    self.shared.set_shared_best_header(header_view.clone());
-                }
-                header_view
-            };
-
-            self.peers().new_header_received(peer, &header_view);
-            self.shared
-                .insert_header_view(header.hash().to_owned(), header_view);
-        }
-    }
-
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
-        if self.shared().contains_orphan_block(block.header()) {
-            debug!("block {:x} already in orphan pool", block.header().hash());
-            return Ok(());
+    pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<bool, FailureError> {
+        let block_hash = block.header().hash();
+        let status = self.shared().get_block_status(block_hash);
+        if status.contains(BlockStatus::BLOCK_RECEIVED) {
+            debug!("block {:x} already received", block_hash);
+            Ok(false)
+        } else if status.contains(BlockStatus::HEADER_VALID) {
+            self.shared()
+                .insert_new_block(&self.chain, peer, Arc::new(block))
+        } else {
+            debug!(
+                "Synchronizer process_new_block unexpected status {:?} {:#x}",
+                status, block_hash,
+            );
+            // TODO which error should we return?
+            Ok(false)
         }
-
-        match self.shared().get_block_status(&block.header().hash()) {
-            BlockStatus::VALID_MASK => {
-                self.shared()
-                    .insert_new_block(&self.chain, peer, Arc::new(block))?;
-            }
-            status => {
-                debug!(
-                    "[Synchronizer] process_new_block unexpected status {:?}",
-                    status
-                );
-            }
-        }
-        Ok(())
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
@@ -589,14 +558,6 @@ mod tests {
     ) -> Synchronizer<CS> {
         let shared = Arc::new(SyncSharedState::new(shared));
         Synchronizer::new(chain_controller, shared)
-    }
-
-    #[test]
-    fn test_block_status() {
-        let status1 = BlockStatus::FAILED_VALID;
-        let status2 = BlockStatus::FAILED_CHILD;
-        assert!((status1 & BlockStatus::FAILED_MASK) == status1);
-        assert!((status2 & BlockStatus::FAILED_MASK) == status2);
     }
 
     fn gen_block<CS: ChainStore>(
