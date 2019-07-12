@@ -6,26 +6,15 @@ use crate::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header, HeaderBuilder, HEADER_VERSION};
 use ckb_pow::PowEngine;
-use ckb_traits::BlockMedianTimeContext;
+use ckb_test_chain_utils::MockMedianTime;
 use faketime::unix_time_as_millis;
-use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
-pub(crate) struct FakeBlockMedianTimeContext;
-
-impl BlockMedianTimeContext for FakeBlockMedianTimeContext {
-    fn median_block_count(&self) -> u64 {
-        unimplemented!();
-    }
-
-    fn timestamp_and_parent(&self, _block_hash: &H256) -> (u64, H256) {
-        unimplemented!();
-    }
-
-    fn block_median_time(&self, _block_number: BlockNumber, _block_hash: &H256) -> u64 {
-        unix_time_as_millis()
-    }
+fn mock_median_time_context() -> MockMedianTime {
+    let now = unix_time_as_millis();
+    let timestamps = (0..100).map(|_| now).collect();
+    MockMedianTime::new(timestamps)
 }
 
 #[test]
@@ -41,7 +30,7 @@ pub fn test_version() {
 fn test_timestamp() {
     let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
     faketime::enable(&faketime_file);
-    let fake_block_median_time_context = FakeBlockMedianTimeContext;
+    let fake_block_median_time_context = mock_median_time_context();
 
     let timestamp = unix_time_as_millis() + 1;
     let header = HeaderBuilder::default()
@@ -58,7 +47,7 @@ fn test_timestamp() {
 fn test_timestamp_too_old() {
     let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
     faketime::enable(&faketime_file);
-    let fake_block_median_time_context = FakeBlockMedianTimeContext;
+    let fake_block_median_time_context = mock_median_time_context();
 
     let min = unix_time_as_millis();
     let timestamp = unix_time_as_millis() - 1;
@@ -82,7 +71,7 @@ fn test_timestamp_too_old() {
 fn test_timestamp_too_new() {
     let faketime_file = faketime::millis_tempfile(100_000).expect("create faketime file");
     faketime::enable(&faketime_file);
-    let fake_block_median_time_context = FakeBlockMedianTimeContext;
+    let fake_block_median_time_context = mock_median_time_context();
 
     let max = unix_time_as_millis() + ALLOWED_FUTURE_BLOCKTIME;
     let timestamp = max + 1;
