@@ -6,7 +6,6 @@ use ckb_pow::{pow_message, Cuckoo, CuckooSip};
 use crossbeam_channel::{Receiver, Sender};
 use indicatif::ProgressBar;
 use numext_fixed_hash::H256;
-use rand::random;
 use serde_derive::{Deserialize, Serialize};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -152,14 +151,14 @@ fn path(graph: &[u64], start: u64) -> Vec<u64> {
 const STATE_UPDATE_DURATION_MILLIS: u128 = 500;
 
 impl Worker for CuckooSimple {
-    fn run(&mut self, progress_bar: ProgressBar) {
+    fn run<G: FnMut() -> u64>(&mut self, mut rng: G, progress_bar: ProgressBar) {
         let mut state_update_counter = 0usize;
         let mut start = Instant::now();
         loop {
             self.poll_worker_message();
             if self.start {
                 if let Some(pow_hash) = self.pow_hash.clone() {
-                    self.solve(&pow_hash, random());
+                    self.solve(&pow_hash, rng());
                     state_update_counter += 1;
 
                     let elapsed = start.elapsed();

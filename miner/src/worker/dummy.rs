@@ -6,7 +6,7 @@ use indicatif::ProgressBar;
 use numext_fixed_hash::H256;
 use rand::{
     distributions::{self as dist, Distribution as _},
-    random, thread_rng,
+    thread_rng,
 };
 use serde_derive::{Deserialize, Serialize};
 use std::thread;
@@ -107,13 +107,13 @@ impl Dummy {
 }
 
 impl Worker for Dummy {
-    fn run(&mut self, _progress_bar: ProgressBar) {
+    fn run<G: FnMut() -> u64>(&mut self, mut rng: G, _progress_bar: ProgressBar) {
         let mut current = self.pow_hash.clone();
         loop {
             self.poll_worker_message();
             if current != self.pow_hash && self.start {
                 if let Some(pow_hash) = &self.pow_hash {
-                    self.solve(pow_hash, random());
+                    self.solve(pow_hash, rng());
                 }
             }
 
