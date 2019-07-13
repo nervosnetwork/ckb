@@ -636,6 +636,7 @@ dependencies = [
  "ckb-traits 0.17.0-pre",
  "ckb-util 0.17.0-pre",
  "ckb-verification 0.17.0-pre",
+ "console 0.7.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
