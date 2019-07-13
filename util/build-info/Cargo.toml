@@ -1,6 +1,6 @@
 [package]
 name = "build-info"
-version = "0.15.6"
+version = "0.16.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
