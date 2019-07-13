@@ -1,17 +1,4 @@
-All notable changes to this project will be documented in this file.
-See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
-
-# [v0.15.6](https://github.com/nervosnetwork/ckb/compare/v0.15.5...v0.15.6) (2019-07-09)
-
-### Bug Fixes
-
-* #1183: Ibd should remain false once returned false (@quake)
-* #1190: Fix sync logic (@driftluo, @quake)
-* #1189: Fix debug log state error (@driftluo, @quake)
-* #1185: Resolve fresh proposal txs checking bug (@quake)
-
-
-# [v0.15.5](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.15.5) (2019-07-06)
+# [v0.16.0](https://github.com/nervosnetwork/ckb/compare/v0.16.0...v0.15.0) (2019-07-13)
 
 ### Features
 
@@ -19,6 +6,10 @@ See [Conventional Commits](https://conventionalcommits.org) for commit guideline
 
 ### Bug Fixes
 
+* #1183: Ibd should remain false once returned false (@quake)
+* #1190: Fix sync logic (@driftluo, @quake)
+* #1189: Fix debug log state error (@driftluo, @quake)
+* #1185: Resolve fresh proposal txs checking bug (@quake)
 * #1176: Use tip header to ignore compact block (@TheWaWaR)
 * #1179: Random failure caused by dirty exit in RPC test (@doitian)
 
@@ -40,7 +31,7 @@ See [Conventional Commits](https://conventionalcommits.org) for commit guideline
     no matter it's known best's ancestor or not.
 
 
-# [v0.15.0](https://github.com/nervosnetwork/ckb/compare/v0.14.2...v0.15.0) (2019-06-29)
+# [v0.15.0](https://github.com/nervosnetwork/ckb/compare/v0.14.0...v0.15.0) (2019-06-29)
 
 **Important:** The default secp256k1 has changed. Now its code hash is
 
@@ -98,10 +89,10 @@ See [Conventional Commits](https://conventionalcommits.org) for commit guideline
 * #998: Fix confusing JsonBytes deserializing error message (@driftluo)
 * #1011: `witnesses_root` calculation should include cellbase (@u2)
 * #1022: Avoid dummy worker re-solve the same works (@keroro520)
-* #1044: Peer_store time calculation overflow (@jjyr)
-* #1066: Check new block based on orphan block pool (@keroro520)
+* #1044: `Peer_store` time calculation overflow (@jjyr)
 * #1077: Resolve `ChainSpec` script deserialize issue (@quake)
-* #1084: Cellset consistency (@zhangsoledad)
+* #1076: `CellSet` is inconsistent in memory and storage (@zhangsoledad)
+* #1025: Miner time interval panic (@quake)
 
 ### Improvements
 
@@ -113,20 +104,7 @@ See [Conventional Commits](https://conventionalcommits.org) for commit guideline
 * #971: Abstract data loader layer to decouple `ckb-script` and `ckb-store` (@jjyr)
 * #994: Wrap lock methods to avoid locking a long time (@keroro520)
 
-# [v0.14.2](https://github.com/nervosnetwork/ckb/compare/v0.14.1...v0.14.2) (2019-06-21)
-
 ### Bug Fixes
-
-* #1076: `CellSet` is inconsistent in memory and storage (@zhangsoledad)
-* #1066: Check new block based on orphan block pool (@keroro520)
-
-
-# [v0.14.1](https://github.com/nervosnetwork/ckb/compare/v0.14.0...v0.14.1) (2019-06-16)
-
-### Bug Fixes
-
-* #1019: Miner log wrong block hash (@quake)
-* #1025: Miner time interval panic (@quake)
 
 # [v0.14.0](https://github.com/nervosnetwork/ckb/compare/v0.13.0...v0.14.0) (2019-06-15) rylai-v3
 
@@ -232,7 +210,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 * #966: Backport windows support and sentry cleanup to v0.14.0 (@doitian)
 
 
-# [v0.13.0](https://github.com/nervosnetwork/ckb/compare/v0.12.2...v0.13.0) (2019-06-01) rylai-v2
+# [v0.13.0](https://github.com/nervosnetwork/ckb/compare/v0.12.0...v0.13.0) (2019-06-01) rylai-v2
 
 ### Features
 
@@ -295,44 +273,6 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
     On the test net monitoring, the bandwidth usage is often in a full state. We try to use the snappy compression algorithm to reduce network transmission consumption.
 
-    After testing, the compression yield of flatbuffer format is very high, cpu consumption is relatively acceptable.
-
-    The following is the data transmission on the test net:
-
-    ```
-    2019-05-20 16:27:41.875 +08:00 tokio-runtime-worker-7 DEBUG compress  raw_data len: 625400, compress used time: 3.635121ms, compress_data size: 335401, compression ratio: 0.536298369043812, decompress used time: 1.496667ms
-    2019-05-20 16:27:42.128 +08:00 tokio-runtime-worker-6 DEBUG compress  raw_data len: 633544, compress used time: 3.789752ms, compress_data size: 335462, compression ratio: 0.5295007134468955, decompress used time: 1.490144ms
-    2019-05-20 16:27:42.340 +08:00 tokio-runtime-worker-6 DEBUG compress  raw_data len: 633216, compress used time: 3.998678ms, compress_data size: 333458, compression ratio: 0.5266101930462906, decompress used time: 1.593165ms
-    2019-05-20 16:27:42.558 +08:00 tokio-runtime-worker-5 DEBUG compress  raw_data len: 632992, compress used time: 3.453616ms, compress_data size: 333552, compression ratio: 0.5269450482786512, decompress used time: 1.052606ms
-    2019-05-20 16:27:42.740 +08:00 tokio-runtime-worker-2 DEBUG compress  raw_data len: 633760, compress used time: 1.256847ms, compress_data size: 340022, compression ratio: 0.5365154001514769, decompress used time: 545.473µs
-    2019-05-20 16:37:43.934 +08:00 tokio-runtime-worker-1 DEBUG compress  raw_data len: 186912, compress used time: 659.317µs, compress_data size: 42640, compression ratio: 0.22812874507789763, decompress used time: 515.287µs
-    2019-05-20 16:37:47.338 +08:00 tokio-runtime-worker-3 DEBUG compress  raw_data len: 186520, compress used time: 189.079µs, compress_data size: 42334, compression ratio: 0.22696761741368218, decompress used time: 150.644µs
-    2019-05-20 16:37:50.729 +08:00 tokio-runtime-worker-3 DEBUG compress  raw_data len: 186520, compress used time: 197.656µs, compress_data size: 42336, compression ratio: 0.22697834012438345, decompress used time: 145.5µs
-    2019-05-20 16:38:52.549 +08:00 tokio-runtime-worker-4 DEBUG compress  raw_data len: 95904, compress used time: 217.968µs, compress_data size: 33801, compression ratio: 0.3524461961961962, decompress used time: 95.818µs
-    2019-05-20 16:39:32.522 +08:00 tokio-runtime-worker-0 DEBUG compress  raw_data len: 47320, compress used time: 418.183µs, compress_data size: 17183, compression ratio: 0.363123415046492, decompress used time: 252.148µs
-    ```
-
-    Note that this is a **break change**, the data is modified as follows:
-
-    By default, data above 40k enters compressed mode.
-
-    From the current point of view, the high bit 1 is the compressed format and the high bit 0 is the uncompressed format.
-
-    If you want to support multiple compression formats in the future, you can simply think that 0b1000 is in snappy format and 0b0000 is in uncompressed format.
-
-    ```
-     # Message in Bytes:
-
-     +---------------------------------------------------------------+
-     | Bytes | Type | Function                                       |
-     |-------+------+------------------------------------------------|
-     |   0   |  u1  | Compress: true 1, false 0                      |
-     |       |  u7  | Reserved                                       |
-     +-------+------+------------------------------------------------+
-     |  1~   |      | Payload (Serialized Data with Compress)        |
-     +-------+------+------------------------------------------------+
-    ```
-
 * #921: Upgrade CKB VM to latest version (@xxuejie)
 
     This upgrade contains the following changes:
@@ -351,32 +291,6 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
     * nervosnetwork/ckb-vm#59 fix a bad way to using machine @mohanson
     * nervosnetwork/ckb-vm#61 add an example named is13 @mohanson
-
-
-### Bug Fixes
-
-* #812: Prof should respect script config (@xxuejie)
-* #810: Discard invalid orphan blocks (@keroro520)
-
-    When accepts a new block, its descendants should be accepted too if valid. So if an error occurs when we try to accept its descendants, the descendants are invalid.
-
-* #850: Ensure EBREAK has proper cycle set (@xxuejie)
-
-    This is a breaking change: b:consensus
-
-    This is a bug reported by @yangby-cryptape. Right now we didn't assign proper cycles for EBREAK, which might lead to potential bugs.
-
-* #886: Integration test cycle calc (@zhangsoledad)
-* fix: Cuckoo cycle verification bug (@yangby-cryptape)
-
-### Improvements
-
-* #832: `peer_store` db::PeerInfoDB interface (@jjyr)
-
-
-# [v0.12.2](https://github.com/nervosnetwork/ckb/compare/v0.12.1...v0.12.2) (2019-05-20)
-
-### Features
 
 * #838: Limit name in chainspec (@doitian)
 
@@ -402,11 +316,21 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
     - Add `ckb cli secp256k1-lock` to print block assembler config from
     a secp256k1 pubkey.
 
-
-# [v0.12.1](https://github.com/nervosnetwork/ckb/compare/v0.12.0...v0.12.1) (2019-05-18)
-
 ### Bug Fixes
 
+* #812: Prof should respect script config (@xxuejie)
+* #810: Discard invalid orphan blocks (@keroro520)
+
+    When accepts a new block, its descendants should be accepted too if valid. So if an error occurs when we try to accept its descendants, the descendants are invalid.
+
+* #850: Ensure EBREAK has proper cycle set (@xxuejie)
+
+    This is a breaking change: b:consensus
+
+    This is a bug reported by @yangby-cryptape. Right now we didn't assign proper cycles for EBREAK, which might lead to potential bugs.
+
+* #886: Integration test cycle calc (@zhangsoledad)
+* fix: Cuckoo cycle verification bug (@yangby-cryptape)
 * #825: Filter out p2p field in address (@TheWaWaR)
 * #826: Ban peer deadlock (@TheWaWaR)
 * #829 **docker:** Fix docker problems found in rylai (@doitian)
@@ -414,6 +338,12 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
     - avoid dirty flag in version info
     - bind rpc on 0.0.0.0 in docker
     - fix docker files permissions
+
+
+### Improvements
+
+* #832: `peer_store` db::PeerInfoDB interface (@jjyr)
+
 
 # [v0.12.0](https://github.com/nervosnetwork/ckb/compare/v0.11.0...v0.12.0) (2019-05-18) rylai-v1
 
@@ -897,7 +827,7 @@ This version requires Rust 1.33.0.
 * The flatbuffers schema adopts the new `MerkleProof` structure.
 
 
-# [v0.5.0](https://github.com/nervosnetwork/ckb/compare/v0.4.1...v0.5.0) (2019-02-11)
+# [v0.5.0](https://github.com/nervosnetwork/ckb/compare/v0.4.0...v0.5.0) (2019-02-11)
 
 ### Features
 
