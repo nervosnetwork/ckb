@@ -3,12 +3,12 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1561788000134
+timestamp = 1562997600677
 # the difficulty of the block 161029 in rylai-v2
 difficulty = "0x9292"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xd20506a84aa2491220cbb2d43e84d2a681447169675026ec08e88b179b9d430b"
+hash = "0xbd185e5d6a28229206fb7c7b90ead158f7dda0a6783e18dea099dc817bfb94c0"
 
 [genesis.seal]
 nonce = 0

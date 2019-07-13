@@ -9,7 +9,7 @@ index = 1
 code_hash = "0x94334bdda40b69bae067d84937aa6bbccf8acd0df6626d4b9ac70d4612a11933"
 
 [ckb_testnet]
-genesis = "0xd20506a84aa2491220cbb2d43e84d2a681447169675026ec08e88b179b9d430b"
+genesis = "0xbd185e5d6a28229206fb7c7b90ead158f7dda0a6783e18dea099dc817bfb94c0"
 cellbase = "0x75f37c029857fd833cec58bcf15e3ffaf7b33bcd4cd065187c907f8760a7e6b2"
 
 [[ckb_testnet.system_cells]]
