@@ -4,18 +4,19 @@ name = "ckb_testnet"
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 timestamp = 1561788000134
-# Double the difficulty of the block 161029 in rylai-v2
-difficulty = "0x12524"
+# the difficulty of the block 161029 in rylai-v2
+difficulty = "0x9292"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xd5c54b0c699ef009edfedb00d8fb8198ac5ce1e9e266b9110a8972e1b05aba88"
+hash = "0xd20506a84aa2491220cbb2d43e84d2a681447169675026ec08e88b179b9d430b"
 
 [genesis.seal]
 nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = "rylai-v4 3f6b717c feat: proposer reward <zhangsoledad 2019-05-30 20:47:11 +0800>"
+# $ git log --pretty=tformat:'%C(auto)%h %s <%aN %ad>' --date=iso --no-merges v0.15.0..HEAD | sort -R | head -1
+message = "rylai-v5 5a6cdc10 chore: remove duplicated lines <ian 2019-07-08 15:00:53 +0800>"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
