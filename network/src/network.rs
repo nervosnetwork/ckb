@@ -157,14 +157,11 @@ impl NetworkState {
             .is_banned()
         {
             info!("peer {:?} banned", peer_id);
-            self.with_peer_registry_mut(|reg| {
-                if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
-                    reg.remove_peer(session_id);
-                    if let Err(err) = p2p_control.disconnect(session_id) {
-                        debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
-                    }
+            if let Some(session_id) = self.peer_registry.read().get_key_by_peer_id(peer_id) {
+                if let Err(err) = p2p_control.disconnect(session_id) {
+                    debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                 }
-            })
+            }
         }
     }
 
@@ -981,16 +978,18 @@ impl NetworkController {
     }
 
     pub fn remove_node(&self, peer_id: &PeerId) {
-        self.network_state.with_peer_registry_mut(|reg| {
-            if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
-                reg.remove_peer(session_id);
-                if let Err(err) = self.p2p_control.disconnect(session_id) {
-                    debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
-                }
-            } else {
-                error!("Cannot find peer {:?}", peer_id);
+        if let Some(session_id) = self
+            .network_state
+            .peer_registry
+            .read()
+            .get_key_by_peer_id(peer_id)
+        {
+            if let Err(err) = self.p2p_control.disconnect(session_id) {
+                debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
             }
-        })
+        } else {
+            error!("Cannot find peer {:?}", peer_id);
+        }
     }
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
