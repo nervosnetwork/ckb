@@ -267,7 +267,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             })
             .collect();
 
-        if short_ids_set.is_empty() {
+        if !short_ids_set.is_empty() {
             let tx_pool = chain_state.tx_pool();
             for entry in tx_pool.proposed_txs_iter() {
                 let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
