@@ -68,8 +68,8 @@ impl Net {
                     public_addresses: vec![],
                     bootnodes: vec![],
                     dns_seeds: vec![],
-                    reserved_peers: vec![],
-                    reserved_only: false,
+                    whitelist_peers: vec![],
+                    whitelist_only: false,
                     max_peers: self.num_nodes as u32,
                     max_outbound_peers: self.num_nodes as u32,
                     path: tempdir()

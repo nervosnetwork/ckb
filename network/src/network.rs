@@ -102,16 +102,16 @@ impl NetworkState {
             Mutex::new(Box::new(peer_store))
         };
 
-        let reserved_peers = config
-            .reserved_peers()?
+        let whitelist_peers = config
+            .whitelist_peers()?
             .iter()
             .map(|(peer_id, _)| peer_id.to_owned())
             .collect::<Vec<_>>();
         let peer_registry = PeerRegistry::new(
             config.max_inbound_peers(),
             config.max_outbound_peers(),
-            config.reserved_only,
-            reserved_peers,
+            config.whitelist_only,
+            whitelist_peers,
         );
 
         Ok(NetworkState {
@@ -452,14 +452,14 @@ impl EventHandler {
         if self.network_state.config.bootnode_mode {
             let status = self.network_state.connection_status();
 
-            if status.max_inbound <= status.unreserved_inbound.saturating_add(10) {
+            if status.max_inbound <= status.non_whitelist_inbound.saturating_add(10) {
                 for (index, peer) in self
                     .network_state
                     .with_peer_registry(|registry| {
                         registry
                             .peers()
                             .values()
-                            .filter(|peer| peer.is_inbound() && !peer.is_reserved)
+                            .filter(|peer| peer.is_inbound() && !peer.is_whitelist)
                             .map(|peer| peer.session_id)
                             .collect::<Vec<SessionId>>()
                     })
@@ -871,9 +871,9 @@ impl NetworkService {
             };
         }
 
-        // dial reserved_nodes
-        for (peer_id, addr) in config.reserved_peers()? {
-            debug!("dial reserved_peers {:?} {:?}", peer_id, addr);
+        // dial whitelist_nodes
+        for (peer_id, addr) in config.whitelist_peers()? {
+            debug!("dial whitelist_peers {:?} {:?}", peer_id, addr);
             self.network_state
                 .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }

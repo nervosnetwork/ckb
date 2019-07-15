@@ -145,9 +145,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
-        let (is_outbound, is_reserved) = nc
+        let (is_outbound, is_whitelist) = nc
             .get_peer(peer)
-            .map(|peer| (peer.is_outbound(), peer.is_reserved))
+            .map(|peer| (peer.is_outbound(), peer.is_whitelist))
             .unwrap_or((false, false));
         let protect_outbound = is_outbound
             && self
@@ -163,7 +163,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
 
         self.peers()
-            .on_connected(peer, None, protect_outbound, (is_outbound, is_reserved));
+            .on_connected(peer, None, protect_outbound, (is_outbound, is_whitelist));
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -230,7 +230,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     // of our tip, when we first detected it was behind. Send a single getheaders
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
-                        if state.chain_sync.protect || state.chain_sync.is_reserved {
+                        if state.chain_sync.protect || state.chain_sync.is_whitelist {
                             if state.sync_started {
                                 state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
                                 self.shared()
@@ -1105,9 +1105,9 @@ mod tests {
         assert!(synchronizer.shared.is_initial_block_download());
         let peers = synchronizer.peers();
         // protect should not effect headers_timeout
-        peers.on_connected(0.into(), Some(0), true, true);
-        peers.on_connected(1.into(), Some(0), false, true);
-        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), false, true);
+        peers.on_connected(0.into(), Some(0), true, (true, false));
+        peers.on_connected(1.into(), Some(0), false, (true, false));
+        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), false, (true, false));
         synchronizer.eviction(&network_context);
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
@@ -1147,12 +1147,12 @@ mod tests {
         //6 peers do not trigger header sync timeout
         let headers_sync_timeout = MAX_TIP_AGE * 2;
         let sync_protected_peer = 0.into();
-        peers.on_connected(0.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(1.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(2.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(3.into(), Some(headers_sync_timeout), false, true);
-        peers.on_connected(4.into(), Some(headers_sync_timeout), false, true);
-        peers.on_connected(5.into(), Some(headers_sync_timeout), false, true);
+        peers.on_connected(0.into(), Some(headers_sync_timeout), true, (true, false));
+        peers.on_connected(1.into(), Some(headers_sync_timeout), true, (true, false));
+        peers.on_connected(2.into(), Some(headers_sync_timeout), true, (true, false));
+        peers.on_connected(3.into(), Some(headers_sync_timeout), false, (true, false));
+        peers.on_connected(4.into(), Some(headers_sync_timeout), false, (true, false));
+        peers.on_connected(5.into(), Some(headers_sync_timeout), false, (true, false));
         peers.new_header_received(0.into(), &mock_header_view(1));
         peers.new_header_received(2.into(), &mock_header_view(3));
         peers.new_header_received(3.into(), &mock_header_view(1));
