@@ -145,10 +145,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
-        let is_outbound = nc
+        let (is_outbound, is_reserved) = nc
             .get_peer(peer)
-            .map(|peer| peer.is_outbound())
-            .unwrap_or(false);
+            .map(|peer| (peer.is_outbound(), peer.is_reserved))
+            .unwrap_or((false, false));
         let protect_outbound = is_outbound
             && self
                 .shared()
@@ -163,7 +163,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
 
         self.peers()
-            .on_connected(peer, None, protect_outbound, is_outbound);
+            .on_connected(peer, None, protect_outbound, (is_outbound, is_reserved));
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -230,7 +230,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     // of our tip, when we first detected it was behind. Send a single getheaders
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
-                        if state.chain_sync.protect {
+                        if state.chain_sync.protect || state.chain_sync.is_reserved {
                             if state.sync_started {
                                 state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
                                 self.shared()

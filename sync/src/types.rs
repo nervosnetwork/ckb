@@ -70,6 +70,7 @@ pub struct ChainSyncState {
     pub sent_getheaders: bool,
     pub not_sync_until: Option<u64>,
     pub protect: bool,
+    pub is_reserved: bool
 }
 
 impl Default for ChainSyncState {
@@ -81,6 +82,7 @@ impl Default for ChainSyncState {
             sent_getheaders: false,
             not_sync_until: None,
             protect: false,
+            is_reserved: false
         }
     }
 }
@@ -122,8 +124,8 @@ impl PeerState {
     }
 
     pub fn can_sync(&self, now: u64, ibd: bool) -> bool {
-        // only sync with outbound peer in IBD
-        (self.is_outbound || !ibd)
+        // only sync with outbound/reserved peer in IBD
+        ((self.is_outbound || self.chain_sync.is_reserved) || !ibd)
             && !self.sync_started
             && self
                 .chain_sync
@@ -396,7 +398,7 @@ impl Peers {
         peer: PeerIndex,
         headers_sync_timeout: Option<u64>,
         protect: bool,
-        is_outbound: bool,
+        (is_outbound, is_reserved): (bool, bool),
     ) {
         self.state
             .write()
@@ -404,10 +406,12 @@ impl Peers {
             .and_modify(|state| {
                 state.headers_sync_timeout = headers_sync_timeout;
                 state.chain_sync.protect = protect;
+                state.chain_sync.is_reserved = is_reserved;
             })
             .or_insert_with(|| {
                 let mut chain_sync = ChainSyncState::default();
                 chain_sync.protect = protect;
+                chain_sync.is_reserved = is_reserved;
                 PeerState::new(is_outbound, chain_sync, headers_sync_timeout)
             });
     }

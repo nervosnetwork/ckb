@@ -58,6 +58,9 @@ impl OutboundPeerService {
             attempt_peers,
             is_feeler
         );
+        // keep reserved peer on connected
+        self.try_dial_reserved();
+
         for paddr in attempt_peers {
             let PeerAddr { peer_id, addr, .. } = paddr;
             if is_feeler {
