@@ -78,7 +78,7 @@ impl Net {
                         .to_path_buf(),
                     ping_interval_secs: 15,
                     ping_timeout_secs: 20,
-                    connect_outbound_interval_secs: 1,
+                    connect_outbound_interval_secs: 0,
                     discovery_local_address: true,
                     upnp: false,
                     bootnode_mode: false,

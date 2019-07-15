@@ -1,5 +1,6 @@
 use crate::utils::wait_until;
 use crate::{Net, Spec};
+use ckb_app_config::CKBAppConfig;
 use log::info;
 
 pub struct Discovery;
@@ -25,5 +26,13 @@ impl Spec for Discovery {
 
     fn num_nodes(&self) -> usize {
         3
+    }
+
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+        // enable outbound peer service to connect discovered peers
+        Box::new(|config| {
+            config.network.connect_outbound_interval_secs = 1;
+            config.network.discovery_local_address = true;
+        })
     }
 }

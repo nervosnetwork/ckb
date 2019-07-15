@@ -114,7 +114,6 @@ impl Spec for AlertPropagation {
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         let alert_config = self.alert_config.to_owned();
         Box::new(move |config| {
-            config.network.connect_outbound_interval_secs = 1;
             config.network.discovery_local_address = true;
             // set test alert config
             config.alert_signature = Some(alert_config.clone());

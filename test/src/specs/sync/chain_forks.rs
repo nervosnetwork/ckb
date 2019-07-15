@@ -1,5 +1,4 @@
 use crate::{Net, Spec};
-use ckb_app_config::CKBAppConfig;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, Capacity};
@@ -96,11 +95,6 @@ impl Spec for ChainFork2 {
     fn connect_all(&self) -> bool {
         false
     }
-
-    // workaround to disable node discovery
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
-        Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
-    }
 }
 
 pub struct ChainFork3;
@@ -167,11 +161,6 @@ impl Spec for ChainFork3 {
     fn connect_all(&self) -> bool {
         false
     }
-
-    // workaround to disable node discovery
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
-        Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
-    }
 }
 
 pub struct ChainFork4;
@@ -237,11 +226,6 @@ impl Spec for ChainFork4 {
 
     fn connect_all(&self) -> bool {
         false
-    }
-
-    // workaround to disable node discovery
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
-        Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
     }
 }
 
@@ -313,11 +297,6 @@ impl Spec for ChainFork5 {
     fn connect_all(&self) -> bool {
         false
     }
-
-    // workaround to disable node discovery
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
-        Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
-    }
 }
 
 pub struct ChainFork6;
@@ -379,11 +358,6 @@ impl Spec for ChainFork6 {
 
     fn connect_all(&self) -> bool {
         false
-    }
-
-    // workaround to disable node discovery
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
-        Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
     }
 }
 
@@ -454,11 +428,6 @@ impl Spec for ChainFork7 {
 
     fn connect_all(&self) -> bool {
         false
-    }
-
-    // workaround to disable node discovery
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
-        Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
     }
 }
 
