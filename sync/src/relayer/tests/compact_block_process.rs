@@ -266,7 +266,7 @@ fn test_already_pending() {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
             compact_block.header.hash().clone(),
-            (compact_block, FnvHashSet::from_iter(vec![1.into()])),
+            (compact_block, FnvHashMap::from_iter(vec![(1.into(), 0)])),
         );
     }
 

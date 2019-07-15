@@ -1,3 +1,4 @@
+use ckb_protocol::ShortTransactionID;
 use failure::Fail;
 
 #[derive(Debug, Fail, Eq, PartialEq)]
@@ -28,6 +29,19 @@ pub enum Misbehavior {
     OverflowPrefilledTransactions,
     #[fail(display = "CompactBlockError::IntersectedPrefilledTransactions")]
     IntersectedPrefilledTransactions,
+    #[fail(
+        display = "block transactions' length is invalid, expect {}, but got {}",
+        expect, got
+    )]
+    InvalidBlockTransactionsLength { expect: usize, got: usize },
+    #[fail(
+        display = "block transactions' short id is invalid, expect {:#?}, but got {:#?}",
+        expect, got
+    )]
+    InvalidBlockTransactions {
+        expect: ShortTransactionID,
+        got: ShortTransactionID,
+    },
     #[fail(display = "BlockInvalid")]
     BlockInvalid,
     #[fail(display = "HeaderInvalid")]

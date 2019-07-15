@@ -14,7 +14,7 @@ use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use ckb_verification::{HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
-use fnv::FnvHashSet;
+use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -30,12 +30,10 @@ pub struct CompactBlockProcess<'a, CS> {
 pub enum Status {
     // Accept block
     AcceptBlock,
-    // Send missing_indexes by get_block_transactions
-    SendMissingIndexes,
     // Send get_headers
     UnknownParent,
-    // Should never reach
-    MissingIndexesEmpty,
+    // Send missing_indexes by get_block_transactions
+    SendMissingIndexes,
 }
 
 impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
@@ -108,13 +106,13 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         }
 
         // The new arrived has greater difficulty than local best known chain
-        let missing_indexes: Vec<usize>;
+        let missing_indexes: Vec<u32>;
         {
             // Verify compact block
             let mut pending_compact_blocks = self.relayer.shared().pending_compact_blocks();
             if pending_compact_blocks
                 .get(&block_hash)
-                .map(|(_, peers_set)| peers_set.contains(&self.peer))
+                .map(|(_, peers_map)| peers_map.contains_key(&self.peer))
                 .unwrap_or(false)
             {
                 debug_target!(
@@ -148,7 +146,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     },
                     Arc::clone(&self.relayer.shared.consensus().pow_engine()),
                 );
-                let compact_block_verifier = CompactBlockVerifier::new();
                 if let Err(err) = header_verifier.verify(&resolver) {
                     debug_target!(crate::LOG_TARGET_RELAY, "invalid header: {}", err);
                     self.relayer
@@ -156,7 +153,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                         .insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
                     return Err(Error::Misbehavior(Misbehavior::HeaderInvalid).into());
                 }
-                compact_block_verifier.verify(&compact_block)?;
+                CompactBlockVerifier::verify(&compact_block)?;
 
                 // Header has been verified ok, update state
                 let epoch = resolver.epoch().expect("epoch verified").clone();
@@ -183,19 +180,17 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     return Ok(Status::AcceptBlock);
                 }
                 Err(missing) => {
-                    missing_indexes = missing;
+                    missing_indexes = missing.into_iter().map(|i| i as u32).collect::<Vec<_>>();
+
+                    assert!(!missing_indexes.is_empty());
+
                     pending_compact_blocks
                         .entry(block_hash.clone())
-                        .or_insert_with(|| (compact_block, FnvHashSet::default()))
+                        .or_insert_with(|| (compact_block, FnvHashMap::default()))
                         .1
-                        .insert(self.peer);
+                        .insert(self.peer, missing_indexes.clone());
                 }
             }
-        }
-
-        // The missing_indexes should never be empty
-        if missing_indexes.is_empty() {
-            return Ok(Status::MissingIndexesEmpty);
         }
 
         if !self
@@ -214,14 +209,8 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         }
 
         let fbb = &mut FlatBufferBuilder::new();
-        let message = RelayMessage::build_get_block_transactions(
-            fbb,
-            &block_hash,
-            &missing_indexes
-                .into_iter()
-                .map(|i| i as u32)
-                .collect::<Vec<_>>(),
-        );
+        let message =
+            RelayMessage::build_get_block_transactions(fbb, &block_hash, &missing_indexes);
         fbb.finish(message, None);
         if let Err(err) = self
             .nc
@@ -229,6 +218,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         {
             ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
         }
+
         Ok(Status::SendMissingIndexes)
     }
 }

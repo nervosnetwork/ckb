@@ -592,6 +592,8 @@ impl EpochIndices {
     }
 }
 
+type PendingCompactBlockMap = FnvHashMap<H256, (CompactBlock, FnvHashMap<PeerIndex, Vec<u32>>)>;
+
 pub struct SyncSharedState<CS> {
     shared: Shared<CS>,
 
@@ -614,7 +616,7 @@ pub struct SyncSharedState<CS> {
     /* Cached items which we had received but not completely process */
     pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
-    pending_compact_blocks: Mutex<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>>,
+    pending_compact_blocks: Mutex<PendingCompactBlockMap>,
     orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
@@ -690,9 +692,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
         self.known_txs.lock()
     }
-    pub fn pending_compact_blocks(
-        &self,
-    ) -> MutexGuard<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>> {
+    pub fn pending_compact_blocks(&self) -> MutexGuard<PendingCompactBlockMap> {
         self.pending_compact_blocks.lock()
     }
     pub fn inflight_transactions(&self) -> MutexGuard<LruCache<H256, Instant>> {

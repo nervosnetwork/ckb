@@ -4,6 +4,7 @@ use ckb_core::uncle::UncleBlock;
 use ckb_protocol::{self, cast, FlatbuffersVectorIterator};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
+use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 
 pub type ShortTransactionID = [u8; 6];
@@ -66,6 +67,29 @@ impl<'a> TryFrom<ckb_protocol::CompactBlock<'a>> for CompactBlock {
             uncles: uncles?,
             proposals: proposals?,
         })
+    }
+}
+
+impl CompactBlock {
+    pub(crate) fn block_short_ids(&self) -> Vec<Option<ShortTransactionID>> {
+        let txs_len = self.prefilled_transactions.len() + self.short_ids.len();
+        let mut block_short_ids: Vec<Option<ShortTransactionID>> = Vec::with_capacity(txs_len);
+        let prefilled_indexes = self
+            .prefilled_transactions
+            .iter()
+            .map(|tx_index| tx_index.index)
+            .collect::<HashSet<_>>();
+
+        let mut index = 0;
+        for i in 0..txs_len {
+            if prefilled_indexes.contains(&i) {
+                block_short_ids.push(None);
+            } else {
+                block_short_ids.push(self.short_ids.get(index).cloned());
+                index += 1;
+            }
+        }
+        block_short_ids
     }
 }
 
