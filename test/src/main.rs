@@ -30,6 +30,14 @@ fn main() {
     );
     specs.insert("block_sync_orphan_blocks", Box::new(BlockSyncOrphanBlocks));
     specs.insert("sync_timeout", Box::new(SyncTimeout));
+    specs.insert(
+        "chain_contains_invalid_block",
+        Box::new(ChainContainsInvalidBlock),
+    );
+    specs.insert(
+        "fork_contains_invalid_block",
+        Box::new(ForkContainsInvalidBlock),
+    );
     specs.insert("chain_fork_1", Box::new(ChainFork1));
     specs.insert("chain_fork_2", Box::new(ChainFork2));
     // FIXME these 4 tests will fail, because of https://github.com/nervosnetwork/ckb/pull/1164
