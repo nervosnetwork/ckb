@@ -4,7 +4,7 @@ use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::Seal;
-use ckb_logger::{debug, error};
+use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
 use ckb_util::Mutex;
 use crossbeam_channel::{select, unbounded, Receiver};
@@ -25,6 +25,7 @@ pub struct Miner {
     pub seal_rx: Receiver<(H256, Seal)>,
     pub pb: ProgressBar,
     pub seals_found: u64,
+    pub stderr_is_tty: bool,
 }
 
 impl Miner {
@@ -45,6 +46,8 @@ impl Miner {
         let pb = mp.add(ProgressBar::new(100));
         pb.set_style(ProgressStyle::default_bar().template("{msg:.green}"));
 
+        let stderr_is_tty = console::Term::stderr().is_term();
+
         thread::spawn(move || {
             mp.join().expect("MultiProgress join failed");
         });
@@ -58,6 +61,7 @@ impl Miner {
             work_rx,
             seal_rx,
             pb,
+            stderr_is_tty,
         }
     }
 
@@ -98,11 +102,19 @@ impl Miner {
                     .header(raw_header.with_seal(seal))
                     .build();
 
-                debug!(
-                    "Found! #{} {:#x}",
-                    block.header().number(),
-                    block.header().hash(),
-                );
+                if self.stderr_is_tty {
+                    debug!(
+                        "Found! #{} {:#x}",
+                        block.header().number(),
+                        block.header().hash(),
+                    );
+                } else {
+                    info!(
+                        "Found! #{} {:#x}",
+                        block.header().number(),
+                        block.header().hash(),
+                    );
+                }
 
                 // submit block and poll new work
                 {
