@@ -1048,11 +1048,23 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         match locked.get(block_hash).cloned() {
             Some(status) => status,
             None => {
-                if self.shared.store().get_block_header(block_hash).is_some() {
-                    locked.insert(block_hash.clone(), BlockStatus::BLOCK_STORED);
-                    BlockStatus::BLOCK_STORED
-                } else {
-                    BlockStatus::UNKNOWN
+                let verified = self
+                    .shared
+                    .store()
+                    .get_block_ext(block_hash)
+                    .map(|block_ext| block_ext.verified);
+                match verified {
+                    None => BlockStatus::UNKNOWN,
+                    // NOTE: Don't insert `BLOCK_STORED` inside `block_status_map`.
+                    Some(None) => BlockStatus::BLOCK_STORED,
+                    Some(Some(true)) => {
+                        locked.insert(block_hash.clone(), BlockStatus::BLOCK_VALID);
+                        BlockStatus::BLOCK_VALID
+                    }
+                    Some(Some(false)) => {
+                        locked.insert(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+                        BlockStatus::BLOCK_INVALID
+                    }
                 }
             }
         }
@@ -1162,8 +1174,6 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             error!("accept block {:?} {:?}", block, ret);
             self.insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
             return ret;
-        } else {
-            self.insert_block_status(block_hash, BlockStatus::BLOCK_STORED);
         }
 
         self.remove_header_view(block.header().hash());
