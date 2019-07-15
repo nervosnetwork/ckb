@@ -7,7 +7,7 @@ mod test;
 
 use crate::Error;
 use ckb_logger::trace;
-use futures::Future;
+use futures::{try_ready, Future, Poll};
 use p2p::{
     builder::MetaBuilder,
     bytes::Bytes,
@@ -21,6 +21,7 @@ use std::time::Duration;
 use tokio::codec::length_delimited;
 
 pub type PeerIndex = SessionId;
+pub type BoxedFutureTask = Box<dyn Future<Item = (), Error = ()> + 'static + Send>;
 
 use crate::{
     compress::{compress, decompress},
@@ -38,11 +39,8 @@ pub trait CKBProtocolContext: Send {
     ) -> Result<(), Error>;
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
     fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
-    // spawn a future task
-    fn future_task(
-        &self,
-        task: Box<Future<Item = (), Error = ()> + 'static + Send>,
-    ) -> Result<(), Error>;
+    // spawn a future task, if `blocking` is true we use tokio_threadpool::blocking to handle the task.
+    fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error>;
     fn send_message(
         &self,
         proto_id: ProtocolId,
@@ -284,10 +282,12 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .quick_filter_broadcast(target, self.proto_id, data)?;
         Ok(())
     }
-    fn future_task(
-        &self,
-        task: Box<Future<Item = (), Error = ()> + 'static + Send>,
-    ) -> Result<(), Error> {
+    fn future_task(&self, task: BoxedFutureTask, blocking: bool) -> Result<(), Error> {
+        let task = if blocking {
+            Box::new(BlockingFutureTask::new(task))
+        } else {
+            task
+        };
         self.p2p_control.future_task(task)?;
         Ok(())
     }
@@ -347,5 +347,24 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
 
     fn protocol_id(&self) -> ProtocolId {
         self.proto_id
+    }
+}
+
+pub(crate) struct BlockingFutureTask {
+    task: BoxedFutureTask,
+}
+
+impl BlockingFutureTask {
+    pub(crate) fn new(task: BoxedFutureTask) -> BlockingFutureTask {
+        BlockingFutureTask { task }
+    }
+}
+
+impl Future for BlockingFutureTask {
+    type Item = ();
+    type Error = ();
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        try_ready!(tokio_threadpool::blocking(|| self.task.poll()).map_err(|_| ()))
     }
 }
