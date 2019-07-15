@@ -159,6 +159,7 @@ impl CKBProtocolContext for TestNetworkContext {
         task: Box<
             (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
         >,
+        _blocking: bool,
     ) -> Result<(), ckb_network::Error> {
         task.wait().expect("resolve future task error");
         Ok(())
