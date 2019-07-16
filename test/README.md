@@ -14,3 +14,9 @@ Run specified specs:
 ```bash
 cargo run -- --bin ../target/debug/ckb spec1 spec2
 ```
+
+See all available options:
+
+```bash
+cargo run -- --help
+```
