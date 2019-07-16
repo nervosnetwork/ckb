@@ -49,8 +49,8 @@ const TX_ASKED_SIZE: usize = TX_FILTER_SIZE;
 const ORPHAN_BLOCK_SIZE: usize = 1024;
 
 // State used to enforce CHAIN_SYNC_TIMEOUT
-// Only in effect for outbound, non-manual connections, with
-// m_protect == false
+// Only in effect for connections that are outbound, non-manual,
+// non-protected and non-whitelist.
 // Algorithm: if a peer's best known block has less work than our tip,
 // set a timeout CHAIN_SYNC_TIMEOUT seconds in the future:
 //   - If at timeout their best known block now has more work than our tip
@@ -69,8 +69,6 @@ pub struct ChainSyncState {
     pub total_difficulty: Option<U256>,
     pub sent_getheaders: bool,
     pub not_sync_until: Option<u64>,
-    pub protect: bool,
-    pub is_whitelist: bool,
 }
 
 impl Default for ChainSyncState {
@@ -81,10 +79,15 @@ impl Default for ChainSyncState {
             total_difficulty: None,
             sent_getheaders: false,
             not_sync_until: None,
-            protect: false,
-            is_whitelist: false,
         }
     }
+}
+
+#[derive(Clone, Default, Debug, Copy)]
+pub struct PeerFlags {
+    pub is_outbound: bool,
+    pub is_protect: bool,
+    pub is_whitelist: bool,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -92,7 +95,7 @@ pub struct PeerState {
     pub sync_started: bool,
     pub headers_sync_timeout: Option<u64>,
     pub last_block_announcement: Option<u64>, //ms
-    pub is_outbound: bool,
+    pub peer_flags: PeerFlags,
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
     // The key is a `timeout`, means do not ask the tx before `timeout`.
@@ -104,18 +107,14 @@ pub struct PeerState {
 }
 
 impl PeerState {
-    pub fn new(
-        is_outbound: bool,
-        chain_sync: ChainSyncState,
-        headers_sync_timeout: Option<u64>,
-    ) -> PeerState {
+    pub fn new(peer_flags: PeerFlags) -> PeerState {
         PeerState {
             sync_started: false,
-            headers_sync_timeout,
+            headers_sync_timeout: None,
             last_block_announcement: None,
-            is_outbound,
+            peer_flags,
             disconnect: false,
-            chain_sync,
+            chain_sync: ChainSyncState::default(),
             tx_ask_for_map: BTreeMap::default(),
             tx_ask_for_set: HashSet::default(),
             best_known_header: None,
@@ -125,7 +124,7 @@ impl PeerState {
 
     pub fn can_sync(&self, now: u64, ibd: bool) -> bool {
         // only sync with outbound/whitelist peer in IBD
-        ((self.is_outbound || self.chain_sync.is_whitelist) || !ibd)
+        ((self.peer_flags.is_outbound || self.peer_flags.is_whitelist) || !ibd)
             && !self.sync_started
             && self
                 .chain_sync
@@ -393,27 +392,14 @@ impl InflightBlocks {
 }
 
 impl Peers {
-    pub fn on_connected(
-        &self,
-        peer: PeerIndex,
-        headers_sync_timeout: Option<u64>,
-        protect: bool,
-        (is_outbound, is_whitelist): (bool, bool),
-    ) {
+    pub fn on_connected(&self, peer: PeerIndex, peer_flags: PeerFlags) {
         self.state
             .write()
             .entry(peer)
             .and_modify(|state| {
-                state.headers_sync_timeout = headers_sync_timeout;
-                state.chain_sync.protect = protect;
-                state.chain_sync.is_whitelist = is_whitelist;
+                state.peer_flags = peer_flags;
             })
-            .or_insert_with(|| {
-                let mut chain_sync = ChainSyncState::default();
-                chain_sync.protect = protect;
-                chain_sync.is_whitelist = is_whitelist;
-                PeerState::new(is_outbound, chain_sync, headers_sync_timeout)
-            });
+            .or_insert_with(|| PeerState::new(peer_flags));
     }
 
     pub fn get_best_known_header(&self, pi: PeerIndex) -> Option<HeaderView> {

@@ -12,7 +12,7 @@ use self::get_blocks_process::GetBlocksProcess;
 use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
 use crate::block_status::BlockStatus;
-use crate::types::{HeaderView, Peers, SyncSharedState};
+use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState};
 use crate::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
@@ -162,8 +162,14 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 .fetch_add(1, Ordering::Release);
         }
 
-        self.peers()
-            .on_connected(peer, None, protect_outbound, (is_outbound, is_whitelist));
+        self.peers().on_connected(
+            peer,
+            PeerFlags {
+                is_outbound,
+                is_whitelist,
+                is_protect: protect_outbound,
+            },
+        );
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -194,7 +200,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 }
             }
 
-            if state.is_outbound {
+            if state.peer_flags.is_outbound {
                 let best_known_header = state.best_known_header.as_ref();
                 let (tip_header, local_total_difficulty) = {
                     let chain_state = self.shared.lock_chain_state();
@@ -230,7 +236,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     // of our tip, when we first detected it was behind. Send a single getheaders
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
-                        if state.chain_sync.protect || state.chain_sync.is_whitelist {
+                        if state.peer_flags.is_protect || state.peer_flags.is_whitelist {
                             if state.sync_started {
                                 state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
                                 self.shared()
@@ -429,7 +435,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
             }
 
             // Protection node disconnected
-            if peer_state.chain_sync.protect {
+            if peer_state.peer_flags.is_protect {
                 self.shared()
                     .n_protected_outbound_peers()
                     .fetch_sub(1, Ordering::Release);
@@ -479,7 +485,7 @@ mod tests {
     use self::block_process::BlockProcess;
     use self::headers_process::HeadersProcess;
     use super::*;
-    use crate::{SyncSharedState, MAX_TIP_AGE};
+    use crate::{types::PeerState, SyncSharedState, MAX_TIP_AGE};
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
@@ -1105,9 +1111,25 @@ mod tests {
         assert!(synchronizer.shared.is_initial_block_download());
         let peers = synchronizer.peers();
         // protect should not effect headers_timeout
-        peers.on_connected(0.into(), Some(0), true, (true, false));
-        peers.on_connected(1.into(), Some(0), false, (true, false));
-        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), false, (true, false));
+        {
+            let mut state = peers.state.write();
+            let mut state_0 = PeerState::default();
+            state_0.peer_flags.is_protect = true;
+            state_0.peer_flags.is_outbound = true;
+            state_0.headers_sync_timeout = Some(0);
+
+            let mut state_1 = PeerState::default();
+            state_1.peer_flags.is_outbound = true;
+            state_1.headers_sync_timeout = Some(0);
+
+            let mut state_2 = PeerState::default();
+            state_2.peer_flags.is_outbound = true;
+            state_2.headers_sync_timeout = Some(MAX_TIP_AGE * 2);
+
+            state.insert(0.into(), state_0);
+            state.insert(1.into(), state_1);
+            state.insert(2.into(), state_2);
+        }
         synchronizer.eviction(&network_context);
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
@@ -1147,12 +1169,42 @@ mod tests {
         //6 peers do not trigger header sync timeout
         let headers_sync_timeout = MAX_TIP_AGE * 2;
         let sync_protected_peer = 0.into();
-        peers.on_connected(0.into(), Some(headers_sync_timeout), true, (true, false));
-        peers.on_connected(1.into(), Some(headers_sync_timeout), true, (true, false));
-        peers.on_connected(2.into(), Some(headers_sync_timeout), true, (true, false));
-        peers.on_connected(3.into(), Some(headers_sync_timeout), false, (true, false));
-        peers.on_connected(4.into(), Some(headers_sync_timeout), false, (true, false));
-        peers.on_connected(5.into(), Some(headers_sync_timeout), false, (true, false));
+        {
+            let mut state = peers.state.write();
+            let mut state_0 = PeerState::default();
+            state_0.peer_flags.is_protect = true;
+            state_0.peer_flags.is_outbound = true;
+            state_0.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_1 = PeerState::default();
+            state_1.peer_flags.is_protect = true;
+            state_1.peer_flags.is_outbound = true;
+            state_1.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_2 = PeerState::default();
+            state_2.peer_flags.is_protect = true;
+            state_2.peer_flags.is_outbound = true;
+            state_2.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_3 = PeerState::default();
+            state_3.peer_flags.is_outbound = true;
+            state_3.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_4 = PeerState::default();
+            state_4.peer_flags.is_outbound = true;
+            state_4.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_5 = PeerState::default();
+            state_5.peer_flags.is_outbound = true;
+            state_5.headers_sync_timeout = Some(headers_sync_timeout);
+
+            state.insert(0.into(), state_0);
+            state.insert(1.into(), state_1);
+            state.insert(2.into(), state_2);
+            state.insert(3.into(), state_3);
+            state.insert(4.into(), state_4);
+            state.insert(5.into(), state_5);
+        }
         peers.new_header_received(0.into(), &mock_header_view(1));
         peers.new_header_received(2.into(), &mock_header_view(3));
         peers.new_header_received(3.into(), &mock_header_view(1));
