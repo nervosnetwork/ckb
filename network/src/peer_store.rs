@@ -1,16 +1,15 @@
 pub mod sqlite;
 pub mod types;
 
-use self::types::PeerAddr;
+use self::types::{BannedAddress, PeerAddr};
 pub use crate::{peer_store::sqlite::SqlitePeerStore, SessionType};
 pub(crate) use crate::{Behaviour, PeerId};
+use ipnetwork::IpNetwork;
 use p2p::multiaddr::{Multiaddr, Protocol};
 use std::time::Duration;
 
 /// After this limitation, peer store will try to eviction peers
 pub const PEER_STORE_LIMIT: u32 = 8192;
-/// Clear banned list if the list reach this size
-pub const BAN_LIST_CLEAR_EXPIRES_SIZE: usize = 1024;
 pub const DEFAULT_ADDRS: u32 = 3;
 pub const MAX_ADDRS: u32 = 3;
 /// Consider we never seen a peer if peer's last_connected_at beyond this timeout
@@ -71,6 +70,9 @@ pub trait PeerStore: Send {
     fn ban_addr(&mut self, addr: &Multiaddr, timeout: Duration);
     /// Check peer ban status
     fn is_banned(&self, addr: &Multiaddr) -> bool;
+    fn get_banned_addresses(&self) -> Vec<BannedAddress>;
+    fn insert_ban(&mut self, address: IpNetwork, ban_until: u64, ban_reason: &str);
+    fn delete_ban(&mut self, address: &IpNetwork);
     /// peer score config
     fn peer_score_config(&self) -> PeerScoreConfig;
 }

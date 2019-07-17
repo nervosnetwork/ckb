@@ -2,10 +2,10 @@ use ckb_core::{
     BlockNumber as CoreBlockNumber, EpochNumber as CoreEpochNumber, Version as CoreVersion,
 };
 use ckb_jsonrpc_types::{
-    Alert, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint, CellTransaction,
-    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, LiveCell,
-    LockHashIndexState, Node, OutPoint, PeerState, Transaction, TransactionWithStatus, TxPoolInfo,
-    Unsigned, Version,
+    Alert, BannedAddress, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint,
+    CellTransaction, CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView,
+    LiveCell, LockHashIndexState, Node, OutPoint, PeerState, Timestamp, Transaction,
+    TransactionWithStatus, TxPoolInfo, Unsigned, Version,
 };
 use ckb_util::Mutex;
 use jsonrpc_client_core::{expand_params, jsonrpc_client, Result as JsonRpcResult};
@@ -147,6 +147,14 @@ impl RpcClient {
             .get_peers()
             .call()
             .expect("rpc call get_peers")
+    }
+
+    pub fn get_banned_addresses(&self) -> Vec<BannedAddress> {
+        self.inner
+            .lock()
+            .get_banned_addresses()
+            .call()
+            .expect("rpc call get_banned_addresses")
     }
 
     pub fn get_block_template(
@@ -318,8 +326,19 @@ jsonrpc_client!(pub struct Inner {
     pub fn get_tip_block_number(&mut self) -> RpcRequest<BlockNumber>;
     pub fn get_current_epoch(&mut self) -> RpcRequest<EpochView>;
     pub fn get_epoch_by_number(&mut self, number: EpochNumber) -> RpcRequest<Option<EpochView>>;
+
     pub fn local_node_info(&mut self) -> RpcRequest<Node>;
     pub fn get_peers(&mut self) -> RpcRequest<Vec<Node>>;
+    pub fn get_banned_addresses(&mut self) -> RpcRequest<Vec<BannedAddress>>;
+    pub fn set_ban(
+        &mut self,
+        address: String,
+        command: String,
+        ban_time: Option<Timestamp>,
+        absolute: Option<bool>,
+        reason: Option<String>
+    ) -> RpcRequest<()>;
+
     pub fn get_block_template(
         &mut self,
         bytes_limit: Option<Unsigned>,

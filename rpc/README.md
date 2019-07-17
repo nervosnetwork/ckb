@@ -26,8 +26,10 @@
     *   [`get_transactions_by_lock_hash`](#get_transactions_by_lock_hash)
     *   [`index_lock_hash`](#index_lock_hash)
 *   [`Net`](#net)
+    *   [`get_banned_addresses`](#get_banned_addresses)
     *   [`get_peers`](#get_peers)
     *   [`local_node_info`](#local_node_info)
+    *   [`set_ban`](#set_ban)
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
     *   [`tx_pool_info`](#tx_pool_info)
@@ -1133,6 +1135,40 @@ http://localhost:8114
 
 ## Net
 
+### `get_banned_addresses`
+
+Returns all banned IPs/Subnets.
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_banned_addresses",
+    "params": []
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+        {
+            "address": "192.168.0.2/32",
+            "ban_reason": "",
+            "ban_until": "1840546800000",
+            "created_at": "1562803123000"
+        }
+    ]
+}
+```
+
 ### `get_peers`
 
 Returns the connected peers information.
@@ -1226,6 +1262,46 @@ http://localhost:8114
         "node_id": "QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
         "version": "0.9.0"
     }
+}
+```
+
+### `set_ban`
+
+Insert or delete an IP/Subnet from the banned list
+
+#### Parameters
+
+    ban_time - Time in milliseconds how long (or until when if [absolute] is set) the IP is banned, optional parameter, null means using the default time of 24h
+    reason - Ban reason, optional parameter
+    absolute - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter
+    command - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list
+    address - The IP/Subnet with an optional netmask (default is /32 = single IP)
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "set_ban",
+    "params": [
+        "192.168.0.2",
+        "insert",
+        "1840546800000",
+        true,
+        "test set_ban rpc"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": null
 }
 ```
 

@@ -139,17 +139,16 @@ fn setup_node(
     }
 
     // Start network services
-    let dir = tempfile::Builder::new()
-        .prefix("ckb_resource_test")
-        .tempdir()
-        .unwrap();
+    let dir = tempfile::tempdir()
+        .expect("create tempdir failed")
+        .path()
+        .to_path_buf();
     let mut network_config = NetworkConfig::default();
-    network_config.path = dir.path().to_path_buf();
+    network_config.path = dir.clone();
     network_config.ping_interval_secs = 1;
     network_config.ping_timeout_secs = 1;
     network_config.connect_outbound_interval_secs = 1;
 
-    File::create(dir.path().join("network")).expect("create network database");
     let network_state =
         Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
     let network_controller = NetworkService::new(
@@ -163,7 +162,7 @@ fn setup_node(
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
 
     let db_config = DBConfig {
-        path: dir.path().join("indexer").to_path_buf(),
+        path: dir.join("indexer"),
         ..Default::default()
     };
     let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
