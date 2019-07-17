@@ -122,6 +122,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
+        let rpc_client = node.rpc_client();
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net
@@ -155,7 +156,11 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         if let Some(ref ctrl) = net.controller.as_ref() {
             let peer = ctrl.0.connected_peers()[peer_id.value() - 1].clone();
             ctrl.0.remove_node(&peer.0);
+            wait_until(5, || {
+                rpc_client.get_peers().is_empty() && ctrl.0.connected_peers().is_empty()
+            });
         }
+
         net.connect(node);
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
@@ -175,7 +180,6 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(&net, peer_id, &block);
         let hash = block.header().hash().clone();
-        let rpc_client = node.rpc_client();
         wait_until(10, || rpc_client.get_tip_header().hash == hash);
     }
 

@@ -141,4 +141,12 @@ impl NetworkConfig {
         }
         Ok(peers)
     }
+
+    pub fn outbound_peer_service_enabled(&self) -> bool {
+        self.connect_outbound_interval_secs > 0
+    }
+
+    pub fn dns_seeding_service_enabled(&self) -> bool {
+        !self.dns_seeds.is_empty()
+    }
 }

@@ -820,21 +820,24 @@ impl NetworkService {
             p2p_service.control().to_owned(),
             ping_receiver,
         );
-        let outbound_peer_service = OutboundPeerService::new(
-            Arc::clone(&network_state),
-            p2p_service.control().to_owned(),
-            Duration::from_secs(config.connect_outbound_interval_secs),
-        );
-        let dns_seeding_service = DnsSeedingService::new(
-            Arc::clone(&network_state),
-            network_state.config.dns_seeds.clone(),
-        );
-        let bg_services = vec![
+        let mut bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
             Box::new(disc_service) as Box<_>,
-            Box::new(outbound_peer_service) as Box<_>,
-            Box::new(dns_seeding_service) as Box<_>,
         ];
+        if config.outbound_peer_service_enabled() {
+            let outbound_peer_service = OutboundPeerService::new(
+                Arc::clone(&network_state),
+                p2p_service.control().to_owned(),
+                Duration::from_secs(config.connect_outbound_interval_secs),
+            );
+            bg_services.push(Box::new(outbound_peer_service) as Box<_>);
+        };
+
+        if config.dns_seeding_service_enabled() {
+            let dns_seeding_service =
+                DnsSeedingService::new(Arc::clone(&network_state), config.dns_seeds.clone());
+            bg_services.push(Box::new(dns_seeding_service) as Box<_>);
+        };
 
         NetworkService {
             p2p_service,

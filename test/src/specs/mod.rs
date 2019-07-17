@@ -40,8 +40,9 @@ pub trait Spec {
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+        // disable outbound peer service
         Box::new(|config| {
-            config.network.connect_outbound_interval_secs = 1;
+            config.network.connect_outbound_interval_secs = 0;
             config.network.discovery_local_address = true;
         })
     }
