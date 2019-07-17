@@ -1123,18 +1123,24 @@ mod tests {
             state_1.headers_sync_timeout = Some(0);
 
             let mut state_2 = PeerState::default();
+            state_2.peer_flags.is_whitelist = true;
             state_2.peer_flags.is_outbound = true;
-            state_2.headers_sync_timeout = Some(MAX_TIP_AGE * 2);
+            state_2.headers_sync_timeout = Some(0);
+
+            let mut state_3 = PeerState::default();
+            state_3.peer_flags.is_outbound = true;
+            state_3.headers_sync_timeout = Some(MAX_TIP_AGE * 2);
 
             state.insert(0.into(), state_0);
             state.insert(1.into(), state_1);
             state.insert(2.into(), state_2);
+            state.insert(3.into(), state_3);
         }
         synchronizer.eviction(&network_context);
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
             disconnected.deref(),
-            &FnvHashSet::from_iter(vec![0, 1].into_iter().map(Into::into))
+            &FnvHashSet::from_iter(vec![0, 1, 2].into_iter().map(Into::into))
         )
     }
 
@@ -1164,7 +1170,7 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let network_context = mock_network_context(6);
+        let network_context = mock_network_context(7);
         let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
         let headers_sync_timeout = MAX_TIP_AGE * 2;
@@ -1198,12 +1204,18 @@ mod tests {
             state_5.peer_flags.is_outbound = true;
             state_5.headers_sync_timeout = Some(headers_sync_timeout);
 
+            let mut state_6 = PeerState::default();
+            state_6.peer_flags.is_whitelist = true;
+            state_6.peer_flags.is_outbound = true;
+            state_6.headers_sync_timeout = Some(headers_sync_timeout);
+
             state.insert(0.into(), state_0);
             state.insert(1.into(), state_1);
             state.insert(2.into(), state_2);
             state.insert(3.into(), state_3);
             state.insert(4.into(), state_4);
             state.insert(5.into(), state_5);
+            state.insert(6.into(), state_6);
         }
         peers.new_header_received(0.into(), &mock_header_view(1));
         peers.new_header_received(2.into(), &mock_header_view(3));
@@ -1281,7 +1293,7 @@ mod tests {
                     .total_difficulty,
                 Some(total_difficulty)
             );
-            for proto_id in &[0usize, 1, 3, 4] {
+            for proto_id in &[0usize, 1, 3, 4, 6] {
                 assert_eq!(
                     peer_state
                         .get(&(*proto_id).into())
