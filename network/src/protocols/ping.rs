@@ -1,3 +1,4 @@
+use crate::network::disconnect;
 use crate::NetworkState;
 use ckb_logger::{debug, trace};
 use futures::{sync::mpsc::Receiver, try_ready, Async, Stream};
@@ -53,7 +54,9 @@ impl Stream for PingService {
                     reg.remove_peer_by_peer_id(&peer_id)
                         .map(|peer| peer.session_id)
                 }) {
-                    if let Err(err) = self.p2p_control.disconnect(session_id) {
+                    if let Err(err) =
+                        disconnect(&self.p2p_control, session_id, Some("ping timeout"))
+                    {
                         debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
@@ -64,7 +67,8 @@ impl Stream for PingService {
                     reg.remove_peer_by_peer_id(&peer_id)
                         .map(|peer| peer.session_id)
                 }) {
-                    if let Err(err) = self.p2p_control.disconnect(session_id) {
+                    if let Err(err) = disconnect(&self.p2p_control, session_id, Some("ping failed"))
+                    {
                         debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }

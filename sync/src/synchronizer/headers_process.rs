@@ -284,7 +284,10 @@ where
             && (is_outbound && !is_protected)
         {
             debug!("Disconnect peer({}) is unprotected outbound", self.peer);
-            if let Err(err) = self.nc.disconnect(self.peer) {
+            if let Err(err) = self.nc.disconnect(
+                self.peer,
+                Some("insufficient work unprotected outbound peer"),
+            ) {
                 debug!("synchronizer disconnect error: {:?}", err);
             }
         }

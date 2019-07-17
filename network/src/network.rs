@@ -165,7 +165,7 @@ impl NetworkState {
         {
             info!("peer {:?} banned", peer_id);
             if let Some(session_id) = self.peer_registry.read().get_key_by_peer_id(peer_id) {
-                if let Err(err) = p2p_control.disconnect(session_id) {
+                if let Err(err) = disconnect(p2p_control, session_id, Some("banned")) {
                     debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                 }
             }
@@ -197,7 +197,8 @@ impl NetworkState {
         let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer_opt {
             self.peer_store.lock().ban_addr(&peer.address, duration);
-            if let Err(err) = p2p_control.disconnect(peer.session_id) {
+            let message = format!("Ban for {} seconds", duration.as_secs());
+            if let Err(err) = disconnect(p2p_control, peer.session_id, Some(message.as_str())) {
                 debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
             }
         }
@@ -471,7 +472,9 @@ impl EventHandler {
                     .enumerate()
                 {
                     if index & 0x1 != 0 {
-                        if let Err(err) = context.disconnect(peer) {
+                        if let Err(err) =
+                            disconnect(context.control(), peer, Some("bootnode random eviction"))
+                        {
                             debug!("Inbound eviction failed {:?}, error: {:?}", peer, err);
                             return;
                         }
@@ -513,7 +516,7 @@ impl ServiceHandle for EventHandler {
                 error,
             } => {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
-                if let Err(err) = context.disconnect(id) {
+                if let Err(err) = disconnect(context.control(), id, Some("ProtocolError")) {
                     debug!("Disconnect failed {:?}, error {:?}", id, err);
                 }
             }
@@ -591,7 +594,11 @@ impl ServiceHandle for EventHandler {
                                 "evict peer (disonnect it), {} => {}",
                                 evicted_peer.session_id, evicted_peer.address,
                             );
-                            if let Err(err) = context.disconnect(evicted_peer.session_id) {
+                            if let Err(err) = disconnect(
+                                context.control(),
+                                evicted_peer.session_id,
+                                Some("accept peer eviction"),
+                            ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     evicted_peer.session_id, err
@@ -607,7 +614,11 @@ impl ServiceHandle for EventHandler {
                                 "registry peer failed {:?} disconnect it, {} => {}",
                                 err, session_context.id, session_context.address,
                             );
-                            if let Err(err) = context.disconnect(session_context.id) {
+                            if let Err(err) = disconnect(
+                                context.control(),
+                                session_context.id,
+                                Some("accept peer error"),
+                            ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     session_context.id, err
@@ -715,7 +726,11 @@ impl ServiceHandle for EventHandler {
                         .disconnecting_sessions
                         .write()
                         .insert(session_id);
-                    if let Err(err) = context.disconnect(session_id) {
+                    if let Err(err) = disconnect(
+                        context.control(),
+                        session_id,
+                        Some("already removed from registry"),
+                    ) {
                         debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
@@ -943,7 +958,9 @@ impl NetworkService {
                 let _ = receiver.recv();
                 for peer in self.network_state.peer_registry.read().peers().values() {
                     info!("Disconnect peer {}", peer.address);
-                    if let Err(err) = inner_p2p_control.disconnect(peer.session_id) {
+                    if let Err(err) =
+                        disconnect(&inner_p2p_control, peer.session_id, Some("shutdown"))
+                    {
                         debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
                     }
                 }
@@ -1001,7 +1018,7 @@ impl NetworkController {
             .read()
             .get_key_by_peer_id(peer_id)
         {
-            if let Err(err) = self.p2p_control.disconnect(session_id) {
+            if let Err(err) = disconnect(&self.p2p_control, session_id, Some("remove node")) {
                 debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
             }
         } else {
@@ -1112,4 +1129,18 @@ impl Drop for NetworkController {
     fn drop(&mut self) {
         self.stop.try_send();
     }
+}
+
+// Send a optional message before disconnect a peer
+pub(crate) fn disconnect(
+    control: &ServiceControl,
+    peer_index: SessionId,
+    message: Option<&str>,
+) -> Result<(), P2pError> {
+    if let Some(message) = message {
+        let data = Bytes::from(format!("Disconnect because: {}", message).into_bytes());
+        // Must quick send, otherwise this message will be dropped.
+        control.quick_send_message_to(peer_index, STRING_MESSAGE_PROTOCOL_ID.into(), data)?;
+    }
+    control.disconnect(peer_index)
 }

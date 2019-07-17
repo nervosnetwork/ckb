@@ -6,7 +6,6 @@ pub(crate) mod string_message;
 #[cfg(test)]
 mod test;
 
-use crate::Error;
 use ckb_logger::trace;
 use futures::{try_ready, Future, Poll};
 use p2p::{
@@ -26,7 +25,8 @@ pub type BoxedFutureTask = Box<dyn Future<Item = (), Error = ()> + 'static + Sen
 
 use crate::{
     compress::{compress, decompress},
-    Behaviour, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FRAME_LENGTH,
+    network::disconnect,
+    Behaviour, Error, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FRAME_LENGTH,
 };
 
 pub trait CKBProtocolContext: Send {
@@ -51,7 +51,7 @@ pub trait CKBProtocolContext: Send {
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
     // TODO allow broadcast to target ProtocolId
     fn filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
-    fn disconnect(&self, peer_index: PeerIndex) -> Result<(), Error>;
+    fn disconnect(&self, peer_index: PeerIndex, message: Option<&str>) -> Result<(), Error>;
     // Interact with NetworkState
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
     fn connected_peers(&self) -> Vec<PeerIndex>;
@@ -338,8 +338,8 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .filter_broadcast(target, self.proto_id, data)?;
         Ok(())
     }
-    fn disconnect(&self, peer_index: PeerIndex) -> Result<(), Error> {
-        self.p2p_control.disconnect(peer_index)?;
+    fn disconnect(&self, peer_index: PeerIndex, message: Option<&str>) -> Result<(), Error> {
+        disconnect(&self.p2p_control, peer_index, message)?;
         Ok(())
     }
 
