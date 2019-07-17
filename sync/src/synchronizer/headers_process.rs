@@ -277,7 +277,7 @@ where
             .state
             .read()
             .get(&self.peer)
-            .map(|state| (state.is_outbound, state.chain_sync.protect))
+            .map(|state| (state.peer_flags.is_outbound, state.peer_flags.is_protect))
             .unwrap_or((false, false));
         if self.synchronizer.shared.is_initial_block_download()
             && headers.len() != MAX_HEADERS_LEN

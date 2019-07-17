@@ -91,8 +91,8 @@ fn net_service_start(name: String) -> Node {
         public_addresses: vec![],
         bootnodes: vec![],
         dns_seeds: vec![],
-        reserved_peers: vec![],
-        reserved_only: false,
+        whitelist_peers: vec![],
+        whitelist_only: false,
         max_peers: 19,
         max_outbound_peers: 5,
         path: tempdir()

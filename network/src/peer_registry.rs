@@ -15,17 +15,17 @@ pub struct PeerRegistry {
     max_inbound: u32,
     // max outbound limitation
     max_outbound: u32,
-    // Only reserved peers or allow all peers.
-    reserved_only: bool,
-    reserved_peers: FnvHashSet<PeerId>,
+    // Only whitelist peers or allow all peers.
+    whitelist_only: bool,
+    whitelist_peers: FnvHashSet<PeerId>,
     feeler_peers: FnvHashSet<PeerId>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct ConnectionStatus {
     pub total: u32,
-    pub unreserved_inbound: u32,
-    pub unreserved_outbound: u32,
+    pub non_whitelist_inbound: u32,
+    pub non_whitelist_outbound: u32,
     pub max_inbound: u32,
     pub max_outbound: u32,
 }
@@ -44,17 +44,17 @@ impl PeerRegistry {
     pub fn new(
         max_inbound: u32,
         max_outbound: u32,
-        reserved_only: bool,
-        reserved_peers: Vec<PeerId>,
+        whitelist_only: bool,
+        whitelist_peers: Vec<PeerId>,
     ) -> Self {
-        let reserved_peers_set = FnvHashSet::from_iter(reserved_peers);
+        let whitelist_peers_set = FnvHashSet::from_iter(whitelist_peers);
         PeerRegistry {
             peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
-            reserved_peers: reserved_peers_set,
+            whitelist_peers: whitelist_peers_set,
             feeler_peers: FnvHashSet::default(),
             max_inbound,
             max_outbound,
-            reserved_only,
+            whitelist_only,
         }
     }
 
@@ -73,11 +73,11 @@ impl PeerRegistry {
             return Err(PeerError::PeerIdExists(peer_id));
         }
 
-        let is_reserved = self.reserved_peers.contains(&peer_id);
+        let is_whitelist = self.whitelist_peers.contains(&peer_id);
         let mut evicted_peer: Option<Peer> = None;
 
-        if !is_reserved {
-            if self.reserved_only {
+        if !is_whitelist {
+            if self.whitelist_only {
                 return Err(PeerError::NonReserved);
             }
             if peer_store.is_banned(&remote_addr) {
@@ -87,19 +87,19 @@ impl PeerRegistry {
             let connection_status = self.connection_status();
             // check peers connection limitation
             if session_type.is_inbound() {
-                if connection_status.unreserved_inbound >= self.max_inbound {
+                if connection_status.non_whitelist_inbound >= self.max_inbound {
                     if let Some(evicted_session) = self.try_evict_inbound_peer(peer_store) {
                         evicted_peer = self.remove_peer(evicted_session);
                     } else {
                         return Err(PeerError::ReachMaxInboundLimit);
                     }
                 }
-            } else if connection_status.unreserved_outbound >= self.max_outbound {
+            } else if connection_status.non_whitelist_outbound >= self.max_outbound {
                 return Err(PeerError::ReachMaxOutboundLimit);
             }
         }
         peer_store.add_connected_peer(&peer_id, remote_addr.clone(), session_type);
-        let peer = Peer::new(session_id, session_type, peer_id, remote_addr, is_reserved);
+        let peer = Peer::new(session_id, session_type, peer_id, remote_addr, is_whitelist);
         self.peers.insert(session_id, peer);
         Ok(evicted_peer)
     }
@@ -110,7 +110,7 @@ impl PeerRegistry {
         let mut candidate_peers = {
             self.peers
                 .values()
-                .filter(|peer| peer.is_inbound() && !peer.is_reserved)
+                .filter(|peer| peer.is_inbound() && !peer.is_whitelist)
                 .collect::<Vec<_>>()
         };
         // Protect peers based on characteristics that an attacker hard to simulate or manipulate
@@ -225,19 +225,19 @@ impl PeerRegistry {
 
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
         let total = self.peers.len() as u32;
-        let mut unreserved_inbound: u32 = 0;
-        let mut unreserved_outbound: u32 = 0;
-        for peer in self.peers.values().filter(|peer| !peer.is_reserved) {
+        let mut non_whitelist_inbound: u32 = 0;
+        let mut non_whitelist_outbound: u32 = 0;
+        for peer in self.peers.values().filter(|peer| !peer.is_whitelist) {
             if peer.is_outbound() {
-                unreserved_outbound += 1;
+                non_whitelist_outbound += 1;
             } else {
-                unreserved_inbound += 1;
+                non_whitelist_inbound += 1;
             }
         }
         ConnectionStatus {
             total,
-            unreserved_inbound,
-            unreserved_outbound,
+            non_whitelist_inbound,
+            non_whitelist_outbound,
             max_inbound: self.max_inbound,
             max_outbound: self.max_outbound,
         }

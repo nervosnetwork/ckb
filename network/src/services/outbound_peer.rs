@@ -58,6 +58,9 @@ impl OutboundPeerService {
             attempt_peers,
             is_feeler
         );
+        // keep whitelist peer on connected
+        self.try_dial_whitelist();
+
         for paddr in attempt_peers {
             let PeerAddr { peer_id, addr, .. } = paddr;
             if is_feeler {
@@ -70,12 +73,12 @@ impl OutboundPeerService {
         }
     }
 
-    fn try_dial_reserved(&self) {
+    fn try_dial_whitelist(&self) {
         // This will never panic because network start has already been checked
         for (peer_id, addr) in self
             .network_state
             .config
-            .reserved_peers()
+            .whitelist_peers()
             .expect("address must be correct")
         {
             if self.network_state.query_session_id(&peer_id).is_none() {
@@ -102,9 +105,9 @@ impl Future for OutboundPeerService {
                         let status = self.network_state.connection_status();
                         let new_outbound = status
                             .max_outbound
-                            .saturating_sub(status.unreserved_outbound);
-                        if self.network_state.config.reserved_only {
-                            self.try_dial_reserved()
+                            .saturating_sub(status.non_whitelist_outbound);
+                        if self.network_state.config.whitelist_only {
+                            self.try_dial_whitelist()
                         } else if new_outbound > 0 {
                             // dial peers
                             self.dial_peers(false, new_outbound as u32);
