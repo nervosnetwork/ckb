@@ -977,7 +977,7 @@ mod tests {
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
         }
-        fn pause_send(&self) -> bool {
+        fn send_paused(&self) -> bool {
             false
         }
     }

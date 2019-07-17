@@ -55,7 +55,7 @@ where
                 continue;
             }
 
-            if self.nc.pause_send() {
+            if self.nc.send_paused() {
                 debug!(
                     "Session send buffer is full, stop send blocks to peer {:?}",
                     self.peer

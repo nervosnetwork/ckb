@@ -39,7 +39,6 @@ pub struct NetworkConfig {
     #[serde(default)]
     pub bootnode_mode: bool,
     // Max send buffer size
-    #[serde(default)]
     pub max_send_buffer: Option<usize>,
 }
 
