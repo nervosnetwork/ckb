@@ -5,11 +5,12 @@ use crate::peer_store::{
     types::{BannedAddress, PeerAddr},
     PeerStore, Status,
 };
-use crate::protocols::feeler::Feeler;
 use crate::protocols::{
     discovery::{DiscoveryProtocol, DiscoveryService},
+    feeler::Feeler,
     identify::IdentifyCallback,
     ping::PingService,
+    string_message::StringMessageProtocol,
 };
 use crate::services::{dns_seeding::DnsSeedingService, outbound_peer::OutboundPeerService};
 use crate::Peer;
@@ -56,6 +57,7 @@ pub(crate) const PING_PROTOCOL_ID: usize = 0;
 pub(crate) const DISCOVERY_PROTOCOL_ID: usize = 1;
 pub(crate) const IDENTIFY_PROTOCOL_ID: usize = 2;
 pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
+pub(crate) const STRING_MESSAGE_PROTOCOL_ID: usize = 4;
 
 const ADDR_LIMIT: u32 = 3;
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
@@ -785,12 +787,19 @@ impl NetworkService {
             })
             .build();
 
+        let string_message_meta = MetaBuilder::default()
+            .id(STRING_MESSAGE_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/strmsg".to_string())
+            .service_handle(move || ProtocolHandle::Both(Box::new(StringMessageProtocol)))
+            .build();
+
         // == Build p2p service struct
         let mut protocol_metas = protocols
             .into_iter()
             .map(CKBProtocol::build)
             .collect::<Vec<_>>();
         protocol_metas.push(feeler_meta);
+        protocol_metas.push(string_message_meta);
         protocol_metas.push(ping_meta);
         protocol_metas.push(disc_meta);
         protocol_metas.push(identify_meta);
