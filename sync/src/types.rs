@@ -1245,7 +1245,7 @@ mod tests {
         };
         for _ in 0..100 {
             let from: u64 = rng.gen_range(0, SKIPLIST_LENGTH);
-            let to: u64 = rng.gen_range(0, from);
+            let to: u64 = rng.gen_range(0, from + 1);
             let view_from = &header_map[&hashes[&from]];
             let view_to = &header_map[&hashes[&to]];
             let view_0 = &header_map[&hashes[&0]];
