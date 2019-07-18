@@ -356,6 +356,10 @@ fn test_uncle_proposals_hash() {
 
     let uncle = unsafe {
         BlockBuilder::from_block(chain1[16].to_owned())
+            .header_builder(
+                HeaderBuilder::from_header(chain1[16].header().to_owned())
+                    .parent_hash(chain2[15].header().hash().to_owned()),
+            )
             .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
             .build_unchecked()
     };
@@ -487,13 +491,93 @@ fn test_exceeded_maximum_proposals_limit() {
 }
 
 #[test]
-fn test_ok() {
+fn test_descendant_limit() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
     {
         let uncle = BlockBuilder::from_block(chain1[16].clone())
             .header_builder(HeaderBuilder::from_header(chain1[16].header().to_owned()))
+            .build();
+        let block = BlockBuilder::from_block(chain2[18].clone())
+            .uncle(uncle)
+            .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
+            .build();
+
+        let epoch = epoch(&shared, &chain2, 17);
+        let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
+        let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
+        assert_eq!(
+            verifier.verify(),
+            Err(Error::Uncles(UnclesError::DescendantLimit))
+        );
+    }
+
+    // embedded should be ok
+    {
+        let uncle1 = BlockBuilder::from_block(chain1[15].clone())
+            .header_builder(
+                HeaderBuilder::from_header(chain1[15].header().to_owned())
+                    .parent_hash(chain2[14].header().hash().to_owned()),
+            )
+            .build();
+        let uncle2 = BlockBuilder::from_block(chain1[16].clone())
+            .header_builder(
+                HeaderBuilder::from_header(chain1[16].header().to_owned())
+                    .parent_hash(uncle1.header().hash().to_owned()),
+            )
+            .build();
+        let block = BlockBuilder::from_block(chain2[18].clone())
+            .uncle(uncle1)
+            .uncle(uncle2)
+            .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
+            .build();
+
+        let epoch = epoch(&shared, &chain2, 17);
+        let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
+        let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
+        assert_eq!(verifier.verify(), Ok(()));
+    }
+}
+
+#[test]
+fn test_descendant_continuity() {
+    let (shared, chain1, chain2) = prepare();
+    let dummy_context = dummy_context(&shared);
+
+    {
+        let uncle = BlockBuilder::from_block(chain1[16].clone())
+            .header_builder(
+                HeaderBuilder::from_header(chain1[16].header().to_owned())
+                    .parent_hash(chain2[14].header().hash().to_owned()),
+            )
+            .build();
+        let block = BlockBuilder::from_block(chain2[18].clone())
+            .uncle(uncle)
+            .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
+            .build();
+
+        let epoch = epoch(&shared, &chain2, 17);
+        let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch, &block);
+        let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
+        assert_eq!(
+            verifier.verify(),
+            Err(Error::Uncles(UnclesError::DescendantLimit))
+        );
+    }
+}
+
+#[test]
+fn test_ok() {
+    let (shared, chain1, chain2) = prepare();
+    let dummy_context = dummy_context(&shared);
+
+    {
+        let uncle = BlockBuilder::from_block(chain1[16].clone())
+            .header_builder(
+                HeaderBuilder::from_header(chain1[16].header().to_owned())
+                    .parent_hash(chain2[15].header().hash().to_owned()),
+            )
             .build();
         let block = BlockBuilder::from_block(chain2[18].clone())
             .uncle(uncle)
@@ -555,7 +639,10 @@ fn test_uncle_verifier_with_fork_context() {
 
     {
         let uncle = BlockBuilder::from_block(chain1[17].clone())
-            .header_builder(HeaderBuilder::from_header(chain1[17].header().to_owned()))
+            .header_builder(
+                HeaderBuilder::from_header(chain1[17].header().to_owned())
+                    .parent_hash(chain2[16].header().hash().to_owned()),
+            )
             .build();
         let block = BlockBuilder::from_block(new_block.clone())
             .uncle(uncle)

@@ -365,7 +365,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
             );
             for detached_block in fork.detached_blocks() {
                 self.notify
-                    .notify_new_uncle(Arc::new(detached_block.clone()));
+                    .notify_new_uncle(Arc::new(detached_block.into()));
             }
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(&chain_state, 10);
@@ -378,7 +378,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                 cannon_total_difficulty,
                 block.transactions().len()
             );
-            self.notify.notify_new_uncle(block);
+            let block_ref: &Block = &block;
+            self.notify.notify_new_uncle(Arc::new(block_ref.into()));
         }
 
         Ok(true)
@@ -618,8 +619,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                     if log_enabled!(ckb_logger::Level::Trace) {
                                         trace!("block {}", serde_json::to_string(b).unwrap());
                                     }
-                                    found_error =
-                                        Some(SharedError::InvalidTransaction(err.to_string()));
+                                    found_error = Some(SharedError::InvalidBlock(err.to_string()));
                                     *verified = Some(false);
                                 }
                             }

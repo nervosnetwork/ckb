@@ -22,6 +22,15 @@ impl From<Block> for UncleBlock {
     }
 }
 
+impl<'a> From<&'a Block> for UncleBlock {
+    fn from(block: &'a Block) -> Self {
+        UncleBlock {
+            header: block.header().to_owned(),
+            proposals: block.proposals().to_vec(),
+        }
+    }
+}
+
 impl UncleBlock {
     pub fn new(header: Header, proposals: Vec<ProposalShortId>) -> UncleBlock {
         UncleBlock { header, proposals }

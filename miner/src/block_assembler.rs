@@ -1,6 +1,6 @@
+use crate::candidate_uncles::CandidateUncles;
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
-use ckb_core::block::Block;
 use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -34,7 +34,6 @@ use std::cmp;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
 
-const MAX_CANDIDATE_UNCLES: usize = 42;
 type BlockTemplateParams = (Option<u64>, Option<u64>, Option<Version>);
 type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
@@ -134,7 +133,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let new_uncle_receiver = notify.subscribe_new_uncle(BLOCK_ASSEMBLER_SUBSCRIBER);
         let thread = thread_builder
             .spawn(move || {
-                let mut candidate_uncles = LruCache::new(MAX_CANDIDATE_UNCLES);
+                let mut candidate_uncles = CandidateUncles::new();
                 loop {
                     select! {
                         recv(signal_receiver) -> _ => {
@@ -142,8 +141,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                         }
                         recv(new_uncle_receiver) -> msg => match msg {
                             Ok(uncle_block) => {
-                                let hash = uncle_block.header().hash();
-                                candidate_uncles.insert(hash.to_owned(), uncle_block);
+                                candidate_uncles.insert(uncle_block);
                                 self.last_uncles_updated_at
                                     .store(unix_time_as_millis(), Ordering::SeqCst);
                             }
@@ -236,7 +234,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         &self,
         cellbase_size: usize,
         bytes_limit: u64,
-        uncles: &FnvHashSet<UncleBlock>,
+        uncles: &[UncleBlock],
         proposals: &FnvHashSet<ProposalShortId>,
     ) -> Result<usize, FailureError> {
         let occupied = Header::serialized_size(self.proof_size)
@@ -258,7 +256,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
-        candidate_uncles: &mut LruCache<H256, Arc<Block>>,
+        candidate_uncles: &mut CandidateUncles,
     ) -> Result<BlockTemplate, FailureError> {
         let cycles_limit = self.shared.consensus().max_block_cycles();
         let (bytes_limit, proposals_limit, version) =
@@ -470,42 +468,47 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         Ok(output)
     }
 
-    /// A block B1 is considered to be the uncle of
-    /// another block B2 if all of the following conditions are met:
-    /// (1) they are in the same epoch, sharing the same difficulty;
-    /// (2) height(B2) > height(B1);
-    /// (3) B2 is the first block in its chain to refer to B1
+    // A block B1 is considered to be the uncle of another block B2 if all of the following conditions are met:
+    // (1) they are in the same epoch, sharing the same difficulty;
+    // (2) height(B2) > height(B1);
+    // (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
+    // and (4) B2 is the first block in its chain to refer to B1.
     fn prepare_uncles(
         &self,
         candidate_number: BlockNumber,
         current_epoch_ext: &EpochExt,
-        candidate_uncles: &mut LruCache<H256, Arc<Block>>,
-    ) -> FnvHashSet<UncleBlock> {
+        candidate_uncles: &mut CandidateUncles,
+    ) -> Vec<UncleBlock> {
         let store = self.shared.store();
         let epoch_number = current_epoch_ext.number();
         let max_uncles_num = self.shared.consensus().max_uncles_num();
-        let mut uncles = FnvHashSet::with_capacity_and_hasher(max_uncles_num, Default::default());
+        let mut uncles: Vec<UncleBlock> = Vec::with_capacity(max_uncles_num);
+        let mut removed = Vec::new();
 
-        for entry in candidate_uncles.entries() {
+        for uncle in candidate_uncles.values() {
             if uncles.len() == max_uncles_num {
                 break;
             }
-            let block = entry.get();
-            let hash = entry.key();
-            if block.header().difficulty() != current_epoch_ext.difficulty()
-                || block.header().epoch() != epoch_number
+            let hash = uncle.hash();
+            let parent_hash = uncle.header().parent_hash();
+            if uncle.header().difficulty() != current_epoch_ext.difficulty()
+                || uncle.header().epoch() != epoch_number
                 || store.get_block_number(hash).is_some()
                 || store.is_uncle(hash)
-                || block.header().number() >= candidate_number
+                || !(uncles.iter().any(|u| u.header().hash() == parent_hash)
+                    || store.get_block_number(parent_hash).is_some()
+                    || store.is_uncle(parent_hash))
+                || uncle.header().number() >= candidate_number
             {
-                entry.remove();
+                removed.push(Arc::clone(uncle));
             } else {
-                let uncle = UncleBlock {
-                    header: block.header().to_owned(),
-                    proposals: block.proposals().to_vec(),
-                };
-                uncles.insert(uncle);
+                let uncle_ref: &UncleBlock = &uncle;
+                uncles.push(uncle_ref.to_owned());
             }
+        }
+
+        for r in removed {
+            candidate_uncles.remove(&r);
         }
         uncles
     }
@@ -575,7 +578,7 @@ mod tests {
             data: JsonBytes::default(),
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
-        let mut candidate_uncles = LruCache::new(MAX_CANDIDATE_UNCLES);
+        let mut candidate_uncles = CandidateUncles::new();
 
         let block_template = block_assembler
             .get_block_template(None, None, None, &mut candidate_uncles)
