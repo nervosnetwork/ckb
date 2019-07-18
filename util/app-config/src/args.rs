@@ -23,6 +23,7 @@ pub struct ImportArgs {
 pub struct RunArgs {
     pub config: Box<CKBAppConfig>,
     pub consensus: Consensus,
+    pub block_assembler_advanced: bool,
 }
 
 pub struct ProfArgs {

@@ -8,6 +8,7 @@ use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
+use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
@@ -15,6 +16,8 @@ use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synch
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::{BlockVerifier, Verifier};
 use std::sync::Arc;
+
+const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
@@ -45,10 +48,27 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let block_assembler_controller =
         match (args.config.rpc.miner_enable(), args.config.block_assembler) {
-            (true, Some(block_assembler)) => Some(
-                BlockAssembler::new(shared.clone(), block_assembler)
-                    .start(Some("MinerAgent"), &notify),
-            ),
+            (true, Some(block_assembler)) => {
+                if args.block_assembler_advanced
+                    || (block_assembler.code_hash == CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
+                        && block_assembler.args.len() == 1
+                        && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN)
+                {
+                    Some(
+                        BlockAssembler::new(shared.clone(), block_assembler)
+                            .start(Some("MinerAgent"), &notify),
+                    )
+                } else {
+                    info_target!(
+                        crate::LOG_TARGET_MAIN,
+                        "Miner is disabled because block assmebler is not a valid secp256k1 lock. \
+                         Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
+                    );
+
+                    None
+                }
+            }
+
             _ => {
                 info_target!(
                     crate::LOG_TARGET_MAIN,
