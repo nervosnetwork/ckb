@@ -1,5 +1,7 @@
-use crate::errors::{ConfigError, Error};
-use crate::PeerId;
+use crate::{
+    errors::{ConfigError, Error},
+    PeerId, DEFAULT_SEND_BUFFER,
+};
 use ckb_logger::info;
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
@@ -39,6 +41,8 @@ pub struct NetworkConfig {
     pub upnp: bool,
     #[serde(default)]
     pub bootnode_mode: bool,
+    // Max send buffer size
+    pub max_send_buffer: Option<usize>,
 }
 
 fn generate_random_key() -> [u8; 32] {
@@ -77,6 +81,10 @@ impl NetworkConfig {
 
     pub fn max_outbound_peers(&self) -> u32 {
         self.max_outbound_peers
+    }
+
+    pub fn max_send_buffer(&self) -> usize {
+        self.max_send_buffer.unwrap_or(DEFAULT_SEND_BUFFER)
     }
 
     fn read_secret_key(&self) -> Result<Option<secio::SecioKeyPair>, Error> {
