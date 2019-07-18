@@ -25,6 +25,7 @@ def print_types(case):
     print("#### Parameters")
     newline(1)
     for item in case["types"]:
+        assert(len(item) == 1)
         for (key, val) in item.items():
             print("    {} - {}".format(key, val))
 
