@@ -270,12 +270,8 @@
         ],
         "types": [
             {
-                "lock_hash": "Cell lock script hash"
-            },
-            {
-                "from": "Start block number"
-            },
-            {
+                "lock_hash": "Cell lock script hash",
+                "from": "Start block number",
                 "to": "End block number"
             }
         ]
@@ -528,21 +524,11 @@
         "result": "0x10bffb7b67bfba00efcce595a07f6a5a648b97b299a5be632af15b6d06398246",
         "types": [
             {
-                "transaction": "The transaction object"
-            },
-            {
-                "version": "Transaction version"
-            },
-            {
-                "deps": "Dependent cells"
-            },
-            {
-                "inputs": "Transaction inputs"
-            },
-            {
-                "outputs": "Transaction outputs"
-            },
-            {
+                "transaction": "The transaction object",
+                "version": "Transaction version",
+                "deps": "Dependent cells",
+                "inputs": "Transaction inputs",
+                "outputs": "Transaction outputs",
                 "witnesses": "Witnesses"
             }
         ]
@@ -593,21 +579,11 @@
         "result": "0xc00763e95b225031df58c204d65089414482e629fd2f52b19e2c7e21eaa179ba",
         "types": [
             {
-                "transaction": "The transaction object"
-            },
-            {
-                "version": "Transaction version"
-            },
-            {
-                "deps": "Dependent cells"
-            },
-            {
-                "inputs": "Transaction inputs"
-            },
-            {
-                "outputs": "Transaction outputs"
-            },
-            {
+                "transaction": "The transaction object",
+                "version": "Transaction version",
+                "deps": "Dependent cells",
+                "inputs": "Transaction inputs",
+                "outputs": "Transaction outputs",
                 "witnesses": "Witnesses"
             }
         ]
@@ -752,9 +728,7 @@
         },
         "types": [
             {
-                "lock_hash": "Cell lock script hash"
-            },
-            {
+                "lock_hash": "Cell lock script hash",
                 "index_from": "Create an index from starting block number (exclusive), an optional parameter, null means starting from tip and 0 means starting from genesis"
             }
         ]
@@ -819,15 +793,9 @@
         ],
         "types": [
             {
-                "lock_hash": "Cell lock script hash"
-            },
-            {
-                "page": "Page number"
-            },
-            {
-                "per": "Page size, max value is 50"
-            },
-            {
+                "lock_hash": "Cell lock script hash",
+                "page": "Page number",
+                "per": "Page size, max value is 50",
                 "reverse_order": "Returns the live cells collection in reverse order, an optional parameter, default is false"
             }
         ]
@@ -861,15 +829,9 @@
         ],
         "types": [
             {
-                "lock_hash": "Cell lock script hash"
-            },
-            {
-                "page": "Page number"
-            },
-            {
-                "per": "Page size, max value is 50"
-            },
-            {
+                "lock_hash": "Cell lock script hash",
+                "page": "Page number",
+                "per": "Page size, max value is 50",
                 "reverse_order": "Return the transactions collection in reverse order, an optional parameter, default is false"
             }
         ]
@@ -919,9 +881,7 @@
         "result": "0xa5b2c97e57901ca70bfa30a18f8bb4dac4f666ccbcdccd536b33a8066d01dd8e",
         "types": [
             {
-                "args": "Hex encoded arguments passed to reference cell"
-            },
-            {
+                "args": "Hex encoded arguments passed to reference cell",
                 "code_hash": "Code hash of referenced cell"
             }
         ]
