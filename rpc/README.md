@@ -1271,11 +1271,11 @@ Insert or delete an IP/Subnet from the banned list
 
 #### Parameters
 
-    ban_time - Time in milliseconds how long (or until when if [absolute] is set) the IP is banned, optional parameter, null means using the default time of 24h
-    reason - Ban reason, optional parameter
-    absolute - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter
-    command - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list
     address - The IP/Subnet with an optional netmask (default is /32 = single IP)
+    command - `insert` to insert an IP/Subnet to the list, `delete` to delete an IP/Subnet from the list
+    ban_time - Time in milliseconds how long (or until when if [absolute] is set) the IP is banned, optional parameter, null means using the default time of 24h
+    absolute - If set, the `ban_time` must be an absolute timestamp in milliseconds since epoch, optional parameter
+    reason - Ban reason, optional parameter
 
 #### Examples
 
