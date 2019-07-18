@@ -6,11 +6,11 @@ use crate::peer_store::{
     PeerStore, Status,
 };
 use crate::protocols::{
+    disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryProtocol, DiscoveryService},
     feeler::Feeler,
     identify::IdentifyCallback,
     ping::PingService,
-    string_message::StringMessageProtocol,
 };
 use crate::services::{dns_seeding::DnsSeedingService, outbound_peer::OutboundPeerService};
 use crate::Peer;
@@ -57,7 +57,7 @@ pub(crate) const PING_PROTOCOL_ID: usize = 0;
 pub(crate) const DISCOVERY_PROTOCOL_ID: usize = 1;
 pub(crate) const IDENTIFY_PROTOCOL_ID: usize = 2;
 pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
-pub(crate) const STRING_MESSAGE_PROTOCOL_ID: usize = 4;
+pub(crate) const DISCONNECT_MESSAGE_PROTOCOL_ID: usize = 4;
 
 const ADDR_LIMIT: u32 = 3;
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
@@ -802,10 +802,10 @@ impl NetworkService {
             })
             .build();
 
-        let string_message_meta = MetaBuilder::default()
-            .id(STRING_MESSAGE_PROTOCOL_ID.into())
-            .name(move |_| "/ckb/strmsg".to_string())
-            .service_handle(move || ProtocolHandle::Both(Box::new(StringMessageProtocol)))
+        let disconnect_message_meta = MetaBuilder::default()
+            .id(DISCONNECT_MESSAGE_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/disconnectmsg".to_string())
+            .service_handle(move || ProtocolHandle::Both(Box::new(DisconnectMessageProtocol)))
             .build();
 
         // == Build p2p service struct
@@ -814,7 +814,7 @@ impl NetworkService {
             .map(CKBProtocol::build)
             .collect::<Vec<_>>();
         protocol_metas.push(feeler_meta);
-        protocol_metas.push(string_message_meta);
+        protocol_metas.push(disconnect_message_meta);
         protocol_metas.push(ping_meta);
         protocol_metas.push(disc_meta);
         protocol_metas.push(identify_meta);
@@ -1138,9 +1138,9 @@ pub(crate) fn disconnect(
     message: Option<&str>,
 ) -> Result<(), P2pError> {
     if let Some(message) = message {
-        let data = Bytes::from(format!("Disconnect because: {}", message).into_bytes());
+        let data = Bytes::from(message.as_bytes());
         // Must quick send, otherwise this message will be dropped.
-        control.quick_send_message_to(peer_index, STRING_MESSAGE_PROTOCOL_ID.into(), data)?;
+        control.quick_send_message_to(peer_index, DISCONNECT_MESSAGE_PROTOCOL_ID.into(), data)?;
     }
     control.disconnect(peer_index)
 }
