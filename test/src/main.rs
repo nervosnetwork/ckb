@@ -1,26 +1,169 @@
 use ckb_logger::{self, Config};
 use ckb_test::specs::*;
 use ckb_test::Spec;
-use log::info;
+use clap::{value_t, App, Arg};
+use log::{error, info};
+use rand::{seq::SliceRandom, thread_rng};
 use std::collections::HashMap;
 use std::env;
+use std::panic;
+use std::time::Instant;
 
 fn main() {
+    let clap_app = clap_app();
+    let matches = clap_app.get_matches();
+
+    let binary = matches.value_of("binary").unwrap();
+    let start_port = value_t!(matches, "port", u16).unwrap_or_else(|err| err.exit());
+    let spec_names_to_run: Vec<_> = matches.values_of("specs").unwrap_or_default().collect();
+    let max_time = if matches.is_present("max-time") {
+        Some(value_t!(matches, "max-time", u64).unwrap_or_else(|err| err.exit()))
+    } else {
+        None
+    };
+
+    let all_specs = build_specs();
+
+    if matches.is_present("list-specs") {
+        let mut names: Vec<_> = all_specs.keys().collect();
+        names.sort();
+        for spec_name in names {
+            println!("{}", spec_name);
+        }
+        return;
+    }
+
+    let specs = filter_specs(all_specs, spec_names_to_run);
+
     let log_config = Config {
         filter: Some("info".to_owned()),
         ..Default::default()
     };
     let _logger_guard = ckb_logger::init(log_config).expect("init Logger");
 
-    let binary = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "../target/release/ckb".to_string());
-    let start_port = env::args()
-        .nth(2)
-        .unwrap_or_else(|| "9000".to_string())
-        .parse()
-        .expect("invalid port number");
-    let mut specs: HashMap<&str, Box<dyn Spec>> = HashMap::new();
+    info!("binary: {}", binary);
+    info!("start port: {}", start_port);
+    info!("max time: {:?}", max_time);
+
+    let total = specs.len();
+    let start_time = Instant::now();
+    let mut specs_iter = specs.into_iter().enumerate();
+    let mut rerun_specs = vec![];
+
+    for (index, (spec_name, spec)) in &mut specs_iter {
+        info!(
+            "{}/{} .............. Running {}",
+            index + 1,
+            total,
+            spec_name
+        );
+        let now = Instant::now();
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
+            let net = spec.setup_net(&binary, start_port);
+            spec.run(net);
+        }));
+        info!(
+            "{}/{} -------------> Completed {} in {} seconds",
+            index + 1,
+            total,
+            spec_name,
+            now.elapsed().as_secs()
+        );
+
+        if result.is_err() {
+            rerun_specs.push(spec_name);
+            break;
+        }
+        if start_time.elapsed().as_secs() > max_time.unwrap_or_else(u64::max_value) {
+            error!(
+                "Exit ckb-test, because total running time exeedes {} seconds",
+                max_time.unwrap_or_default()
+            );
+            break;
+        }
+    }
+
+    if rerun_specs.is_empty() {
+        rerun_specs.extend(specs_iter.map(|t| (t.1).0));
+        if !rerun_specs.is_empty() {
+            info!("You can run the skipped specs using following command:");
+        }
+    } else {
+        rerun_specs.extend(specs_iter.map(|t| (t.1).0));
+
+        error!("ckb-failed on spec {}", rerun_specs[0]);
+        info!("You can rerun remaining specs using following command:");
+    }
+
+    if !rerun_specs.is_empty() {
+        info!(
+            "{} --bin {} --port {} {} {}",
+            env::args().nth(0).unwrap_or_else(|| "ckb-test".to_string()),
+            binary,
+            start_port,
+            max_time
+                .map(|seconds| format!("--max-time {}", seconds))
+                .unwrap_or_default(),
+            rerun_specs.join(" "),
+        );
+    }
+}
+
+type SpecMap = HashMap<&'static str, Box<dyn Spec>>;
+type SpecTuple<'a> = (&'a str, Box<dyn Spec>);
+
+fn clap_app() -> App<'static, 'static> {
+    App::new("ckb-test")
+        .arg(
+            Arg::with_name("binary")
+                .short("b")
+                .long("bin")
+                .takes_value(true)
+                .value_name("PATH")
+                .help("Path to ckb executable")
+                .default_value("../target/release/ckb"),
+        )
+        .arg(
+            Arg::with_name("port")
+                .short("p")
+                .long("port")
+                .takes_value(true)
+                .help("Starting port number used to start ckb nodes")
+                .default_value("9000"),
+        )
+        .arg(
+            Arg::with_name("max-time")
+                .long("max-time")
+                .takes_value(true)
+                .value_name("SECONDS")
+                .help("Exit when total running time exceeds this limit"),
+        )
+        .arg(Arg::with_name("list-specs").long("list-specs"))
+        .arg(Arg::with_name("specs").multiple(true))
+}
+
+fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<SpecTuple> {
+    if spec_names_to_run.is_empty() {
+        let mut specs: Vec<_> = all_specs.into_iter().collect();
+        specs.shuffle(&mut thread_rng());
+        specs
+    } else {
+        let mut specs = Vec::with_capacity(spec_names_to_run.len());
+        for spec_name in spec_names_to_run {
+            specs.push((
+                spec_name,
+                all_specs
+                    .remove(spec_name)
+                    .unwrap_or_else(|| panic!("expect spec {}", spec_name)),
+            ));
+        }
+        specs
+    }
+}
+
+fn build_specs() -> SpecMap {
+    let mut specs = SpecMap::new();
+
     specs.insert("block_relay_basic", Box::new(BlockRelayBasic));
     specs.insert("block_sync_from_one", Box::new(BlockSyncFromOne));
     specs.insert("block_sync_forks", Box::new(BlockSyncForks));
@@ -100,16 +243,5 @@ fn main() {
     specs.insert("indexer_basic", Box::new(IndexerBasic));
     specs.insert("genesis_issued_cells", Box::new(GenesisIssuedCells));
 
-    if let Some(spec_name) = env::args().nth(3) {
-        if let Some(spec) = specs.get(spec_name.as_str()) {
-            let net = spec.setup_net(&binary, start_port);
-            spec.run(net);
-        }
-    } else {
-        specs.iter().for_each(|(spec_name, spec)| {
-            info!("Running {}", spec_name);
-            let net = spec.setup_net(&binary, start_port);
-            spec.run(net);
-        })
-    }
+    specs
 }
