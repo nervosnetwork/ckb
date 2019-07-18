@@ -219,4 +219,7 @@ impl CKBProtocolContext for MockProtocalContext {
     fn protocol_id(&self) -> ProtocolId {
         unimplemented!();
     }
+    fn send_paused(&self) -> bool {
+        false
+    }
 }
