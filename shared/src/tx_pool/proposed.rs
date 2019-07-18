@@ -391,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_add_no_roots() {
         let tx1 = build_tx(vec![(&H256::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);
