@@ -1,6 +1,8 @@
 use crate::types::InflightBlocks;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
+use fnv::FnvHashSet;
 use numext_fixed_hash::{h256, H256};
+use std::iter::FromIterator;
 
 #[test]
 fn inflight_blocks_count() {
@@ -20,10 +22,8 @@ fn inflight_blocks_count() {
     assert_eq!(inflight_blocks.peer_inflight_count(1.into()), 2);
     assert_eq!(inflight_blocks.peer_inflight_count(2.into()), 1); // one block inflight
     assert_eq!(
-        inflight_blocks
-            .inflight_block_by_peer(1.into())
-            .map(|set| set.iter().collect()),
-        Some(vec![&h256!("0x1"), &h256!("0x2")])
+        inflight_blocks.inflight_block_by_peer(1.into()).cloned(),
+        Some(FnvHashSet::from_iter(vec![h256!("0x1"), h256!("0x2")]))
     );
 
     // receive block 0x1
@@ -57,8 +57,9 @@ fn inflight_blocks_state() {
     assert_eq!(
         inflight_blocks
             .inflight_state_by_block(&h256!("0x1"))
-            .map(|state| state.peers.iter().collect()),
-        Some(vec![&(1.into()), &(2.into())])
+            .cloned()
+            .map(|state| { state.peers }),
+        Some(FnvHashSet::from_iter(vec![1.into(), 2.into()]))
     );
 
     assert_eq!(
@@ -128,7 +129,8 @@ fn inflight_blocks_timeout() {
     assert_eq!(
         inflight_blocks
             .inflight_state_by_block(&h256!("0x4"))
-            .map(|state| state.peers.iter().collect()),
-        Some(vec![&(4.into()), &(1.into())])
+            .cloned()
+            .map(|state| { state.peers }),
+        Some(FnvHashSet::from_iter(vec![1.into(), 4.into()]))
     );
 }
