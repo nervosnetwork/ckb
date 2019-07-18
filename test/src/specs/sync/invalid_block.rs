@@ -36,8 +36,8 @@ impl Spec for ChainContainsInvalidBlock {
         // Start good_node and let it synchronize from bad_node
         good_node.generate_block();
         fresh_node.connect(&good_node);
-        good_node.connect(&bad_node);
-        fresh_node.connect(&bad_node);
+        good_node.connect_and_wait_ban(&bad_node);
+        fresh_node.connect_and_wait_ban(&bad_node);
         assert!(
             wait_until(5, || good_node.get_tip_block_number() >= invalid_number - 1),
             "good_node should synchronize from bad_node 1~{}",
