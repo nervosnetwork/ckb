@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct NetworkConfig {
+    #[serde(default)]
     pub whitelist_only: bool,
     pub max_peers: u32,
     pub max_outbound_peers: u32,
@@ -29,8 +30,10 @@ pub struct NetworkConfig {
     pub ping_timeout_secs: u64,
     pub connect_outbound_interval_secs: u64,
     pub listen_addresses: Vec<Multiaddr>,
+    #[serde(default)]
     pub public_addresses: Vec<Multiaddr>,
     pub bootnodes: Vec<Multiaddr>,
+    #[serde(default)]
     pub whitelist_peers: Vec<Multiaddr>,
     #[serde(default)]
     pub upnp: bool,
