@@ -283,7 +283,7 @@ fn setup_panic_logger() {
         let msg = match info.payload().downcast_ref::<&'static str>() {
             Some(s) => *s,
             None => match info.payload().downcast_ref::<String>() {
-                Some(s) => &**s,
+                Some(s) => &*s,
                 None => "Box<Any>",
             },
         };

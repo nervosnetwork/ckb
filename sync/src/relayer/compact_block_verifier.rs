@@ -1,5 +1,5 @@
 use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
-use crate::relayer::error::Error;
+use crate::relayer::error::{Error, Misbehavior};
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
 use std::collections::HashSet;
 
@@ -37,7 +37,7 @@ impl PrefilledVerifier {
 
         // Check the prefilled_transactions appears to have included the cellbase
         if prefilled_transactions.is_empty() || prefilled_transactions[0].index != 0 {
-            return Err(Error::CellbaseNotPrefilled);
+            return Err(Error::Misbehavior(Misbehavior::CellbaseNotPrefilled));
         }
 
         // Check indices order of prefilled transactions
@@ -46,14 +46,18 @@ impl PrefilledVerifier {
             .windows(2)
             .any(|pt| pt[0].index >= pt[1].index);
         if unordered {
-            return Err(Error::UnorderedPrefilledTransactions);
+            return Err(Error::Misbehavior(
+                Misbehavior::UnorderedPrefilledTransactions,
+            ));
         }
 
         // Check highest prefilled index is less then length of block transactions
         if !prefilled_transactions.is_empty()
             && prefilled_transactions.last().unwrap().index >= txs_len
         {
-            return Err(Error::OverflowPrefilledTransactions);
+            return Err(Error::Misbehavior(
+                Misbehavior::OverflowPrefilledTransactions,
+            ));
         }
 
         Ok(())
@@ -74,7 +78,7 @@ impl ShortIdsVerifier {
 
         // Check duplicated short ids
         if short_ids.len() != short_ids_set.len() {
-            return Err(Error::DuplicatedShortIds);
+            return Err(Error::Misbehavior(Misbehavior::DuplicatedShortIds));
         }
 
         // Check intersection of prefilled transactions and short ids
@@ -84,7 +88,9 @@ impl ShortIdsVerifier {
             short_ids_set.contains(&short_id)
         });
         if is_intersect {
-            return Err(Error::IntersectedPrefilledTransactions);
+            return Err(Error::Misbehavior(
+                Misbehavior::IntersectedPrefilledTransactions,
+            ));
         }
 
         Ok(())

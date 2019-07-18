@@ -16,7 +16,7 @@ use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
 use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
-pub use self::error::Error;
+pub use self::error::{Error, Misbehavior};
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transaction_process::GetTransactionProcess;
@@ -32,6 +32,7 @@ use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
+use ckb_protocol::error::Error as ProtocalError;
 use ckb_protocol::{
     cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
 };
@@ -168,8 +169,19 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         message: RelayMessage,
     ) {
         if let Err(err) = self.try_process(Arc::clone(&nc), peer, message) {
-            debug_target!(crate::LOG_TARGET_RELAY, "try_process error {}", err);
-            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+            if let Some(&Error::Misbehavior(ref e)) = err.downcast_ref() {
+                debug_target!(crate::LOG_TARGET_RELAY, "try_process error {}", e);
+                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+                return;
+            }
+            if let Some(&ProtocalError::Malformed) = err.downcast_ref() {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "try_process error {}",
+                    ProtocalError::Malformed
+                );
+                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+            }
         }
     }
 
