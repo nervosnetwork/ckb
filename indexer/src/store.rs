@@ -516,10 +516,10 @@ impl IndexerStoreBatch {
                 db.read(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
                     .expect("indexer db read should be ok")
                     .map(|value| deserialize(&value).expect("deserialize CellOutput should be ok"))
-                    .map(|cell_output| LockHashCellOutput {
+                    .map(|cell_output: CellOutput| LockHashCellOutput {
                         lock_hash: lock_hash_index.lock_hash.clone(),
                         block_number: lock_hash_index.block_number,
-                        cell_output,
+                        cell_output: Some(cell_output),
                     })
             })
         {
