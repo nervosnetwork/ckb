@@ -25,7 +25,7 @@ pub type BoxedFutureTask = Box<dyn Future<Item = (), Error = ()> + 'static + Sen
 
 use crate::{
     compress::{compress, decompress},
-    network::disconnect,
+    network::disconnect_with_message,
     Behaviour, Error, NetworkState, Peer, PeerRegistry, ProtocolVersion, MAX_FRAME_LENGTH,
 };
 
@@ -339,7 +339,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
         Ok(())
     }
     fn disconnect(&self, peer_index: PeerIndex, message: Option<&str>) -> Result<(), Error> {
-        disconnect(&self.p2p_control, peer_index, message)?;
+        disconnect_with_message(&self.p2p_control, peer_index, message.unwrap_or(""))?;
         Ok(())
     }
 
