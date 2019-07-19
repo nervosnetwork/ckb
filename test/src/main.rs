@@ -218,8 +218,12 @@ fn build_specs() -> SpecMap {
     );
     specs.insert("compact_block_prefilled", Box::new(CompactBlockPrefilled));
     specs.insert(
-        "compact_block_missing_txs",
-        Box::new(CompactBlockMissingTxs),
+        "compact_block_missing_fresh_txs",
+        Box::new(CompactBlockMissingFreshTxs),
+    );
+    specs.insert(
+        "compact_block_missing_not_fresh_txs",
+        Box::new(CompactBlockMissingNotFreshTxs),
     );
     specs.insert(
         "compact_block_lose_get_block_transactions",

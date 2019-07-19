@@ -124,11 +124,12 @@ impl Spec for CompactBlockPrefilled {
     }
 }
 
-pub struct CompactBlockMissingTxs;
+pub struct CompactBlockMissingFreshTxs;
 
-impl Spec for CompactBlockMissingTxs {
-    // Case: Send to node0 a block which missing a tx, node0 should send `GetBlockTransactions`
-    // back for requesting these missing txs
+impl Spec for CompactBlockMissingFreshTxs {
+    // Case: Send to node0 a block which missing a tx, which is a fresh tx for
+    // tx_pool, node0 should send `GetBlockTransactions` back for requesting
+    // these missing txs
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
         net.exit_ibd_mode();
@@ -173,6 +174,56 @@ impl Spec for CompactBlockMissingTxs {
 
     fn test_protocols(&self) -> Vec<TestProtocol> {
         vec![TestProtocol::sync(), TestProtocol::relay()]
+    }
+}
+
+pub struct CompactBlockMissingNotFreshTxs;
+
+impl Spec for CompactBlockMissingNotFreshTxs {
+    // Case: As for the missing transactions of a compact block, we should try to find it from
+    //       tx_pool. If we find out, we can reconstruct the target block without any requests
+    //       to the peer.
+    // 1. Put the target tx into tx_pool, and proposal it. Then move it into proposal window
+    // 2. Relay target block which contains the target transaction as committed transaction. Expect
+    //    successful to reconstruct the target block and grow up.
+    fn run(&self, net: Net) {
+        let node = &net.nodes[0];
+        net.exit_ibd_mode();
+        net.connect(node);
+        let (peer_id, _, _) = net.receive();
+
+        // Build the target transaction
+        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
+        node.submit_block(
+            &node
+                .new_block_builder(None, None, None)
+                .proposal(new_tx.proposal_short_id())
+                .build(),
+        );
+        node.generate_blocks(3);
+
+        // Generate the target block which contains the target transaction as a committed transaction
+        let new_block = node
+            .new_block_builder(None, None, None)
+            .transaction(new_tx.clone())
+            .build();
+
+        // Put `new_tx` as an not fresh tx into tx_pool
+        node.rpc_client().send_transaction((&new_tx).into());
+
+        // Relay the target block
+        clear_messages(&net);
+        net.send(
+            NetworkProtocol::RELAY.into(),
+            peer_id,
+            build_compact_block(&new_block),
+        );
+        let ret = wait_until(10, move || node.get_tip_block() == new_block);
+        assert!(ret, "Node0 should be able to reconstruct the block");
+    }
+
+    fn test_protocols(&self) -> Vec<TestProtocol> {
+        vec![TestProtocol::relay(), TestProtocol::sync()]
     }
 }
 
