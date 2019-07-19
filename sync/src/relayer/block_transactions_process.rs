@@ -4,6 +4,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, BlockTransactions, FlatbuffersVectorIterator};
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
+use numext_fixed_hash::H256;
 use std::collections::hash_map::Entry;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -31,15 +32,21 @@ impl<'a, CS: ChainStore + 'static> BlockTransactionsProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let block_hash = cast!(self.message.block_hash())?.try_into()?;
+        let block_hash: H256 = cast!(self.message.block_hash())?.try_into()?;
         if let Entry::Occupied(mut pending) = self
             .relayer
             .shared()
             .pending_compact_blocks()
-            .entry(block_hash)
+            .entry(block_hash.clone())
         {
             let (compact_block, peers_set) = pending.get_mut();
             if peers_set.remove(&self.peer) {
+                ckb_logger::info!(
+                    "realyer receive BLOCKTXN of {:#x}, peer: {}",
+                    block_hash,
+                    self.peer
+                );
+
                 let transactions: Vec<Transaction> =
                     FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
                         .map(TryInto::try_into)

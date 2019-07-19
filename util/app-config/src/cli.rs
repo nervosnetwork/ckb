@@ -30,6 +30,7 @@ pub const ARG_BUNDLED: &str = "bundled";
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
 pub const ARG_BA_ARG: &str = "ba-arg";
 pub const ARG_BA_DATA: &str = "ba-data";
+pub const ARG_BA_ADVANCED: &str = "ba-advanced";
 pub const ARG_FROM: &str = "from";
 pub const ARG_TO: &str = "to";
 
@@ -68,7 +69,11 @@ pub fn get_matches(version: &Version) -> ArgMatches<'static> {
 }
 
 fn run() -> App<'static, 'static> {
-    SubCommand::with_name(CMD_RUN).about("Runs ckb node")
+    SubCommand::with_name(CMD_RUN).about("Runs ckb node").arg(
+        Arg::with_name(ARG_BA_ADVANCED)
+            .long(ARG_BA_ADVANCED)
+            .help("Allows any block assembler code hash and args"),
+    )
 }
 
 fn miner() -> App<'static, 'static> {
@@ -399,5 +404,15 @@ mod tests {
             "--ba-code-hash is OK with --ba-arg, but gets error: {:?}",
             ok_matches.err()
         );
+    }
+
+    #[test]
+    fn ba_advanced() {
+        let matches = basic_app()
+            .get_matches_from_safe(&["ckb", "run", "--ba-advanced"])
+            .unwrap();
+        let sub_matches = matches.subcommand().1.unwrap();
+
+        assert_eq!(1, sub_matches.occurrences_of(ARG_BA_ADVANCED));
     }
 }
