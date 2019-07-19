@@ -84,8 +84,8 @@ pub(crate) fn stats() -> App<'static, 'static> {
     SubCommand::with_name(CMD_STATS)
         .about(
             "Statics chain infomation\n\
-             Example: \n\
-             ckb -- -C <dir> stats -- from 1 --to 500",
+             Example:\n\
+             ckb -C <dir> stats --from 1 --to 500",
         )
         .arg(
             Arg::with_name(ARG_FROM)
