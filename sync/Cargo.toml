@@ -28,7 +28,6 @@ failure = "0.1.5"
 bytes = "0.4.12"
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 sentry = "^0.15.4"
-hashbrown = "0.4.0"
 futures = "0.1"
 
 [dev-dependencies]
