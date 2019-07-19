@@ -12,6 +12,7 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainKVStore, ChainStore};
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
 use ckb_traits::ChainProvider;
+use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 pub fn build_chain(
@@ -37,10 +38,13 @@ pub fn build_chain(
 pub fn generate_blocks(
     shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
     chain_controller: &ChainController,
-    count: u64,
+    target_tip: BlockNumber,
 ) {
-    for parent_number in 0..count {
-        let block = inherit_block(shared, parent_number).build();
+    let parent_number = shared.lock_chain_state().tip_number();
+    let mut parent_hash = shared.lock_chain_state().tip_hash().clone();
+    for _block_number in parent_number + 1..=target_tip {
+        let block = inherit_block(shared, &parent_hash).build();
+        parent_hash = block.header().hash().to_owned();
         chain_controller
             .process_block(Arc::new(block), false)
             .expect("processing block should be ok");
@@ -49,15 +53,11 @@ pub fn generate_blocks(
 
 pub fn inherit_block(
     shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
-    parent_number: BlockNumber,
+    parent_hash: &H256,
 ) -> BlockBuilder {
-    let parent = shared
-        .store()
-        .get_block_hash(parent_number)
-        .and_then(|block_hash| shared.store().get_block(&block_hash))
-        .unwrap();
-    let parent_hash = parent.header().hash();
-    let parent_epoch = shared.get_block_epoch(&parent_hash).unwrap();
+    let parent = shared.store().get_block(parent_hash).unwrap();
+    let parent_epoch = shared.get_block_epoch(parent_hash).unwrap();
+    let parent_number = parent.header().number();
     let epoch = shared
         .next_epoch_ext(&parent_epoch, parent.header())
         .unwrap_or(parent_epoch);
