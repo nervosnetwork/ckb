@@ -602,7 +602,7 @@ pub struct SyncSharedState<CS> {
     shared_best_header: RwLock<HeaderView>,
     epoch_map: RwLock<EpochIndices>,
     header_map: RwLock<HashMap<H256, HeaderView>>,
-    block_status_map: Mutex<hashbrown::HashMap<H256, BlockStatus>>,
+    block_status_map: Mutex<HashMap<H256, BlockStatus>>,
     tx_filter: Mutex<Filter<H256>>,
 
     /* Status relevant to peers */
@@ -650,7 +650,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             shared_best_header,
             header_map: RwLock::new(HashMap::new()),
             epoch_map: RwLock::new(EpochIndices::default()),
-            block_status_map: Mutex::new(hashbrown::HashMap::new()),
+            block_status_map: Mutex::new(HashMap::new()),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
             misbehavior: RwLock::new(FnvHashMap::default()),
