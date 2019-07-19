@@ -520,7 +520,8 @@ impl ServiceHandle for EventHandler {
                 error,
             } => {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
-                if let Err(err) = disconnect_with_message(context.control(), id, "ProtocolError") {
+                let message = format!("ProtocolError id={}", proto_id);
+                if let Err(err) = disconnect_with_message(context.control(), id, message.as_str()) {
                     debug!("Disconnect failed {:?}, error {:?}", id, err);
                 }
             }
@@ -601,7 +602,7 @@ impl ServiceHandle for EventHandler {
                             if let Err(err) = disconnect_with_message(
                                 context.control(),
                                 evicted_peer.session_id,
-                                "accept peer eviction",
+                                "evict because accepted better peer",
                             ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
@@ -621,7 +622,7 @@ impl ServiceHandle for EventHandler {
                             if let Err(err) = disconnect_with_message(
                                 context.control(),
                                 session_context.id,
-                                "accept peer error",
+                                "reject peer connection",
                             ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
@@ -1022,7 +1023,8 @@ impl NetworkController {
             .read()
             .get_key_by_peer_id(peer_id)
         {
-            if let Err(err) = disconnect_with_message(&self.p2p_control, session_id, "remove node")
+            if let Err(err) =
+                disconnect_with_message(&self.p2p_control, session_id, "disconnect manually")
             {
                 debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
             }
