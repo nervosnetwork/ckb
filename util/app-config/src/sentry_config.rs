@@ -83,6 +83,7 @@ fn before_send(mut event: Event<'static>) -> Option<Event<'static>> {
     } else if ex.starts_with("DBError the database version")
         || ex.contains("kind: AddrInUse")
         || ex.contains("kind: AddrNotAvailable")
+        || ex.contains("IO error: No space left")
     {
         // ignore
         return None;
