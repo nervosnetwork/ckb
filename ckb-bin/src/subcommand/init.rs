@@ -6,6 +6,8 @@ use ckb_resource::{
 };
 use ckb_script::Runner;
 
+const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20 * 2 + 2; // 42 = 20 x 2 + prefix 0x
+
 pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     if args.list_chains {
         for spec in AVAILABLE_SPECS {
@@ -28,8 +30,16 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         Some(hash) => {
             if default_hash != *hash {
                 eprintln!(
-                    "WARN: the default secp256k1 code hash is `{}`, you are using `{}`",
+                    "WARN: the default secp256k1 code hash is `{}`, you are using `{}`.\n\
+                     It will require `ckb run --ba-advanced` to enable this block assembler",
                     default_hash, hash
+                );
+            } else if args.block_assembler_args.len() != 1
+                || args.block_assembler_args[0].len() != SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
+            {
+                eprintln!(
+                    "WARN: the block assembler arg is not a valid secp256k1 pubkey hash.\n\
+                     It will require `ckb run --ba-advanced` to enable this block assembler"
                 );
             }
             format!(
