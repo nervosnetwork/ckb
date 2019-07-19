@@ -33,4 +33,7 @@ pub use p2p::{
 
 // Max message frame length: 20MB
 pub const MAX_FRAME_LENGTH: usize = 20 * 1024 * 1024;
+// Max data size in send buffer: 24MB (a little larger than max frame length)
+pub const DEFAULT_SEND_BUFFER: usize = 24 * 1024 * 1024;
+
 pub type ProtocolVersion = String;

@@ -21,7 +21,7 @@ tokio = "0.1.18"
 tokio-threadpool = "0.1"
 futures = "0.1"
 crossbeam-channel = "0.3"
-p2p = { version="0.2.1", package="tentacle" }
+p2p = { version="0.2.3", package="tentacle" }
 p2p-ping = { version="0.3.5", package="tentacle-ping" }
 p2p-discovery = { version="0.2.5", package="tentacle-discovery" }
 p2p-identify = { version="0.2.6", package="tentacle-identify" }

@@ -105,6 +105,7 @@ fn net_service_start(name: String) -> Node {
         discovery_local_address: true,
         upnp: false,
         bootnode_mode: true,
+        max_send_buffer: None,
     };
 
     let network_state =
@@ -318,10 +319,6 @@ fn test_identify_behavior() {
 fn test_feeler_behavior() {
     let node1 = net_service_start("/test/1".to_string());
     let node2 = net_service_start("/test/1".to_string());
-
-    node1.dial(&node2, DialProtocol::Single(FEELER_PROTOCOL_ID.into()));
-
-    thread::sleep(Duration::from_secs(1));
 
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 

@@ -40,3 +40,4 @@ ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 rand = "0.6"
 ckb-dao = { path = "../util/dao" }
 ckb-dao-utils = { path = "../util/dao/utils" }
+p2p = { version="0.2.1", package="tentacle" }
