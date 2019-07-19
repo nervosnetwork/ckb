@@ -76,7 +76,7 @@ impl Node {
 
         let child_process = Command::new(self.binary.to_owned())
             .env("RUST_BACKTRACE", "full")
-            .args(&["-C", &self.dir, "run"])
+            .args(&["-C", &self.dir, "run", "--ba-advanced"])
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
