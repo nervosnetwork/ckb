@@ -56,10 +56,10 @@ matrix:
   include:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, trying))'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
     - name: PR Integration
       if: 'tag IS NOT present AND (type = pull_request OR repo != nervosnetwork/ckb)'
@@ -67,7 +67,7 @@ matrix:
       script: make CKB_TEST_ARGS="--max-time 1200" integration
     - name: Linters
       env: CACHE_NAME=linters
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
@@ -77,7 +77,7 @@ matrix:
         - make clippy
         - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       cache: false
       addons: { apt: { packages: [] } }
@@ -89,12 +89,12 @@ matrix:
 
     - name: Integration on macOS
       env: CACHE_NAME=integration
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop, staging, trying) OR branch =~ /^rc\//)'
       os: osx
       script: make integration-release
     - name: Integration on Linux
       env: CACHE_NAME=integration
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop, staging, trying) OR branch =~ /^rc\//)'
       os: linux
       script: make integration-release
     - name: Code Coverage
