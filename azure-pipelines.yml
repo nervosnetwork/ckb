@@ -36,7 +36,6 @@ jobs:
         not(startsWith(variables['Build.SourceBranch'], 'refs/tags/')),
         ne(variables['Build.Reason'], 'PullRequest'),
         or(
-          startsWith(variables['Build.SourceBranch'], 'refs/heads/pr-mirror/'),
           startsWith(variables['Build.SourceBranch'], 'refs/heads/rc/'),
           in(variables['Build.SourceBranch'], 'refs/heads/master', 'refs/heads/develop')
         )
