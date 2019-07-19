@@ -286,7 +286,7 @@ where
             debug!("Disconnect peer({}) is unprotected outbound", self.peer);
             if let Err(err) = self
                 .nc
-                .disconnect(self.peer, Some("useless outbound peer in IBD"))
+                .disconnect(self.peer, "useless outbound peer in IBD")
             {
                 debug!("synchronizer disconnect error: {:?}", err);
             }

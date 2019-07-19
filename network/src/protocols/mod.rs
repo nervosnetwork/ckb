@@ -51,7 +51,7 @@ pub trait CKBProtocolContext: Send {
     fn send_message_to(&self, peer_index: PeerIndex, data: Bytes) -> Result<(), Error>;
     // TODO allow broadcast to target ProtocolId
     fn filter_broadcast(&self, target: TargetSession, data: Bytes) -> Result<(), Error>;
-    fn disconnect(&self, peer_index: PeerIndex, message: Option<&str>) -> Result<(), Error>;
+    fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error>;
     // Interact with NetworkState
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
     fn connected_peers(&self) -> Vec<PeerIndex>;
@@ -338,8 +338,8 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
             .filter_broadcast(target, self.proto_id, data)?;
         Ok(())
     }
-    fn disconnect(&self, peer_index: PeerIndex, message: Option<&str>) -> Result<(), Error> {
-        disconnect_with_message(&self.p2p_control, peer_index, message.unwrap_or(""))?;
+    fn disconnect(&self, peer_index: PeerIndex, message: &str) -> Result<(), Error> {
+        disconnect_with_message(&self.p2p_control, peer_index, message)?;
         Ok(())
     }
 

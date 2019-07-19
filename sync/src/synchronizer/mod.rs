@@ -265,7 +265,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
         for peer in eviction {
             info!("timeout eviction peer={}", peer);
-            if let Err(err) = nc.disconnect(peer, Some("sync timeout eviction")) {
+            if let Err(err) = nc.disconnect(peer, "sync timeout eviction") {
                 debug!("synchronizer disconnect error: {:?}", err);
             }
         }
@@ -966,11 +966,7 @@ mod tests {
         ) -> Result<(), ckb_network::Error> {
             Ok(())
         }
-        fn disconnect(
-            &self,
-            peer_index: PeerIndex,
-            _msg: Option<&str>,
-        ) -> Result<(), ckb_network::Error> {
+        fn disconnect(&self, peer_index: PeerIndex, _msg: &str) -> Result<(), ckb_network::Error> {
             self.disconnected.lock().insert(peer_index);
             Ok(())
         }
