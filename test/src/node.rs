@@ -354,6 +354,12 @@ impl Node {
             args: Default::default(),
             data: JsonBytes::default(),
         });
+
+        if ::std::env::var("CI").is_ok() {
+            ckb_config.logger.filter =
+                Some(::std::env::var("CKB_LOG").unwrap_or("info".to_string()));
+        }
+
         modify_ckb_config(&mut ckb_config);
         fs::write(
             &ckb_config_path,
