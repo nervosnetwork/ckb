@@ -1,4 +1,4 @@
-// use crate::block_status::BlockStatus;
+use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, warn};
@@ -44,10 +44,14 @@ where
             let block_hash = fbs_h256.try_into()?;
             debug!("get_blocks {:x} from peer {:?}", block_hash, self.peer);
 
-            if store
-                .get_block_ext(&block_hash)
-                .map(|ext| !ext.verified.unwrap_or(false))
-                .unwrap_or(true)
+            if self
+                .synchronizer
+                .shared()
+                .contains_block_status(&block_hash, BlockStatus::BLOCK_INVALID)
+                || store
+                    .get_block_ext(&block_hash)
+                    .map(|ext| !ext.verified.unwrap_or(false))
+                    .unwrap_or(true)
             {
                 debug!(
                     "ignoring get_block {:x} request from peer={} for unverified",
