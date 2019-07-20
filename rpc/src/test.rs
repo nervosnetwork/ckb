@@ -67,6 +67,7 @@ fn new_cellbase(number: BlockNumber, always_success_script: &Script) -> Transact
 
 fn setup_node(
     height: u64,
+    print_mode: bool,
 ) -> (
     Shared<ChainKVStore<MemoryKeyValueDB>>,
     ChainController,
@@ -79,6 +80,10 @@ fn setup_node(
         .output(always_success_cell.clone())
         .build();
     let dao = genesis_dao_data(&always_success_tx).unwrap();
+
+    if print_mode {
+        println!("always success tx hash = {:#x}", always_success_tx.hash());
+    }
 
     let consensus = {
         let genesis = BlockBuilder::default()
@@ -248,7 +253,8 @@ fn test_rpc() {
 
     // Setup node
     let height = 1024;
-    let (_shared, _chain_controller, server) = setup_node(height);
+    let (shared, _chain_controller, server) = setup_node(height, print_mode);
+    let (_always_success_cell, always_success_script) = always_success_cell();
 
     // Load cases in json format and run
     let mut cases: Value = {
@@ -313,42 +319,50 @@ fn test_rpc() {
             );
         }
 
-        //// Uncomment the code below if you wanna print request of `send_transaction`.
-        //// Print rpc request of `send_transaction` at print_mode.
-        //// It is just a convenient way to get the json of `send_transaction`
-        // if print_mode {
-        //     let tip_header = {
-        //         let chain_state = shared.lock_chain_state();
-        //         chain_state.tip_header().clone()
-        //     };
-        //     let cellbase = new_cellbase(tip_header.number());
-        //     let transaction = TransactionBuilder::default()
-        //         .input(CellInput::new(
-        //             ckb_core::transaction::OutPoint::new(tip_header.hash().clone(), cellbase.hash().clone(), 0),
-        //                 0,
-        //                 Vec::new(),
-        //         ))
-        //         .output(
-        //             CellOutput::new(capacity_bytes!(1000), Bytes::new(), Script::always_success(), None),
-        //         )
-        //         .build();
-        //     let json_transaction: ckb_jsonrpc_types::Transaction = (&transaction).into();
-        //     let mut object = Map::new();
-        //     object.insert("id".to_owned(), json!(1));
-        //     object.insert("jsonrpc".to_owned(), json!("2.0"));
-        //     object.insert("method".to_owned(), json!("send_transaction"));
-        //     object.insert("params".to_owned(), json!(vec![json_transaction]));
-        //     let response: JsonResponse = client.post(&uri)
-        //         .json(&object)
-        //         .send()
-        //         .expect("send jsonrpc request")
-        //         .json()
-        //         .expect("transform send_transaction response into json");
-        //     object.insert("result".to_owned(), response.result.clone());
-        //     object.remove("id");
-        //     object.remove("jsonrpc");
-        //     println!("{}", to_string_pretty(&Value::Array(object)).unwrap());
-        // }
+        // Print rpc request of `send_transaction` at print_mode.
+        // It is just a convenient way to get the json of `send_transaction`
+        if print_mode {
+            let tip_header = {
+                let chain_state = shared.lock_chain_state();
+                chain_state.tip_header().clone()
+            };
+            let cellbase = new_cellbase(tip_header.number(), always_success_script);
+            let transaction = TransactionBuilder::default()
+                .input(CellInput::new(
+                    ckb_core::transaction::OutPoint::new(
+                        tip_header.hash().clone(),
+                        cellbase.hash().clone(),
+                        0,
+                    ),
+                    0,
+                ))
+                .output(CellOutput::new(
+                    capacity_bytes!(1000),
+                    Bytes::new(),
+                    always_success_script.to_owned(),
+                    None,
+                ))
+                .build();
+            let json_transaction: ckb_jsonrpc_types::Transaction = (&transaction).into();
+            let mut object = Map::new();
+            object.insert("id".to_owned(), json!(1));
+            object.insert("jsonrpc".to_owned(), json!("2.0"));
+            object.insert("method".to_owned(), json!("send_transaction"));
+            object.insert("params".to_owned(), json!(vec![json_transaction]));
+            let response: JsonResponse = client
+                .post(&uri)
+                .json(&object)
+                .send()
+                .expect("send jsonrpc request")
+                .json()
+                .expect("transform send_transaction response into json");
+            if let Some(result) = response.result {
+                object.insert("result".to_owned(), result);
+            }
+            object.remove("id");
+            object.remove("jsonrpc");
+            println!("{}", to_string_pretty(&object).unwrap());
+        }
     }
 
     if print_mode {
