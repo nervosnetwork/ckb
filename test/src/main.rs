@@ -1,4 +1,3 @@
-use ckb_logger::{self, Config};
 use ckb_test::specs::*;
 use ckb_test::Spec;
 use clap::{value_t, App, Arg};
@@ -8,9 +7,15 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::env;
 use std::panic;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 fn main() {
+    let _ = {
+        let filter = ::std::env::var("CKB_LOG").unwrap_or("info".to_string());
+        env_logger::builder().parse(&filter).try_init()
+    };
+
     let clap_app = clap_app();
     let matches = clap_app.get_matches();
 
@@ -35,12 +40,6 @@ fn main() {
     }
 
     let specs = filter_specs(all_specs, spec_names_to_run);
-
-    let log_config = Config {
-        filter: Some("info".to_owned()),
-        ..Default::default()
-    };
-    let _logger_guard = ckb_logger::init(log_config).expect("init Logger");
 
     info!("binary: {}", binary);
     info!("start port: {}", start_port);
@@ -99,13 +98,10 @@ fn main() {
     }
 
     info!(
-        "{} --bin {} --port {} {} {}",
-        env::args().nth(0).unwrap_or_else(|| "ckb-test".to_string()),
-        binary,
+        "{} --bin {} --port {} {}",
+        canonicalize_path(env::args().nth(0).unwrap_or_else(|| "ckb-test".to_string())).display(),
+        canonicalize_path(binary).display(),
         start_port,
-        max_time
-            .map(|seconds| format!("--max-time {}", seconds))
-            .unwrap_or_default(),
         rerun_specs.join(" "),
     );
 
@@ -157,13 +153,20 @@ fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<Spe
         for spec_name in spec_names_to_run {
             specs.push((
                 spec_name,
-                all_specs
-                    .remove(spec_name)
-                    .unwrap_or_else(|| panic!("expect spec {}", spec_name)),
+                all_specs.remove(spec_name).unwrap_or_else(|| {
+                    eprintln!("Unknown spec {}", spec_name);
+                    std::process::exit(1);
+                }),
             ));
         }
         specs
     }
+}
+
+fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    path.as_ref()
+        .canonicalize()
+        .unwrap_or_else(|_| path.as_ref().to_path_buf())
 }
 
 fn build_specs() -> SpecMap {

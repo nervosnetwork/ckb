@@ -122,11 +122,9 @@ impl Logger {
     fn new(config: Config) -> Logger {
         let mut builder = Builder::new();
 
-        if let Ok(ref env_filter) = std::env::var("NERVOS_LOG") {
+        if let Ok(ref env_filter) = std::env::var("CKB_LOG") {
             builder.parse(env_filter);
-        }
-
-        if let Some(ref config_filter) = config.filter {
+        } else if let Some(ref config_filter) = config.filter {
             builder.parse(config_filter);
         }
 
