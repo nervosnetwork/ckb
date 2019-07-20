@@ -7,6 +7,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::env;
 use std::panic;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 fn main() {
@@ -97,13 +98,10 @@ fn main() {
     }
 
     info!(
-        "{} --bin {} --port {} {} {}",
-        env::args().nth(0).unwrap_or_else(|| "ckb-test".to_string()),
-        binary,
+        "{} --bin {} --port {} {}",
+        canonicalize_path(env::args().nth(0).unwrap_or_else(|| "ckb-test".to_string())).display(),
+        canonicalize_path(binary).display(),
         start_port,
-        max_time
-            .map(|seconds| format!("--max-time {}", seconds))
-            .unwrap_or_default(),
         rerun_specs.join(" "),
     );
 
