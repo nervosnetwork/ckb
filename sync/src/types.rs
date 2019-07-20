@@ -1083,6 +1083,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.block_status_map.lock().insert(block_hash, status);
     }
 
+    pub fn remove_block_status(&self, block_hash: &H256) {
+        self.block_status_map.lock().remove(block_hash);
+    }
+
     pub fn clear_get_block_proposals(&self) -> FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>> {
         let mut locked = self.pending_get_block_proposals.lock();
         let old = locked.deref_mut();
@@ -1169,12 +1173,19 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         peer: PeerIndex,
         block: Arc<Block>,
     ) -> Result<bool, FailureError> {
-        let block_hash = block.header().hash().to_owned();
         let ret = chain.process_block(Arc::clone(&block), true);
         if ret.is_err() {
             error!("accept block {:?} {:?}", block, ret);
-            self.insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
+            self.insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
             return ret;
+        } else {
+            // Clear the newly inserted block from block_status_map.
+            //
+            // We don't know whether the actual block status is BLOCK_VALID or BLOCK_INVALID.
+            // So we just simply remove the corresponding in-memory block status,
+            // and the next time `get_block_status` would acquire the real-time
+            // status via fetching block_ext from the database.
+            self.remove_block_status(block.header().hash());
         }
 
         self.remove_header_view(block.header().hash());
