@@ -62,7 +62,7 @@ matrix:
       if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
     - name: PR Integration
-      if: 'tag IS NOT present AND (type = pull_request OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND branch != develop AND branch !~ /^rc\// AND (type = pull_request OR repo != nervosnetwork/ckb)'
       os: linux
       script: make CKB_TEST_ARGS="--max-time 1200" integration
     - name: Linters
