@@ -154,7 +154,7 @@ pub struct HeaderResolverWrapper<'a> {
 }
 
 impl<'a> HeaderResolverWrapper<'a> {
-    pub fn new<CP>(header: &'a Header, provider: CP) -> Self
+    pub fn new<CP>(header: &'a Header, provider: &CP) -> Self
     where
         CP: ChainProvider,
     {
@@ -172,6 +172,14 @@ impl<'a> HeaderResolverWrapper<'a> {
                     .unwrap_or(last_epoch)
             });
 
+        HeaderResolverWrapper {
+            parent,
+            header,
+            epoch,
+        }
+    }
+
+    pub fn build(header: &'a Header, parent: Option<Header>, epoch: Option<EpochExt>) -> Self {
         HeaderResolverWrapper {
             parent,
             header,
