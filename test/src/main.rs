@@ -1,4 +1,3 @@
-use ckb_logger::{self, Config};
 use ckb_test::specs::*;
 use ckb_test::Spec;
 use clap::{value_t, App, Arg};
@@ -11,6 +10,11 @@ use std::panic;
 use std::time::Instant;
 
 fn main() {
+    let _ = {
+        let filter = ::std::env::var("CKB_LOG").unwrap_or("info".to_string());
+        env_logger::builder().parse(&filter).try_init()
+    };
+
     let clap_app = clap_app();
     let matches = clap_app.get_matches();
 
@@ -35,12 +39,6 @@ fn main() {
     }
 
     let specs = filter_specs(all_specs, spec_names_to_run);
-
-    let log_config = Config {
-        filter: Some("info".to_owned()),
-        ..Default::default()
-    };
-    let _logger_guard = ckb_logger::init(log_config).expect("init Logger");
 
     info!("binary: {}", binary);
     info!("start port: {}", start_port);
