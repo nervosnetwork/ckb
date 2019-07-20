@@ -155,13 +155,20 @@ fn filter_specs(mut all_specs: SpecMap, spec_names_to_run: Vec<&str>) -> Vec<Spe
         for spec_name in spec_names_to_run {
             specs.push((
                 spec_name,
-                all_specs
-                    .remove(spec_name)
-                    .unwrap_or_else(|| panic!("expect spec {}", spec_name)),
+                all_specs.remove(spec_name).unwrap_or_else(|| {
+                    eprintln!("Unknown spec {}", spec_name);
+                    std::process::exit(1);
+                }),
             ));
         }
         specs
     }
+}
+
+fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    path.as_ref()
+        .canonicalize()
+        .unwrap_or_else(|_| path.as_ref().to_path_buf())
 }
 
 fn build_specs() -> SpecMap {
