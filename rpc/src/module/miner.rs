@@ -75,7 +75,7 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
 
         debug!("[{}] submit block", work_id);
         let block: Arc<CoreBlock> = Arc::new(data.into());
-        let resolver = HeaderResolverWrapper::new(block.header(), self.shared.clone());
+        let resolver = HeaderResolverWrapper::new(block.header(), &self.shared);
         let header_verify_ret = {
             let chain_state = self.shared.lock_chain_state();
             let header_verifier = HeaderVerifier::new(
