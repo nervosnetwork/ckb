@@ -8,7 +8,6 @@ use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_jsonrpc_types::JsonBytes;
-use log::info;
 use numext_fixed_hash::H256;
 use std::convert::Into;
 use std::fs;
@@ -34,8 +33,8 @@ struct ProcessGuard(pub Child);
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
         match self.0.kill() {
-            Err(e) => info!("Could not kill ckb process: {}", e),
-            Ok(_) => info!("Successfully killed ckb process"),
+            Err(e) => log::error!("Could not kill ckb process: {}", e),
+            Ok(_) => log::debug!("Successfully killed ckb process"),
         }
         let _ = self.0.wait();
     }
@@ -83,7 +82,7 @@ impl Node {
             .spawn()
             .expect("failed to run binary");
         self.guard = Some(ProcessGuard(child_process));
-        info!("Started node with working dir: {}", self.dir);
+        log::info!("Started node with working dir: {}", self.dir);
 
         loop {
             let result = { self.rpc_client().inner().lock().local_node_info().call() };
@@ -94,14 +93,14 @@ impl Node {
             } else if let Some(ref mut child) = self.guard {
                 match child.0.try_wait() {
                     Ok(Some(exit)) => {
-                        eprintln!("Error: node crashed, {}", exit);
+                        log::error!("Error: node crashed, {}", exit);
                         process::exit(exit.code().unwrap());
                     }
                     Ok(None) => {
                         std::thread::sleep(std::time::Duration::from_secs(1));
                     }
                     Err(error) => {
-                        eprintln!("Error: node crashed with reason: {}", error);
+                        log::error!("Error: node crashed with reason: {}", error);
                         process::exit(255);
                     }
                 }
