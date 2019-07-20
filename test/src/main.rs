@@ -4,6 +4,7 @@ use ckb_test::Spec;
 use clap::{value_t, App, Arg};
 use log::{error, info};
 use rand::{seq::SliceRandom, thread_rng};
+use std::any::Any;
 use std::collections::HashMap;
 use std::env;
 use std::panic;
@@ -49,6 +50,7 @@ fn main() {
     let start_time = Instant::now();
     let mut specs_iter = specs.into_iter().enumerate();
     let mut rerun_specs = vec![];
+    let mut panic_error: Option<Box<dyn Any + Send>> = None;
 
     for (index, (spec_name, spec)) in &mut specs_iter {
         info!(
@@ -70,7 +72,8 @@ fn main() {
             now.elapsed().as_secs()
         );
 
-        if result.is_err() {
+        panic_error = result.err();
+        if panic_error.is_some() {
             rerun_specs.push(spec_name);
             break;
         }
@@ -83,29 +86,31 @@ fn main() {
         }
     }
 
+    rerun_specs.extend(specs_iter.map(|t| (t.1).0));
     if rerun_specs.is_empty() {
-        rerun_specs.extend(specs_iter.map(|t| (t.1).0));
-        if !rerun_specs.is_empty() {
-            info!("You can run the skipped specs using following command:");
-        }
-    } else {
-        rerun_specs.extend(specs_iter.map(|t| (t.1).0));
-
-        error!("ckb-failed on spec {}", rerun_specs[0]);
-        info!("You can rerun remaining specs using following command:");
+        return;
     }
 
-    if !rerun_specs.is_empty() {
-        info!(
-            "{} --bin {} --port {} {} {}",
-            env::args().nth(0).unwrap_or_else(|| "ckb-test".to_string()),
-            binary,
-            start_port,
-            max_time
-                .map(|seconds| format!("--max-time {}", seconds))
-                .unwrap_or_default(),
-            rerun_specs.join(" "),
-        );
+    if panic_error.is_some() {
+        error!("ckb-failed on spec {}", rerun_specs[0]);
+        info!("You can rerun remaining specs using following command:");
+    } else {
+        info!("You can run the skipped specs using following command:");
+    }
+
+    info!(
+        "{} --bin {} --port {} {} {}",
+        env::args().nth(0).unwrap_or_else(|| "ckb-test".to_string()),
+        binary,
+        start_port,
+        max_time
+            .map(|seconds| format!("--max-time {}", seconds))
+            .unwrap_or_default(),
+        rerun_specs.join(" "),
+    );
+
+    if let Some(err) = panic_error {
+        panic::resume_unwind(err);
     }
 }
 
