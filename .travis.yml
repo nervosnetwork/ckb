@@ -89,12 +89,12 @@ matrix:
 
     - name: Integration on macOS
       env: CACHE_NAME=integration
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop, staging, trying) OR branch =~ /^rc\//)'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
       os: osx
       script: make integration-release
     - name: Integration on Linux
       env: CACHE_NAME=integration
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop, staging, trying) OR branch =~ /^rc\//)'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
       os: linux
       script: make integration-release
     - name: Code Coverage
