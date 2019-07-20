@@ -6,7 +6,7 @@ use crate::protocol_generated::ckb::protocol::{
     GetBlockProposalBuilder, GetBlockTransactionsBuilder, GetBlocks as FbsGetBlocks,
     GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
     GetRelayTransaction as FbsGetRelayTransaction, GetRelayTransactionBuilder, Header as FbsHeader,
-    HeaderBuilder, Headers as FbsHeaders, HeadersBuilder, IndexTransactionBuilder,
+    HeaderBuilder, Headers as FbsHeaders, HeadersBuilder, InIBDBuilder, IndexTransactionBuilder,
     MerkleProofBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
     ProposalShortId as FbsProposalShortId, RelayMessage, RelayMessageBuilder, RelayPayload,
     RelayTransaction as FbsRelayTransaction, RelayTransactionBuilder,
@@ -440,6 +440,14 @@ impl<'a> SyncMessage<'a> {
         let mut builder = SyncMessageBuilder::new(fbb);
         builder.add_payload_type(SyncPayload::FilteredBlock);
         builder.add_payload(filtered_block.as_union_value());
+        builder.finish()
+    }
+
+    pub fn build_in_ibd<'b>(fbb: &mut FlatBufferBuilder<'b>) -> WIPOffset<SyncMessage<'b>> {
+        let in_ibd = InIBDBuilder::new(fbb).finish();
+        let mut builder = SyncMessageBuilder::new(fbb);
+        builder.add_payload_type(SyncPayload::InIBD);
+        builder.add_payload(in_ibd.as_union_value());
         builder.finish()
     }
 }

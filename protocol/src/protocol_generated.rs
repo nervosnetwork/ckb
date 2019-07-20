@@ -38,11 +38,12 @@ pub enum SyncPayload {
   AddFilter = 6,
   ClearFilter = 7,
   FilteredBlock = 8,
+  InIBD = 9,
 
 }
 
 const ENUM_MIN_SYNC_PAYLOAD: u8 = 0;
-const ENUM_MAX_SYNC_PAYLOAD: u8 = 8;
+const ENUM_MAX_SYNC_PAYLOAD: u8 = 9;
 
 impl<'a> flatbuffers::Follow<'a> for SyncPayload {
   type Inner = Self;
@@ -76,7 +77,7 @@ impl flatbuffers::Push for SyncPayload {
 }
 
 #[allow(non_camel_case_types)]
-const ENUM_VALUES_SYNC_PAYLOAD:[SyncPayload; 9] = [
+const ENUM_VALUES_SYNC_PAYLOAD:[SyncPayload; 10] = [
   SyncPayload::NONE,
   SyncPayload::GetHeaders,
   SyncPayload::Headers,
@@ -85,11 +86,12 @@ const ENUM_VALUES_SYNC_PAYLOAD:[SyncPayload; 9] = [
   SyncPayload::SetFilter,
   SyncPayload::AddFilter,
   SyncPayload::ClearFilter,
-  SyncPayload::FilteredBlock
+  SyncPayload::FilteredBlock,
+  SyncPayload::InIBD
 ];
 
 #[allow(non_camel_case_types)]
-const ENUM_NAMES_SYNC_PAYLOAD:[&'static str; 9] = [
+const ENUM_NAMES_SYNC_PAYLOAD:[&'static str; 10] = [
     "NONE",
     "GetHeaders",
     "Headers",
@@ -98,7 +100,8 @@ const ENUM_NAMES_SYNC_PAYLOAD:[&'static str; 9] = [
     "SetFilter",
     "AddFilter",
     "ClearFilter",
-    "FilteredBlock"
+    "FilteredBlock",
+    "InIBD"
 ];
 
 pub fn enum_name_sync_payload(e: SyncPayload) -> &'static str {
@@ -621,6 +624,16 @@ impl<'a> SyncMessage<'a> {
   pub fn payload_as_filtered_block(&self) -> Option<FilteredBlock<'a>> {
     if self.payload_type() == SyncPayload::FilteredBlock {
       self.payload().map(|u| FilteredBlock::init_from_table(u))
+    } else {
+      None
+    }
+  }
+
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn payload_as_in_ibd(&self) -> Option<InIBD<'a>> {
+    if self.payload_type() == SyncPayload::InIBD {
+      self.payload().map(|u| InIBD::init_from_table(u))
     } else {
       None
     }
@@ -3259,6 +3272,69 @@ impl<'a: 'b, 'b> ClearFilterBuilder<'a, 'b> {
   }
   #[inline]
   pub fn finish(self) -> flatbuffers::WIPOffset<ClearFilter<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+pub enum InIBDOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct InIBD<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for InIBD<'a> {
+    type Inner = InIBD<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> InIBD<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        InIBD {
+            _tab: table,
+        }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        _args: &'args InIBDArgs) -> flatbuffers::WIPOffset<InIBD<'bldr>> {
+      let mut builder = InIBDBuilder::new(_fbb);
+      builder.finish()
+    }
+
+}
+
+pub struct InIBDArgs {
+}
+impl<'a> Default for InIBDArgs {
+    #[inline]
+    fn default() -> Self {
+        InIBDArgs {
+        }
+    }
+}
+pub struct InIBDBuilder<'a: 'b, 'b> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> InIBDBuilder<'a, 'b> {
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> InIBDBuilder<'a, 'b> {
+    let start = _fbb.start_table();
+    InIBDBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<InIBD<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }
