@@ -24,14 +24,14 @@ pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 //TODO：find best ORPHAN_RATE_TARGET
 pub(crate) const ORPHAN_RATE_TARGET_RECIP: u64 = 20;
 
-const MAX_BLOCK_INTERVAL: u64 = 60 * 1000; // 60s
+const MAX_BLOCK_INTERVAL: u64 = 30 * 1000; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8 * 1000; // 8s
 const TWO_IN_TWO_OUT_CYCLES: Cycle = 2_580_000;
 pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60 * 1000; // 4 hours
 pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
-pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 240
+pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
 
-// We choose 1250 because it is largest number between MIN_EPOCH_LENGTH and MAX_BLOCK_INTERVAL that
+// We choose 1250 because it is largest number between MIN_EPOCH_LENGTH and MAX_EPOCH_LENGTH that
 // can divide DEFAULT_EPOCH_REWARD.
 pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_250;
 
