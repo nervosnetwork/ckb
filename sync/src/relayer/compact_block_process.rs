@@ -11,7 +11,7 @@ use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use ckb_verification::{HeaderResolver, HeaderResolverWrapper, HeaderVerifier, Verifier};
+use ckb_verification::{HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashSet;
@@ -90,8 +90,8 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             return Ok(Status::UnknownParent);
         }
 
+        let parent = parent.unwrap();
         {
-            let parent = parent.unwrap();
             let tip_header = self.relayer.shared.tip_header();
             let tip_header_view = self
                 .relayer
@@ -161,10 +161,10 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                             })
                     }
                 };
-                let resolver = HeaderResolverWrapper::new(
-                    &compact_block.header,
-                    self.relayer.shared.shared().to_owned(),
-                );
+                let resolver = self
+                    .relayer
+                    .shared
+                    .new_header_resolver(&compact_block.header, parent.into_inner());
                 let header_verifier = HeaderVerifier::new(
                     CompactBlockMedianTimeView {
                         fn_get_pending_header: Box::new(fn_get_pending_header),

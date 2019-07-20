@@ -585,7 +585,7 @@ mod tests {
         let block: BlockBuilder = block_template.into();
         let block = block.build();
 
-        let resolver = HeaderResolverWrapper::new(block.header(), shared.clone());
+        let resolver = HeaderResolverWrapper::new(block.header(), &shared);
         let header_verify_result = {
             let chain_state = shared.lock_chain_state();
             let header_verifier = HeaderVerifier::new(&*chain_state, Pow::Dummy.engine());
