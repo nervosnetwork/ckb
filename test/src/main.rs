@@ -12,7 +12,7 @@ use std::time::Instant;
 
 fn main() {
     let _ = {
-        let filter = ::std::env::var("CKB_LOG").unwrap_or("info".to_string());
+        let filter = ::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string());
         env_logger::builder().parse_filters(&filter).try_init()
     };
 
