@@ -4,7 +4,9 @@ use ckb_core::block::Block;
 use ckb_core::block::BlockBuilder;
 use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
 use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    CellInput, CellOutput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
+};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -25,11 +27,12 @@ pub use ckb_test_chain_utils::MockStore;
 const MIN_CAP: Capacity = capacity_bytes!(60);
 
 pub(crate) fn create_always_success_tx() -> Transaction {
-    let (ref always_success_cell, ref script) = always_success_cell();
+    let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
+        .output_data(always_success_cell_data.clone())
         .build()
 }
 
@@ -93,16 +96,17 @@ pub(crate) fn create_cellbase(
     consensus: &Consensus,
     parent: &Header,
 ) -> Transaction {
-    let (_, always_success_script) = always_success_cell();
+    let (_, _, always_success_script) = always_success_cell();
     let capacity = calculate_reward(store, consensus, parent);
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
-        .output(CellOutput::new(
-            capacity,
-            Bytes::default(),
-            always_success_script.clone(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity)
+                .lock(always_success_script.clone())
+                .build(),
+        )
+        .output_data(Bytes::new())
         .witness(always_success_script.clone().into_witness())
         .build()
 }
@@ -114,7 +118,7 @@ pub(crate) fn create_multi_outputs_transaction(
     output_len: usize,
     data: Vec<u8>,
 ) -> Transaction {
-    let (_, always_success_script) = always_success_cell();
+    let (_, _, always_success_script) = always_success_cell();
     let always_success_out_point = create_always_success_out_point();
 
     let parent_outputs = parent.outputs();
@@ -136,8 +140,13 @@ pub(crate) fn create_multi_outputs_transaction(
         } else {
             output_capacity
         };
-        CellOutput::new(capacity, data.clone(), always_success_script.clone(), None)
+        CellOutputBuilder::from_data(&data)
+            .capacity(capacity)
+            .lock(always_success_script.clone())
+            .build()
     });
+
+    let outputs_data = (0..output_len).map(|_| data.clone());
 
     let parent_pts = parent.output_pts();
     let inputs = indices
@@ -146,6 +155,7 @@ pub(crate) fn create_multi_outputs_transaction(
 
     TransactionBuilder::default()
         .outputs(outputs)
+        .outputs_data(outputs_data)
         .inputs(inputs)
         .dep(always_success_out_point)
         .build()
@@ -159,16 +169,18 @@ pub(crate) fn create_transaction_with_out_point(
     out_point: OutPoint,
     unique_data: u8,
 ) -> Transaction {
-    let (_, always_success_script) = always_success_cell();
+    let (_, _, always_success_script) = always_success_cell();
     let always_success_out_point = create_always_success_out_point();
 
+    let data = Bytes::from(vec![unique_data]);
     TransactionBuilder::default()
         .output(CellOutput::new(
             capacity_bytes!(100),
-            Bytes::from(vec![unique_data]),
+            CellOutput::calculate_data_hash(&data),
             always_success_script.clone(),
             None,
         ))
+        .output_data(data)
         .input(CellInput::new(out_point, 0))
         .dep(always_success_out_point)
         .build()

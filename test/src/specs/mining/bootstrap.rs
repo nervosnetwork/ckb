@@ -47,7 +47,7 @@ impl Spec for BootstrapCellbase {
         assert!(
             blk.transactions()[0].is_cellbase()
                 && blk.transactions()[0].outputs()[0].lock == miner
-                && blk.transactions()[0].outputs()[0].data == Bytes::from(vec![1; 30])
+                && blk.transactions()[0].outputs_data()[0] == Bytes::from(vec![1; 30])
         )
     }
 

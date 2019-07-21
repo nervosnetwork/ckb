@@ -13,7 +13,7 @@ use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_core::Cycle;
+use ckb_core::{Bytes, Cycle};
 use ckb_dao::DaoCalculator;
 use ckb_logger::{debug_target, error_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
@@ -723,11 +723,13 @@ impl<CS: ChainStore> ChainState<CS> {
         &'a self,
         diff: &CellSetDiff,
         outputs: &'a FnvHashMap<H256, &'a [CellOutput]>,
+        outputs_data: &'a FnvHashMap<H256, &'a [Bytes]>,
     ) -> ChainCellSetOverlay<'a, CS> {
         ChainCellSetOverlay {
             overlay: self.cell_set.new_overlay(diff, self.store()),
             store: Arc::clone(self.store()),
             outputs,
+            outputs_data,
         }
     }
 }
@@ -736,6 +738,7 @@ pub struct ChainCellSetOverlay<'a, CS> {
     pub(crate) overlay: CellSetOverlay<'a>,
     pub(crate) store: Arc<CS>,
     pub(crate) outputs: &'a FnvHashMap<H256, &'a [CellOutput]>,
+    pub(crate) outputs_data: &'a FnvHashMap<H256, &'a [Bytes]>,
 }
 
 impl<CS: ChainStore> CellProvider for ChainState<CS> {
@@ -799,15 +802,24 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                             .get(&cell_out_point.tx_hash)
                             .map(|outputs| {
                                 let output = &outputs[cell_out_point.index as usize];
-                                CellMetaBuilder::from_cell_output(output.to_owned())
-                                    .out_point(cell_out_point.to_owned())
-                                    .block_info(BlockInfo::new(
-                                        tx_meta.block_number(),
-                                        tx_meta.epoch_number(),
-                                        tx_meta.block_hash().to_owned(),
-                                    ))
-                                    .cellbase(tx_meta.is_cellbase())
-                                    .build()
+                                let output_data = &self
+                                    .outputs_data
+                                    .get(&cell_out_point.tx_hash)
+                                    .as_ref()
+                                    .expect("must exists")
+                                    [cell_out_point.index as usize];
+                                CellMetaBuilder::from_cell_output(
+                                    output.to_owned(),
+                                    output_data.to_owned(),
+                                )
+                                .out_point(cell_out_point.to_owned())
+                                .block_info(BlockInfo::new(
+                                    tx_meta.block_number(),
+                                    tx_meta.epoch_number(),
+                                    tx_meta.block_hash().to_owned(),
+                                ))
+                                .cellbase(tx_meta.is_cellbase())
+                                .build()
                             })
                             .or_else(|| {
                                 self.store

@@ -189,8 +189,7 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::cell::UnresolvableError;
     use ckb_core::header::HeaderBuilder;
-    use ckb_core::script::Script;
-    use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+    use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::NotifyService;
@@ -203,11 +202,13 @@ mod tests {
     use numext_fixed_uint::U256;
 
     fn setup(height: u64) -> (Shared<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
-        let (always_success_cell, always_success_script) = always_success_cell();
+        let (always_success_cell, always_success_cell_data, always_success_script) =
+            always_success_cell();
         let always_success_tx = TransactionBuilder::default()
             .witness(always_success_script.clone().into_witness())
             .input(CellInput::new(OutPoint::null(), 0))
             .output(always_success_cell.clone())
+            .output_data(always_success_cell_data.clone())
             .build();
         let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
 
@@ -244,17 +245,17 @@ mod tests {
 
             let outputs = (0..20)
                 .map(|_| {
-                    CellOutput::new(
-                        capacity_bytes!(50),
-                        Bytes::default(),
-                        always_success_script.to_owned(),
-                        None,
-                    )
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(50))
+                        .lock(always_success_script.to_owned())
+                        .build()
                 })
                 .collect::<Vec<_>>();
+            let outputs_data = (0..20).map(|_| Bytes::new());
             let cellbase = TransactionBuilder::default()
                 .input(CellInput::new_cellbase_input(number))
                 .outputs(outputs)
+                .outputs_data(outputs_data)
                 .build();
 
             let txs = (10..20).map(|i| {
@@ -263,12 +264,13 @@ mod tests {
                         OutPoint::new_cell(cellbase.hash().to_owned(), i),
                         0,
                     ))
-                    .output(CellOutput::new(
-                        capacity_bytes!(50),
-                        Bytes::default(),
-                        always_success_script.to_owned(),
-                        None,
-                    ))
+                    .output(
+                        CellOutputBuilder::default()
+                            .capacity(capacity_bytes!(50))
+                            .lock(always_success_script.to_owned())
+                            .build(),
+                    )
+                    .output_data(Bytes::new())
                     .dep(always_success_out_point.to_owned())
                     .build()
             });
@@ -306,17 +308,18 @@ mod tests {
         // building 10 txs and broadcast some
         let txs = (0..20u8)
             .map(|i| {
+                let data = Bytes::from(vec![i]);
                 TransactionBuilder::default()
                     .input(CellInput::new(
                         OutPoint::new_cell(last_cellbase.hash().to_owned(), u32::from(i)),
                         0,
                     ))
-                    .output(CellOutput::new(
-                        capacity_bytes!(50),
-                        Bytes::from(vec![i]),
-                        Script::default(),
-                        None,
-                    ))
+                    .output(
+                        CellOutputBuilder::from_data(&data)
+                            .capacity(capacity_bytes!(50))
+                            .build(),
+                    )
+                    .output_data(data)
                     .dep(always_success_out_point.to_owned())
                     .build()
             })
@@ -378,12 +381,12 @@ mod tests {
                         OutPoint::new_cell(last_cellbase.hash().to_owned(), 0),
                         since,
                     ))
-                    .output(CellOutput::new(
-                        capacity_bytes!(50),
-                        Bytes::default(),
-                        Script::default(),
-                        None,
-                    ))
+                    .output(
+                        CellOutputBuilder::default()
+                            .capacity(capacity_bytes!(50))
+                            .build(),
+                    )
+                    .output_data(Bytes::new())
                     .dep(always_success_out_point.to_owned())
                     .build()
             })

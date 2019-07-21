@@ -1,7 +1,7 @@
 use crate::tx_pool::types::ProposedEntry;
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
-use ckb_core::{Capacity, Cycle};
+use ckb_core::{Bytes, Capacity, Cycle};
 use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
 use std::collections::VecDeque;
 use std::hash::Hash;
@@ -98,9 +98,9 @@ impl CellProvider for ProposedPool {
             if x.is_some() {
                 CellStatus::Dead
             } else {
-                let output = self.get_output(o).expect("output");
+                let (output, data) = self.get_output_with_data(o).expect("output");
                 CellStatus::live_cell(
-                    CellMetaBuilder::from_cell_output(output.to_owned())
+                    CellMetaBuilder::from_cell_output(output.to_owned(), data)
                         .out_point(o.cell.as_ref().unwrap().to_owned())
                         .build(),
                 )
@@ -130,11 +130,14 @@ impl ProposedPool {
         self.get(id).map(|x| &x.transaction)
     }
 
-    pub(crate) fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
+    pub(crate) fn get_output_with_data(&self, o: &OutPoint) -> Option<(CellOutput, Bytes)> {
         o.cell.as_ref().and_then(|cell_out_point| {
             self.vertices
                 .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
-                .and_then(|x| x.transaction.get_output(cell_out_point.index as usize))
+                .and_then(|x| {
+                    x.transaction
+                        .get_output_with_data(cell_out_point.index as usize)
+                })
         })
     }
 
@@ -297,8 +300,7 @@ impl ProposedPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::script::Script;
-    use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+    use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
     use ckb_core::{Bytes, Capacity};
     use numext_fixed_hash::{h256, H256};
 
@@ -310,13 +312,11 @@ mod tests {
                 }),
             )
             .outputs((0..outputs_len).map(|i| {
-                CellOutput::new(
-                    Capacity::bytes(i + 1).unwrap(),
-                    Bytes::default(),
-                    Script::default(),
-                    None,
-                )
+                CellOutputBuilder::default()
+                    .capacity(Capacity::bytes(i + 1).unwrap())
+                    .build()
             }))
+            .outputs_data((0..outputs_len).map(|_| Bytes::new()))
             .build()
     }
 

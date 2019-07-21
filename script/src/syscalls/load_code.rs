@@ -99,28 +99,27 @@ impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCode<'a, DL>
             return Ok(true);
         }
         let cell = cell.unwrap();
-        let output = self.data_loader.lazy_load_cell_output(&cell);
 
-        let data_len = output.data.len() as u64;
-        if content_offset >= data_len
-            || (content_offset + content_size) > data_len
+        if content_offset >= u64::from(cell.data_bytes)
+            || (content_offset + content_size) > u64::from(cell.data_bytes)
             || content_size > memory_size
         {
             machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
             return Ok(true);
         }
+        let data = self.data_loader.load_cell_data(cell).expect("cell data");
         machine.memory_mut().init_pages(
             addr,
             memory_size,
             FLAG_EXECUTABLE | FLAG_FREEZED,
-            Some(output.data.slice(
+            Some(data.slice(
                 content_offset as usize,
                 (content_offset + content_size) as usize,
             )),
             0,
         )?;
 
-        machine.add_cycles(output.data.len() as u64 * 10)?;
+        machine.add_cycles(u64::from(cell.data_bytes) * 10)?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(true)
     }

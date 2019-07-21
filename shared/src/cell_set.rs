@@ -259,9 +259,8 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::extras::EpochExt;
     use ckb_core::header::HeaderBuilder;
-    use ckb_core::script::Script;
     use ckb_core::transaction::{
-        CellInput, CellOutPoint, CellOutput, OutPoint, Transaction, TransactionBuilder,
+        CellInput, CellOutPoint, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
     };
     use ckb_core::transaction_meta::TransactionMeta;
     use ckb_core::{Bytes, Capacity};
@@ -276,13 +275,11 @@ mod tests {
                 }),
             )
             .outputs((0..outputs_len).map(|i| {
-                CellOutput::new(
-                    Capacity::bytes(i + 1).unwrap(),
-                    Bytes::default(),
-                    Script::default(),
-                    None,
-                )
+                CellOutputBuilder::default()
+                    .capacity(Capacity::bytes(i + 1).unwrap())
+                    .build()
             }))
+            .outputs_data((0..outputs_len).map(|_| Bytes::new()))
             .build()
     }
 

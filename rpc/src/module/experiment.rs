@@ -48,9 +48,7 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
     }
 
     fn compute_code_hash(&self, data: JsonBytes) -> Result<H256> {
-        let mut cell = CoreCellOutput::default();
-        cell.data = data.into_bytes();
-        Ok(cell.data_hash())
+        Ok(CoreCellOutput::calculate_data_hash(&data.into_bytes()))
     }
 
     fn compute_script_hash(&self, script: Script) -> Result<H256> {

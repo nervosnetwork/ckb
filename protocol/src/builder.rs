@@ -104,6 +104,13 @@ impl<'a> FbsTransaction<'a> {
         let outputs = fbb.create_vector(&vec);
 
         let vec = transaction
+            .outputs_data()
+            .iter()
+            .map(|data| FbsBytes::build(fbb, data))
+            .collect::<Vec<_>>();
+        let outputs_data = fbb.create_vector(&vec);
+
+        let vec = transaction
             .witnesses()
             .iter()
             .map(|witness| FbsWitness::build(fbb, witness))
@@ -115,6 +122,7 @@ impl<'a> FbsTransaction<'a> {
         builder.add_deps(deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
+        builder.add_outputs_data(outputs_data);
         builder.add_witnesses(witnesses);
         builder.finish()
     }
@@ -258,12 +266,12 @@ impl<'a> FbsCellOutput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_output: &CellOutput,
     ) -> WIPOffset<FbsCellOutput<'b>> {
-        let data = FbsBytes::build(fbb, &cell_output.data);
+        let data_hash = (&cell_output.data_hash).into();
         let lock = FbsScript::build(fbb, &cell_output.lock);
         let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity.as_u64());
-        builder.add_data(data);
+        builder.add_data_hash(&data_hash);
         builder.add_lock(lock);
         if let Some(s) = type_ {
             builder.add_type_(s);

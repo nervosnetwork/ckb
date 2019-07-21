@@ -1,17 +1,17 @@
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_META, COLUMN_CELL_SET, COLUMN_EPOCH,
-    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_INDEX,
+    COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMeta};
 use ckb_core::extras::{BlockExt, EpochExt, TransactionInfo};
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{CellKey, CellOutPoint, CellOutput, ProposalShortId, Transaction};
+use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
-use ckb_core::{Capacity, EpochNumber};
+use ckb_core::{Bytes, EpochNumber};
 use ckb_db::{Col, DbBatch, Error, KeyValueDB};
 use ckb_protos::{self as protos, CanBuild};
 use lru_cache::LruCache;
@@ -123,6 +123,7 @@ pub trait ChainStore: Sync + Send {
     fn get_transaction_info(&self, hash: &H256) -> Option<TransactionInfo>;
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
     fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
+    fn get_cell_data(&self, tx_hash: &H256, index: u32) -> Option<Bytes>;
     // Get current epoch ext
     fn get_current_epoch_ext(&self) -> Option<EpochExt>;
     // Get epoch ext by epoch index
@@ -379,40 +380,41 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
     }
 
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta> {
-        self.process_get(
-            COLUMN_CELL_META,
-            CellKey::calculate(tx_hash, index).as_ref(),
-            |slice| {
-                let meta: (Capacity, H256) =
-                    protos::StoredCellMeta::from_slice(slice).try_into()?;
-                Ok(Some(meta))
-            },
-        )
-        .and_then(|meta| {
-            self.get_transaction_info(tx_hash)
-                .map(|tx_info| (tx_info, meta))
-        })
-        .map(|(tx_info, meta)| {
-            let out_point = CellOutPoint {
-                tx_hash: tx_hash.to_owned(),
-                index: index as u32,
-            };
-            let cellbase = tx_info.index == 0;
-            let block_info = BlockInfo {
-                number: tx_info.block_number,
-                epoch: tx_info.block_epoch,
-                hash: tx_info.block_hash,
-            };
-            let (capacity, data_hash) = meta;
-            CellMeta {
-                cell_output: None,
-                out_point,
-                block_info: Some(block_info),
-                cellbase,
-                capacity,
-                data_hash: Some(data_hash),
-            }
-        })
+        self.get_transaction_info(&tx_hash)
+            .and_then(|tx_info| {
+                let tx_info_index = tx_info.index;
+                self.process_get(COLUMN_BLOCK_BODY, tx_info.block_hash.as_bytes(), |slice| {
+                    let cell_output = protos::StoredBlockBody::from_slice(slice)
+                        .output(tx_info_index, index as usize)?;
+                    let data = protos::StoredBlockBody::from_slice(slice)
+                        .output_data(tx_info_index, index as usize)?;
+                    let result =
+                        cell_output.and_then(|cell_output| data.map(|data| (cell_output, data)));
+                    Ok(result)
+                })
+                .map(|(cell_output, data)| (tx_info, cell_output, data))
+            })
+            .map(|(tx_info, cell_output, data)| {
+                let out_point = CellOutPoint {
+                    tx_hash: tx_hash.to_owned(),
+                    index: index as u32,
+                };
+                let cellbase = tx_info.index == 0;
+                let block_info = BlockInfo {
+                    number: tx_info.block_number,
+                    epoch: tx_info.block_epoch,
+                    hash: tx_info.block_hash,
+                };
+                // notice mem_cell_data is set to None, the cell data should be load in need
+                CellMeta {
+                    cell_output,
+                    out_point,
+                    block_info: Some(block_info),
+                    cellbase,
+                    data_bytes: data.len() as u32,
+                    mem_cell_data: None,
+                }
+            })
     }
 
     fn get_cellbase(&self, hash: &H256) -> Option<Transaction> {
@@ -452,6 +454,16 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                 cell_output_cache_unlocked.insert((tx_hash.clone(), index), cell_output.clone());
                 cell_output
             })
+    }
+
+    fn get_cell_data(&self, tx_hash: &H256, index: u32) -> Option<Bytes> {
+        self.get_transaction_info(&tx_hash).and_then(|info| {
+            self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
+                let data = protos::StoredBlockBody::from_slice(slice)
+                    .output_data(info.index, index as usize)?;
+                Ok(data)
+            })
+        })
     }
 
     fn traverse_cell_set<F>(&self, mut callback: F) -> Result<(), Error>
@@ -549,16 +561,6 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
                     builder.as_slice(),
                 )?;
             }
-            for (cell_index, output) in tx.outputs().iter().enumerate() {
-                let out_point = CellOutPoint {
-                    tx_hash: tx_hash.to_owned(),
-                    index: cell_index as u32,
-                };
-                let store_key = out_point.cell_key();
-                let data = (output.capacity, output.data_hash());
-                let builder = protos::StoredCellMeta::full_build(&data);
-                self.insert_raw(COLUMN_CELL_META, store_key.as_ref(), builder.as_slice())?;
-            }
         }
 
         let number = block.header().number().to_le_bytes();
@@ -573,10 +575,6 @@ impl<B: DbBatch> StoreBatch for DefaultStoreBatch<B> {
         for tx in block.transactions() {
             let tx_hash = tx.hash();
             self.delete(COLUMN_TRANSACTION_INFO, tx_hash.as_bytes())?;
-            for index in 0..tx.outputs().len() {
-                let store_key = CellKey::calculate(&tx_hash, index as u32);
-                self.delete(COLUMN_CELL_META, store_key.as_ref())?;
-            }
         }
 
         for uncle in block.uncles() {

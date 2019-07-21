@@ -5,10 +5,12 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::cell::{BlockInfo, CellMetaBuilder, CellProvider, CellStatus, UnresolvableError};
+use ckb_core::cell::{BlockInfo, CellMeta, CellProvider, CellStatus, UnresolvableError};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::transaction::{
+    CellInput, CellOutPoint, CellOutputBuilder, OutPoint, TransactionBuilder,
+};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_shared::error::SharedError;
@@ -57,14 +59,12 @@ fn test_genesis_transaction_spend() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
-            CellOutput::new(
-                capacity_bytes!(100_000_000),
-                Bytes::default(),
-                Script::default(),
-                None
-            );
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100_000_000))
+                .build();
             100
         ])
+        .outputs_data(vec![Bytes::new(); 100])
         .build();
 
     let mut root_hash = tx.hash().to_owned();
@@ -126,6 +126,7 @@ fn test_transaction_spend_in_same_block() {
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     let tx2_hash = tx2.hash().to_owned();
     let tx2_output = tx2.outputs()[0].clone();
+    let tx2_output_data = tx2.outputs_data()[0].clone();
 
     let txs = vec![tx1, tx2];
 
@@ -177,17 +178,17 @@ fn test_transaction_spend_in_same_block() {
         shared
             .lock_chain_state()
             .cell(&OutPoint::new_cell(tx2_hash.to_owned(), 0)),
-        CellStatus::live_cell(
-            CellMetaBuilder::default()
-                .out_point(CellOutPoint {
-                    tx_hash: tx2_hash.to_owned(),
-                    index: 0
-                })
-                .data_hash(tx2_output.data_hash())
-                .capacity(tx2_output.capacity)
-                .block_info(BlockInfo::new(parent_number4, 0, parent_hash4))
-                .build()
-        )
+        CellStatus::live_cell(CellMeta {
+            cell_output: tx2_output,
+            data_bytes: tx2_output_data.len() as u32,
+            out_point: CellOutPoint {
+                tx_hash: tx2_hash.to_owned(),
+                index: 0
+            },
+            block_info: Some(BlockInfo::new(parent_number4, 0, parent_hash4)),
+            cellbase: false,
+            mem_cell_data: None,
+        })
     );
 }
 
@@ -358,14 +359,13 @@ fn test_genesis_transaction_fetch() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .outputs(vec![
-            CellOutput::new(
-                capacity_bytes!(100_000_000),
-                Bytes::default(),
-                Script::default(),
-                None
-            );
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100_000_000))
+                .lock(Script::default())
+                .build();
             100
         ])
+        .outputs_data(vec![Bytes::new(); 100])
         .build();
 
     let root_hash = tx.hash().to_owned();

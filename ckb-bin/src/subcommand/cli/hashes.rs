@@ -51,7 +51,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
             .zip(cellbase.outputs().iter().skip(1))
             .enumerate()
             .map(|(index_minus_one, (resource, output))| {
-                let code_hash = output.data_hash();
+                let code_hash = output.data_hash().to_owned();
                 SystemCell {
                     path: resource.to_string(),
                     index: index_minus_one + 1,

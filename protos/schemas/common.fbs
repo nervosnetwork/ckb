@@ -40,6 +40,7 @@ table Transaction {
     deps:           [OutPoint];
     inputs:         [CellInput];
     outputs:        [CellOutput];
+    outputs_data:   [Bytes];
     witnesses:      [Witness];
 }
 
@@ -62,7 +63,7 @@ table CellInput {
 
 table CellOutput {
     capacity:       uint64;
-    data:           Bytes;
+    data_hash:      Bytes32;
     lock:           Script;
     type:           Script;
 }
@@ -160,9 +161,4 @@ table TransactionMeta {
     cellbase:       bool;
     bits:           Bytes;
     len:            uint32;
-}
-
-struct CellMeta {
-    capacity:       uint64;
-    data_hash:      Bytes32;
 }

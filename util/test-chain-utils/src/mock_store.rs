@@ -54,10 +54,16 @@ impl CellProvider for MockStore {
                 Some((tx, _)) => tx
                     .outputs()
                     .get(cell_out_point.index as usize)
-                    .as_ref()
                     .map(|cell| {
+                        let data = tx
+                            .outputs_data()
+                            .get(cell_out_point.index as usize)
+                            .expect("output data");
+                        let cell = cell.to_owned();
                         CellStatus::live_cell(
-                            CellMetaBuilder::from_cell_output((*cell).to_owned()).build(),
+                            CellMetaBuilder::from_cell_output(cell, data.to_owned())
+                                .out_point(cell_out_point.to_owned())
+                                .build(),
                         )
                     })
                     .unwrap_or(CellStatus::Unknown),

@@ -925,18 +925,12 @@ pub mod ckb {
                     }
                 }
 
-                if Self::VT_DATA as usize + flatbuffers::SIZE_VOFFSET
+                if Self::VT_DATA_HASH as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
-                    let voffset = vtab.get(Self::VT_DATA) as usize;
-                    if voffset > 0 {
-                        if voffset + 4 > object_inline_num_bytes {
-                            return Err(Error::OutOfBounds);
-                        }
-
-                        if let Some(f) = self.data() {
-                            f.verify()?;
-                        }
+                    let voffset = vtab.get(Self::VT_DATA_HASH) as usize;
+                    if voffset > 0 && object_inline_num_bytes - voffset < 32 {
+                        return Err(Error::OutOfBounds);
                     }
                 }
 
@@ -3407,6 +3401,24 @@ pub mod ckb {
                         );
                         outputs_verifier
                             .verify_reference_elements::<reader::CellOutput>()?;
+                    }
+                }
+
+                if Self::VT_OUTPUTS_DATA as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_OUTPUTS_DATA) as usize;
+                    if voffset > 0 {
+                        if voffset + 4 > object_inline_num_bytes {
+                            return Err(Error::OutOfBounds);
+                        }
+
+                        let outputs_data_verifier = VectorVerifier::follow(
+                            buf,
+                            try_follow_uoffset(buf, tab.loc + voffset)?,
+                        );
+                        outputs_data_verifier
+                            .verify_reference_elements::<reader::Bytes>()?;
                     }
                 }
 

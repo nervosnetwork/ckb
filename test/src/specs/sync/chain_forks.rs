@@ -1,4 +1,5 @@
 use crate::{Net, Spec};
+use ckb_app_config::CKBAppConfig;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, Capacity};
@@ -41,6 +42,11 @@ impl Spec for ChainFork1 {
 
     fn connect_all(&self) -> bool {
         false
+    }
+
+    // workaround to disable node discovery
+    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
+        Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
     }
 }
 

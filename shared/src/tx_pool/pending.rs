@@ -63,9 +63,12 @@ impl CellProvider for PendingQueue {
                 .inner
                 .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
             {
-                match x.transaction.get_output(cell_out_point.index as usize) {
-                    Some(output) => CellStatus::live_cell(
-                        CellMetaBuilder::from_cell_output(output.to_owned())
+                match x
+                    .transaction
+                    .get_output_with_data(cell_out_point.index as usize)
+                {
+                    Some((output, data)) => CellStatus::live_cell(
+                        CellMetaBuilder::from_cell_output(output.to_owned(), data)
                             .out_point(cell_out_point.to_owned())
                             .build(),
                     ),

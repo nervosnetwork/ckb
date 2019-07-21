@@ -113,8 +113,7 @@ impl OrphanPool {
 #[cfg(test)]
 mod tests {
     use super::{OrphanPool, OutPoint};
-    use ckb_core::script::Script;
-    use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+    use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
     use ckb_core::{Bytes, Capacity};
     use numext_fixed_hash::H256;
 
@@ -126,13 +125,11 @@ mod tests {
                 }),
             )
             .outputs((0..outputs_len).map(|i| {
-                CellOutput::new(
-                    Capacity::bytes(i + 1).unwrap(),
-                    Bytes::default(),
-                    Script::default(),
-                    None,
-                )
+                CellOutputBuilder::default()
+                    .capacity(Capacity::bytes(i + 1).unwrap())
+                    .build()
             }))
+            .outputs_data((0..outputs_len).map(|_| Bytes::new()))
             .build()
     }
 

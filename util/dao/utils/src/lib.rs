@@ -27,15 +27,14 @@ pub fn genesis_dao_data(genesis_cellbase_tx: &Transaction) -> Result<Bytes, Fail
         .try_fold(Capacity::zero(), |capacity, output| {
             capacity.safe_add(output.capacity)
         })?;
-    let u =
-        genesis_cellbase_tx
-            .outputs()
-            .iter()
-            .try_fold(Capacity::zero(), |capacity, output| {
-                output
-                    .occupied_capacity()
-                    .and_then(|c| capacity.safe_add(c))
-            })?;
+    let u = genesis_cellbase_tx.outputs_with_data_iter().try_fold(
+        Capacity::zero(),
+        |capacity, (output, data)| {
+            output
+                .occupied_capacity(data.len() as u32)
+                .and_then(|c| capacity.safe_add(c))
+        },
+    )?;
     Ok(pack_dao_data(DEFAULT_ACCUMULATED_RATE, c, u))
 }
 

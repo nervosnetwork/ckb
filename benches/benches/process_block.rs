@@ -4,7 +4,8 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
-    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    CellInput, CellOutput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
+    TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_db::{DBConfig, RocksDB};
@@ -155,23 +156,24 @@ fn new_chain(
     H256,
 ) {
     let always_success = include_bytes!("../../script/testdata/always_success");
-    let mut cell_output = CellOutput::default();
-    cell_output.data = Bytes::from(always_success.to_vec());
-    cell_output.capacity = cell_output.occupied_capacity().unwrap();
+    let data = Bytes::from(always_success.to_vec());
+    let mut cell_output = CellOutputBuilder::from_data(&data).build();
+    cell_output.capacity = cell_output.occupied_capacity(data.len() as u32).unwrap();
 
-    let data_hash = cell_output.data_hash();
+    let data_hash = cell_output.data_hash().to_owned();
 
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
         .witness(
             Script {
                 args: vec![],
-                code_hash: cell_output.data_hash(),
+                code_hash: cell_output.data_hash().to_owned(),
                 hash_type: ScriptHashType::Data,
             }
             .into_witness(),
         )
         .output(cell_output)
+        .output_data(data)
         .build();
 
     let system_cell_hash = cellbase.hash().to_owned();
@@ -179,14 +181,20 @@ fn new_chain(
     // create genesis block with N txs
     let transactions: Vec<Transaction> = (0..txs_size)
         .map(|i| {
+            let data = Bytes::from(i.to_le_bytes().to_vec());
             TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::null(), 0))
-                .output(CellOutput::new(
-                    capacity_bytes!(50_000),
-                    Bytes::from(i.to_le_bytes().to_vec()),
-                    Script::new(Vec::new(), data_hash.clone(), ScriptHashType::Data),
-                    None,
-                ))
+                .output(
+                    CellOutputBuilder::from_data(&data)
+                        .capacity(capacity_bytes!(50_000))
+                        .lock(Script::new(
+                            Vec::new(),
+                            data_hash.clone(),
+                            ScriptHashType::Data,
+                        ))
+                        .build(),
+                )
+                .output_data(data)
                 .build()
         })
         .collect();
@@ -217,7 +225,7 @@ fn new_chain(
         shared,
         db_dir,
         system_cell_hash,
-        data_hash,
+        data_hash.to_owned(),
     )
 }
 
@@ -236,7 +244,7 @@ fn gen_block(
     );
 
     let mut cell_output = CellOutput::default();
-    cell_output.capacity = cell_output.occupied_capacity().unwrap();
+    cell_output.capacity = cell_output.occupied_capacity(0).unwrap();
 
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
@@ -285,17 +293,19 @@ fn create_transaction(
     system_cell_hash: &H256,
     data_hash: &H256,
 ) -> Transaction {
+    let data: Bytes = (0..255).collect();
     TransactionBuilder::default()
-        .output(CellOutput::new(
-            capacity_bytes!(50_000),
-            (0..255).collect(),
-            Script::new(
-                vec![(0..255).collect()],
-                data_hash.to_owned(),
-                ScriptHashType::Data,
-            ),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::from_data(&data)
+                .capacity(capacity_bytes!(50_000))
+                .lock(Script::new(
+                    vec![(0..255).collect()],
+                    data_hash.to_owned(),
+                    ScriptHashType::Data,
+                ))
+                .build(),
+        )
+        .output_data(data)
         .input(CellInput::new(
             OutPoint::new_cell(parent_hash.to_owned(), 0),
             0,

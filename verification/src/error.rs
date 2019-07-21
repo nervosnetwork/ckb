@@ -175,6 +175,8 @@ pub enum TransactionError {
     InvalidSince,
     CellbaseImmaturity,
     ExceededMaximumBlockBytes,
+    OutputsDataLengthMismatch,
+    OutputDataHashMismatch,
 }
 
 impl StdError for TransactionError {}

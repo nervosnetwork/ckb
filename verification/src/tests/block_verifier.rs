@@ -7,7 +7,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{
-    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use numext_fixed_hash::{h256, H256};
@@ -15,12 +15,12 @@ use numext_fixed_hash::{h256, H256};
 fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(
-            capacity_bytes!(100),
-            Bytes::default(),
-            Script::default(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100))
+                .build(),
+        )
+        .output_data(Bytes::new())
         .witness(Script::default().into_witness())
         .build()
 }
@@ -28,12 +28,8 @@ fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transac
 fn create_cellbase_transaction_with_capacity(capacity: Capacity) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
-        .output(CellOutput::new(
-            capacity,
-            Bytes::default(),
-            Script::default(),
-            None,
-        ))
+        .output(CellOutputBuilder::default().capacity(capacity).build())
+        .output_data(Bytes::new())
         .witness(Script::default().into_witness())
         .build()
 }
@@ -45,12 +41,12 @@ fn create_cellbase_transaction() -> Transaction {
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0))
-        .output(CellOutput::new(
-            capacity_bytes!(100),
-            Bytes::default(),
-            Script::default(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100))
+                .build(),
+        )
+        .output_data(Bytes::new())
         .build()
 }
 

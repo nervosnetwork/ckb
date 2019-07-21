@@ -1,14 +1,13 @@
 use crate::block::Block;
 use crate::header::Header;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
-use crate::Capacity;
 use crate::{BlockNumber, EpochNumber};
+use crate::{Bytes, Capacity};
 use ckb_occupied_capacity::Result as CapacityResult;
-use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
-use std::convert::AsRef;
+use std::convert::{AsRef, TryInto};
 use std::fmt;
 
 #[derive(Clone, Debug, Eq, PartialEq, Default, Deserialize, Serialize)]
@@ -31,22 +30,26 @@ impl BlockInfo {
 #[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct CellMeta {
     #[serde(skip)]
-    pub cell_output: Option<CellOutput>,
+    pub cell_output: CellOutput,
     pub out_point: CellOutPoint,
     pub block_info: Option<BlockInfo>,
     pub cellbase: bool,
-    pub capacity: Capacity,
-    pub data_hash: Option<H256>,
+    pub data_bytes: u32,
+    /// In memory cell data
+    /// A live cell either exists in memory or DB
+    /// must check DB if this field is None
+    #[serde(skip)]
+    pub mem_cell_data: Option<Bytes>,
 }
 
 #[derive(Default)]
 pub struct CellMetaBuilder {
-    cell_output: Option<CellOutput>,
+    cell_output: CellOutput,
     out_point: CellOutPoint,
     block_info: Option<BlockInfo>,
     cellbase: bool,
-    capacity: Capacity,
-    data_hash: Option<H256>,
+    data_bytes: u32,
+    mem_cell_data: Option<Bytes>,
 }
 
 impl CellMetaBuilder {
@@ -56,28 +59,25 @@ impl CellMetaBuilder {
             out_point,
             block_info,
             cellbase,
-            capacity,
-            data_hash,
+            data_bytes,
+            mem_cell_data,
         } = cell_meta;
         Self {
             cell_output,
             out_point,
             block_info,
             cellbase,
-            capacity,
-            data_hash,
+            data_bytes,
+            mem_cell_data,
         }
     }
 
-    pub fn from_cell_output(cell_output: CellOutput) -> Self {
-        CellMetaBuilder::default()
-            .capacity(cell_output.capacity)
-            .cell_output(cell_output)
-    }
-
-    pub fn cell_output(mut self, cell_output: CellOutput) -> Self {
-        self.cell_output = Some(cell_output);
-        self
+    pub fn from_cell_output(cell_output: CellOutput, data: Bytes) -> Self {
+        let mut builder = CellMetaBuilder::default();
+        builder.cell_output = cell_output;
+        builder.data_bytes = data.len().try_into().expect("u32");
+        builder.mem_cell_data = Some(data);
+        builder
     }
 
     pub fn out_point(mut self, out_point: CellOutPoint) -> Self {
@@ -95,39 +95,23 @@ impl CellMetaBuilder {
         self
     }
 
-    pub fn capacity(mut self, capacity: Capacity) -> Self {
-        self.capacity = capacity;
-        self
-    }
-
-    pub fn data_hash(mut self, data_hash: H256) -> Self {
-        self.data_hash = Some(data_hash);
-        self
-    }
-
     pub fn build(self) -> CellMeta {
         let Self {
             cell_output,
             out_point,
             block_info,
             cellbase,
-            capacity,
-            data_hash,
+            data_bytes,
+            mem_cell_data,
         } = self;
         CellMeta {
             cell_output,
             out_point,
             block_info,
             cellbase,
-            capacity,
-            data_hash,
+            data_bytes,
+            mem_cell_data,
         }
-    }
-}
-
-impl From<&CellOutput> for CellMeta {
-    fn from(output: &CellOutput) -> Self {
-        CellMetaBuilder::from_cell_output(output.to_owned()).build()
     }
 }
 
@@ -138,11 +122,7 @@ impl fmt::Debug for CellMeta {
             .field("out_point", &self.out_point)
             .field("block_info", &self.block_info)
             .field("cellbase", &self.cellbase)
-            .field("capacity", &self.capacity)
-            .field(
-                "data_hash",
-                &format_args!("{:#x}", LowerHexOption(self.data_hash.as_ref())),
-            )
+            .field("data_bytes", &self.data_bytes)
             .finish()
     }
 }
@@ -153,11 +133,19 @@ impl CellMeta {
     }
 
     pub fn capacity(&self) -> Capacity {
-        self.capacity
+        self.cell_output.capacity
     }
 
-    pub fn data_hash(&self) -> Option<&H256> {
-        self.data_hash.as_ref()
+    pub fn data_hash(&self) -> &H256 {
+        &self.cell_output.data_hash
+    }
+
+    pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
+        self.cell_output.occupied_capacity(self.data_bytes)
+    }
+
+    pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
+        self.cell_output.is_lack_of_capacity(self.data_bytes)
     }
 }
 
@@ -367,21 +355,27 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
         self.output_indices
             .get(&out_point.tx_hash)
             .and_then(|i| {
-                self.block.transactions()[*i]
+                let transaction = &self.block.transactions()[*i];
+                transaction
                     .outputs()
                     .get(out_point.index as usize)
                     .map(|output| {
+                        let data = transaction
+                            .outputs_data()
+                            .get(out_point.index as usize)
+                            .map(ToOwned::to_owned)
+                            .expect("must exists");
                         CellStatus::live_cell(CellMeta {
-                            cell_output: Some(output.clone()),
+                            cell_output: output.to_owned(),
                             out_point: out_point.to_owned(),
-                            data_hash: None,
-                            capacity: output.capacity,
                             block_info: Some(BlockInfo {
                                 number: self.block.header().number(),
                                 epoch: self.block.header().epoch(),
                                 hash: self.block.header().hash().to_owned(),
                             }),
                             cellbase: *i == 0,
+                            data_bytes: data.len() as u32,
+                            mem_cell_data: Some(data),
                         })
                     })
             })
@@ -412,8 +406,13 @@ impl CellProvider for TransactionsProvider {
                     .get(cell_out_point.index as usize)
                     .as_ref()
                     .map(|cell| {
+                        let data = tx
+                            .outputs_data()
+                            .get(cell_out_point.index as usize)
+                            .expect("output data");
                         CellStatus::live_cell(
-                            CellMetaBuilder::from_cell_output((*cell).to_owned()).build(),
+                            CellMetaBuilder::from_cell_output((*cell).to_owned(), data.to_owned())
+                                .build(),
                         )
                     })
                     .unwrap_or(CellStatus::Unknown),
@@ -687,9 +686,10 @@ mod tests {
     }
 
     fn generate_dummy_cell_meta() -> CellMeta {
+        let data = Bytes::default();
         let cell_output = CellOutput {
             capacity: capacity_bytes!(2),
-            data: Bytes::default(),
+            data_hash: CellOutput::calculate_data_hash(&data),
             lock: Script::default(),
             type_: None,
         };
@@ -699,14 +699,14 @@ mod tests {
                 epoch: 1,
                 hash: H256::zero(),
             }),
-            capacity: cell_output.capacity,
-            data_hash: Some(cell_output.data_hash()),
-            cell_output: Some(cell_output),
+            cell_output,
             out_point: CellOutPoint {
                 tx_hash: Default::default(),
                 index: 0,
             },
             cellbase: false,
+            data_bytes: data.len() as u32,
+            mem_cell_data: Some(data),
         }
     }
 
@@ -917,10 +917,11 @@ mod tests {
             .input(CellInput::new(out_point.clone(), 0))
             .output(CellOutput::new(
                 capacity_bytes!(2),
-                Bytes::default(),
+                H256::zero(),
                 Script::default(),
                 None,
             ))
+            .output_data(Bytes::new())
             .build();
 
         let tx2 = TransactionBuilder::default()

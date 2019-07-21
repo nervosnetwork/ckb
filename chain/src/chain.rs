@@ -6,7 +6,7 @@ use ckb_core::cell::{
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
-use ckb_core::{BlockNumber, Cycle};
+use ckb_core::{BlockNumber, Bytes, Cycle};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
@@ -24,7 +24,7 @@ use fnv::{FnvHashMap, FnvHashSet};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use serde_derive::{Deserialize, Serialize};
+use serde_derive::Serialize;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::{cmp, thread};
@@ -58,7 +58,7 @@ struct ChainReceivers {
     process_block_receiver: Receiver<ProcessBlockRequest>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct ForkChanges {
     // blocks attached to index after forks
     pub(crate) attached_blocks: VecDeque<Block>,
@@ -74,6 +74,7 @@ type VerifyContext<'a, CS> = (
     CellSetDiff,
     BlockHeadersProvider,
     FnvHashMap<H256, &'a [CellOutput]>,
+    FnvHashMap<H256, &'a [Bytes]>,
     ForkContext<'a, Shared<CS>>,
 );
 
@@ -104,6 +105,7 @@ impl ForkChanges {
     ) -> VerifyContext<'a, CS> {
         let mut cell_set_diff = CellSetDiff::default();
         let mut outputs: FnvHashMap<H256, &[CellOutput]> = FnvHashMap::default();
+        let mut outputs_data: FnvHashMap<H256, &[Bytes]> = FnvHashMap::default();
         let mut block_headers_provider = BlockHeadersProvider::default();
 
         let mut context = ForkContext {
@@ -124,11 +126,22 @@ impl ForkChanges {
                     .iter()
                     .map(|tx| (tx.hash().to_owned(), tx.outputs())),
             );
+            outputs_data.extend(
+                b.transactions()
+                    .iter()
+                    .map(|tx| (tx.hash().to_owned(), tx.outputs_data())),
+            );
             block_headers_provider.push_attached(b);
             context.attached_blocks.push(b);
         }
 
-        (cell_set_diff, block_headers_provider, outputs, context)
+        (
+            cell_set_diff,
+            block_headers_provider,
+            outputs,
+            outputs_data,
+            context,
+        )
     }
 }
 
@@ -540,8 +553,13 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
     ) -> Result<CellSetDiff, FailureError> {
         let verified_len = fork.verified_len();
 
-        let (mut cell_set_diff, mut block_headers_provider, mut outputs, mut verify_context) =
-            fork.build_verify_context(&self.shared);
+        let (
+            mut cell_set_diff,
+            mut block_headers_provider,
+            mut outputs,
+            mut outputs_data,
+            mut verify_context,
+        ) = fork.build_verify_context(&self.shared);
 
         let mut verify_results = fork
             .dirty_exts
@@ -561,7 +579,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     let contextual_block_verifier = ContextualBlockVerifier::new(&verify_context);
                     let mut seen_inputs = FnvHashSet::default();
                     let cell_set_overlay =
-                        chain_state.new_cell_set_overlay(&cell_set_diff, &outputs);
+                        chain_state.new_cell_set_overlay(&cell_set_diff, &outputs, &outputs_data);
                     let block_cp = match BlockCellProvider::new(b) {
                         Ok(block_cp) => block_cp,
                         Err(err) => {
@@ -596,6 +614,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                         b.transactions()
                                             .iter()
                                             .map(|tx| (tx.hash().to_owned(), tx.outputs())),
+                                    );
+                                    outputs_data.extend(
+                                        b.transactions()
+                                            .iter()
+                                            .map(|tx| (tx.hash().to_owned(), tx.outputs_data())),
                                     );
                                     *verified = Some(true);
                                     l_txs_fees.extend(txs_fees);
@@ -638,6 +661,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     b.transactions()
                         .iter()
                         .map(|tx| (tx.hash().to_owned(), tx.outputs())),
+                );
+                outputs_data.extend(
+                    b.transactions()
+                        .iter()
+                        .map(|tx| (tx.hash().to_owned(), tx.outputs_data())),
                 );
                 *verified = Some(true);
             }

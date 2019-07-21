@@ -3,8 +3,8 @@ use crate::relayer::compact_block_process::{CompactBlockProcess, Status};
 use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::{CellOutput, TransactionBuilder};
-use ckb_core::Capacity;
+use ckb_core::transaction::{CellOutputBuilder, TransactionBuilder};
+use ckb_core::{Bytes, Capacity};
 use ckb_network::PeerIndex;
 use ckb_protocol::{get_root, CompactBlock as FbsCompactBlock, RelayMessage, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
@@ -349,12 +349,12 @@ fn test_inflight_blocks_reach_limit() {
         .transaction(TransactionBuilder::default().build())
         .transaction(
             TransactionBuilder::default()
-                .output(CellOutput::new(
-                    Capacity::bytes(1).unwrap(),
-                    Default::default(),
-                    Default::default(),
-                    None,
-                ))
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(Capacity::bytes(1).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::new())
                 .build(),
         )
         .build();
@@ -410,12 +410,12 @@ fn test_send_missing_indexes() {
         .transaction(TransactionBuilder::default().build())
         .transaction(
             TransactionBuilder::default()
-                .output(CellOutput::new(
-                    Capacity::bytes(1).unwrap(),
-                    Default::default(),
-                    Default::default(),
-                    None,
-                ))
+                .output(
+                    CellOutputBuilder::default()
+                        .capacity(Capacity::bytes(1).unwrap())
+                        .build(),
+                )
+                .output_data(Bytes::new())
                 .build(),
         )
         .build();

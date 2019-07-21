@@ -500,7 +500,7 @@ mod tests {
     use ckb_core::header::BlockNumber;
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
-    use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
+    use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
     use ckb_core::Bytes;
     use ckb_dao::DaoCalculator;
     use ckb_db::memorydb::MemoryKeyValueDB;
@@ -554,12 +554,8 @@ mod tests {
         let (_, reward) = shared.finalize_block_reward(parent_header).unwrap();
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(
-                reward.total,
-                Bytes::default(),
-                Script::default(),
-                None,
-            ))
+            .output(CellOutputBuilder::default().capacity(reward.total).build())
+            .output_data(Bytes::new())
             .witness(Script::default().into_witness())
             .build()
     }

@@ -2,12 +2,11 @@ use crate::error::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
-    transaction::{Transaction, TX_VERSION},
+    transaction::{CellOutput, Transaction, TX_VERSION},
     BlockNumber, Cycle, EpochNumber,
 };
 use ckb_resource::CODE_HASH_DAO;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
-use ckb_script_data_loader::DataLoader;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
@@ -56,8 +55,9 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub size: SizeVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub maturity: MaturityVerifier<'a>,
-    pub capacity: CapacityVerifier<'a, CS>,
+    pub capacity: CapacityVerifier<'a>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
+    pub outputs_data_verifier: OutputsDataVerifier<'a>,
     pub script: ScriptVerifier<'a, CS>,
     pub since: SinceVerifier<'a, M>,
 }
@@ -84,8 +84,9 @@ where
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
+            outputs_data_verifier: OutputsDataVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, chain_store, script_config),
-            capacity: CapacityVerifier::new(rtx, chain_store),
+            capacity: CapacityVerifier::new(rtx),
             since: SinceVerifier::new(
                 rtx,
                 median_time_context,
@@ -103,6 +104,7 @@ where
         self.maturity.verify()?;
         self.capacity.verify()?;
         self.duplicate_deps.verify()?;
+        self.outputs_data_verifier.verify()?;
         self.since.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
@@ -273,15 +275,13 @@ impl<'a> DuplicateDepsVerifier<'a> {
     }
 }
 
-pub struct CapacityVerifier<'a, CS> {
-    chain_store: &'a Arc<CS>,
+pub struct CapacityVerifier<'a> {
     resolved_transaction: &'a ResolvedTransaction<'a>,
 }
 
-impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction, chain_store: &'a Arc<CS>) -> Self {
+impl<'a> CapacityVerifier<'a> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
         CapacityVerifier {
-            chain_store,
             resolved_transaction,
         }
     }
@@ -300,8 +300,12 @@ impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
             }
         }
 
-        for output in self.resolved_transaction.transaction.outputs().iter() {
-            if output.is_lack_of_capacity()? {
+        for (output, data) in self
+            .resolved_transaction
+            .transaction
+            .outputs_with_data_iter()
+        {
+            if output.is_lack_of_capacity(data.len() as u32)? {
                 return Err(TransactionError::InsufficientCellCapacity);
             }
         }
@@ -310,7 +314,6 @@ impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
     }
 
     fn valid_dao_withdraw_transaction(&self) -> bool {
-        let data_loader = DataLoaderWrapper::new(Arc::clone(&self.chain_store));
         self.resolved_transaction
             .resolved_inputs
             .iter()
@@ -318,9 +321,9 @@ impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
                 input
                     .cell()
                     .map(|cell| {
-                        let output = data_loader.lazy_load_cell_output(&cell);
-                        output
+                        cell.cell_output
                             .type_
+                            .as_ref()
                             .map(|type_| type_.code_hash == CODE_HASH_DAO)
                             .unwrap_or(false)
                     })
@@ -515,6 +518,30 @@ where
             // verify time lock
             self.verify_absolute_lock(since)?;
             self.verify_relative_lock(since, cell_meta)?;
+        }
+        Ok(())
+    }
+}
+
+pub struct OutputsDataVerifier<'a> {
+    transaction: &'a Transaction,
+}
+
+impl<'a> OutputsDataVerifier<'a> {
+    pub fn new(transaction: &'a Transaction) -> Self {
+        Self { transaction }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        let transaction = self.transaction;
+        if transaction.outputs().len() != transaction.outputs_data().len() {
+            return Err(TransactionError::OutputsDataLengthMismatch);
+        }
+        let valid = transaction
+            .outputs_with_data_iter()
+            .all(|(output, data)| CellOutput::calculate_data_hash(data) == output.data_hash);
+        if !valid {
+            return Err(TransactionError::OutputDataHashMismatch);
         }
         Ok(())
     }

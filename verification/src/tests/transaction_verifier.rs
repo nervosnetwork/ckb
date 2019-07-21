@@ -1,25 +1,19 @@
 use super::super::transaction_verifier::{
-    CapacityVerifier, DuplicateDepsVerifier, EmptyVerifier, MaturityVerifier, Since, SinceVerifier,
-    SizeVerifier, VersionVerifier,
+    CapacityVerifier, DuplicateDepsVerifier, EmptyVerifier, MaturityVerifier, OutputsDataVerifier,
+    Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
 use crate::error::TransactionError;
-use ckb_core::cell::{BlockInfo, CellMeta, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
+use ckb_core::cell::{BlockInfo, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
-    CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder, TX_VERSION,
+    CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder, TX_VERSION,
 };
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity, Version};
-use ckb_db::MemoryKeyValueDB;
 use ckb_resource::CODE_HASH_DAO;
-use ckb_store::{ChainKVStore, COLUMNS};
 use ckb_test_chain_utils::MockMedianTime;
 use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::{h256, H256};
 use std::sync::Arc;
-
-fn new_memory_store() -> Arc<ChainKVStore<MemoryKeyValueDB>> {
-    Arc::new(ChainKVStore::new(MemoryKeyValueDB::open(COLUMNS as usize)))
-}
 
 #[test]
 pub fn test_empty() {
@@ -41,14 +35,15 @@ pub fn test_version() {
 
 #[test]
 pub fn test_exceeded_maximum_block_bytes() {
+    let data: Bytes = vec![1; 500].into();
     let transaction = TransactionBuilder::default()
         .version(Version::default() + 1)
-        .output(CellOutput::new(
-            capacity_bytes!(50),
-            vec![1; 500].into(),
-            Script::default(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::from_data(&data)
+                .capacity(capacity_bytes!(50))
+                .build(),
+        )
+        .output_data(data)
         .build();
     let verifier = SizeVerifier::new(&transaction, 100);
 
@@ -60,24 +55,30 @@ pub fn test_exceeded_maximum_block_bytes() {
 
 #[test]
 pub fn test_capacity_outofbound() {
+    let data = Bytes::from(vec![1; 51]);
     let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(
-            capacity_bytes!(50),
-            Bytes::from(vec![1; 51]),
-            Script::default(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::from_data(&data)
+                .capacity(capacity_bytes!(50))
+                .build(),
+        )
+        .output_data(data)
         .build();
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_deps: Vec::new(),
-        resolved_inputs: vec![ResolvedOutPoint::cell_only(CellMeta::from(
-            &CellOutput::new(capacity_bytes!(50), Bytes::new(), Script::default(), None),
-        ))],
+        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(50))
+                    .build(),
+                Bytes::new(),
+            )
+            .build(),
+        )],
     };
-    let store = new_memory_store();
-    let verifier = CapacityVerifier::new(&rtx, &store);
+    let verifier = CapacityVerifier::new(&rtx);
 
     assert_eq!(
         verifier.verify().err(),
@@ -87,13 +88,19 @@ pub fn test_capacity_outofbound() {
 
 #[test]
 pub fn test_skip_dao_capacity_check() {
+    let data = Bytes::from(vec![1; 10]);
     let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(
-            capacity_bytes!(500),
-            Bytes::from(vec![1; 10]),
-            Script::default(),
-            Some(Script::new(vec![], CODE_HASH_DAO, ScriptHashType::Data)),
-        ))
+        .output(
+            CellOutputBuilder::from_data(&data)
+                .capacity(capacity_bytes!(500))
+                .type_(Some(Script::new(
+                    vec![],
+                    CODE_HASH_DAO,
+                    ScriptHashType::Data,
+                )))
+                .build(),
+        )
+        .output_data(Bytes::new())
         .build();
 
     let rtx = ResolvedTransaction {
@@ -101,8 +108,7 @@ pub fn test_skip_dao_capacity_check() {
         resolved_deps: Vec::new(),
         resolved_inputs: vec![],
     };
-    let store = new_memory_store();
-    let verifier = CapacityVerifier::new(&rtx, &store);
+    let verifier = CapacityVerifier::new(&rtx);
 
     assert!(verifier.verify().is_ok());
 }
@@ -111,13 +117,15 @@ pub fn test_skip_dao_capacity_check() {
 #[test]
 pub fn test_inputs_cellbase_maturity() {
     let transaction = TransactionBuilder::default().build();
-    let output = CellOutput::new(capacity_bytes!(50), Bytes::new(), Script::default(), None);
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(50))
+        .build();
 
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_deps: Vec::new(),
         resolved_inputs: vec![ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(output.clone())
+            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                 .block_info(MockMedianTime::get_block_info(30, 0))
                 .cellbase(true)
                 .build(),
@@ -142,20 +150,22 @@ pub fn test_inputs_cellbase_maturity() {
 #[test]
 pub fn test_deps_cellbase_maturity() {
     let transaction = TransactionBuilder::default().build();
-    let output = CellOutput::new(capacity_bytes!(50), Bytes::new(), Script::default(), None);
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(50))
+        .build();
 
     // The 1st dep is cellbase, the 2nd one is not.
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_deps: vec![
             ResolvedOutPoint::cell_only(
-                CellMetaBuilder::from_cell_output(output.clone())
+                CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                     .block_info(MockMedianTime::get_block_info(30, 0))
                     .cellbase(true)
                     .build(),
             ),
             ResolvedOutPoint::cell_only(
-                CellMetaBuilder::from_cell_output(output.clone())
+                CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                     .block_info(MockMedianTime::get_block_info(40, 0))
                     .cellbase(false)
                     .build(),
@@ -183,19 +193,14 @@ pub fn test_capacity_invalid() {
     // The outputs capacity is 50 + 100 = 150
     let transaction = TransactionBuilder::default()
         .outputs(vec![
-            CellOutput::new(
-                capacity_bytes!(50),
-                Bytes::default(),
-                Script::default(),
-                None,
-            ),
-            CellOutput::new(
-                capacity_bytes!(100),
-                Bytes::default(),
-                Script::default(),
-                None,
-            ),
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(50))
+                .build(),
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100))
+                .build(),
         ])
+        .outputs_data(vec![Bytes::new(); 2])
         .build();
 
     // The inputs capacity is 49 + 100 = 149,
@@ -204,22 +209,27 @@ pub fn test_capacity_invalid() {
         transaction: &transaction,
         resolved_deps: Vec::new(),
         resolved_inputs: vec![
-            ResolvedOutPoint::cell_only(CellMeta::from(&CellOutput::new(
-                capacity_bytes!(49),
-                Bytes::default(),
-                Script::default(),
-                None,
-            ))),
-            ResolvedOutPoint::cell_only(CellMeta::from(&CellOutput::new(
-                capacity_bytes!(100),
-                Bytes::default(),
-                Script::default(),
-                None,
-            ))),
+            ResolvedOutPoint::cell_only(
+                CellMetaBuilder::from_cell_output(
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(49))
+                        .build(),
+                    Bytes::new(),
+                )
+                .build(),
+            ),
+            ResolvedOutPoint::cell_only(
+                CellMetaBuilder::from_cell_output(
+                    CellOutputBuilder::default()
+                        .capacity(capacity_bytes!(100))
+                        .build(),
+                    Bytes::new(),
+                )
+                .build(),
+            ),
         ],
     };
-    let store = new_memory_store();
-    let verifier = CapacityVerifier::new(&rtx, &store);
+    let verifier = CapacityVerifier::new(&rtx);
 
     assert_eq!(
         verifier.verify().err(),
@@ -307,12 +317,12 @@ fn create_resolve_tx_with_block_info(
         transaction: &tx,
         resolved_deps: Vec::new(),
         resolved_inputs: vec![ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(CellOutput::new(
-                capacity_bytes!(50),
+            CellMetaBuilder::from_cell_output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(50))
+                    .build(),
                 Bytes::new(),
-                Script::default(),
-                None,
-            ))
+            )
             .block_info(block_info)
             .build(),
         )],
@@ -398,7 +408,6 @@ pub fn test_relative_epoch() {
 }
 
 #[test]
-
 pub fn test_since_both() {
     // both
     let transaction = TransactionBuilder::default()
@@ -426,4 +435,48 @@ pub fn test_since_both() {
         0, 1, 2, 3, 4, 100_000, 1_124_000, 2_000_000, 3_000_000, 4_000_000, 5_000_000, 6_000_000,
     ]);
     assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
+}
+
+#[test]
+pub fn test_outputs_data_length_mismatch() {
+    let transaction = TransactionBuilder::default()
+        .output(Default::default())
+        .build();
+    let verifier = OutputsDataVerifier::new(&transaction);
+
+    assert_eq!(
+        verifier.verify().err(),
+        Some(TransactionError::OutputsDataLengthMismatch)
+    );
+
+    let transaction = TransactionBuilder::default()
+        .output(Default::default())
+        .output_data(Default::default())
+        .build();
+    let verifier = OutputsDataVerifier::new(&transaction);
+
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
+pub fn test_outputs_data_hash_mismatch() {
+    let data: Bytes = Bytes::from(&b"Hello Wrold"[..]);
+    let transaction = TransactionBuilder::default()
+        .output(Default::default())
+        .output_data(data.clone())
+        .build();
+    let verifier = OutputsDataVerifier::new(&transaction);
+
+    assert_eq!(
+        verifier.verify().err(),
+        Some(TransactionError::OutputDataHashMismatch)
+    );
+
+    let transaction = TransactionBuilder::default()
+        .output(CellOutputBuilder::from_data(&data).build())
+        .output_data(data)
+        .build();
+    let verifier = OutputsDataVerifier::new(&transaction);
+
+    assert!(verifier.verify().is_ok());
 }

@@ -8,7 +8,6 @@ license = "MIT"
 [dependencies]
 ckb-core = { path = "../../core" }
 ckb-db = { path = "../../db" }
-ckb-hash = { path = "../hash" }
 ckb-store = { path = "../../store" }
 ckb-chain-spec = { path = "../../spec" }
 ckb-dao-utils = { path = "../dao/utils" }
