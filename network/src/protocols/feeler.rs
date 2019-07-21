@@ -1,3 +1,4 @@
+use crate::network::disconnect_with_message;
 use crate::NetworkState;
 use ckb_logger::{debug, info};
 use p2p::{
@@ -36,7 +37,9 @@ impl ServiceProtocol for Feeler {
             peer_store.add_connected_peer(&peer_id, session.address.clone(), session.ty);
         });
         info!("peer={} FeelerProtocol.connected", session.address);
-        if let Err(err) = context.disconnect(session.id) {
+        if let Err(err) =
+            disconnect_with_message(context.control(), session.id, "feeler connection")
+        {
             debug!("Disconnect failed {:?}, error: {:?}", session.id, err);
         }
     }

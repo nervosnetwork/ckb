@@ -201,7 +201,7 @@ impl CKBProtocolContext for MockProtocalContext {
     fn filter_broadcast(&self, _target: TargetSession, _data: Bytes) -> Result<(), Error> {
         unimplemented!();
     }
-    fn disconnect(&self, _peer_index: PeerIndex) -> Result<(), Error> {
+    fn disconnect(&self, _peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
         unimplemented!();
     }
     fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {

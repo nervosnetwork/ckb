@@ -226,7 +226,7 @@ impl CKBProtocolContext for TestNetworkContext {
         }
         Ok(())
     }
-    fn disconnect(&self, _peer_index: PeerIndex) -> Result<(), ckb_network::Error> {
+    fn disconnect(&self, _peer_index: PeerIndex, _msg: &str) -> Result<(), ckb_network::Error> {
         Ok(())
     }
     // Interact with NetworkState
