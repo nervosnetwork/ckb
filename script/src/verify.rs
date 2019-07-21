@@ -97,7 +97,13 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         for resolved_dep in resolved_deps {
             if let Some(cell_meta) = &resolved_dep.cell() {
                 let output = data_loader.lazy_load_cell_output(cell_meta);
-                binaries_by_data_hash.insert(output.data_hash(), output.data.to_owned());
+                binaries_by_data_hash.insert(
+                    cell_meta
+                        .data_hash()
+                        .cloned()
+                        .unwrap_or_else(|| output.data_hash()),
+                    output.data.to_owned(),
+                );
                 if let Some(t) = &output.type_ {
                     binaries_by_type_hash.insert(t.hash(), output.data.to_owned());
                 }
