@@ -58,7 +58,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let block_hash = compact_block.header.hash().to_owned();
 
         let status = self.relayer.shared().get_block_status(&block_hash);
-        // TODO: after https://github.com/nervosnetwork/ckb/pull/1237 merge
         if status.contains(BlockStatus::BLOCK_STORED) {
             return Err(Error::Ignored(Ignored::AlreadyStored).into());
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
@@ -169,11 +168,9 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 let compact_block_verifier = CompactBlockVerifier::new();
                 if let Err(err) = header_verifier.verify(&resolver) {
                     debug_target!(crate::LOG_TARGET_RELAY, "invalid header: {}", err);
-                    // TODO: after https://github.com/nervosnetwork/ckb/pull/1237 merge
-                    // let status = self
-                    //     .relayer
-                    //     .shared()
-                    //     .insert_block_status(&block_hash, BlockStatus::HEADER_INVALID);
+                    self.relayer
+                        .shared()
+                        .insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
                     return Err(Error::Misbehavior(Misbehavior::HeaderInvalid).into());
                 }
                 compact_block_verifier.verify(&compact_block)?;

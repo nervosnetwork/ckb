@@ -330,6 +330,11 @@ fn test_header_invalid() {
         r.unwrap_err().downcast::<Error>().unwrap(),
         Error::Misbehavior(Misbehavior::HeaderInvalid)
     );
+    // Assert block_status_map update
+    assert_eq!(
+        relayer.shared().get_block_status(block.header().hash()),
+        BlockStatus::BLOCK_INVALID
+    );
 }
 
 #[test]
