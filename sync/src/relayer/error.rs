@@ -36,8 +36,6 @@ pub enum Misbehavior {
 
 #[derive(Debug, Fail, Eq, PartialEq)]
 pub enum Ignored {
-    #[fail(display = "Not a better block")]
-    NotBetter,
     #[fail(display = "Already pending compact block")]
     AlreadyPending,
     #[fail(display = "Already in-flight compact block")]

@@ -17,7 +17,6 @@ use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
-use numext_fixed_uint::U256;
 use std::cell::RefCell;
 use std::convert::TryInto;
 use std::iter::FromIterator;
@@ -145,23 +144,23 @@ fn test_unknow_parent() {
 }
 
 #[test]
-fn test_not_a_better_block() {
+fn test_accept_not_a_better_block() {
     let (relayer, _) = build_chain(5);
-    let chain_state = relayer.shared.lock_chain_state();
-    let header = chain_state.tip_header();
+    let header = {
+        let chain_state = relayer.shared.lock_chain_state();
+        chain_state.tip_header().clone()
+    };
 
-    // Less difficulty
+    // The timestamp is random, so it may be not a better block.
+    let not_sure_a_better_header = HeaderBuilder::from_header(header.clone())
+        .timestamp(header.timestamp() + 1)
+        .build();
+
     let block = BlockBuilder::default()
-        .header(
-            HeaderBuilder::default()
-                .parent_hash(header.parent_hash().clone())
-                .difficulty(header.difficulty() - U256::from(1u8))
-                .number(5)
-                .timestamp(unix_time_as_millis())
-                .build(),
-        )
+        .header(not_sure_a_better_header)
         .transaction(TransactionBuilder::default().build())
         .build();
+
     let builder = &mut FlatBufferBuilder::new();
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);
@@ -182,10 +181,7 @@ fn test_not_a_better_block() {
     );
 
     let r = compact_block_process.execute();
-    assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::NotBetter)
-    );
+    assert_eq!(r.ok(), Some(Status::AcceptBlock));
 }
 
 #[test]
