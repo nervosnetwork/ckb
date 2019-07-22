@@ -113,21 +113,46 @@ mod test {
         }
 
         let invalid_prefixed = r#"{"bytes": "2143"}"#;
-        let invalid_length = r#"{"bytes" : "0x0"}"#;
-        let illegal_char = r#"{"bytes":"0xgh"}"#;
-
         let e = serde_json::from_str::<Test>(invalid_prefixed);
-        assert_eq!(r#"invalid value: string "2143", expected a 0x-prefixed hex string at line 1 column 16"#, format!("{}", e.unwrap_err()));
+        assert_eq!(
+            "invalid value: string \"2143\", \
+             expected a 0x-prefixed hex string at line 1 column 16",
+            format!("{}", e.unwrap_err())
+        );
 
+        let invalid_prefixed = r#"{"bytes": "换个行会死吗"}"#;
+        let e = serde_json::from_str::<Test>(invalid_prefixed);
+        assert_eq!(
+            "invalid value: string \"换个行会死吗\", \
+             expected a 0x-prefixed hex string at line 1 column 30",
+            format!("{}", e.unwrap_err())
+        );
+
+        let invalid_length = r#"{"bytes" : "0x0"}"#;
         let e = serde_json::from_str::<Test>(invalid_length);
         assert_eq!(
             r#"invalid length 3, expected even length at line 1 column 16"#,
             format!("{}", e.unwrap_err())
         );
 
+        let invalid_length = r#"{"bytes":"0x这个测试写的真垃圾，需要用正则重写"}"#;
+        let e = serde_json::from_str::<Test>(invalid_length);
+        assert_eq!(
+            r#"invalid length 53, expected even length at line 1 column 64"#,
+            format!("{}", e.unwrap_err())
+        );
+
+        let illegal_char = r#"{"bytes":"0xgh"}"#;
         let e = serde_json::from_str::<Test>(illegal_char);
         assert_eq!(
             r#"Invalid character at line 1 column 15"#,
+            format!("{}", e.unwrap_err())
+        );
+
+        let illegal_char = r#"{"bytes":"0x一二三四"}"#;
+        let e = serde_json::from_str::<Test>(illegal_char);
+        assert_eq!(
+            r#"Invalid character at line 1 column 25"#,
             format!("{}", e.unwrap_err())
         );
     }
