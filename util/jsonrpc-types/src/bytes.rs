@@ -51,7 +51,7 @@ impl<'b> serde::de::Visitor<'b> for BytesVisitor {
     where
         E: serde::de::Error,
     {
-        if v.len() < 2 || &v[0..2] != "0x" {
+        if v.len() < 2 || &v.as_bytes()[0..2] != b"0x" {
             return Err(E::invalid_value(serde::de::Unexpected::Str(v), &self));
         }
 

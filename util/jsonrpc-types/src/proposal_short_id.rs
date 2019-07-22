@@ -40,7 +40,7 @@ impl<'b> serde::de::Visitor<'b> for ProposalShortIdVisitor {
     where
         E: serde::de::Error,
     {
-        if v.len() < 2 || &v[0..2] != "0x" || v.len() != 22 {
+        if v.len() < 2 || &v.as_bytes()[0..2] != b"0x" || v.len() != 22 {
             return Err(E::invalid_value(serde::de::Unexpected::Str(v), &self));
         }
         let mut buffer = [0u8; 10]; // we checked length
