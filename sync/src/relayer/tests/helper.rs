@@ -18,9 +18,9 @@ use faketime::{self, unix_time_as_millis};
 use numext_fixed_uint::U256;
 use std::sync::Arc;
 
-use ckb_network::{Behaviour, Error, Peer};
-use ckb_network::{CKBProtocolContext, PeerIndex};
-use p2p::{service::TargetSession, ProtocolId};
+use ckb_network::{
+    Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId, TargetSession,
+};
 use std::cell::RefCell;
 use std::time::Duration;
 
