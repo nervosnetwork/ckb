@@ -17,7 +17,7 @@ use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
 use ckb_core::transaction::ProposalShortId;
 use faketime::unix_time_as_millis;
-use fnv::FnvHashSet;
+use fnv::FnvHashMap;
 use std::cell::RefCell;
 use std::convert::TryInto;
 use std::iter::FromIterator;
@@ -267,7 +267,10 @@ fn test_already_pending() {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
             compact_block.header.hash().clone(),
-            (compact_block, FnvHashMap::from_iter(vec![(1.into(), 0)])),
+            (
+                compact_block,
+                FnvHashMap::from_iter(vec![(1.into(), vec![0])]),
+            ),
         );
     }
 
@@ -464,7 +467,7 @@ fn test_send_missing_indexes() {
 
     let fbb = &mut FlatBufferBuilder::new();
     let message =
-        RelayMessage::build_get_block_proposal(fbb, block.header().number(), &[proposal_id]);
+        RelayMessage::build_get_block_proposal(fbb, block.header().hash(), &[proposal_id]);
     fbb.finish(message, None);
 
     // send proposal request
