@@ -7,14 +7,14 @@ timestamp = 1561788000134
 difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x0848ebfee918574890c3fd806af1b6c82296f89a8f608015999ae4db7eb674be"
+hash = "0xf831e5d84c3e87bb9e5746a6b649623ec89bcc76de05d6d61cfdd4bb81c50c77"
 
 [genesis.seal]
 nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = "rylai-v5"
+message = "rylai-v8"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
