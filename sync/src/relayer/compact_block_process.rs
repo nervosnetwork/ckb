@@ -91,29 +91,6 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         }
 
         let parent = parent.unwrap();
-        {
-            let tip_header = self.relayer.shared.tip_header();
-            let tip_header_view = self
-                .relayer
-                .shared
-                .get_header_view(tip_header.hash())
-                .expect("Get tip header view failed");
-            let current_total_difficulty =
-                parent.total_difficulty() + compact_block.header.difficulty();
-
-            if tip_header_view
-                .is_better_than(&current_total_difficulty, compact_block.header.hash())
-            {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
-                    block_hash,
-                    current_total_difficulty,
-                    tip_header_view.total_difficulty(),
-                );
-                return Err(Error::Ignored(Ignored::NotBetter).into());
-            }
-        }
 
         if let Some(flight) = self
             .relayer
