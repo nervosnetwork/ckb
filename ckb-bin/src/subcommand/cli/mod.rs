@@ -11,7 +11,7 @@ use faster_hex::hex_decode;
 
 fn canonicalize_data(data: &str) -> &str {
     let data = data.trim();
-    if data.len() >= 2 && &data[..2] == "0x" {
+    if data.len() >= 2 && &data.as_bytes()[..2] == b"0x" {
         &data[2..]
     } else {
         data
