@@ -109,7 +109,7 @@ check-flatc-version:
 	test "$$(${FLATC} --version | awk -F'version' '{ print $$2 }' | tr -d ' ')" = 1.11.0
 
 check-cfbc-version:
-	test "$$($(CFBC) --version)" = 0.1.9
+	test "$$($(CFBC) --version)" = 0.2.0
 
 %_generated.rs: %.fbs check-flatc-version
 	$(FLATC) -r -o $(shell dirname $@) $<
