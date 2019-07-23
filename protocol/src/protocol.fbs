@@ -155,7 +155,7 @@ table BlockTransactions {
 }
 
 table GetBlockProposal {
-    block_number:              uint64;
+    block_hash:    H256;
     proposals:     [ProposalShortId];
 }
 

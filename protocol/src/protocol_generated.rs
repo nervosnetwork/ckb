@@ -2890,17 +2890,17 @@ impl<'a> GetBlockProposal<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args GetBlockProposalArgs<'args>) -> flatbuffers::WIPOffset<GetBlockProposal<'bldr>> {
       let mut builder = GetBlockProposalBuilder::new(_fbb);
-      builder.add_block_number(args.block_number);
       if let Some(x) = args.proposals { builder.add_proposals(x); }
+      if let Some(x) = args.block_hash { builder.add_block_hash(x); }
       builder.finish()
     }
 
-    pub const VT_BLOCK_NUMBER: flatbuffers::VOffsetT = 4;
+    pub const VT_BLOCK_HASH: flatbuffers::VOffsetT = 4;
     pub const VT_PROPOSALS: flatbuffers::VOffsetT = 6;
 
   #[inline]
-  pub fn block_number(&self) -> u64 {
-    self._tab.get::<u64>(GetBlockProposal::VT_BLOCK_NUMBER, Some(0)).unwrap()
+  pub fn block_hash(&self) -> Option<&'a H256> {
+    self._tab.get::<H256>(GetBlockProposal::VT_BLOCK_HASH, None)
   }
   #[inline]
   pub fn proposals(&self) -> Option<&'a [ProposalShortId]> {
@@ -2909,14 +2909,14 @@ impl<'a> GetBlockProposal<'a> {
 }
 
 pub struct GetBlockProposalArgs<'a> {
-    pub block_number: u64,
+    pub block_hash: Option<&'a  H256>,
     pub proposals: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , ProposalShortId>>>,
 }
 impl<'a> Default for GetBlockProposalArgs<'a> {
     #[inline]
     fn default() -> Self {
         GetBlockProposalArgs {
-            block_number: 0,
+            block_hash: None,
             proposals: None,
         }
     }
@@ -2927,8 +2927,8 @@ pub struct GetBlockProposalBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> GetBlockProposalBuilder<'a, 'b> {
   #[inline]
-  pub fn add_block_number(&mut self, block_number: u64) {
-    self.fbb_.push_slot::<u64>(GetBlockProposal::VT_BLOCK_NUMBER, block_number, 0);
+  pub fn add_block_hash(&mut self, block_hash: &'b  H256) {
+    self.fbb_.push_slot_always::<&H256>(GetBlockProposal::VT_BLOCK_HASH, block_hash);
   }
   #[inline]
   pub fn add_proposals(&mut self, proposals: flatbuffers::WIPOffset<flatbuffers::Vector<'b , ProposalShortId>>) {

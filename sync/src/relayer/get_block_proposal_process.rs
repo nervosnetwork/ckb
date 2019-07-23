@@ -1,8 +1,8 @@
-use crate::relayer::Relayer;
+use crate::relayer::{compact_block::GetBlockProposal, Relayer};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
+use ckb_protocol::{GetBlockProposal as GetBlockProposalMessage, RelayMessage};
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
@@ -10,7 +10,7 @@ use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct GetBlockProposalProcess<'a, CS> {
-    message: &'a GetBlockProposal<'a>,
+    message: &'a GetBlockProposalMessage<'a>,
     relayer: &'a Relayer<CS>,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -18,7 +18,7 @@ pub struct GetBlockProposalProcess<'a, CS> {
 
 impl<'a, CS: ChainStore + 'static> GetBlockProposalProcess<'a, CS> {
     pub fn new(
-        message: &'a GetBlockProposal,
+        message: &'a GetBlockProposalMessage,
         relayer: &'a Relayer<CS>,
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
@@ -32,13 +32,8 @@ impl<'a, CS: ChainStore + 'static> GetBlockProposalProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let proposals: Vec<ProposalShortId> = {
-            let proposals = cast!(self.message.proposals())?;
-            proposals
-                .iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, FailureError>>()?
-        };
+        let get_block_proposal: GetBlockProposal = (*self.message).try_into()?;
+        let proposals = get_block_proposal.proposals;
         let pool_transactions: Vec<Option<Transaction>> = {
             let chain_state = self.relayer.shared.lock_chain_state();
             let tx_pool = chain_state.tx_pool();
