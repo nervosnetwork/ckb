@@ -7,10 +7,19 @@ ERRCNT=0
 
 case "$OSTYPE" in
     darwin*)
+        if ! type gsed &> /dev/null || ! type ggrep &> /dev/null; then
+            echo "GNU sed and grep not found! You can install via Homebrew" >&2
+            echo >&2
+            echo "    brew install grep gnu-sed" >&2
+            exit 1
+        fi
+
         SED=gsed
+        GREP=ggrep
         ;;
     *)
         SED=sed
+        GREP=grep
         ;;
 esac
 
@@ -60,9 +69,9 @@ function check_license() {
 function check_dependencies() {
     for cargo_toml in $(find "${SRC_ROOT}" -type f -name "Cargo.toml"); do
         local pkgroot=$(dirname "${cargo_toml}")
-        for dependency in $(sed -n '/^\[dependencies\]/,/^\[/p' "${cargo_toml}" \
-                | { grep -v "^\(\[\|[ ]*$\|[ ]*#\)" || true; } \
-                | sed -n "s/\([^ =]*\).*/\1/p" \
+        for dependency in $(${SED} -n '/^\[dependencies\]/,/^\[/p' "${cargo_toml}" \
+                | { ${GREP} -v "^\(\[\|[ ]*$\|[ ]*#\)" || true; } \
+                | ${SED} -n "s/\([^ =]*\).*/\1/p" \
                 | tr '-' '_'); do
             local depcnt=0
             local srcdir="${pkgroot}/src"
@@ -70,12 +79,12 @@ function check_dependencies() {
                 srcdir="${pkgroot}"
             fi
             tmpcnt=$({\
-                grep -rh "\(^\| \)use ${dependency}\(::\|;\)" "${srcdir}" \
+                ${GREP} -rh "\(^\| \)use ${dependency}\(::\|;\)" "${srcdir}" \
                     || true; }\
                 | wc -l)
             depcnt=$((depcnt + tmpcnt))
             tmpcnt=$({\
-                grep -rh "[ (<]\(::\|\)${dependency}::" "${srcdir}" \
+                ${GREP} -rh "[ (<]\(::\|\)${dependency}::" "${srcdir}" \
                     || true; }\
                 | wc -l)
             depcnt=$((depcnt + tmpcnt))
@@ -83,7 +92,7 @@ function check_dependencies() {
                 case "${dependency}" in
                     serde)
                         tmpcnt=$({\
-                            grep -rh "serde_derive" "${cargo_toml}" \
+                            ${GREP} -rh "serde_derive" "${cargo_toml}" \
                                 || true; }\
                             | wc -l)
                         if [ "${tmpcnt}" -eq 0 ]; then
