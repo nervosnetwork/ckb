@@ -279,6 +279,13 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         compact_block: &CompactBlock,
         transactions: Vec<Transaction>,
     ) -> Result<Block, Vec<usize>> {
+        debug_target!(
+            crate::LOG_TARGET_RELAY,
+            "start block reconstruction, block hash: {:#x}, transactions len: {}",
+            compact_block.header.hash(),
+            transactions.len(),
+        );
+
         let (key0, key1) =
             short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
         let mut short_ids_set: HashSet<&ShortTransactionID> =
@@ -343,13 +350,28 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 .proposals(compact_block.proposals.clone())
                 .build();
 
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "finish block reconstruction, block hash: {:#x}",
+                compact_block.header.hash(),
+            );
+
             Ok(block)
         } else {
-            let missing_indexes = block_transactions
+            let missing_indexes: Vec<usize> = block_transactions
                 .iter()
                 .enumerate()
                 .filter_map(|(i, t)| if t.is_none() { Some(i) } else { None })
                 .collect();
+
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "block reconstruction failed, block hash: {:#x}, missing: {}, total: {}",
+                compact_block.header.hash(),
+                missing_indexes.len(),
+                compact_block.short_ids.len(),
+            );
+
             Err(missing_indexes)
         }
     }
