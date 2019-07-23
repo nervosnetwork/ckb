@@ -704,6 +704,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<InflightBlocks> {
         self.inflight_blocks.write()
     }
+    pub fn inflight_proposals(&self) -> MutexGuard<FnvHashSet<ProposalShortId>> {
+        self.inflight_proposals.lock()
+    }
     pub fn store(&self) -> &Arc<CS> {
         self.shared.store()
     }

@@ -15,6 +15,7 @@ use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtoca
 use crate::types::InflightBlocks;
 use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
+use ckb_core::transaction::ProposalShortId;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
 use std::cell::RefCell;
@@ -404,6 +405,8 @@ fn test_send_missing_indexes() {
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
 
+    let proposal_id = ProposalShortId::new([1u8; 10]);
+
     // Better block including one missing transaction
     let block = BlockBuilder::default()
         .header(header.clone())
@@ -418,6 +421,7 @@ fn test_send_missing_indexes() {
                 .output_data(Bytes::new())
                 .build(),
         )
+        .proposal(proposal_id)
         .build();
 
     let builder = &mut FlatBufferBuilder::new();
@@ -439,6 +443,8 @@ fn test_send_missing_indexes() {
         peer_index,
     );
 
+    assert!(!relayer.shared.inflight_proposals().contains(&proposal_id));
+
     let r = compact_block_process.execute();
     assert_eq!(r.ok(), Some(Status::SendMissingIndexes));
 
@@ -447,10 +453,26 @@ fn test_send_missing_indexes() {
     fbb.finish(message, None);
 
     // send missing indexes messages
-    assert_eq!(
-        nc.as_ref().sent_messages_to,
-        RefCell::new(vec![(peer_index, fbb.finished_data().into())])
-    );
+    assert!(nc
+        .as_ref()
+        .sent_messages_to
+        .borrow()
+        .contains(&(peer_index, fbb.finished_data().into())));
+
+    // insert inflight proposal
+    assert!(relayer.shared.inflight_proposals().contains(&proposal_id));
+
+    let fbb = &mut FlatBufferBuilder::new();
+    let message =
+        RelayMessage::build_get_block_proposal(fbb, block.header().number(), &[proposal_id]);
+    fbb.finish(message, None);
+
+    // send proposal request
+    assert!(nc
+        .as_ref()
+        .sent_messages_to
+        .borrow()
+        .contains(&(peer_index, fbb.finished_data().into())));
 }
 
 #[test]
