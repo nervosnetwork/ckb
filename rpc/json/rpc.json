@@ -697,6 +697,26 @@
         ]
     },
     {
+        "description": "Returns each component of the created CKB in this block's cellbase, which is issued to a block N - 1 - ProposalWindow.farthest, where this block's height is N.",
+        "method": "get_cellbase_output_capacity_details",
+        "module": "chain",
+        "params": [
+            "0x10cb7b3ffd10306430d914529fc501a429ae0967144773c7c5bdcfd2f1117672"
+        ],
+        "result": {
+            "total": "100003936000",
+            "primary": "100000000000",
+            "secondary": "3936000",
+            "tx_fee": "0",
+            "proposal_reward": "0"
+        },
+        "types": [
+            {
+                "hash": "Block hash"
+            }
+        ]
+    },
+    {
         "description": "Return the transaction pool information",
         "method": "tx_pool_info",
         "module": "pool",

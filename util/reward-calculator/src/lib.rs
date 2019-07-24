@@ -1,6 +1,7 @@
 //! This mod implemented a ckb block reward calculator
 
 use ckb_core::header::{BlockNumber, Header};
+use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Capacity;
@@ -33,7 +34,7 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
 
     /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
     /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
-    pub fn block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
+    pub fn block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), FailureError> {
         let consensus = self.provider.consensus();
         let store = self.provider.store();
 
@@ -58,23 +59,34 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
 
         let txs_fees = self.txs_fees(&target)?;
         let proposal_reward = self.proposal_reward(parent, &target)?;
-        let base_block_reward = self.base_block_reward(&target)?;
+        let (primary, secondary) = self.base_block_reward(&target)?;
 
-        let reward = txs_fees
+        let total = txs_fees
             .safe_add(proposal_reward)?
-            .safe_add(base_block_reward)?;
+            .safe_add(primary)?
+            .safe_add(secondary)?;
 
         debug!(
             "[RewardCalculator] target {} {:x}\n
-             txs_fees {:?}, proposal_reward {:?}, base_block_reward {:?}, totol_reward {:?}",
+             txs_fees {:?}, proposal_reward {:?}, primary {:?}, secondary: {:?}, totol_reward {:?}",
             target_number,
             target.hash(),
             txs_fees,
             proposal_reward,
-            base_block_reward,
-            reward,
+            primary,
+            secondary,
+            total,
         );
-        Ok((target_lock, reward))
+
+        let block_reward = BlockReward {
+            total,
+            primary,
+            secondary,
+            tx_fee: txs_fees,
+            proposal_reward,
+        };
+
+        Ok((target_lock, block_reward))
     }
 
     /// Miner get (tx_fee - 40% of tx fee) for tx commitment.
@@ -209,15 +221,13 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
         Ok(reward)
     }
 
-    fn base_block_reward(&self, target: &Header) -> Result<Capacity, FailureError> {
+    fn base_block_reward(&self, target: &Header) -> Result<(Capacity, Capacity), FailureError> {
         let consensus = &self.provider.consensus();
         let calculator = DaoCalculator::new(consensus, Arc::clone(self.provider.store()));
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;
 
-        primary_block_reward
-            .safe_add(secondary_block_reward)
-            .map_err(Into::into)
+        Ok((primary_block_reward, secondary_block_reward))
     }
 
     fn get_proposal_ids_by_hash(&self, hash: &H256) -> FnvHashSet<ProposalShortId> {
@@ -242,10 +252,10 @@ mod tests {
     use ckb_core::extras::{BlockExt, EpochExt};
     use ckb_core::header::Header;
     use ckb_core::header::HeaderBuilder;
+    use ckb_core::reward::BlockReward;
     use ckb_core::script::Script;
     use ckb_core::transaction::ProposalShortId;
     use ckb_core::transaction::TransactionBuilder;
-    use ckb_core::Capacity;
     use ckb_db::MemoryKeyValueDB;
     use ckb_occupied_capacity::AsCapacity;
     use ckb_script::ScriptConfig;
@@ -292,7 +302,7 @@ mod tests {
         fn finalize_block_reward(
             &self,
             _parent: &Header,
-        ) -> Result<(Script, Capacity), FailureError> {
+        ) -> Result<(Script, BlockReward), FailureError> {
             unimplemented!();
         }
     }

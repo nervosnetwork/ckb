@@ -4,8 +4,8 @@ use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
+use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
-use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
 use ckb_reward_calculator::RewardCalculator;
@@ -111,7 +111,10 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         )
     }
 
-    fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
+    fn finalize_block_reward(
+        &self,
+        parent: &Header,
+    ) -> Result<(Script, BlockReward), FailureError> {
         RewardCalculator::new(self).block_reward(parent)
     }
 
