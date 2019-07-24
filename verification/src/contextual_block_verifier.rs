@@ -233,7 +233,7 @@ where
             .provider
             .finalize_block_reward(self.parent)
             .map_err(|_| Error::CannotFetchBlockReward)?;
-        if cellbase.transaction.outputs_capacity()? != block_reward {
+        if cellbase.transaction.outputs_capacity()? != block_reward.total {
             return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
         }
         if cellbase.transaction.outputs()[0].lock != target_lock {

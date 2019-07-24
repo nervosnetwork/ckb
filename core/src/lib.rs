@@ -8,6 +8,7 @@ pub mod cell;
 pub mod difficulty;
 pub mod extras;
 pub mod header;
+pub mod reward;
 pub mod script;
 pub mod service;
 pub mod transaction;

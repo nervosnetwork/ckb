@@ -5,6 +5,7 @@
     *   [`get_block`](#get_block)
     *   [`get_block_by_number`](#get_block_by_number)
     *   [`get_block_hash`](#get_block_hash)
+    *   [`get_cellbase_output_capacity_details`](#get_cellbase_output_capacity_details)
     *   [`get_cells_by_lock_hash`](#get_cells_by_lock_hash)
     *   [`get_current_epoch`](#get_current_epoch)
     *   [`get_epoch_by_number`](#get_epoch_by_number)
@@ -246,6 +247,44 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": "0xadb9674a4ba5a03ade0ce8351a9b5d93abcab96f463aca4777f4e9ae5be35086"
+}
+```
+
+### `get_cellbase_output_capacity_details`
+
+Returns each component of the created CKB in this block's cellbase, which is issued to a block N - 1 - ProposalWindow.farthest, where this block's height is N.
+
+#### Parameters
+
+    hash - Block hash
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cellbase_output_capacity_details",
+    "params": [
+        "0x10cb7b3ffd10306430d914529fc501a429ae0967144773c7c5bdcfd2f1117672"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "primary": "100000000000",
+        "proposal_reward": "0",
+        "secondary": "3936000",
+        "total": "100003936000",
+        "tx_fee": "0"
+    }
 }
 ```
 

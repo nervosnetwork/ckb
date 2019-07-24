@@ -549,7 +549,7 @@ mod tests {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
-                reward,
+                reward.total,
                 Bytes::default(),
                 Script::default(),
                 None,

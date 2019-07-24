@@ -3,6 +3,7 @@ use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsi
 use ckb_core::block::{Block as CoreBlock, BlockBuilder};
 use ckb_core::extras::EpochExt as CoreEpochExt;
 use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
+use ckb_core::reward::BlockReward as CoreBlockReward;
 use ckb_core::script::{Script as CoreScript, ScriptHashType as CoreScriptHashType};
 use ckb_core::transaction::{
     CellInput as CoreCellInput, CellOutPoint as CoreCellOutPoint, CellOutput as CoreCellOutput,
@@ -610,6 +611,27 @@ impl EpochView {
             length: BlockNumber(ext.length()),
             difficulty: ext.difficulty().clone(),
             epoch_reward: Capacity(epoch_reward),
+        }
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct BlockRewardView {
+    pub total: Capacity,
+    pub primary: Capacity,
+    pub secondary: Capacity,
+    pub tx_fee: Capacity,
+    pub proposal_reward: Capacity,
+}
+
+impl<'a> From<CoreBlockReward> for BlockRewardView {
+    fn from(core: CoreBlockReward) -> Self {
+        Self {
+            total: Capacity(core.total),
+            primary: Capacity(core.primary),
+            secondary: Capacity(core.secondary),
+            tx_fee: Capacity(core.tx_fee),
+            proposal_reward: Capacity(core.proposal_reward),
         }
     }
 }
