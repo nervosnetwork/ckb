@@ -9,6 +9,7 @@ union SyncPayload {
     AddFilter,
     ClearFilter,
     FilteredBlock,
+    InIBD,
 }
 
 table SyncMessage {
@@ -222,6 +223,9 @@ table AddFilter {
 }
 
 table ClearFilter {
+}
+
+table InIBD {
 }
 
 table FilteredBlock {

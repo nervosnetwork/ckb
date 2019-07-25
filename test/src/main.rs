@@ -251,6 +251,7 @@ fn build_specs() -> SpecMap {
     specs.insert("alert_propagation", Box::new(AlertPropagation::default()));
     specs.insert("indexer_basic", Box::new(IndexerBasic));
     specs.insert("genesis_issued_cells", Box::new(GenesisIssuedCells));
+    specs.insert("ibd_process", Box::new(IBDProcess));
 
     specs
 }

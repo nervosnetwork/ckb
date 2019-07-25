@@ -1,5 +1,5 @@
 use crate::synchronizer::Synchronizer;
-use crate::{MAX_LOCATOR_SIZE, SYNC_USELESS_BAN_TIME};
+use crate::{NetworkProtocol, MAX_LOCATOR_SIZE, SYNC_USELESS_BAN_TIME};
 use ckb_core::header::Header;
 use ckb_logger::{debug, info, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -41,6 +41,7 @@ where
                 "Ignoring getheaders from peer={} because node is in initial block download",
                 self.peer
             );
+            self.send_in_ibd();
             return Ok(());
         }
 
@@ -97,5 +98,19 @@ where
             self.nc.ban_peer(self.peer, SYNC_USELESS_BAN_TIME);
         }
         Ok(())
+    }
+
+    fn send_in_ibd(&self) {
+        let fbb = &mut FlatBufferBuilder::new();
+        let message = SyncMessage::build_in_ibd(fbb);
+        fbb.finish(message, None);
+
+        if let Err(err) = self.nc.send_message(
+            NetworkProtocol::SYNC.into(),
+            self.peer,
+            fbb.finished_data().into(),
+        ) {
+            debug!("synchronizer send in ibd error: {:?}", err);
+        }
     }
 }

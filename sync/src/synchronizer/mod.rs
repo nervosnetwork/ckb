@@ -4,6 +4,7 @@ mod block_process;
 mod get_blocks_process;
 mod get_headers_process;
 mod headers_process;
+mod in_ibd_process;
 
 use self::block_fetcher::BlockFetcher;
 pub use self::block_pool::OrphanBlockPool;
@@ -11,6 +12,7 @@ use self::block_process::BlockProcess;
 use self::get_blocks_process::GetBlocksProcess;
 use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
+use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState};
 use crate::{
@@ -89,6 +91,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
             }
             SyncPayload::Block => {
                 BlockProcess::new(&cast!(message.payload_as_block())?, self, peer, nc).execute()?;
+            }
+            SyncPayload::InIBD => {
+                InIBDProcess::new(&cast!(message.payload_as_in_ibd())?, self, peer, nc)
+                    .execute()?;
             }
             SyncPayload::NONE => {
                 cast!(None)?;
