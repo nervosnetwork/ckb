@@ -1,10 +1,15 @@
+use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
-use ckb_jsonrpc_types::Block;
+use ckb_core::transaction::Transaction as CoreTransaction;
+use ckb_jsonrpc_types::{Block, Transaction};
 use ckb_logger::error;
 use ckb_network::NetworkController;
+use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
+use ckb_sync::NetworkProtocol;
+use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use numext_fixed_hash::H256;
@@ -22,6 +27,9 @@ pub trait IntegrationTestRpc {
 
     #[rpc(name = "process_block_without_verify")]
     fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>>;
+
+    #[rpc(name = "broadcast_transaction")]
+    fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl<CS> {
@@ -53,6 +61,23 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
         } else {
             error!("process_block_without_verify error: {:?}", ret);
             Ok(None)
+        }
+    }
+
+    fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256> {
+        let tx: CoreTransaction = transaction.into();
+        let fbb = &mut FlatBufferBuilder::new();
+        let message = RelayMessage::build_transaction(fbb, &tx, 10000);
+        fbb.finish(message, None);
+        let data = fbb.finished_data().into();
+        if let Err(err) = self
+            .network_controller
+            .broadcast(NetworkProtocol::RELAY.into(), data)
+        {
+            error!("Broadcast transaction failed: {:?}", err);
+            Err(RPCError::custom(RPCError::Invalid, err.to_string()))
+        } else {
+            Ok(tx.hash().to_owned())
         }
     }
 }
