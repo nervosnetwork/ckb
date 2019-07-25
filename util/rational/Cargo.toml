@@ -1,0 +1,14 @@
+[package]
+name = "ckb-rational"
+version = "0.19.0-pre"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+
+[dev-dependencies]
+proptest = "0.9"

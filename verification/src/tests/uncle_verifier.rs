@@ -285,11 +285,19 @@ fn test_invalid_epoch() {
     let block_number = shared.consensus().genesis_epoch_ext().length() as usize + 2; // epoch = 1
     let uncle_number = shared.consensus().genesis_epoch_ext().length() as usize - 2; // epoch = 0
 
-    let block = BlockBuilder::from_block(chain1.get(block_number).cloned().unwrap()) // epoch 1
-        .uncle(chain2.get(uncle_number).cloned().unwrap())                    // epoch 0
+    let uncle = BlockBuilder::from_block(chain2[uncle_number].clone())
+        .header_builder(
+            HeaderBuilder::from_header(chain2[uncle_number].header().to_owned())
+                .difficulty(chain1[block_number].header().difficulty().clone()),
+        )
+        .build();
+
+    let block = BlockBuilder::from_block(chain1[block_number].clone())
+        .uncle(uncle)
         .header_builder(HeaderBuilder::from_header(
-            chain1[block_number].header().to_owned()
-        )).build();
+            chain1[block_number].header().to_owned(),
+        ))
+        .build();
 
     let epoch = epoch(&shared, &chain1, block_number - 1);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);

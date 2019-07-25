@@ -25,6 +25,7 @@ members = [
     "util/jsonrpc-types",
     "util/crypto",
     "util/instrument",
+    "util/rational",
     "util/build-info",
     "util/occupied-capacity",
     "util/stop-handler",
