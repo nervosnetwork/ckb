@@ -938,6 +938,7 @@ impl NetworkService {
                 let mut runtime = runtime::Builder::new()
                     .core_threads(num_threads)
                     .name_prefix("NetworkRuntime-")
+                    .panic_handler(|_| warn!("One future task panic"))
                     .build()
                     .expect("Network tokio runtime init failed");
                 runtime.spawn(self.p2p_service.for_each(|_| Ok(())));

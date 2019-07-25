@@ -17,7 +17,7 @@ ckb-util = { path = "../util" }
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-logger = { path = "../util/logger" }
 bytes = "0.4.12"
-tokio = "0.1.18"
+tokio = "0.1.22"
 tokio-threadpool = "0.1"
 futures = "0.1"
 crossbeam-channel = "0.3"
