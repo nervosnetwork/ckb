@@ -55,7 +55,7 @@ where
                         .shared()
                         .n_sync_started()
                         .fetch_sub(1, Ordering::Release);
-                } else if let Err(err) = self.nc.disconnect(self.peer) {
+                } else if let Err(err) = self.nc.disconnect(self.peer, "outbound in ibd") {
                     debug!("synchronizer disconnect error: {:?}", err);
                 }
             } else {
