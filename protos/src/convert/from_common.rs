@@ -366,10 +366,12 @@ impl TryFrom<&protos::EpochExt> for EpochExt {
         let start_number = proto.start_number();
         let length = proto.length();
         let difficulty = proto.difficulty().try_into()?;
+        let previous_epoch_hash_rate = proto.previous_epoch_hash_rate().try_into()?;
         let ret = EpochExt::new(
             number,
             block_reward,
             remainder_reward,
+            previous_epoch_hash_rate,
             last_block_hash_in_previous_epoch,
             start_number,
             length,

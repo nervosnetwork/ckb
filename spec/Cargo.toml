@@ -17,3 +17,4 @@ ckb-resource = { path = "../resource" }
 ckb-occupied-capacity = { path = "../util/occupied-capacity" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-dao-utils = { path = "../util/dao/utils" }
+ckb-rational = { path = "../util/rational" }
