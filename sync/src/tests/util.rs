@@ -63,7 +63,7 @@ pub fn inherit_block(
         .unwrap_or(parent_epoch);
     let cellbase = {
         let (_, reward) = shared.finalize_block_reward(parent.header()).unwrap();
-        always_success_cellbase(parent_number + 1, reward)
+        always_success_cellbase(parent_number + 1, reward.total)
     };
     let dao = {
         let chain_state = shared.lock_chain_state();
@@ -107,5 +107,5 @@ pub fn inherit_cellbase(
             .expect("parent exist")
     };
     let (_, reward) = shared.finalize_block_reward(&parent_header).unwrap();
-    always_success_cellbase(parent_number + 1, reward)
+    always_success_cellbase(parent_number + 1, reward.total)
 }

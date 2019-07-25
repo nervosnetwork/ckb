@@ -212,7 +212,7 @@ fn finalize_reward() {
         .unwrap()
         .safe_add(block_reward)
         .unwrap();
-    assert_eq!(reward, bob_reward,);
+    assert_eq!(reward.total, bob_reward,);
 
     let block = gen_block(
         &parent,
@@ -246,7 +246,7 @@ fn finalize_reward() {
         .unwrap()
         .safe_add(block_reward)
         .unwrap();
-    assert_eq!(reward, alice_reward);
+    assert_eq!(reward.total, alice_reward);
 
     let block = gen_block(
         &parent,

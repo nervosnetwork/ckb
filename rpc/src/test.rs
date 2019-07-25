@@ -62,6 +62,7 @@ fn new_cellbase(number: BlockNumber, always_success_script: &Script) -> Transact
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .outputs(outputs)
+        .witness(always_success_script.to_owned().into_witness())
         .build()
 }
 

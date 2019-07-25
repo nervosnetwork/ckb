@@ -122,7 +122,7 @@ fn setup_node(
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
-                reward,
+                reward.total,
                 Bytes::default(),
                 always_success_script.to_owned(),
                 None,
