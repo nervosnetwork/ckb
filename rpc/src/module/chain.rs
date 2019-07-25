@@ -2,8 +2,8 @@ use crate::error::RPCError;
 use ckb_core::cell::{CellProvider, CellStatus};
 use ckb_core::transaction::ProposalShortId;
 use ckb_jsonrpc_types::{
-    BlockNumber, BlockView, Capacity, CellOutPoint, CellOutputWithOutPoint, CellWithStatus,
-    EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
+    BlockNumber, BlockRewardView, BlockView, Capacity, CellOutPoint, CellOutputWithOutPoint,
+    CellWithStatus, EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
 };
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -56,6 +56,9 @@ pub trait ChainRpc {
 
     #[rpc(name = "get_epoch_by_number")]
     fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochView>>;
+
+    #[rpc(name = "get_cellbase_output_capacity_details")]
+    fn get_cellbase_output_capacity_details(&self, _hash: H256) -> Result<Option<BlockRewardView>>;
 }
 
 pub(crate) struct ChainRpcImpl<CS> {
@@ -250,5 +253,23 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
 
     fn get_tip_block_number(&self) -> Result<BlockNumber> {
         self.get_tip_header().map(|h| h.inner.number)
+    }
+
+    fn get_cellbase_output_capacity_details(&self, hash: H256) -> Result<Option<BlockRewardView>> {
+        Ok(self
+            .shared
+            .store()
+            .get_block_header(&hash)
+            .and_then(|header| {
+                self.shared
+                    .store()
+                    .get_block_header(header.parent_hash())
+                    .and_then(|parent| {
+                        self.shared
+                            .finalize_block_reward(&parent)
+                            .map(|r| r.1.into())
+                            .ok()
+                    })
+            }))
     }
 }
