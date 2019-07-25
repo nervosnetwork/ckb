@@ -1,6 +1,6 @@
 use crate::config::NotifierConfig;
 use ckb_core::alert::Alert;
-use ckb_logger::{error, info, warn};
+use ckb_logger::{debug, error, info, warn};
 use fnv::FnvHashMap;
 use lru_cache::LruCache;
 use std::process::Command;
@@ -30,9 +30,32 @@ impl Notifier {
         }
     }
 
-    pub fn add(&mut self, alert: Arc<Alert>) {
+    fn is_version_effective(&self, alert: &Arc<Alert>) -> bool {
         use semver::Version;
 
+        if let Ok(client_version) = Version::parse(&self.client_version) {
+            if let Some(ref min_v) = alert.min_version {
+                if Version::parse(&min_v)
+                    .map(|min_v| client_version < min_v)
+                    .unwrap_or(true)
+                {
+                    return false;
+                }
+            }
+
+            if let Some(ref max_v) = alert.max_version {
+                if Version::parse(&max_v)
+                    .map(|max_v| client_version > max_v)
+                    .unwrap_or(true)
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    pub fn add(&mut self, alert: Arc<Alert>) {
         if self.has_received(alert.id) {
             return;
         }
@@ -44,23 +67,11 @@ impl Notifier {
         self.received_alerts.insert(alert.id, Arc::clone(&alert));
 
         // check conditions, figure out do we need to notice this alert
-        if alert
-            .min_version
-            .as_ref()
-            .map(|min_v| Version::parse(&self.client_version) < Version::parse(min_v))
-            == Some(true)
-        {
+        if !self.is_version_effective(&alert) {
+            debug!("received a version ineffective alert {:?}", alert);
             return;
         }
 
-        if alert
-            .max_version
-            .as_ref()
-            .map(|max_v| Version::parse(&self.client_version) > Version::parse(max_v))
-            == Some(true)
-        {
-            return;
-        }
         if self.noticed_alerts.contains(&alert) {
             return;
         }
