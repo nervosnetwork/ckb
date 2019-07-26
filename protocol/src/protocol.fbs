@@ -121,8 +121,7 @@ table RelayMessage {
 
 table CompactBlock {
     header:                     Header;
-    nonce:                      uint64;
-    short_ids:                  [Bytes];
+    short_ids:                  [ProposalShortId];
     prefilled_transactions:     [IndexTransaction];
     uncles:                     [UncleBlock];
     proposals:                  [ProposalShortId];

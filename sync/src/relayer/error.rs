@@ -1,4 +1,4 @@
-use ckb_protocol::ShortTransactionID;
+use ckb_core::transaction::ProposalShortId;
 use failure::Fail;
 
 #[derive(Debug, Fail, Eq, PartialEq)]
@@ -39,8 +39,8 @@ pub enum Misbehavior {
         expect, got
     )]
     InvalidBlockTransactions {
-        expect: ShortTransactionID,
-        got: ShortTransactionID,
+        expect: ProposalShortId,
+        got: ProposalShortId,
     },
     #[fail(display = "BlockInvalid")]
     BlockInvalid,

@@ -24,7 +24,6 @@ use self::get_transaction_process::GetTransactionProcess;
 use self::transaction_hash_process::TransactionHashProcess;
 use self::transaction_process::TransactionProcess;
 use crate::block_status::BlockStatus;
-use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::SyncSharedState;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
@@ -34,9 +33,7 @@ use ckb_core::uncle::UncleBlock;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_protocol::error::Error as ProtocalError;
-use ckb_protocol::{
-    cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
-};
+use ckb_protocol::{cast, get_root, RelayMessage, RelayPayload};
 use ckb_store::ChainStore;
 use ckb_tx_pool_executor::TxPoolExecutor;
 use failure::Error as FailureError;
@@ -284,15 +281,12 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             transactions.len(),
         );
 
-        let (key0, key1) =
-            short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
-        let mut short_ids_set: HashSet<&ShortTransactionID> =
-            compact_block.short_ids.iter().collect();
+        let mut short_ids_set: HashSet<&ProposalShortId> = compact_block.short_ids.iter().collect();
 
-        let mut txs_map: FnvHashMap<ShortTransactionID, Transaction> = transactions
+        let mut txs_map: FnvHashMap<ProposalShortId, Transaction> = transactions
             .into_iter()
             .filter_map(|tx| {
-                let short_id = short_transaction_id(key0, key1, &tx.witness_hash());
+                let short_id = tx.proposal_short_id();
                 if short_ids_set.remove(&short_id) {
                     Some((short_id, tx))
                 } else {
@@ -303,17 +297,14 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
         if !short_ids_set.is_empty() {
             let chain_state = self.shared().lock_chain_state();
-            for entry in chain_state.tx_pool().proposed_txs_iter() {
-                let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
-                if short_ids_set.remove(&short_id) {
-                    txs_map.insert(short_id, entry.transaction.clone());
-
-                    // Early exit here for performance
-                    if short_ids_set.is_empty() {
-                        break;
-                    }
+            short_ids_set.into_iter().for_each(|short_id| {
+                if let Some(tx) = chain_state
+                    .tx_pool()
+                    .get_tx_from_proposed_and_others(&short_id)
+                {
+                    txs_map.insert(*short_id, tx);
                 }
-            }
+            })
         }
 
         let txs_len = compact_block.prefilled_transactions.len() + compact_block.short_ids.len();

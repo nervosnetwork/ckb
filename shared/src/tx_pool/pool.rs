@@ -212,6 +212,16 @@ impl TxPool {
         self.proposed.get_tx(id).cloned()
     }
 
+    pub fn get_tx_from_proposed_and_others(&self, id: &ProposalShortId) -> Option<Transaction> {
+        self.proposed
+            .get_tx(id)
+            .or_else(|| self.gap.get_tx(id))
+            .or_else(|| self.pending.get_tx(id))
+            .or_else(|| self.orphan.get_tx(id))
+            .or_else(|| self.conflict.get(id).map(|e| &e.transaction))
+            .cloned()
+    }
+
     pub(crate) fn remove_committed_txs_from_proposed<'a>(
         &mut self,
         txs: impl Iterator<Item = &'a Transaction>,
