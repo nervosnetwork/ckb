@@ -1,18 +1,18 @@
 use crate::{
     syscalls::{
-        Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_CODE_SYSCALL_NUMBER,
-        SLICE_OUT_OF_BOUND, SUCCESS,
+        LoadDataType, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+        LOAD_CELL_DATA_SYSCALL_NUMBER, SLICE_OUT_OF_BOUND, SUCCESS,
     },
     DataLoader,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_vm::{
-    memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
-    registers::{A0, A1, A2, A3, A4, A5, A7},
+    memory::Memory,
+    registers::{A0, A1, A2, A3, A4, A5, A6, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
 
-pub struct LoadCode<'a, DL> {
+pub struct LoadCellData<'a, DL> {
     data_loader: &'a DL,
     outputs: &'a [CellMeta],
     resolved_inputs: &'a [ResolvedOutPoint],
@@ -21,7 +21,7 @@ pub struct LoadCode<'a, DL> {
     group_outputs: &'a [usize],
 }
 
-impl<'a, DL: DataLoader + 'a> LoadCode<'a, DL> {
+impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
     pub fn new(
         data_loader: &'a DL,
         outputs: &'a [CellMeta],
@@ -29,8 +29,8 @@ impl<'a, DL: DataLoader + 'a> LoadCode<'a, DL> {
         resolved_deps: &'a [ResolvedOutPoint],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCode<'a, DL> {
-        LoadCode {
+    ) -> LoadCellData<'a, DL> {
+        LoadCellData {
             data_loader,
             outputs,
             resolved_inputs,
@@ -75,13 +75,13 @@ impl<'a, DL: DataLoader + 'a> LoadCode<'a, DL> {
     }
 }
 
-impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCode<'a, DL> {
+impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCellData<'a, DL> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
 
     fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
-        if machine.registers()[A7].to_u64() != LOAD_CODE_SYSCALL_NUMBER {
+        if machine.registers()[A7].to_u64() != LOAD_CELL_DATA_SYSCALL_NUMBER {
             return Ok(false);
         }
 
@@ -92,6 +92,7 @@ impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCode<'a, DL>
 
         let index = machine.registers()[A4].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A5].to_u64())?;
+        let load_data_type = LoadDataType::parse_from_u64(machine.registers()[A6].to_u64())?;
 
         let cell = self.fetch_cell(source, index as usize);
         if cell.is_err() {
@@ -111,7 +112,7 @@ impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCode<'a, DL>
         machine.memory_mut().init_pages(
             addr,
             memory_size,
-            FLAG_EXECUTABLE | FLAG_FREEZED,
+            load_data_type.memory_flags(),
             Some(data.slice(
                 content_offset as usize,
                 (content_offset + content_size) as usize,

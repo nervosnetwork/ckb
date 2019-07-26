@@ -1,7 +1,7 @@
 use crate::{
     cost_model::instruction_cycles,
     syscalls::{
-        Debugger, LoadCell, LoadCode, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash,
+        Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash,
         LoadWitness,
     },
     DataLoader, ScriptConfig, ScriptError,
@@ -192,12 +192,12 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         )
     }
 
-    fn build_load_code(
+    fn build_load_cell_data(
         &'a self,
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCode<'a, DL> {
-        LoadCode::new(
+    ) -> LoadCellData<'a, DL> {
+        LoadCellData::new(
             &self.data_loader,
             &self.outputs,
             self.resolved_inputs(),
@@ -308,7 +308,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                     .syscall(Box::new(
                         self.build_load_witness(&script_group.input_indices),
                     ))
-                    .syscall(Box::new(self.build_load_code(
+                    .syscall(Box::new(self.build_load_cell_data(
                         &script_group.input_indices,
                         &script_group.output_indices,
                     )))
@@ -343,7 +343,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 .syscall(Box::new(
                     self.build_load_witness(&script_group.input_indices),
                 ))
-                .syscall(Box::new(self.build_load_code(
+                .syscall(Box::new(self.build_load_cell_data(
                     &script_group.input_indices,
                     &script_group.output_indices,
                 )))

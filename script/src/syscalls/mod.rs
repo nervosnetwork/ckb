@@ -1,6 +1,6 @@
 mod debugger;
 mod load_cell;
-mod load_code;
+mod load_cell_data;
 mod load_header;
 mod load_input;
 mod load_script_hash;
@@ -10,7 +10,7 @@ mod utils;
 
 pub use self::debugger::Debugger;
 pub use self::load_cell::LoadCell;
-pub use self::load_code::LoadCode;
+pub use self::load_cell_data::LoadCellData;
 pub use self::load_header::LoadHeader;
 pub use self::load_input::LoadInput;
 pub use self::load_script_hash::LoadScriptHash;
@@ -36,7 +36,7 @@ pub const LOAD_INPUT_SYSCALL_NUMBER: u64 = 2073;
 pub const LOAD_WITNESS_SYSCALL_NUMBER: u64 = 2074;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
-pub const LOAD_CODE_SYSCALL_NUMBER: u64 = 2091;
+pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2091;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -139,6 +139,30 @@ impl Source {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+enum LoadDataType {
+    Data = 0,
+    Code = 1,
+}
+
+impl LoadDataType {
+    pub fn parse_from_u64(i: u64) -> Result<LoadDataType, Error> {
+        match i {
+            0 => Ok(LoadDataType::Data),
+            1 => Ok(LoadDataType::Code),
+            _ => Err(Error::ParseError),
+        }
+    }
+
+    pub fn memory_flags(self) -> u8 {
+        use ckb_vm::memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE};
+        match self {
+            LoadDataType::Data => FLAG_WRITABLE,
+            LoadDataType::Code => FLAG_EXECUTABLE | FLAG_FREEZED,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,7 +179,7 @@ mod tests {
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
         memory::{FLAG_EXECUTABLE, FLAG_FREEZED},
-        registers::{A0, A1, A2, A3, A4, A5, A7},
+        registers::{A0, A1, A2, A3, A4, A5, A6, A7},
         CoreMachine, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
     use flatbuffers::FlatBufferBuilder;
@@ -985,7 +1009,10 @@ mod tests {
         }
     }
 
-    fn _test_load_code(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_cell_data(
+        load_data_type: LoadDataType,
+        data: &[u8],
+    ) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
         let addr = 4096;
         let addr_size = 4096;
@@ -996,7 +1023,8 @@ mod tests {
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
-        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A6, load_data_type as u64); // memory type
+        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(data);
         let dep_cell = build_resolved_outpoint(
@@ -1013,7 +1041,7 @@ mod tests {
         let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let mut load_code = LoadCode::new(
+        let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
@@ -1031,7 +1059,7 @@ mod tests {
             machine
                 .memory_mut()
                 .fetch_flag(addr / RISCV_PAGESIZE as u64),
-            Ok(FLAG_EXECUTABLE | FLAG_FREEZED)
+            Ok(load_data_type.memory_flags())
         );
         for (i, addr) in (addr..addr + data.len() as u64).enumerate() {
             prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(data[i])));
@@ -1047,11 +1075,19 @@ mod tests {
     proptest! {
         #[test]
         fn test_load_code(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
-            _test_load_code(data)?;
+            _test_load_cell_data(LoadDataType::Code, data)?;
+        }
+
+        #[test]
+        fn test_load_data(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
+            _test_load_cell_data(LoadDataType::Data, data)?;
         }
     }
 
-    fn _test_load_code_on_freezed_memory(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_cell_data_on_freezed_memory(
+        load_data_type: LoadDataType,
+        data: &[u8],
+    ) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
         let addr = 4096;
         let addr_size = 4096;
@@ -1067,7 +1103,8 @@ mod tests {
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
-        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A6, load_data_type as u64); // memory type
+        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(data);
         let dep_cell = build_resolved_outpoint(
@@ -1084,7 +1121,7 @@ mod tests {
         let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let mut load_code = LoadCode::new(
+        let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
@@ -1104,7 +1141,12 @@ mod tests {
     proptest! {
         #[test]
         fn test_load_code_on_freezed_memory(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
-            _test_load_code_on_freezed_memory(data)?;
+            _test_load_cell_data_on_freezed_memory(LoadDataType::Code, data)?;
+        }
+
+        #[test]
+        fn test_load_data_on_freezed_memory(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
+            _test_load_cell_data_on_freezed_memory(LoadDataType::Data, data)?;
         }
     }
 
@@ -1121,7 +1163,8 @@ mod tests {
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
-        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A6, LoadDataType::Code as u64); // memory type
+        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
         let dep_cell_data = Bytes::from(&data[..]);
         let dep_cell = build_resolved_outpoint(
             CellOutputBuilder::from_data(&dep_cell_data)
@@ -1137,7 +1180,7 @@ mod tests {
         let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let mut load_code = LoadCode::new(
+        let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
@@ -1168,7 +1211,8 @@ mod tests {
         machine.set_register(A3, data.len() as u64 + 3); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
-        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A6, LoadDataType::Code as u64); // memory type
+        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(&data[..]);
         let dep_cell = build_resolved_outpoint(
@@ -1185,7 +1229,7 @@ mod tests {
         let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let mut load_code = LoadCode::new(
+        let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
@@ -1219,7 +1263,8 @@ mod tests {
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
-        machine.set_register(A7, LOAD_CODE_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A6, LoadDataType::Code as u64); // memory type
+        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(&data[..]);
         let dep_cell = build_resolved_outpoint(
@@ -1236,7 +1281,7 @@ mod tests {
         let resolved_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
-        let mut load_code = LoadCode::new(
+        let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
