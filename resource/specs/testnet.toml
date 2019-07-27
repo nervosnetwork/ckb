@@ -3,18 +3,18 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1561788000134
-difficulty = "0x1000"
+timestamp = 1564207200792
+difficulty = "0x9292"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x0848ebfee918574890c3fd806af1b6c82296f89a8f608015999ae4db7eb674be"
+hash = "0x737a3e347346cd4998e046af3f395697434d40f5defe9408c14d2b19974739b2"
 
 [genesis.seal]
 nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = "rylai-v5"
+message = "rylai-v6 d22992da chore: clean log <quake wang 2019-07-02 11:32:28 +0900>"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
