@@ -1,4 +1,5 @@
 use crate::worker::{CuckooSimpleConfig, DummyConfig};
+use ckb_core::script::ScriptHashType;
 use ckb_jsonrpc_types::JsonBytes;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
@@ -26,6 +27,7 @@ pub enum WorkerConfig {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockAssemblerConfig {
     pub code_hash: H256,
+    pub hash_type: ScriptHashType,
     pub args: Vec<JsonBytes>,
     #[serde(default)]
     pub data: JsonBytes,

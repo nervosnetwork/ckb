@@ -11,6 +11,7 @@ pub use exit_code::ExitCode;
 
 use ckb_build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
+use ckb_core::script::ScriptHashType;
 use ckb_instrument::Format;
 use ckb_logger::{info_target, LoggerInitGuard};
 use clap::{value_t, ArgMatches, ErrorKind};
@@ -217,6 +218,10 @@ impl Setup {
             .unwrap_or_default()
             .map(str::to_string)
             .collect();
+        let block_assembler_hash_type = matches
+            .value_of(cli::ARG_BA_HASH_TYPE)
+            .and_then(|hash_type| serde_plain::from_str::<ScriptHashType>(hash_type).ok())
+            .unwrap();
         let block_assembler_data = matches.value_of(cli::ARG_BA_DATA).map(str::to_string);
 
         Ok(InitArgs {
@@ -230,6 +235,7 @@ impl Setup {
             log_to_stdout,
             block_assembler_code_hash,
             block_assembler_args,
+            block_assembler_hash_type,
             block_assembler_data,
         })
     }

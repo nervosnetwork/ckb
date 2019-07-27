@@ -71,6 +71,7 @@ impl Spec for BootstrapCellbase {
                     JsonBytes::from_bytes(Bytes::from(vec![1])),
                 ],
                 data: JsonBytes::from_bytes(Bytes::from(vec![1; 30])),
+                hash_type: ScriptHashType::Data,
             });
         })
     }

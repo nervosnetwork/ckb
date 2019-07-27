@@ -1,5 +1,6 @@
 use super::parse_hex_data;
 use ckb_app_config::{cli, ExitCode};
+use ckb_core::script::ScriptHashType;
 use ckb_crypto::secp::Pubkey;
 use ckb_hash::blake2b_256;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
@@ -24,6 +25,8 @@ pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
     let pubkey_hash = blake2b_256(&pubkey.serialize());
     let pubkey_blake160 = H160::from_slice(&pubkey_hash[0..20]).unwrap();
 
+    let serialized_hash_type = serde_plain::to_string(&ScriptHashType::Data).unwrap();
+
     match matches.value_of(cli::ARG_FORMAT).unwrap() {
         "toml" => {
             println!("[block_assembler]");
@@ -34,11 +37,13 @@ pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
             );
             println!("# args = [ \"ckb cli blake160 <compressed-pubkey>\" ]");
             println!("args = [ \"{:#x}\" ]", pubkey_blake160);
+            println!("# hash_type can be Data or Type depending on the lock script");
+            println!("hash_type = \"{}\"", serialized_hash_type);
         }
         "cmd" => {
             println!(
-                "--ba-code-hash {:#x} --ba-arg {:#x}",
-                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, pubkey_blake160
+                "--ba-code-hash {:#x} --ba-arg {:#x} --ba-hash-type {}",
+                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, pubkey_blake160, serialized_hash_type,
             );
         }
         _ => unreachable!(),

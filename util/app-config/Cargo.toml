@@ -9,10 +9,12 @@ license = "MIT"
 clap = { version = "2" }
 serde = "1.0"
 serde_derive = "1.0"
+serde_plain = "0.3.0"
 toml = "0.5"
 ckb-logger = { path = "../../util/logger" }
 sentry = "^0.15.4"
 ckb-chain-spec = {path = "../../spec"}
+ckb-core = {path = "../../core"}
 ckb-network = { path = "../../network"}
 ckb-rpc = { path = "../../rpc"}
 ckb-miner = { path = "../../miner" }
