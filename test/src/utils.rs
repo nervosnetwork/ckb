@@ -41,8 +41,12 @@ pub fn build_compact_block(block: &Block) -> Bytes {
 
 pub fn build_block_transactions(block: &Block) -> Bytes {
     let fbb = &mut FlatBufferBuilder::new();
-    let message =
-        RelayMessage::build_block_transactions(fbb, block.header().hash(), block.transactions());
+    // compact block has always prefilled cellbase
+    let message = RelayMessage::build_block_transactions(
+        fbb,
+        block.header().hash(),
+        &block.transactions()[1..],
+    );
     fbb.finish(message, None);
     fbb.finished_data().into()
 }
