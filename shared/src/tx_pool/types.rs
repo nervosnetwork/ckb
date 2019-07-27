@@ -22,6 +22,8 @@ pub struct TxPoolConfig {
     pub max_verify_cache_size: usize,
     // conflict tx cache capacity
     pub max_conflict_cache_size: usize,
+    // committed transactions hash cache capacity
+    pub max_committed_txs_hash_cache_size: usize,
 }
 
 impl Default for TxPoolConfig {
@@ -31,6 +33,7 @@ impl Default for TxPoolConfig {
             max_cycles: 200_000_000_000,
             max_verify_cache_size: 100_000,
             max_conflict_cache_size: 1_000,
+            max_committed_txs_hash_cache_size: 100_000,
         }
     }
 }
