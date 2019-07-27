@@ -34,28 +34,27 @@ impl<'a, CS: ChainStore + 'static> GetBlockProposalProcess<'a, CS> {
     pub fn execute(self) -> Result<(), FailureError> {
         let get_block_proposal: GetBlockProposal = (*self.message).try_into()?;
         let proposals = get_block_proposal.proposals;
-        let pool_transactions: Vec<Option<Transaction>> = {
+        let proposals_transactions: Vec<Option<Transaction>> = {
             let chain_state = self.relayer.shared.lock_chain_state();
-            let tx_pool = chain_state.tx_pool();
             proposals
                 .iter()
-                .map(|short_id| tx_pool.get_tx(short_id))
+                .map(|short_id| chain_state.get_tx_from_pool_or_store(short_id))
                 .collect()
         };
         let fresh_proposals: Vec<ProposalShortId> = proposals
             .into_iter()
             .enumerate()
             .filter_map(|(index, short_id)| {
-                if pool_transactions[index].is_none() {
+                if proposals_transactions[index].is_none() {
                     Some(short_id)
                 } else {
                     None
                 }
             })
             .collect();
-        let transactions: Vec<Transaction> = pool_transactions
+        let transactions: Vec<Transaction> = proposals_transactions
             .into_iter()
-            .filter_map(|pool_transaction| pool_transaction)
+            .filter_map(|pt| pt)
             .collect();
 
         self.relayer
