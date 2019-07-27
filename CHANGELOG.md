@@ -1,4 +1,115 @@
-# [v0.16.0](https://github.com/nervosnetwork/ckb/compare/v0.16.0...v0.15.0) (2019-07-13)
+# [v0.17.0](https://github.com/nervosnetwork/ckb/compare/v0.16.0...v0.17.0) (2019-07-27)
+
+### Features
+
+* #1119: Remove rules of special reserve blocks (@doitian)
+
+    This is a breaking change: b:consensus, b:database
+
+    For block 1~11, the reward target is genesis block. Genesis block must have the lock serialized in the cellbase witness, which is set to `bootstrap_lock`.
+
+* #1125: Add `get_header` and `get_header_by_number` RPC methods (@TheWaWaR)
+* #1094: Secondary miner issurance, split DAO as a separate contract (@xxuejie)
+
+    This is a breaking change: b:consensus, b:database
+
+* #1137: Remove output for bootstrap lock in genesis block (@doitian)
+
+    The lock has already been written into the cellbase witness in the genesis block.
+
+* #1165: Reference script code via dep cell's type hash (@xxuejie)
+
+    This allows us to build a new paradigm that allows upgrading of
+    scripts without affecting lock/type hash.
+
+* #1203: Add bootnode mode (@driftluo)
+* #1213: Remove `block_number` from API `BlockMedianTimeContext::block_median_time` (@keroro520)
+* #1215: Alert notify script (@jjyr)
+* #1212: Partition nonce for miners who use multi-threads (@yangby-cryptape)
+* #1225: Log found block as info when stderr is not tty (@doitian)
+* #1230: Use `tokio_threadpool::blocking` to handle heavy future task (@TheWaWaR)
+* #1232: IBD with whitelist (@driftluo)
+* #1220: Network flood control (@TheWaWaR)
+
+    Do not send blocks to peer when session send buffer is full.
+
+* #1211: Ban the peer when receive misbehave compact-block, add test for compact block process (@u2)
+* #1258: Only allow default secp256k1 block assembler (@doitian)
+
+    Unless start the node with `ckb run --ba-advanced`
+
+* #1237: Cache `BLOCK_INVALID`/`BLOCK_VALID` status (@keroro520)
+* #1246: Send a message to remote peer when disconnect (@TheWaWaR)
+* #1274: Adjust max block interval to 30s (@doitian)
+
+    This is a breaking change: b:consensus
+
+* #1032 **storage:** Use flatbuffer instead of bincode in storage (@yangby-cryptape)
+* #1301: Add RPC `get_cellbase_output_capacity_details` (@u2)
+
+### Bug Fixes
+
+* #1092: Random failure caused by dirty exit in RPC test (@doitian)
+
+    Close the server before exit RPC test.
+
+* #1100: Resolve compact block switch fork issue (@quake)
+* #1101: Fix debug log state error (@driftluo)
+* #1108: Potential error in alert version compare (@jjyr)
+
+    As @keroro520 mentioned, there is a potential bug in case like: `"0.10.0" < "0.9.10"`
+
+* #1117: Rpc test (@jjyr)
+* #1127: Process orphan blocks when their parents were relayed (@keroro520)
+* #1109: Mark failed dialing as feeler (@jjyr)
+* #1135: Total difficulty comparison should include hash (@quake)
+* #1139: Resolve fresh proposal txs checking bug (@quake)
+* #1144: Prof tps exclude cellbase (@jjyr)
+* #1150: Correct block number from `tx_pool_excutor` (@keroro520)
+
+    NOTE: **This is a breaking change**
+
+* #1196: Reserved only do nothing except for connect all reserved peers (@driftluo)
+
+    Reserved only do nothing except for connect all reserved peers
+
+* #1014: Locate blocks by hash (@keroro520)
+
+    When calculates block_median_time, we need to locate the specific blocks.
+    Using block_hash instead block_number to locate the specific blocks is more accurate.
+
+    **BREAKING CHANGE**: The format of `TransactionMeta`  is changed, which is affected by `BlockInfo`
+
+* #1149: Add cellset test and fix `new_overlay` (@u2)
+* #1214: Reset `current_time` of block template (@keroro520)
+* #1227: Should check tx from pool when the `short_id` set is not empty (@lerencao)
+* #1226: Resolve rpc `remove_node` and network `report_peer` bug (@quake)
+
+    we shouldn't call peer_registry `remove_peer ` before session was closed, it will be removed in disconnect event.
+
+* #1238: Build.rs failed without git dir (@doitian)
+* #1247: Skiplist test use `gen_range` the wrong way (@TheWaWaR)
+* #1251: There is an incorrect deserialization in indexer (@yangby-cryptape)
+* #1272: Clean status of new inserted block (@keroro520)
+
+    fix: Clear the newly inserted block from block_status_map.
+
+### Improvements
+
+* #1072: Reveal network errors and involver handle it (@keroro520)
+
+    * feat: Reveal network errors. Currently, when `CKBProtocolContext` receives an error from p2p, it only logs the error and doesn't return to the caller. I change to `CKBProtocolContext` return the error to the caller, and caller handles it.
+
+    * perf: Short-circuiting break if occurs network error, `Synchronizer` responses `Blocks` and `Transactions`. This is the original intention of this PR. To achieve it, I have to make  `CKBProtocolContext` reveals the network errors, which introduces most of the change code.
+
+* #1073: Define a general Filter struct (@keroro520)
+* #1098: Avoid re-requesting blocks in orphan pool (@keroro520)
+* #1126: Skip stored block processing (@quake)
+* #1140: Shrink chain state lock scope in relayer (@quake)
+* #1168: Use BlockStatus to filter things (@keroro520)
+
+
+# [v0.16.0](https://github.com/nervosnetwork/ckb/compare/v0.15.0...v0.16.0) (2019-07-13)
 
 ### Features
 
