@@ -46,10 +46,10 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadWitness<'a> {
             return Ok(false);
         }
 
-        let index = machine.registers()[A3].to_usize();
+        let index = machine.registers()[A3].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
-        let witness = self.fetch_witness(source, index);
+        let witness = self.fetch_witness(source, index as usize);
         if witness.is_none() {
             machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
             return Ok(true);

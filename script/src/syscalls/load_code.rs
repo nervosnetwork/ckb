@@ -85,15 +85,15 @@ impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCode<'a, DL>
             return Ok(false);
         }
 
-        let addr = machine.registers()[A0].to_usize();
-        let memory_size = machine.registers()[A1].to_usize();
-        let content_offset = machine.registers()[A2].to_usize();
-        let content_size = machine.registers()[A3].to_usize();
+        let addr = machine.registers()[A0].to_u64();
+        let memory_size = machine.registers()[A1].to_u64();
+        let content_offset = machine.registers()[A2].to_u64();
+        let content_size = machine.registers()[A3].to_u64();
 
-        let index = machine.registers()[A4].to_usize();
+        let index = machine.registers()[A4].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A5].to_u64())?;
 
-        let cell = self.fetch_cell(source, index);
+        let cell = self.fetch_cell(source, index as usize);
         if cell.is_err() {
             machine.set_register(A0, Mac::REG::from_u8(cell.unwrap_err()));
             return Ok(true);
@@ -101,8 +101,9 @@ impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCode<'a, DL>
         let cell = cell.unwrap();
         let output = self.data_loader.lazy_load_cell_output(&cell);
 
-        if content_offset >= output.data.len()
-            || (content_offset + content_size) > output.data.len()
+        let data_len = output.data.len() as u64;
+        if content_offset >= data_len
+            || (content_offset + content_size) > data_len
             || content_size > memory_size
         {
             machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
@@ -112,11 +113,10 @@ impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCode<'a, DL>
             addr,
             memory_size,
             FLAG_EXECUTABLE | FLAG_FREEZED,
-            Some(
-                output
-                    .data
-                    .slice(content_offset, content_offset + content_size),
-            ),
+            Some(output.data.slice(
+                content_offset as usize,
+                (content_offset + content_size) as usize,
+            )),
             0,
         )?;
 

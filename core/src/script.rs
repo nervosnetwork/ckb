@@ -13,7 +13,7 @@ use std::fmt;
 // code for enum types, resulting in both compiler warnings and clippy
 // errors. So for now we are sticking to a single integer in the wire
 // format, and only use enums in core data structures.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub enum ScriptHashType {
     Data = 0,
     Type = 1,
@@ -37,8 +37,6 @@ impl TryFrom<u8> for ScriptHashType {
     }
 }
 
-// TODO: when flatbuffer work is done, remove Serialize/Deserialize here and
-// implement proper From trait
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Script {
     pub args: Vec<Bytes>,
@@ -49,25 +47,37 @@ pub struct Script {
     pub hash_type: ScriptHashType,
 }
 
+// TODO: revise this when serialization scheme is done.
 impl Script {
     pub fn into_witness(self) -> Vec<Bytes> {
         let Script {
             code_hash,
+            hash_type,
             mut args,
-            ..
         } = self;
-        args.insert(0, Bytes::from(code_hash.to_vec()));
+        let mut code_hash_and_hash_type = code_hash.to_vec();
+        code_hash_and_hash_type.push(hash_type as u8);
+        args.insert(0, Bytes::from(code_hash_and_hash_type));
         args
     }
 
     pub fn from_witness(witness: &[Bytes]) -> Option<Self> {
-        witness.split_first().and_then(|(code_hash, args)| {
-            H256::from_slice(code_hash).ok().map(|code_hash| Script {
-                code_hash,
-                args: args.to_vec(),
-                hash_type: ScriptHashType::Data,
+        witness
+            .split_first()
+            .and_then(|(code_hash_and_hash_type, args)| {
+                let len = code_hash_and_hash_type.len();
+                let code_hash = &code_hash_and_hash_type[0..len - 1];
+                let hash_type = code_hash_and_hash_type[len - 1];
+                H256::from_slice(code_hash).ok().and_then(|code_hash| {
+                    ScriptHashType::try_from(hash_type)
+                        .ok()
+                        .map(|hash_type| Script {
+                            code_hash,
+                            hash_type,
+                            args: args.to_vec(),
+                        })
+                })
             })
-        })
     }
 }
 
@@ -87,6 +97,8 @@ impl fmt::Debug for Script {
             .finish()?;
 
         write!(f, ", code_hash: {:#x}", self.code_hash,)?;
+
+        write!(f, ", code_hash: {:?}", self.hash_type,)?;
 
         write!(f, " }}")
     }
@@ -146,6 +158,17 @@ mod tests {
             vec![Bytes::from(vec![1])],
             H256::zero(),
             ScriptHashType::Data,
+        );
+        let witness = script.clone().into_witness();
+        assert_eq!(Script::from_witness(&witness), Some(script));
+    }
+
+    #[test]
+    fn test_from_into_witness_on_type_hash_type() {
+        let script = Script::new(
+            vec![Bytes::from(vec![1])],
+            H256::zero(),
+            ScriptHashType::Type,
         );
         let witness = script.clone().into_witness();
         assert_eq!(Script::from_witness(&witness), Some(script));

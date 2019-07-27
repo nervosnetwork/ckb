@@ -315,7 +315,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                     )))
                     .syscall(Box::new(Debugger::new(&debug_printer)))
                     .build();
-                let mut machine = AsmMachine::new(machine);
+                let mut machine = AsmMachine::new(machine, None);
                 machine
                     .load_program(&program, &args)
                     .map_err(ScriptError::VMError)?;

@@ -100,10 +100,10 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadInput<'a> {
             _ => return Ok(false),
         };
 
-        let index = machine.registers()[A3].to_usize();
+        let index = machine.registers()[A3].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
-        let input = self.fetch_input(source, index);
+        let input = self.fetch_input(source, index as usize);
         if input.is_err() {
             machine.set_register(A0, Mac::REG::from_u8(input.unwrap_err()));
             return Ok(true);

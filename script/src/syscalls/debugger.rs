@@ -25,13 +25,13 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for Debugger<'a> {
             return Ok(false);
         }
 
-        let mut addr = machine.registers()[A0].to_usize();
+        let mut addr = machine.registers()[A0].to_u64();
         let mut buffer = Vec::new();
 
         loop {
             let byte = machine
                 .memory_mut()
-                .load8(&Mac::REG::from_usize(addr))?
+                .load8(&Mac::REG::from_u64(addr))?
                 .to_u8();
             if byte == 0 {
                 break;
