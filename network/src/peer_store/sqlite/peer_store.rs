@@ -335,9 +335,11 @@ impl PeerStore for SqlitePeerStore {
                 let mut rng = thread_rng();
                 // randomly find a address to attempt
                 paddrs.shuffle(&mut rng);
-                paddrs
-                    .into_iter()
-                    .find(|paddr| !self.is_addr_banned(&paddr.addr) && !paddr.is_terrible(now_ms))
+                paddrs.into_iter().find(|paddr| {
+                    !(self.is_addr_banned(&paddr.addr)
+                        || paddr.tried_in_last_minute(now_ms)
+                        || paddr.is_terrible(now_ms))
+                })
             })
             .collect()
     }
@@ -360,7 +362,7 @@ impl PeerStore for SqlitePeerStore {
                             .expect("delete peer addr");
                         false
                     } else {
-                        !self.is_addr_banned(&paddr.addr) && !paddr.tried_in_last_minute(now_ms)
+                        !(self.is_addr_banned(&paddr.addr) || paddr.tried_in_last_minute(now_ms))
                     }
                 })
             })

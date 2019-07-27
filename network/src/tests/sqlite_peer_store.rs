@@ -102,6 +102,23 @@ fn test_peers_to_attempt() {
 }
 
 #[test]
+fn test_peers_to_attempt_in_last_minutes() {
+    let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
+    let peer_id = PeerId::random();
+    let addr = "/ip4/127.0.0.1".parse::<Multiaddr>().unwrap();
+    peer_store.add_discovered_addr(&peer_id, addr.clone());
+    let mut peer = peer_store.peers_to_attempt(1).remove(0);
+    let now = faketime::unix_time_as_millis();
+    peer.mark_tried(now);
+    peer_store.update_peer_addr(&peer);
+    assert!(peer_store.peers_to_attempt(1).is_empty());
+    // after 60 seconds
+    peer.mark_tried(now - 60_001);
+    peer_store.update_peer_addr(&peer);
+    assert_eq!(peer_store.peers_to_attempt(1).len(), 1);
+}
+
+#[test]
 fn test_peers_to_feeler() {
     let mut peer_store: Box<dyn PeerStore> = Box::new(new_peer_store());
     assert!(peer_store.peers_to_feeler(1).is_empty());
