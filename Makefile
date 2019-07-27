@@ -20,18 +20,18 @@ setup-ckb-test:
 	rm -rf test/target && ln -snf ../target/ test/target
 
 integration: setup-ckb-test ## Run integration tests in "test" dir.
-	cargo build ${VERBOSE}
-	cd test && cargo run ${VERBOSE} -- ../target/debug/ckb
+	cargo build
+	cd test && cargo run -- --bin ../target/debug/ckb ${CKB_TEST_ARGS}
 
 integration-windows:
 	cp -f Cargo.lock test/Cargo.lock
-	cargo build ${VERBOSE}
+	cargo build
 	mv target test/
-	cd test && cargo run ${VERBOSE} -- target/debug/ckb
+	cd test && cargo run -- --bin target/debug/ckb ${CKB_TEST_ARGS}
 
 integration-release: setup-ckb-test
-	cargo build ${VERBOSE} --release
-	cd test && cargo run ${VERBOSE} --release -- ../target/release/ckb
+	cargo build --release
+	cd test && cargo run --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
 
 ##@ Document
 doc: ## Build the documentation for the local package.
@@ -41,6 +41,7 @@ doc-deps: ## Build the documentation for the local package and all dependencies.
 	cargo doc --all
 
 gen-doc:  ## Generate rpc documentation
+	./devtools/doc/jsonfmt.py rpc/json/rpc.json
 	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
 
 gen-hashes: ## Generate docs/hashes.toml
@@ -48,8 +49,8 @@ gen-hashes: ## Generate docs/hashes.toml
 
 ##@ Building
 check: setup-ckb-test ## Runs all of the compiler's checks.
-	cargo check ${VERBOSE} --all
-	cd test && cargo check ${VERBOSE} --all
+	cargo check ${VERBOSE} --all --all-targets
+	cd test && cargo check ${VERBOSE} --all --all-targets
 
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
@@ -89,15 +90,13 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 ##@ Continuous Integration
 
 ci: ## Run recipes for CI.
-ci: cargo-license fmt check-dirty-doc clippy security-audit test
+ci: check-cargotoml fmt check-dirty-doc clippy security-audit test
 	git diff --exit-code Cargo.lock
 
-cargo-license:
-	FILES="$$(find . -name Cargo.toml | xargs grep -L '^license')"; if [ -n "$$FILES" ]; then echo "Missing license in: $${FILES}"; false; fi
+check-cargotoml:
+	./devtools/ci/check-cargotoml.sh
 
-check-dirty-doc:
-	./devtools/doc/jsonfmt.py rpc/json/rpc.json
-	./devtools/doc/rpc.py rpc/json/rpc.json > rpc/README.md
+check-dirty-doc: gen-doc
 	git diff --exit-code rpc/README.md rpc/json/rpc.json
 
 ##@ Generates Files
@@ -106,10 +105,13 @@ gen: ${GEN_FILES} # Generate Protocol Files
 gen-clean: # Clean Protocol Failes
 	rm -f ${GEN_FILES}
 
+check-flatc-version:
+	test "$$(${FLATC} --version | awk -F'version' '{ print $$2 }' | tr -d ' ')" = 1.11.0
+
 check-cfbc-version:
 	test "$$($(CFBC) --version)" = 0.1.9
 
-%_generated.rs: %.fbs
+%_generated.rs: %.fbs check-flatc-version
 	$(FLATC) -r -o $(shell dirname $@) $<
 
 %_generated_verifier.rs: %.fbs check-cfbc-version

@@ -13,7 +13,7 @@ pub struct CellSetDiff {
     pub old_inputs: FnvHashSet<OutPoint>,
     pub old_outputs: FnvHashSet<H256>,
     pub new_inputs: FnvHashSet<OutPoint>,
-    pub new_outputs: FnvHashMap<H256, (u64, u64, bool, usize)>,
+    pub new_outputs: FnvHashMap<H256, (u64, u64, H256, bool, usize)>,
 }
 
 impl CellSetDiff {
@@ -28,6 +28,7 @@ impl CellSetDiff {
                 (
                     block.header().number(),
                     block.header().epoch(),
+                    block.header().hash().to_owned(),
                     tx.is_cellbase(),
                     output_len,
                 ),
@@ -94,15 +95,18 @@ impl CellSet {
             }
         }
 
-        for (hash, (number, epoch, cellbase, len)) in diff.new_outputs.clone() {
-            removed.remove(&hash);
+        for (tx_hash, (number, epoch, block_hash, cellbase, len)) in diff.new_outputs.clone() {
+            removed.remove(&tx_hash);
             if cellbase {
                 new.insert(
-                    hash,
-                    TransactionMeta::new_cellbase(number, epoch, len, false),
+                    tx_hash,
+                    TransactionMeta::new_cellbase(number, epoch, block_hash, len, false),
                 );
             } else {
-                new.insert(hash, TransactionMeta::new(number, epoch, len, false));
+                new.insert(
+                    tx_hash,
+                    TransactionMeta::new(number, epoch, block_hash, len, false),
+                );
             }
         }
 
@@ -132,6 +136,7 @@ impl CellSet {
                                 TransactionMeta::new_cellbase(
                                     header.number(),
                                     header.epoch(),
+                                    header.hash().to_owned(),
                                     tx.outputs().len(),
                                     true,
                                 )
@@ -139,6 +144,7 @@ impl CellSet {
                                 TransactionMeta::new(
                                     header.number(),
                                     header.epoch(),
+                                    header.hash().to_owned(),
                                     tx.outputs().len(),
                                     true,
                                 )
@@ -152,6 +158,11 @@ impl CellSet {
 
         for new_input in &diff.new_inputs {
             if let Some(cell_input) = &new_input.cell {
+                if let Some(meta) = new.get_mut(&cell_input.tx_hash) {
+                    meta.set_dead(cell_input.index as usize);
+                    continue;
+                }
+
                 if let Some(meta) = self.inner.get(&cell_input.tx_hash) {
                     let meta = new
                         .entry(cell_input.tx_hash.clone())
@@ -181,13 +192,14 @@ impl CellSet {
         cell: &CellOutPoint,
         number: u64,
         epoch: u64,
+        hash: H256,
         cellbase: bool,
         outputs_len: usize,
     ) -> TransactionMeta {
         let mut meta = if cellbase {
-            TransactionMeta::new_cellbase(number, epoch, outputs_len, true)
+            TransactionMeta::new_cellbase(number, epoch, hash, outputs_len, true)
         } else {
-            TransactionMeta::new(number, epoch, outputs_len, true)
+            TransactionMeta::new(number, epoch, hash, outputs_len, true)
         };
         meta.unset_dead(cell.index as usize);
         self.inner.insert(cell.tx_hash.clone(), meta.clone());
@@ -199,13 +211,14 @@ impl CellSet {
         tx_hash: H256,
         number: u64,
         epoch: u64,
+        hash: H256,
         cellbase: bool,
         outputs_len: usize,
     ) -> TransactionMeta {
         let meta = if cellbase {
-            TransactionMeta::new_cellbase(number, epoch, outputs_len, false)
+            TransactionMeta::new_cellbase(number, epoch, hash, outputs_len, false)
         } else {
-            TransactionMeta::new(number, epoch, outputs_len, false)
+            TransactionMeta::new(number, epoch, hash, outputs_len, false)
         };
         self.inner.insert(tx_hash, meta.clone());
         meta
@@ -237,5 +250,184 @@ impl CellSet {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CellSet, CellSetDiff, CellSetOpr};
+    use ckb_core::block::BlockBuilder;
+    use ckb_core::extras::EpochExt;
+    use ckb_core::header::HeaderBuilder;
+    use ckb_core::script::Script;
+    use ckb_core::transaction::{
+        CellInput, CellOutPoint, CellOutput, OutPoint, Transaction, TransactionBuilder,
+    };
+    use ckb_core::transaction_meta::TransactionMeta;
+    use ckb_core::{Bytes, Capacity};
+    use ckb_test_chain_utils::MockStore;
+    use numext_fixed_hash::{h256, H256};
+
+    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
+        TransactionBuilder::default()
+            .inputs(
+                inputs.into_iter().map(|(txid, index)| {
+                    CellInput::new(OutPoint::new_cell(txid.to_owned(), index), 0)
+                }),
+            )
+            .outputs((0..outputs_len).map(|i| {
+                CellOutput::new(
+                    Capacity::bytes(i + 1).unwrap(),
+                    Bytes::default(),
+                    Script::default(),
+                    None,
+                )
+            }))
+            .build()
+    }
+
+    // Store:
+    //     tx1: inputs [(0x0, 0)], outputs(2)
+    //     txa: inputs [(0x1, 1)], outputs(1)
+    //     tx2: inputs [(tx1, 0), (txa, 0)], outputs(1)
+    // CellSet:
+    //     tx1_meta(dead, live)
+    //     no txa(all dead)
+    //     tx2_meta(live)
+    // CellSetDiff:
+    //     - old: tx2
+    //     - new:
+    //            tx3: inputs [(tx1, 1)], outputs(1)
+    //            tx4: inputs [(tx3, 1)], outputs(1)
+    // The Overlay should be:
+    //     tx1-meta(live, dead), txa(live) recovered, tx2-meta(_) removed, tx3-meta(dead), tx4-meta(live)
+    #[test]
+    fn test_new_overlay() {
+        let mut store = MockStore::default();
+
+        let tx1 = build_tx(vec![(&H256::zero(), 0)], 2);
+        let tx1_hash = tx1.hash();
+
+        let txa = build_tx(vec![(&h256!("0x1"), 0)], 1);
+        let txa_hash = txa.hash();
+
+        let tx2 = build_tx(vec![(tx1_hash, 0), (txa_hash, 0)], 1);
+        let tx2_hash = tx2.hash();
+
+        let block = BlockBuilder::default()
+            .header_builder(HeaderBuilder::default().number(1))
+            .transactions(vec![tx1.clone(), txa.clone(), tx2.clone()])
+            .build();
+        let header = block.header();
+
+        let epoch = EpochExt::default();
+        store.insert_block(&block, &epoch);
+
+        let mut set = CellSet::new();
+        let meta = set.insert_transaction(
+            tx1_hash.clone(),
+            header.number(),
+            header.epoch(),
+            header.hash().to_owned(),
+            false,
+            tx1.outputs().len(),
+        );
+
+        let tx1_meta = TransactionMeta::new(
+            header.number(),
+            header.epoch(),
+            header.hash().to_owned(),
+            tx1.outputs().len(),
+            false,
+        );
+
+        assert_eq!(meta, tx1_meta);
+        let cell = CellOutPoint {
+            tx_hash: tx1_hash.clone(),
+            index: 0,
+        };
+        // tx2 consumed tx1-outputs-0 in block-1
+        let op = set.mark_dead(&cell);
+
+        match op {
+            Some(CellSetOpr::Update(_)) => {}
+            _ => panic!(),
+        };
+
+        let _ = set.insert_transaction(
+            tx2_hash.clone(),
+            header.number(),
+            header.epoch(),
+            header.hash().to_owned(),
+            false,
+            tx2.outputs().len(),
+        );
+
+        let old_block = BlockBuilder::default()
+            .header_builder(HeaderBuilder::default().number(2))
+            .transaction(tx2.clone())
+            .build();
+
+        let tx3 = build_tx(vec![(tx1_hash, 1)], 1);
+        let tx3_hash = tx3.hash();
+
+        let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
+        let tx4_hash = tx4.hash();
+
+        let new_block = BlockBuilder::default()
+            .header_builder(HeaderBuilder::default().number(2))
+            .transactions(vec![tx3.clone(), tx4.clone()])
+            .build();
+        let new_header = new_block.header();
+
+        let mut diff = CellSetDiff::default();
+        diff.push_old(&old_block);
+        diff.push_new(&new_block);
+
+        let overlay = set.new_overlay(&diff, &store.0);
+
+        let mut tx1_meta = TransactionMeta::new(
+            header.number(),
+            header.epoch(),
+            header.hash().to_owned(),
+            tx1.outputs().len(),
+            false,
+        );
+        // new transaction(tx3) consumed tx1-outputs-1
+        tx1_meta.set_dead(1);
+
+        assert_eq!(overlay.get(&tx1_hash), Some(&tx1_meta));
+        assert_eq!(overlay.get(&tx2_hash), None);
+
+        // new transaction(tx4) consumed tx3-outputs
+        let mut tx3_meta = TransactionMeta::new(
+            new_header.number(),
+            new_header.epoch(),
+            new_header.hash().to_owned(),
+            tx3.outputs().len(),
+            false,
+        );
+        tx3_meta.set_dead(0);
+
+        assert_eq!(overlay.get(&tx3_hash), Some(&tx3_meta));
+
+        let tx4_meta = TransactionMeta::new(
+            new_header.number(),
+            new_header.epoch(),
+            new_header.hash().to_owned(),
+            tx4.outputs().len(),
+            false,
+        );
+
+        assert_eq!(overlay.get(&tx4_hash), Some(&tx4_meta));
+
+        let txa_meta = TransactionMeta::new(
+            header.number(),
+            header.epoch(),
+            header.hash().to_owned(),
+            txa.outputs().len(),
+            false,
+        );
+        assert_eq!(overlay.get(&txa_hash), Some(&txa_meta));
     }
 }

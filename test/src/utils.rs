@@ -3,9 +3,10 @@ use bytes::Bytes;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder, Seal};
 use ckb_core::BlockNumber;
+use ckb_jsonrpc_types::BlockTemplate;
 use ckb_protocol::{RelayMessage, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
-use jsonrpc_types::BlockTemplate;
+use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::convert::Into;
 use std::thread::sleep;
@@ -38,10 +39,21 @@ pub fn build_compact_block(block: &Block) -> Bytes {
     fbb.finished_data().into()
 }
 
-pub fn build_header(header: &Header) -> Bytes {
-    let headers = vec![header.clone()];
+pub fn build_block_transactions(block: &Block) -> Bytes {
     let fbb = &mut FlatBufferBuilder::new();
-    let message = SyncMessage::build_headers(fbb, &headers);
+    let message =
+        RelayMessage::build_block_transactions(fbb, block.header().hash(), block.transactions());
+    fbb.finish(message, None);
+    fbb.finished_data().into()
+}
+
+pub fn build_header(header: &Header) -> Bytes {
+    build_headers(&[header.clone()])
+}
+
+pub fn build_headers(headers: &[Header]) -> Bytes {
+    let fbb = &mut FlatBufferBuilder::new();
+    let message = SyncMessage::build_headers(fbb, headers);
     fbb.finish(message, None);
     fbb.finished_data().into()
 }
@@ -49,6 +61,13 @@ pub fn build_header(header: &Header) -> Bytes {
 pub fn build_block(block: &Block) -> Bytes {
     let fbb = &mut FlatBufferBuilder::new();
     let message = SyncMessage::build_block(fbb, block);
+    fbb.finish(message, None);
+    fbb.finished_data().into()
+}
+
+pub fn build_get_blocks(hashes: &[H256]) -> Bytes {
+    let fbb = &mut FlatBufferBuilder::new();
+    let message = SyncMessage::build_get_blocks(fbb, hashes);
     fbb.finish(message, None);
     fbb.finished_data().into()
 }
@@ -61,7 +80,8 @@ pub fn new_block_with_template(template: BlockTemplate) -> Block {
         .difficulty(template.difficulty.clone())
         .timestamp(template.current_time.0)
         .parent_hash(template.parent_hash)
-        .seal(Seal::new(rand::random(), Bytes::new()));
+        .seal(Seal::new(rand::random(), Bytes::new()))
+        .dao(template.dao.into_bytes());
 
     BlockBuilder::default()
         .uncles(template.uncles)
@@ -89,7 +109,7 @@ where
 
 // Clear net message channel
 pub fn clear_messages(net: &Net) {
-    while let Ok(_) = net.receive_timeout(Duration::new(0, 100)) {}
+    while let Ok(_) = net.receive_timeout(Duration::new(3, 0)) {}
 }
 
 pub fn since_from_relative_block_number(block_number: BlockNumber) -> u64 {

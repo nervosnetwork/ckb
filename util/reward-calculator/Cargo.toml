@@ -1,6 +1,6 @@
 [package]
-name = "reward-calculator"
-version = "0.16.0"
+name = "ckb-reward-calculator"
+version = "0.17.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -12,4 +12,11 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 ckb-traits = { path = "../../traits" }
 failure = "0.1.5"
 fnv = "1.0.3"
+ckb-dao = { path = "../dao" }
 ckb-logger = { path = "../logger" }
+
+[dev-dependencies]
+ckb-chain-spec = { path = "../../spec" }
+ckb-db = { path = "../../db" }
+ckb-script = { path = "../../script" }
+ckb-occupied-capacity = { path = "../occupied-capacity" }

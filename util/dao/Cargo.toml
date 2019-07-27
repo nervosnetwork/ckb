@@ -1,14 +1,21 @@
 [package]
-name = "dao"
-version = "0.16.0"
+name = "ckb-dao"
+version = "0.17.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
+byteorder = "1.3.1"
 ckb-core = { path = "../../core" }
 failure = "0.1.5"
+ckb-chain-spec = { path = "../../spec" }
+ckb-resource = { path = "../../resource" }
+ckb-script-data-loader = { path = "../../script/data-loader" }
+ckb-store = { path = "../../store" }
+numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+ckb-dao-utils = { path = "./utils" }
 
 [dev-dependencies]
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+ckb-db = { path = "../../db" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

@@ -18,7 +18,7 @@ impl Privkey {
     pub fn sign_recoverable(&self, message: &Message) -> Result<Signature, Error> {
         let context = &SECP256K1;
         let message = message.as_ref();
-        let privkey = key::SecretKey::from_slice(&self.inner.as_bytes())?;
+        let privkey = key::SecretKey::from_slice(self.inner.as_bytes())?;
         let message = SecpMessage::from_slice(message)?;
         let data = context.sign_recoverable(&message, &privkey);
         let (rec_id, data) = data.serialize_compact();
@@ -27,7 +27,7 @@ impl Privkey {
 
     pub fn pubkey(&self) -> Result<Pubkey, Error> {
         let context = &SECP256K1;
-        let privkey = key::SecretKey::from_slice(&self.inner.as_bytes())?;
+        let privkey = key::SecretKey::from_slice(self.inner.as_bytes())?;
         let pubkey = key::PublicKey::from_secret_key(context, &privkey);
         Ok(Pubkey::from(pubkey))
     }
@@ -50,6 +50,12 @@ impl From<H256> for Privkey {
 impl Into<H256> for Privkey {
     fn into(self) -> H256 {
         self.inner
+    }
+}
+
+impl AsRef<[u8]> for Privkey {
+    fn as_ref(&self) -> &[u8] {
+        self.inner.as_bytes()
     }
 }
 

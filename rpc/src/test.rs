@@ -9,31 +9,36 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_core::{alert::AlertBuilder, capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_dao_utils::genesis_dao_data;
 use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
-use ckb_network_alert::{alert_relayer::AlertRelayer, config::Config as AlertConfig};
+use ckb_network_alert::{
+    alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
+};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainKVStore;
-use ckb_sync::{Config as SyncConfig, SyncSharedState, Synchronizer};
+use ckb_sync::{SyncSharedState, Synchronizer};
+use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::chain_provider::ChainProvider;
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use numext_fixed_uint::U256;
+use pretty_assertions::assert_eq as pretty_assert_eq;
 use reqwest;
 use serde_derive::Deserialize;
 use serde_json::{from_reader, json, to_string_pretty, Map, Value};
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
-use test_chain_utils::create_always_success_cell;
 
 const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
+const ALERT_UNTIL_TIMESTAMP: u64 = 2_524_579_200;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct JsonResponse {
@@ -57,6 +62,7 @@ fn new_cellbase(number: BlockNumber, always_success_script: &Script) -> Transact
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .outputs(outputs)
+        .witness(always_success_script.to_owned().into_witness())
         .build()
 }
 
@@ -67,18 +73,21 @@ fn setup_node(
     ChainController,
     RpcServer,
 ) {
-    let (always_success_cell, always_success_script) = create_always_success_cell();
+    let (always_success_cell, always_success_script) = always_success_cell();
     let always_success_tx = TransactionBuilder::default()
+        .witness(always_success_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .build();
+    let dao = genesis_dao_data(&always_success_tx).unwrap();
 
     let consensus = {
         let genesis = BlockBuilder::default()
             .header_builder(
                 HeaderBuilder::default()
                     .timestamp(GENESIS_TIMESTAMP)
-                    .difficulty(U256::from(1000u64)),
+                    .difficulty(U256::from(1000u64))
+                    .dao(dao),
             )
             .transaction(always_success_tx)
             .build();
@@ -111,6 +120,7 @@ fn setup_node(
                 .unwrap_or(last_epoch)
         };
         let cellbase = new_cellbase(parent.header().number() + 1, &always_success_script);
+        let dao = genesis_dao_data(&cellbase).unwrap();
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header_builder(
@@ -119,7 +129,8 @@ fn setup_node(
                     .number(parent.header().number() + 1)
                     .epoch(epoch.number())
                     .timestamp(parent.header().timestamp() + 1)
-                    .difficulty(epoch.difficulty().clone()),
+                    .difficulty(epoch.difficulty().clone())
+                    .dao(dao),
             )
             .build();
         chain_controller
@@ -129,17 +140,16 @@ fn setup_node(
     }
 
     // Start network services
-    let dir = tempfile::Builder::new()
-        .prefix("ckb_resource_test")
-        .tempdir()
-        .unwrap();
+    let dir = tempfile::tempdir()
+        .expect("create tempdir failed")
+        .path()
+        .to_path_buf();
     let mut network_config = NetworkConfig::default();
-    network_config.path = dir.path().to_path_buf();
+    network_config.path = dir.clone();
     network_config.ping_interval_secs = 1;
     network_config.ping_timeout_secs = 1;
     network_config.connect_outbound_interval_secs = 1;
 
-    File::create(dir.path().join("network")).expect("create network database");
     let network_state =
         Arc::new(NetworkState::from_config(network_config).expect("Init network state failed"));
     let network_controller = NetworkService::new(
@@ -150,14 +160,10 @@ fn setup_node(
     .start::<&str>(Default::default(), None)
     .expect("Start network service failed");
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
-    let synchronizer = Synchronizer::new(
-        chain_controller.clone(),
-        Arc::clone(&sync_shared_state),
-        SyncConfig::default(),
-    );
+    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
 
     let db_config = DBConfig {
-        path: dir.path().join("indexer").to_path_buf(),
+        path: dir.join("indexer"),
         ..Default::default()
     };
     let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
@@ -180,9 +186,27 @@ fn setup_node(
         }
         .to_delegate(),
     );
-    let alert_relayer = AlertRelayer::new("0".to_string(), AlertConfig::default());
+    let alert_relayer = AlertRelayer::new(
+        "0.1.0".to_string(),
+        Default::default(),
+        AlertSignatureConfig::default(),
+    );
 
-    let alert_notifier = Arc::clone(alert_relayer.notifier());
+    let alert_notifier = {
+        let alert_notifier = alert_relayer.notifier();
+        let alert = Arc::new(
+            AlertBuilder::default()
+                .id(42)
+                .min_version(Some("0.0.1".into()))
+                .max_version(Some("1.0.0".into()))
+                .priority(1)
+                .notice_until(ALERT_UNTIL_TIMESTAMP * 1000)
+                .message("An example alert message!".into())
+                .build(),
+        );
+        alert_notifier.lock().add(alert);
+        Arc::clone(alert_notifier)
+    };
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),
@@ -282,13 +306,11 @@ fn test_rpc() {
             case.insert("result".to_owned(), actual.clone());
             outputs.push(Value::Object(case.clone()));
         } else {
-            assert!(
-                actual == expect,
-                "\nexpect result of {}: \n{}\nactual result of {}:\n {}",
-                case.get("method").expect("get jsonrpc method"),
-                to_string_pretty(&expect).expect("expect should be in json format"),
-                case.get("method").expect("get jsonrpc method"),
-                to_string_pretty(&actual).expect("actual should be in json format"),
+            pretty_assert_eq!(
+                expect,
+                actual,
+                "Expect RPC {}",
+                case.get("method").expect("get jsonrpc method")
             );
         }
 
@@ -311,7 +333,7 @@ fn test_rpc() {
         //             CellOutput::new(capacity_bytes!(1000), Bytes::new(), Script::always_success(), None),
         //         )
         //         .build();
-        //     let json_transaction: jsonrpc_types::Transaction = (&transaction).into();
+        //     let json_transaction: ckb_jsonrpc_types::Transaction = (&transaction).into();
         //     let mut object = Map::new();
         //     object.insert("id".to_owned(), json!(1));
         //     object.insert("jsonrpc".to_owned(), json!("2.0"));

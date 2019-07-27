@@ -12,30 +12,20 @@ pub struct BlockExt {
     pub total_difficulty: U256,
     pub total_uncles_count: u64,
     pub verified: Option<bool>,
-    pub dao_stats: DaoStats,
     pub txs_fees: Vec<Capacity>,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Default, Debug)]
-pub struct DaoStats {
-    // DAO related fields
-    // accmulated rate is multiplied by 10**16 to keep as much decimals
-    // as we can. In this case, we can still represent a maximum value
-    // of around 1844.6744073709551, which is good enough for our case.
-    pub accumulated_rate: u64,
-    pub accumulated_capacity: u64,
-}
-
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
-pub struct TransactionAddress {
+pub struct TransactionInfo {
     // Block hash
     pub block_hash: H256,
-    // Offset of block transaction in serialized bytes
-    pub offset: usize,
-    pub length: usize,
+    pub block_number: BlockNumber,
+    pub block_epoch: EpochNumber,
+    // Index in the block
+    pub index: usize,
 }
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug, Default)]
 pub struct EpochExt {
     pub(crate) number: EpochNumber,
     pub(crate) block_reward: Capacity,
@@ -61,6 +51,10 @@ impl EpochExt {
         } else {
             Ok(self.block_reward)
         }
+    }
+
+    pub fn base_block_reward(&self) -> &Capacity {
+        &self.block_reward
     }
 
     pub fn is_genesis(&self) -> bool {

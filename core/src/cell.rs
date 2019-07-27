@@ -3,6 +3,7 @@ use crate::header::Header;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
 use crate::Capacity;
 use crate::{BlockNumber, EpochNumber};
+use ckb_occupied_capacity::Result as CapacityResult;
 use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
@@ -14,11 +15,16 @@ use std::fmt;
 pub struct BlockInfo {
     pub number: BlockNumber,
     pub epoch: EpochNumber,
+    pub hash: H256,
 }
 
 impl BlockInfo {
-    pub fn new(number: BlockNumber, epoch: EpochNumber) -> Self {
-        BlockInfo { number, epoch }
+    pub fn new(number: BlockNumber, epoch: EpochNumber, hash: H256) -> Self {
+        BlockInfo {
+            number,
+            epoch,
+            hash,
+        }
     }
 }
 
@@ -230,65 +236,35 @@ impl HeaderStatus {
 }
 
 #[derive(Debug, Clone)]
-pub enum ResolvedCell {
-    Cell(Box<CellMeta>),
-    IssuingDaoInput,
-    Null,
-}
-
-impl ResolvedCell {
-    pub fn cell_meta(&self) -> Option<&CellMeta> {
-        match self {
-            ResolvedCell::Cell(cell_meta) => Some(cell_meta),
-            _ => None,
-        }
-    }
-
-    pub fn is_issuing_dao_input(&self) -> bool {
-        match self {
-            ResolvedCell::IssuingDaoInput => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct ResolvedOutPoint {
-    pub cell: ResolvedCell,
+    pub cell: Option<Box<CellMeta>>,
     pub header: Option<Box<Header>>,
 }
 
 impl ResolvedOutPoint {
-    pub fn issuing_dao() -> ResolvedOutPoint {
-        ResolvedOutPoint {
-            cell: ResolvedCell::IssuingDaoInput,
-            header: None,
-        }
-    }
-
     pub fn cell_only(cell: CellMeta) -> ResolvedOutPoint {
         ResolvedOutPoint {
-            cell: ResolvedCell::Cell(Box::new(cell)),
+            cell: Some(Box::new(cell)),
             header: None,
         }
     }
 
     pub fn header_only(header: Header) -> ResolvedOutPoint {
         ResolvedOutPoint {
-            cell: ResolvedCell::Null,
+            cell: None,
             header: Some(Box::new(header)),
         }
     }
 
     pub fn cell_and_header(cell: CellMeta, header: Header) -> ResolvedOutPoint {
         ResolvedOutPoint {
-            cell: ResolvedCell::Cell(Box::new(cell)),
+            cell: Some(Box::new(cell)),
             header: Some(Box::new(header)),
         }
     }
 
     pub fn cell(&self) -> Option<&CellMeta> {
-        self.cell.cell_meta()
+        self.cell.as_ref().map(AsRef::as_ref)
     }
 
     pub fn header(&self) -> Option<&Header> {
@@ -403,12 +379,49 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                             block_info: Some(BlockInfo {
                                 number: self.block.header().number(),
                                 epoch: self.block.header().epoch(),
+                                hash: self.block.header().hash().to_owned(),
                             }),
                             cellbase: *i == 0,
                         })
                     })
             })
             .unwrap_or_else(|| CellStatus::Unknown)
+    }
+}
+
+pub struct TransactionsProvider {
+    transactions: FnvHashMap<H256, Transaction>,
+}
+
+impl TransactionsProvider {
+    pub fn new(transactions: &[Transaction]) -> Self {
+        let transactions = transactions
+            .iter()
+            .map(|tx| (tx.hash().to_owned(), tx.to_owned()))
+            .collect();
+        Self { transactions }
+    }
+}
+
+impl CellProvider for TransactionsProvider {
+    fn cell(&self, out_point: &OutPoint) -> CellStatus {
+        if let Some(cell_out_point) = &out_point.cell {
+            match self.transactions.get(&cell_out_point.tx_hash) {
+                Some(tx) => tx
+                    .outputs()
+                    .get(cell_out_point.index as usize)
+                    .as_ref()
+                    .map(|cell| {
+                        CellStatus::live_cell(
+                            CellMetaBuilder::from_cell_output((*cell).to_owned()).build(),
+                        )
+                    })
+                    .unwrap_or(CellStatus::Unknown),
+                None => CellStatus::Unknown,
+            }
+        } else {
+            CellStatus::Unspecified
+        }
     }
 }
 
@@ -536,11 +549,6 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
-            if out_point.is_issuing_dao() {
-                resolved_inputs.push(ResolvedOutPoint::issuing_dao());
-                continue;
-            }
-
             let (cell_status, header_status) = if seen_inputs.insert(out_point.to_owned()) {
                 (
                     cell_provider.cell(out_point),
@@ -638,18 +646,14 @@ impl<'a> ResolvedTransaction<'a> {
         self.resolved_inputs.is_empty()
     }
 
-    pub fn inputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+    pub fn inputs_capacity(&self) -> CapacityResult<Capacity> {
         self.resolved_inputs
             .iter()
-            .map(|o| {
-                o.cell
-                    .cell_meta()
-                    .map_or_else(Capacity::zero, CellMeta::capacity)
-            })
+            .map(|o| o.cell().map_or_else(Capacity::zero, CellMeta::capacity))
             .try_fold(Capacity::zero(), Capacity::safe_add)
     }
 
-    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+    pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
         self.transaction.outputs_capacity()
     }
 }
@@ -693,6 +697,7 @@ mod tests {
             block_info: Some(BlockInfo {
                 number: 1,
                 epoch: 1,
+                hash: H256::zero(),
             }),
             capacity: cell_output.capacity,
             data_hash: Some(cell_output.data_hash()),
@@ -766,7 +771,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.resolved_deps[0].cell.cell_meta().is_none());
+        assert!(result.resolved_deps[0].cell().is_none());
         assert_eq!(
             result.resolved_deps[0].header,
             Some(Box::new(block.header().clone()))
@@ -832,7 +837,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.resolved_deps[0].cell.cell_meta().is_some());
+        assert!(result.resolved_deps[0].cell().is_some());
         assert_eq!(
             result.resolved_deps[0].header,
             Some(Box::new(block.header().clone()))

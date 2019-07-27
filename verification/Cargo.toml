@@ -1,6 +1,6 @@
 [package]
 name = "ckb-verification"
-version = "0.16.0"
+version = "0.17.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -15,19 +15,20 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 rayon = "1.0"
 fnv = "1.0.3"
-occupied-capacity = { path = "../util/occupied-capacity" }
+ckb-occupied-capacity = { path = "../util/occupied-capacity" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-traits = { path = "../traits" }
 serde_json = "1.0"
 ckb-chain-spec = { path = "../spec" }
-dao-utils = { path = "../util/dao/utils" }
+ckb-dao = { path = "../util/dao" }
 ckb-logger = {path = "../util/logger"}
-failure = "0.1.5"
+ckb-resource = { path = "../resource" }
+ckb-script-data-loader = { path = "../script/data-loader" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }
 ckb-chain = { path = "../chain" }
-hash = {path = "../util/hash"}
+ckb-hash = {path = "../util/hash"}
 ckb-shared = { path = "../shared" }
-test-chain-utils = { path = "../util/test-chain-utils" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils" }

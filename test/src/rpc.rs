@@ -1,15 +1,15 @@
 use ckb_core::{
     BlockNumber as CoreBlockNumber, EpochNumber as CoreEpochNumber, Version as CoreVersion,
 };
+use ckb_jsonrpc_types::{
+    Alert, BannedAddress, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint,
+    CellTransaction, CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView,
+    LiveCell, LockHashIndexState, Node, OutPoint, PeerState, Timestamp, Transaction,
+    TransactionWithStatus, TxPoolInfo, Unsigned, Version,
+};
 use ckb_util::Mutex;
 use jsonrpc_client_core::{expand_params, jsonrpc_client, Result as JsonRpcResult};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
-use jsonrpc_types::{
-    Alert, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint, CellTransaction,
-    CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView, LiveCell,
-    LockHashIndexState, Node, OutPoint, PeerState, Transaction, TransactionWithStatus, TxPoolInfo,
-    Unsigned, Version,
-};
 use numext_fixed_hash::H256;
 
 pub struct RpcClient {
@@ -45,6 +45,22 @@ impl RpcClient {
             .get_block_by_number(BlockNumber(number))
             .call()
             .expect("rpc call get_block_by_number")
+    }
+
+    pub fn get_header(&self, hash: H256) -> Option<HeaderView> {
+        self.inner
+            .lock()
+            .get_header(hash)
+            .call()
+            .expect("rpc call get_header")
+    }
+
+    pub fn get_header_by_number(&self, number: CoreBlockNumber) -> Option<HeaderView> {
+        self.inner
+            .lock()
+            .get_header_by_number(BlockNumber(number))
+            .call()
+            .expect("rpc call get_header_by_number")
     }
 
     pub fn get_transaction(&self, hash: H256) -> Option<TransactionWithStatus> {
@@ -131,6 +147,29 @@ impl RpcClient {
             .get_peers()
             .call()
             .expect("rpc call get_peers")
+    }
+
+    pub fn get_banned_addresses(&self) -> Vec<BannedAddress> {
+        self.inner
+            .lock()
+            .get_banned_addresses()
+            .call()
+            .expect("rpc call get_banned_addresses")
+    }
+
+    pub fn set_ban(
+        &self,
+        address: String,
+        command: String,
+        ban_time: Option<Timestamp>,
+        absolute: Option<bool>,
+        reason: Option<String>,
+    ) {
+        self.inner
+            .lock()
+            .set_ban(address, command, ban_time, absolute, reason)
+            .call()
+            .expect("rpc call set_ban")
     }
 
     pub fn get_block_template(
@@ -287,6 +326,8 @@ impl RpcClient {
 jsonrpc_client!(pub struct Inner {
     pub fn get_block(&mut self, _hash: H256) -> RpcRequest<Option<BlockView>>;
     pub fn get_block_by_number(&mut self, _number: BlockNumber) -> RpcRequest<Option<BlockView>>;
+    pub fn get_header(&mut self, _hash: H256) -> RpcRequest<Option<HeaderView>>;
+    pub fn get_header_by_number(&mut self, _number: BlockNumber) -> RpcRequest<Option<HeaderView>>;
     pub fn get_transaction(&mut self, _hash: H256) -> RpcRequest<Option<TransactionWithStatus>>;
     pub fn get_block_hash(&mut self, _number: BlockNumber) -> RpcRequest<Option<H256>>;
     pub fn get_tip_header(&mut self) -> RpcRequest<HeaderView>;
@@ -300,8 +341,19 @@ jsonrpc_client!(pub struct Inner {
     pub fn get_tip_block_number(&mut self) -> RpcRequest<BlockNumber>;
     pub fn get_current_epoch(&mut self) -> RpcRequest<EpochView>;
     pub fn get_epoch_by_number(&mut self, number: EpochNumber) -> RpcRequest<Option<EpochView>>;
+
     pub fn local_node_info(&mut self) -> RpcRequest<Node>;
     pub fn get_peers(&mut self) -> RpcRequest<Vec<Node>>;
+    pub fn get_banned_addresses(&mut self) -> RpcRequest<Vec<BannedAddress>>;
+    pub fn set_ban(
+        &mut self,
+        address: String,
+        command: String,
+        ban_time: Option<Timestamp>,
+        absolute: Option<bool>,
+        reason: Option<String>
+    ) -> RpcRequest<()>;
+
     pub fn get_block_template(
         &mut self,
         bytes_limit: Option<Unsigned>,

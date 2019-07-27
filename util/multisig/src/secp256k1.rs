@@ -1,6 +1,6 @@
 use crate::error::{Error, ErrorKind};
+pub use ckb_crypto::secp::{Error as Secp256k1Error, Message, Privkey, Pubkey, Signature};
 use ckb_logger::{debug, trace};
-pub use crypto::secp::{Error as Secp256k1Error, Message, Privkey, Pubkey, Signature};
 use std::collections::HashSet;
 use std::hash::BuildHasher;
 

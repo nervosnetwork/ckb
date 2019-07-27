@@ -1,4 +1,4 @@
-use hash::new_blake2b;
+use ckb_hash::new_blake2b;
 use merkle_cbt::merkle_tree::Merge;
 use merkle_cbt::MerkleProof as ExMerkleProof;
 use merkle_cbt::MerkleTree as ExMerkleTree;

@@ -3,21 +3,21 @@ use ckb_core::cell::{
     resolve_transaction, BlockCellProvider, BlockHeadersProvider, OverlayCellProvider,
     OverlayHeaderProvider, ResolvedTransaction,
 };
-use ckb_core::extras::{BlockExt, DaoStats};
+use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{CellOutput, ProposalShortId};
 use ckb_core::{BlockNumber, Cycle};
-use ckb_logger::{self, debug, error, info, log_enabled, warn};
+use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::ChainProvider;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, ForkContext, Verifier};
 use crossbeam_channel::{self, select, Receiver, Sender};
-use dao::calculate_dao_data;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -28,7 +28,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::{cmp, thread};
-use stop_handler::{SignalSender, StopHandler};
 
 type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<bool, FailureError>>;
 
@@ -289,23 +288,12 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
 
         let epoch = next_epoch_ext.unwrap_or_else(|| parent_header_epoch.to_owned());
 
-        let (ar, c) = calculate_dao_data(
-            parent_header.number(),
-            &parent_header_epoch,
-            &parent_ext.dao_stats,
-            self.shared.consensus().secondary_epoch_reward(),
-        )?;
-
         let ext = BlockExt {
             received_at: unix_time_as_millis(),
             total_difficulty: cannon_total_difficulty.clone(),
             total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
             verified: None,
             txs_fees: vec![],
-            dao_stats: DaoStats {
-                accumulated_rate: ar,
-                accumulated_capacity: c.as_u64(),
-            },
         };
 
         batch.insert_block_epoch_index(
@@ -625,7 +613,11 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                                     }
                                 }
                                 Err(err) => {
-                                    error!("block {:?} verify error{:?}", b, err);
+                                    error!("block verify error, block number: {}, hash: {:#x}, error: {:?}", b.header().number(),
+                                            b.header().hash(), err);
+                                    if log_enabled!(ckb_logger::Level::Trace) {
+                                        trace!("block {}", serde_json::to_string(b).unwrap());
+                                    }
                                     found_error =
                                         Some(SharedError::InvalidTransaction(err.to_string()));
                                     *verified = Some(false);
@@ -660,7 +652,6 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         }
 
         if let Some(err) = found_error {
-            error!("fork {}", serde_json::to_string(&fork).unwrap());
             Err(err)?
         } else {
             Ok(cell_set_diff)

@@ -1,0 +1,57 @@
+include "common.fbs";
+
+table StoredBlock {
+    data: Block;
+    cache: StoredBlockCache;
+}
+
+table StoredBlockCache {
+    header_hash: Bytes32;
+    uncle_hashes: [Bytes32];
+    tx_hashes: [Bytes32];
+    tx_witness_hashes: [Bytes32];
+}
+
+table StoredBlockBody {
+    data: BlockBody;
+    cache: StoredBlockBodyCache;
+}
+
+table StoredBlockBodyCache {
+    tx_hashes: [Bytes32];
+    tx_witness_hashes: [Bytes32];
+}
+
+table StoredTransactionInfo {
+    data: TransactionInfo;
+}
+
+table StoredHeader {
+    data: Header;
+    cache: StoredHeaderCache;
+}
+
+table StoredHeaderCache {
+    hash: Bytes32;
+}
+
+table StoredUncleBlocks {
+    data: [UncleBlock];
+    cache: StoredUncleBlocksCache;
+}
+
+table StoredUncleBlocksCache {
+    hashes: [Bytes32];
+}
+
+table StoredProposalShortIds {
+    data: [ProposalShortId];
+}
+
+table StoredEpochExt {
+    data: EpochExt;
+}
+
+table StoredCellMeta {
+    data: CellMeta;
+}

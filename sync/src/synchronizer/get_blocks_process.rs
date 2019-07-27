@@ -1,3 +1,4 @@
+use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, warn};
@@ -43,16 +44,24 @@ where
             let block_hash = fbs_h256.try_into()?;
             debug!("get_blocks {:x} from peer {:?}", block_hash, self.peer);
 
-            if store
-                .get_block_ext(&block_hash)
-                .map(|ext| !ext.verified.unwrap_or(false))
-                .unwrap_or(true)
+            if !self
+                .synchronizer
+                .shared()
+                .contains_block_status(&block_hash, BlockStatus::BLOCK_VALID)
             {
                 debug!(
                     "ignoring get_block {:x} request from peer={} for unverified",
                     block_hash, self.peer
                 );
                 continue;
+            }
+
+            if self.nc.send_paused() {
+                debug!(
+                    "Session send buffer is full, stop send blocks to peer {:?}",
+                    self.peer
+                );
+                break;
             }
 
             if let Some(block) = store.get_block(&block_hash) {
@@ -65,8 +74,13 @@ where
                 let fbb = &mut FlatBufferBuilder::new();
                 let message = SyncMessage::build_block(fbb, &block);
                 fbb.finish(message, None);
-                self.nc
-                    .send_message_to(self.peer, fbb.finished_data().into());
+                if let Err(err) = self
+                    .nc
+                    .send_message_to(self.peer, fbb.finished_data().into())
+                {
+                    debug!("synchronizer send Block error: {:?}", err);
+                    break;
+                }
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer

@@ -1,14 +1,14 @@
 [package]
 name = "ckb-test"
-version = "0.16.0"
+version = "0.17.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
+clap = { version = "2" }
 toml = "0.5.0"
-jsonrpc-types = { path = "../util/jsonrpc-types" }
-ckb-logger = { path = "../util/logger" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-core = { path = "../core" }
 ckb-network = { path = "../network" }
@@ -18,13 +18,17 @@ ckb-util = { path = "../util" }
 ckb-chain-spec = { path = "../spec" }
 ckb-rpc= { path = "../rpc" }
 ckb-network-alert = { path = "../util/network-alert" }
-crypto = { path = "../util/crypto" }
+ckb-crypto = { path = "../util/crypto" }
+ckb-dao = { path = "../util/dao" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils" }
+fnv = "1.0.3"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 tempfile = "3.0"
 jsonrpc-client-core = "0.5.0"
 jsonrpc-client-http = "0.5.0"
 rand = "0.6"
 log = "0.4"
+env_logger = "0.6"
 bytes = "0.4.12"
 crossbeam-channel = "0.3"
 flatbuffers = "0.6.0"

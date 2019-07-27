@@ -6,7 +6,7 @@
 //! A cli to generate alert message,
 //! A config option to set alert messages to broard cast.
 //
-use crate::config::Config;
+use crate::config::{NotifierConfig, SignatureConfig};
 use crate::notifier::Notifier;
 use crate::verifier::Verifier;
 use crate::BAD_MESSAGE_BAN_TIME;
@@ -33,10 +33,14 @@ pub struct AlertRelayer {
 }
 
 impl AlertRelayer {
-    pub fn new(client_version: String, config: Config) -> Self {
+    pub fn new(
+        client_version: String,
+        notifier_config: NotifierConfig,
+        signature_config: SignatureConfig,
+    ) -> Self {
         AlertRelayer {
-            notifier: Arc::new(Mutex::new(Notifier::new(client_version))),
-            verifier: Arc::new(Verifier::new(config)),
+            notifier: Arc::new(Mutex::new(Notifier::new(client_version, notifier_config))),
+            verifier: Arc::new(Verifier::new(signature_config)),
             known_lists: LruCache::new(KNOWN_LIST_SIZE),
         }
     }
@@ -83,7 +87,9 @@ impl CKBProtocolHandler for AlertRelayer {
             let fbb = &mut FlatBufferBuilder::new();
             let msg = AlertMessage::build_alert(fbb, &alert);
             fbb.finish(msg, None);
-            nc.quick_send_message_to(peer_index, fbb.finished_data().into());
+            if let Err(err) = nc.quick_send_message_to(peer_index, fbb.finished_data().into()) {
+                debug!("alert_relayer send alert when connected error: {:?}", err);
+            }
         }
     }
 
@@ -131,7 +137,9 @@ impl CKBProtocolHandler for AlertRelayer {
             .into_iter()
             .filter(|peer| self.mark_as_known(*peer, alert.id))
             .collect();
-        nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data);
+        if let Err(err) = nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data) {
+            debug!("alert broadcast error: {:?}", err);
+        }
         // add to received alerts
         self.notifier.lock().add(alert);
     }

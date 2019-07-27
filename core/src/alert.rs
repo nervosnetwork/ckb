@@ -1,6 +1,6 @@
 use crate::Bytes;
 use bincode::serialize;
-use hash::blake2b_256;
+use ckb_hash::blake2b_256;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 

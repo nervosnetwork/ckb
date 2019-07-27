@@ -1,6 +1,6 @@
 [package]
 name = "ckb-app-config"
-version = "0.16.0"
+version = "0.17.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -21,10 +21,9 @@ ckb-pow = { path = "../../pow" }
 ckb-resource = { path = "../../resource"}
 ckb-instrument = { path = "../instrument", features = ["progress_bar"] }
 ckb-shared = { path = "../../shared" }
-ckb-sync = { path = "../../sync"}
 ckb-store = { path = "../../store" }
 ckb-network-alert = { path = "../network-alert" }
-build-info = { path = "../build-info" }
+ckb-build-info = { path = "../build-info" }
 ckb-script = { path = "../../script" }
 
 [dev-dependencies]

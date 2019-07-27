@@ -56,6 +56,7 @@ impl<'a> FbsHeader<'a> {
         let proposals_hash = header.proposals_hash().into();
         let difficulty = FbsBytes::build(fbb, &uint_to_bytes(header.difficulty()));
         let proof = FbsBytes::build(fbb, &header.proof());
+        let dao = FbsBytes::build(fbb, &header.dao());
         let uncles_hash = header.uncles_hash().into();
         let mut builder = HeaderBuilder::new(fbb);
         builder.add_version(header.version());
@@ -69,6 +70,7 @@ impl<'a> FbsHeader<'a> {
         builder.add_difficulty(difficulty);
         builder.add_nonce(header.nonce());
         builder.add_proof(proof);
+        builder.add_dao(dao);
         builder.add_uncles_hash(&uncles_hash);
         builder.add_uncles_count(header.uncles_count());
         builder.finish()
@@ -229,6 +231,7 @@ impl<'a> FbsScript<'a> {
         let mut builder = ScriptBuilder::new(fbb);
         builder.add_args(args);
         builder.add_code_hash(&code_hash);
+        builder.add_hash_type(script.hash_type.to_owned() as u8);
         builder.finish()
     }
 }

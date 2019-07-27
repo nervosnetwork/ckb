@@ -10,15 +10,18 @@
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::{Consensus, GENESIS_EPOCH_LENGTH};
-use ckb_core::block::Block;
-use ckb_core::block::BlockBuilder;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
-use ckb_core::{BlockNumber, Bytes, Capacity, Cycle};
+use ckb_core::{
+    block::{Block, BlockBuilder},
+    extras::EpochExt,
+    header::HeaderBuilder,
+    script::Script as CoreScript,
+    transaction::{CellInput, CellOutput, Transaction, TransactionBuilder},
+    BlockNumber, Bytes, Capacity, Cycle,
+};
+use ckb_dao_utils::genesis_dao_data;
+use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::Resource;
-use jsonrpc_types::Script;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -189,7 +192,6 @@ impl ChainSpec {
             .set_epoch_reward(self.params.epoch_reward)
             .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
-            .set_bootstrap_lock(self.genesis.bootstrap_lock.clone().into())
             .set_pow(self.pow.clone());
 
         Ok(consensus)
@@ -198,6 +200,9 @@ impl ChainSpec {
 
 impl Genesis {
     fn build_block(&self) -> Result<Block, Box<dyn Error>> {
+        let cellbase_transaction = self.build_cellbase_transaction()?;
+        let dao = genesis_dao_data(&cellbase_transaction)?;
+
         let header_builder = HeaderBuilder::default()
             .version(self.version)
             .parent_hash(self.parent_hash.clone())
@@ -205,10 +210,11 @@ impl Genesis {
             .difficulty(self.difficulty.clone())
             .nonce(self.seal.nonce)
             .proof(self.seal.proof.clone())
-            .uncles_hash(self.uncles_hash.clone());
+            .uncles_hash(self.uncles_hash.clone())
+            .dao(dao);
 
         Ok(BlockBuilder::from_header_builder(header_builder)
-            .transaction(self.build_cellbase_transaction()?)
+            .transaction(cellbase_transaction)
             .build())
     }
 
@@ -219,16 +225,15 @@ impl Genesis {
         // Layout of genesis cellbase:
         // - genesis cell, which contains a message and can never be spent.
         // - system cells, which stores the built-in code blocks.
-        // - foundation cells
         // - issued cells
         outputs.push(self.genesis_cell.build_output()?);
         self.system_cells.build_outputs_into(&mut outputs)?;
-        outputs.push(build_bootstrap_output(&self.bootstrap_lock)?);
         outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
 
         Ok(TransactionBuilder::default()
             .outputs(outputs)
             .input(CellInput::new_cellbase_input(0))
+            .witness(CoreScript::from(self.bootstrap_lock.clone()).into_witness())
             .build())
     }
 }
@@ -241,13 +246,6 @@ impl GenesisCell {
         cell.capacity = cell.occupied_capacity()?;
         Ok(cell)
     }
-}
-
-fn build_bootstrap_output(lock: &Script) -> Result<CellOutput, Box<dyn Error>> {
-    let mut cell = CellOutput::default();
-    cell.lock = lock.clone().into();
-    cell.capacity = cell.occupied_capacity()?;
-    Ok(cell)
 }
 
 impl IssuedCell {

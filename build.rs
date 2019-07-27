@@ -28,17 +28,17 @@ fn main() {
     if files_stdout.is_some() {
         println!(
             "cargo:rustc-env=COMMIT_DESCRIBE={}",
-            build_info::get_commit_describe().unwrap_or_default()
+            ckb_build_info::get_commit_describe().unwrap_or_default()
         );
         println!(
             "cargo:rustc-env=COMMIT_DATE={}",
-            build_info::get_commit_date().unwrap_or_default()
+            ckb_build_info::get_commit_date().unwrap_or_default()
         );
 
         println!("cargo:rerun-if-changed=build.rs");
         println!("cargo:rerun-if-changed=.git/HEAD");
 
-        let head = std::fs::read_to_string(".git/HEAD").expect("read .git/HEAD");
+        let head = std::fs::read_to_string(".git/HEAD").unwrap_or_default();
         if head.starts_with("ref: ") {
             println!("cargo:rerun-if-changed=.git/{}", head[5..].trim());
         }

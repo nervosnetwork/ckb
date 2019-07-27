@@ -55,12 +55,11 @@ pub struct ScriptConfig {
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum ScriptError {
     NoScript,
-    InvalidReferenceIndex,
+    InvalidCodeHash,
     ArgumentError,
     ValidationFailure(i8),
     VMError(VMInternalError),
     ExceededMaximumCycles,
-    InvalidIssuingDaoInput,
     IOError,
     InvalidDaoDepositHeader,
     InvalidDaoWithdrawHeader,

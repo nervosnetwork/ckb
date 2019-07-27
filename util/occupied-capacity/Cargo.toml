@@ -1,11 +1,11 @@
 [package]
-name = "occupied-capacity"
-version = "0.16.0"
+name = "ckb-occupied-capacity"
+version = "0.17.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-occupied-capacity-macros = { path = "macros" }
-occupied-capacity-core = { path = "core" }
+ckb-occupied-capacity-macros = { path = "macros" }
+ckb-occupied-capacity-core = { path = "core" }
 proc-macro-hack = "0.5"

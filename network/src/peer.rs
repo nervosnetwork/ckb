@@ -26,7 +26,7 @@ pub struct Peer {
     pub session_id: SessionId,
     pub session_type: SessionType,
     pub protocols: FnvHashMap<ProtocolId, ProtocolVersion>,
-    pub is_reserved: bool,
+    pub is_whitelist: bool,
 }
 
 impl Peer {
@@ -35,7 +35,7 @@ impl Peer {
         session_type: SessionType,
         peer_id: PeerId,
         address: Multiaddr,
-        is_reserved: bool,
+        is_whitelist: bool,
     ) -> Self {
         Peer {
             address,
@@ -49,7 +49,7 @@ impl Peer {
             session_id,
             session_type,
             protocols: FnvHashMap::with_capacity_and_hasher(1, Default::default()),
-            is_reserved,
+            is_whitelist,
         }
     }
 

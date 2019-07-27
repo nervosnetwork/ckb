@@ -48,6 +48,7 @@ enum CellField {
     LockHash = 4,
     Type = 5,
     TypeHash = 6,
+    OccupiedCapacity = 7,
 }
 
 impl CellField {
@@ -60,6 +61,7 @@ impl CellField {
             4 => Ok(CellField::LockHash),
             5 => Ok(CellField::Type),
             6 => Ok(CellField::TypeHash),
+            7 => Ok(CellField::OccupiedCapacity),
             _ => Err(Error::ParseError),
         }
     }
@@ -145,10 +147,11 @@ mod tests {
     use byteorder::{LittleEndian, WriteBytesExt};
     use ckb_core::cell::{CellMeta, ResolvedOutPoint};
     use ckb_core::header::HeaderBuilder;
-    use ckb_core::script::Script;
+    use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{CellOutPoint, CellOutput};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::MemoryKeyValueDB;
+    use ckb_hash::blake2b_256;
     use ckb_protocol::{CellOutput as FbsCellOutput, Header as FbsHeader, Witness as FbsWitness};
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainKVStore, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
@@ -158,7 +161,6 @@ mod tests {
         CoreMachine, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
     use flatbuffers::FlatBufferBuilder;
-    use hash::blake2b_256;
     use numext_fixed_hash::H256;
     use proptest::{collection::size_range, prelude::*};
     use std::sync::Arc;
@@ -843,7 +845,7 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A7, LOAD_SCRIPT_HASH_SYSCALL_NUMBER); // syscall number
 
-        let script = Script::new(vec![Bytes::from(data)], H256::zero());
+        let script = Script::new(vec![Bytes::from(data)], H256::zero(), ScriptHashType::Data);
         let h = script.hash();
         let hash = h.as_bytes();
         let mut load_script_hash = LoadScriptHash::new(hash);
@@ -895,7 +897,7 @@ mod tests {
         machine.set_register(A5, CellField::LockHash as u64); //field: 2 lock hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let script = Script::new(vec![Bytes::from(data)], H256::zero());
+        let script = Script::new(vec![Bytes::from(data)], H256::zero(), ScriptHashType::Data);
         let h = script.hash();
         let hash = h.as_bytes();
 

@@ -1,13 +1,14 @@
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::extras::EpochExt;
-use ckb_core::header::Header;
-use ckb_core::header::HeaderBuilder;
+use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
+use ckb_core::transaction::{CellInput, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
+use ckb_dao_utils::genesis_dao_data;
+use ckb_occupied_capacity::Ratio;
 use ckb_pow::{Pow, PowEngine};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use occupied_capacity::Ratio;
 use std::cmp;
 use std::sync::Arc;
 
@@ -23,14 +24,14 @@ pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 //TODO：find best ORPHAN_RATE_TARGET
 pub(crate) const ORPHAN_RATE_TARGET_RECIP: u64 = 20;
 
-const MAX_BLOCK_INTERVAL: u64 = 60 * 1000; // 60s
+const MAX_BLOCK_INTERVAL: u64 = 30 * 1000; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8 * 1000; // 8s
 const TWO_IN_TWO_OUT_CYCLES: Cycle = 2_580_000;
 pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60 * 1000; // 4 hours
 pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
-pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 240
+pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
 
-// We choose 1250 because it is largest number between MIN_EPOCH_LENGTH and MAX_BLOCK_INTERVAL that
+// We choose 1250 because it is largest number between MIN_EPOCH_LENGTH and MAX_EPOCH_LENGTH that
 // can divide DEFAULT_EPOCH_REWARD.
 pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_250;
 
@@ -52,7 +53,7 @@ pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 /// 2) it is in the commitment zone of the main chain block with height h_c ;
 ///
 ///   ProposalWindow (2, 10)
-///       proposal
+///       propose
 ///          \
 ///           \
 ///           13 14 [15 16 17 18 19 20 21 22 23]
@@ -103,15 +104,21 @@ pub struct Consensus {
     // block version number supported
     pub max_block_proposals_limit: u64,
     pub genesis_epoch_ext: EpochExt,
-    pub bootstrap_lock: Script,
 }
 
 // genesis difficulty should not be zero
 impl Default for Consensus {
     fn default() -> Self {
-        let genesis_block =
-            BlockBuilder::from_header_builder(HeaderBuilder::default().difficulty(U256::one()))
-                .build();
+        let cellbase = TransactionBuilder::default()
+            .input(CellInput::new_cellbase_input(0))
+            .witness(Script::default().into_witness())
+            .build();
+        let dao = genesis_dao_data(&cellbase).unwrap();
+        let genesis_block = BlockBuilder::from_header_builder(
+            HeaderBuilder::default().difficulty(U256::one()).dao(dao),
+        )
+        .transaction(cellbase)
+        .build();
 
         let block_reward = Capacity::shannons(DEFAULT_EPOCH_REWARD.as_u64() / GENESIS_EPOCH_LENGTH);
         let remainder_reward =
@@ -146,7 +153,6 @@ impl Default for Consensus {
             block_version: BLOCK_VERSION,
             proposer_reward_ratio: PROPOSER_REWARD_RATIO,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
-            bootstrap_lock: Default::default(),
         }
     }
 }
@@ -158,6 +164,11 @@ impl Consensus {
     }
 
     pub fn set_genesis_block(mut self, genesis_block: Block) -> Self {
+        debug_assert!(
+            !genesis_block.transactions().is_empty()
+                && !genesis_block.transactions()[0].witnesses().is_empty(),
+            "genesis block must contain the witness for cellbase"
+        );
         self.genesis_epoch_ext
             .set_difficulty(genesis_block.header().difficulty().clone());
         self.genesis_hash = genesis_block.header().hash().to_owned();
@@ -194,16 +205,6 @@ impl Consensus {
         self
     }
 
-    #[must_use]
-    pub fn set_bootstrap_lock(mut self, lock: Script) -> Self {
-        self.bootstrap_lock = lock;
-        self
-    }
-
-    pub fn bootstrap_lock(&self) -> &Script {
-        &self.bootstrap_lock
-    }
-
     pub fn set_tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.tx_proposal_window = proposal_window;
         self
@@ -222,21 +223,17 @@ impl Consensus {
         self.proposer_reward_ratio
     }
 
-    pub fn reserve_number(&self) -> BlockNumber {
-        self.finalization_delay_length()
-    }
-
     pub fn finalization_delay_length(&self) -> BlockNumber {
         self.tx_proposal_window.farthest() + 1
     }
 
     pub fn finalize_target(&self, block_number: BlockNumber) -> Option<BlockNumber> {
-        let finalize_target = block_number.checked_sub(self.finalization_delay_length())?;
-        // we should not reward genesis
-        if finalize_target < 1 {
-            return None;
+        if block_number != 0 {
+            Some(block_number.saturating_sub(self.finalization_delay_length()))
+        } else {
+            // Genesis should not reward genesis itself
+            None
         }
-        Some(finalize_target)
     }
 
     pub fn genesis_hash(&self) -> &H256 {
@@ -318,7 +315,7 @@ impl Consensus {
     }
 
     pub fn revision_epoch_difficulty(&self, last: U256, raw: U256) -> U256 {
-        let min_difficulty = cmp::max(self.min_difficulty().clone(), &last / 2u64);
+        let min_difficulty = cmp::max(self.min_difficulty().clone(), &last >> 1);
         let max_difficulty = last * 2u32;
 
         if raw > max_difficulty {
@@ -403,7 +400,7 @@ impl Consensus {
             )
         } else {
             let next_epoch_length = self.max_epoch_length();
-            let difficulty = cmp::max(self.min_difficulty().clone(), last_difficulty / 2u64);
+            let difficulty = cmp::max(self.min_difficulty().clone(), last_difficulty >> 1);
 
             let block_reward = Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
             let remainder_reward =

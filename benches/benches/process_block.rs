@@ -2,7 +2,7 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
     CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
@@ -163,6 +163,14 @@ fn new_chain(
 
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
+        .witness(
+            Script {
+                args: vec![],
+                code_hash: cell_output.data_hash(),
+                hash_type: ScriptHashType::Data,
+            }
+            .into_witness(),
+        )
         .output(cell_output)
         .build();
 
@@ -176,7 +184,7 @@ fn new_chain(
                 .output(CellOutput::new(
                     capacity_bytes!(50_000),
                     Bytes::from(i.to_le_bytes().to_vec()),
-                    Script::new(Vec::new(), data_hash.clone()),
+                    Script::new(Vec::new(), data_hash.clone(), ScriptHashType::Data),
                     None,
                 ))
                 .build()
@@ -281,7 +289,11 @@ fn create_transaction(
         .output(CellOutput::new(
             capacity_bytes!(50_000),
             (0..255).collect(),
-            Script::new(vec![(0..255).collect()], data_hash.to_owned()),
+            Script::new(
+                vec![(0..255).collect()],
+                data_hash.to_owned(),
+                ScriptHashType::Data,
+            ),
             None,
         ))
         .input(CellInput::new(

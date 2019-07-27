@@ -12,7 +12,7 @@ pub use crate::error::Error;
 pub use crate::miner::Miner;
 
 use ckb_core::block::{Block, BlockBuilder};
-use jsonrpc_types::BlockTemplate;
+use ckb_jsonrpc_types::BlockTemplate;
 use std::convert::From;
 
 pub struct Work {

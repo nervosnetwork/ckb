@@ -1,6 +1,6 @@
 use crate::peer_store::types::PeerAddr;
 use crate::NetworkState;
-use ckb_logger::{debug, trace, warn};
+use ckb_logger::{trace, warn};
 use faketime::unix_time_as_millis;
 use futures::{Async, Future, Stream};
 use p2p::service::ServiceControl;
@@ -52,24 +52,38 @@ impl OutboundPeerService {
             }
             paddrs
         });
-        let p2p_control = self.p2p_control.clone();
         trace!(
             "count={}, attempt_peers: {:?} is_feeler: {}",
             count,
             attempt_peers,
             is_feeler
         );
+        // keep whitelist peer on connected
+        self.try_dial_whitelist();
+
         for paddr in attempt_peers {
             let PeerAddr { peer_id, addr, .. } = paddr;
-            debug!("dial attempt peer: {:?}, is_feeler: {}", addr, is_feeler);
             if is_feeler {
-                self.network_state.with_peer_registry_mut(|reg| {
-                    reg.add_feeler(peer_id.clone());
-                });
-                self.network_state.dial_feeler(&p2p_control, &peer_id, addr);
+                self.network_state
+                    .dial_feeler(&self.p2p_control, &peer_id, addr);
             } else {
                 self.network_state
-                    .dial_identify(&p2p_control, &peer_id, addr);
+                    .dial_identify(&self.p2p_control, &peer_id, addr);
+            }
+        }
+    }
+
+    fn try_dial_whitelist(&self) {
+        // This will never panic because network start has already been checked
+        for (peer_id, addr) in self
+            .network_state
+            .config
+            .whitelist_peers()
+            .expect("address must be correct")
+        {
+            if self.network_state.query_session_id(&peer_id).is_none() {
+                self.network_state
+                    .dial_identify(&self.p2p_control, &peer_id, addr);
             }
         }
     }
@@ -89,8 +103,12 @@ impl Future for OutboundPeerService {
                         .unwrap_or(Duration::from_secs(std::u64::MAX));
                     if last_connect > self.try_connect_interval {
                         let status = self.network_state.connection_status();
-                        let new_outbound = status.max_outbound - status.unreserved_outbound;
-                        if new_outbound > 0 {
+                        let new_outbound = status
+                            .max_outbound
+                            .saturating_sub(status.non_whitelist_outbound);
+                        if self.network_state.config.whitelist_only {
+                            self.try_dial_whitelist()
+                        } else if new_outbound > 0 {
                             // dial peers
                             self.dial_peers(false, new_outbound as u32);
                         } else {

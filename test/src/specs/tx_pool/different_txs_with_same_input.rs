@@ -7,7 +7,6 @@ pub struct DifferentTxsWithSameInput;
 
 impl Spec for DifferentTxsWithSameInput {
     fn run(&self, net: Net) {
-        info!("Running DifferentTxsWithSameInput");
         let node0 = &net.nodes[0];
 
         node0.generate_block();
@@ -40,9 +39,5 @@ impl Spec for DifferentTxsWithSameInput {
 
         assert!(commit_txs_hash.contains(&tx1.hash()));
         assert!(!commit_txs_hash.contains(&tx2.hash()));
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
     }
 }

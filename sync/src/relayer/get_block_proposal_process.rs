@@ -1,5 +1,6 @@
 use crate::relayer::Relayer;
 use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockProposal, RelayMessage};
 use ckb_store::ChainStore;
@@ -70,8 +71,16 @@ impl<'a, CS: ChainStore + 'static> GetBlockProposalProcess<'a, CS> {
         let message = RelayMessage::build_block_proposal(fbb, &transactions);
         fbb.finish(message, None);
 
-        self.nc
-            .send_message_to(self.peer, fbb.finished_data().into());
+        if let Err(err) = self
+            .nc
+            .send_message_to(self.peer, fbb.finished_data().into())
+        {
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "relayer send GetBlockProposal error: {:?}",
+                err
+            );
+        }
         Ok(())
     }
 }

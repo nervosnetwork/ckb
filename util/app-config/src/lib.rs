@@ -9,7 +9,7 @@ pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs, S
 pub use ckb_miner::BlockAssemblerConfig;
 pub use exit_code::ExitCode;
 
-use build_info::Version;
+use ckb_build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
 use ckb_instrument::Format;
 use ckb_logger::{info_target, LoggerInitGuard};
@@ -88,11 +88,15 @@ impl Setup {
         })
     }
 
-    pub fn run(self) -> Result<RunArgs, ExitCode> {
+    pub fn run<'m>(self, matches: &ArgMatches<'m>) -> Result<RunArgs, ExitCode> {
         let consensus = self.consensus()?;
         let config = self.config.into_ckb()?;
 
-        Ok(RunArgs { config, consensus })
+        Ok(RunArgs {
+            config,
+            consensus,
+            block_assembler_advanced: matches.is_present(cli::ARG_BA_ADVANCED),
+        })
     }
 
     pub fn miner(self) -> Result<MinerArgs, ExitCode> {

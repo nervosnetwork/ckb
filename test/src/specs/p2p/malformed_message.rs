@@ -8,12 +8,9 @@ pub struct MalformedMessage;
 
 impl Spec for MalformedMessage {
     fn run(&self, net: Net) {
-        info!("Running MalformedMessage");
-
         info!("Connect node0");
         let node0 = &net.nodes[0];
-        // exit IBD mode
-        node0.generate_block();
+        net.exit_ibd_mode();
         net.connect(node0);
 
         info!("Test node should receive GetHeaders message from node0");
@@ -35,14 +32,13 @@ impl Spec for MalformedMessage {
         let rpc_client = net.nodes[0].rpc_client();
         let ret = wait_until(10, || rpc_client.get_peers().is_empty());
         assert!(ret, "Node0 should disconnect test node");
-
-        net.connect(node0);
-        let ret = wait_until(10, || !rpc_client.get_peers().is_empty());
-        assert!(!ret, "Node0 should ban test node");
-    }
-
-    fn num_nodes(&self) -> usize {
-        1
+        let ret = wait_until(10, || {
+            rpc_client
+                .get_banned_addresses()
+                .iter()
+                .any(|ban| ban.address == "127.0.0.1/32")
+        });
+        assert!(ret, "Node0 should ban test node");
     }
 
     fn test_protocols(&self) -> Vec<TestProtocol> {

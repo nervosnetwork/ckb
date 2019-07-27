@@ -1,9 +1,14 @@
 use crate::errors::Error;
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
-use crate::peer_store::{sqlite::SqlitePeerStore, types::PeerAddr, PeerStore, Status};
-use crate::protocols::feeler::Feeler;
+use crate::peer_store::{
+    sqlite::SqlitePeerStore,
+    types::{BannedAddress, PeerAddr},
+    PeerStore, Status,
+};
 use crate::protocols::{
+    disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryProtocol, DiscoveryService},
+    feeler::Feeler,
     identify::IdentifyCallback,
     ping::PingService,
 };
@@ -12,14 +17,16 @@ use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
 };
-use build_info::Version;
+use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Mutex, RwLock};
 use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
 use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use futures::Stream;
+use ipnetwork::IpNetwork;
 use p2p::{
     builder::{MetaBuilder, ServiceBuilder},
     bytes::Bytes,
@@ -44,13 +51,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::usize;
-use stop_handler::{SignalSender, StopHandler};
 use tokio::runtime;
 
 pub(crate) const PING_PROTOCOL_ID: usize = 0;
 pub(crate) const DISCOVERY_PROTOCOL_ID: usize = 1;
 pub(crate) const IDENTIFY_PROTOCOL_ID: usize = 2;
 pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
+pub(crate) const DISCONNECT_MESSAGE_PROTOCOL_ID: usize = 4;
 
 const ADDR_LIMIT: u32 = 3;
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
@@ -102,16 +109,16 @@ impl NetworkState {
             Mutex::new(Box::new(peer_store))
         };
 
-        let reserved_peers = config
-            .reserved_peers()?
+        let whitelist_peers = config
+            .whitelist_peers()?
             .iter()
             .map(|(peer_id, _)| peer_id.to_owned())
             .collect::<Vec<_>>();
         let peer_registry = PeerRegistry::new(
             config.max_inbound_peers(),
             config.max_outbound_peers(),
-            config.reserved_only,
-            reserved_peers,
+            config.whitelist_only,
+            whitelist_peers,
         );
 
         Ok(NetworkState {
@@ -157,14 +164,11 @@ impl NetworkState {
             .is_banned()
         {
             info!("peer {:?} banned", peer_id);
-            self.with_peer_registry_mut(|reg| {
-                if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
-                    reg.remove_peer(session_id);
-                    if let Err(err) = p2p_control.disconnect(session_id) {
-                        debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
-                    }
+            if let Some(session_id) = self.peer_registry.read().get_key_by_peer_id(peer_id) {
+                if let Err(err) = disconnect_with_message(p2p_control, session_id, "banned") {
+                    debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                 }
-            })
+            }
         }
     }
 
@@ -172,12 +176,12 @@ impl NetworkState {
         &self,
         p2p_control: &ServiceControl,
         session_id: SessionId,
-        timeout: Duration,
+        duration: Duration,
     ) {
         if let Some(peer_id) =
             self.with_peer_registry(|reg| reg.get_peer(session_id).map(|peer| peer.peer_id.clone()))
         {
-            self.ban_peer(p2p_control, &peer_id, timeout);
+            self.ban_peer(p2p_control, &peer_id, duration);
         } else {
             debug!("Ban session({}) failed: not in peer registry", session_id);
         }
@@ -187,13 +191,16 @@ impl NetworkState {
         &self,
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
-        timeout: Duration,
+        duration: Duration,
     ) {
-        info!("ban peer {:?} with {:?}", peer_id, timeout);
+        info!("ban peer {:?} with {:?}", peer_id, duration);
         let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer_opt {
-            self.peer_store.lock().ban_addr(&peer.address, timeout);
-            if let Err(err) = p2p_control.disconnect(peer.session_id) {
+            self.peer_store.lock().ban_addr(&peer.address, duration);
+            let message = format!("Ban for {} seconds", duration.as_secs());
+            if let Err(err) =
+                disconnect_with_message(p2p_control, peer.session_id, message.as_str())
+            {
                 debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
             }
         }
@@ -387,33 +394,35 @@ impl NetworkState {
         self.dialing_addrs.write().remove(&peer_id);
     }
 
+    /// Dial
+    /// return value indicates the dialing is actually sent or denied.
     pub fn dial(
         &self,
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
         mut addr: Multiaddr,
         target: DialProtocol,
-    ) {
-        if !self.can_dial(peer_id, &addr) {
-            return;
-        }
-
-        match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
-            Ok(peer_id_hash) => {
-                addr.push(multiaddr::Protocol::P2p(peer_id_hash));
-                debug!("dialing {} with {:?}", addr, target);
-                if let Err(err) = p2p_control.dial(addr.clone(), target) {
-                    debug!("dial failed: {:?}", err);
-                } else {
-                    self.dialing_addrs
-                        .write()
-                        .insert(peer_id.to_owned(), Instant::now());
+    ) -> bool {
+        if self.can_dial(peer_id, &addr) {
+            match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
+                Ok(peer_id_hash) => {
+                    addr.push(multiaddr::Protocol::P2p(peer_id_hash));
+                    debug!("dialing {} with {:?}", addr, target);
+                    if let Err(err) = p2p_control.dial(addr.clone(), target) {
+                        debug!("dial failed: {:?}", err);
+                    } else {
+                        self.dialing_addrs
+                            .write()
+                            .insert(peer_id.to_owned(), Instant::now());
+                        return true;
+                    }
+                }
+                Err(err) => {
+                    error!("failed to convert peer_id to addr: {}", err);
                 }
             }
-            Err(err) => {
-                error!("failed to convert peer_id to addr: {}", err);
-            }
         }
+        false
     }
 
     /// Dial just identify protocol
@@ -428,17 +437,56 @@ impl NetworkState {
 
     /// Dial just feeler protocol
     pub fn dial_feeler(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
-        self.dial(
+        if self.dial(
             p2p_control,
             peer_id,
             addr,
             DialProtocol::Single(FEELER_PROTOCOL_ID.into()),
-        );
+        ) {
+            self.with_peer_registry_mut(|reg| {
+                reg.add_feeler(peer_id.clone());
+            });
+        }
     }
 }
 
 pub struct EventHandler {
     pub(crate) network_state: Arc<NetworkState>,
+}
+
+impl EventHandler {
+    fn inbound_eviction(&self, context: &mut ServiceContext) {
+        if self.network_state.config.bootnode_mode {
+            let status = self.network_state.connection_status();
+
+            if status.max_inbound <= status.non_whitelist_inbound.saturating_add(10) {
+                for (index, peer) in self
+                    .network_state
+                    .with_peer_registry(|registry| {
+                        registry
+                            .peers()
+                            .values()
+                            .filter(|peer| peer.is_inbound() && !peer.is_whitelist)
+                            .map(|peer| peer.session_id)
+                            .collect::<Vec<SessionId>>()
+                    })
+                    .into_iter()
+                    .enumerate()
+                {
+                    if index & 0x1 != 0 {
+                        if let Err(err) = disconnect_with_message(
+                            context.control(),
+                            peer,
+                            "bootnode random eviction",
+                        ) {
+                            debug!("Inbound eviction failed {:?}, error: {:?}", peer, err);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl ServiceHandle for EventHandler {
@@ -472,7 +520,8 @@ impl ServiceHandle for EventHandler {
                 error,
             } => {
                 debug!("ProtocolError({}, {}) {}", id, proto_id, error);
-                if let Err(err) = context.disconnect(id) {
+                let message = format!("ProtocolError id={}", proto_id);
+                if let Err(err) = disconnect_with_message(context.control(), id, message.as_str()) {
                     debug!("Disconnect failed {:?}, error {:?}", id, err);
                 }
             }
@@ -533,6 +582,8 @@ impl ServiceHandle for EventHandler {
 
                 self.network_state.dial_success(&peer_id);
 
+                self.inbound_eviction(context);
+
                 if self
                     .network_state
                     .with_peer_registry(|reg| reg.is_feeler(&peer_id))
@@ -548,7 +599,11 @@ impl ServiceHandle for EventHandler {
                                 "evict peer (disonnect it), {} => {}",
                                 evicted_peer.session_id, evicted_peer.address,
                             );
-                            if let Err(err) = context.disconnect(evicted_peer.session_id) {
+                            if let Err(err) = disconnect_with_message(
+                                context.control(),
+                                evicted_peer.session_id,
+                                "evict because accepted better peer",
+                            ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     evicted_peer.session_id, err
@@ -564,7 +619,11 @@ impl ServiceHandle for EventHandler {
                                 "registry peer failed {:?} disconnect it, {} => {}",
                                 err, session_context.id, session_context.address,
                             );
-                            if let Err(err) = context.disconnect(session_context.id) {
+                            if let Err(err) = disconnect_with_message(
+                                context.control(),
+                                session_context.id,
+                                "reject peer connection",
+                            ) {
                                 debug!(
                                     "Disconnect failed {:?}, error: {:?}",
                                     session_context.id, err
@@ -585,9 +644,6 @@ impl ServiceHandle for EventHandler {
                     .map(PublicKey::peer_id)
                     .expect("Secio must enabled");
 
-                self.network_state.with_peer_registry_mut(|reg| {
-                    reg.remove_feeler(&peer_id);
-                });
                 self.network_state
                     .disconnecting_sessions
                     .write()
@@ -675,7 +731,11 @@ impl ServiceHandle for EventHandler {
                         .disconnecting_sessions
                         .write()
                         .insert(session_id);
-                    if let Err(err) = context.disconnect(session_id) {
+                    if let Err(err) = disconnect_with_message(
+                        context.control(),
+                        session_id,
+                        "already removed from registry",
+                    ) {
                         debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
                     }
                 }
@@ -747,12 +807,19 @@ impl NetworkService {
             })
             .build();
 
+        let disconnect_message_meta = MetaBuilder::default()
+            .id(DISCONNECT_MESSAGE_PROTOCOL_ID.into())
+            .name(move |_| "/ckb/disconnectmsg".to_string())
+            .service_handle(move || ProtocolHandle::Both(Box::new(DisconnectMessageProtocol)))
+            .build();
+
         // == Build p2p service struct
         let mut protocol_metas = protocols
             .into_iter()
             .map(CKBProtocol::build)
             .collect::<Vec<_>>();
         protocol_metas.push(feeler_meta);
+        protocol_metas.push(disconnect_message_meta);
         protocol_metas.push(ping_meta);
         protocol_metas.push(disc_meta);
         protocol_metas.push(identify_meta);
@@ -782,21 +849,24 @@ impl NetworkService {
             p2p_service.control().to_owned(),
             ping_receiver,
         );
-        let outbound_peer_service = OutboundPeerService::new(
-            Arc::clone(&network_state),
-            p2p_service.control().to_owned(),
-            Duration::from_secs(config.connect_outbound_interval_secs),
-        );
-        let dns_seeding_service = DnsSeedingService::new(
-            Arc::clone(&network_state),
-            network_state.config.dns_seeds.clone(),
-        );
-        let bg_services = vec![
+        let mut bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
             Box::new(disc_service) as Box<_>,
-            Box::new(outbound_peer_service) as Box<_>,
-            Box::new(dns_seeding_service) as Box<_>,
         ];
+        if config.outbound_peer_service_enabled() {
+            let outbound_peer_service = OutboundPeerService::new(
+                Arc::clone(&network_state),
+                p2p_service.control().to_owned(),
+                Duration::from_secs(config.connect_outbound_interval_secs),
+            );
+            bg_services.push(Box::new(outbound_peer_service) as Box<_>);
+        };
+
+        if config.dns_seeding_service_enabled() {
+            let dns_seeding_service =
+                DnsSeedingService::new(Arc::clone(&network_state), config.dns_seeds.clone());
+            bg_services.push(Box::new(dns_seeding_service) as Box<_>);
+        };
 
         NetworkService {
             p2p_service,
@@ -835,15 +905,15 @@ impl NetworkService {
             };
         }
 
-        // dial reserved_nodes
-        for (peer_id, addr) in config.reserved_peers()? {
-            debug!("dial reserved_peers {:?} {:?}", peer_id, addr);
+        // dial whitelist_nodes
+        for (peer_id, addr) in config.whitelist_peers()? {
+            debug!("dial whitelist_peers {:?} {:?}", peer_id, addr);
             self.network_state
                 .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }
 
         let bootnodes = self.network_state.with_peer_store(|peer_store| {
-            peer_store.bootnodes(max((config.max_outbound_peers / 2) as u32, 1))
+            peer_store.bootnodes(max((config.max_outbound_peers >> 1) as u32, 1))
         });
         // dial half bootnodes
         for (peer_id, addr) in bootnodes {
@@ -893,7 +963,9 @@ impl NetworkService {
                 let _ = receiver.recv();
                 for peer in self.network_state.peer_registry.read().peers().values() {
                     info!("Disconnect peer {}", peer.address);
-                    if let Err(err) = inner_p2p_control.disconnect(peer.session_id) {
+                    if let Err(err) =
+                        disconnect_with_message(&inner_p2p_control, peer.session_id, "shutdown")
+                    {
                         debug!("Disconnect failed {:?}, error: {:?}", peer.session_id, err);
                     }
                 }
@@ -945,16 +1017,35 @@ impl NetworkController {
     }
 
     pub fn remove_node(&self, peer_id: &PeerId) {
-        self.network_state.with_peer_registry_mut(|reg| {
-            if let Some(session_id) = reg.get_key_by_peer_id(peer_id) {
-                reg.remove_peer(session_id);
-                if let Err(err) = self.p2p_control.disconnect(session_id) {
-                    debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
-                }
-            } else {
-                error!("Cannot find peer {:?}", peer_id);
+        if let Some(session_id) = self
+            .network_state
+            .peer_registry
+            .read()
+            .get_key_by_peer_id(peer_id)
+        {
+            if let Err(err) =
+                disconnect_with_message(&self.p2p_control, session_id, "disconnect manually")
+            {
+                debug!("Disconnect failed {:?}, error: {:?}", session_id, err);
             }
-        })
+        } else {
+            error!("Cannot find peer {:?}", peer_id);
+        }
+    }
+
+    pub fn get_banned_addresses(&self) -> Vec<BannedAddress> {
+        self.network_state.peer_store.lock().get_banned_addresses()
+    }
+
+    pub fn insert_ban(&self, address: IpNetwork, ban_until: u64, ban_reason: &str) {
+        self.network_state
+            .peer_store
+            .lock()
+            .insert_ban(address, ban_until, ban_reason)
+    }
+
+    pub fn delete_ban(&self, address: &IpNetwork) {
+        self.network_state.peer_store.lock().delete_ban(address);
     }
 
     pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
@@ -1045,4 +1136,18 @@ impl Drop for NetworkController {
     fn drop(&mut self) {
         self.stop.try_send();
     }
+}
+
+// Send a optional message before disconnect a peer
+pub(crate) fn disconnect_with_message(
+    control: &ServiceControl,
+    peer_index: SessionId,
+    message: &str,
+) -> Result<(), P2pError> {
+    if !message.is_empty() {
+        let data = Bytes::from(message.as_bytes());
+        // Must quick send, otherwise this message will be dropped.
+        control.quick_send_message_to(peer_index, DISCONNECT_MESSAGE_PROTOCOL_ID.into(), data)?;
+    }
+    control.disconnect(peer_index)
 }

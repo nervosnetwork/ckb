@@ -1958,6 +1958,21 @@ pub mod ckb {
                     }
                 }
 
+                if Self::VT_DAO as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_DAO) as usize;
+                    if voffset > 0 {
+                        if voffset + 4 > object_inline_num_bytes {
+                            return Err(Error::OutOfBounds);
+                        }
+
+                        if let Some(f) = self.dao() {
+                            f.verify()?;
+                        }
+                    }
+                }
+
                 Ok(())
             }
         }
@@ -2798,6 +2813,15 @@ pub mod ckb {
                 {
                     let voffset = vtab.get(Self::VT_CODE_HASH) as usize;
                     if voffset > 0 && object_inline_num_bytes - voffset < 32 {
+                        return Err(Error::OutOfBounds);
+                    }
+                }
+
+                if Self::VT_HASH_TYPE as usize + flatbuffers::SIZE_VOFFSET
+                    <= vtab_num_bytes
+                {
+                    let voffset = vtab.get(Self::VT_HASH_TYPE) as usize;
+                    if voffset > 0 && object_inline_num_bytes - voffset < 1 {
                         return Err(Error::OutOfBounds);
                     }
                 }

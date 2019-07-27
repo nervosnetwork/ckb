@@ -1,16 +1,16 @@
 [package]
 name = "ckb"
-version = "0.16.0"
+version = "0.17.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 build = "build.rs"
 
 [build-dependencies]
-build-info = { path = "util/build-info" }
+ckb-build-info = { path = "util/build-info" }
 
 [dependencies]
-build-info = { path = "util/build-info" }
+ckb-build-info = { path = "util/build-info" }
 ckb-bin = { path = "ckb-bin" }
 
 [dev-dependencies]
@@ -36,6 +36,7 @@ members = [
     "traits",
     "network",
     "protocol",
+    "protos",
     "sync",
     "core",
     "store",

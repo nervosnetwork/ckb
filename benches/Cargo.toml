@@ -1,6 +1,6 @@
 [package]
 name = "ckb-benches"
-version = "0.16.0"
+version = "0.17.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -23,8 +23,8 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 rand = "0.6"
 tempfile = "3.0"
 ckb-traits = { path = "../traits" }
-hash = {path = "../util/hash"}
-occupied-capacity = {path = "../util/occupied-capacity"}
+ckb-hash = {path = "../util/hash"}
+ckb-occupied-capacity = { path = "../util/occupied-capacity"}
 
 [[bench]]
 name = "cuckoo"

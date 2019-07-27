@@ -3,7 +3,7 @@
 //! Sync module implement ckb sync protocol as specified here:
 //! https://github.com/nervosnetwork/rfcs/tree/master/rfcs/0000-block-sync-protocol
 
-mod config;
+mod block_status;
 mod net_time_checker;
 mod relayer;
 mod synchronizer;
@@ -12,7 +12,6 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use crate::config::Config;
 pub use crate::net_time_checker::NetTimeProtocol;
 pub use crate::relayer::Relayer;
 pub use crate::synchronizer::Synchronizer;
@@ -25,7 +24,7 @@ pub const MAX_SCHEDULED_LEN: usize = 4 * 1024;
 pub const MAX_BLOCKS_TO_ANNOUNCE: usize = 8;
 pub const MAX_UNCONNECTING_HEADERS: usize = 10;
 pub const MAX_BLOCKS_IN_TRANSIT_PER_PEER: usize = 16;
-pub const MAX_TIP_AGE: u64 = 60 * 60 * 1000;
+pub const MAX_TIP_AGE: u64 = 24 * 60 * 60 * 1000;
 pub const STALE_RELAY_AGE_LIMIT: u64 = 30 * 24 * 60 * 60 * 1000;
 pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024;
 pub const PER_FETCH_BLOCK_LIMIT: usize = 128;

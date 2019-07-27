@@ -4,11 +4,10 @@ use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
-use jsonrpc_types::JsonBytes;
-use log::info;
+use ckb_jsonrpc_types::JsonBytes;
 use numext_fixed_hash::H256;
 use std::convert::Into;
 use std::fs;
@@ -34,8 +33,8 @@ struct ProcessGuard(pub Child);
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
         match self.0.kill() {
-            Err(e) => info!("Could not kill ckb process: {}", e),
-            Ok(_) => info!("Successfully killed ckb process"),
+            Err(e) => log::error!("Could not kill ckb process: {}", e),
+            Ok(_) => log::debug!("Successfully killed ckb process"),
         }
         let _ = self.0.wait();
     }
@@ -76,14 +75,14 @@ impl Node {
 
         let child_process = Command::new(self.binary.to_owned())
             .env("RUST_BACKTRACE", "full")
-            .args(&["-C", &self.dir, "run"])
+            .args(&["-C", &self.dir, "run", "--ba-advanced"])
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .expect("failed to run binary");
         self.guard = Some(ProcessGuard(child_process));
-        info!("Started node with working dir: {}", self.dir);
+        log::info!("Started node with working dir: {}", self.dir);
 
         loop {
             let result = { self.rpc_client().inner().lock().local_node_info().call() };
@@ -94,14 +93,14 @@ impl Node {
             } else if let Some(ref mut child) = self.guard {
                 match child.0.try_wait() {
                     Ok(Some(exit)) => {
-                        eprintln!("Error: node crashed, {}", exit);
+                        log::error!("Error: node crashed, {}", exit);
                         process::exit(exit.code().unwrap());
                     }
                     Ok(None) => {
                         std::thread::sleep(std::time::Duration::from_secs(1));
                     }
                     Err(error) => {
-                        eprintln!("Error: node crashed with reason: {}", error);
+                        log::error!("Error: node crashed with reason: {}", error);
                         process::exit(255);
                     }
                 }
@@ -109,14 +108,14 @@ impl Node {
         }
     }
 
-    pub fn connect(&self, node: &Node) {
-        let node_info = node.rpc_client().local_node_info();
+    pub fn connect(&self, outbound_peer: &Node) {
+        let node_info = outbound_peer.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
         let rpc_client = self.rpc_client();
         rpc_client.add_node(
             node_id.clone(),
-            format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port),
+            format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
         );
 
         let result = wait_until(5, || {
@@ -125,7 +124,42 @@ impl Node {
         });
 
         if !result {
-            panic!("Connect timeout, node {}", node_id);
+            panic!("Connect outbound peer timeout, node id: {}", node_id);
+        }
+    }
+
+    // workaround for banned address checking (because we are using loopback address)
+    // 1. checking banned addresses is empty
+    // 2. connecting outbound peer and checking banned addresses is not empty
+    // 3. clear banned addresses
+    pub fn connect_and_wait_ban(&self, outbound_peer: &Node) {
+        let node_info = outbound_peer.rpc_client().local_node_info();
+        let node_id = node_info.node_id;
+        let rpc_client = self.rpc_client();
+
+        assert!(
+            rpc_client.get_banned_addresses().is_empty(),
+            "banned addresses should be empty"
+        );
+        rpc_client.add_node(
+            node_id.clone(),
+            format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
+        );
+
+        let result = wait_until(10, || {
+            let banned_addresses = rpc_client.get_banned_addresses();
+            let result = banned_addresses.is_empty();
+            banned_addresses.into_iter().for_each(|ban_address| {
+                rpc_client.set_ban(ban_address.address, "delete".to_owned(), None, None, None)
+            });
+            result
+        });
+
+        if !result {
+            panic!(
+                "Connect and wait ban outbound peer timeout, node id: {}",
+                node_id
+            );
         }
     }
 
@@ -215,6 +249,17 @@ impl Node {
             .into()
     }
 
+    pub fn get_tip_block_number(&self) -> BlockNumber {
+        self.rpc_client().get_tip_block_number()
+    }
+
+    pub fn get_block_by_number(&self, number: BlockNumber) -> Block {
+        self.rpc_client()
+            .get_block_by_number(number)
+            .expect("block exists")
+            .into()
+    }
+
     pub fn new_block(
         &self,
         bytes_limit: Option<u64>,
@@ -244,7 +289,11 @@ impl Node {
 
     pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> Transaction {
         let always_success_out_point = OutPoint::new_cell(self.genesis_cellbase_hash.clone(), 1);
-        let always_success_script = Script::new(vec![], self.always_success_code_hash.clone());
+        let always_success_script = Script::new(
+            vec![],
+            self.always_success_code_hash.clone(),
+            ScriptHashType::Data,
+        );
 
         TransactionBuilder::default()
             .dep(always_success_out_point)
@@ -304,6 +353,12 @@ impl Node {
             args: Default::default(),
             data: JsonBytes::default(),
         });
+
+        if ::std::env::var("CI").is_ok() {
+            ckb_config.logger.filter =
+                Some(::std::env::var("CKB_LOG").unwrap_or_else(|_| "info".to_string()));
+        }
+
         modify_ckb_config(&mut ckb_config);
         fs::write(
             &ckb_config_path,

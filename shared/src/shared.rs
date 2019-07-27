@@ -3,11 +3,12 @@ use crate::error::SharedError;
 use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::extras::EpochExt;
-use ckb_core::header::{BlockNumber, Header};
+use ckb_core::header::Header;
+use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
-use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainKVStore, ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
@@ -15,7 +16,6 @@ use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use failure::Error as FailureError;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
-use reward_calculator::RewardCalculator;
 use std::sync::Arc;
 
 const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
@@ -92,27 +92,6 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         self.consensus.genesis_hash()
     }
 
-    fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
-        if let Some(header) = self.store.get_block_header(base) {
-            let mut n_number = header.number();
-            let mut index_walk = header;
-            if number > n_number {
-                return None;
-            }
-
-            while n_number > number {
-                if let Some(header) = self.store.get_block_header(&index_walk.parent_hash()) {
-                    index_walk = header;
-                    n_number -= 1;
-                } else {
-                    return None;
-                }
-            }
-            return Some(index_walk);
-        }
-        None
-    }
-
     fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt> {
         self.store()
             .get_block_epoch_index(hash)
@@ -132,7 +111,10 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         )
     }
 
-    fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, Capacity), FailureError> {
+    fn finalize_block_reward(
+        &self,
+        parent: &Header,
+    ) -> Result<(Script, BlockReward), FailureError> {
         RewardCalculator::new(self).block_reward(parent)
     }
 

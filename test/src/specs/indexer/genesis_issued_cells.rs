@@ -2,7 +2,11 @@ use crate::utils::wait_until;
 use crate::{Net, Spec};
 use bytes::Bytes;
 use ckb_chain_spec::{ChainSpec, IssuedCell};
-use ckb_core::{capacity_bytes, script::Script, Capacity};
+use ckb_core::{
+    capacity_bytes,
+    script::{Script, ScriptHashType},
+    Capacity,
+};
 use log::info;
 use numext_fixed_hash::{h256, H256};
 
@@ -10,12 +14,12 @@ pub struct GenesisIssuedCells;
 
 impl Spec for GenesisIssuedCells {
     fn run(&self, net: Net) {
-        info!("Running GenesisIssuedCells");
         let node0 = &net.nodes[0];
 
         let lock_hash = Script {
             args: vec![Bytes::from(vec![1]), Bytes::from(vec![2])],
             code_hash: h256!("0xa1"),
+            hash_type: ScriptHashType::Data,
         }
         .hash();
         info!("{:x}", lock_hash);
@@ -34,10 +38,6 @@ impl Spec for GenesisIssuedCells {
         }
     }
 
-    fn num_nodes(&self) -> usize {
-        1
-    }
-
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|spec_config| {
             spec_config.genesis.issued_cells = vec![IssuedCell {
@@ -45,6 +45,7 @@ impl Spec for GenesisIssuedCells {
                 lock: Script {
                     args: vec![Bytes::from(vec![1]), Bytes::from(vec![2])],
                     code_hash: h256!("0xa1"),
+                    hash_type: ScriptHashType::Data,
                 }
                 .into(),
             }];

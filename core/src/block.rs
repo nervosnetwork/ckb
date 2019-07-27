@@ -2,9 +2,10 @@ use crate::header::{Header, HeaderBuilder};
 use crate::transaction::{ProposalShortId, Transaction};
 use crate::uncle::{uncles_hash, UncleBlock};
 use crate::Capacity;
+use ckb_hash::new_blake2b;
 use ckb_merkle_tree::merkle_root;
+use ckb_occupied_capacity::Result as CapacityResult;
 use fnv::FnvHashSet;
-use hash::new_blake2b;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::ToOwned;
@@ -132,7 +133,7 @@ impl Block {
             + 4
     }
 
-    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+    pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
         self.transactions
             .iter()
             .try_fold(Capacity::zero(), |capacity, tx| {

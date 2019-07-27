@@ -1,4 +1,4 @@
-use build_info::Version;
+use ckb_build_info::Version;
 use sentry::{
     configure_scope, init,
     integrations::panic::register_panic_handler,
@@ -83,6 +83,7 @@ fn before_send(mut event: Event<'static>) -> Option<Event<'static>> {
     } else if ex.starts_with("DBError the database version")
         || ex.contains("kind: AddrInUse")
         || ex.contains("kind: AddrNotAvailable")
+        || ex.contains("IO error: No space left")
     {
         // ignore
         return None;

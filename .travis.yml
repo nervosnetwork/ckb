@@ -1,5 +1,5 @@
 language: rust
-rust: 1.34.2
+rust: 1.36.0
 dist: xenial
 sudo: true
 cache:
@@ -13,7 +13,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.15.0
+    - CKB_CLI_VERSION=v0.17.0
 
 addons:
   apt:
@@ -56,14 +56,18 @@ matrix:
   include:
     # We don't run tests, linters and quck check in fork branch, since they will be covered in PR.
     - name: Tests on macOS
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, trying))'
       os: osx
     - name: Tests on Linux
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
+    - name: PR Integration
+      if: 'tag IS NOT present AND (type = pull_request OR repo != nervosnetwork/ckb)'
+      os: linux
+      script: make CKB_TEST_ARGS="--max-time 1200" integration
     - name: Linters
       env: CACHE_NAME=linters
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
@@ -73,28 +77,28 @@ matrix:
         - make clippy
         - git diff --exit-code Cargo.lock
     - name: Quick Check
-      if: 'tag IS NOT present AND (type = pull_request OR branch = master)'
+      if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
       cache: false
       addons: { apt: { packages: [] } }
       before_install: skip
       before_cache: skip
       script:
-        - make cargo-license
+        - make check-cargotoml
         - make check-dirty-doc
 
     - name: Integration on macOS
       env: CACHE_NAME=integration
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop, staging, trying) OR branch =~ /^rc\//)'
       os: osx
       script: make integration-release
     - name: Integration on Linux
       env: CACHE_NAME=integration
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop) OR branch =~ /^pr-mirror\// OR branch =~ /^rc\//)'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop, staging, trying) OR branch =~ /^rc\//)'
       os: linux
       script: make integration-release
     - name: Code Coverage
-      if: 'tag IS NOT present AND branch = master'
+      if: 'tag IS NOT present AND ((branch = master AND type != pull_request) OR head_branch =~ /^rc\//)'
       os: linux
       install:
         - cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin
@@ -122,7 +126,7 @@ matrix:
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
-      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.34.2
+      env: REL_PKG=x86_64-unknown-linux-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:xenial-rust-1.36.0
       before_install: skip
       before_cache: skip
       cache:
@@ -138,7 +142,7 @@ matrix:
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
       language: ruby
       addons: { apt: { packages: [] } }
-      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.34.2
+      env: REL_PKG=x86_64-unknown-centos-gnu.tar.gz BUILDER_IMAGE=nervos/ckb-docker-builder:centos-7-rust-1.36.0
       before_install: skip
       before_cache: skip
       cache:

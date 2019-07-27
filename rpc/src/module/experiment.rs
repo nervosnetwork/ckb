@@ -4,17 +4,17 @@ use ckb_core::script::Script as CoreScript;
 use ckb_core::transaction::{
     CellOutput as CoreCellOutput, OutPoint as CoreOutPoint, Transaction as CoreTransaction,
 };
+use ckb_dao::DaoCalculator;
+use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, JsonBytes, OutPoint, Script, Transaction};
 use ckb_logger::error;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_verification::ScriptVerifier;
-use dao::calculate_maximum_withdraw;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{Capacity, Cycle, DryRunResult, JsonBytes, OutPoint, Script, Transaction};
 use numext_fixed_hash::H256;
-use serde_derive::Serialize;
+use std::sync::Arc;
 
 #[rpc]
 pub trait ExperimentRpc {
@@ -66,60 +66,15 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
 
     fn calculate_dao_maximum_withdraw(&self, out_point: OutPoint, hash: H256) -> Result<Capacity> {
         let chain_state = self.shared.lock_chain_state();
-        match DaoWithdrawCalculator::new(&chain_state).calculate(out_point.clone().into(), hash) {
-            Ok(capacity) => Ok(capacity),
+        let consensus = &chain_state.consensus();
+        let calculator = DaoCalculator::new(consensus, Arc::clone(chain_state.store()));
+        match calculator.maximum_withdraw(&out_point.into(), &hash) {
+            Ok(capacity) => Ok(Capacity(capacity)),
             Err(err) => {
                 error!("calculate_dao_maximum_withdraw error {:?}", err);
                 Err(Error::internal_error())
             }
         }
-    }
-}
-
-#[derive(Serialize, Debug)]
-pub enum DaoWithdrawError {
-    MissingCell,
-    MissingHeader,
-    CalculationError,
-}
-
-pub(crate) struct DaoWithdrawCalculator<'a, CS> {
-    chain_state: &'a ChainState<CS>,
-}
-
-impl<'a, CS: ChainStore> DaoWithdrawCalculator<'a, CS> {
-    pub(crate) fn new(chain_state: &'a ChainState<CS>) -> Self {
-        Self { chain_state }
-    }
-
-    pub(crate) fn calculate(
-        &self,
-        out_point: CoreOutPoint,
-        withdraw_hash: H256,
-    ) -> ::std::result::Result<Capacity, DaoWithdrawError> {
-        let cell_out_point = out_point.cell.ok_or(DaoWithdrawError::MissingCell)?;
-        let (tx, block_hash) = self
-            .chain_state
-            .store()
-            .get_transaction(&cell_out_point.tx_hash)
-            .ok_or(DaoWithdrawError::MissingCell)?;
-        let deposit_ext = self
-            .chain_state
-            .store()
-            .get_block_ext(&block_hash)
-            .ok_or(DaoWithdrawError::MissingHeader)?;
-        let withdraw_ext = self
-            .chain_state
-            .store()
-            .get_block_ext(&withdraw_hash)
-            .ok_or(DaoWithdrawError::MissingHeader)?;
-
-        let output = &tx.outputs()[cell_out_point.index as usize];
-        let withdraw_capacity =
-            calculate_maximum_withdraw(&output, &deposit_ext.dao_stats, &withdraw_ext.dao_stats)
-                .map_err(|_| DaoWithdrawError::CalculationError)?;
-
-        Ok(Capacity(withdraw_capacity))
     }
 }
 

@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::difficulty::difficulty_to_target;
 use ckb_core::header::{BlockNumber, Header};
-use hash::blake2b_256;
+use ckb_hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -80,7 +80,7 @@ impl<T: Any> AsAny for T {
 #[cfg(test)]
 mod test {
     use super::*;
-    use hash::blake2b_256;
+    use ckb_hash::blake2b_256;
     #[test]
     fn test_pow_message() {
         let zero_hash: H256 = blake2b_256(&[]).into();

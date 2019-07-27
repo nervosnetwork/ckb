@@ -1,9 +1,9 @@
 use super::parse_hex_data;
 use ckb_app_config::{cli, ExitCode};
+use ckb_crypto::secp::Pubkey;
+use ckb_hash::blake2b_256;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use clap::ArgMatches;
-use crypto::secp::Pubkey;
-use hash::blake2b_256;
 use numext_fixed_hash::H160;
 
 pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {

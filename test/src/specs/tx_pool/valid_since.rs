@@ -16,7 +16,6 @@ pub struct ValidSince;
 // TODO add cases verify compact block(forks) including transaction of which since != 0
 impl Spec for ValidSince {
     fn run(&self, net: Net) {
-        info!("Running ValidSince");
         self.test_since_relative_block_number(&net.nodes[0]);
         self.test_since_absolute_block_number(&net.nodes[0]);
         self.test_since_relative_median_time(&net.nodes[0]);
@@ -24,10 +23,6 @@ impl Spec for ValidSince {
 
         // TODO: Uncomment this case after proposed/pending pool tip verfiry logic changing
         // self.test_since_and_proposal(&net.nodes[1]);
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
     }
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
@@ -43,6 +38,8 @@ impl ValidSince {
         DEFAULT_TX_PROPOSAL_WINDOW.0 + 2
     }
 
+    // (current, current+cellbase_maturity): Err(InvalidTx(CellbaseImmaturity))
+    // [current+cellbase_maturity, current+relative_number): Err(InvalidTx(Immature))
     pub fn test_since_relative_block_number(&self, node: &Node) {
         node.generate_block();
         let relative: BlockNumber = self.cellbase_maturity() + 5;
@@ -53,7 +50,7 @@ impl ValidSince {
         };
 
         // Failed to send transaction since CellbaseImmaturity
-        for _ in 0..self.cellbase_maturity() {
+        for _ in 1..self.cellbase_maturity() {
             assert_send_transaction_fail(node, &transaction, "InvalidTx(CellbaseImmaturity)");
             node.generate_block();
         }
@@ -76,6 +73,8 @@ impl ValidSince {
         );
     }
 
+    // (current, current+cellbase_maturity): Err(InvalidTx(CellbaseImmaturity))
+    // [current+cellbase_maturity, absolute_number): Err(InvalidTx(Immature))
     pub fn test_since_absolute_block_number(&self, node: &Node) {
         node.generate_block();
         let absolute: BlockNumber =
@@ -87,14 +86,14 @@ impl ValidSince {
         };
 
         // Failed to send transaction since CellbaseImmaturity
-        for _ in 0..self.cellbase_maturity() {
+        for _ in 1..self.cellbase_maturity() {
             assert_send_transaction_fail(node, &transaction, "InvalidTx(CellbaseImmaturity)");
             node.generate_block();
         }
 
         // Failed to send transaction since SinceImmaturity
         let tip_number = node.rpc_client().get_tip_block_number();
-        for _ in tip_number..absolute {
+        for _ in tip_number + 1..absolute {
             assert_send_transaction_fail(node, &transaction, "InvalidTx(Immature)");
             node.generate_block();
         }
@@ -136,7 +135,7 @@ impl ValidSince {
             })
             .collect();
         timestamps.sort();
-        let median_time = timestamps[timestamps.len() / 2];
+        let median_time = timestamps[timestamps.len() >> 1];
 
         // Absolute since timestamp in seconds
         let median_time_seconds = (median_time - old_median_time) / 1000;
@@ -183,7 +182,7 @@ impl ValidSince {
             })
             .collect();
         timestamps.sort();
-        let median_time = timestamps[timestamps.len() / 2];
+        let median_time = timestamps[timestamps.len() >> 1];
 
         // Absolute since timestamp in seconds
         let median_time_seconds = median_time / 1000;

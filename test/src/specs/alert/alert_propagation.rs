@@ -3,13 +3,13 @@ use crate::utils::wait_until;
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_core::{alert::AlertBuilder, Bytes};
-use ckb_network_alert::config::Config as AlertConfig;
+use ckb_crypto::secp::{Message, Privkey};
+use ckb_network_alert::config::SignatureConfig as AlertSignatureConfig;
 use ckb_rpc::Module as RPCModule;
-use crypto::secp::{Message, Privkey};
 use log::info;
 
 pub struct AlertPropagation {
-    alert_config: AlertConfig,
+    alert_config: AlertSignatureConfig,
     privkeys: Vec<Privkey>,
 }
 
@@ -25,8 +25,6 @@ impl Default for AlertPropagation {
 
 impl Spec for AlertPropagation {
     fn run(&self, net: Net) {
-        info!("Running AlertPropagation");
-
         let node0 = &net.nodes[0];
         let warning1 = "pretend we are in dangerous status";
         let id1 = 42;
@@ -116,10 +114,9 @@ impl Spec for AlertPropagation {
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         let alert_config = self.alert_config.to_owned();
         Box::new(move |config| {
-            config.network.connect_outbound_interval_secs = 1;
             config.network.discovery_local_address = true;
             // set test alert config
-            config.alert = Some(alert_config.clone());
+            config.alert_signature = Some(alert_config.clone());
             // enable alert RPC
             config.rpc.modules.push(RPCModule::Alert);
         })

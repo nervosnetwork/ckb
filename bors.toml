@@ -1,0 +1,10 @@
+status = [
+  "continuous-integration/travis-ci/push"
+]
+
+pr_status = [
+  "continuous-integration/travis-ci/pull"
+]
+
+timeout_sec = 7200
+delete_merged_branches = true

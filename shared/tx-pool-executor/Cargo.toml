@@ -1,6 +1,6 @@
 [package]
 name = "ckb-tx-pool-executor"
-version = "0.16.0"
+version = "0.17.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -20,4 +20,4 @@ ckb-db = { path = "../../db" }
 ckb-chain-spec = { path = "../../spec" }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 faketime = "0.2"
-test-chain-utils = { path = "../../util/test-chain-utils" }
+ckb-test-chain-utils = { path = "../../util/test-chain-utils" }

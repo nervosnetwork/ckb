@@ -20,13 +20,13 @@ fn canonicalize_data(data: &str) -> &str {
 
 pub fn parse_hex_data(data: &str) -> Result<Vec<u8>, ExitCode> {
     let data = canonicalize_data(data);
-    if data.len() % 2 != 0 {
+    if data.len() & 0x1 != 0 {
         eprintln!("Malformed hex string: {}, error: length is odd", data);
         return Err(ExitCode::Cli);
     }
 
     let mut decoded = vec![];
-    decoded.resize(data.len() / 2, 0);
+    decoded.resize(data.len() >> 1, 0);
     hex_decode(data.as_bytes(), decoded.as_mut_slice()).map_err(|err| {
         eprintln!("Malformed hex string: {}, error: {}", data, err);
         ExitCode::Cli

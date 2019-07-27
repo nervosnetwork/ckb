@@ -1030,6 +1030,7 @@ impl<'a> Header<'a> {
       builder.add_nonce(args.nonce);
       builder.add_number(args.number);
       builder.add_timestamp(args.timestamp);
+      if let Some(x) = args.dao { builder.add_dao(x); }
       builder.add_uncles_count(args.uncles_count);
       if let Some(x) = args.uncles_hash { builder.add_uncles_hash(x); }
       if let Some(x) = args.proof { builder.add_proof(x); }
@@ -1055,6 +1056,7 @@ impl<'a> Header<'a> {
     pub const VT_UNCLES_HASH: flatbuffers::VOffsetT = 24;
     pub const VT_UNCLES_COUNT: flatbuffers::VOffsetT = 26;
     pub const VT_EPOCH: flatbuffers::VOffsetT = 28;
+    pub const VT_DAO: flatbuffers::VOffsetT = 30;
 
   #[inline]
   pub fn version(&self) -> u32 {
@@ -1108,6 +1110,10 @@ impl<'a> Header<'a> {
   pub fn epoch(&self) -> u64 {
     self._tab.get::<u64>(Header::VT_EPOCH, Some(0)).unwrap()
   }
+  #[inline]
+  pub fn dao(&self) -> Option<Bytes<'a>> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(Header::VT_DAO, None)
+  }
 }
 
 pub struct HeaderArgs<'a> {
@@ -1124,6 +1130,7 @@ pub struct HeaderArgs<'a> {
     pub uncles_hash: Option<&'a  H256>,
     pub uncles_count: u32,
     pub epoch: u64,
+    pub dao: Option<flatbuffers::WIPOffset<Bytes<'a >>>,
 }
 impl<'a> Default for HeaderArgs<'a> {
     #[inline]
@@ -1142,6 +1149,7 @@ impl<'a> Default for HeaderArgs<'a> {
             uncles_hash: None,
             uncles_count: 0,
             epoch: 0,
+            dao: None,
         }
     }
 }
@@ -1201,6 +1209,10 @@ impl<'a: 'b, 'b> HeaderBuilder<'a, 'b> {
   #[inline]
   pub fn add_epoch(&mut self, epoch: u64) {
     self.fbb_.push_slot::<u64>(Header::VT_EPOCH, epoch, 0);
+  }
+  #[inline]
+  pub fn add_dao(&mut self, dao: flatbuffers::WIPOffset<Bytes<'b >>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Bytes>>(Header::VT_DAO, dao);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> HeaderBuilder<'a, 'b> {
@@ -1972,11 +1984,13 @@ impl<'a> Script<'a> {
       let mut builder = ScriptBuilder::new(_fbb);
       if let Some(x) = args.code_hash { builder.add_code_hash(x); }
       if let Some(x) = args.args { builder.add_args(x); }
+      builder.add_hash_type(args.hash_type);
       builder.finish()
     }
 
     pub const VT_ARGS: flatbuffers::VOffsetT = 4;
     pub const VT_CODE_HASH: flatbuffers::VOffsetT = 6;
+    pub const VT_HASH_TYPE: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub fn args(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
@@ -1986,11 +2000,16 @@ impl<'a> Script<'a> {
   pub fn code_hash(&self) -> Option<&'a H256> {
     self._tab.get::<H256>(Script::VT_CODE_HASH, None)
   }
+  #[inline]
+  pub fn hash_type(&self) -> u8 {
+    self._tab.get::<u8>(Script::VT_HASH_TYPE, Some(0)).unwrap()
+  }
 }
 
 pub struct ScriptArgs<'a> {
     pub args: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
     pub code_hash: Option<&'a  H256>,
+    pub hash_type: u8,
 }
 impl<'a> Default for ScriptArgs<'a> {
     #[inline]
@@ -1998,6 +2017,7 @@ impl<'a> Default for ScriptArgs<'a> {
         ScriptArgs {
             args: None,
             code_hash: None,
+            hash_type: 0,
         }
     }
 }
@@ -2013,6 +2033,10 @@ impl<'a: 'b, 'b> ScriptBuilder<'a, 'b> {
   #[inline]
   pub fn add_code_hash(&mut self, code_hash: &'b  H256) {
     self.fbb_.push_slot_always::<&H256>(Script::VT_CODE_HASH, code_hash);
+  }
+  #[inline]
+  pub fn add_hash_type(&mut self, hash_type: u8) {
+    self.fbb_.push_slot::<u8>(Script::VT_HASH_TYPE, hash_type, 0);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ScriptBuilder<'a, 'b> {

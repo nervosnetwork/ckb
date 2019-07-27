@@ -6,16 +6,15 @@
 
 use crate::network_group::MultiaddrExt;
 use crate::peer_store::sqlite::{db, DBError};
-use crate::peer_store::types::{PeerAddr, PeerInfo};
+use crate::peer_store::types::{multiaddr_to_ip_network, BannedAddress, PeerAddr, PeerInfo};
 use crate::peer_store::{
     Behaviour, Multiaddr, PeerId, PeerScoreConfig, PeerStore, ReportResult, Status,
 };
-use crate::peer_store::{
-    ADDR_TIMEOUT_MS, BAN_LIST_CLEAR_EXPIRES_SIZE, DEFAULT_ADDRS, MAX_ADDRS, PEER_STORE_LIMIT,
-};
+use crate::peer_store::{ADDR_TIMEOUT_MS, DEFAULT_ADDRS, MAX_ADDRS, PEER_STORE_LIMIT};
 use crate::SessionType;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashMap;
+use ipnetwork::IpNetwork;
 use rand::{seq::SliceRandom, thread_rng};
 use rusqlite::Connection;
 use std::time::Duration;
@@ -23,7 +22,7 @@ use std::time::Duration;
 pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     peer_score_config: PeerScoreConfig,
-    ban_list: FnvHashMap<Vec<u8>, u64>,
+    banned_addresses: FnvHashMap<IpNetwork, u64>,
     pub(crate) conn: Connection,
 }
 
@@ -31,7 +30,7 @@ impl SqlitePeerStore {
     pub fn new(conn: Connection, peer_score_config: PeerScoreConfig) -> Self {
         let mut peer_store = SqlitePeerStore {
             bootnodes: Vec::new(),
-            ban_list: Default::default(),
+            banned_addresses: Default::default(),
             conn,
             peer_score_config,
         };
@@ -57,7 +56,7 @@ impl SqlitePeerStore {
     fn prepare(&mut self) -> Result<(), DBError> {
         self.create_tables()?;
         self.reset_status()?;
-        self.load_banlist()
+        self.init_banned_addresses()
     }
 
     fn create_tables(&self) -> Result<(), DBError> {
@@ -68,49 +67,62 @@ impl SqlitePeerStore {
         db::PeerInfoDB::reset_status(&self.conn)
     }
 
-    fn load_banlist(&mut self) -> Result<(), DBError> {
-        self.clear_expires_banned_ip()?;
-        let now = unix_time_as_millis();
-        let ban_records = db::get_ban_records(&self.conn, now)?;
-        for (ip, ban_time) in ban_records {
-            self.ban_list.insert(ip, ban_time);
-        }
+    fn init_banned_addresses(&mut self) -> Result<(), DBError> {
+        db::clear_expires_banned_addresses(&self.conn)?;
+        self.banned_addresses = db::get_banned_addresses(&self.conn)?
+            .iter()
+            .map(|banned_address| (banned_address.address, banned_address.ban_until))
+            .collect();
         Ok(())
     }
 
-    fn ban_ip(&mut self, addr: &Multiaddr, timeout: Duration) {
-        let ip = {
-            match addr.extract_ip_addr_binary() {
-                Some(binary) => binary,
-                None => return,
-            }
-        };
-        let ban_time = unix_time_as_millis() + (timeout.as_millis() as u64);
-        db::insert_ban_record(&self.conn, &ip, ban_time).expect("ban ip");
-        self.ban_list.insert(ip, ban_time);
-        if self.ban_list.len() > BAN_LIST_CLEAR_EXPIRES_SIZE {
-            self.clear_expires_banned_ip().expect("clear ban list");
+    fn ban_ip(&mut self, addr: &Multiaddr, duration: Duration) {
+        if let Some(ip_network) = multiaddr_to_ip_network(addr) {
+            let now = unix_time_as_millis();
+            let ban_until = now + (duration.as_millis() as u64);
+            let banned_address = BannedAddress {
+                address: ip_network,
+                ban_reason: "".to_owned(),
+                ban_until,
+                created_at: now,
+            };
+            self.ban_address(banned_address);
         }
+    }
+
+    fn ban_address(&mut self, banned_address: BannedAddress) {
+        db::insert_ban(&self.conn, &banned_address).expect("ban address");
+        self.banned_addresses
+            .insert(banned_address.address, banned_address.ban_until);
+        self.clear_expires_banned_addresses()
+            .expect("clear ban list");
     }
 
     fn is_addr_banned(&self, addr: &Multiaddr) -> bool {
-        let ip = match addr.extract_ip_addr_binary() {
-            Some(ip) => ip,
-            None => return false,
-        };
         let now = unix_time_as_millis();
-        match self.ban_list.get(&ip) {
-            Some(ban_time) => *ban_time > now,
-            None => false,
+
+        if let Some(ip_network) = multiaddr_to_ip_network(addr) {
+            if let Some(ban_until) = self.banned_addresses.get(&ip_network) {
+                if ban_until.gt(&now) {
+                    return true;
+                }
+            }
         }
+
+        if let Some(ip) = addr.extract_ip_addr() {
+            return self
+                .banned_addresses
+                .iter()
+                .any(|(ip_network, ban_until)| ban_until.gt(&now) && ip_network.contains(ip));
+        }
+        false
     }
 
-    fn clear_expires_banned_ip(&mut self) -> Result<(), DBError> {
+    fn clear_expires_banned_addresses(&mut self) -> Result<(), DBError> {
+        db::clear_expires_banned_addresses(&self.conn)?;
         let now = unix_time_as_millis();
-        let ips = db::clear_expires_banned_ip(&self.conn, now)?;
-        for ip in ips {
-            self.ban_list.remove(&ip);
-        }
+        self.banned_addresses
+            .retain(|_, &mut ban_until| ban_until.gt(&now));
         Ok(())
     }
 
@@ -380,6 +392,25 @@ impl PeerStore for SqlitePeerStore {
 
     fn is_banned(&self, addr: &Multiaddr) -> bool {
         self.is_addr_banned(addr)
+    }
+
+    fn get_banned_addresses(&self) -> Vec<BannedAddress> {
+        db::get_banned_addresses(&self.conn).expect("get banned addresses")
+    }
+
+    fn insert_ban(&mut self, address: IpNetwork, ban_until: u64, ban_reason: &str) {
+        let banned_address = BannedAddress {
+            address,
+            ban_reason: ban_reason.to_owned(),
+            ban_until,
+            created_at: unix_time_as_millis(),
+        };
+        self.ban_address(banned_address);
+    }
+
+    fn delete_ban(&mut self, address: &IpNetwork) {
+        db::delete_ban(&self.conn, address).expect("delete ban address");
+        self.banned_addresses.remove(&address);
     }
 
     fn peer_score_config(&self) -> PeerScoreConfig {

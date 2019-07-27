@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.16.0"
+version = "0.17.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -14,13 +14,14 @@ fnv = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
 ckb-util = { path = "../util" }
-stop-handler = { path = "../util/stop-handler" }
+ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-logger = { path = "../util/logger" }
 bytes = "0.4.12"
 tokio = "0.1.18"
+tokio-threadpool = "0.1"
 futures = "0.1"
 crossbeam-channel = "0.3"
-p2p = { version="0.2.1", package="tentacle" }
+p2p = { version="0.2.3", package="tentacle" }
 p2p-ping = { version="0.3.5", package="tentacle-ping" }
 p2p-discovery = { version="0.2.5", package="tentacle-discovery" }
 p2p-identify = { version="0.2.6", package="tentacle-identify" }
@@ -31,13 +32,14 @@ generic-channel = { version = "0.2.0", features = ["all"] }
 bs58 = "0.2.0"
 sentry = "^0.15.4"
 faster-hex = "0.3"
-hash = {path = "../util/hash"}
+ckb-hash = {path = "../util/hash"}
 secp256k1 = {version = "0.12.2" }
 resolve = "0.2.0"
-build-info = {path = "../util/build-info"}
+ckb-build-info = {path = "../util/build-info"}
 num_cpus = "1.10"
 snap = "0.2"
 ckb-protocol = { path = "../protocol" }
+ipnetwork = "0.14"
 
 [dev-dependencies]
 criterion = "0.2"

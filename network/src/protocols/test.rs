@@ -11,7 +11,11 @@ use crate::{
     NetworkConfig, NetworkState,
 };
 
-use std::{sync::Arc, thread, time::Duration};
+use std::{
+    sync::Arc,
+    thread,
+    time::{Duration, Instant},
+};
 
 use futures::{
     sync::mpsc::{self, channel},
@@ -49,16 +53,6 @@ impl Node {
         self.connected_sessions().len()
     }
 
-    fn connected_protocols(&self, id: SessionId) -> Vec<ProtocolId> {
-        self.network_state
-            .peer_registry
-            .read()
-            .peers()
-            .get(&id)
-            .map(|peer| peer.protocols.keys().cloned().collect())
-            .unwrap_or_default()
-    }
-
     fn connected_sessions(&self) -> Vec<SessionId> {
         self.network_state
             .peer_registry
@@ -67,6 +61,16 @@ impl Node {
             .keys()
             .cloned()
             .collect()
+    }
+
+    fn connected_protocols(&self, id: SessionId) -> Vec<ProtocolId> {
+        self.network_state
+            .peer_registry
+            .read()
+            .peers()
+            .get(&id)
+            .map(|peer| peer.protocols.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     fn open_protocols(&self, id: SessionId, protocol: TargetProtocol) {
@@ -87,9 +91,9 @@ fn net_service_start(name: String) -> Node {
         public_addresses: vec![],
         bootnodes: vec![],
         dns_seeds: vec![],
-        reserved_peers: vec![],
-        reserved_only: false,
-        max_peers: 10,
+        whitelist_peers: vec![],
+        whitelist_only: false,
+        max_peers: 19,
         max_outbound_peers: 5,
         path: tempdir()
             .expect("create tempdir failed")
@@ -100,6 +104,8 @@ fn net_service_start(name: String) -> Node {
         connect_outbound_interval_secs: 1,
         discovery_local_address: true,
         upnp: false,
+        bootnode_mode: true,
+        max_send_buffer: None,
     };
 
     let network_state =
@@ -211,7 +217,11 @@ fn net_service_start(name: String) -> Node {
     let control = p2p_service.control().clone();
 
     thread::spawn(move || {
-        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let num_threads = ::std::cmp::max(num_cpus::get(), 4);
+        let mut rt = tokio::runtime::Builder::new()
+            .core_threads(num_threads)
+            .build()
+            .unwrap();
         rt.spawn(disc_service);
         rt.spawn(ping_service.for_each(|_| Ok(())));
         rt.block_on(p2p_service.for_each(|_| Ok(())))
@@ -224,40 +234,42 @@ fn net_service_start(name: String) -> Node {
     }
 }
 
-fn assert_help(node: &Node, expect_num: usize, step_second: u64, max_round: u8) {
-    let mut max = max_round;
-    loop {
-        if node.session_num() == expect_num {
-            break;
-        } else {
-            if max == 0 {
-                panic!("test fails because max round become zero")
-            }
-            max -= 1;
-            thread::sleep(Duration::from_secs(step_second));
+pub fn wait_until<F>(secs: u64, f: F) -> bool
+where
+    F: Fn() -> bool,
+{
+    let start = Instant::now();
+    let timeout = Duration::new(secs, 0);
+    while Instant::now().duration_since(start) <= timeout {
+        if f() {
+            return true;
         }
+        thread::sleep(Duration::new(1, 0));
+    }
+    false
+}
+
+fn wait_connect_state(node: &Node, expect_num: usize) {
+    if !wait_until(10, || node.session_num() == expect_num) {
+        panic!(
+            "node session number is {}, not {}",
+            node.session_num(),
+            expect_num
+        )
     }
 }
 
+#[allow(clippy::block_in_if_condition_stmt)]
 fn wait_discovery(node: &Node) {
-    let mut max = 10;
-    loop {
-        if node
-            .network_state
+    if !wait_until(10, || {
+        node.network_state
             .peer_store
             .lock()
             .peers_to_attempt(20)
             .len()
             >= 2
-        {
-            break;
-        } else {
-            if max == 0 {
-                panic!("test fails because max round become zero")
-            }
-            max -= 1;
-            thread::sleep(Duration::from_secs(1));
-        }
+    }) {
+        panic!("discovery can't find other node")
     }
 }
 
@@ -269,22 +281,27 @@ fn test_identify_behavior() {
 
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
-    assert_help(&node1, 0, 1, 10);
-    assert_help(&node2, 0, 1, 10);
+    wait_connect_state(&node1, 0);
+    wait_connect_state(&node2, 0);
 
     node1.dial(&node3, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
-    assert_help(&node1, 1, 1, 10);
-    assert_help(&node3, 1, 1, 10);
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node3, 1);
 
     node2.dial(&node3, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
-    assert_help(&node2, 0, 1, 10);
-    assert_help(&node3, 1, 1, 10);
+    wait_connect_state(&node2, 0);
+    wait_connect_state(&node3, 1);
 
     let sessions = node3.connected_sessions();
     assert_eq!(sessions.len(), 1);
 
+    if !wait_until(10, || node3.connected_protocols(sessions[0]).len() == 3) {
+        panic!("identify can't open other protocols")
+    }
+
+    // FIXME async opening protocols, cann't assert it
     let mut protocols = node3.connected_protocols(sessions[0]);
     protocols.sort();
 
@@ -303,22 +320,18 @@ fn test_feeler_behavior() {
     let node1 = net_service_start("/test/1".to_string());
     let node2 = net_service_start("/test/1".to_string());
 
-    node1.dial(&node2, DialProtocol::Single(FEELER_PROTOCOL_ID.into()));
-
-    thread::sleep(Duration::from_secs(1));
-
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
-    assert_help(&node1, 1, 1, 10);
-    assert_help(&node2, 1, 1, 10);
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node2, 1);
 
     node2.open_protocols(
         node2.connected_sessions()[0],
         TargetProtocol::Single(FEELER_PROTOCOL_ID.into()),
     );
 
-    assert_help(&node1, 0, 1, 10);
-    assert_help(&node2, 0, 1, 10);
+    wait_connect_state(&node1, 0);
+    wait_connect_state(&node2, 0);
 }
 
 #[test]
@@ -330,9 +343,9 @@ fn test_discovery_behavior() {
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
     node3.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
-    assert_help(&node1, 1, 1, 10);
-    assert_help(&node2, 2, 1, 10);
-    assert_help(&node3, 1, 1, 10);
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node2, 2);
+    wait_connect_state(&node3, 1);
 
     wait_discovery(&node3);
 
@@ -359,9 +372,9 @@ fn test_discovery_behavior() {
 
     node3.dial_addr(addr, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
-    assert_help(&node1, 2, 1, 10);
-    assert_help(&node2, 2, 1, 10);
-    assert_help(&node3, 2, 1, 10);
+    wait_connect_state(&node1, 2);
+    wait_connect_state(&node2, 2);
+    wait_connect_state(&node3, 2);
 }
 
 #[test]
@@ -371,8 +384,8 @@ fn test_dial_all() {
 
     node1.dial(&node2, DialProtocol::All);
 
-    assert_help(&node1, 0, 1, 10);
-    assert_help(&node1, 0, 1, 10);
+    wait_connect_state(&node1, 0);
+    wait_connect_state(&node1, 0);
 }
 
 #[test]
@@ -382,19 +395,44 @@ fn test_ban() {
 
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
-    assert_help(&node1, 1, 1, 10);
-    assert_help(&node2, 1, 1, 10);
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node2, 1);
 
     node1.ban_all();
 
-    assert_help(&node1, 0, 1, 10);
-    assert_help(&node2, 0, 1, 10);
+    wait_connect_state(&node1, 0);
+    wait_connect_state(&node2, 0);
 
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
     node1.dial(&node2, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
 
-    assert_help(&node1, 0, 1, 10);
-    assert_help(&node2, 0, 1, 10);
+    wait_connect_state(&node1, 0);
+    wait_connect_state(&node2, 0);
+}
+
+#[test]
+fn test_bootnode_mode_inbound_eviction() {
+    let node1 = net_service_start("/test/1".to_string());
+    let node2 = net_service_start("/test/1".to_string());
+    let node3 = net_service_start("/test/1".to_string());
+    let node4 = net_service_start("/test/1".to_string());
+    let node5 = net_service_start("/test/1".to_string());
+    let node6 = net_service_start("/test/1".to_string());
+
+    node2.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node3.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+    node4.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+
+    // Normal connection
+    wait_connect_state(&node1, 3);
+    node5.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+
+    wait_connect_state(&node1, 4);
+    // Arrival eviction condition 4 + 10, eviction 2
+    node6.dial(&node1, DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()));
+
+    // Normal connection, 2 + 1
+    wait_connect_state(&node1, 3);
 }

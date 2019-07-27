@@ -1,6 +1,6 @@
 use crate::relayer::Relayer;
 use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_logger::warn_target;
+use ckb_logger::{debug_target, warn_target};
 use ckb_network::CKBProtocolContext;
 use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
 use ckb_store::ChainStore;
@@ -63,20 +63,29 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
             }
         }
 
-        self.nc.future_task({
-            let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
-            Box::new(lazy(move || -> FutureResult<(), ()> {
-                let ret = tx_pool_executor.verify_and_add_txs_to_pool(asked_txs);
-                if ret.is_err() {
-                    warn_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "BlockProposal add_tx_to_pool error {:?}",
-                        ret
-                    )
-                }
-                futures::future::ok(())
-            }))
-        });
+        if let Err(err) = self.nc.future_task(
+            {
+                let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
+                Box::new(lazy(move || -> FutureResult<(), ()> {
+                    let ret = tx_pool_executor.verify_and_add_txs_to_pool(asked_txs);
+                    if ret.is_err() {
+                        warn_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "BlockProposal add_tx_to_pool error {:?}",
+                            ret
+                        )
+                    }
+                    futures::future::ok(())
+                }))
+            },
+            true,
+        ) {
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "relayer send future task error: {:?}",
+                err,
+            );
+        }
         Ok(())
     }
 }

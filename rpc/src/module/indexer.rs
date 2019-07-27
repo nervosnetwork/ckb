@@ -1,7 +1,7 @@
 use ckb_indexer::IndexerStore;
+use ckb_jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Unsigned};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Unsigned};
 use numext_fixed_hash::H256;
 
 #[rpc]

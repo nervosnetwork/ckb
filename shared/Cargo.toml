@@ -1,6 +1,6 @@
 [package]
 name = "ckb-shared"
-version = "0.16.0"
+version = "0.17.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
@@ -22,8 +22,8 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }
 ckb-script = { path = "../script" }
-dao-utils = { path = "../util/dao/utils" }
-reward-calculator = { path = "../util/reward-calculator" }
+ckb-dao = { path = "../util/dao" }
+ckb-reward-calculator = { path = "../util/reward-calculator" }
 
 [dev-dependencies]
 env_logger = "0.6"
@@ -32,3 +32,4 @@ rand = "0.6"
 serde_json = "1.0"
 ckb-chain = { path = "../chain" }
 ckb-notify = { path = "../notify" }
+ckb-test-chain-utils = { path = "../util/test-chain-utils" }

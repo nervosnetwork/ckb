@@ -9,10 +9,10 @@ use ckb_core::transaction::Transaction;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber, Capacity, EpochNumber};
+use ckb_dao::DaoCalculator;
 use ckb_logger::error_target;
-use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
+use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use dao_utils::calculate_transaction_fee;
 use fnv::FnvHashSet;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -41,19 +41,15 @@ impl<'a, P: ChainProvider> BlockMedianTimeContext for ForkContext<'a, P> {
         self.provider.consensus().median_time_block_count() as u64
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
         let header = self
             .get_block_header(block_hash)
             .expect("[ForkContext] blocks used for median time exist");
-        (header.timestamp(), header.parent_hash().to_owned())
-    }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.attached_blocks
-            .iter()
-            .find(|b| b.header().number() == block_number)
-            .and_then(|b| Some(b.header().hash().to_owned()))
-            .or_else(|| self.provider.store().get_block_hash(block_number))
+        (
+            header.timestamp(),
+            header.number(),
+            header.parent_hash().to_owned(),
+        )
     }
 }
 
@@ -145,6 +141,7 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
 
         let mut block_hash = self
             .provider
+            .store()
             .get_ancestor(self.block.header().parent_hash(), proposal_end)
             .map(|h| h.hash().to_owned())
             .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
@@ -232,43 +229,24 @@ where
 
     pub fn verify(&self) -> Result<Vec<Capacity>, Error> {
         let cellbase = &self.resolved[0];
-        if (self.parent.number() + 1) > self.provider.consensus().reserve_number() {
-            let (target_lock, block_reward) = self
-                .provider
-                .finalize_block_reward(self.parent)
-                .map_err(|_| Error::CannotFetchBlockReward)?;
-            if cellbase.transaction.outputs_capacity()? != block_reward {
-                return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
-            }
-            if cellbase.transaction.outputs()[0].lock != target_lock {
-                return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
-            }
-        } else {
-            if cellbase.transaction.outputs_capacity()?
-                != self
-                    .provider
-                    .consensus()
-                    .genesis_epoch_ext()
-                    .block_reward(self.parent.number() + 1)
-                    .map_err(|_| Error::CannotFetchBlockReward)?
-            {
-                return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
-            }
-            if &cellbase.transaction.outputs()[0].lock != self.provider.consensus().bootstrap_lock()
-            {
-                return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
-            }
-        };
+        let (target_lock, block_reward) = self
+            .provider
+            .finalize_block_reward(self.parent)
+            .map_err(|_| Error::CannotFetchBlockReward)?;
+        if cellbase.transaction.outputs_capacity()? != block_reward.total {
+            return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
+        }
+        if cellbase.transaction.outputs()[0].lock != target_lock {
+            return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
+        }
         let txs_fees = self
             .resolved
             .iter()
             .skip(1)
             .map(|tx| {
-                calculate_transaction_fee(
-                    &DataLoaderWrapper::new(Arc::clone(self.provider.store())),
-                    &tx,
-                )
-                .ok_or(Error::FeeCalculation)
+                DaoCalculator::new(self.provider.consensus(), Arc::clone(self.provider.store()))
+                    .transaction_fee(&tx)
+                    .map_err(|_| Error::FeeCalculation)
             })
             .collect::<Result<Vec<Capacity>, Error>>()?;
 
@@ -276,10 +254,59 @@ where
     }
 }
 
+struct DaoHeaderVerifier<'a, P> {
+    provider: &'a P,
+    resolved: &'a [ResolvedTransaction<'a>],
+    parent: &'a Header,
+    header: &'a Header,
+}
+
+impl<'a, P> DaoHeaderVerifier<'a, P>
+where
+    P: ChainProvider,
+{
+    pub fn new(
+        provider: &'a P,
+        resolved: &'a [ResolvedTransaction<'a>],
+        parent: &'a Header,
+        header: &'a Header,
+    ) -> Self {
+        DaoHeaderVerifier {
+            provider,
+            resolved,
+            parent,
+            header,
+        }
+    }
+
+    pub fn verify(&self) -> Result<(), Error> {
+        let dao = DaoCalculator::new(
+            &self.provider.consensus(),
+            Arc::clone(self.provider.store()),
+        )
+        .dao_field(&self.resolved, self.parent)
+        .map_err(|e| {
+            error_target!(
+                crate::LOG_TARGET,
+                "Error generating dao data for block {:x}: {:?}",
+                self.header.hash(),
+                e
+            );
+            Error::DAOGeneration
+        })?;
+
+        if dao != self.header.dao() {
+            return Err(Error::InvalidDAO);
+        }
+        Ok(())
+    }
+}
+
 struct BlockTxsVerifier<'a, P> {
     context: &'a ForkContext<'a, P>,
     block_number: BlockNumber,
     epoch_number: EpochNumber,
+    parent_hash: &'a H256,
     resolved: &'a [ResolvedTransaction<'a>],
 }
 
@@ -292,12 +319,14 @@ where
         context: &'a ForkContext<'a, P>,
         block_number: BlockNumber,
         epoch_number: EpochNumber,
+        parent_hash: &'a H256,
         resolved: &'a [ResolvedTransaction<'a>],
     ) -> BlockTxsVerifier<'a, P> {
         BlockTxsVerifier {
             context,
             block_number,
             epoch_number,
+            parent_hash,
             resolved,
         }
     }
@@ -316,6 +345,7 @@ where
                         self.context,
                         self.block_number,
                         self.epoch_number,
+                        self.parent_hash,
                         self.context.provider.consensus(),
                     )
                     .verify()
@@ -327,6 +357,7 @@ where
                         self.context,
                         self.block_number,
                         self.epoch_number,
+                        self.parent_hash,
                         self.context.provider.consensus(),
                         self.context.provider.script_config(),
                         self.context.provider.store(),
@@ -401,12 +432,15 @@ where
         UnclesVerifier::new(uncle_verifier_context, block).verify()?;
 
         CommitVerifier::new(&self.context.provider, block).verify()?;
+        DaoHeaderVerifier::new(&self.context.provider, resolved, &parent, &block.header())
+            .verify()?;
         let txs_fees = RewardVerifier::new(&self.context.provider, resolved, &parent).verify()?;
 
         let cycles = BlockTxsVerifier::new(
             self.context,
             block.header().number(),
             block.header().epoch(),
+            block.header().parent_hash(),
             resolved,
         )
         .verify(txs_verify_cache)?;

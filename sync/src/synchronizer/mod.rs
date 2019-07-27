@@ -6,14 +6,13 @@ mod get_headers_process;
 mod headers_process;
 
 use self::block_fetcher::BlockFetcher;
-use self::block_pool::OrphanBlockPool;
+pub use self::block_pool::OrphanBlockPool;
 use self::block_process::BlockProcess;
 use self::get_blocks_process::GetBlocksProcess;
 use self::get_headers_process::GetHeadersProcess;
 use self::headers_process::HeadersProcess;
-use crate::config::Config;
-use crate::types::BlockStatus;
-use crate::types::{HeaderView, Peers, SyncSharedState};
+use crate::block_status::BlockStatus;
+use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState};
 use crate::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
@@ -48,7 +47,6 @@ const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 pub struct Synchronizer<CS: ChainStore> {
     chain: ChainController,
     pub shared: Arc<SyncSharedState<CS>>,
-    pub orphan_block_pool: Arc<OrphanBlockPool>,
 }
 
 // https://github.com/rust-lang/rust/issues/40754
@@ -57,23 +55,13 @@ impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
         Synchronizer {
             chain: self.chain.clone(),
             shared: Arc::clone(&self.shared),
-            orphan_block_pool: Arc::clone(&self.orphan_block_pool),
         }
     }
 }
 
 impl<CS: ChainStore> Synchronizer<CS> {
-    pub fn new(
-        chain: ChainController,
-        shared: Arc<SyncSharedState<CS>>,
-        config: Config,
-    ) -> Synchronizer<CS> {
-        let orphan_block_limit = config.orphan_block_limit;
-        Synchronizer {
-            chain,
-            shared,
-            orphan_block_pool: Arc::new(OrphanBlockPool::with_capacity(orphan_block_limit)),
-        }
+    pub fn new(chain: ChainController, shared: Arc<SyncSharedState<CS>>) -> Synchronizer<CS> {
+        Synchronizer { chain, shared }
     }
 
     pub fn shared(&self) -> &Arc<SyncSharedState<CS>> {
@@ -123,10 +111,6 @@ impl<CS: ChainStore> Synchronizer<CS> {
         self.shared().peers()
     }
 
-    pub fn insert_block_status(&self, hash: H256, status: BlockStatus) {
-        self.shared().insert_block_status(hash, status);
-    }
-
     pub fn predict_headers_sync_time(&self, header: &Header) -> u64 {
         let now = unix_time_as_millis();
         let expected_headers = min(
@@ -136,124 +120,24 @@ impl<CS: ChainStore> Synchronizer<CS> {
         now + HEADERS_DOWNLOAD_TIMEOUT_BASE + HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER * expected_headers
     }
 
-    pub fn mark_block_stored(&self, hash: H256) {
-        self.shared()
-            .insert_block_status(hash, BlockStatus::BLOCK_HAVE_MASK);
-    }
-
-    pub fn mark_block_invalid(&self, hash: H256) {
-        self.shared()
-            .insert_block_status(hash, BlockStatus::FAILED_VALID);
-    }
-
-    pub fn insert_header_view(&self, header: &Header, peer: PeerIndex) {
-        if let Some(parent_view) = self.shared.get_header_view(&header.parent_hash()) {
-            let total_difficulty = parent_view.total_difficulty() + header.difficulty();
-            let total_uncles_count =
-                parent_view.total_uncles_count() + u64::from(header.uncles_count());
-            let header_view = {
-                let shared_best_header = self.shared.shared_best_header();
-                let header_view =
-                    HeaderView::new(header.clone(), total_difficulty.clone(), total_uncles_count);
-
-                if total_difficulty.gt(shared_best_header.total_difficulty())
-                    || (&total_difficulty == shared_best_header.total_difficulty()
-                        && header.hash() < shared_best_header.hash())
-                {
-                    self.shared.set_shared_best_header(header_view.clone());
-                }
-                header_view
-            };
-
-            self.peers().new_header_received(peer, &header_view);
-            self.shared
-                .insert_header_view(header.hash().to_owned(), header_view);
-        }
-    }
-
     //TODO: process block which we don't request
-    pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
-        if self.orphan_block_pool.contains(&block) {
-            debug!("block {:x} already in orphan pool", block.header().hash());
-            return Ok(());
-        }
-
-        match self.shared().get_block_status(&block.header().hash()) {
-            BlockStatus::VALID_MASK => {
-                self.insert_new_block(peer, block)?;
-            }
-            status => {
-                debug!(
-                    "[Synchronizer] process_new_block unexpected status {:?}",
-                    status
-                );
-            }
-        }
-        Ok(())
-    }
-
-    fn accept_block(&self, peer: PeerIndex, block: &Arc<Block>) -> Result<(), FailureError> {
-        self.chain.process_block(Arc::clone(&block), true)?;
-        self.shared.remove_header_view(block.header().hash());
-        self.mark_block_stored(block.header().hash().to_owned());
-        self.peers()
-            .set_last_common_header(peer, block.header().clone());
-        Ok(())
-    }
-
-    // FIXME: guarantee concurrent block process
-    // TODO: limit and prune orphan pool
-    fn insert_new_block(&self, peer: PeerIndex, block: Block) -> Result<(), FailureError> {
-        let known_parent = |block: &Block| {
-            self.shared
-                .store()
-                .get_block_header(block.header().parent_hash())
-                .is_some()
-        };
-
-        // Insert the given block into orphan_block_pool if its parent is not found
-        if !known_parent(&block) {
+    pub fn process_new_block(&self, peer: PeerIndex, block: Block) -> Result<bool, FailureError> {
+        let block_hash = block.header().hash();
+        let status = self.shared().get_block_status(block_hash);
+        if status.contains(BlockStatus::BLOCK_RECEIVED) {
+            debug!("block {:x} already received", block_hash);
+            Ok(false)
+        } else if status.contains(BlockStatus::HEADER_VALID) {
+            self.shared()
+                .insert_new_block(&self.chain, peer, Arc::new(block))
+        } else {
             debug!(
-                "insert new orphan block {} {:x}",
-                block.header().number(),
-                block.header().hash()
+                "Synchronizer process_new_block unexpected status {:?} {:#x}",
+                status, block_hash,
             );
-            self.orphan_block_pool.insert(block);
-            return Ok(());
+            // TODO which error should we return?
+            Ok(false)
         }
-
-        // Attempt to accept the given block if its parent already exist in database
-        let block = Arc::new(block);
-        if let Err(err) = self.accept_block(peer, &block) {
-            debug!("accept block {:?} error {:?}", block, err);
-            return Err(err);
-        }
-
-        // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
-        // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        let descendants = self
-            .orphan_block_pool
-            .remove_blocks_by_parent(&block.header().hash());
-        for block in descendants {
-            let block = Arc::new(block);
-
-            // If we can not find the block's parent in database, that means it was failed to accept
-            // its parent, so we treat it as a invalid block as well.
-            if !known_parent(&block) {
-                debug!(
-                    "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
-                    block.header().number(),
-                    block.header().hash(),
-                    block.header().parent_hash(),
-                );
-                continue;
-            }
-
-            if let Err(err) = self.accept_block(peer, &block) {
-                debug!("accept descendant orphan block {:?} error {:?}", block, err);
-            }
-        }
-        Ok(())
     }
 
     pub fn get_blocks_to_fetch(&self, peer: PeerIndex) -> Option<Vec<H256>> {
@@ -261,10 +145,10 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 
     fn on_connected(&self, nc: &CKBProtocolContext, peer: PeerIndex) {
-        let is_outbound = nc
+        let (is_outbound, is_whitelist) = nc
             .get_peer(peer)
-            .map(|peer| peer.is_outbound())
-            .unwrap_or(false);
+            .map(|peer| (peer.is_outbound(), peer.is_whitelist))
+            .unwrap_or((false, false));
         let protect_outbound = is_outbound
             && self
                 .shared()
@@ -278,8 +162,14 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 .fetch_add(1, Ordering::Release);
         }
 
-        self.peers()
-            .on_connected(peer, None, protect_outbound, is_outbound);
+        self.peers().on_connected(
+            peer,
+            PeerFlags {
+                is_outbound,
+                is_whitelist,
+                is_protect: protect_outbound,
+            },
+        );
     }
 
     //   - If at timeout their best known block now has more work than our tip
@@ -310,7 +200,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                 }
             }
 
-            if state.is_outbound {
+            if state.peer_flags.is_outbound {
                 let best_known_header = state.best_known_header.as_ref();
                 let (tip_header, local_total_difficulty) = {
                     let chain_state = self.shared.lock_chain_state();
@@ -346,7 +236,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
                     // of our tip, when we first detected it was behind. Send a single getheaders
                     // message to give the peer a chance to update us.
                     if state.chain_sync.sent_getheaders {
-                        if state.chain_sync.protect {
+                        if state.peer_flags.is_protect || state.peer_flags.is_whitelist {
                             if state.sync_started {
                                 state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
                                 self.shared()
@@ -375,7 +265,9 @@ impl<CS: ChainStore> Synchronizer<CS> {
         }
         for peer in eviction {
             info!("timeout eviction peer={}", peer);
-            nc.disconnect(peer);
+            if let Err(err) = nc.disconnect(peer, "sync timeout eviction") {
+                debug!("synchronizer disconnect error: {:?}", err);
+            }
         }
     }
 
@@ -467,19 +359,26 @@ impl<CS: ChainStore> Synchronizer<CS> {
         let fbb = &mut FlatBufferBuilder::new();
         let message = SyncMessage::build_get_blocks(fbb, v_fetch);
         fbb.finish(message, None);
-        nc.send_message_to(peer, fbb.finished_data().into());
         debug!("send_getblocks len={:?} to peer={}", v_fetch.len(), peer);
+        if let Err(err) = nc.send_message_to(peer, fbb.finished_data().into()) {
+            debug!("synchronizer send GetBlocks error: {:?}", err);
+        }
     }
 }
 
 impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         // NOTE: 100ms is what bitcoin use.
-        nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN);
-        nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN);
-        nc.set_notify(IBD_BLOCK_FETCH_INTERVAL, IBD_BLOCK_FETCH_TOKEN);
-        nc.set_notify(NOT_IBD_BLOCK_FETCH_INTERVAL, NOT_IBD_BLOCK_FETCH_TOKEN);
-        nc.set_notify(Duration::from_secs(2), NO_PEER_CHECK_TOKEN);
+        nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(SYNC_NOTIFY_INTERVAL, TIMEOUT_EVICTION_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(IBD_BLOCK_FETCH_INTERVAL, IBD_BLOCK_FETCH_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(NOT_IBD_BLOCK_FETCH_INTERVAL, NOT_IBD_BLOCK_FETCH_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(Duration::from_secs(2), NO_PEER_CHECK_TOKEN)
+            .expect("set_notify at init is ok");
     }
 
     fn received(
@@ -536,7 +435,7 @@ impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
             }
 
             // Protection node disconnected
-            if peer_state.chain_sync.protect {
+            if peer_state.peer_flags.is_protect {
                 self.shared()
                     .n_protected_outbound_peers()
                     .fetch_sub(1, Ordering::Release);
@@ -586,16 +485,18 @@ mod tests {
     use self::block_process::BlockProcess;
     use self::headers_process::HeadersProcess;
     use super::*;
-    use crate::{SyncSharedState, MAX_TIP_AGE};
+    use crate::{types::PeerState, SyncSharedState, MAX_TIP_AGE};
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_core::block::BlockBuilder;
+    use ckb_core::cell::resolve_transaction;
     use ckb_core::extras::EpochExt;
     use ckb_core::header::BlockNumber;
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::Script;
     use ckb_core::transaction::{CellInput, CellOutput, Transaction, TransactionBuilder};
     use ckb_core::Bytes;
+    use ckb_dao::DaoCalculator;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
@@ -628,7 +529,7 @@ mod tests {
         let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
 
         let consensus = consensus.unwrap_or_else(Default::default);
-        builder = builder.consensus(consensus.set_bootstrap_lock(Script::default()));
+        builder = builder.consensus(consensus);
 
         let shared = builder.build().unwrap();
 
@@ -644,20 +545,11 @@ mod tests {
         parent_header: &Header,
         number: BlockNumber,
     ) -> Transaction {
-        let reward = if number > shared.consensus().reserve_number() {
-            let (_, block_reward) = shared.finalize_block_reward(parent_header).unwrap();
-            block_reward
-        } else {
-            shared
-                .consensus()
-                .genesis_epoch_ext()
-                .block_reward(number)
-                .unwrap()
-        };
+        let (_, reward) = shared.finalize_block_reward(parent_header).unwrap();
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(CellOutput::new(
-                reward,
+                reward.total,
                 Bytes::default(),
                 Script::default(),
                 None,
@@ -671,15 +563,7 @@ mod tests {
         shared: Shared<CS>,
     ) -> Synchronizer<CS> {
         let shared = Arc::new(SyncSharedState::new(shared));
-        Synchronizer::new(chain_controller, shared, Config::default())
-    }
-
-    #[test]
-    fn test_block_status() {
-        let status1 = BlockStatus::FAILED_VALID;
-        let status2 = BlockStatus::FAILED_CHILD;
-        assert!((status1 & BlockStatus::FAILED_MASK) == status1);
-        assert!((status2 & BlockStatus::FAILED_MASK) == status2);
+        Synchronizer::new(chain_controller, shared)
     }
 
     fn gen_block<CS: ChainStore>(
@@ -691,13 +575,27 @@ mod tests {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(shared, parent_header, number);
+        let dao = {
+            let chain_state = shared.lock_chain_state();
+            let resolved_cellbase = resolve_transaction(
+                &cellbase,
+                &mut Default::default(),
+                &*chain_state,
+                &*chain_state,
+            )
+            .unwrap();
+            DaoCalculator::new(shared.consensus(), Arc::clone(shared.store()))
+                .dao_field(&[resolved_cellbase], parent_header)
+                .unwrap()
+        };
         let header_builder = HeaderBuilder::default()
             .parent_hash(parent_header.hash().to_owned())
             .timestamp(now)
             .epoch(epoch.number())
             .number(number)
             .difficulty(epoch.difficulty().clone())
-            .nonce(nonce);
+            .nonce(nonce)
+            .dao(dao);
 
         BlockBuilder::default()
             .transaction(cellbase)
@@ -934,7 +832,8 @@ mod tests {
         let chain1_last_block = blocks.last().cloned().unwrap();
         blocks.into_iter().for_each(|block| {
             synchronizer
-                .insert_new_block(peer, block)
+                .shared()
+                .insert_new_block(&synchronizer.chain, peer, Arc::new(block))
                 .expect("Insert new block failed");
         });
         assert_eq!(
@@ -1008,7 +907,7 @@ mod tests {
 
     impl CKBProtocolContext for DummyNetworkContext {
         // Interact with underlying p2p service
-        fn set_notify(&self, _interval: Duration, _token: u64) {
+        fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), ckb_network::Error> {
             unimplemented!();
         }
 
@@ -1017,27 +916,59 @@ mod tests {
             task: Box<
                 (dyn futures::future::Future<Item = (), Error = ()> + std::marker::Send + 'static),
             >,
-        ) {
-            task.wait().expect("resolve future task error")
+            _blocking: bool,
+        ) -> Result<(), ckb_network::Error> {
+            task.wait().expect("resolve future task error");
+            Ok(())
         }
 
-        fn quick_send_message(&self, proto_id: ProtocolId, peer_index: PeerIndex, data: Bytes) {
+        fn quick_send_message(
+            &self,
+            proto_id: ProtocolId,
+            peer_index: PeerIndex,
+            data: Bytes,
+        ) -> Result<(), ckb_network::Error> {
             self.send_message(proto_id, peer_index, data)
         }
-        fn quick_send_message_to(&self, peer_index: PeerIndex, data: Bytes) {
+        fn quick_send_message_to(
+            &self,
+            peer_index: PeerIndex,
+            data: Bytes,
+        ) -> Result<(), ckb_network::Error> {
             self.send_message_to(peer_index, data)
         }
-        fn quick_filter_broadcast(&self, target: TargetSession, data: Bytes) {
+        fn quick_filter_broadcast(
+            &self,
+            target: TargetSession,
+            data: Bytes,
+        ) -> Result<(), ckb_network::Error> {
             self.filter_broadcast(target, data)
         }
-        fn send_message(&self, _proto_id: ProtocolId, _peer_index: PeerIndex, _data: bytes::Bytes) {
+        fn send_message(
+            &self,
+            _proto_id: ProtocolId,
+            _peer_index: PeerIndex,
+            _data: bytes::Bytes,
+        ) -> Result<(), ckb_network::Error> {
+            Ok(())
         }
-        fn send_message_to(&self, _peer_index: PeerIndex, _data: bytes::Bytes) {}
-        fn filter_broadcast(&self, _target: TargetSession, _data: bytes::Bytes) {
-            unimplemented!();
+        fn send_message_to(
+            &self,
+            _peer_index: PeerIndex,
+            _data: bytes::Bytes,
+        ) -> Result<(), ckb_network::Error> {
+            Ok(())
         }
-        fn disconnect(&self, peer_index: PeerIndex) {
+        fn filter_broadcast(
+            &self,
+            _target: TargetSession,
+            _data: bytes::Bytes,
+        ) -> Result<(), ckb_network::Error> {
+            Ok(())
+        }
+        fn disconnect(&self, peer_index: PeerIndex, _msg: &str) -> Result<(), ckb_network::Error> {
             self.disconnected.lock().insert(peer_index);
+            Ok(())
         }
         // Interact with NetworkState
         fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer> {
@@ -1047,10 +978,13 @@ mod tests {
             unimplemented!();
         }
         fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {}
-        fn ban_peer(&self, _peer_index: PeerIndex, _timeout: Duration) {}
+        fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration) {}
         // Other methods
         fn protocol_id(&self) -> ProtocolId {
             unimplemented!();
+        }
+        fn send_paused(&self) -> bool {
+            false
         }
     }
 
@@ -1181,14 +1115,36 @@ mod tests {
         assert!(synchronizer.shared.is_initial_block_download());
         let peers = synchronizer.peers();
         // protect should not effect headers_timeout
-        peers.on_connected(0.into(), Some(0), true, true);
-        peers.on_connected(1.into(), Some(0), false, true);
-        peers.on_connected(2.into(), Some(MAX_TIP_AGE * 2), false, true);
+        {
+            let mut state = peers.state.write();
+            let mut state_0 = PeerState::default();
+            state_0.peer_flags.is_protect = true;
+            state_0.peer_flags.is_outbound = true;
+            state_0.headers_sync_timeout = Some(0);
+
+            let mut state_1 = PeerState::default();
+            state_1.peer_flags.is_outbound = true;
+            state_1.headers_sync_timeout = Some(0);
+
+            let mut state_2 = PeerState::default();
+            state_2.peer_flags.is_whitelist = true;
+            state_2.peer_flags.is_outbound = true;
+            state_2.headers_sync_timeout = Some(0);
+
+            let mut state_3 = PeerState::default();
+            state_3.peer_flags.is_outbound = true;
+            state_3.headers_sync_timeout = Some(MAX_TIP_AGE * 2);
+
+            state.insert(0.into(), state_0);
+            state.insert(1.into(), state_1);
+            state.insert(2.into(), state_2);
+            state.insert(3.into(), state_3);
+        }
         synchronizer.eviction(&network_context);
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
             disconnected.deref(),
-            &FnvHashSet::from_iter(vec![0, 1].into_iter().map(Into::into))
+            &FnvHashSet::from_iter(vec![0, 1, 2].into_iter().map(Into::into))
         )
     }
 
@@ -1203,7 +1159,10 @@ mod tests {
         let header = HeaderBuilder::default()
             .difficulty(U256::from(2u64))
             .build();
-        let block = BlockBuilder::default().header(header).build();
+        let block = BlockBuilder::default()
+            .header(header)
+            .transaction(consensus.genesis_block().transactions()[0].clone())
+            .build();
         let consensus = consensus.set_genesis_block(block);
 
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
@@ -1215,17 +1174,53 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let network_context = mock_network_context(6);
+        let network_context = mock_network_context(7);
         let peers = synchronizer.peers();
         //6 peers do not trigger header sync timeout
         let headers_sync_timeout = MAX_TIP_AGE * 2;
         let sync_protected_peer = 0.into();
-        peers.on_connected(0.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(1.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(2.into(), Some(headers_sync_timeout), true, true);
-        peers.on_connected(3.into(), Some(headers_sync_timeout), false, true);
-        peers.on_connected(4.into(), Some(headers_sync_timeout), false, true);
-        peers.on_connected(5.into(), Some(headers_sync_timeout), false, true);
+        {
+            let mut state = peers.state.write();
+            let mut state_0 = PeerState::default();
+            state_0.peer_flags.is_protect = true;
+            state_0.peer_flags.is_outbound = true;
+            state_0.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_1 = PeerState::default();
+            state_1.peer_flags.is_protect = true;
+            state_1.peer_flags.is_outbound = true;
+            state_1.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_2 = PeerState::default();
+            state_2.peer_flags.is_protect = true;
+            state_2.peer_flags.is_outbound = true;
+            state_2.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_3 = PeerState::default();
+            state_3.peer_flags.is_outbound = true;
+            state_3.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_4 = PeerState::default();
+            state_4.peer_flags.is_outbound = true;
+            state_4.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_5 = PeerState::default();
+            state_5.peer_flags.is_outbound = true;
+            state_5.headers_sync_timeout = Some(headers_sync_timeout);
+
+            let mut state_6 = PeerState::default();
+            state_6.peer_flags.is_whitelist = true;
+            state_6.peer_flags.is_outbound = true;
+            state_6.headers_sync_timeout = Some(headers_sync_timeout);
+
+            state.insert(0.into(), state_0);
+            state.insert(1.into(), state_1);
+            state.insert(2.into(), state_2);
+            state.insert(3.into(), state_3);
+            state.insert(4.into(), state_4);
+            state.insert(5.into(), state_5);
+            state.insert(6.into(), state_6);
+        }
         peers.new_header_received(0.into(), &mock_header_view(1));
         peers.new_header_received(2.into(), &mock_header_view(3));
         peers.new_header_received(3.into(), &mock_header_view(1));
@@ -1302,7 +1297,7 @@ mod tests {
                     .total_difficulty,
                 Some(total_difficulty)
             );
-            for proto_id in &[0usize, 1, 3, 4] {
+            for proto_id in &[0usize, 1, 3, 4, 6] {
                 assert_eq!(
                     peer_state
                         .get(&(*proto_id).into())

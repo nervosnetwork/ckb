@@ -38,16 +38,16 @@ pub use self::block_template::{
     BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
 };
 pub use self::blockchain::{
-    Block, BlockView, CellInput, CellOutPoint, CellOutput, EpochView, Header, HeaderView, OutPoint,
-    Script, Seal, Transaction, TransactionView, TransactionWithStatus, TxStatus, UncleBlock,
-    UncleBlockView, Witness,
+    Block, BlockRewardView, BlockView, CellInput, CellOutPoint, CellOutput, EpochView, Header,
+    HeaderView, OutPoint, Script, Seal, Transaction, TransactionView, TransactionWithStatus,
+    TxStatus, UncleBlock, UncleBlockView, Witness,
 };
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
 pub use self::experiment::DryRunResult;
 pub use self::indexer::{CellTransaction, LiveCell, LockHashIndexState, TransactionPoint};
-pub use self::net::{Node, NodeAddress};
+pub use self::net::{BannedAddress, Node, NodeAddress};
 pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;

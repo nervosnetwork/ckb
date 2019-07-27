@@ -2,12 +2,12 @@
 //! It is similar to Bitcoin Tx <https://en.bitcoin.it/wiki/Protocol_documentation#tx/>
 use crate::script::Script;
 use crate::{BlockNumber, Bytes, Version};
-use bincode::{deserialize, serialize};
+use bincode::serialize;
+use ckb_hash::blake2b_256;
+use ckb_occupied_capacity::{Capacity, Result as CapacityResult};
 use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
-use hash::blake2b_256;
-use numext_fixed_hash::{h256, H256};
-use occupied_capacity::{Capacity, Result as CapacityResult};
+use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt;
@@ -16,15 +16,6 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 
 pub const TX_VERSION: Version = 0;
-
-// This is the tx hash used to mark the input is actually a special input for
-// issuing DAO interests. When this is encountered, CKB will skip resolving and
-// script validation. All CKB does is to validate that the transaction has
-// another input referencing a DAO cell(determined by having DAO_CODE_HASH as
-// code hash of lock script). The actual DAO validation logic is left to the
-// unlocking process of the DAO cell. The hex used here is actually
-// "NERVOSDAOINPUT0001" in hex mode.
-pub const ISSUING_DAO_HASH: H256 = h256!("0x4e4552564f5344414f494e50555430303031");
 
 pub struct CellKey([u8; 36]);
 
@@ -51,22 +42,6 @@ impl CellKey {
 impl AsRef<[u8]> for CellKey {
     fn as_ref(&self) -> &[u8] {
         &self.0[..]
-    }
-}
-
-#[derive(Eq, PartialEq)]
-pub struct CellOutPointRef<'a> {
-    tx_hash: &'a H256,
-    index: u32,
-}
-
-impl<'a> CellOutPointRef<'a> {
-    pub fn new(tx_hash: &'a H256, index: u32) -> CellOutPointRef<'a> {
-        CellOutPointRef { tx_hash, index }
-    }
-
-    pub fn cell_key(&self) -> CellKey {
-        CellKey::calculate(self.tx_hash, self.index)
     }
 }
 
@@ -108,13 +83,6 @@ impl CellOutPoint {
 
     pub fn cell_key(&self) -> CellKey {
         CellKey::calculate(&self.tx_hash, self.index)
-    }
-
-    pub fn to_ref(&self) -> CellOutPointRef {
-        CellOutPointRef {
-            tx_hash: &self.tx_hash,
-            index: self.index,
-        }
     }
 }
 
@@ -158,10 +126,6 @@ impl OutPoint {
         }
     }
 
-    pub fn new_issuing_dao() -> Self {
-        OutPoint::new_cell(ISSUING_DAO_HASH, 0)
-    }
-
     pub fn null() -> Self {
         OutPoint::default()
     }
@@ -180,15 +144,6 @@ impl OutPoint {
                 .as_ref()
                 .map(|_| H256::size_of())
                 .unwrap_or(0)
-    }
-
-    pub fn is_issuing_dao(&self) -> bool {
-        self.block_hash.is_none()
-            && self
-                .cell
-                .as_ref()
-                .map(|cell| cell.tx_hash == ISSUING_DAO_HASH && cell.index == 0)
-                .unwrap_or(false)
     }
 
     pub fn destruct(self) -> (Option<H256>, Option<CellOutPoint>) {
@@ -506,12 +461,6 @@ impl Transaction {
             && self.inputs[0].previous_output.is_null()
     }
 
-    pub fn is_withdrawing_from_dao(&self) -> bool {
-        self.inputs
-            .iter()
-            .any(|input| input.previous_output.is_issuing_dao())
-    }
-
     pub fn hash(&self) -> &H256 {
         &self.hash
     }
@@ -548,7 +497,7 @@ impl Transaction {
         self.outputs.get(i).cloned()
     }
 
-    pub fn outputs_capacity(&self) -> ::occupied_capacity::Result<Capacity> {
+    pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
         self.outputs
             .iter()
             .map(|output| output.capacity)
@@ -605,24 +554,6 @@ impl Default for TransactionBuilder {
 }
 
 impl TransactionBuilder {
-    pub fn new(bytes: &[u8]) -> Self {
-        let Transaction {
-            version,
-            deps,
-            inputs,
-            outputs,
-            witnesses,
-            ..
-        } = deserialize(bytes).expect("transaction deserializing should be ok");
-        Self {
-            version,
-            deps,
-            inputs,
-            outputs,
-            witnesses,
-        }
-    }
-
     pub fn from_transaction(transaction: Transaction) -> Self {
         let Transaction {
             version,
@@ -827,7 +758,7 @@ impl ProposalShortId {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{capacity_bytes, Bytes, Capacity};
+    use crate::{capacity_bytes, script::ScriptHashType, Bytes, Capacity};
 
     #[test]
     fn tx_hash() {
@@ -844,25 +775,29 @@ mod test {
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "572dfb5f543d43c9a411c36d733655f0a4c2ea729f260d9b3d3085b84834bb4f"
+            "6e9d9e6a6d5be5adafe7eac9f159b439cf4a4a400400cf98c231a341eb318bc2"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "816db0491b8dfa92ec7a77e07d98c47105fe5a33ddb05ef9f2b24132ac3cc793"
+            "0da5b490459dc2001928bed2fec5fbf5d8fab5932e4d1cd83ce9c9d9bd3d866c"
         );
     }
 
     #[test]
     fn min_cell_output_capacity() {
-        let lock = Script::new(vec![], H256::default());
+        let lock = Script::new(vec![], H256::default(), ScriptHashType::Data);
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(40));
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(41));
     }
 
     #[test]
     fn min_secp256k1_cell_output_capacity() {
-        let lock = Script::new(vec![vec![0u8; 20].into()], H256::default());
+        let lock = Script::new(
+            vec![vec![0u8; 20].into()],
+            H256::default(),
+            ScriptHashType::Data,
+        );
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(60));
+        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(61));
     }
 }

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::tx_pool::types::PendingEntry;
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
@@ -12,13 +10,13 @@ pub(crate) struct PendingQueue {
 }
 
 impl PendingQueue {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         PendingQueue {
             inner: LinkedFnvHashMap::default(),
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub(crate) fn size(&self) -> usize {
         self.inner.len()
     }
 
@@ -47,10 +45,6 @@ impl PendingQueue {
 
     pub(crate) fn remove(&mut self, id: &ProposalShortId) -> Option<PendingEntry> {
         self.inner.remove(id)
-    }
-
-    pub(crate) fn fetch(&self, n: usize) -> Vec<ProposalShortId> {
-        self.inner.keys().take(n).cloned().collect()
     }
 
     pub(crate) fn keys(&self) -> impl Iterator<Item = &ProposalShortId> {

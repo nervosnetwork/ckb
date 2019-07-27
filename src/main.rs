@@ -1,5 +1,5 @@
-use build_info::Version;
 use ckb_bin::run_app;
+use ckb_build_info::Version;
 
 #[cfg(unix)]
 #[global_allocator]
@@ -35,7 +35,7 @@ fn get_version() -> Version {
     #[cfg(docker)]
     let commit_describe = commit_describe.map(|s| s.replace("-dirty", ""));
     let commit_date = option_env!("COMMIT_DATE").map(ToString::to_string);
-    let code_name = Some("rylai-v5".to_string());
+    let code_name = Some("rylai-v6".to_string());
     Version {
         major,
         minor,

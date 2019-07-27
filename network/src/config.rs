@@ -1,5 +1,7 @@
-use crate::errors::{ConfigError, Error};
-use crate::PeerId;
+use crate::{
+    errors::{ConfigError, Error},
+    PeerId, DEFAULT_SEND_BUFFER,
+};
 use ckb_logger::info;
 use p2p::{
     multiaddr::{Multiaddr, Protocol},
@@ -15,7 +17,8 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct NetworkConfig {
-    pub reserved_only: bool,
+    #[serde(default)]
+    pub whitelist_only: bool,
     pub max_peers: u32,
     pub max_outbound_peers: u32,
     #[serde(default)]
@@ -29,10 +32,17 @@ pub struct NetworkConfig {
     pub ping_timeout_secs: u64,
     pub connect_outbound_interval_secs: u64,
     pub listen_addresses: Vec<Multiaddr>,
+    #[serde(default)]
     pub public_addresses: Vec<Multiaddr>,
     pub bootnodes: Vec<Multiaddr>,
-    pub reserved_peers: Vec<Multiaddr>,
+    #[serde(default)]
+    pub whitelist_peers: Vec<Multiaddr>,
+    #[serde(default)]
     pub upnp: bool,
+    #[serde(default)]
+    pub bootnode_mode: bool,
+    // Max send buffer size
+    pub max_send_buffer: Option<usize>,
 }
 
 fn generate_random_key() -> [u8; 32] {
@@ -66,11 +76,15 @@ impl NetworkConfig {
     }
 
     pub fn max_inbound_peers(&self) -> u32 {
-        self.max_peers - self.max_outbound_peers
+        self.max_peers.saturating_sub(self.max_outbound_peers)
     }
 
     pub fn max_outbound_peers(&self) -> u32 {
         self.max_outbound_peers
+    }
+
+    pub fn max_send_buffer(&self) -> usize {
+        self.max_send_buffer.unwrap_or(DEFAULT_SEND_BUFFER)
     }
 
     fn read_secret_key(&self) -> Result<Option<secio::SecioKeyPair>, Error> {
@@ -109,9 +123,9 @@ impl NetworkConfig {
         }
     }
 
-    pub fn reserved_peers(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
-        let mut peers = Vec::with_capacity(self.reserved_peers.len());
-        for addr_str in &self.reserved_peers {
+    pub fn whitelist_peers(&self) -> Result<Vec<(PeerId, Multiaddr)>, Error> {
+        let mut peers = Vec::with_capacity(self.whitelist_peers.len());
+        for addr_str in &self.whitelist_peers {
             let mut addr = addr_str.to_owned();
             let peer_id = match addr.pop() {
                 Some(Protocol::P2p(key)) => {
@@ -137,5 +151,13 @@ impl NetworkConfig {
             peers.push((peer_id, addr));
         }
         Ok(peers)
+    }
+
+    pub fn outbound_peer_service_enabled(&self) -> bool {
+        self.connect_outbound_interval_secs > 0
+    }
+
+    pub fn dns_seeding_service_enabled(&self) -> bool {
+        !self.dns_seeds.is_empty()
     }
 }

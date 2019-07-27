@@ -8,3 +8,15 @@ The following command assumes that CKB binary is built as `../target/release/ckb
 ```bash
 cargo run
 ```
+
+Run specified specs:
+
+```bash
+cargo run -- --bin ../target/debug/ckb spec1 spec2
+```
+
+See all available options:
+
+```bash
+cargo run -- --help
+```

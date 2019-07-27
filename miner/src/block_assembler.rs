@@ -1,18 +1,26 @@
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_core::block::Block;
+use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
-use ckb_core::script::Script;
+use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, Version};
+use ckb_dao::DaoCalculator;
+use ckb_jsonrpc_types::{
+    BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
+    EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
+    UncleTemplate, Unsigned, Version as JsonVersion,
+};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
+use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_verification::TransactionError;
@@ -20,17 +28,11 @@ use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashSet;
-use jsonrpc_types::{
-    BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
-    EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
-    UncleTemplate, Unsigned, Version as JsonVersion,
-};
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
-use stop_handler::{SignalSender, StopHandler};
 
 const MAX_CANDIDATE_UNCLES: usize = 42;
 type BlockTemplateParams = (Option<u64>, Option<u64>, Option<Version>);
@@ -278,7 +280,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         )) {
             // check template cache outdate time
             if !template_cache.is_outdate(current_time) {
-                return Ok(template_cache.template.clone());
+                let mut template = template_cache.template.clone();
+                template.current_time = JsonTimestamp(current_time);
+                return Ok(template);
             }
         }
 
@@ -297,7 +301,9 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             // check our tx_pool wether is modified
             // we can reuse cache if it is not modidied
             if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
-                return Ok(template_cache.template.clone());
+                let mut template = template_cache.template.clone();
+                template.current_time = JsonTimestamp(current_time);
+                return Ok(template);
             }
         }
 
@@ -314,7 +320,11 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             .map(JsonBytes::into_bytes)
             .collect();
 
-        let cellbase_lock = Script::new(cellbase_lock_args, self.config.code_hash.clone());
+        let cellbase_lock = Script::new(
+            cellbase_lock_args,
+            self.config.code_hash.clone(),
+            ScriptHashType::Data,
+        );
 
         let (cellbase, cellbase_size) = self.build_cellbase(&tip_header, cellbase_lock)?;
 
@@ -334,6 +344,35 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 cycles_limit
             );
         }
+
+        // Generate DAO fields here
+        let mut txs = vec![cellbase.to_owned()];
+        for entry in &entries {
+            txs.push(entry.transaction.to_owned());
+        }
+        let mut seen_inputs = FnvHashSet::default();
+        let transactions_provider = TransactionsProvider::new(&txs);
+        let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, &*chain_state);
+
+        let rtxs = txs
+            .iter()
+            .try_fold(vec![], |mut rtxs, tx| {
+                match resolve_transaction(
+                    &tx,
+                    &mut seen_inputs,
+                    &overlay_cell_provider,
+                    &*chain_state,
+                ) {
+                    Ok(rtx) => {
+                        rtxs.push(rtx);
+                        Ok(rtxs)
+                    }
+                    Err(e) => Err(e),
+                }
+            })
+            .map_err(|_| Error::InvalidInput)?;
+        let dao = DaoCalculator::new(&chain_state.consensus(), Arc::clone(chain_state.store()))
+            .dao_field(&rtxs, &tip_header)?;
 
         // Release the lock as soon as possible, let other services do their work
         drop(chain_state);
@@ -358,6 +397,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
             work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
+            dao: JsonBytes::from_bytes(dao),
         };
 
         self.template_caches.insert(
@@ -376,8 +416,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     /// Miner mined block H(c), the block reward will be finalized at H(c + w_far + 1).
     /// Miner specify own lock in cellbase witness.
     /// The cellbase have only one output,
-    /// if H(c) > reserve_number, miner should collect the block reward for finalize target H(c - w_far - 1)
-    /// otherwise miner create a output with bootstrap lock.
+    /// miner should collect the block reward for finalize target H(max(0, c - w_far - 1))
     fn build_cellbase(
         &self,
         tip: &Header,
@@ -385,62 +424,23 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
     ) -> Result<(Transaction, usize), FailureError> {
         let candidate_number = tip.number() + 1;
 
-        let tx = if candidate_number > (self.shared.consensus().reserve_number()) {
-            self.ordinary_cellbase(tip, lock)
-        } else {
-            self.bootstrap_cellbase(candidate_number, lock)
-        }?;
+        let tx = {
+            let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
+            let witness = lock.into_witness();
+            let input = CellInput::new_cellbase_input(candidate_number);
+            let raw_output =
+                CellOutput::new(block_reward.total, Bytes::default(), target_lock, None);
+            let output = self.custom_output(block_reward.total, raw_output)?;
 
+            TransactionBuilder::default()
+                .input(input)
+                .output(output)
+                .witness(witness)
+                .build()
+        };
         let serialized_size = tx.serialized_size();
+
         Ok((tx, serialized_size))
-    }
-
-    fn bootstrap_cellbase(
-        &self,
-        candidate_number: BlockNumber,
-        lock: Script,
-    ) -> Result<Transaction, FailureError> {
-        let witness = lock.into_witness();
-        let input = CellInput::new_cellbase_input(candidate_number);
-
-        let block_reward = self
-            .shared
-            .consensus()
-            .genesis_epoch_ext()
-            .block_reward(candidate_number)?;
-
-        let raw_output = CellOutput::new(
-            block_reward,
-            Bytes::default(),
-            self.shared.consensus().bootstrap_lock().clone(),
-            None,
-        );
-
-        let output = self.custom_output(block_reward, raw_output)?;
-
-        Ok(TransactionBuilder::default()
-            .input(input)
-            .output(output)
-            .witness(witness)
-            .build())
-    }
-
-    fn ordinary_cellbase(&self, tip: &Header, lock: Script) -> Result<Transaction, FailureError> {
-        let candidate_number = tip.number() + 1;
-        let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
-
-        let witness = lock.into_witness();
-        let input = CellInput::new_cellbase_input(candidate_number);
-
-        let raw_output = CellOutput::new(block_reward, Bytes::default(), target_lock, None);
-
-        let output = self.custom_output(block_reward, raw_output)?;
-
-        Ok(TransactionBuilder::default()
-            .input(input)
-            .output(output)
-            .witness(witness)
-            .build())
     }
 
     fn custom_output(
@@ -528,6 +528,7 @@ mod tests {
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
     use ckb_core::{BlockNumber, Bytes};
+    use ckb_dao_utils::genesis_dao_data;
     use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
@@ -599,6 +600,10 @@ mod tests {
     fn gen_block(parent_header: &Header, nonce: u64, epoch: &EpochExt) -> Block {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number, epoch);
+        // This just make sure we can generate a valid block template,
+        // the actual DAO validation logic will be ensured in other
+        // tests
+        let dao = genesis_dao_data(&cellbase).unwrap();
         let header = HeaderBuilder::default()
             .parent_hash(parent_header.hash().to_owned())
             .timestamp(parent_header.timestamp() + 10)
@@ -606,6 +611,7 @@ mod tests {
             .epoch(epoch.number())
             .difficulty(epoch.difficulty().clone())
             .nonce(nonce)
+            .dao(dao)
             .build();
 
         unsafe {
@@ -652,6 +658,11 @@ mod tests {
 
         let block0_0 = gen_block(&genesis, 11, &epoch);
         let block0_1 = gen_block(&genesis, 10, &epoch);
+        let (block0_0, block0_1) = if block0_0.header().hash() < block0_1.header().hash() {
+            (block0_1, block0_0)
+        } else {
+            (block0_0, block0_1)
+        };
 
         let last_epoch = epoch.clone();
         let epoch = shared

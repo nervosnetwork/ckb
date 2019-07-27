@@ -1,6 +1,6 @@
 use crate::helper::{deadlock_detection, wait_for_exit};
-use build_info::Version;
 use ckb_app_config::{ExitCode, RunArgs};
+use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
 use ckb_db::RocksDB;
 use ckb_logger::info_target;
@@ -8,6 +8,7 @@ use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
+use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
@@ -15,6 +16,8 @@ use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synch
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::{BlockVerifier, Verifier};
 use std::sync::Arc;
+
+const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
@@ -45,10 +48,27 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let block_assembler_controller =
         match (args.config.rpc.miner_enable(), args.config.block_assembler) {
-            (true, Some(block_assembler)) => Some(
-                BlockAssembler::new(shared.clone(), block_assembler)
-                    .start(Some("MinerAgent"), &notify),
-            ),
+            (true, Some(block_assembler)) => {
+                if args.block_assembler_advanced
+                    || (block_assembler.code_hash == CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
+                        && block_assembler.args.len() == 1
+                        && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN)
+                {
+                    Some(
+                        BlockAssembler::new(shared.clone(), block_assembler)
+                            .start(Some("MinerAgent"), &notify),
+                    )
+                } else {
+                    info_target!(
+                        crate::LOG_TARGET_MAIN,
+                        "Miner is disabled because block assmebler is not a valid secp256k1 lock. \
+                         Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
+                    );
+
+                    None
+                }
+            }
+
             _ => {
                 info_target!(
                     crate::LOG_TARGET_MAIN,
@@ -59,20 +79,21 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             }
         };
 
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let network_state = Arc::new(
         NetworkState::from_config(args.config.network).expect("Init network state failed"),
     );
-    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
-    let synchronizer = Synchronizer::new(
-        chain_controller.clone(),
-        Arc::clone(&sync_shared_state),
-        args.config.sync,
-    );
+    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
 
     let relayer = Relayer::new(chain_controller.clone(), sync_shared_state);
     let net_timer = NetTimeProtocol::default();
-    let alert_config = args.config.alert.unwrap_or_default();
-    let alert_relayer = AlertRelayer::new(version.to_string(), alert_config);
+    let alert_signature_config = args.config.alert_signature.unwrap_or_default();
+    let alert_notifier_config = args.config.alert_notifier.unwrap_or_default();
+    let alert_relayer = AlertRelayer::new(
+        version.to_string(),
+        alert_notifier_config,
+        alert_signature_config,
+    );
 
     let alert_notifier = Arc::clone(alert_relayer.notifier());
     let alert_verifier = Arc::clone(alert_relayer.verifier());

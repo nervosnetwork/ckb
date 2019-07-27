@@ -88,10 +88,9 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             return Ok(());
         }
 
-        let parent_number = self.header.number() - 1;
         let min = self
             .block_median_time_context
-            .block_median_time(parent_number, self.header.parent_hash());
+            .block_median_time(self.header.parent_hash());
         if self.header.timestamp() <= min {
             return Err(Error::Timestamp(TimestampError::BlockTimeTooOld {
                 min,

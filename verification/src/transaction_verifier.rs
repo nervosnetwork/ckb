@@ -5,11 +5,13 @@ use ckb_core::{
     transaction::{Transaction, TX_VERSION},
     BlockNumber, Cycle, EpochNumber,
 };
-use ckb_logger::info_target;
+use ckb_resource::CODE_HASH_DAO;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
+use ckb_script_data_loader::DataLoader;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -27,11 +29,18 @@ where
         median_time_context: &'a M,
         block_number: BlockNumber,
         epoch_number: EpochNumber,
+        parent_hash: &'a H256,
         consensus: &'a Consensus,
     ) -> Self {
         ContextualTransactionVerifier {
             maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
-            since: SinceVerifier::new(rtx, median_time_context, block_number, epoch_number),
+            since: SinceVerifier::new(
+                rtx,
+                median_time_context,
+                block_number,
+                epoch_number,
+                parent_hash,
+            ),
         }
     }
 
@@ -47,7 +56,7 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub size: SizeVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub maturity: MaturityVerifier<'a>,
-    pub capacity: CapacityVerifier<'a>,
+    pub capacity: CapacityVerifier<'a, CS>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
     pub script: ScriptVerifier<'a, CS>,
     pub since: SinceVerifier<'a, M>,
@@ -58,11 +67,13 @@ where
     M: BlockMedianTimeContext,
     CS: ChainStore,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         block_number: BlockNumber,
         epoch_number: EpochNumber,
+        parent_hash: &'a H256,
         consensus: &'a Consensus,
         script_config: &'a ScriptConfig,
         chain_store: &'a Arc<CS>,
@@ -74,8 +85,14 @@ where
             maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, chain_store, script_config),
-            capacity: CapacityVerifier::new(rtx),
-            since: SinceVerifier::new(rtx, median_time_context, block_number, epoch_number),
+            capacity: CapacityVerifier::new(rtx, chain_store),
+            since: SinceVerifier::new(
+                rtx,
+                median_time_context,
+                block_number,
+                epoch_number,
+                parent_hash,
+            ),
         }
     }
 
@@ -256,13 +273,15 @@ impl<'a> DuplicateDepsVerifier<'a> {
     }
 }
 
-pub struct CapacityVerifier<'a> {
+pub struct CapacityVerifier<'a, CS> {
+    chain_store: &'a Arc<CS>,
     resolved_transaction: &'a ResolvedTransaction<'a>,
 }
 
-impl<'a> CapacityVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
+impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction, chain_store: &'a Arc<CS>) -> Self {
         CapacityVerifier {
+            chain_store,
             resolved_transaction,
         }
     }
@@ -270,14 +289,9 @@ impl<'a> CapacityVerifier<'a> {
     pub fn verify(&self) -> Result<(), TransactionError> {
         // skip OutputsSumOverflow verification for resolved cellbase and DAO
         // withdraw transactions.
-        // cellbase's outputs are verified by TransactionsVerifier#InvalidReward
-        // DAO withdraw transaction is verified in TransactionScriptsVerifier
-        if !(self.resolved_transaction.is_cellbase()
-            || self
-                .resolved_transaction
-                .transaction
-                .is_withdrawing_from_dao())
-        {
+        // cellbase's outputs are verified by RewardVerifier
+        // DAO withdraw transaction is verified via the type script of DAO cells
+        if !(self.resolved_transaction.is_cellbase() || self.valid_dao_withdraw_transaction()) {
             let inputs_total = self.resolved_transaction.inputs_capacity()?;
             let outputs_total = self.resolved_transaction.outputs_capacity()?;
 
@@ -293,6 +307,25 @@ impl<'a> CapacityVerifier<'a> {
         }
 
         Ok(())
+    }
+
+    fn valid_dao_withdraw_transaction(&self) -> bool {
+        let data_loader = DataLoaderWrapper::new(Arc::clone(&self.chain_store));
+        self.resolved_transaction
+            .resolved_inputs
+            .iter()
+            .any(|input| {
+                input
+                    .cell()
+                    .map(|cell| {
+                        let output = data_loader.lazy_load_cell_output(&cell);
+                        output
+                            .type_
+                            .map(|type_| type_.code_hash == CODE_HASH_DAO)
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false)
+            })
     }
 }
 
@@ -346,7 +379,8 @@ pub struct SinceVerifier<'a, M> {
     block_median_time_context: &'a M,
     block_number: BlockNumber,
     epoch_number: EpochNumber,
-    median_timestamps_cache: RefCell<LruCache<BlockNumber, u64>>,
+    parent_hash: &'a H256,
+    median_timestamps_cache: RefCell<LruCache<H256, u64>>,
 }
 
 impl<'a, M> SinceVerifier<'a, M>
@@ -358,6 +392,7 @@ where
         block_median_time_context: &'a M,
         block_number: BlockNumber,
         epoch_number: BlockNumber,
+        parent_hash: &'a H256,
     ) -> Self {
         let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
         SinceVerifier {
@@ -365,35 +400,28 @@ where
             block_median_time_context,
             block_number,
             epoch_number,
+            parent_hash,
             median_timestamps_cache,
         }
     }
 
-    fn block_median_time(&self, n: BlockNumber) -> u64 {
-        let result = self.median_timestamps_cache.borrow().get(&n).cloned();
-        match result {
-            Some(median_time) => median_time,
-            None => {
-                let median_time = self
-                    .block_median_time_context
-                    .get_block_hash(n)
-                    .map(|block_hash| {
-                        self.block_median_time_context
-                            .block_median_time(n, &block_hash)
-                    })
-                    .unwrap_or(0);
-                info_target!(
-                    crate::LOG_TARGET,
-                    "median_time {}, number {}",
-                    median_time,
-                    n
-                );
-                self.median_timestamps_cache
-                    .borrow_mut()
-                    .insert(n, median_time);
-                median_time
-            }
+    fn parent_median_time(&self, block_hash: &H256) -> u64 {
+        let (_, _, parent_hash) = self
+            .block_median_time_context
+            .timestamp_and_parent(block_hash);
+        self.block_median_time(&parent_hash)
+    }
+
+    fn block_median_time(&self, block_hash: &H256) -> u64 {
+        if let Some(median_time) = self.median_timestamps_cache.borrow().get(block_hash) {
+            return *median_time;
         }
+
+        let median_time = self.block_median_time_context.block_median_time(block_hash);
+        self.median_timestamps_cache
+            .borrow_mut()
+            .insert(block_hash.clone(), median_time);
+        median_time
     }
 
     fn verify_absolute_lock(&self, since: Since) -> Result<(), TransactionError> {
@@ -410,7 +438,7 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self.block_median_time(self.block_number.saturating_sub(1));
+                    let tip_timestamp = self.block_median_time(self.parent_hash);
                     if tip_timestamp < timestamp {
                         return Err(TransactionError::Immature);
                     }
@@ -429,19 +457,18 @@ where
         cell_meta: &CellMeta,
     ) -> Result<(), TransactionError> {
         if since.is_relative() {
-            // cell still in tx_pool
-            let (cell_block_number, cell_epoch_number) = match cell_meta.block_info {
-                Some(ref block_info) => (block_info.number, block_info.epoch),
+            let cell = match cell_meta.block_info {
+                Some(ref block_info) => block_info,
                 None => return Err(TransactionError::Immature),
             };
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.block_number < cell_block_number + block_number {
+                    if self.block_number < cell.number + block_number {
                         return Err(TransactionError::Immature);
                     }
                 }
                 Some(SinceMetric::EpochNumber(epoch_number)) => {
-                    if self.epoch_number < cell_epoch_number + epoch_number {
+                    if self.epoch_number < cell.epoch + epoch_number {
                         return Err(TransactionError::Immature);
                     }
                 }
@@ -450,10 +477,8 @@ where
                     // parent of current block.
                     // pass_median_time(input_cell's block) starts with cell_block_number - 1,
                     // which is the parent of input_cell's block
-                    let cell_median_timestamp =
-                        self.block_median_time(cell_block_number.saturating_sub(1));
-                    let current_median_time =
-                        self.block_median_time(self.block_number.saturating_sub(1));
+                    let cell_median_timestamp = self.parent_median_time(&cell.hash);
+                    let current_median_time = self.block_median_time(self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
                         return Err(TransactionError::Immature);
                     }

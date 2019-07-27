@@ -2,7 +2,7 @@ use crate::specs::TestProtocol;
 use crate::utils::wait_until;
 use crate::Node;
 use bytes::Bytes;
-use ckb_core::BlockNumber;
+use ckb_core::{block::Block, BlockNumber};
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
     NetworkService, NetworkState, PeerIndex, ProtocolId,
@@ -62,14 +62,14 @@ impl Net {
                 let (tx, rx) = crossbeam_channel::unbounded();
 
                 let config = NetworkConfig {
-                    listen_addresses: vec![format!("/ip4/0.0.0.0/tcp/{}", self.start_port)
+                    listen_addresses: vec![format!("/ip4/127.0.0.1/tcp/{}", self.start_port)
                         .parse()
                         .expect("invalid address")],
                     public_addresses: vec![],
                     bootnodes: vec![],
                     dns_seeds: vec![],
-                    reserved_peers: vec![],
-                    reserved_only: false,
+                    whitelist_peers: vec![],
+                    whitelist_only: false,
                     max_peers: self.num_nodes as u32,
                     max_outbound_peers: self.num_nodes as u32,
                     path: tempdir()
@@ -78,9 +78,11 @@ impl Net {
                         .to_path_buf(),
                     ping_interval_secs: 15,
                     ping_timeout_secs: 20,
-                    connect_outbound_interval_secs: 1,
+                    connect_outbound_interval_secs: 0,
                     discovery_local_address: true,
                     upnp: false,
+                    bootnode_mode: false,
+                    max_send_buffer: None,
                 };
 
                 let network_state =
@@ -143,6 +145,15 @@ impl Net {
                 }
             })
         });
+    }
+
+    // generate a same block on all nodes, exit IBD mode and return the tip block
+    pub fn exit_ibd_mode(&self) -> Block {
+        let block = self.nodes[0].new_block(None, None, None);
+        self.nodes.iter().for_each(|node| {
+            node.submit_block(&block);
+        });
+        block
     }
 
     pub fn waiting_for_sync(&self, target: BlockNumber) {

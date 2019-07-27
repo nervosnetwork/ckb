@@ -1,12 +1,10 @@
 use crate::{Net, Spec};
-use ckb_app_config::CKBAppConfig;
 use log::info;
 
 pub struct SyncTimeout;
 
 impl Spec for SyncTimeout {
     fn run(&self, net: Net) {
-        info!("Running SyncTimeout");
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -52,10 +50,5 @@ impl Spec for SyncTimeout {
 
     fn connect_all(&self) -> bool {
         false
-    }
-
-    // workaround to disable node discovery
-    fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
-        Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
     }
 }

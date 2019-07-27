@@ -1,8 +1,10 @@
 use crate::network_group::{Group, NetworkGroup};
 use crate::peer_store::sqlite::DBError;
-use crate::peer_store::types::{PeerAddr, PeerInfo};
+use crate::peer_store::types::{BannedAddress, PeerAddr, PeerInfo};
 use crate::peer_store::{Multiaddr, PeerId, Protocol, Score, Status};
 use crate::SessionType;
+use faketime::unix_time_as_millis;
+use ipnetwork::IpNetwork;
 use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
 use rusqlite::{Connection, NO_PARAMS};
@@ -39,10 +41,12 @@ pub fn create_tables(conn: &Connection) -> DBResult<()> {
     "#;
     conn.execute_batch(sql)?;
     let sql = r#"
-    CREATE TABLE IF NOT EXISTS ban_list (
+    CREATE TABLE IF NOT EXISTS ban_address (
     id INTEGER PRIMARY KEY NOT NULL,
-    ip BINARY UNIQUE NOT NULL,
-    ban_time_secs INTEGER NOT NULL
+    address TEXT UNIQUE NOT NULL,
+    ban_until INTEGER NOT NULL,
+    ban_reason TEXT,
+    created_at INTEGER NOT NULL
     );
     "#;
     conn.execute_batch(sql).map_err(Into::into)
@@ -53,7 +57,7 @@ pub struct PeerInfoDB;
 impl PeerInfoDB {
     pub fn insert_or_update(conn: &Connection, peer: &PeerInfo) -> DBResult<usize> {
         let network_group = peer.connected_addr.network_group();
-        let mut stmt = conn.prepare("INSERT OR REPLACE INTO peer_info (peer_id, connected_addr, score, status, endpoint, last_connected_at_secs, network_group, ban_time_secs) 
+        let mut stmt = conn.prepare("INSERT OR REPLACE INTO peer_info (peer_id, connected_addr, score, status, endpoint, last_connected_at_secs, network_group, ban_time_secs)
                                     VALUES(:peer_id, :connected_addr, :score, :status, :endpoint, :last_connected_at_secs, :network_group, 0)").expect("prepare");
         stmt.execute_named(&[
             (":peer_id", &peer.peer_id.as_bytes()),
@@ -231,7 +235,7 @@ impl PeerAddrDB {
 
     pub fn get_addrs(conn: &Connection, peer_id: &PeerId, count: u32) -> DBResult<Vec<PeerAddr>> {
         let mut stmt = conn.prepare(
-            "SELECT peer_id, addr, last_connected_at_secs, last_tried_at_secs, attempts_count FROM peer_addr 
+            "SELECT peer_id, addr, last_connected_at_secs, last_tried_at_secs, attempts_count FROM peer_addr
             WHERE peer_id == :peer_id LIMIT :count",
         )?;
         let rows = stmt.query_map_named(
@@ -273,9 +277,9 @@ pub fn get_random_peers(
 ) -> DBResult<Vec<PeerId>> {
     // random select peers that we have connect to recently.
     let mut stmt = conn.prepare(
-        "SELECT peer_id FROM peer_info 
-                                WHERE ban_time_secs < strftime('%s','now') 
-                                AND last_connected_at_secs > :time 
+        "SELECT peer_id FROM peer_info
+                                WHERE ban_time_secs < strftime('%s','now')
+                                AND last_connected_at_secs > :time
                                 ORDER BY RANDOM() LIMIT :count",
     )?;
     let rows = stmt.query_map_named(
@@ -291,9 +295,9 @@ pub fn get_random_peers(
 pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<PeerId>> {
     // random select peers
     let mut stmt = conn.prepare(
-        "SELECT peer_id FROM peer_info 
-                                WHERE status != :connected_status 
-                                AND ban_time_secs < strftime('%s','now') 
+        "SELECT peer_id FROM peer_info
+                                WHERE status != :connected_status
+                                AND ban_time_secs < strftime('%s','now')
                                 ORDER BY RANDOM() LIMIT :count",
     )?;
     let rows = stmt.query_map_named(
@@ -317,10 +321,10 @@ pub fn get_peers_to_feeler(
 ) -> DBResult<Vec<PeerId>> {
     // random select peers
     let mut stmt = conn.prepare(
-        "SELECT peer_id FROM peer_info 
-                                WHERE status != :connected_status 
-                                AND last_connected_at_secs < :time 
-                                AND ban_time_secs < strftime('%s','now') 
+        "SELECT peer_id FROM peer_info
+                                WHERE status != :connected_status
+                                AND last_connected_at_secs < :time
+                                AND ban_time_secs < strftime('%s','now')
                                 ORDER BY RANDOM() LIMIT :count",
     )?;
     let rows = stmt.query_map_named(
@@ -337,34 +341,50 @@ pub fn get_peers_to_feeler(
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-pub fn insert_ban_record(conn: &Connection, ip: &[u8], ban_time_ms: u64) -> DBResult<usize> {
+pub fn insert_ban(conn: &Connection, banned_address: &BannedAddress) -> DBResult<usize> {
     let mut stmt = conn.prepare(
-        "INSERT OR REPLACE INTO ban_list (ip, ban_time_secs) VALUES(:ip, :ban_time_secs);",
+        "INSERT OR REPLACE INTO ban_address (address, ban_until, ban_reason, created_at)
+            VALUES(:address, :ban_until, :ban_reason, :created_at);",
     )?;
     stmt.execute_named(&[
-        (":ip", &ip),
-        (":ban_time_secs", &millis_to_secs(ban_time_ms)),
+        (":address", &banned_address.address.to_string()),
+        (":ban_until", &millis_to_secs(banned_address.ban_until)),
+        (":ban_reason", &banned_address.ban_reason),
+        (":created_at", &millis_to_secs(banned_address.created_at)),
     ])
     .map_err(Into::into)
 }
 
-pub fn get_ban_records(conn: &Connection, now_ms: u64) -> DBResult<Vec<(Vec<u8>, u64)>> {
-    let mut stmt =
-        conn.prepare("SELECT ip, ban_time_secs FROM ban_list WHERE ban_time_secs > :now")?;
-    let rows = stmt.query_map_named(&[(":now", &millis_to_secs(now_ms))], |row| {
-        Ok((row.get::<_, Vec<u8>>(0)?, secs_to_millis(row.get(1)?)))
+pub fn get_banned_addresses(conn: &Connection) -> DBResult<Vec<BannedAddress>> {
+    let now = millis_to_secs(unix_time_as_millis());
+    let mut stmt = conn.prepare(
+        "SELECT address, ban_until, ban_reason, created_at FROM ban_address WHERE ban_until > :now",
+    )?;
+    let rows = stmt.query_map_named(&[(":now", &now)], |row| {
+        Ok(BannedAddress {
+            address: row.get::<_, String>(0)?.parse().expect("parse address"),
+            ban_until: secs_to_millis(row.get(1)?),
+            ban_reason: row.get(2)?,
+            created_at: secs_to_millis(row.get(3)?),
+        })
     })?;
     Result::from_iter(rows).map_err(Into::into)
 }
 
-pub fn clear_expires_banned_ip(conn: &Connection, now_ms: u64) -> DBResult<Vec<Vec<u8>>> {
-    let mut stmt = conn.prepare("SELECT ip FROM ban_list WHERE ban_time_secs < :now")?;
-    let rows = stmt.query_map_named(&[(":now", &millis_to_secs(now_ms))], |row| {
-        row.get::<_, Vec<u8>>(0)
-    })?;
-    let mut stmt = conn.prepare("DELETE FROM ban_list WHERE ban_time_secs < :now")?;
-    stmt.execute_named(&[(":now", &millis_to_secs(now_ms))])?;
-    Result::from_iter(rows).map_err(Into::into)
+pub fn clear_expires_banned_addresses(conn: &Connection) -> DBResult<usize> {
+    conn.execute(
+        "DELETE FROM ban_address WHERE ban_until < ?1",
+        &[millis_to_secs(unix_time_as_millis())],
+    )
+    .map_err(Into::into)
+}
+
+pub fn delete_ban(conn: &Connection, address: &IpNetwork) -> DBResult<usize> {
+    conn.execute(
+        "DELETE FROM ban_address WHERE address=?1",
+        &[address.to_string()],
+    )
+    .map_err(Into::into)
 }
 
 fn status_to_u8(status: Status) -> u8 {

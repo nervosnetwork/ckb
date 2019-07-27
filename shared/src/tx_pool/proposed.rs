@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::tx_pool::types::ProposedEntry;
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
@@ -16,20 +14,18 @@ pub(crate) struct Edges<K: Hash + Eq, V: Copy + Eq + Hash> {
 }
 
 impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
+    #[cfg(test)]
     pub(crate) fn inner_len(&self) -> usize {
         self.inner.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn outer_len(&self) -> usize {
         self.outer.len()
     }
 
     pub(crate) fn insert_outer(&mut self, key: K, value: V) {
         self.outer.insert(key, Some(value));
-    }
-
-    pub(crate) fn insert_inner(&mut self, key: K, value: V) {
-        self.inner.insert(key, Some(value));
     }
 
     pub(crate) fn remove_outer(&mut self, key: &K) -> Option<V> {
@@ -54,10 +50,6 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 
     pub(crate) fn get_inner_mut(&mut self, key: &K) -> Option<&mut Option<V>> {
         self.inner.get_mut(key)
-    }
-
-    pub(crate) fn remove_edge(&mut self, key: &K) -> Option<V> {
-        self.inner.remove(key).unwrap_or(None)
     }
 
     pub(crate) fn get_deps(&self, key: &K) -> Option<&FnvHashSet<V>> {
@@ -92,7 +84,7 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 }
 
 #[derive(Default, Debug, Clone)]
-pub struct ProposedPool {
+pub(crate) struct ProposedPool {
     pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, ProposedEntry>,
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
 }
@@ -122,27 +114,23 @@ impl CellProvider for ProposedPool {
 }
 
 impl ProposedPool {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         ProposedPool::default()
     }
 
-    pub fn capacity(&self) -> usize {
-        self.vertices.len()
-    }
-
-    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
+    pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {
         self.vertices.contains_key(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&ProposedEntry> {
+    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&ProposedEntry> {
         self.vertices.get(id)
     }
 
-    pub fn get_tx(&self, id: &ProposalShortId) -> Option<&Transaction> {
+    pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&Transaction> {
         self.get(id).map(|x| &x.transaction)
     }
 
-    pub fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
+    pub(crate) fn get_output(&self, o: &OutPoint) -> Option<CellOutput> {
         o.cell.as_ref().and_then(|cell_out_point| {
             self.vertices
                 .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
@@ -150,7 +138,7 @@ impl ProposedPool {
         })
     }
 
-    pub fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
+    pub(crate) fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
         let mut entries = Vec::new();
         let mut queue = VecDeque::new();
 
@@ -190,11 +178,11 @@ impl ProposedPool {
         entries
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
+    pub(crate) fn remove(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
         self.remove_vertex(id)
     }
 
-    pub fn add_tx(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
+    pub(crate) fn add_tx(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
         let inputs = tx.input_pts_iter();
         let outputs = tx.output_pts();
         let deps = tx.deps_iter();
@@ -231,7 +219,7 @@ impl ProposedPool {
             .insert(id, ProposedEntry::new(tx, count, cycles, fee, size));
     }
 
-    pub fn remove_committed_tx(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
+    pub(crate) fn remove_committed_tx(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts_iter();
         let deps = tx.deps_iter();
@@ -267,7 +255,7 @@ impl ProposedPool {
         removed
     }
 
-    pub fn resolve_conflict(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
+    pub(crate) fn resolve_conflict(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
         let inputs = tx.input_pts_iter();
         let mut removed = Vec::new();
 
@@ -286,7 +274,8 @@ impl ProposedPool {
     }
 
     /// Get n transactions in topology
-    pub fn get_txs(&self, n: usize) -> Vec<ProposedEntry> {
+    #[cfg(test)]
+    pub(crate) fn get_txs(&self, n: usize) -> Vec<ProposedEntry> {
         self.vertices
             .front_n(n)
             .iter()
@@ -294,11 +283,11 @@ impl ProposedPool {
             .collect()
     }
 
-    pub fn txs_iter(&self) -> impl Iterator<Item = &ProposedEntry> {
+    pub(crate) fn txs_iter(&self) -> impl Iterator<Item = &ProposedEntry> {
         self.vertices.values()
     }
 
-    pub fn dec_ref(&mut self, id: &ProposalShortId) {
+    pub(crate) fn dec_ref(&mut self, id: &ProposalShortId) {
         if let Some(x) = self.vertices.get_mut(&id) {
             x.refs_count -= 1;
         }
@@ -402,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn test_add_no_roots() {
         let tx1 = build_tx(vec![(&H256::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);

@@ -1,6 +1,6 @@
-use bincode::{deserialize, serialize};
+use bincode::serialize;
+use ckb_hash::blake2b_256;
 use faster_hex::hex_string;
-use hash::blake2b_256;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ impl Seal {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct RawHeader {
     version: Version,
     /// Parent hash.
@@ -66,6 +66,27 @@ pub struct RawHeader {
     uncles_count: u32,
     /// Epoch sequence number
     epoch: EpochNumber,
+    /// Statistic data used in NervosDAO calculation
+    dao: Bytes,
+}
+
+impl Default for RawHeader {
+    fn default() -> Self {
+        Self {
+            version: HEADER_VERSION,
+            parent_hash: Default::default(),
+            timestamp: Default::default(),
+            number: Default::default(),
+            transactions_root: Default::default(),
+            proposals_hash: Default::default(),
+            witnesses_root: Default::default(),
+            difficulty: Default::default(),
+            uncles_hash: Default::default(),
+            uncles_count: Default::default(),
+            epoch: Default::default(),
+            dao: Default::default(),
+        }
+    }
 }
 
 impl RawHeader {
@@ -114,13 +135,6 @@ pub struct Header {
     seal: Seal,
     #[serde(skip)]
     hash: H256,
-}
-
-// The order of fields should be same as Header deserialization
-#[derive(Deserialize)]
-struct HeaderKernel {
-    raw: RawHeader,
-    seal: Seal,
 }
 
 // The order of fields should be same as HeaderKernel deserialization
@@ -233,16 +247,6 @@ impl Header {
         header
     }
 
-    /// # Warning
-    ///
-    /// When using this method, the caller should ensure the input hash is right, or the caller
-    /// will get a incorrect Header.
-    pub unsafe fn from_bytes_with_hash_unchecked(bytes: &[u8], hash: H256) -> Self {
-        let HeaderKernel { raw, seal } =
-            deserialize(bytes).expect("header kernel deserializing should be ok");
-        Self { raw, seal, hash }
-    }
-
     pub fn serialized_size(proof_size: usize) -> usize {
         RawHeader::serialized_size() + proof_size + mem::size_of::<u64>()
     }
@@ -273,6 +277,10 @@ impl Header {
 
     pub fn proof(&self) -> &[u8] {
         &self.seal.proof
+    }
+
+    pub fn dao(&self) -> &Bytes {
+        &self.raw.dao
     }
 
     pub fn nonce(&self) -> u64 {
@@ -388,6 +396,11 @@ impl HeaderBuilder {
         self
     }
 
+    pub fn dao(mut self, dao: Bytes) -> Self {
+        self.raw.dao = dao;
+        self
+    }
+
     pub fn nonce(mut self, nonce: u64) -> Self {
         self.seal.nonce = nonce;
         self
@@ -426,5 +439,14 @@ impl HeaderBuilder {
     pub fn build(self) -> Header {
         let Self { raw, seal } = self;
         Header::new(raw, seal)
+    }
+
+    /// # Warning
+    ///
+    /// When using this method, the caller should ensure the input hash is right, or the caller
+    /// will get a incorrect Header.
+    pub unsafe fn build_unchecked(self, hash: H256) -> Header {
+        let Self { raw, seal } = self;
+        Header { raw, seal, hash }
     }
 }

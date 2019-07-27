@@ -6,19 +6,17 @@ pub mod alert;
 pub mod block;
 pub mod cell;
 pub mod difficulty;
-pub mod error;
 pub mod extras;
 pub mod header;
+pub mod reward;
 pub mod script;
 pub mod service;
 pub mod transaction;
 pub mod transaction_meta;
 pub mod uncle;
 
-pub use crate::error::Error;
-
 pub use bytes::Bytes;
-pub use occupied_capacity::{capacity_bytes, Capacity};
+pub use ckb_occupied_capacity::{capacity_bytes, Capacity};
 pub type PublicKey = numext_fixed_hash::H512;
 pub type BlockNumber = u64;
 pub type EpochNumber = u64;

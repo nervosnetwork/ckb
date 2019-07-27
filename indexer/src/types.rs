@@ -1,6 +1,6 @@
 use ckb_core::transaction::{CellOutPoint, CellOutput};
 use ckb_core::BlockNumber;
-use jsonrpc_types::{
+use ckb_jsonrpc_types::{
     BlockNumber as JsonBlockNumber, CellTransaction as JsonCellTransaction,
     LiveCell as JsonLiveCell, TransactionPoint as JsonTransactionPoint, Unsigned,
 };

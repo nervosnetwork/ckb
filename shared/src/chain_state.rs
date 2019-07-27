@@ -14,14 +14,14 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::CellOutput;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
-use ckb_logger::{debug_target, info_target, trace_target};
+use ckb_dao::DaoCalculator;
+use ckb_logger::{debug_target, error_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
-use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore, StoreBatch};
+use ckb_store::{ChainStore, StoreBatch};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_util::LinkedFnvHashSet;
 use ckb_util::{FnvHashMap, FnvHashSet};
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
-use dao_utils::calculate_transaction_fee;
 use failure::Error as FailureError;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -269,6 +269,7 @@ impl<CS: ChainStore> ChainState<CS> {
                                 &cell,
                                 block.header().number(),
                                 block.header().epoch(),
+                                block.header().hash().to_owned(),
                                 cellbase,
                                 tx.outputs().len(),
                             );
@@ -288,11 +289,12 @@ impl<CS: ChainStore> ChainState<CS> {
 
         let inserted_new_outputs = new_outputs
             .into_iter()
-            .map(|(tx_hash, (number, epoch, cellbase, len))| {
+            .map(|(tx_hash, (number, epoch, hash, cellbase, len))| {
                 let tx_meta = self.cell_set.insert_transaction(
                     tx_hash.to_owned(),
                     number,
                     epoch,
+                    hash,
                     cellbase,
                     len,
                 );
@@ -394,7 +396,7 @@ impl<CS: ChainStore> ChainState<CS> {
         &self,
         tx: &'a Transaction,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
-        let tx_pool = self.tx_pool.borrow_mut();
+        let tx_pool = self.tx_pool.borrow();
         let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
         let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &proposed_provider);
         let pending_and_proposed_provider =
@@ -423,8 +425,9 @@ impl<CS: ChainStore> ChainState<CS> {
                 ContextualTransactionVerifier::new(
                     &rtx,
                     &self,
-                    self.tx_verify_block_number(),
+                    self.tip_number() + 1,
                     self.current_epoch_ext().number(),
+                    self.tip_hash(),
                     &self.consensus(),
                 )
                 .verify()
@@ -436,8 +439,9 @@ impl<CS: ChainStore> ChainState<CS> {
                 let cycles = TransactionVerifier::new(
                     &rtx,
                     &self,
-                    self.tx_verify_block_number(),
+                    self.tip_number() + 1,
                     self.current_epoch_ext().number(),
+                    self.tip_hash(),
                     &self.consensus(),
                     &self.script_config,
                     &self.store,
@@ -471,11 +475,6 @@ impl<CS: ChainStore> ChainState<CS> {
         }
     }
 
-    // assume block_number = self.tip_number() + 1 when verify tx in tx_pool
-    pub(crate) fn tx_verify_block_number(&self) -> BlockNumber {
-        self.tip_number() + 1
-    }
-
     pub(crate) fn proposed_tx(
         &self,
         tx_pool: &mut TxPool,
@@ -489,14 +488,18 @@ impl<CS: ChainStore> ChainState<CS> {
         match self.resolve_tx_from_proposed(&tx, tx_pool) {
             Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
                 Ok(cycles) => {
-                    let fee = calculate_transaction_fee(
-                        &DataLoaderWrapper::new(Arc::clone(self.store())),
-                        &rtx,
-                    )
-                    .ok_or_else(|| {
-                        tx_pool.update_statics_for_remove_tx(size, cycles);
-                        PoolError::TxFee
-                    })?;
+                    let fee = DaoCalculator::new(&self.consensus, Arc::clone(&self.store))
+                        .transaction_fee(&rtx)
+                        .map_err(|e| {
+                            error_target!(
+                                crate::LOG_TARGET_TX_POOL,
+                                "Failed to generate tx fee for {:x}, reason: {:?}",
+                                tx_hash,
+                                e
+                            );
+                            tx_pool.update_statics_for_remove_tx(size, cycles);
+                            PoolError::TxFee
+                        })?;
                     tx_pool.add_proposed(cycles, fee, size, tx);
                     Ok(cycles)
                 }
@@ -765,9 +768,9 @@ impl<CS: ChainStore> HeaderProvider for ChainState<CS> {
                 Some(header) => {
                     if let Some(cell_out_point) = &out_point.cell {
                         self.store
-                            .get_transaction_address(&cell_out_point.tx_hash)
-                            .map_or(HeaderStatus::InclusionFaliure, |address| {
-                                if address.block_hash == *block_hash {
+                            .get_transaction_info(&cell_out_point.tx_hash)
+                            .map_or(HeaderStatus::InclusionFaliure, |info| {
+                                if info.block_hash == *block_hash {
                                     HeaderStatus::live_header(header)
                                 } else {
                                     HeaderStatus::InclusionFaliure
@@ -801,6 +804,7 @@ impl<'a, CS: ChainStore> CellProvider for ChainCellSetOverlay<'a, CS> {
                                     .block_info(BlockInfo::new(
                                         tx_meta.block_number(),
                                         tx_meta.epoch_number(),
+                                        tx_meta.block_hash().to_owned(),
                                     ))
                                     .cellbase(tx_meta.is_cellbase())
                                     .build()
@@ -829,15 +833,15 @@ impl<CS: ChainStore> BlockMedianTimeContext for &ChainState<CS> {
         self.consensus.median_time_block_count() as u64
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, H256) {
+    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
         let header = self
             .store
             .get_block_header(&block_hash)
             .expect("[ChainState] blocks used for median time exist");
-        (header.timestamp(), header.parent_hash().to_owned())
-    }
-
-    fn get_block_hash(&self, block_number: BlockNumber) -> Option<H256> {
-        self.store.get_block_hash(block_number)
+        (
+            header.timestamp(),
+            header.number(),
+            header.parent_hash().to_owned(),
+        )
     }
 }
