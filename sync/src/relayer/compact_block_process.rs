@@ -129,6 +129,12 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                         pending_compact_blocks
                             .get(&block_hash)
                             .map(|(compact_block, _)| compact_block.header.to_owned())
+                            .or_else(|| {
+                                self.relayer
+                                    .shared
+                                    .get_header_view(&block_hash)
+                                    .map(|header_view| header_view.into_inner())
+                            })
                     }
                 };
                 let resolver = self
