@@ -18,8 +18,10 @@ pub struct TxPoolConfig {
     pub max_mem_size: usize,
     // Keep the transaction pool below <max_cycles> cycles
     pub max_cycles: Cycle,
-    // tx verfify cache capacity
-    pub max_verfify_cache_size: usize,
+    // tx verify cache capacity
+    pub max_verify_cache_size: usize,
+    // conflict tx cache capacity
+    pub max_conflict_cache_size: usize,
 }
 
 impl Default for TxPoolConfig {
@@ -27,7 +29,8 @@ impl Default for TxPoolConfig {
         TxPoolConfig {
             max_mem_size: 20_000_000, // 20mb
             max_cycles: 200_000_000_000,
-            max_verfify_cache_size: 100_000,
+            max_verify_cache_size: 100_000,
+            max_conflict_cache_size: 1_000,
         }
     }
 }

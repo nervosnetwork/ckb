@@ -32,7 +32,7 @@ pub struct TxPool {
 
 impl TxPool {
     pub fn new(config: TxPoolConfig) -> TxPool {
-        let cache_size = config.max_verfify_cache_size;
+        let cache_size = config.max_conflict_cache_size;
         let last_txs_updated_at = 0u64;
 
         TxPool {
