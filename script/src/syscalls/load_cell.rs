@@ -184,10 +184,10 @@ impl<'a, Mac: SupportMachine, CS: DataLoader> Syscalls<Mac> for LoadCell<'a, CS>
             _ => return Ok(false),
         };
 
-        let index = machine.registers()[A3].to_usize();
+        let index = machine.registers()[A3].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
-        let cell = self.fetch_cell(source, index);
+        let cell = self.fetch_cell(source, index as usize);
         if cell.is_err() {
             machine.set_register(A0, Mac::REG::from_u8(cell.unwrap_err()));
             return Ok(true);

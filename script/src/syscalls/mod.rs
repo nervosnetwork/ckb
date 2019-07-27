@@ -1087,10 +1087,7 @@ mod tests {
             &group_outputs,
         );
 
-        prop_assert!(machine
-            .memory_mut()
-            .store_byte(addr as usize, addr_size as usize, 1)
-            .is_ok());
+        prop_assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
         prop_assert!(load_code.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
@@ -1098,7 +1095,7 @@ mod tests {
         prop_assert_eq!(
             machine
                 .memory_mut()
-                .fetch_flag(addr as usize / RISCV_PAGESIZE),
+                .fetch_flag(addr / RISCV_PAGESIZE as u64),
             Ok(FLAG_EXECUTABLE | FLAG_FREEZED)
         );
         for (i, addr) in (addr..addr + data.len() as u64).enumerate() {
@@ -1126,13 +1123,7 @@ mod tests {
 
         prop_assert!(machine
             .memory_mut()
-            .init_pages(
-                addr as usize,
-                addr_size as usize,
-                FLAG_EXECUTABLE | FLAG_FREEZED,
-                None,
-                0
-            )
+            .init_pages(addr, addr_size, FLAG_EXECUTABLE | FLAG_FREEZED, None, 0)
             .is_ok());
 
         machine.set_register(A0, addr); // addr
@@ -1219,10 +1210,7 @@ mod tests {
             &group_outputs,
         );
 
-        assert!(machine
-            .memory_mut()
-            .store_byte(addr as usize, addr_size as usize, 1)
-            .is_ok());
+        assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
         assert!(load_code.ecall(&mut machine).is_err());
 
@@ -1269,10 +1257,7 @@ mod tests {
             &group_outputs,
         );
 
-        assert!(machine
-            .memory_mut()
-            .store_byte(addr as usize, addr_size as usize, 1)
-            .is_ok());
+        assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
         assert!(load_code.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], u64::from(SLICE_OUT_OF_BOUND));
@@ -1322,10 +1307,7 @@ mod tests {
             &group_outputs,
         );
 
-        assert!(machine
-            .memory_mut()
-            .store_byte(addr as usize, addr_size as usize, 1)
-            .is_ok());
+        assert!(machine.memory_mut().store_byte(addr, addr_size, 1).is_ok());
 
         assert!(load_code.ecall(&mut machine).is_ok());
         assert_eq!(machine.registers()[A0], u64::from(SLICE_OUT_OF_BOUND));
