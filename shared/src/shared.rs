@@ -18,8 +18,6 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 
-const TXS_VERIFY_CACHE_SIZE: usize = 10_000;
-
 #[derive(Debug)]
 pub struct Shared<CS> {
     store: Arc<CS>,
@@ -51,7 +49,9 @@ impl<CS: ChainStore> Shared<CS> {
     ) -> Result<Self, SharedError> {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
-        let txs_verify_cache = Arc::new(Mutex::new(LruCache::new(TXS_VERIFY_CACHE_SIZE)));
+        let txs_verify_cache = Arc::new(Mutex::new(LruCache::new(
+            tx_pool_config.max_verify_cache_size,
+        )));
         let chain_state = Arc::new(Mutex::new(ChainState::init(
             &store,
             Arc::clone(&consensus),
@@ -165,8 +165,6 @@ impl SharedBuilder<RocksDB> {
         self
     }
 }
-
-pub const MIN_TXS_VERIFY_CACHE_SIZE: Option<usize> = Some(100);
 
 impl<DB: KeyValueDB> SharedBuilder<DB> {
     pub fn consensus(mut self, value: Consensus) -> Self {
