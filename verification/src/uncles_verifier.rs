@@ -2,9 +2,10 @@ use crate::error::{Error, UnclesError};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
-use fnv::FnvHashSet;
+use ckb_core::header::Header;
+use ckb_core::BlockNumber;
 use numext_fixed_hash::H256;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub trait UncleProvider {
     fn double_inclusion(&self, hash: &H256) -> bool;
@@ -12,6 +13,8 @@ pub trait UncleProvider {
     fn consensus(&self) -> &Consensus;
 
     fn epoch(&self) -> &EpochExt;
+
+    fn descendant(&self, uncle: &Header) -> bool;
 }
 
 #[derive(Clone)]
@@ -20,11 +23,11 @@ pub struct UnclesVerifier<'a, P> {
     block: &'a Block,
 }
 
-/// A block B1 is considered to be the uncle of
-/// another block B2 if all of the following conditions are met:
-/// (1) they are in the same epoch, sharing the same difficulty;
-/// (2) height(B2) > height(B1);
-/// (3) B2 is the first block in its chain to refer to B1
+// A block B1 is considered to be the uncle of another block B2 if all of the following conditions are met:
+// (1) they are in the same epoch, sharing the same difficulty;
+// (2) height(B2) > height(B1);
+// (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
+// and (4) B2 is the first block in its chain to refer to B1.
 impl<'a, P> UnclesVerifier<'a, P>
 where
     P: UncleProvider,
@@ -79,7 +82,7 @@ where
             }));
         }
 
-        let mut included = FnvHashSet::default();
+        let mut included: HashMap<H256, BlockNumber> = HashMap::default();
         for uncle in self.block.uncles() {
             if uncle.header().difficulty() != self.provider.epoch().difficulty() {
                 return Err(Error::Uncles(UnclesError::InvalidDifficulty));
@@ -93,8 +96,18 @@ where
                 return Err(Error::Uncles(UnclesError::InvalidNumber));
             }
 
+            let uncle_number = uncle.header.number();
+            let embedded_descendant = included
+                .get(uncle.header.parent_hash())
+                .map(|number| (number + 1) == uncle_number)
+                .unwrap_or(false);
+
+            if !(embedded_descendant || self.provider.descendant(&uncle.header)) {
+                return Err(Error::Uncles(UnclesError::DescendantLimit));
+            }
+
             let uncle_hash = uncle.header.hash().to_owned();
-            if included.contains(&uncle_hash) {
+            if included.contains_key(&uncle_hash) {
                 return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash.clone())));
             }
 
@@ -128,7 +141,7 @@ where
                 return Err(Error::Uncles(UnclesError::InvalidProof));
             }
 
-            included.insert(uncle_hash);
+            included.insert(uncle_hash, uncle_number);
         }
 
         Ok(())

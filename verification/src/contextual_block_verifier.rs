@@ -13,10 +13,10 @@ use ckb_dao::DaoCalculator;
 use ckb_logger::error_target;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
-use fnv::FnvHashSet;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 // Verification context for fork
@@ -55,21 +55,21 @@ impl<'a, P: ChainProvider> BlockMedianTimeContext for ForkContext<'a, P> {
 
 pub(crate) struct UncleVerifierContext<'a, P> {
     epoch: &'a EpochExt,
-    excluded: FnvHashSet<&'a H256>,
-    detached: FnvHashSet<&'a H256>,
-    detached_uncles: FnvHashSet<&'a H256>,
+    attached: HashMap<&'a H256, &'a Header>,
+    detached: HashSet<&'a H256>,
+    detached_uncles: HashSet<&'a H256>,
+    block_hash: &'a H256,
     provider: &'a P,
 }
 
 impl<'a, P: ChainProvider> UncleVerifierContext<'a, P> {
     pub(crate) fn new(fork: &'a ForkContext<'a, P>, epoch: &'a EpochExt, block: &'a Block) -> Self {
-        let mut excluded = FnvHashSet::default();
-        excluded.insert(block.header().hash());
+        let mut attached = HashMap::default();
 
         for pre in &fork.attached_blocks {
-            excluded.insert(pre.header().hash());
+            attached.insert(pre.header().hash(), pre.header());
             for uncle in pre.uncles() {
-                excluded.insert(uncle.header.hash());
+                attached.insert(uncle.header.hash(), &uncle.header);
             }
         }
         let detached = fork
@@ -84,9 +84,10 @@ impl<'a, P: ChainProvider> UncleVerifierContext<'a, P> {
             .collect();
         UncleVerifierContext {
             epoch,
-            excluded,
+            attached,
             detached,
             detached_uncles,
+            block_hash: block.header().hash(),
             provider: &fork.provider,
         }
     }
@@ -94,7 +95,7 @@ impl<'a, P: ChainProvider> UncleVerifierContext<'a, P> {
 
 impl<'a, P: ChainProvider> UncleProvider for UncleVerifierContext<'a, P> {
     fn double_inclusion(&self, hash: &H256) -> bool {
-        if self.excluded.contains(hash) {
+        if self.attached.contains_key(hash) || (hash == self.block_hash) {
             return true;
         }
 
@@ -105,6 +106,33 @@ impl<'a, P: ChainProvider> UncleProvider for UncleVerifierContext<'a, P> {
 
         if self.provider.store().is_uncle(hash) {
             return !self.detached_uncles.contains(hash);
+        }
+
+        false
+    }
+
+    fn descendant(&self, uncle: &Header) -> bool {
+        let parent_hash = uncle.parent_hash();
+        let uncle_number = uncle.number();
+        let store = self.provider.store();
+
+        if let Some(header) = self.attached.get(parent_hash) {
+            return (header.number() + 1) == uncle_number;
+        }
+
+        let number_continuity = |parent_hash| {
+            store
+                .get_block_header(parent_hash)
+                .map(|parent| (parent.number() + 1) == uncle_number)
+                .unwrap_or(false)
+        };
+
+        if store.get_block_number(parent_hash).is_some() {
+            return number_continuity(parent_hash) && !self.detached.contains(parent_hash);
+        }
+
+        if store.is_uncle(parent_hash) {
+            return number_continuity(parent_hash) && !self.detached_uncles.contains(parent_hash);
         }
 
         false
@@ -146,7 +174,7 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
             .map(|h| h.hash().to_owned())
             .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
 
-        let mut proposal_txs_ids = FnvHashSet::default();
+        let mut proposal_txs_ids = HashSet::default();
 
         while proposal_end >= proposal_start {
             let header = self
@@ -175,7 +203,7 @@ impl<'a, CP: ChainProvider + Clone> CommitVerifier<'a, CP> {
             proposal_end -= 1;
         }
 
-        let committed_ids: FnvHashSet<_> = self
+        let committed_ids: HashSet<_> = self
             .block
             .transactions()
             .iter()

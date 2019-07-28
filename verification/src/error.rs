@@ -126,6 +126,7 @@ pub enum UnclesError {
     Duplicate(H256),
     DoubleInclusion(H256),
     InvalidCellbase,
+    DescendantLimit,
     ExceededMaximumProposalsLimit,
 }
 

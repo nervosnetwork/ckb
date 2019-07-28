@@ -1,7 +1,7 @@
 #![allow(clippy::needless_pass_by_value)]
 
-use ckb_core::block::Block;
 use ckb_core::service::Request;
+use ckb_core::uncle::UncleBlock;
 use ckb_logger::{debug, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use crossbeam_channel::{select, Receiver, Sender};
@@ -15,7 +15,7 @@ pub const NOTIFY_CHANNEL_SIZE: usize = 128;
 
 pub type MsgNewTransaction = ();
 // pub type MsgNewTip = Arc<Block>;
-pub type MsgNewUncle = Arc<Block>;
+pub type MsgNewUncle = Arc<UncleBlock>;
 // pub type MsgSwitchFork = Arc<ForkBlocks>;
 pub type NotifyRegister<M> = Sender<Request<(String, usize), Receiver<M>>>;
 
