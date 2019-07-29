@@ -1,8 +1,8 @@
-use crate::relayer::Relayer;
+use crate::relayer::{compact_block::BlockProposal, Relayer};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_logger::{debug_target, warn_target};
 use ckb_network::CKBProtocolContext;
-use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
+use ckb_protocol::BlockProposal as BlockProposalMessage;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use futures::{self, future::FutureResult, lazy};
@@ -11,14 +11,14 @@ use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct BlockProposalProcess<'a, CS> {
-    message: &'a BlockProposal<'a>,
+    message: &'a BlockProposalMessage<'a>,
     relayer: &'a Relayer<CS>,
     nc: Arc<dyn CKBProtocolContext + Sync>,
 }
 
 impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
     pub fn new(
-        message: &'a BlockProposal,
+        message: &'a BlockProposalMessage,
         relayer: &'a Relayer<CS>,
         nc: Arc<dyn CKBProtocolContext + Sync>,
     ) -> Self {
@@ -30,10 +30,8 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let txs: Vec<Transaction> =
-            FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<Transaction>, _>>()?;
+        let block_proposal: BlockProposal = (*self.message).try_into()?;
+        let txs: Vec<Transaction> = block_proposal.transactions;
 
         let unknown_txs: Vec<(H256, Transaction)> = txs
             .into_iter()

@@ -212,11 +212,8 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             .collect();
         if !to_ask_proposals.is_empty() {
             let fbb = &mut FlatBufferBuilder::new();
-            let message = RelayMessage::build_get_block_proposal(
-                fbb,
-                block.header.number(),
-                &to_ask_proposals,
-            );
+            let message =
+                RelayMessage::build_get_block_proposal(fbb, block.header.hash(), &to_ask_proposals);
             fbb.finish(message, None);
 
             if let Err(err) = nc.send_message_to(peer, fbb.finished_data().into()) {

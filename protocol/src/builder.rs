@@ -19,7 +19,7 @@ use crate::protocol_generated::ckb::protocol::{
 use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::alert::Alert;
 use ckb_core::block::Block;
-use ckb_core::header::{BlockNumber, Header};
+use ckb_core::header::Header;
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
@@ -661,17 +661,18 @@ impl<'a> RelayMessage<'a> {
 
     pub fn build_get_block_proposal<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        block_number: BlockNumber,
+        block_hash: &H256,
         proposals: &[ProposalShortId],
     ) -> WIPOffset<RelayMessage<'b>> {
         let get_block_proposal = {
+            let fbs_block_hash = block_hash.into();
             let vec = proposals
                 .iter()
                 .map(Into::into)
                 .collect::<Vec<FbsProposalShortId>>();
             let proposals = fbb.create_vector(&vec);
             let mut builder = GetBlockProposalBuilder::new(fbb);
-            builder.add_block_number(block_number);
+            builder.add_block_hash(&fbs_block_hash);
             builder.add_proposals(proposals);
             builder.finish()
         };

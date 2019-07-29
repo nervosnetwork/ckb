@@ -1381,11 +1381,11 @@ pub mod ckb {
                     }
                 }
 
-                if Self::VT_BLOCK_NUMBER as usize + flatbuffers::SIZE_VOFFSET
+                if Self::VT_BLOCK_HASH as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
-                    let voffset = vtab.get(Self::VT_BLOCK_NUMBER) as usize;
-                    if voffset > 0 && object_inline_num_bytes - voffset < 8 {
+                    let voffset = vtab.get(Self::VT_BLOCK_HASH) as usize;
+                    if voffset > 0 && object_inline_num_bytes - voffset < 32 {
                         return Err(Error::OutOfBounds);
                     }
                 }
