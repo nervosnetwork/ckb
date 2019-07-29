@@ -101,8 +101,8 @@ impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCellData<'a,
         }
         let cell = cell.unwrap();
 
-        if content_offset >= u64::from(cell.data_bytes)
-            || (content_offset + content_size) > u64::from(cell.data_bytes)
+        if content_offset >= cell.data_bytes
+            || (content_offset + content_size) > cell.data_bytes
             || content_size > memory_size
         {
             machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
@@ -120,7 +120,7 @@ impl<'a, Mac: SupportMachine, DL: DataLoader> Syscalls<Mac> for LoadCellData<'a,
             0,
         )?;
 
-        machine.add_cycles(u64::from(cell.data_bytes) * 10)?;
+        machine.add_cycles(cell.data_bytes * 10)?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(true)
     }

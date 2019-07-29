@@ -34,7 +34,7 @@ pub struct CellMeta {
     pub out_point: CellOutPoint,
     pub block_info: Option<BlockInfo>,
     pub cellbase: bool,
-    pub data_bytes: u32,
+    pub data_bytes: u64,
     /// In memory cell data
     /// A live cell either exists in memory or DB
     /// must check DB if this field is None
@@ -48,7 +48,7 @@ pub struct CellMetaBuilder {
     out_point: CellOutPoint,
     block_info: Option<BlockInfo>,
     cellbase: bool,
-    data_bytes: u32,
+    data_bytes: u64,
     mem_cell_data: Option<Bytes>,
 }
 
@@ -141,11 +141,13 @@ impl CellMeta {
     }
 
     pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
-        self.cell_output.occupied_capacity(self.data_bytes)
+        self.cell_output
+            .occupied_capacity(Capacity::bytes(self.data_bytes as usize)?)
     }
 
     pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
-        self.cell_output.is_lack_of_capacity(self.data_bytes)
+        self.cell_output
+            .is_lack_of_capacity(Capacity::bytes(self.data_bytes as usize)?)
     }
 }
 
@@ -374,7 +376,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                                 hash: self.block.header().hash().to_owned(),
                             }),
                             cellbase: *i == 0,
-                            data_bytes: data.len() as u32,
+                            data_bytes: data.len() as u64,
                             mem_cell_data: Some(data),
                         })
                     })
@@ -705,7 +707,7 @@ mod tests {
                 index: 0,
             },
             cellbase: false,
-            data_bytes: data.len() as u32,
+            data_bytes: data.len() as u64,
             mem_cell_data: Some(data),
         }
     }

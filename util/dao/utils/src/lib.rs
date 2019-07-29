@@ -30,9 +30,11 @@ pub fn genesis_dao_data(genesis_cellbase_tx: &Transaction) -> Result<Bytes, Fail
     let u = genesis_cellbase_tx.outputs_with_data_iter().try_fold(
         Capacity::zero(),
         |capacity, (output, data)| {
-            output
-                .occupied_capacity(data.len() as u32)
-                .and_then(|c| capacity.safe_add(c))
+            Capacity::bytes(data.len()).and_then(|data_capacity| {
+                output
+                    .occupied_capacity(data_capacity)
+                    .and_then(|c| capacity.safe_add(c))
+            })
         },
     )?;
     Ok(pack_dao_data(DEFAULT_ACCUMULATED_RATE, c, u))

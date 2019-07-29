@@ -3,7 +3,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::{
     cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
     transaction::{CellOutput, Transaction, TX_VERSION},
-    BlockNumber, Cycle, EpochNumber,
+    BlockNumber, Capacity, Cycle, EpochNumber,
 };
 use ckb_resource::CODE_HASH_DAO;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
@@ -305,7 +305,7 @@ impl<'a> CapacityVerifier<'a> {
             .transaction
             .outputs_with_data_iter()
         {
-            if output.is_lack_of_capacity(data.len() as u32)? {
+            if output.is_lack_of_capacity(Capacity::bytes(data.len())?)? {
                 return Err(TransactionError::InsufficientCellCapacity);
             }
         }

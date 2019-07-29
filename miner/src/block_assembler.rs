@@ -447,7 +447,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         mut output: CellOutput,
     ) -> Result<(CellOutput, Bytes), FailureError> {
         let mut data = self.config.data.clone().into_bytes();
-        let occupied_capacity = output.occupied_capacity(data.len() as u32)?;
+        let occupied_capacity = output.occupied_capacity(Capacity::bytes(data.len())?)?;
 
         if reward < occupied_capacity {
             return Err(TransactionError::InsufficientCellCapacity.into());
@@ -525,7 +525,7 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::extras::EpochExt;
     use ckb_core::header::{Header, HeaderBuilder};
-    use ckb_core::script::{Script, ScriptHashType};
+    use ckb_core::script::ScriptHashType;
     use ckb_core::transaction::{
         CellInput, CellOutputBuilder, ProposalShortId, Transaction, TransactionBuilder,
     };

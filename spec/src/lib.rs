@@ -251,7 +251,7 @@ impl GenesisCell {
         let data: Bytes = self.message.as_bytes().into();
         cell.data_hash = CellOutput::calculate_data_hash(&data);
         cell.lock = self.lock.clone().into();
-        cell.capacity = cell.occupied_capacity(data.len() as u32)?;
+        cell.capacity = cell.occupied_capacity(Capacity::bytes(data.len())?)?;
         Ok((cell, data))
     }
 }
@@ -278,7 +278,7 @@ impl SystemCells {
             let mut cell = CellOutput::default();
             cell.data_hash = CellOutput::calculate_data_hash(&data);
             cell.lock = self.lock.clone().into();
-            cell.capacity = cell.occupied_capacity(data.len() as u32)?;
+            cell.capacity = cell.occupied_capacity(Capacity::bytes(data.len())?)?;
             outputs.push(cell);
             outputs_data.push(data);
         }

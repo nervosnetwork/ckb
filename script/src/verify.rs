@@ -86,7 +86,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 },
                 block_info: None,
                 cellbase: false,
-                data_bytes: data.len() as u32,
+                data_bytes: data.len() as u64,
                 mem_cell_data: Some(data.to_owned()),
             })
             .collect();
@@ -181,9 +181,8 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         &'a self,
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCell<'a, DL> {
+    ) -> LoadCell<'a> {
         LoadCell::new(
-            &self.data_loader,
             &self.outputs,
             self.resolved_inputs(),
             self.resolved_deps(),
@@ -406,7 +405,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         .syscall(Box::new(
             self.build_load_witness(&script_group.input_indices),
         ))
-        .syscall(Box::new(self.build_load_code(
+        .syscall(Box::new(self.build_load_cell_data(
             &script_group.input_indices,
             &script_group.output_indices,
         )))

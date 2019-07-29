@@ -411,7 +411,7 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
                     out_point,
                     block_info: Some(block_info),
                     cellbase,
-                    data_bytes: data.len() as u32,
+                    data_bytes: data.len() as u64,
                     mem_cell_data: None,
                 }
             })

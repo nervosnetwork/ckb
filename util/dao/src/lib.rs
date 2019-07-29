@@ -104,9 +104,11 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                 rtx.transaction
                     .outputs_with_data_iter()
                     .try_fold(Capacity::zero(), |tx_capacities, (output, data)| {
-                        output
-                            .occupied_capacity(data.len() as u32)
-                            .and_then(|c| tx_capacities.safe_add(c))
+                        Capacity::bytes(data.len()).and_then(|data_capacity| {
+                            output
+                                .occupied_capacity(data_capacity)
+                                .and_then(|c| tx_capacities.safe_add(c))
+                        })
                     })
                     .and_then(|c| capacities.safe_add(c))
             })?;
@@ -171,7 +173,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
             .ok_or(Error::InvalidOutPoint)?;
         self.calculate_maximum_withdraw(
             &output,
-            output_data.len() as u32,
+            Capacity::bytes(output_data.len())?,
             &block_hash,
             withdraw_header_hash,
         )
@@ -224,7 +226,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                                     })?;
                                 self.calculate_maximum_withdraw(
                                     &output,
-                                    cell_meta.data_bytes,
+                                    Capacity::bytes(cell_meta.data_bytes as usize)?,
                                     &deposit_header_hash,
                                     &withdraw_header_hash,
                                 )
@@ -264,7 +266,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
     fn calculate_maximum_withdraw(
         &self,
         output: &CellOutput,
-        output_data_bytes: u32,
+        output_data_capacity: Capacity,
         deposit_header_hash: &H256,
         withdraw_header_hash: &H256,
     ) -> Result<Capacity, FailureError> {
@@ -279,7 +281,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
         let (deposit_ar, _, _) = extract_dao_data(deposit_header.dao())?;
         let (withdraw_ar, _, _) = extract_dao_data(withdraw_header.dao())?;
 
-        let occupied_capacity = output.occupied_capacity(output_data_bytes)?;
+        let occupied_capacity = output.occupied_capacity(output_data_capacity)?;
         let counted_capacity = output.capacity.safe_sub(occupied_capacity)?;
         let withdraw_counted_capacity = u128::from(counted_capacity.as_u64())
             * u128::from(withdraw_ar)

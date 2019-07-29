@@ -158,7 +158,9 @@ fn new_chain(
     let always_success = include_bytes!("../../script/testdata/always_success");
     let data = Bytes::from(always_success.to_vec());
     let mut cell_output = CellOutputBuilder::from_data(&data).build();
-    cell_output.capacity = cell_output.occupied_capacity(data.len() as u32).unwrap();
+    cell_output.capacity = cell_output
+        .occupied_capacity(Capacity::bytes(data.len()).unwrap())
+        .unwrap();
 
     let data_hash = cell_output.data_hash().to_owned();
 
@@ -244,7 +246,7 @@ fn gen_block(
     );
 
     let mut cell_output = CellOutput::default();
-    cell_output.capacity = cell_output.occupied_capacity(0).unwrap();
+    cell_output.capacity = cell_output.occupied_capacity(Capacity::zero()).unwrap();
 
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))

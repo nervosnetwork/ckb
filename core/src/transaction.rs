@@ -250,8 +250,9 @@ impl CellOutput {
         (capacity, data_hash, lock, type_)
     }
 
-    pub fn occupied_capacity(&self, data_bytes: u32) -> CapacityResult<Capacity> {
-        Capacity::bytes(8 + data_bytes as usize)
+    pub fn occupied_capacity(&self, data_capacity: Capacity) -> CapacityResult<Capacity> {
+        Capacity::bytes(8)
+            .and_then(|x| x.safe_add(data_capacity))
             .and_then(|x| self.lock.occupied_capacity().and_then(|y| y.safe_add(x)))
             .and_then(|x| {
                 self.type_
@@ -262,8 +263,8 @@ impl CellOutput {
             })
     }
 
-    pub fn is_lack_of_capacity(&self, data_bytes: u32) -> CapacityResult<bool> {
-        self.occupied_capacity(data_bytes)
+    pub fn is_lack_of_capacity(&self, data_capacity: Capacity) -> CapacityResult<bool> {
+        self.occupied_capacity(data_capacity)
             .map(|cap| cap > self.capacity)
     }
 }
@@ -911,7 +912,10 @@ mod test {
     fn min_cell_output_capacity() {
         let lock = Script::new(vec![], H256::default(), ScriptHashType::Data);
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity(0).unwrap(), capacity_bytes!(41));
+        assert_eq!(
+            output.occupied_capacity(Capacity::zero()).unwrap(),
+            capacity_bytes!(41)
+        );
     }
 
     #[test]
@@ -922,6 +926,9 @@ mod test {
             ScriptHashType::Data,
         );
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity(0).unwrap(), capacity_bytes!(61));
+        assert_eq!(
+            output.occupied_capacity(Capacity::zero()).unwrap(),
+            capacity_bytes!(61)
+        );
     }
 }

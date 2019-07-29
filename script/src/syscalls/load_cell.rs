@@ -2,7 +2,6 @@ use crate::syscalls::{
     utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
     LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
 };
-use crate::DataLoader;
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_core::transaction::CellOutput;
@@ -13,8 +12,7 @@ use ckb_vm::{
 };
 use flatbuffers::FlatBufferBuilder;
 
-pub struct LoadCell<'a, DL> {
-    _data_loader: &'a DL,
+pub struct LoadCell<'a> {
     outputs: &'a [CellMeta],
     resolved_inputs: &'a [ResolvedOutPoint],
     resolved_deps: &'a [ResolvedOutPoint],
@@ -22,17 +20,15 @@ pub struct LoadCell<'a, DL> {
     group_outputs: &'a [usize],
 }
 
-impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
+impl<'a> LoadCell<'a> {
     pub fn new(
-        data_loader: &'a DL,
         outputs: &'a [CellMeta],
         resolved_inputs: &'a [ResolvedOutPoint],
         resolved_deps: &'a [ResolvedOutPoint],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCell<'a, DL> {
+    ) -> LoadCell<'a> {
         LoadCell {
-            _data_loader: data_loader,
             outputs,
             resolved_inputs,
             resolved_deps,
@@ -168,7 +164,7 @@ impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
     }
 }
 
-impl<'a, Mac: SupportMachine, CS: DataLoader> Syscalls<Mac> for LoadCell<'a, CS> {
+impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }

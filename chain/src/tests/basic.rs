@@ -180,7 +180,7 @@ fn test_transaction_spend_in_same_block() {
             .cell(&OutPoint::new_cell(tx2_hash.to_owned(), 0)),
         CellStatus::live_cell(CellMeta {
             cell_output: tx2_output,
-            data_bytes: tx2_output_data.len() as u32,
+            data_bytes: tx2_output_data.len() as u64,
             out_point: CellOutPoint {
                 tx_hash: tx2_hash.to_owned(),
                 index: 0
