@@ -85,11 +85,17 @@ else
   FMTFAILED=0
   for file in $(git diff --name-only --cached);
   do
-    if [ -f "$file" ] && [ ${file: -3} == ".rs" ]; then
-      if ! rustfmt --check "$file"; then
-        FAILED=1
-        FMTFAILED=1
-      fi
+    if [ -f "$file" ] && [ ${file: -3} == ".rs" ] ; then
+      case "$file" in
+        "protocol/src/protocol_generated_verifier.rs"|"protocol/src/protocol_generated.rs")
+          ;;
+        *)
+          if ! rustfmt --check "$file"; then
+            FAILED=1
+            FMTFAILED=1
+          fi
+          ;;
+      esac
     fi
   done
   if [ "$FMTFAILED" = 0 ]; then
