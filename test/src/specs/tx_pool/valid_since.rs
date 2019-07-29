@@ -169,8 +169,7 @@ impl ValidSince {
 
         // Calculate current block median time
         let tip_number = node.rpc_client().get_tip_block_number();
-        let mut timestamps: Vec<u64> = (tip_number.saturating_sub(MEDIAN_TIME_BLOCK_COUNT + 1)
-            ..=tip_number)
+        let mut timestamps: Vec<u64> = ((tip_number - MEDIAN_TIME_BLOCK_COUNT + 1)..=tip_number)
             .map(|block_number| {
                 node.rpc_client()
                     .get_block_by_number(block_number)
