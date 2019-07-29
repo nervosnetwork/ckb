@@ -66,9 +66,13 @@ matrix:
       os: linux
       script: make CKB_TEST_ARGS="--max-time 1200" integration
     - name: Linters
-      env: CACHE_NAME=linters
+      env: CACHE_NAME=linters-2
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
+      before_install:
+        - echo "Today is $(date)"
+        - if [[ $(date +%u) -eq 1 ]] ; then cargo sweep --version || travis_retry cargo install --git https://github.com/holmgr/cargo-sweep --rev 4770deda37a2203c783e301b8c0c895964e8971e; fi
+        - if [[ $(date +%u) -eq 1 ]] ; then cargo sweep -s; fi
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
         - cargo clippy --version || travis_retry rustup component add clippy
@@ -76,6 +80,13 @@ matrix:
         - make fmt
         - make clippy
         - git diff --exit-code Cargo.lock
+      before_cache:
+        - rm -rfv target/debug/incremental/*
+        - rm -rfv target/debug/.fingerprint/ckb-*
+        - rm -rfv target/debug/deps/ckb-*
+        - rm -rfv target/debug/ckb.d
+        - cargo clean -p ckb
+        - if [[ $(date +%u) -eq 1 ]] ; then cargo sweep -f; fi
     - name: Quick Check
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
