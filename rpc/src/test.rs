@@ -6,9 +6,11 @@ use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
+use ckb_core::cell::resolve_transaction;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{alert::AlertBuilder, capacity_bytes, Bytes, Capacity};
+use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_db::DBConfig;
 use ckb_db::MemoryKeyValueDB;
@@ -27,11 +29,13 @@ use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use reqwest;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{from_reader, json, to_string, to_string_pretty, Map, Value};
+use std::cell::RefCell;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,6 +46,11 @@ const EPOCH_REWARD: u64 = 125_000_000_000_000;
 const CELLBASE_MATURITY: u64 = 0;
 const ALERT_UNTIL_TIMESTAMP: u64 = 2_524_579_200;
 const TARGET_HEIGHT: u64 = 1024;
+
+thread_local! {
+    // We store a cellbase for constructing a new transaction later
+    static UNSPENT: RefCell<H256> = RefCell::new(H256::zero());
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct JsonResponse {
@@ -96,7 +105,27 @@ fn next_block(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, parent: &Header) 
     };
     let (_, reward) = shared.finalize_block_reward(parent).unwrap();
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total);
-    let dao = genesis_dao_data(&cellbase).unwrap();
+
+    // We store a cellbase for constructing a new transaction later
+    if parent.number() == 0 {
+        UNSPENT.with(|unspent| {
+            *unspent.borrow_mut() = cellbase.hash().to_owned();
+        });
+    }
+
+    let dao = {
+        let chain_state = shared.lock_chain_state();
+        let resolved_cellbase = resolve_transaction(
+            &cellbase,
+            &mut Default::default(),
+            &*chain_state,
+            &*chain_state,
+        )
+        .unwrap();
+        DaoCalculator::new(shared.consensus(), Arc::clone(shared.store()))
+            .dao_field(&[resolved_cellbase], parent)
+            .unwrap()
+    };
     BlockBuilder::default()
         .transaction(cellbase)
         .header_builder(
@@ -133,7 +162,7 @@ fn setup_node(
     for _ in 0..height {
         let block = next_block(&shared, parent.header());
         chain_controller
-            .process_block(Arc::new(block.clone()), false)
+            .process_block(Arc::new(block.clone()), true)
             .expect("processing new block should be ok");
         parent = block;
     }
@@ -245,25 +274,17 @@ fn setup_node(
     (shared, chain_controller, rpc_server)
 }
 
-fn load_cases_from_file() -> Value {
+fn load_cases_from_file() -> Vec<Value> {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     file_path.push("json/rpc.json");
     let file = File::open(file_path).expect("opening test data json");
-    from_reader(file).expect("reading test data json")
+    let content: Value = from_reader(file).expect("reading test data json");
+    content.as_array().expect("load in array format").clone()
 }
 
 // Construct a transaction which use tip-cellbase as input cell
-fn construct_transaction(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>) -> Transaction {
-    // We intend to use an old cellbase as the input cell to construct a new transaction. But
-    // it is difficult to get any old cellbase transactions here. So we use a weired but simple
-    // way, manually construct the tip cellbase transaction, to archive goal.
-    let unspent = {
-        let chain = shared.lock_chain_state();
-        let (_, reward) = shared.finalize_block_reward(chain.tip_header()).unwrap();
-        always_success_cellbase(chain.tip_number(), reward.total)
-    };
-
-    let previous_output = OutPoint::new_cell(unspent.hash().to_owned(), 0);
+fn construct_transaction() -> Transaction {
+    let previous_output = OutPoint::new_cell(UNSPENT.with(|unspent| unspent.borrow().clone()), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutput::new(
         capacity_bytes!(1000),
@@ -299,9 +320,9 @@ fn result_of(client: &reqwest::Client, uri: &str, method: &str, params: Value) -
         .expect("send request")
         .json::<JsonResponse>()
     {
-        Err(err) => panic!("response error: {:?}", err),
+        Err(err) => panic!("{} response error: {:?}", method, err),
         Ok(json) => match json.error {
-            Some(error) => panic!("response error: {}", to_string(&error).unwrap()),
+            Some(error) => panic!("{} response error: {}", method, to_string(&error).unwrap()),
             None => json!(json.result),
         },
     }
@@ -313,7 +334,24 @@ fn params_of(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, method: &str) -> V
         let chain = shared.lock_chain_state();
         chain.tip_header().to_owned()
     };
+    let tip_number = json!(tip.number().to_string());
+    let tip_hash = json!(format!("{:#x}", tip.hash()));
     let (_, always_success_script) = always_success_cell();
+    let always_success_script_hash = json!(format!("{:#x}", always_success_script.hash()));
+    let always_success_out_point = {
+        let out_point = OutPoint::new_cell(always_success_transaction().hash().to_owned(), 0);
+        let json_out_point: ckb_jsonrpc_types::OutPoint = out_point.into();
+        json!(json_out_point)
+    };
+    let (transaction, transaction_hash) = {
+        let transaction = construct_transaction();
+        let transaction_hash = transaction.hash().to_owned();
+        let json_transaction: ckb_jsonrpc_types::Transaction = (&transaction).into();
+        (
+            json!(json_transaction),
+            json!(format!("{:#x}", transaction_hash)),
+        )
+    };
     let params = match method {
         "get_tip_block_number"
         | "get_tip_header"
@@ -326,23 +364,14 @@ fn params_of(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, method: &str) -> V
         | "get_peers_state"
         | "get_lock_hash_index_states" => vec![],
         "get_epoch_by_number" => vec![json!("0")],
-        "get_block_hash" => vec![json!(tip.number().to_string())],
-        "get_block" => vec![json!(format!("{:#x}", tip.hash()))],
-        "get_block_by_number" => vec![json!(tip.number().to_string())],
-        "get_header" => vec![json!(format!("{:#x}", tip.hash()))],
-        "get_header_by_number" => vec![json!(tip.number().to_string())],
+        "get_block_hash" | "get_block_by_number" | "get_header_by_number" => vec![tip_number],
+        "get_block" | "get_header" | "get_cellbase_output_capacity_details" => vec![tip_hash],
         "get_cells_by_lock_hash"
         | "get_live_cells_by_lock_hash"
-        | "get_transactions_by_lock_hash" => vec![
-            json!(format!("{:#x}", always_success_script.hash())),
-            json!("0"),
-            json!("2"),
-        ],
-        "get_live_cell" => {
-            let out_point = OutPoint::new_cell(always_success_transaction().hash().to_owned(), 0);
-            let json_out_point: ckb_jsonrpc_types::OutPoint = out_point.into();
-            vec![json!(json_out_point)]
+        | "get_transactions_by_lock_hash" => {
+            vec![always_success_script_hash, json!("0"), json!("2")]
         }
+        "get_live_cell" => vec![always_success_out_point],
         "set_ban" => vec![
             json!("192.168.0.2"),
             json!("insert"),
@@ -351,15 +380,9 @@ fn params_of(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, method: &str) -> V
             json!("set_ban example"),
         ],
         "send_transaction" | "dry_run_transaction" | "_compute_transaction_hash" => {
-            let transaction = construct_transaction(&shared);
-            let json_transaction: ckb_jsonrpc_types::Transaction = (&transaction).into();
-            vec![json!(json_transaction)]
+            vec![transaction]
         }
-        "get_transaction" => {
-            let transaction = construct_transaction(&shared);
-            let hash = transaction.hash().to_owned();
-            vec![json!(format!("{:#x}", hash))]
-        }
+        "get_transaction" => vec![transaction_hash],
         "index_lock_hash" => vec![
             json!(format!("{:#x}", always_success_script.hash())),
             json!("1024"),
@@ -385,8 +408,6 @@ fn print_document(
     uri: &str,
 ) {
     let document: Vec<_> = load_cases_from_file()
-        .as_array_mut()
-        .expect("load in array format")
         .iter_mut()
         .map(|case| {
             let method = case.get("method").expect("get method").as_str().unwrap();
@@ -423,23 +444,19 @@ fn test_rpc() {
     {
         let mut expected = Vec::new();
         let mut actual = Vec::new();
-        load_cases_from_file()
-            .as_array()
-            .expect("load in array format")
-            .iter()
-            .for_each(|case| {
-                let method = case
-                    .get("method")
-                    .expect("get method")
-                    .as_str()
-                    .unwrap()
-                    .to_string();
-                actual.push((
-                    method.clone(),
-                    case.get("params").expect("get params").clone(),
-                ));
-                expected.push((method.clone(), params_of(&shared, &method)));
-            });
+        load_cases_from_file().iter().for_each(|case| {
+            let method = case
+                .get("method")
+                .expect("get method")
+                .as_str()
+                .unwrap()
+                .to_string();
+            actual.push((
+                method.clone(),
+                case.get("params").expect("get params").clone(),
+            ));
+            expected.push((method.clone(), params_of(&shared, &method)));
+        });
         if actual != expected {
             print_document(&shared, &client, &uri);
             pretty_assert_eq!(actual, expected, "Assert params of jsonrpc",);
@@ -450,26 +467,22 @@ fn test_rpc() {
     {
         let mut expected = Vec::new();
         let mut actual = Vec::new();
-        load_cases_from_file()
-            .as_array()
-            .expect("load in array format")
-            .iter()
-            .for_each(|case| {
-                let method = case
-                    .get("method")
-                    .expect("get method")
-                    .as_str()
-                    .unwrap()
-                    .to_string();
-                let params = case.get("params").expect("get params").clone();
-                let result = case.get("result").expect("get result").clone();
-                if case.get("skip").unwrap_or(&json!(false)).as_bool().unwrap() {
-                    expected.push((method.clone(), result.clone()));
-                } else {
-                    expected.push((method.clone(), result_of(&client, &uri, &method, params)));
-                }
-                actual.push((method.clone(), result));
-            });
+        load_cases_from_file().iter().for_each(|case| {
+            let method = case
+                .get("method")
+                .expect("get method")
+                .as_str()
+                .unwrap()
+                .to_string();
+            let params = case.get("params").expect("get params").clone();
+            let result = case.get("result").expect("get result").clone();
+            if case.get("skip").unwrap_or(&json!(false)).as_bool().unwrap() {
+                expected.push((method.clone(), result.clone()));
+            } else {
+                expected.push((method.clone(), result_of(&client, &uri, &method, params)));
+            }
+            actual.push((method.clone(), result));
+        });
         if actual != expected {
             print_document(&shared, &client, &uri);
             pretty_assert_eq!(actual, expected, "Assert results of jsonrpc",);
