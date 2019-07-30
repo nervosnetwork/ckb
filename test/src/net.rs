@@ -109,6 +109,7 @@ impl Net {
                         Arc::clone(&network_state),
                         protocols,
                         node.consensus.as_ref().unwrap().identify_name(),
+                        "0.1.0".to_string(),
                     )
                     .start(Default::default(), Some("NetworkService"))
                     .expect("Start network service failed"),

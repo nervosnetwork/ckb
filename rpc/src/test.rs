@@ -184,6 +184,7 @@ fn setup_node(
             Arc::clone(&network_state),
             Vec::new(),
             shared.consensus().identify_name(),
+            "0.1.0".to_string(),
         )
         .start::<&str>(Default::default(), None)
         .expect("Start network service failed")

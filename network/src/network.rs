@@ -756,6 +756,7 @@ impl NetworkService {
         network_state: Arc<NetworkState>,
         protocols: Vec<CKBProtocol>,
         name: String,
+        client_version: String,
     ) -> NetworkService {
         let config = &network_state.config;
 
@@ -788,7 +789,8 @@ impl NetworkService {
             .build();
 
         // Identify protocol
-        let identify_callback = IdentifyCallback::new(Arc::clone(&network_state), name);
+        let identify_callback =
+            IdentifyCallback::new(Arc::clone(&network_state), name, client_version);
         let identify_meta = MetaBuilder::default()
             .id(IDENTIFY_PROTOCOL_ID.into())
             .service_handle(move || {
