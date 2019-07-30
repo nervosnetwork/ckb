@@ -22,6 +22,7 @@ ckb-chain-spec = { path = "../spec" }
 ckb-dao = { path = "../util/dao" }
 ckb-logger = {path = "../util/logger"}
 ckb-resource = { path = "../resource" }
+ckb-reward-calculator= { path = "../util/reward-calculator" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

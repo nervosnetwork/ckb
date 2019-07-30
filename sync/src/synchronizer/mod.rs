@@ -26,7 +26,6 @@ use ckb_core::header::Header;
 use ckb_logger::{debug, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
-use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
@@ -46,27 +45,18 @@ const SYNC_NOTIFY_INTERVAL: Duration = Duration::from_millis(200);
 const IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(40);
 const NOT_IBD_BLOCK_FETCH_INTERVAL: Duration = Duration::from_millis(200);
 
-pub struct Synchronizer<CS: ChainStore> {
+#[derive(Clone)]
+pub struct Synchronizer {
     chain: ChainController,
-    pub shared: Arc<SyncSharedState<CS>>,
+    pub shared: Arc<SyncSharedState>,
 }
 
-// https://github.com/rust-lang/rust/issues/40754
-impl<CS: ChainStore> ::std::clone::Clone for Synchronizer<CS> {
-    fn clone(&self) -> Self {
-        Synchronizer {
-            chain: self.chain.clone(),
-            shared: Arc::clone(&self.shared),
-        }
-    }
-}
-
-impl<CS: ChainStore> Synchronizer<CS> {
-    pub fn new(chain: ChainController, shared: Arc<SyncSharedState<CS>>) -> Synchronizer<CS> {
+impl Synchronizer {
+    pub fn new(chain: ChainController, shared: Arc<SyncSharedState>) -> Synchronizer {
         Synchronizer { chain, shared }
     }
 
-    pub fn shared(&self) -> &Arc<SyncSharedState<CS>> {
+    pub fn shared(&self) -> &Arc<SyncSharedState> {
         &self.shared
     }
 
@@ -372,7 +362,7 @@ impl<CS: ChainStore> Synchronizer<CS> {
     }
 }
 
-impl<CS: ChainStore> CKBProtocolHandler for Synchronizer<CS> {
+impl CKBProtocolHandler for Synchronizer {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         // NOTE: 100ms is what bitcoin use.
         nc.set_notify(SYNC_NOTIFY_INTERVAL, SEND_GET_HEADERS_TOKEN)
@@ -503,7 +493,6 @@ mod tests {
     use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
     use ckb_core::Bytes;
     use ckb_dao::DaoCalculator;
-    use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
         TargetSession,
@@ -512,7 +501,7 @@ mod tests {
     use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_store::{ChainKVStore, ChainStore};
+    use ckb_store::ChainStore;
     use ckb_traits::chain_provider::ChainProvider;
     use ckb_util::Mutex;
     #[cfg(not(disable_faketime))]
@@ -527,12 +516,8 @@ mod tests {
     fn start_chain(
         consensus: Option<Consensus>,
         notify: Option<NotifyController>,
-    ) -> (
-        ChainController,
-        Shared<ChainKVStore<MemoryKeyValueDB>>,
-        NotifyController,
-    ) {
-        let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
+    ) -> (ChainController, Shared, NotifyController) {
+        let mut builder = SharedBuilder::default();
 
         let consensus = consensus.unwrap_or_else(Default::default);
         builder = builder.consensus(consensus);
@@ -546,8 +531,8 @@ mod tests {
         (chain_controller, shared, notify)
     }
 
-    fn create_cellbase<CS: ChainStore>(
-        shared: &Shared<CS>,
+    fn create_cellbase(
+        shared: &Shared,
         parent_header: &Header,
         number: BlockNumber,
     ) -> Transaction {
@@ -560,20 +545,12 @@ mod tests {
             .build()
     }
 
-    fn gen_synchronizer<CS: ChainStore>(
-        chain_controller: ChainController,
-        shared: Shared<CS>,
-    ) -> Synchronizer<CS> {
+    fn gen_synchronizer(chain_controller: ChainController, shared: Shared) -> Synchronizer {
         let shared = Arc::new(SyncSharedState::new(shared));
         Synchronizer::new(chain_controller, shared)
     }
 
-    fn gen_block<CS: ChainStore>(
-        shared: &Shared<CS>,
-        parent_header: &Header,
-        epoch: &EpochExt,
-        nonce: u64,
-    ) -> Block {
+    fn gen_block(shared: &Shared, parent_header: &Header, epoch: &EpochExt, nonce: u64) -> Block {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(shared, parent_header, number);
@@ -586,7 +563,7 @@ mod tests {
                 &*chain_state,
             )
             .unwrap();
-            DaoCalculator::new(shared.consensus(), Arc::clone(shared.store()))
+            DaoCalculator::new(shared.consensus(), shared.store())
                 .dao_field(&[resolved_cellbase], parent_header)
                 .unwrap()
         };
@@ -605,9 +582,9 @@ mod tests {
             .build()
     }
 
-    fn insert_block<CS: ChainStore>(
+    fn insert_block(
         chain_controller: &ChainController,
-        shared: &Shared<CS>,
+        shared: &Shared,
         nonce: u64,
         number: BlockNumber,
     ) {

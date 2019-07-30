@@ -8,10 +8,10 @@ use ckb_core::transaction::{
     TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
-use ckb_db::{DBConfig, RocksDB};
+use ckb_db::DBConfig;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::{ChainKVStore, ChainStore};
+use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
 use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
@@ -146,15 +146,7 @@ criterion_group!(
 );
 criterion_main!(benches);
 
-fn new_chain(
-    txs_size: usize,
-) -> (
-    ChainController,
-    Shared<ChainKVStore<RocksDB>>,
-    TempDir,
-    H256,
-    H256,
-) {
+fn new_chain(txs_size: usize) -> (ChainController, Shared, TempDir, H256, H256) {
     let always_success = include_bytes!("../../script/testdata/always_success");
     let data = Bytes::from(always_success.to_vec());
     let mut cell_output = CellOutputBuilder::from_data(&data).build();
@@ -212,14 +204,13 @@ fn new_chain(
     consensus.cellbase_maturity = 0;
 
     let db_dir = tempdir().unwrap();
-    let shared = SharedBuilder::<RocksDB>::default()
-        .db(&DBConfig {
-            path: db_dir.path().to_owned(),
-            options: None,
-        })
-        .consensus(consensus)
-        .build()
-        .unwrap();
+    let shared = SharedBuilder::with_db_config(&DBConfig {
+        path: db_dir.path().to_owned(),
+        options: None,
+    })
+    .consensus(consensus)
+    .build()
+    .unwrap();
     let notify = NotifyService::default().start::<&str>(None);
     let chain_service = ChainService::new(shared.clone(), notify);
     (

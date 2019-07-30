@@ -2,17 +2,13 @@ use crate::chain_state::ChainState;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
-use ckb_db::{KeyValueDB, MemoryKeyValueDB};
-use ckb_store::COLUMNS;
-use ckb_store::{ChainKVStore, ChainStore, StoreBatch};
-use ckb_util::FnvHashSet;
+use ckb_db::RocksDB;
+use ckb_store::{ChainDB, ChainStore, COLUMNS};
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
-fn insert_block_proposals<T>(store: &ChainKVStore<T>, proposals: Vec<ProposalShortId>)
-where
-    T: KeyValueDB,
-{
+fn insert_block_proposals(store: &ChainDB, proposals: Vec<ProposalShortId>) {
     let mut blocks = Vec::with_capacity(proposals.len());
     let tip_header = store.get_tip_header().expect("tip");
     let mut parent_hash = tip_header.hash().to_owned();
@@ -31,21 +27,21 @@ where
                 .build(),
         );
     }
-    let mut batch = store.new_batch().unwrap();
+    let txn = store.begin_transaction();
     for b in blocks {
-        batch.insert_block(&b).unwrap();
-        batch.attach_block(&b).unwrap();
+        txn.insert_block(&b).unwrap();
+        txn.attach_block(&b).unwrap();
     }
-    batch.commit().unwrap();
+    txn.commit().unwrap();
 }
 
-fn new_memory_store() -> ChainKVStore<MemoryKeyValueDB> {
-    ChainKVStore::new(MemoryKeyValueDB::open(COLUMNS as usize))
+fn new_store() -> ChainDB {
+    ChainDB::new(RocksDB::open_tmp(COLUMNS))
 }
 
 #[test]
 fn proposal_table_init() {
-    let store = Arc::new(new_memory_store());
+    let store = Arc::new(new_store());
     let mut consensus = Consensus::default();
     let proposal_window = ProposalWindow(3, 5);
     consensus.tx_proposal_window = proposal_window;
@@ -64,7 +60,7 @@ fn proposal_table_init() {
     for i in 0..5 {
         let id = ProposalShortId::from_slice(&[i; 10]).unwrap();
         proposal_ids.push(id);
-        let mut set = FnvHashSet::default();
+        let mut set = HashSet::default();
         set.insert(id);
         proposal_table.insert(u64::from(i + 1), set);
     }

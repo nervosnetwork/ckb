@@ -2,15 +2,14 @@ use ckb_chain_spec::consensus::ProposalWindow;
 use ckb_core::header::BlockNumber;
 use ckb_core::transaction::ProposalShortId;
 use ckb_logger::trace_target;
-use ckb_util::FnvHashSet;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub struct TxProposalTable {
-    pub(crate) table: BTreeMap<BlockNumber, FnvHashSet<ProposalShortId>>,
-    pub(crate) gap: FnvHashSet<ProposalShortId>,
-    pub(crate) set: FnvHashSet<ProposalShortId>,
+    pub(crate) table: BTreeMap<BlockNumber, HashSet<ProposalShortId>>,
+    pub(crate) gap: HashSet<ProposalShortId>,
+    pub(crate) set: HashSet<ProposalShortId>,
     pub(crate) proposal_window: ProposalWindow,
 }
 
@@ -18,19 +17,19 @@ impl TxProposalTable {
     pub fn new(proposal_window: ProposalWindow) -> Self {
         TxProposalTable {
             proposal_window,
-            gap: FnvHashSet::default(),
-            set: FnvHashSet::default(),
+            gap: HashSet::default(),
+            set: HashSet::default(),
             table: BTreeMap::default(),
         }
     }
 
     // If the TABLE did not have this value present, true is returned.
     // If the TABLE did have this value present, false is returned
-    pub fn insert(&mut self, number: BlockNumber, ids: FnvHashSet<ProposalShortId>) -> bool {
+    pub fn insert(&mut self, number: BlockNumber, ids: HashSet<ProposalShortId>) -> bool {
         self.table.insert(number, ids).is_none()
     }
 
-    pub fn remove(&mut self, number: BlockNumber) -> Option<FnvHashSet<ProposalShortId>> {
+    pub fn remove(&mut self, number: BlockNumber) -> Option<HashSet<ProposalShortId>> {
         self.table.remove(&number)
     }
 
@@ -46,11 +45,11 @@ impl TxProposalTable {
         self.set.iter()
     }
 
-    pub fn all(&self) -> &BTreeMap<BlockNumber, FnvHashSet<ProposalShortId>> {
+    pub fn all(&self) -> &BTreeMap<BlockNumber, HashSet<ProposalShortId>> {
         &self.table
     }
 
-    pub fn finalize(&mut self, number: BlockNumber) -> FnvHashSet<ProposalShortId> {
+    pub fn finalize(&mut self, number: BlockNumber) -> HashSet<ProposalShortId> {
         let proposal_start = number.saturating_sub(self.proposal_window.farthest()) + 1;
         let proposal_end = number.saturating_sub(self.proposal_window.closest()) + 1;
 
@@ -78,7 +77,7 @@ impl TxProposalTable {
             .flatten()
             .collect();
 
-        let removed_ids: FnvHashSet<ProposalShortId> =
+        let removed_ids: HashSet<ProposalShortId> =
             self.set.difference(&new_ids).cloned().collect();
         trace_target!(
             crate::LOG_TARGET_CHAIN,
@@ -108,7 +107,7 @@ mod tests {
         let id = ProposalShortId::zero();
         let window = ProposalWindow(2, 10);
         let mut table = TxProposalTable::new(window);
-        let mut ids = FnvHashSet::default();
+        let mut ids = HashSet::default();
         ids.insert(id);
         table.insert(1, ids.clone());
         assert!(!table.contains(&id));

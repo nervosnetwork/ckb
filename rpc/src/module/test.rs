@@ -7,7 +7,6 @@ use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
 use ckb_sync::NetworkProtocol;
 use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
@@ -32,13 +31,13 @@ pub trait IntegrationTestRpc {
     fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256>;
 }
 
-pub(crate) struct IntegrationTestRpcImpl<CS> {
+pub(crate) struct IntegrationTestRpcImpl {
     pub network_controller: NetworkController,
-    pub shared: Shared<CS>,
+    pub shared: Shared,
     pub chain: ChainController,
 }
 
-impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS> {
+impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn add_node(&self, peer_id: String, address: String) -> Result<()> {
         self.network_controller.add_node(
             &peer_id.parse().expect("invalid peer_id"),

@@ -5,7 +5,6 @@ use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
 use ckb_sync::NetworkProtocol;
 use ckb_tx_pool_executor::TxPoolExecutor;
 use flatbuffers::FlatBufferBuilder;
@@ -25,14 +24,14 @@ pub trait PoolRpc {
     fn tx_pool_info(&self) -> Result<TxPoolInfo>;
 }
 
-pub(crate) struct PoolRpcImpl<CS> {
+pub(crate) struct PoolRpcImpl {
     network_controller: NetworkController,
-    shared: Shared<CS>,
-    tx_pool_executor: Arc<TxPoolExecutor<CS>>,
+    shared: Shared,
+    tx_pool_executor: Arc<TxPoolExecutor>,
 }
 
-impl<CS: ChainStore + 'static> PoolRpcImpl<CS> {
-    pub fn new(shared: Shared<CS>, network_controller: NetworkController) -> PoolRpcImpl<CS> {
+impl PoolRpcImpl {
+    pub fn new(shared: Shared, network_controller: NetworkController) -> PoolRpcImpl {
         let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.clone()));
         PoolRpcImpl {
             shared,
@@ -42,7 +41,7 @@ impl<CS: ChainStore + 'static> PoolRpcImpl<CS> {
     }
 }
 
-impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
+impl PoolRpc for PoolRpcImpl {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.into();
 

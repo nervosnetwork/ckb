@@ -451,9 +451,9 @@ mod tests {
     };
     use ckb_core::{capacity_bytes, Capacity};
     use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
-    use ckb_db::MemoryKeyValueDB;
+    use ckb_db::RocksDB;
     use ckb_hash::blake2b_256;
-    use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainKVStore, COLUMNS};
+    use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
     use faster_hex::hex_encode;
 
     use ckb_test_chain_utils::always_success_cell;
@@ -462,7 +462,6 @@ mod tests {
     use std::fs::File;
     use std::io::{Read, Write};
     use std::path::Path;
-    use std::sync::Arc;
 
     fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
         tiny_keccak::sha3_256(s.as_ref())
@@ -472,8 +471,8 @@ mod tests {
         File::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../script/testdata/verify")).unwrap()
     }
 
-    fn new_memory_store() -> ChainKVStore<MemoryKeyValueDB> {
-        ChainKVStore::new(MemoryKeyValueDB::open(COLUMNS as usize))
+    fn new_store() -> ChainDB {
+        ChainDB::new(RocksDB::open_tmp(COLUMNS))
     }
 
     fn random_keypair() -> (Privkey, Pubkey) {
@@ -537,8 +536,8 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
@@ -597,8 +596,8 @@ mod tests {
             resolved_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
         };
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
@@ -676,8 +675,8 @@ mod tests {
             resolved_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
         };
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
 
         let verifier = TransactionScriptsVerifier::new(
             &rtx,
@@ -744,8 +743,8 @@ mod tests {
             resolved_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
         };
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
@@ -826,8 +825,8 @@ mod tests {
             resolved_deps: vec![dep_cell, dep_cell2],
             resolved_inputs: vec![dummy_cell],
         };
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
@@ -905,8 +904,8 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
@@ -968,8 +967,8 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
@@ -1020,8 +1019,8 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
@@ -1100,8 +1099,8 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let config = ScriptConfig {
             runner: Runner::default(),
         };
@@ -1175,8 +1174,8 @@ mod tests {
             resolved_inputs: vec![dummy_cell],
         };
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
 
         let config = ScriptConfig {
             runner: Runner::default(),
@@ -1241,12 +1240,11 @@ mod tests {
             resolved_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
         };
-        let store = Arc::new(new_memory_store());
-
         let config = ScriptConfig {
             runner: Runner::default(),
         };
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         // Cycles can tell that both lock and type scripts are executed

@@ -1,5 +1,6 @@
 //! This mod implemented a ckb block reward calculator
 
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
@@ -8,12 +9,10 @@ use ckb_core::Capacity;
 use ckb_dao::DaoCalculator;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
-use ckb_traits::ChainProvider;
 use failure::{Error as FailureError, Fail};
-use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use std::cmp;
-use std::sync::Arc;
+use std::collections::HashSet;
 
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]
 pub enum Error {
@@ -23,20 +22,21 @@ pub enum Error {
     Script(H256),
 }
 
-pub struct RewardCalculator<'a, P> {
-    pub provider: &'a P,
+pub struct RewardCalculator<'a, CS> {
+    pub consensus: &'a Consensus,
+    pub store: &'a CS,
 }
 
-impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
-    pub fn new(provider: &'a P) -> Self {
-        RewardCalculator { provider }
+impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
+    pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
+        RewardCalculator { consensus, store }
     }
 
     /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
     /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
     pub fn block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), FailureError> {
-        let consensus = self.provider.consensus();
-        let store = self.provider.store();
+        let consensus = self.consensus;
+        let store = self.store;
 
         let block_number = parent.number() + 1;
         let target_number = consensus
@@ -44,9 +44,9 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
             .ok_or_else(|| Error::Target(block_number))?;
 
         let target = self
-            .provider
-            .store()
-            .get_ancestor(parent.hash(), target_number)
+            .store
+            .get_block_hash(target_number)
+            .and_then(|hash| self.store.get_block_header(&hash))
             .ok_or_else(|| Error::Target(block_number))?;
 
         let target_lock = Script::from_witness(
@@ -92,10 +92,9 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     /// Miner get (tx_fee - 40% of tx fee) for tx commitment.
     /// Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
     pub fn txs_fees(&self, target: &Header) -> Result<Capacity, FailureError> {
-        let consensus = self.provider.consensus();
+        let consensus = self.consensus;
         let target_ext = self
-            .provider
-            .store()
+            .store
             .get_block_ext(target.hash())
             .expect("block body stored");
 
@@ -132,10 +131,10 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     ) -> Result<Capacity, FailureError> {
         let mut target_proposals = self.get_proposal_ids_by_hash(target.hash());
 
-        let proposal_window = self.provider.consensus().tx_proposal_window();
-        let proposer_ratio = self.provider.consensus().proposer_reward_ratio();
+        let proposal_window = self.consensus.tx_proposal_window();
+        let proposer_ratio = self.consensus.proposer_reward_ratio();
         let block_number = parent.number() + 1;
-        let store = self.provider.store();
+        let store = self.store;
 
         let mut reward = Capacity::zero();
 
@@ -145,10 +144,10 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
             1 + proposal_window.closest(),
         );
 
-        let mut proposed = FnvHashSet::default();
+        let mut proposed: HashSet<ProposalShortId> = HashSet::default();
         let mut index = parent.to_owned();
 
-        let committed_idx_proc = |hash: &H256| -> FnvHashSet<ProposalShortId> {
+        let committed_idx_proc = |hash: &H256| -> HashSet<ProposalShortId> {
             store
                 .get_block_txs_hashes(hash)
                 .expect("block body stored")
@@ -194,8 +193,8 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
                 cmp::max(index.number().saturating_sub(proposal_window.farthest()), 1);
 
             let previous_ids = store
-                .get_ancestor(parent.hash(), competing_proposal_start)
-                .map(|header| self.get_proposal_ids_by_hash(header.hash()))
+                .get_block_hash(competing_proposal_start)
+                .map(|hash| self.get_proposal_ids_by_hash(&hash))
                 .expect("finalize target exist");
 
             proposed.extend(previous_ids);
@@ -222,20 +221,19 @@ impl<'a, P: ChainProvider> RewardCalculator<'a, P> {
     }
 
     fn base_block_reward(&self, target: &Header) -> Result<(Capacity, Capacity), FailureError> {
-        let consensus = &self.provider.consensus();
-        let calculator = DaoCalculator::new(consensus, Arc::clone(self.provider.store()));
+        let calculator = DaoCalculator::new(&self.consensus, self.store);
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;
 
         Ok((primary_block_reward, secondary_block_reward))
     }
 
-    fn get_proposal_ids_by_hash(&self, hash: &H256) -> FnvHashSet<ProposalShortId> {
-        let mut ids_set = FnvHashSet::default();
-        if let Some(ids) = self.provider.store().get_block_proposal_txs_ids(&hash) {
+    fn get_proposal_ids_by_hash(&self, hash: &H256) -> HashSet<ProposalShortId> {
+        let mut ids_set = HashSet::default();
+        if let Some(ids) = self.store.get_block_proposal_txs_ids(&hash) {
             ids_set.extend(ids)
         }
-        if let Some(us) = self.provider.store().get_block_uncles(&hash) {
+        if let Some(us) = self.store.get_block_uncles(&hash) {
             for u in us {
                 ids_set.extend(u.proposals);
             }
@@ -249,74 +247,26 @@ mod tests {
     use super::RewardCalculator;
     use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
     use ckb_core::block::BlockBuilder;
-    use ckb_core::extras::{BlockExt, EpochExt};
-    use ckb_core::header::Header;
+    use ckb_core::extras::BlockExt;
     use ckb_core::header::HeaderBuilder;
-    use ckb_core::reward::BlockReward;
-    use ckb_core::script::Script;
     use ckb_core::transaction::ProposalShortId;
     use ckb_core::transaction::TransactionBuilder;
-    use ckb_db::MemoryKeyValueDB;
+    use ckb_db::RocksDB;
     use ckb_occupied_capacity::AsCapacity;
-    use ckb_script::ScriptConfig;
-    use ckb_store::{ChainKVStore, ChainStore, StoreBatch, COLUMNS};
-    use ckb_traits::ChainProvider;
-    use failure::Error as FailureError;
-    use fnv::FnvHashSet;
-    use numext_fixed_hash::H256;
+    use ckb_store::{ChainDB, ChainStore, COLUMNS};
+    use std::collections::HashSet;
     use std::iter::FromIterator;
-    use std::sync::Arc;
-
-    pub struct DummyChainProvider {
-        pub store: Arc<ChainKVStore<MemoryKeyValueDB>>,
-        pub consensus: Consensus,
-    }
-
-    impl ChainProvider for DummyChainProvider {
-        type Store = ChainKVStore<MemoryKeyValueDB>;
-
-        fn store(&self) -> &Arc<ChainKVStore<MemoryKeyValueDB>> {
-            &self.store
-        }
-
-        fn script_config(&self) -> &ScriptConfig {
-            unimplemented!();
-        }
-
-        fn genesis_hash(&self) -> &H256 {
-            unimplemented!();
-        }
-
-        fn get_block_epoch(&self, _hash: &H256) -> Option<EpochExt> {
-            unimplemented!();
-        }
-
-        fn next_epoch_ext(&self, _last_epoch: &EpochExt, _header: &Header) -> Option<EpochExt> {
-            unimplemented!();
-        }
-
-        fn consensus(&self) -> &Consensus {
-            &self.consensus
-        }
-
-        fn finalize_block_reward(
-            &self,
-            _parent: &Header,
-        ) -> Result<(Script, BlockReward), FailureError> {
-            unimplemented!();
-        }
-    }
 
     #[test]
     fn get_proposal_ids_by_hash() {
-        let db = MemoryKeyValueDB::open(COLUMNS as usize);
-        let store: ChainKVStore<MemoryKeyValueDB> = ChainKVStore::new(db);
+        let db = RocksDB::open_tmp(COLUMNS);
+        let store = ChainDB::new(db);
 
         let proposal1 = ProposalShortId::new([1; 10]);
         let proposal2 = ProposalShortId::new([2; 10]);
         let proposal3 = ProposalShortId::new([3; 10]);
 
-        let expected = FnvHashSet::from_iter(vec![proposal1, proposal2, proposal3]);
+        let expected = HashSet::from_iter(vec![proposal1, proposal2, proposal3]);
 
         let uncle1 = BlockBuilder::default()
             .proposal(proposal1)
@@ -333,17 +283,13 @@ mod tests {
             .build();
 
         let hash = block.header().hash();
-        let mut batch = store.new_batch().unwrap();
-        batch.insert_block(&block).unwrap();
-        batch.commit().unwrap();
+        let txn = store.begin_transaction();
+        txn.insert_block(&block).unwrap();
+        txn.commit().unwrap();
         assert_eq!(block, store.get_block(&hash).unwrap());
 
-        let provider = DummyChainProvider {
-            store: Arc::new(store),
-            consensus: Consensus::default(),
-        };
-
-        let reward_calculator = RewardCalculator::new(&provider);
+        let consensus = Consensus::default();
+        let reward_calculator = RewardCalculator::new(&consensus, &store);
         let ids = reward_calculator.get_proposal_ids_by_hash(block.header().hash());
 
         assert_eq!(ids, expected);
@@ -351,8 +297,8 @@ mod tests {
 
     #[test]
     fn test_txs_fees() {
-        let db = MemoryKeyValueDB::open(COLUMNS as usize);
-        let store: ChainKVStore<MemoryKeyValueDB> = ChainKVStore::new(db);
+        let db = RocksDB::open_tmp(COLUMNS);
+        let store = ChainDB::new(db);
 
         // Default PROPOSER_REWARD_RATIO is Ratio(4, 10)
         let consensus = Consensus::default();
@@ -372,19 +318,12 @@ mod tests {
             txs_fees: ext_tx_fees,
         };
 
-        let mut batch = store.new_batch().unwrap();
-        batch.insert_block(&block).unwrap();
-        batch
-            .insert_block_ext(&block.header().hash(), &ext)
-            .unwrap();
-        batch.commit().unwrap();
+        let txn = store.begin_transaction();
+        txn.insert_block(&block).unwrap();
+        txn.insert_block_ext(&block.header().hash(), &ext).unwrap();
+        txn.commit().unwrap();
 
-        let provider = DummyChainProvider {
-            store: Arc::new(store),
-            consensus,
-        };
-
-        let reward_calculator = RewardCalculator::new(&provider);
+        let reward_calculator = RewardCalculator::new(&consensus, &store);
         let txs_fees = reward_calculator.txs_fees(block.header()).unwrap();
 
         let expected: u32 = [100u32, 20u32, 33u32, 34u32]
@@ -416,8 +355,8 @@ mod tests {
     // target's earliest proposals: p4, p5, p6
     #[test]
     fn test_proposal_reward() {
-        let db = MemoryKeyValueDB::open(COLUMNS as usize);
-        let store: ChainKVStore<MemoryKeyValueDB> = ChainKVStore::new(db);
+        let db = RocksDB::open_tmp(COLUMNS);
+        let store = ChainDB::new(db);
 
         let consensus = Consensus::default().set_tx_proposal_window(ProposalWindow(2, 5));
 
@@ -558,7 +497,7 @@ mod tests {
             txs_fees: ext_tx_fees_18,
         };
 
-        let mut batch = store.new_batch().unwrap();
+        let txn = store.begin_transaction();
         for block in vec![
             block_10,
             block_11,
@@ -570,32 +509,24 @@ mod tests {
             block_17,
             block_18.clone(),
         ] {
-            batch.insert_block(&block).unwrap();
-            batch.attach_block(&block).unwrap();
+            txn.insert_block(&block).unwrap();
+            txn.attach_block(&block).unwrap();
         }
 
-        batch
-            .insert_block_ext(&block_14.header().hash(), &ext_14)
+        txn.insert_block_ext(&block_14.header().hash(), &ext_14)
             .unwrap();
-        batch
-            .insert_block_ext(&block_15.header().hash(), &ext_15)
+        txn.insert_block_ext(&block_15.header().hash(), &ext_15)
             .unwrap();
-        batch
-            .insert_block_ext(&block_18.header().hash(), &ext_18)
+        txn.insert_block_ext(&block_18.header().hash(), &ext_18)
             .unwrap();
-        batch.commit().unwrap();
+        txn.commit().unwrap();
 
         assert_eq!(
             block_12.header().hash().to_owned(),
             store.get_block_hash(12).unwrap()
         );
 
-        let provider = DummyChainProvider {
-            store: Arc::new(store),
-            consensus,
-        };
-
-        let reward_calculator = RewardCalculator::new(&provider);
+        let reward_calculator = RewardCalculator::new(&consensus, &store);
         let proposal_reward = reward_calculator
             .proposal_reward(block_18.header(), block_13.header())
             .unwrap();

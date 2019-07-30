@@ -7,10 +7,11 @@ use ckb_core::header::Header;
 use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
 use ckb_core::Cycle;
-use ckb_db::{DBConfig, KeyValueDB, MemoryKeyValueDB, RocksDB};
+use ckb_db::{DBConfig, RocksDB};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
-use ckb_store::{ChainKVStore, ChainStore, StoreConfig, COLUMNS};
+use ckb_store::ChainDB;
+use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use failure::Error as FailureError;
@@ -18,31 +19,18 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 
-#[derive(Debug)]
-pub struct Shared<CS> {
-    store: Arc<CS>,
-    chain_state: Arc<Mutex<ChainState<CS>>>,
+#[derive(Clone)]
+pub struct Shared {
+    store: Arc<ChainDB>,
+    chain_state: Arc<Mutex<ChainState>>,
     txs_verify_cache: Arc<Mutex<LruCache<H256, Cycle>>>,
     consensus: Arc<Consensus>,
     script_config: ScriptConfig,
 }
 
-// https://github.com/rust-lang/rust/issues/40754
-impl<CS: ChainStore> ::std::clone::Clone for Shared<CS> {
-    fn clone(&self) -> Self {
-        Shared {
-            store: Arc::clone(&self.store),
-            chain_state: Arc::clone(&self.chain_state),
-            consensus: Arc::clone(&self.consensus),
-            script_config: self.script_config.clone(),
-            txs_verify_cache: Arc::clone(&self.txs_verify_cache),
-        }
-    }
-}
-
-impl<CS: ChainStore> Shared<CS> {
+impl Shared {
     pub fn init(
-        store: CS,
+        store: ChainDB,
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
         script_config: ScriptConfig,
@@ -68,7 +56,7 @@ impl<CS: ChainStore> Shared<CS> {
         })
     }
 
-    pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
+    pub fn lock_chain_state(&self) -> MutexGuard<ChainState> {
         lock_or_panic(&self.chain_state)
     }
 
@@ -77,10 +65,10 @@ impl<CS: ChainStore> Shared<CS> {
     }
 }
 
-impl<CS: ChainStore> ChainProvider for Shared<CS> {
-    type Store = CS;
+impl ChainProvider for Shared {
+    type Store = ChainDB;
 
-    fn store(&self) -> &Arc<CS> {
+    fn store(&self) -> &Self::Store {
         &self.store
     }
 
@@ -115,7 +103,7 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
         &self,
         parent: &Header,
     ) -> Result<(Script, BlockReward), FailureError> {
-        RewardCalculator::new(self).block_reward(parent)
+        RewardCalculator::new(self.consensus(), self.store()).block_reward(parent)
     }
 
     fn consensus(&self) -> &Consensus {
@@ -123,18 +111,18 @@ impl<CS: ChainStore> ChainProvider for Shared<CS> {
     }
 }
 
-pub struct SharedBuilder<DB: KeyValueDB> {
-    db: Option<DB>,
+pub struct SharedBuilder {
+    db: RocksDB,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
     script_config: Option<ScriptConfig>,
     store_config: Option<StoreConfig>,
 }
 
-impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
+impl Default for SharedBuilder {
     fn default() -> Self {
         SharedBuilder {
-            db: None,
+            db: RocksDB::open_tmp(COLUMNS),
             consensus: None,
             tx_pool_config: None,
             script_config: None,
@@ -143,30 +131,17 @@ impl<DB: KeyValueDB> Default for SharedBuilder<DB> {
     }
 }
 
-impl SharedBuilder<MemoryKeyValueDB> {
-    pub fn new() -> Self {
+impl SharedBuilder {
+    pub fn with_db_config(config: &DBConfig) -> Self {
+        let db = RocksDB::open(config, COLUMNS);
         SharedBuilder {
-            db: Some(MemoryKeyValueDB::open(COLUMNS as usize)),
-            consensus: None,
-            tx_pool_config: None,
-            script_config: None,
-            store_config: None,
+            db,
+            ..Default::default()
         }
     }
 }
 
-impl SharedBuilder<RocksDB> {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn db(mut self, config: &DBConfig) -> Self {
-        self.db = Some(RocksDB::open(config, COLUMNS));
-        self
-    }
-}
-
-impl<DB: KeyValueDB> SharedBuilder<DB> {
+impl SharedBuilder {
     pub fn consensus(mut self, value: Consensus) -> Self {
         self.consensus = Some(value);
         self
@@ -187,14 +162,14 @@ impl<DB: KeyValueDB> SharedBuilder<DB> {
         self
     }
 
-    pub fn build(self) -> Result<Shared<ChainKVStore<DB>>, SharedError> {
-        let store = ChainKVStore::with_config(
-            self.db.unwrap(),
-            self.store_config.unwrap_or_else(Default::default),
-        );
+    pub fn build(self) -> Result<Shared, SharedError> {
+        if let Some(config) = self.store_config {
+            config.apply()
+        }
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         let script_config = self.script_config.unwrap_or_else(Default::default);
+        let store = ChainDB::new(self.db);
         Shared::init(store, consensus, tx_pool_config, script_config)
     }
 }

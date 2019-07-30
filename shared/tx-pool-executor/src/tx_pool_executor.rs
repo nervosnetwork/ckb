@@ -7,14 +7,13 @@ use ckb_traits::BlockMedianTimeContext;
 use ckb_verification::TransactionVerifier;
 use fnv::FnvHashMap;
 use numext_fixed_hash::H256;
-use std::sync::Arc;
 
-struct StoreBlockMedianTimeContext<CS> {
-    store: Arc<CS>,
+struct StoreBlockMedianTimeContext<'a, CS> {
+    store: &'a CS,
     median_time_block_count: u64,
 }
 
-impl<CS: ChainStore> BlockMedianTimeContext for StoreBlockMedianTimeContext<CS> {
+impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for StoreBlockMedianTimeContext<'a, CS> {
     fn median_block_count(&self) -> u64 {
         self.median_time_block_count
     }
@@ -34,12 +33,12 @@ impl<CS: ChainStore> BlockMedianTimeContext for StoreBlockMedianTimeContext<CS> 
 
 /// TxPoolExecutor
 /// execute txs in parallel then add them to tx_pool
-pub struct TxPoolExecutor<CS> {
-    shared: Shared<CS>,
+pub struct TxPoolExecutor {
+    shared: Shared,
 }
 
-impl<CS: ChainStore> TxPoolExecutor<CS> {
-    pub fn new(shared: Shared<CS>) -> TxPoolExecutor<CS> {
+impl TxPoolExecutor {
+    pub fn new(shared: Shared) -> TxPoolExecutor {
         TxPoolExecutor { shared }
     }
 
@@ -105,10 +104,9 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
             return Err(err.to_owned());
         }
 
-        let store = Arc::clone(&self.shared.store());
         let max_block_cycles = consensus.max_block_cycles();
         let block_median_time_context = StoreBlockMedianTimeContext {
-            store: Arc::clone(&store),
+            store: self.shared.store(),
             median_time_block_count: consensus.median_time_block_count() as u64,
         };
 
@@ -124,7 +122,7 @@ impl<CS: ChainStore> TxPoolExecutor<CS> {
                     &parent_hash,
                     &consensus,
                     self.shared.script_config(),
-                    &store,
+                    self.shared.store(),
                 )
                 .verify(max_block_cycles)
                 .map(|cycles| (tx, cycles))
@@ -191,17 +189,16 @@ mod tests {
     use ckb_core::header::HeaderBuilder;
     use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
-    use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
-    use ckb_store::ChainKVStore;
     use ckb_test_chain_utils::always_success_cell;
     use ckb_traits::ChainProvider;
     use ckb_verification::TransactionError;
     use faketime::{self, unix_time_as_millis};
     use numext_fixed_uint::U256;
+    use std::sync::Arc;
 
-    fn setup(height: u64) -> (Shared<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
+    fn setup(height: u64) -> (Shared, OutPoint) {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
         let always_success_tx = TransactionBuilder::default()
@@ -224,7 +221,7 @@ mod tests {
             .set_genesis_block(block.clone())
             .set_cellbase_maturity(0);
 
-        let shared = SharedBuilder::<MemoryKeyValueDB>::new()
+        let shared = SharedBuilder::default()
             .consensus(consensus)
             .build()
             .unwrap();

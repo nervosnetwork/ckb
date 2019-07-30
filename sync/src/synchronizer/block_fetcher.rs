@@ -10,18 +10,15 @@ use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use std::cmp;
 
-pub struct BlockFetcher<CS: ChainStore> {
-    synchronizer: Synchronizer<CS>,
+pub struct BlockFetcher {
+    synchronizer: Synchronizer,
     peer: PeerIndex,
     tip_header: Header,
     total_difficulty: U256,
 }
 
-impl<CS> BlockFetcher<CS>
-where
-    CS: ChainStore,
-{
-    pub fn new(synchronizer: Synchronizer<CS>, peer: PeerIndex) -> Self {
+impl BlockFetcher {
+    pub fn new(synchronizer: Synchronizer, peer: PeerIndex) -> Self {
         let (tip_header, total_difficulty) = {
             let chain_state = synchronizer.shared.lock_chain_state();
             (

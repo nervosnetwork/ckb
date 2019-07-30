@@ -3,23 +3,22 @@ use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetBlockProposal as GetBlockProposalMessage, RelayMessage};
-use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct GetBlockProposalProcess<'a, CS> {
+pub struct GetBlockProposalProcess<'a> {
     message: &'a GetBlockProposalMessage<'a>,
-    relayer: &'a Relayer<CS>,
+    relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore + 'static> GetBlockProposalProcess<'a, CS> {
+impl<'a> GetBlockProposalProcess<'a> {
     pub fn new(
         message: &'a GetBlockProposalMessage,
-        relayer: &'a Relayer<CS>,
+        relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {

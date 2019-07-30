@@ -1,7 +1,6 @@
 use ckb_jsonrpc_types::{AlertMessage, ChainInfo, EpochNumber, PeerState, Timestamp};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
 use ckb_sync::Synchronizer;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_util::Mutex;
@@ -18,16 +17,13 @@ pub trait StatsRpc {
     fn get_peers_state(&self) -> Result<Vec<PeerState>>;
 }
 
-pub(crate) struct StatsRpcImpl<CS>
-where
-    CS: ChainStore,
-{
-    pub shared: Shared<CS>,
-    pub synchronizer: Synchronizer<CS>,
+pub(crate) struct StatsRpcImpl {
+    pub shared: Shared,
+    pub synchronizer: Synchronizer,
     pub alert_notifier: Arc<Mutex<AlertNotifier>>,
 }
 
-impl<CS: ChainStore + 'static> StatsRpc for StatsRpcImpl<CS> {
+impl StatsRpc for StatsRpcImpl {
     fn get_blockchain_info(&self) -> Result<ChainInfo> {
         let chain = self.synchronizer.shared.consensus().id.clone();
         let (tip_header, median_time) = {

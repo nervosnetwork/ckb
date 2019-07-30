@@ -274,13 +274,17 @@ pub trait CellProvider {
     fn cell(&self, out_point: &OutPoint) -> CellStatus;
 }
 
-pub struct OverlayCellProvider<'a> {
-    overlay: &'a dyn CellProvider,
-    cell_provider: &'a dyn CellProvider,
+pub struct OverlayCellProvider<'a, A, B> {
+    overlay: &'a A,
+    cell_provider: &'a B,
 }
 
-impl<'a> OverlayCellProvider<'a> {
-    pub fn new(overlay: &'a dyn CellProvider, cell_provider: &'a dyn CellProvider) -> Self {
+impl<'a, A, B> OverlayCellProvider<'a, A, B>
+where
+    A: CellProvider,
+    B: CellProvider,
+{
+    pub fn new(overlay: &'a A, cell_provider: &'a B) -> Self {
         Self {
             overlay,
             cell_provider,
@@ -288,7 +292,11 @@ impl<'a> OverlayCellProvider<'a> {
     }
 }
 
-impl<'a> CellProvider for OverlayCellProvider<'a> {
+impl<'a, A, B> CellProvider for OverlayCellProvider<'a, A, B>
+where
+    A: CellProvider,
+    B: CellProvider,
+{
     fn cell(&self, out_point: &OutPoint) -> CellStatus {
         match self.overlay.cell(out_point) {
             CellStatus::Live(cell_meta) => CellStatus::Live(cell_meta),
@@ -428,35 +436,6 @@ impl CellProvider for TransactionsProvider {
 
 pub trait HeaderProvider {
     fn header(&self, out_point: &OutPoint) -> HeaderStatus;
-}
-
-pub struct OverlayHeaderProvider<'a, O, HP> {
-    overlay: &'a O,
-    header_provider: &'a HP,
-}
-
-impl<'a, O, HP> OverlayHeaderProvider<'a, O, HP> {
-    pub fn new(overlay: &'a O, header_provider: &'a HP) -> Self {
-        OverlayHeaderProvider {
-            overlay,
-            header_provider,
-        }
-    }
-}
-
-impl<'a, O, HP> HeaderProvider for OverlayHeaderProvider<'a, O, HP>
-where
-    O: HeaderProvider,
-    HP: HeaderProvider,
-{
-    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
-        match self.overlay.header(out_point) {
-            HeaderStatus::Live(h) => HeaderStatus::Live(h),
-            HeaderStatus::InclusionFaliure => HeaderStatus::InclusionFaliure,
-            HeaderStatus::Unknown => self.header_provider.header(out_point),
-            HeaderStatus::Unspecified => HeaderStatus::Unspecified,
-        }
-    }
 }
 
 #[derive(Default)]
