@@ -39,7 +39,6 @@ code_hash = "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
 args = []
 hash_type = "Data"
 
-
 [params]
 epoch_reward = 1_250_000_00000000
 secondary_epoch_reward = 600_000_00000000
