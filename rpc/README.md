@@ -16,7 +16,6 @@
     *   [`get_tip_header`](#get_tip_header)
     *   [`get_transaction`](#get_transaction)
 *   [`Experiment`](#experiment)
-    *   [`_compute_code_hash`](#_compute_code_hash)
     *   [`_compute_script_hash`](#_compute_script_hash)
     *   [`_compute_transaction_hash`](#_compute_transaction_hash)
     *   [`dry_run_transaction`](#dry_run_transaction)
@@ -728,40 +727,6 @@ http://localhost:8114
 
 ## Experiment
 
-### `_compute_code_hash`
-
-Returns code hash of given hex encoded data
-
-**Deprecated**: will be removed in a later version
-
-#### Parameters
-
-    data - Hex encoded data
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "_compute_code_hash",
-    "params": [
-        "0x123456"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": "0x7dacea2e6ae8131b7f187570135ebb1b217a69458b3eae350104942c06939783"
-}
-```
-
 ### `_compute_script_hash`
 
 Returns script hash of given transaction script
@@ -772,6 +737,7 @@ Returns script hash of given transaction script
 
     args - Hex encoded arguments passed to reference cell
     code_hash - Code hash of referenced cell
+    hash_type - Data: code_hash matches against dep cell data hash; Type: code_hash matches against dep cell type hash.
 
 #### Examples
 
