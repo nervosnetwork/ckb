@@ -363,6 +363,7 @@ impl Node {
             code_hash: self.always_success_code_hash.clone(),
             args: Default::default(),
             data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data,
         });
 
         if ::std::env::var("CI").is_ok() {

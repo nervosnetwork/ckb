@@ -46,11 +46,13 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                 "[block_assembler]\n\
                  code_hash = \"{}\"\n\
                  args = [ \"{}\" ]\n\
-                 data = \"{}\"",
+                 data = \"{}\"\n\
+                 hash_type = \"{}\"",
                 hash,
                 args.block_assembler_args.join("\", \""),
                 args.block_assembler_data
-                    .unwrap_or_else(|| "0x".to_string())
+                    .unwrap_or_else(|| "0x".to_string()),
+                serde_plain::to_string(&args.block_assembler_hash_type).unwrap(),
             )
         }
         None => {
@@ -60,7 +62,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                  # [block_assembler]\n\
                  # code_hash = \"{:#x}\"\n\
                  # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]\n\
-                 # data = \"A 0x-prefixed hex string\"",
+                 # data = \"A 0x-prefixed hex string\"\n\
+                 # hash_type = \"Hash type, could be Data or Type\"",
                 CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
             )
         }

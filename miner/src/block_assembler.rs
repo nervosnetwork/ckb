@@ -4,7 +4,7 @@ use crate::error::Error;
 use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
-use ckb_core::script::{Script, ScriptHashType};
+use ckb_core::script::Script;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::{
     CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
@@ -321,7 +321,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         let cellbase_lock = Script::new(
             cellbase_lock_args,
             self.config.code_hash.clone(),
-            ScriptHashType::Data,
+            self.config.hash_type.clone(),
         );
 
         let (cellbase, cellbase_size) = self.build_cellbase(&tip_header, cellbase_lock)?;
@@ -526,7 +526,7 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::extras::EpochExt;
     use ckb_core::header::{Header, HeaderBuilder};
-    use ckb_core::script::Script;
+    use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{
         CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
     };
@@ -577,6 +577,7 @@ mod tests {
             code_hash: H256::zero(),
             args: vec![],
             data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data,
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
         let mut candidate_uncles = CandidateUncles::new();
@@ -649,6 +650,7 @@ mod tests {
             code_hash: H256::zero(),
             args: vec![],
             data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data,
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
         let new_uncle_receiver = notify.subscribe_new_uncle("test_prepare_uncles");

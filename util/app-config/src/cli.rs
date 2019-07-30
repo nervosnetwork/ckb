@@ -29,6 +29,7 @@ pub const ARG_LOG_TO: &str = "log-to";
 pub const ARG_BUNDLED: &str = "bundled";
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
 pub const ARG_BA_ARG: &str = "ba-arg";
+pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
 pub const ARG_BA_DATA: &str = "ba-data";
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
 pub const ARG_FROM: &str = "from";
@@ -290,6 +291,18 @@ fn init() -> App<'static, 'static> {
                 .multiple(true)
                 .number_of_values(1)
                 .help("Sets args in [block_assembler]"),
+        )
+        .arg(
+            Arg::with_name(ARG_BA_HASH_TYPE)
+                .long(ARG_BA_HASH_TYPE)
+                .value_name("hash_type")
+                .takes_value(true)
+                .possible_values(&["Data", "Type"])
+                .default_value("Data")
+                .help(
+                    "Sets hash type in [block_assembler] \
+                     [default: Data]",
+                ),
         )
         .group(
             ArgGroup::with_name(GROUP_BA)
