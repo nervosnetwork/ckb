@@ -651,7 +651,7 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::script::{Script, ScriptHashType};
-    use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+    use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::{DBConfig, MemoryKeyValueDB};
     use ckb_notify::NotifyService;
@@ -708,21 +708,23 @@ mod tests {
         store.insert_lock_hash(&script2.hash(), None);
 
         let tx11 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(1000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(2000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block1 = BlockBuilder::default()
@@ -737,21 +739,23 @@ mod tests {
             .build();
 
         let tx21 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(3000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(3000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx22 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(4000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(4000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block2 = BlockBuilder::default()
@@ -770,12 +774,13 @@ mod tests {
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(5000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(5000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx32 = TransactionBuilder::default()
@@ -783,12 +788,13 @@ mod tests {
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(6000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(6000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block2_fork = BlockBuilder::default()
@@ -849,21 +855,23 @@ mod tests {
         store.insert_lock_hash(&script2.hash(), None);
 
         let tx11 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(1000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(2000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block1 = BlockBuilder::default()
@@ -878,21 +886,23 @@ mod tests {
             .build();
 
         let tx21 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(3000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(3000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx22 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(4000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(4000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block2 = BlockBuilder::default()
@@ -911,12 +921,13 @@ mod tests {
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(5000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(5000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx32 = TransactionBuilder::default()
@@ -924,12 +935,13 @@ mod tests {
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(6000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(6000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block2_fork = BlockBuilder::default()
@@ -999,21 +1011,23 @@ mod tests {
         store.insert_lock_hash(&script2.hash(), None);
 
         let tx11 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(1000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(2000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(2000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block1 = BlockBuilder::default()
@@ -1028,21 +1042,23 @@ mod tests {
             .build();
 
         let tx21 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(3000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(3000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx22 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(4000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(4000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block2 = BlockBuilder::default()
@@ -1061,12 +1077,13 @@ mod tests {
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(5000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(5000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx32 = TransactionBuilder::default()
@@ -1074,12 +1091,13 @@ mod tests {
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(6000),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(6000))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block2_fork = BlockBuilder::default()
@@ -1149,12 +1167,13 @@ mod tests {
         assert_eq!(0, cells.len());
 
         let tx11 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(1000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx12 = TransactionBuilder::default()
@@ -1162,12 +1181,13 @@ mod tests {
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(900),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(900))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx13 = TransactionBuilder::default()
@@ -1175,12 +1195,13 @@ mod tests {
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(800),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(800))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block1 = BlockBuilder::default()
@@ -1229,12 +1250,13 @@ mod tests {
         assert_eq!(0, cells.len());
 
         let tx11 = TransactionBuilder::default()
-            .output(CellOutput::new(
-                capacity_bytes!(1000),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(1000))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx12 = TransactionBuilder::default()
@@ -1242,12 +1264,13 @@ mod tests {
                 OutPoint::new_cell(tx11.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(900),
-                Bytes::new(),
-                script1.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(900))
+                    .lock(script1.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let tx21 = TransactionBuilder::default()
@@ -1255,12 +1278,13 @@ mod tests {
                 OutPoint::new_cell(tx12.hash().to_owned(), 0),
                 0,
             ))
-            .output(CellOutput::new(
-                capacity_bytes!(800),
-                Bytes::new(),
-                script2.clone(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(800))
+                    .lock(script2.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build();
 
         let block1 = BlockBuilder::default()

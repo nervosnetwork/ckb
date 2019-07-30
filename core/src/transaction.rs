@@ -189,7 +189,7 @@ impl CellInput {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct CellOutput {
     pub capacity: Capacity,
-    pub data: Bytes,
+    pub data_hash: H256,
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
@@ -199,10 +199,7 @@ impl fmt::Debug for CellOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("CellOutput")
             .field("capacity", &self.capacity)
-            .field(
-                "data",
-                &format_args!("0x{}", &hex_string(&self.data).expect("hex data")),
-            )
+            .field("data_hash", &format_args!("{:#x}", &self.data_hash))
             .field("lock", &self.lock)
             .field("type", &self.type_)
             .finish()
@@ -210,23 +207,30 @@ impl fmt::Debug for CellOutput {
 }
 
 impl CellOutput {
-    pub fn new(capacity: Capacity, data: Bytes, lock: Script, type_: Option<Script>) -> Self {
+    pub fn new(capacity: Capacity, data_hash: H256, lock: Script, type_: Option<Script>) -> Self {
         CellOutput {
             capacity,
-            data,
+            data_hash,
             lock,
             type_,
         }
     }
 
-    pub fn data_hash(&self) -> H256 {
-        blake2b_256(&self.data).into()
+    pub fn calculate_data_hash(data: &Bytes) -> H256 {
+        if data.is_empty() {
+            H256::zero()
+        } else {
+            blake2b_256(data).into()
+        }
+    }
+
+    pub fn data_hash(&self) -> &H256 {
+        &self.data_hash
     }
 
     pub fn serialized_size(&self) -> usize {
         mem::size_of::<u64>()
-            + self.data.len()
-            + 4
+            + 32
             + self.lock.serialized_size()
             + self
                 .type_
@@ -235,18 +239,20 @@ impl CellOutput {
                 .unwrap_or(0)
     }
 
-    pub fn destruct(self) -> (Capacity, Bytes, Script, Option<Script>) {
+    pub fn destruct(self) -> (Capacity, H256, Script, Option<Script>) {
         let CellOutput {
             capacity,
-            data,
+            data_hash,
             lock,
             type_,
+            ..
         } = self;
-        (capacity, data, lock, type_)
+        (capacity, data_hash, lock, type_)
     }
 
-    pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
-        Capacity::bytes(8 + self.data.len())
+    pub fn occupied_capacity(&self, data_capacity: Capacity) -> CapacityResult<Capacity> {
+        Capacity::bytes(8)
+            .and_then(|x| x.safe_add(data_capacity))
             .and_then(|x| self.lock.occupied_capacity().and_then(|y| y.safe_add(x)))
             .and_then(|x| {
                 self.type_
@@ -257,8 +263,63 @@ impl CellOutput {
             })
     }
 
-    pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
-        self.occupied_capacity().map(|cap| cap > self.capacity)
+    pub fn is_lack_of_capacity(&self, data_capacity: Capacity) -> CapacityResult<bool> {
+        self.occupied_capacity(data_capacity)
+            .map(|cap| cap > self.capacity)
+    }
+}
+
+pub struct CellOutputBuilder {
+    pub capacity: Capacity,
+    pub data_hash: H256,
+    pub lock: Script,
+    pub type_: Option<Script>,
+}
+
+impl Default for CellOutputBuilder {
+    fn default() -> Self {
+        Self {
+            capacity: Default::default(),
+            data_hash: Default::default(),
+            lock: Default::default(),
+            type_: None,
+        }
+    }
+}
+
+impl CellOutputBuilder {
+    pub fn from_data(data: &Bytes) -> Self {
+        Self::default().data_hash(CellOutput::calculate_data_hash(data))
+    }
+
+    pub fn capacity(mut self, capacity: Capacity) -> Self {
+        self.capacity = capacity;
+        self
+    }
+
+    pub fn data_hash(mut self, data_hash: H256) -> Self {
+        self.data_hash = data_hash;
+        self
+    }
+
+    pub fn lock(mut self, lock: Script) -> Self {
+        self.lock = lock;
+        self
+    }
+
+    pub fn type_(mut self, type_: Option<Script>) -> Self {
+        self.type_ = type_;
+        self
+    }
+
+    pub fn build(self) -> CellOutput {
+        let Self {
+            capacity,
+            data_hash,
+            lock,
+            type_,
+        } = self;
+        CellOutput::new(capacity, data_hash, lock, type_)
     }
 }
 
@@ -270,6 +331,8 @@ pub struct Transaction {
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
+    #[serde(skip)]
+    outputs_data: Vec<Bytes>,
     //Segregated Witness to provide protection from transaction malleability.
     witnesses: Vec<Witness>,
     #[serde(skip)]
@@ -320,8 +383,15 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                     .ok_or_else(|| serde::de::Error::invalid_length(3, &self))?;
                 let witnesses = seq
                     .next_element()?
-                    .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
-                Ok(Self::Value::new(version, deps, inputs, outputs, witnesses))
+                    .ok_or_else(|| serde::de::Error::invalid_length(5, &self))?;
+                Ok(Self::Value::new(
+                    version,
+                    deps,
+                    inputs,
+                    outputs,
+                    Default::default(),
+                    witnesses,
+                ))
             }
 
             fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
@@ -373,7 +443,14 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                 let outputs = outputs.ok_or_else(|| serde::de::Error::missing_field("outputs"))?;
                 let witnesses =
                     witnesses.ok_or_else(|| serde::de::Error::missing_field("witnesses"))?;
-                Ok(Self::Value::new(version, deps, inputs, outputs, witnesses))
+                Ok(Self::Value::new(
+                    version,
+                    deps,
+                    inputs,
+                    outputs,
+                    Default::default(),
+                    witnesses,
+                ))
             }
         }
 
@@ -408,6 +485,7 @@ impl Transaction {
         deps: Vec<OutPoint>,
         inputs: Vec<CellInput>,
         outputs: Vec<CellOutput>,
+        outputs_data: Vec<Bytes>,
         witnesses: Vec<Witness>,
     ) -> Self {
         let raw = RawTransaction {
@@ -423,6 +501,7 @@ impl Transaction {
             deps,
             inputs,
             outputs,
+            outputs_data,
             witnesses,
             hash,
             witness_hash: H256::zero(),
@@ -447,6 +526,10 @@ impl Transaction {
 
     pub fn outputs(&self) -> &[CellOutput] {
         &self.outputs
+    }
+
+    pub fn outputs_data(&self) -> &[Bytes] {
+        &self.outputs_data
     }
 
     pub fn witnesses(&self) -> &[Witness] {
@@ -484,6 +567,10 @@ impl Transaction {
         self.deps.iter()
     }
 
+    pub fn outputs_with_data_iter(&self) -> impl Iterator<Item = (&CellOutput, &Bytes)> {
+        self.outputs.iter().zip(&self.outputs_data)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.inputs.is_empty() || self.outputs.is_empty()
     }
@@ -495,6 +582,13 @@ impl Transaction {
 
     pub fn get_output(&self, i: usize) -> Option<CellOutput> {
         self.outputs.get(i).cloned()
+    }
+
+    pub fn get_output_with_data(&self, i: usize) -> Option<(CellOutput, Bytes)> {
+        self.outputs.get(i).cloned().map(|output| {
+            let output_data = self.outputs_data.get(i).cloned().expect("must exists");
+            (output, output_data)
+        })
     }
 
     pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
@@ -524,6 +618,8 @@ impl Transaction {
                 .map(CellOutput::serialized_size)
                 .sum::<usize>()
             + 4
+            + self.outputs_data.iter().map(Bytes::len).sum::<usize>()
+            + 4
             + self
                 .witnesses
                 .iter()
@@ -538,6 +634,7 @@ pub struct TransactionBuilder {
     deps: Vec<OutPoint>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
+    outputs_data: Vec<Bytes>,
     witnesses: Vec<Witness>,
 }
 
@@ -548,6 +645,7 @@ impl Default for TransactionBuilder {
             deps: Default::default(),
             inputs: Default::default(),
             outputs: Default::default(),
+            outputs_data: Default::default(),
             witnesses: Default::default(),
         }
     }
@@ -560,6 +658,7 @@ impl TransactionBuilder {
             deps,
             inputs,
             outputs,
+            outputs_data,
             witnesses,
             ..
         } = transaction;
@@ -568,6 +667,7 @@ impl TransactionBuilder {
             deps,
             inputs,
             outputs,
+            outputs_data,
             witnesses,
         }
     }
@@ -634,6 +734,26 @@ impl TransactionBuilder {
         self
     }
 
+    pub fn output_data(mut self, data: Bytes) -> Self {
+        self.outputs_data.push(data);
+        self
+    }
+
+    pub fn outputs_data<I, T>(mut self, outputs_data: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<Bytes>,
+    {
+        self.outputs_data
+            .extend(outputs_data.into_iter().map(Into::into));
+        self
+    }
+
+    pub fn outputs_data_clear(mut self) -> Self {
+        self.outputs_data.clear();
+        self
+    }
+
     pub fn witness(mut self, witness: Witness) -> Self {
         self.witnesses.push(witness);
         self
@@ -659,9 +779,10 @@ impl TransactionBuilder {
             deps,
             inputs,
             outputs,
+            outputs_data,
             witnesses,
         } = self;
-        Transaction::new(version, deps, inputs, outputs, witnesses)
+        Transaction::new(version, deps, inputs, outputs, outputs_data, witnesses)
     }
 
     /// # Warning
@@ -674,6 +795,7 @@ impl TransactionBuilder {
             deps,
             inputs,
             outputs,
+            outputs_data,
             witnesses,
         } = self;
         Transaction {
@@ -681,6 +803,7 @@ impl TransactionBuilder {
             deps,
             inputs,
             outputs,
+            outputs_data,
             witnesses,
             hash,
             witness_hash,
@@ -762,24 +885,26 @@ mod test {
 
     #[test]
     fn tx_hash() {
+        let data = Bytes::from(vec![1, 2, 3]);
         let tx = TransactionBuilder::default()
             .output(CellOutput::new(
                 capacity_bytes!(5000),
-                Bytes::from(vec![1, 2, 3]),
+                CellOutput::calculate_data_hash(&data),
                 Script::default(),
                 None,
             ))
+            .output_data(data)
             .input(CellInput::new(OutPoint::new_cell(H256::zero(), 0), 0))
             .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "6e9d9e6a6d5be5adafe7eac9f159b439cf4a4a400400cf98c231a341eb318bc2"
+            "03ee6001f7706408f2ede5d6c25d3a2fe42a025ef327b5a0805f7045060649f2"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "0da5b490459dc2001928bed2fec5fbf5d8fab5932e4d1cd83ce9c9d9bd3d866c"
+            "bd59c098cdea5225c00bfd68e39f627719acb4dcfacd7233eb16a977e9869f36"
         );
     }
 
@@ -787,7 +912,10 @@ mod test {
     fn min_cell_output_capacity() {
         let lock = Script::new(vec![], H256::default(), ScriptHashType::Data);
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(41));
+        assert_eq!(
+            output.occupied_capacity(Capacity::zero()).unwrap(),
+            capacity_bytes!(41)
+        );
     }
 
     #[test]
@@ -798,6 +926,9 @@ mod test {
             ScriptHashType::Data,
         );
         let output = CellOutput::new(Capacity::zero(), Default::default(), lock, None);
-        assert_eq!(output.occupied_capacity().unwrap(), capacity_bytes!(61));
+        assert_eq!(
+            output.occupied_capacity(Capacity::zero()).unwrap(),
+            capacity_bytes!(61)
+        );
     }
 }

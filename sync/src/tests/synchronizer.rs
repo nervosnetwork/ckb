@@ -9,7 +9,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::BlockBuilder;
 use ckb_core::cell::resolve_transaction;
 use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, TransactionBuilder};
+use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
 use ckb_core::Bytes;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -77,11 +77,13 @@ fn setup_node(
     thread_name: &str,
     height: u64,
 ) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
-    let (always_success_cell, always_success_script) = always_success_cell();
+    let (always_success_cell, always_success_cell_data, always_success_script) =
+        always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .witness(always_success_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
+        .output_data(always_success_cell_data.clone())
         .build();
 
     let dao = genesis_dao_data(&always_success_tx).unwrap();
@@ -121,12 +123,13 @@ fn setup_node(
 
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(
-                reward.total,
-                Bytes::default(),
-                always_success_script.to_owned(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(reward.total)
+                    .lock(always_success_script.to_owned())
+                    .build(),
+            )
+            .output_data(Bytes::default())
             .witness(always_success_script.to_owned().into_witness())
             .build();
 

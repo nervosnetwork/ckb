@@ -7,7 +7,6 @@ use ckb_core::transaction::{CellOutput, OutPoint};
 use ckb_core::{BlockNumber, Bytes, Capacity};
 use ckb_dao_utils::{extract_dao_data, pack_dao_data, Error};
 use ckb_resource::CODE_HASH_DAO;
-use ckb_script_data_loader::DataLoader;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
@@ -103,12 +102,13 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
         let added_occupied_capacities =
             rtxs.iter().try_fold(Capacity::zero(), |capacities, rtx| {
                 rtx.transaction
-                    .outputs()
-                    .iter()
-                    .try_fold(Capacity::zero(), |tx_capacities, output| {
-                        output
-                            .occupied_capacity()
-                            .and_then(|c| tx_capacities.safe_add(c))
+                    .outputs_with_data_iter()
+                    .try_fold(Capacity::zero(), |tx_capacities, (output, data)| {
+                        Capacity::bytes(data.len()).and_then(|data_capacity| {
+                            output
+                                .occupied_capacity(data_capacity)
+                                .and_then(|c| tx_capacities.safe_add(c))
+                        })
                     })
                     .and_then(|c| capacities.safe_add(c))
             })?;
@@ -167,7 +167,16 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
             .outputs()
             .get(cell_out_point.index as usize)
             .ok_or(Error::InvalidOutPoint)?;
-        self.calculate_maximum_withdraw(&output, &block_hash, withdraw_header_hash)
+        let output_data = tx
+            .outputs_data()
+            .get(cell_out_point.index as usize)
+            .ok_or(Error::InvalidOutPoint)?;
+        self.calculate_maximum_withdraw(
+            &output,
+            Capacity::bytes(output_data.len())?,
+            &block_hash,
+            withdraw_header_hash,
+        )
     }
 
     pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, FailureError> {
@@ -182,7 +191,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                     let capacity: Result<Capacity, FailureError> = match &resolved_input.cell() {
                         None => Err(Error::InvalidOutPoint.into()),
                         Some(cell_meta) => {
-                            let output = self.data_loader.lazy_load_cell_output(&cell_meta);
+                            let output = &cell_meta.cell_output;
                             if output
                                 .type_
                                 .as_ref()
@@ -217,6 +226,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                                     })?;
                                 self.calculate_maximum_withdraw(
                                     &output,
+                                    Capacity::bytes(cell_meta.data_bytes as usize)?,
                                     &deposit_header_hash,
                                     &withdraw_header_hash,
                                 )
@@ -244,8 +254,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
             .iter()
             .try_fold(Capacity::zero(), |capacities, resolved_input| {
                 let current_capacity = if let Some(cell_meta) = resolved_input.cell() {
-                    let output = self.data_loader.lazy_load_cell_output(&cell_meta);
-                    output.occupied_capacity()
+                    cell_meta.occupied_capacity()
                 } else {
                     Ok(Capacity::zero())
                 };
@@ -257,6 +266,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
     fn calculate_maximum_withdraw(
         &self,
         output: &CellOutput,
+        output_data_capacity: Capacity,
         deposit_header_hash: &H256,
         withdraw_header_hash: &H256,
     ) -> Result<Capacity, FailureError> {
@@ -271,7 +281,7 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
         let (deposit_ar, _, _) = extract_dao_data(deposit_header.dao())?;
         let (withdraw_ar, _, _) = extract_dao_data(withdraw_header.dao())?;
 
-        let occupied_capacity = output.occupied_capacity()?;
+        let occupied_capacity = output.occupied_capacity(output_data_capacity)?;
         let counted_capacity = output.capacity.safe_sub(occupied_capacity)?;
         let withdraw_counted_capacity = u128::from(counted_capacity.as_u64())
             * u128::from(withdraw_ar)
@@ -532,25 +542,30 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
+        let input_cell_data = Bytes::from("abcde");
         let input_cell = CellOutput::new(
             capacity_bytes!(10000),
-            Bytes::from("abcde"),
+            CellOutput::calculate_data_hash(&input_cell_data),
             Default::default(),
             None,
         );
+        let output_cell_data = Bytes::from("abcde12345");
         let output_cell = CellOutput::new(
             capacity_bytes!(20000),
-            Bytes::from("abcde12345"),
+            CellOutput::calculate_data_hash(&output_cell_data),
             Default::default(),
             None,
         );
 
-        let tx = TransactionBuilder::default().output(output_cell).build();
+        let tx = TransactionBuilder::default()
+            .output(output_cell)
+            .output_data(output_cell_data.clone())
+            .build();
         let rtx = ResolvedTransaction {
             transaction: &tx,
             resolved_deps: vec![],
             resolved_inputs: vec![ResolvedOutPoint::cell_only(
-                CellMetaBuilder::from_cell_output(input_cell).build(),
+                CellMetaBuilder::from_cell_output(input_cell, input_cell_data).build(),
             )],
         };
 
@@ -570,13 +585,17 @@ mod tests {
 
     #[test]
     fn check_withdraw_calculation() {
+        let data = Bytes::from(vec![1; 10]);
         let output = CellOutput::new(
             capacity_bytes!(1000000),
-            Bytes::from(vec![1; 10]),
+            CellOutput::calculate_data_hash(&data),
             Default::default(),
             None,
         );
-        let tx = TransactionBuilder::default().output(output).build();
+        let tx = TransactionBuilder::default()
+            .output(output)
+            .output_data(data)
+            .build();
         let deposit_header = HeaderBuilder::default()
             .number(100)
             .dao(pack_dao_data(
@@ -624,9 +643,10 @@ mod tests {
 
     #[test]
     fn check_withdraw_calculation_overflows() {
+        let data = Bytes::from(vec![1; 10]);
         let output = CellOutput::new(
             Capacity::shannons(18_446_744_073_709_550_000),
-            Bytes::from(vec![1; 10]),
+            CellOutput::calculate_data_hash(&data),
             Default::default(),
             None,
         );

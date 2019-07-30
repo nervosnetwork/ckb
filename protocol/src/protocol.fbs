@@ -68,6 +68,7 @@ table Transaction {
     deps:           [OutPoint];
     inputs:         [CellInput];
     outputs:        [CellOutput];
+    outputs_data:   [Bytes];
     witnesses:      [Witness];
 }
 
@@ -90,7 +91,7 @@ table CellInput {
 
 table CellOutput {
     capacity:       uint64;
-    data:           Bytes;
+    data_hash:      H256;
     lock:           Script;
     type:           Script;
 }

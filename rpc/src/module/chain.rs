@@ -1,5 +1,5 @@
 use crate::error::RPCError;
-use ckb_core::cell::{CellProvider, CellStatus};
+use ckb_core::cell::CellProvider;
 use ckb_core::transaction::ProposalShortId;
 use ckb_jsonrpc_types::{
     BlockNumber, BlockRewardView, BlockView, Capacity, CellOutPoint, CellOutputWithOutPoint,
@@ -234,20 +234,10 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
     }
 
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
-        let mut cell_status = self
+        let cell_status = self
             .shared
             .lock_chain_state()
             .cell(&out_point.clone().into());
-        if let CellStatus::Live(ref mut cell_meta) = cell_status {
-            if cell_meta.cell_output.is_none() {
-                cell_meta.cell_output = Some(
-                    self.shared
-                        .store()
-                        .get_cell_output(&cell_meta.out_point.tx_hash, cell_meta.out_point.index)
-                        .expect("live cell must exists"),
-                );
-            }
-        }
         Ok(cell_status.into())
     }
 

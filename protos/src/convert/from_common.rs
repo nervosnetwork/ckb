@@ -211,6 +211,13 @@ impl<'a> protos::Transaction<'a> {
             .iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<CellInput>>>()?;
+        let outputs_data = self
+            .outputs_data()
+            .unwrap_some()?
+            .iter()
+            .map(|item| item.seq().map(Bytes::from))
+            .collect::<Option<Vec<Bytes>>>()
+            .unwrap_some()?;
         let outputs = self
             .outputs()
             .unwrap_some()?
@@ -228,6 +235,7 @@ impl<'a> protos::Transaction<'a> {
             .deps(deps)
             .inputs(inputs)
             .outputs(outputs)
+            .outputs_data(outputs_data)
             .witnesses(witnesses);
         let transaction = unsafe { builder.build_unchecked(hash, witness_hash) };
         Ok(transaction)
@@ -316,10 +324,10 @@ impl<'a> TryFrom<protos::CellOutput<'a>> for CellOutput {
     fn try_from(cell_output: protos::CellOutput<'a>) -> Result<Self> {
         let lock = cell_output.lock().unwrap_some()?;
         let type_ = cell_output.type_().map(TryInto::try_into).transpose()?;
-        let data = cell_output.data().and_then(|s| s.seq()).unwrap_some()?;
+        let data_hash = cell_output.data_hash().unwrap_some()?;
         let ret = CellOutput {
             capacity: Capacity::shannons(cell_output.capacity()),
-            data: Bytes::from(data),
+            data_hash: data_hash.try_into()?,
             lock: lock.try_into()?,
             type_,
         };
@@ -396,16 +404,6 @@ impl<'a> TryFrom<protos::TransactionMeta<'a>> for TransactionMeta {
             .bits(bits)
             .len(proto.len() as usize)
             .build();
-        Ok(ret)
-    }
-}
-
-impl TryFrom<&protos::CellMeta> for (Capacity, H256) {
-    type Error = Error;
-    fn try_from(proto: &protos::CellMeta) -> Result<Self> {
-        let capacity = Capacity::shannons(proto.capacity());
-        let data_hash = proto.data_hash().try_into()?;
-        let ret = (capacity, data_hash);
         Ok(ret)
     }
 }

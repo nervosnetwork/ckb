@@ -1,6 +1,5 @@
 use crate::ChainStore;
-use ckb_core::transaction::CellOutput;
-use ckb_core::{cell::CellMeta, extras::BlockExt};
+use ckb_core::{cell::CellMeta, extras::BlockExt, Bytes};
 use ckb_script_data_loader::DataLoader;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
@@ -14,14 +13,14 @@ impl<CS> DataLoaderWrapper<CS> {
 
 impl<CS: ChainStore> DataLoader for DataLoaderWrapper<CS> {
     // load CellOutput
-    fn lazy_load_cell_output(&self, cell: &CellMeta) -> CellOutput {
-        match cell.cell_output.as_ref() {
-            Some(output) => output.to_owned(),
-            None => self
-                .0
-                .get_cell_output(&cell.out_point.tx_hash, cell.out_point.index)
-                .expect("lazy load cell output from store"),
-        }
+    fn load_cell_data(&self, cell: &CellMeta) -> Option<Bytes> {
+        cell.mem_cell_data
+            .as_ref()
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                self.0
+                    .get_cell_data(&cell.out_point.tx_hash, cell.out_point.index)
+            })
     }
     // load BlockExt
     #[inline]

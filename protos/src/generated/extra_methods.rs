@@ -141,9 +141,3 @@ impl<'a> super::StoredEpochExt<'a> {
         flatbuffers::get_root::<Self>(&slice)
     }
 }
-
-impl<'a> super::StoredCellMeta<'a> {
-    pub fn from_slice(slice: &'a [u8]) -> Self {
-        flatbuffers::get_root::<Self>(&slice)
-    }
-}

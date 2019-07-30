@@ -5,7 +5,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::script::{Script, ScriptHashType};
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
+};
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_jsonrpc_types::JsonBytes;
 use numext_fixed_hash::H256;
@@ -308,12 +310,13 @@ impl Node {
 
         TransactionBuilder::default()
             .dep(always_success_out_point)
-            .output(CellOutput::new(
-                capacity_bytes!(100),
-                Bytes::new(),
-                always_success_script,
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(100))
+                    .lock(always_success_script)
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .input(CellInput::new(OutPoint::new_cell(hash, 0), since))
             .build()
     }
@@ -339,8 +342,9 @@ impl Node {
         let consensus = spec.build_consensus().expect("build consensus");
         self.genesis_cellbase_hash
             .clone_from(consensus.genesis_block().transactions()[0].hash());
-        self.always_success_code_hash =
-            consensus.genesis_block().transactions()[0].outputs()[1].data_hash();
+        self.always_success_code_hash = consensus.genesis_block().transactions()[0].outputs()[1]
+            .data_hash()
+            .to_owned();
 
         self.consensus = Some(consensus);
 

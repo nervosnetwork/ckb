@@ -221,17 +221,24 @@ impl Genesis {
     fn build_cellbase_transaction(&self) -> Result<Transaction, Box<dyn Error>> {
         let mut outputs =
             Vec::<CellOutput>::with_capacity(1 + self.system_cells.len() + self.issued_cells.len());
+        let mut outputs_data = Vec::with_capacity(outputs.capacity());
 
         // Layout of genesis cellbase:
         // - genesis cell, which contains a message and can never be spent.
         // - system cells, which stores the built-in code blocks.
         // - issued cells
-        outputs.push(self.genesis_cell.build_output()?);
-        self.system_cells.build_outputs_into(&mut outputs)?;
+        let (output, data) = self.genesis_cell.build_output()?;
+        outputs.push(output);
+        outputs_data.push(data);
+        let (system_cells_outputs, system_cells_data) = self.system_cells.build_outputs()?;
+        outputs.extend(system_cells_outputs);
+        outputs_data.extend(system_cells_data);
         outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
+        outputs_data.extend(self.issued_cells.iter().map(|_| Bytes::new()));
 
         Ok(TransactionBuilder::default()
             .outputs(outputs)
+            .outputs_data(outputs_data)
             .input(CellInput::new_cellbase_input(0))
             .witness(CoreScript::from(self.bootstrap_lock.clone()).into_witness())
             .build())
@@ -239,12 +246,13 @@ impl Genesis {
 }
 
 impl GenesisCell {
-    fn build_output(&self) -> Result<CellOutput, Box<dyn Error>> {
+    fn build_output(&self) -> Result<(CellOutput, Bytes), Box<dyn Error>> {
         let mut cell = CellOutput::default();
-        cell.data = self.message.as_bytes().into();
+        let data: Bytes = self.message.as_bytes().into();
+        cell.data_hash = CellOutput::calculate_data_hash(&data);
         cell.lock = self.lock.clone().into();
-        cell.capacity = cell.occupied_capacity()?;
-        Ok(cell)
+        cell.capacity = cell.occupied_capacity(Capacity::bytes(data.len())?)?;
+        Ok((cell, data))
     }
 }
 
@@ -262,17 +270,20 @@ impl SystemCells {
         self.files.len()
     }
 
-    fn build_outputs_into(&self, outputs: &mut Vec<CellOutput>) -> Result<(), Box<dyn Error>> {
+    fn build_outputs(&self) -> Result<(Vec<CellOutput>, Vec<Bytes>), Box<dyn Error>> {
+        let mut outputs = Vec::with_capacity(self.files.len());
+        let mut outputs_data = Vec::with_capacity(self.files.len());
         for res in &self.files {
-            let data = res.get()?;
+            let data: Bytes = res.get()?.into_owned().into();
             let mut cell = CellOutput::default();
-            cell.data = data.into_owned().into();
+            cell.data_hash = CellOutput::calculate_data_hash(&data);
             cell.lock = self.lock.clone().into();
-            cell.capacity = cell.occupied_capacity()?;
+            cell.capacity = cell.occupied_capacity(Capacity::bytes(data.len())?)?;
             outputs.push(cell);
+            outputs_data.push(data);
         }
 
-        Ok(())
+        Ok((outputs, outputs_data))
     }
 }
 
@@ -343,7 +354,7 @@ pub mod test {
             {
                 let code_hash = output.data_hash();
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
-                assert_eq!(cell.code_hash, code_hash, "{}", bundled_spec_err);
+                assert_eq!(&cell.code_hash, code_hash, "{}", bundled_spec_err);
             }
         }
     }

@@ -586,65 +586,6 @@ impl EpochExt {
     }
 }
 
-// struct CellMeta, aligned to 8
-#[repr(C, align(8))]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CellMeta {
-    capacity_: u64,
-    data_hash_: Bytes32,
-} // pub struct CellMeta
-impl flatbuffers::SafeSliceAccess for CellMeta {}
-impl<'a> flatbuffers::Follow<'a> for CellMeta {
-    type Inner = &'a CellMeta;
-    #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        <&'a CellMeta>::follow(buf, loc)
-    }
-}
-impl<'a> flatbuffers::Follow<'a> for &'a CellMeta {
-    type Inner = &'a CellMeta;
-    #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        flatbuffers::follow_cast_ref::<CellMeta>(buf, loc)
-    }
-}
-impl<'b> flatbuffers::Push for CellMeta {
-    type Output = CellMeta;
-    #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        let src = unsafe {
-            ::std::slice::from_raw_parts(self as *const CellMeta as *const u8, Self::size())
-        };
-        dst.copy_from_slice(src);
-    }
-}
-impl<'b> flatbuffers::Push for &'b CellMeta {
-    type Output = CellMeta;
-
-    #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        let src = unsafe {
-            ::std::slice::from_raw_parts(*self as *const CellMeta as *const u8, Self::size())
-        };
-        dst.copy_from_slice(src);
-    }
-}
-
-impl CellMeta {
-    pub fn new<'a>(_capacity: u64, _data_hash: &'a Bytes32) -> Self {
-        CellMeta {
-            capacity_: _capacity.to_little_endian(),
-            data_hash_: *_data_hash,
-        }
-    }
-    pub fn capacity<'a>(&'a self) -> u64 {
-        self.capacity_.from_little_endian()
-    }
-    pub fn data_hash<'a>(&'a self) -> &'a Bytes32 {
-        &self.data_hash_
-    }
-}
-
 pub enum BytesOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
@@ -1366,6 +1307,9 @@ impl<'a> Transaction<'a> {
         if let Some(x) = args.witnesses {
             builder.add_witnesses(x);
         }
+        if let Some(x) = args.outputs_data {
+            builder.add_outputs_data(x);
+        }
         if let Some(x) = args.outputs {
             builder.add_outputs(x);
         }
@@ -1383,7 +1327,8 @@ impl<'a> Transaction<'a> {
     pub const VT_DEPS: flatbuffers::VOffsetT = 6;
     pub const VT_INPUTS: flatbuffers::VOffsetT = 8;
     pub const VT_OUTPUTS: flatbuffers::VOffsetT = 10;
-    pub const VT_WITNESSES: flatbuffers::VOffsetT = 12;
+    pub const VT_OUTPUTS_DATA: flatbuffers::VOffsetT = 12;
+    pub const VT_WITNESSES: flatbuffers::VOffsetT = 14;
 
     #[inline]
     pub fn version(&self) -> u32 {
@@ -1416,6 +1361,14 @@ impl<'a> Transaction<'a> {
         >>(Transaction::VT_OUTPUTS, None)
     }
     #[inline]
+    pub fn outputs_data(
+        &self,
+    ) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
+        self._tab.get::<flatbuffers::ForwardsUOffset<
+            flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>,
+        >>(Transaction::VT_OUTPUTS_DATA, None)
+    }
+    #[inline]
     pub fn witnesses(
         &self,
     ) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Witness<'a>>>> {
@@ -1440,6 +1393,9 @@ pub struct TransactionArgs<'a> {
             flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CellOutput<'a>>>,
         >,
     >,
+    pub outputs_data: Option<
+        flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Bytes<'a>>>>,
+    >,
     pub witnesses: Option<
         flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Witness<'a>>>>,
     >,
@@ -1452,6 +1408,7 @@ impl<'a> Default for TransactionArgs<'a> {
             deps: None,
             inputs: None,
             outputs: None,
+            outputs_data: None,
             witnesses: None,
         }
     }
@@ -1495,6 +1452,18 @@ impl<'a: 'b, 'b> TransactionBuilder<'a, 'b> {
     ) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<_>>(Transaction::VT_OUTPUTS, outputs);
+    }
+    #[inline]
+    pub fn add_outputs_data(
+        &mut self,
+        outputs_data: flatbuffers::WIPOffset<
+            flatbuffers::Vector<'b, flatbuffers::ForwardsUOffset<Bytes<'b>>>,
+        >,
+    ) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
+            Transaction::VT_OUTPUTS_DATA,
+            outputs_data,
+        );
     }
     #[inline]
     pub fn add_witnesses(
@@ -1863,14 +1832,14 @@ impl<'a> CellOutput<'a> {
         if let Some(x) = args.lock {
             builder.add_lock(x);
         }
-        if let Some(x) = args.data {
-            builder.add_data(x);
+        if let Some(x) = args.data_hash {
+            builder.add_data_hash(x);
         }
         builder.finish()
     }
 
     pub const VT_CAPACITY: flatbuffers::VOffsetT = 4;
-    pub const VT_DATA: flatbuffers::VOffsetT = 6;
+    pub const VT_DATA_HASH: flatbuffers::VOffsetT = 6;
     pub const VT_LOCK: flatbuffers::VOffsetT = 8;
     pub const VT_TYPE_: flatbuffers::VOffsetT = 10;
 
@@ -1881,9 +1850,8 @@ impl<'a> CellOutput<'a> {
             .unwrap()
     }
     #[inline]
-    pub fn data(&self) -> Option<Bytes<'a>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<Bytes<'a>>>(CellOutput::VT_DATA, None)
+    pub fn data_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(CellOutput::VT_DATA_HASH, None)
     }
     #[inline]
     pub fn lock(&self) -> Option<Script<'a>> {
@@ -1899,7 +1867,7 @@ impl<'a> CellOutput<'a> {
 
 pub struct CellOutputArgs<'a> {
     pub capacity: u64,
-    pub data: Option<flatbuffers::WIPOffset<Bytes<'a>>>,
+    pub data_hash: Option<&'a Bytes32>,
     pub lock: Option<flatbuffers::WIPOffset<Script<'a>>>,
     pub type_: Option<flatbuffers::WIPOffset<Script<'a>>>,
 }
@@ -1908,7 +1876,7 @@ impl<'a> Default for CellOutputArgs<'a> {
     fn default() -> Self {
         CellOutputArgs {
             capacity: 0,
-            data: None,
+            data_hash: None,
             lock: None,
             type_: None,
         }
@@ -1925,9 +1893,9 @@ impl<'a: 'b, 'b> CellOutputBuilder<'a, 'b> {
             .push_slot::<u64>(CellOutput::VT_CAPACITY, capacity, 0);
     }
     #[inline]
-    pub fn add_data(&mut self, data: flatbuffers::WIPOffset<Bytes<'b>>) {
+    pub fn add_data_hash(&mut self, data_hash: &'b Bytes32) {
         self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<Bytes>>(CellOutput::VT_DATA, data);
+            .push_slot_always::<&Bytes32>(CellOutput::VT_DATA_HASH, data_hash);
     }
     #[inline]
     pub fn add_lock(&mut self, lock: flatbuffers::WIPOffset<Script<'b>>) {

@@ -11,7 +11,6 @@ ckb-core = { path = "../../core" }
 failure = "0.1.5"
 ckb-chain-spec = { path = "../../spec" }
 ckb-resource = { path = "../../resource" }
-ckb-script-data-loader = { path = "../../script/data-loader" }
 ckb-store = { path = "../../store" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-dao-utils = { path = "./utils" }

@@ -349,10 +349,12 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 
         let fakebase = node.new_block(None, None, None).transactions()[0].clone();
         let mut output = fakebase.outputs()[0].clone();
+        let output_data = fakebase.outputs_data()[0].clone();
 
         output.capacity = calculator.base_block_reward(parent.header()).unwrap();
         let cellbase = TransactionBuilder::default()
             .output(output)
+            .output_data(output_data)
             .witness(fakebase.witnesses()[0].clone())
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))
             .build();

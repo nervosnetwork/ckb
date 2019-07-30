@@ -6,7 +6,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{
-    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
@@ -54,12 +54,11 @@ fn create_transaction(
     always_success_out_point: &OutPoint,
 ) -> Transaction {
     let capacity = 100_000_000 / 100 as usize;
-    let output = CellOutput::new(
-        Capacity::bytes(capacity).unwrap(),
-        Bytes::default(),
-        always_success_script.to_owned(),
-        Some(always_success_script.to_owned()),
-    );
+    let output = CellOutputBuilder::default()
+        .capacity(Capacity::bytes(capacity).unwrap())
+        .lock(always_success_script.to_owned())
+        .type_(Some(always_success_script.to_owned()))
+        .build();
     let inputs: Vec<CellInput> = (0..100)
         .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0))
         .collect();
@@ -67,6 +66,7 @@ fn create_transaction(
     TransactionBuilder::default()
         .inputs(inputs)
         .outputs(vec![output; 100])
+        .outputs_data(vec![Bytes::new(); 100])
         .dep(always_success_out_point.to_owned())
         .build()
 }
@@ -89,12 +89,8 @@ fn start_chain(
 fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .outputs(vec![CellOutput::new(
-            Capacity::zero(),
-            Bytes::default(),
-            Script::default(),
-            None,
-        )])
+        .output(CellOutputBuilder::default().build())
+        .output_data(Bytes::new())
         .build()
 }
 
@@ -105,20 +101,22 @@ fn setup_env() -> (
     Script,
     OutPoint,
 ) {
-    let (always_success_cell, always_success_script) = always_success_cell();
+    let (always_success_cell, always_success_cell_data, always_success_script) =
+        always_success_cell();
     let tx = TransactionBuilder::default()
         .witness(always_success_script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .outputs(vec![
-            CellOutput::new(
-                capacity_bytes!(1_000_000),
-                Bytes::default(),
-                always_success_script.clone(),
-                Some(always_success_script.clone()),
-            );
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(1_000_000))
+                .lock(always_success_script.clone())
+                .type_(Some(always_success_script.clone()))
+                .build();
             100
         ])
+        .output_data(always_success_cell_data.to_owned())
+        .outputs_data(vec![Bytes::new(); 100])
         .build();
     let tx_hash = tx.hash().to_owned();
     let genesis_block = BlockBuilder::default().transaction(tx).build();

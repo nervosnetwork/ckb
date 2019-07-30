@@ -8,7 +8,9 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::resolve_transaction;
 use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
+use ckb_core::transaction::{
+    CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
+};
 use ckb_core::{alert::AlertBuilder, capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -85,10 +87,12 @@ fn always_success_consensus() -> Consensus {
 //
 // The 1st transaction in genesis block, which contains a always_success_cell as the 1st output
 fn always_success_transaction() -> Transaction {
-    let (always_success_cell, always_success_script) = always_success_cell();
+    let (always_success_cell, always_success_cell_data, always_success_script) =
+        always_success_cell();
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
+        .output_data(always_success_cell_data.to_owned())
         .witness(always_success_script.clone().into_witness())
         .build()
 }
@@ -198,7 +202,7 @@ fn setup_node(
             ..Default::default()
         };
         let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
-        let (_always_success_cell, always_success_script) = always_success_cell();
+        let (_, _, always_success_script) = always_success_cell();
         indexer_store.insert_lock_hash(&always_success_script.hash(), Some(0));
         // use hardcoded BATCH_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
         (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
@@ -286,16 +290,15 @@ fn load_cases_from_file() -> Vec<Value> {
 fn construct_transaction() -> Transaction {
     let previous_output = OutPoint::new_cell(UNSPENT.with(|unspent| unspent.borrow().clone()), 0);
     let input = CellInput::new(previous_output, 0);
-    let output = CellOutput::new(
-        capacity_bytes!(1000),
-        Bytes::new(),
-        always_success_cell().1.clone(),
-        None,
-    );
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(1000))
+        .lock(always_success_cell().2.clone())
+        .build();
     let dep = OutPoint::new_cell(always_success_transaction().hash().to_owned(), 0);
     TransactionBuilder::default()
         .input(input)
         .output(output)
+        .output_data(Bytes::new())
         .dep(dep)
         .build()
 }
@@ -336,7 +339,7 @@ fn params_of(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, method: &str) -> V
     };
     let tip_number = json!(tip.number().to_string());
     let tip_hash = json!(format!("{:#x}", tip.hash()));
-    let (_, always_success_script) = always_success_cell();
+    let (_, _, always_success_script) = always_success_cell();
     let always_success_script_hash = json!(format!("{:#x}", always_success_script.hash()));
     let always_success_out_point = {
         let out_point = OutPoint::new_cell(always_success_transaction().hash().to_owned(), 0);

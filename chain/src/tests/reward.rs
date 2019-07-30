@@ -7,7 +7,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
-    CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, Bytes, Capacity};
@@ -30,12 +30,13 @@ pub(crate) fn create_cellbase(
     let capacity = calculate_reward(store, consensus, parent);
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(
-            reward.unwrap_or(capacity),
-            Bytes::default(),
-            reward_lock,
-            None,
-        ))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(reward.unwrap_or(capacity))
+                .lock(reward_lock)
+                .build(),
+        )
+        .output_data(Bytes::new())
         .witness(miner_lock.into_witness())
         .build()
 }
@@ -86,16 +87,17 @@ pub(crate) fn gen_block(
 }
 
 pub(crate) fn create_transaction(parent: &Transaction, index: u32) -> Transaction {
-    let (_, always_success_script) = always_success_cell();
+    let (_, _, always_success_script) = always_success_cell();
     let always_success_out_point = create_always_success_out_point();
 
     TransactionBuilder::default()
-        .output(CellOutput::new(
-            parent.outputs()[0].capacity.safe_sub(TX_FEE).unwrap(),
-            Bytes::default(),
-            always_success_script.clone(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(parent.outputs()[0].capacity.safe_sub(TX_FEE).unwrap())
+                .lock(always_success_script.clone())
+                .build(),
+        )
+        .output_data(Bytes::new())
         .input(CellInput::new(
             OutPoint::new_cell(parent.hash().to_owned(), index),
             0,
@@ -106,15 +108,16 @@ pub(crate) fn create_transaction(parent: &Transaction, index: u32) -> Transactio
 
 #[test]
 fn finalize_reward() {
-    let (_, always_success_script) = always_success_cell();
+    let (_, _, always_success_script) = always_success_cell();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
-        .output(CellOutput::new(
-            capacity_bytes!(5_000),
-            Bytes::default(),
-            always_success_script.clone(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(5_000))
+                .lock(always_success_script.clone())
+                .build(),
+        )
+        .output_data(Bytes::new())
         .build();
 
     let dao = genesis_dao_data(&tx).unwrap();

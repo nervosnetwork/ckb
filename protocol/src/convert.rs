@@ -191,6 +191,12 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
                 .map(TryInto::try_into)
                 .collect();
 
+        let outputs_data: Vec<ckb_core::Bytes> = cast!(FlatbuffersVectorIterator::new(cast!(
+            transaction.outputs_data()
+        )?)
+        .map(|item| item.seq().map(ckb_core::Bytes::from))
+        .collect::<Option<_>>())?;
+
         let outputs: Result<Vec<ckb_core::transaction::CellOutput>, FailureError> =
             FlatbuffersVectorIterator::new(cast!(transaction.outputs())?)
                 .map(TryInto::try_into)
@@ -206,6 +212,7 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
             .deps(deps?)
             .inputs(inputs?)
             .outputs(outputs?)
+            .outputs_data(outputs_data)
             .witnesses(witnesses?)
             .build())
     }
@@ -332,7 +339,7 @@ impl<'a> TryFrom<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOu
 
         Ok(ckb_core::transaction::CellOutput {
             capacity: ckb_core::Capacity::shannons(cell_output.capacity()),
-            data: ckb_core::Bytes::from(cast!(cell_output.data().and_then(|s| s.seq()))?),
+            data_hash: cast!(cell_output.data_hash())?.try_into()?,
             lock: TryInto::try_into(lock)?,
             type_,
         })

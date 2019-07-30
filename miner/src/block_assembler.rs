@@ -426,13 +426,13 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
             let witness = lock.into_witness();
             let input = CellInput::new_cellbase_input(candidate_number);
-            let raw_output =
-                CellOutput::new(block_reward.total, Bytes::default(), target_lock, None);
-            let output = self.custom_output(block_reward.total, raw_output)?;
+            let raw_output = CellOutput::new(block_reward.total, H256::zero(), target_lock, None);
+            let (output, output_data) = self.custom_output(block_reward.total, raw_output)?;
 
             TransactionBuilder::default()
                 .input(input)
                 .output(output)
+                .output_data(output_data)
                 .witness(witness)
                 .build()
         };
@@ -445,14 +445,13 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         &self,
         reward: Capacity,
         mut output: CellOutput,
-    ) -> Result<CellOutput, FailureError> {
-        let occupied_capacity = output.occupied_capacity()?;
+    ) -> Result<(CellOutput, Bytes), FailureError> {
+        let mut data = self.config.data.clone().into_bytes();
+        let occupied_capacity = output.occupied_capacity(Capacity::bytes(data.len())?)?;
 
         if reward < occupied_capacity {
             return Err(TransactionError::InsufficientCellCapacity.into());
         }
-
-        let mut data = self.config.data.clone().into_bytes();
 
         if !data.is_empty() {
             let data_max_len = (reward.as_u64() - occupied_capacity.as_u64()) as usize;
@@ -463,10 +462,10 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 data.truncate(data_max_len);
             }
 
-            output.data = data;
+            output.data_hash = CellOutput::calculate_data_hash(&data);
         }
 
-        Ok(output)
+        Ok((output, data))
     }
 
     // A block B1 is considered to be the uncle of another block B2 if all of the following conditions are met:
@@ -526,9 +525,9 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::extras::EpochExt;
     use ckb_core::header::{Header, HeaderBuilder};
-    use ckb_core::script::{Script, ScriptHashType};
+    use ckb_core::script::ScriptHashType;
     use ckb_core::transaction::{
-        CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
+        CellInput, CellOutputBuilder, ProposalShortId, Transaction, TransactionBuilder,
     };
     use ckb_core::{BlockNumber, Bytes};
     use ckb_dao_utils::genesis_dao_data;
@@ -630,12 +629,12 @@ mod tests {
     fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> Transaction {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutput::new(
-                epoch.block_reward(number).unwrap(),
-                Bytes::new(),
-                Script::default(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(epoch.block_reward(number).unwrap())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .build()
     }
 

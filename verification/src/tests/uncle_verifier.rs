@@ -8,10 +8,10 @@ use ckb_core::extras::EpochExt;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{
-    CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
+    CellInput, CellOutputBuilder, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::uncle::uncles_hash;
-use ckb_core::{BlockNumber, Bytes, Capacity};
+use ckb_core::{BlockNumber, Bytes};
 use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -61,12 +61,8 @@ fn create_cellbase(number: BlockNumber) -> Transaction {
     TransactionBuilder::default()
         .witness(Script::default().into_witness())
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutput::new(
-            Capacity::zero(),
-            Bytes::default(),
-            Script::default(),
-            None,
-        ))
+        .output(CellOutputBuilder::default().build())
+        .output_data(Bytes::new())
         .build()
 }
 

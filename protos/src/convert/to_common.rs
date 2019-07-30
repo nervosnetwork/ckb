@@ -10,7 +10,7 @@ use ckb_core::{
     transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction},
     transaction_meta::TransactionMeta,
     uncle::UncleBlock,
-    Bytes, Capacity,
+    Bytes,
 };
 
 use crate::{self as protos, CanBuild};
@@ -104,7 +104,7 @@ impl<'a> CanBuild<'a> for protos::CellOutput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_output: &Self::Input,
     ) -> WIPOffset<protos::CellOutput<'b>> {
-        let data = protos::Bytes::build(fbb, &cell_output.data);
+        let data_hash = (&cell_output.data_hash).into();
         let lock = protos::Script::build(fbb, &cell_output.lock);
         let type_ = cell_output
             .type_
@@ -112,7 +112,7 @@ impl<'a> CanBuild<'a> for protos::CellOutput<'a> {
             .map(|s| protos::Script::build(fbb, s));
         let mut builder = protos::CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity.as_u64());
-        builder.add_data(data);
+        builder.add_data_hash(&data_hash);
         builder.add_lock(lock);
         if let Some(s) = type_ {
             builder.add_type_(s);
@@ -204,6 +204,13 @@ impl<'a> CanBuild<'a> for protos::Transaction<'a> {
         let outputs = fbb.create_vector(&vec);
 
         let vec = transaction
+            .outputs_data()
+            .iter()
+            .map(|data| protos::Bytes::build(fbb, data))
+            .collect::<Vec<_>>();
+        let outputs_data = fbb.create_vector(&vec);
+
+        let vec = transaction
             .witnesses()
             .iter()
             .map(|witness| protos::Witness::build(fbb, witness))
@@ -215,6 +222,7 @@ impl<'a> CanBuild<'a> for protos::Transaction<'a> {
         builder.add_deps(deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
+        builder.add_outputs_data(outputs_data);
         builder.add_witnesses(witnesses);
         builder.finish()
     }
@@ -421,13 +429,5 @@ impl<'a> CanBuild<'a> for protos::TransactionMeta<'a> {
         builder.add_bits(bits);
         builder.add_len(len as u32);
         builder.finish()
-    }
-}
-
-impl From<&(Capacity, H256)> for protos::CellMeta {
-    fn from(meta: &(Capacity, H256)) -> Self {
-        let capacity = meta.0.as_u64();
-        let data_hash = (&meta.1).into();
-        Self::new(capacity, &data_hash)
     }
 }

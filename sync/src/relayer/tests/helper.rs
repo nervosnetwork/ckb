@@ -5,7 +5,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{
-    CellInput, CellOutput, IndexTransaction, OutPoint, Transaction, TransactionBuilder,
+    CellInput, CellOutputBuilder, IndexTransaction, OutPoint, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_db::memorydb::MemoryKeyValueDB;
@@ -26,12 +26,12 @@ use std::time::Duration;
 
 pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
     let transaction = TransactionBuilder::default()
-        .output(CellOutput::new(
-            Capacity::bytes(index).unwrap(),
-            Default::default(),
-            Default::default(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(Capacity::bytes(index).unwrap())
+                .build(),
+        )
+        .output_data(Bytes::new())
         .build();
     IndexTransaction { index, transaction }
 }
@@ -76,21 +76,23 @@ pub(crate) fn new_transaction(
 
     TransactionBuilder::default()
         .input(CellInput::new(previous_output, 0))
-        .output(CellOutput::new(
-            Capacity::bytes(500 + index).unwrap(), // use capacity to identify transactions
-            Default::default(),
-            Default::default(),
-            None,
-        ))
+        .output(
+            CellOutputBuilder::default()
+            .capacity(Capacity::bytes(500 + index).unwrap()) // use capacity to identify transactions
+            .build(),
+        )
+        .output_data(Bytes::new())
         .dep(always_success_out_point.to_owned())
         .build()
 }
 
 pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
-    let (always_success_cell, always_success_script) = always_success_cell();
+    let (always_success_cell, always_success_cell_data, always_success_script) =
+        always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
+        .output_data(always_success_cell_data.clone())
         .witness(always_success_script.clone().into_witness())
         .build();
     let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
@@ -126,12 +128,13 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyVa
             .unwrap();
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))
-            .output(CellOutput::new(
-                capacity_bytes!(50000),
-                Bytes::default(),
-                always_success_script.to_owned(),
-                None,
-            ))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity_bytes!(50000))
+                    .lock(always_success_script.to_owned())
+                    .build(),
+            )
+            .output_data(Bytes::new())
             .witness(Script::default().into_witness())
             .build();
         let block = BlockBuilder::from_header_builder(new_header_builder(&shared, parent.header()))

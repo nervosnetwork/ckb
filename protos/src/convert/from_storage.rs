@@ -7,7 +7,7 @@ use ckb_core::{
     header::Header,
     transaction::{CellOutput, ProposalShortId, Transaction},
     uncle::UncleBlock,
-    Capacity,
+    Bytes,
 };
 
 use crate::convert::{FbVecIntoIterator, OptionShouldBeSome};
@@ -85,8 +85,20 @@ impl<'a> protos::StoredBlockBody<'a> {
             if outputs.len() <= output_index {
                 None
             } else {
-                Some(outputs.get(output_index).try_into()?)
+                let output = outputs.get(output_index);
+                Some(output.try_into()?)
             }
+        };
+        Ok(ret)
+    }
+
+    pub fn output_data(&self, tx_index: usize, output_index: usize) -> Result<Option<Bytes>> {
+        let transactions = self.data().unwrap_some()?.transactions().unwrap_some()?;
+        let ret = if transactions.len() <= tx_index {
+            None
+        } else {
+            let outputs_data = transactions.get(tx_index).outputs_data().unwrap_some()?;
+            outputs_data.get(output_index).seq().map(Bytes::from)
         };
         Ok(ret)
     }
@@ -132,13 +144,6 @@ impl<'a> TryFrom<protos::StoredProposalShortIds<'a>> for Vec<ProposalShortId> {
 impl<'a> TryFrom<protos::StoredEpochExt<'a>> for EpochExt {
     type Error = Error;
     fn try_from(proto: protos::StoredEpochExt<'a>) -> Result<Self> {
-        proto.data().unwrap_some()?.try_into()
-    }
-}
-
-impl<'a> TryFrom<protos::StoredCellMeta<'a>> for (Capacity, H256) {
-    type Error = Error;
-    fn try_from(proto: protos::StoredCellMeta<'a>) -> Result<Self> {
         proto.data().unwrap_some()?.try_into()
     }
 }

@@ -2,7 +2,6 @@ use crate::syscalls::{
     utils::store_data, CellField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
     LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
 };
-use crate::DataLoader;
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_core::cell::{CellMeta, ResolvedOutPoint};
 use ckb_core::transaction::CellOutput;
@@ -13,8 +12,7 @@ use ckb_vm::{
 };
 use flatbuffers::FlatBufferBuilder;
 
-pub struct LoadCell<'a, DL> {
-    data_loader: &'a DL,
+pub struct LoadCell<'a> {
     outputs: &'a [CellMeta],
     resolved_inputs: &'a [ResolvedOutPoint],
     resolved_deps: &'a [ResolvedOutPoint],
@@ -22,17 +20,15 @@ pub struct LoadCell<'a, DL> {
     group_outputs: &'a [usize],
 }
 
-impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
+impl<'a> LoadCell<'a> {
     pub fn new(
-        data_loader: &'a DL,
         outputs: &'a [CellMeta],
         resolved_inputs: &'a [ResolvedOutPoint],
         resolved_deps: &'a [ResolvedOutPoint],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
-    ) -> LoadCell<'a, DL> {
+    ) -> LoadCell<'a> {
         LoadCell {
-            data_loader,
             outputs,
             resolved_inputs,
             resolved_deps,
@@ -101,9 +97,10 @@ impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
     fn load_by_field<Mac: SupportMachine>(
         &self,
         machine: &mut Mac,
-        output: &CellOutput,
+        cell: &CellMeta,
     ) -> Result<(u8, usize), VMError> {
         let field = CellField::parse_from_u64(machine.registers()[A5].to_u64())?;
+        let output = &cell.cell_output;
 
         let result = match field {
             CellField::Capacity => {
@@ -115,17 +112,12 @@ impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
             CellField::OccupiedCapacity => {
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(
-                    output
-                        .occupied_capacity()
+                    cell.occupied_capacity()
                         .map_err(|_| VMError::Unexpected)?
                         .as_u64(),
                 )?;
                 store_data(machine, &buffer)?;
                 (SUCCESS, buffer.len())
-            }
-            CellField::Data => {
-                store_data(machine, &output.data)?;
-                (SUCCESS, output.data.len())
             }
             CellField::DataHash => {
                 let hash = output.data_hash();
@@ -172,7 +164,7 @@ impl<'a, DL: DataLoader + 'a> LoadCell<'a, DL> {
     }
 }
 
-impl<'a, Mac: SupportMachine, CS: DataLoader> Syscalls<Mac> for LoadCell<'a, CS> {
+impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadCell<'a> {
     fn initialize(&mut self, _machine: &mut Mac) -> Result<(), VMError> {
         Ok(())
     }
@@ -193,12 +185,10 @@ impl<'a, Mac: SupportMachine, CS: DataLoader> Syscalls<Mac> for LoadCell<'a, CS>
             return Ok(true);
         }
         let cell = cell.unwrap();
-        let output = self.data_loader.lazy_load_cell_output(&cell);
-
         let (return_code, len) = if load_by_field {
-            self.load_by_field(machine, &output)?
+            self.load_by_field(machine, cell)?
         } else {
-            self.load_full(machine, &output)?
+            self.load_full(machine, &cell.cell_output)?
         };
 
         machine.add_cycles(len as u64 * cycle_factor)?;
