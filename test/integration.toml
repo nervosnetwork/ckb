@@ -24,7 +24,9 @@ hash_type = "Data"
 # the directory containing this config file.
 [genesis.system_cells]
 files = [
-  { file = "cells/always_success" }
+  { file = "cells/always_success" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+  { bundled = "specs/cells/dao" }
 ]
 
 [genesis.system_cells.lock]
@@ -36,6 +38,7 @@ hash_type = "Data"
 code_hash = "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
 args = []
 hash_type = "Data"
+
 
 [params]
 epoch_reward = 1_250_000_00000000
