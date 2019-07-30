@@ -1,15 +1,23 @@
 use crate::block::Block;
 use crate::header::Header;
+use crate::script::ScriptHashType;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
 use crate::Capacity;
 use crate::{BlockNumber, EpochNumber};
 use ckb_occupied_capacity::Result as CapacityResult;
 use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::AsRef;
 use std::fmt;
+use std::mem;
+
+// code hash of dep gorup lock script
+const DEP_GROUP_CODE_HASH: H256 =
+    h256!("0x0000000000000000000000000000000000000000000000000000000000000001");
+// tx hash (32 bytes) + output index (4 bytes)
+const OUT_POINT_LEN: usize = mem::size_of::<H256>() + mem::size_of::<u32>();
 
 #[derive(Clone, Debug, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct BlockInfo {
@@ -529,9 +537,51 @@ pub enum UnresolvableError {
     // 2. OutPoint specifies both header and cell, but the specified cell
     // is not included in the specified block header.
     InvalidHeader(OutPoint),
+    InvalidDepGroup(OutPoint),
     Dead(OutPoint),
     Unknown(Vec<OutPoint>),
     OutOfOrder(OutPoint),
+}
+
+fn resolve_dep_group<CP: CellProvider>(
+    output: &CellOutput,
+    cell_provider: &CP,
+) -> Result<Vec<ResolvedOutPoint>, UnresolvableError> {
+    let dep_len = output.data.len() / OUT_POINT_LEN;
+    let mut unknown_out_points = Vec::new();
+    let mut resolved_deps = Vec::with_capacity(dep_len);
+    for dep_idx in 0..dep_len {
+        let tx_hash_start = dep_idx * OUT_POINT_LEN;
+        let tx_hash_end = tx_hash_start + mem::size_of::<H256>();
+        let index_start = tx_hash_end;
+        let index_end = index_start + mem::size_of::<u32>();
+        let tx_hash = H256::from_slice(&output.data[tx_hash_start..tx_hash_end])
+            .expect("Invalid tx hash length");
+        let mut index_bytes = [0u8; mem::size_of::<u32>()];
+        index_bytes.copy_from_slice(&output.data[index_start..index_end]);
+        // Deserialize as little endian u32
+        let index = u32::from_le_bytes(index_bytes);
+
+        let sub_out_point = OutPoint::new_cell(tx_hash, index);
+        match cell_provider.cell(&sub_out_point) {
+            CellStatus::Dead => {
+                return Err(UnresolvableError::Dead(sub_out_point.clone()));
+            }
+            CellStatus::Unknown => {
+                unknown_out_points.push(sub_out_point.clone());
+            }
+            CellStatus::Live(sub_cell_meta) => {
+                resolved_deps.push(ResolvedOutPoint::cell_only(*sub_cell_meta));
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    if !unknown_out_points.is_empty() {
+        Err(UnresolvableError::Unknown(unknown_out_points))
+    } else {
+        Ok(resolved_deps)
+    }
 }
 
 pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
@@ -618,7 +668,23 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
                 resolved_deps.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));
             }
             (CellStatus::Live(cell_meta), HeaderStatus::Unspecified) => {
-                resolved_deps.push(ResolvedOutPoint::cell_only(*cell_meta));
+                let output_opt = cell_meta.cell_output.as_ref();
+                // FIXME: should change later
+                let is_dep_group = output_opt
+                    .and_then(|output| output.type_.as_ref())
+                    .filter(|script| script.code_hash == DEP_GROUP_CODE_HASH)
+                    .filter(|script| script.hash_type == ScriptHashType::Type)
+                    .is_some();
+
+                if is_dep_group {
+                    let output = output_opt.expect("Dep group cell meta must have output");
+                    if output.data.is_empty() && output.data.len() % OUT_POINT_LEN != 0 {
+                        return Err(UnresolvableError::InvalidDepGroup(out_point.clone()));
+                    }
+                    resolved_deps.extend(resolve_dep_group(output, cell_provider)?);
+                } else {
+                    resolved_deps.push(ResolvedOutPoint::cell_only(*cell_meta));
+                }
             }
             (CellStatus::Unspecified, HeaderStatus::Live(header)) => {
                 resolved_deps.push(ResolvedOutPoint::header_only(*header));

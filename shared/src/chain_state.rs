@@ -540,6 +540,7 @@ impl<CS: ChainStore> ChainState<CS> {
                     UnresolvableError::Empty
                     | UnresolvableError::UnspecifiedInputCell(_)
                     | UnresolvableError::InvalidHeader(_)
+                    | UnresolvableError::InvalidDepGroup(_)
                     | UnresolvableError::OutOfOrder(_) => {
                         tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                     }
