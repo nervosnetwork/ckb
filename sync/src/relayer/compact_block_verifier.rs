@@ -3,22 +3,12 @@ use crate::relayer::error::{Error, Misbehavior};
 use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
 use std::collections::HashSet;
 
-pub struct CompactBlockVerifier {
-    prefilled: PrefilledVerifier,
-    short_ids: ShortIdsVerifier,
-}
+pub struct CompactBlockVerifier {}
 
 impl CompactBlockVerifier {
-    pub(crate) fn new() -> Self {
-        Self {
-            prefilled: PrefilledVerifier::new(),
-            short_ids: ShortIdsVerifier::new(),
-        }
-    }
-
-    pub(crate) fn verify(&self, block: &CompactBlock) -> Result<(), Error> {
-        self.prefilled.verify(block)?;
-        self.short_ids.verify(block)?;
+    pub(crate) fn verify(block: &CompactBlock) -> Result<(), Error> {
+        PrefilledVerifier::verify(block)?;
+        ShortIdsVerifier::verify(block)?;
         Ok(())
     }
 }
@@ -26,11 +16,7 @@ impl CompactBlockVerifier {
 pub struct PrefilledVerifier {}
 
 impl PrefilledVerifier {
-    pub(crate) fn new() -> Self {
-        Self {}
-    }
-
-    pub(crate) fn verify(&self, block: &CompactBlock) -> Result<(), Error> {
+    pub(crate) fn verify(block: &CompactBlock) -> Result<(), Error> {
         let prefilled_transactions = &block.prefilled_transactions;
         let short_ids = &block.short_ids;
         let txs_len = prefilled_transactions.len() + short_ids.len();
@@ -67,11 +53,7 @@ impl PrefilledVerifier {
 pub struct ShortIdsVerifier {}
 
 impl ShortIdsVerifier {
-    pub(crate) fn new() -> Self {
-        Self {}
-    }
-
-    pub(crate) fn verify(&self, block: &CompactBlock) -> Result<(), Error> {
+    pub(crate) fn verify(block: &CompactBlock) -> Result<(), Error> {
         let prefilled_transactions = &block.prefilled_transactions;
         let short_ids = &block.short_ids;
         let short_ids_set: HashSet<&ShortTransactionID> = short_ids.iter().collect();
