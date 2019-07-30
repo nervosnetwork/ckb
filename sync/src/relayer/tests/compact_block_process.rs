@@ -491,3 +491,45 @@ fn test_accept_block() {
     let r = compact_block_process.execute();
     assert_eq!(r.ok(), Some(Status::AcceptBlock));
 }
+
+#[test]
+fn test_ignore_a_too_old_block() {
+    let (relayer, _) = build_chain(1804);
+    let parent = {
+        let chain_state = relayer.shared.lock_chain_state();
+        chain_state.tip_header().clone()
+    };
+    let parent = relayer.shared.get_ancestor(parent.hash(), 2).unwrap();
+
+    let too_old_block = new_header_builder(relayer.shared.shared(), &parent).build();
+
+    let block = BlockBuilder::default()
+        .header(too_old_block)
+        .transaction(TransactionBuilder::default().build())
+        .build();
+
+    let builder = &mut FlatBufferBuilder::new();
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let b = FbsCompactBlock::build(builder, &block, &prefilled_transactions_indexes);
+    builder.finish(b, None);
+
+    let fbs_compact_block = get_root::<FbsCompactBlock>(builder.finished_data()).unwrap();
+
+    let mock_protocal_context = MockProtocalContext::default();
+    let nc = Arc::new(mock_protocal_context);
+    let peer_index: PeerIndex = 1.into();
+
+    let compact_block_process = CompactBlockProcess::new(
+        &fbs_compact_block,
+        &relayer,
+        Arc::<MockProtocalContext>::clone(&nc),
+        peer_index,
+    );
+
+    let r = compact_block_process.execute();
+    assert_eq!(
+        r.unwrap_err().downcast::<Error>().unwrap(),
+        Error::Ignored(Ignored::TooOldBlock)
+    );
+}

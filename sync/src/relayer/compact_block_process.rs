@@ -57,6 +57,20 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let compact_block: CompactBlock = (*self.message).try_into()?;
         let block_hash = compact_block.header.hash().to_owned();
 
+        // Only accept blocks with a height greater than tip - N
+        // where N is the current epoch length
+        let (lowest_number, tip) = {
+            let cs = self.relayer.shared.lock_chain_state();
+            let epoch_length = cs.current_epoch_ext().length();
+            let tip = cs.tip_header().clone();
+
+            (tip.number().saturating_sub(epoch_length), tip)
+        };
+
+        if lowest_number > compact_block.header.number() {
+            return Err(Error::Ignored(Ignored::TooOldBlock).into());
+        }
+
         let status = self.relayer.shared().get_block_status(&block_hash);
         if status.contains(BlockStatus::BLOCK_STORED) {
             return Err(Error::Ignored(Ignored::AlreadyStored).into());
@@ -81,11 +95,9 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 block_hash,
                 self.peer
             );
-            self.relayer.shared.send_getheaders_to_peer(
-                self.nc.as_ref(),
-                self.peer,
-                self.relayer.shared.lock_chain_state().tip_header(),
-            );
+            self.relayer
+                .shared
+                .send_getheaders_to_peer(self.nc.as_ref(), self.peer, &tip);
             return Ok(Status::UnknownParent);
         }
 
