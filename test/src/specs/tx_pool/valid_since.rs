@@ -1,10 +1,9 @@
 use crate::utils::{
-    since_from_absolute_block_number, since_from_absolute_timestamp,
+    assert_send_transaction_fail, since_from_absolute_block_number, since_from_absolute_timestamp,
     since_from_relative_block_number, since_from_relative_timestamp, MEDIAN_TIME_BLOCK_COUNT,
 };
 use crate::{assert_regex_match, Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
-use ckb_core::transaction::Transaction;
 use ckb_core::BlockNumber;
 use log::info;
 use std::cmp::max;
@@ -285,21 +284,4 @@ impl ValidSince {
         node.generate_block();
         node.assert_tx_pool_size(0, 0);
     }
-}
-
-fn assert_send_transaction_fail(node: &Node, transaction: &Transaction, message: &str) {
-    let result = node
-        .rpc_client()
-        .inner()
-        .lock()
-        .send_transaction(transaction.into())
-        .call();
-    let error = result.expect_err(&format!("transaction is invalid since {}", message));
-    let error_string = error.to_string();
-    assert!(
-        error_string.contains(message),
-        "expect error \"{}\" but got \"{}\"",
-        message,
-        error_string,
-    );
 }

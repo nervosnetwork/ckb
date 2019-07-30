@@ -1,11 +1,12 @@
 use ckb_core::{
-    BlockNumber as CoreBlockNumber, EpochNumber as CoreEpochNumber, Version as CoreVersion,
+    BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
+    Version as CoreVersion,
 };
 use ckb_jsonrpc_types::{
-    Alert, BannedAddress, Block, BlockNumber, BlockTemplate, BlockView, CellOutputWithOutPoint,
-    CellTransaction, CellWithStatus, ChainInfo, DryRunResult, EpochNumber, EpochView, HeaderView,
-    LiveCell, LockHashIndexState, Node, OutPoint, PeerState, Timestamp, Transaction,
-    TransactionWithStatus, TxPoolInfo, Unsigned, Version,
+    Alert, BannedAddress, Block, BlockNumber, BlockTemplate, BlockView, Capacity,
+    CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, DryRunResult, EpochNumber,
+    EpochView, HeaderView, LiveCell, LockHashIndexState, Node, OutPoint, PeerState, Timestamp,
+    Transaction, TransactionWithStatus, TxPoolInfo, Unsigned, Version,
 };
 use ckb_util::Mutex;
 use jsonrpc_client_core::{expand_params, jsonrpc_client, Result as JsonRpcResult};
@@ -321,6 +322,15 @@ impl RpcClient {
             .call()
             .expect("rpc call get_lock_hash_index_states")
     }
+
+    pub fn calculate_dao_maximum_withdraw(&self, out_point: OutPoint, hash: H256) -> CoreCapacity {
+        self.inner()
+            .lock()
+            .calculate_dao_maximum_withdraw(out_point, hash)
+            .call()
+            .expect("rpc call calculate_dao_maximum_withdraw")
+            .0
+    }
 }
 
 jsonrpc_client!(pub struct Inner {
@@ -379,4 +389,5 @@ jsonrpc_client!(pub struct Inner {
     pub fn index_lock_hash(&mut self, lock_hash: H256, index_from: Option<BlockNumber>) -> RpcRequest<LockHashIndexState>;
     pub fn deindex_lock_hash(&mut self, lock_hash: H256) -> RpcRequest<()>;
     pub fn get_lock_hash_index_states(&mut self) -> RpcRequest<Vec<LockHashIndexState>>;
+    pub fn calculate_dao_maximum_withdraw(&mut self, _out_point: OutPoint, _hash: H256) -> RpcRequest<Capacity>;
 });
