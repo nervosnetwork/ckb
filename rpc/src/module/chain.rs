@@ -120,8 +120,9 @@ impl ChainRpc for ChainRpcImpl {
 
             let tx_pool = chan_state.tx_pool();
             tx_pool
-                .get_tx_from_proposed(&id)
-                .map(TransactionWithStatus::with_proposed)
+                .proposed()
+                .get(&id)
+                .map(|entry| TransactionWithStatus::with_proposed(entry.transaction.to_owned()))
                 .or_else(|| {
                     tx_pool
                         .get_tx_without_conflict(&id)

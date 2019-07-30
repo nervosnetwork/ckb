@@ -1,6 +1,6 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOpr, CellSetOverlay};
 use crate::error::SharedError;
-use crate::tx_pool::types::{DefectEntry, ProposedEntry};
+use crate::tx_pool::types::DefectEntry;
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
@@ -12,7 +12,7 @@ use ckb_core::cell::{
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_core::Cycle;
+use ckb_core::{Capacity, Cycle};
 use ckb_dao::DaoCalculator;
 use ckb_logger::{debug_target, error_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
@@ -360,7 +360,11 @@ impl ChainState {
         if self.reach_tx_pool_limit(tx_size, cycles) {
             return Err(PoolError::LimitReached);
         }
-        match self.resolve_tx_from_pending_and_proposed(&tx) {
+        let resolve_result = {
+            let tx_pool = self.tx_pool.borrow();
+            self.resolve_tx_from_pending_and_proposed(&tx, &tx_pool)
+        };
+        match resolve_result {
             Ok(rtx) => {
                 self.verify_rtx(&rtx, Some(cycles)).and_then(|cycles| {
                     let mut tx_pool = self.tx_pool.borrow_mut();
@@ -381,7 +385,10 @@ impl ChainState {
                             return Err(e);
                         }
                         tx_pool.update_statics_for_add_tx(tx_size, cycles);
-                    } else if tx_pool.enqueue_tx(Some(cycles), tx_size, tx) {
+                    } else if self
+                        .pending_tx(&mut tx_pool, Some(cycles), tx_size, tx)
+                        .is_ok()
+                    {
                         tx_pool.update_statics_for_add_tx(tx_size, cycles);
                     }
                     Ok(cycles)
@@ -394,8 +401,8 @@ impl ChainState {
     pub fn resolve_tx_from_pending_and_proposed<'b>(
         &self,
         tx: &'b Transaction,
+        tx_pool: &TxPool,
     ) -> Result<ResolvedTransaction<'b>, UnresolvableError> {
-        let tx_pool = self.tx_pool.borrow_mut();
         let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
         let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &proposed_provider);
         let pending_and_proposed_provider =
@@ -456,8 +463,8 @@ impl ChainState {
     pub(crate) fn try_proposed_orphan_by_ancestor(&self, tx_pool: &mut TxPool, tx: &Transaction) {
         let entries = tx_pool.orphan.remove_by_ancestor(tx);
         for entry in entries {
+            let tx_hash = entry.transaction.hash().to_owned();
             if self.contains_proposal_id(&tx.proposal_short_id()) {
-                let tx_hash = entry.transaction.hash().to_owned();
                 let ret = self.proposed_tx(tx_pool, entry.cycles, entry.size, entry.transaction);
                 if ret.is_err() {
                     tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles.unwrap_or(0));
@@ -469,51 +476,68 @@ impl ChainState {
                     );
                 }
             } else {
-                tx_pool.enqueue_tx(entry.cycles, entry.size, entry.transaction);
+                let ret = self.pending_tx(tx_pool, entry.cycles, entry.size, entry.transaction);
+                if ret.is_err() {
+                    tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles.unwrap_or(0));
+                    trace_target!(
+                        crate::LOG_TARGET_TX_POOL,
+                        "pending tx {:x} failed {:?}",
+                        tx_hash,
+                        ret
+                    );
+                }
             }
         }
     }
 
-    pub(crate) fn proposed_tx(
+    fn calculate_transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, PoolError> {
+        DaoCalculator::new(&self.consensus, self.store())
+            .transaction_fee(&rtx)
+            .map_err(|err| {
+                error_target!(
+                    crate::LOG_TARGET_TX_POOL,
+                    "Failed to generate tx fee for {:x}, reason: {:?}",
+                    rtx.transaction.hash(),
+                    err
+                );
+                PoolError::TxFee
+            })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn send_tx_to_pool<F>(
         &self,
+        pool_name: &str,
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
         size: usize,
         tx: Transaction,
-    ) -> Result<Cycle, PoolError> {
+        tx_resolved_result: Result<(Cycle, Capacity), PoolError>,
+        send_to_pool: F,
+    ) -> Result<Cycle, PoolError>
+    where
+        F: FnOnce(&mut TxPool, Cycle, Capacity, usize, Transaction) -> Result<(), PoolError>,
+    {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
 
-        match self.resolve_tx_from_proposed(&tx, tx_pool) {
-            Ok(rtx) => match self.verify_rtx(&rtx, cycles) {
-                Ok(cycles) => {
-                    let fee = DaoCalculator::new(&self.consensus, self.store())
-                        .transaction_fee(&rtx)
-                        .map_err(|e| {
-                            error_target!(
-                                crate::LOG_TARGET_TX_POOL,
-                                "Failed to generate tx fee for {:x}, reason: {:?}",
-                                tx_hash,
-                                e
-                            );
-                            tx_pool.update_statics_for_remove_tx(size, cycles);
-                            PoolError::TxFee
-                        })?;
-                    tx_pool.add_proposed(cycles, fee, size, tx);
-                    Ok(cycles)
-                }
-                Err(e) => {
-                    tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
-                    debug_target!(
-                        crate::LOG_TARGET_TX_POOL,
-                        "Failed to add proposed tx {:x}, reason: {:?}",
-                        tx_hash,
-                        e
-                    );
-                    Err(e)
-                }
-            },
-            Err(err) => {
+        match tx_resolved_result {
+            Ok((cycles, fee)) => {
+                send_to_pool(tx_pool, cycles, fee, size, tx)?;
+                Ok(cycles)
+            }
+            Err(PoolError::InvalidTx(e)) => {
+                tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                debug_target!(
+                    crate::LOG_TARGET_TX_POOL,
+                    "Failed to add tx to {} {:x}, verify failed, reason: {:?}",
+                    pool_name,
+                    tx_hash,
+                    e
+                );
+                Err(PoolError::InvalidTx(e))
+            }
+            Err(PoolError::UnresolvableTransaction(err)) => {
                 match &err {
                     UnresolvableError::Dead(_) => {
                         if tx_pool
@@ -545,7 +569,114 @@ impl ChainState {
                 }
                 Err(PoolError::UnresolvableTransaction(err))
             }
+            Err(err) => {
+                debug_target!(
+                    crate::LOG_TARGET_TX_POOL,
+                    "Failed to add tx to {} {:x}, reason: {:?}",
+                    pool_name,
+                    tx_hash,
+                    err
+                );
+                tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                Err(err)
+            }
         }
+    }
+
+    fn gap_tx(
+        &self,
+        tx_pool: &mut TxPool,
+        cycles: Option<Cycle>,
+        size: usize,
+        tx: Transaction,
+    ) -> Result<Cycle, PoolError> {
+        let tx_result = self
+            .resolve_tx_from_pending_and_proposed(&tx, tx_pool)
+            .map_err(PoolError::UnresolvableTransaction)
+            .and_then(|rtx| {
+                self.verify_rtx(&rtx, cycles).and_then(|cycles| {
+                    let fee = self.calculate_transaction_fee(&rtx);
+                    fee.map(|fee| (cycles, fee))
+                })
+            });
+        self.send_tx_to_pool(
+            "gap",
+            tx_pool,
+            cycles,
+            size,
+            tx,
+            tx_result,
+            |tx_pool, cycles, fee, size, tx| {
+                if tx_pool.add_gap(cycles, fee, size, tx) {
+                    Ok(())
+                } else {
+                    Err(PoolError::Duplicate)
+                }
+            },
+        )
+    }
+
+    pub(crate) fn proposed_tx(
+        &self,
+        tx_pool: &mut TxPool,
+        cycles: Option<Cycle>,
+        size: usize,
+        tx: Transaction,
+    ) -> Result<Cycle, PoolError> {
+        let tx_result = self
+            .resolve_tx_from_proposed(&tx, tx_pool)
+            .map_err(PoolError::UnresolvableTransaction)
+            .and_then(|rtx| {
+                self.verify_rtx(&rtx, cycles).and_then(|cycles| {
+                    let fee = self.calculate_transaction_fee(&rtx);
+                    fee.map(|fee| (cycles, fee))
+                })
+            });
+        self.send_tx_to_pool(
+            "proposed",
+            tx_pool,
+            cycles,
+            size,
+            tx,
+            tx_result,
+            |tx_pool, cycles, fee, size, tx| {
+                tx_pool.add_proposed(cycles, fee, size, tx);
+                Ok(())
+            },
+        )
+    }
+
+    fn pending_tx(
+        &self,
+        tx_pool: &mut TxPool,
+        cycles: Option<Cycle>,
+        size: usize,
+        tx: Transaction,
+    ) -> Result<Cycle, PoolError> {
+        let tx_result = self
+            .resolve_tx_from_pending_and_proposed(&tx, tx_pool)
+            .map_err(PoolError::UnresolvableTransaction)
+            .and_then(|rtx| {
+                self.verify_rtx(&rtx, cycles).and_then(|cycles| {
+                    let fee = self.calculate_transaction_fee(&rtx);
+                    fee.map(|fee| (cycles, fee))
+                })
+            });
+        self.send_tx_to_pool(
+            "pending",
+            tx_pool,
+            cycles,
+            size,
+            tx,
+            tx_result,
+            |tx_pool, cycles, fee, size, tx| {
+                if tx_pool.enqueue_tx(cycles, fee, size, tx) {
+                    Ok(())
+                } else {
+                    Err(PoolError::Duplicate)
+                }
+            },
+        )
     }
 
     pub(crate) fn proposed_tx_and_descendants(
@@ -569,8 +700,40 @@ impl ChainState {
         detached_proposal_id: impl Iterator<Item = &'a ProposalShortId>,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
     ) {
+        fn readd_dettached_tx(
+            chain_state: &ChainState,
+            tx_pool: &mut TxPool,
+            txs_verify_cache: &mut LruCache<H256, Cycle>,
+            tx: Transaction,
+        ) {
+            let tx_hash = tx.hash().to_owned();
+            let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
+            let tx_short_id = tx.proposal_short_id();
+            let tx_size = tx.serialized_size();
+            if chain_state.contains_proposal_id(&tx_short_id) {
+                if let Ok(cycles) =
+                    chain_state.proposed_tx_and_descendants(tx_pool, cached_cycles, tx_size, tx)
+                {
+                    if cached_cycles.is_none() {
+                        txs_verify_cache.insert(tx_hash, cycles);
+                    }
+                    tx_pool.update_statics_for_add_tx(tx_size, cycles);
+                }
+            } else if chain_state.contains_gap(&tx_short_id) {
+                if let Ok(cycles) = chain_state.gap_tx(tx_pool, cached_cycles, tx_size, tx) {
+                    if cached_cycles.is_none() {
+                        txs_verify_cache.insert(tx_hash, cycles);
+                    }
+                    tx_pool.update_statics_for_add_tx(tx_size, cached_cycles.unwrap_or(0));
+                }
+            } else if let Ok(cycles) = chain_state.pending_tx(tx_pool, cached_cycles, tx_size, tx) {
+                if cached_cycles.is_none() {
+                    txs_verify_cache.insert(tx_hash, cycles);
+                }
+                tx_pool.update_statics_for_add_tx(tx_size, cached_cycles.unwrap_or(0));
+            }
+        }
         let mut tx_pool = self.tx_pool.borrow_mut();
-
         let mut detached = LinkedFnvHashSet::default();
         let mut attached = LinkedFnvHashSet::default();
 
@@ -588,26 +751,7 @@ impl ChainState {
         tx_pool.remove_committed_txs_from_proposed(attached.iter());
 
         for tx in retain {
-            let tx_hash = tx.hash().to_owned();
-            let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
-            let tx_short_id = tx.proposal_short_id();
-            let tx_size = tx.serialized_size();
-            if self.contains_proposal_id(&tx_short_id) {
-                if let Ok(cycles) =
-                    self.proposed_tx_and_descendants(&mut tx_pool, cached_cycles, tx_size, tx)
-                {
-                    if cached_cycles.is_none() {
-                        txs_verify_cache.insert(tx_hash, cycles);
-                    }
-                    tx_pool.update_statics_for_add_tx(tx_size, cycles);
-                }
-            } else if self.contains_gap(&tx_short_id) {
-                if tx_pool.add_gap(cached_cycles, tx_size, tx) {
-                    tx_pool.update_statics_for_add_tx(tx_size, cached_cycles.unwrap_or(0));
-                }
-            } else if tx_pool.enqueue_tx(cached_cycles, tx_size, tx) {
-                tx_pool.update_statics_for_add_tx(tx_size, cached_cycles.unwrap_or(0));
-            }
+            readd_dettached_tx(self, &mut tx_pool, txs_verify_cache, tx);
         }
 
         for tx in &attached {
@@ -619,23 +763,33 @@ impl ChainState {
 
         // pending ---> gap ----> proposed
         // try move gap to proposed
-        for entry in tx_pool.gap.entries() {
-            if self.contains_proposal_id(entry.key()) {
-                let entry = entry.remove();
-                entries.push((entry.cycles, entry.size, entry.transaction));
+        let mut removed = Vec::with_capacity(tx_pool.gap.size());
+        for id in tx_pool.gap.sorted_keys() {
+            if self.contains_proposal_id(&id) {
+                let entry = tx_pool.gap.get(&id).expect("exists");
+                removed.push(*id);
+                entries.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
             }
         }
+        removed.into_iter().for_each(|id| {
+            tx_pool.gap.remove_entry_and_descendants(&id);
+        });
 
         // try move pending to proposed
-        for entry in tx_pool.pending.entries() {
-            if self.contains_proposal_id(entry.key()) {
-                let entry = entry.remove();
-                entries.push((entry.cycles, entry.size, entry.transaction));
-            } else if self.contains_gap(entry.key()) {
-                let entry = entry.remove();
-                gaps.push((entry.cycles, entry.size, entry.transaction));
+        let mut removed = Vec::with_capacity(tx_pool.pending.size());
+        for id in tx_pool.pending.sorted_keys() {
+            let entry = tx_pool.pending.get(&id).expect("exists");
+            if self.contains_proposal_id(&id) {
+                removed.push(*id);
+                entries.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
+            } else if self.contains_gap(&id) {
+                removed.push(*id);
+                gaps.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
             }
         }
+        removed.into_iter().for_each(|id| {
+            tx_pool.pending.remove_entry_and_descendants(&id);
+        });
 
         // try move conflict to proposed
         for entry in tx_pool.conflict.entries() {
@@ -666,7 +820,15 @@ impl ChainState {
                 "tx proposed, add to gap {:x}",
                 tx.hash()
             );
-            tx_pool.add_gap(cycles, size, tx);
+            let tx_hash = tx.hash().to_owned();
+            if let Err(e) = self.gap_tx(&mut tx_pool, cycles, size, tx) {
+                debug_target!(
+                    crate::LOG_TARGET_TX_POOL,
+                    "Failed to add tx to gap {:x}, reason: {:?}",
+                    tx_hash,
+                    e
+                );
+            }
         }
     }
 
@@ -675,35 +837,43 @@ impl ChainState {
     }
 
     pub fn get_proposals(&self, proposals_limit: usize) -> HashSet<ProposalShortId> {
-        let tx_pool = self.tx_pool.borrow();
-        tx_pool
-            .pending
-            .keys()
-            .chain(tx_pool.gap.keys())
-            .take(proposals_limit)
-            .cloned()
-            .collect()
-    }
+        use crate::tx_pool::pending::PendingQueue;
 
-    pub fn get_proposed_txs(
-        &self,
-        txs_size_limit: usize,
-        cycles_limit: Cycle,
-    ) -> (Vec<ProposedEntry>, usize, Cycle) {
-        let mut size = 0;
-        let mut cycles = 0;
+        let fill_from_pool = |pool: &PendingQueue, proposals: &mut HashSet<ProposalShortId>| {
+            for id in pool.sorted_keys() {
+                if proposals.len() == proposals_limit {
+                    break;
+                } else if proposals.contains(&id) {
+                    // implies that ancestors are already in proposals
+                    continue;
+                }
+                let mut ancestors = pool.get_ancestors(&id);
+                ancestors.insert(*id);
+                let mut ancestors = ancestors.into_iter().collect::<Vec<_>>();
+                ancestors.sort_unstable_by(|a_id, b_id| {
+                    let a_ancestors_count = pool
+                        .get(&a_id)
+                        .map(|entry| entry.ancestors_count)
+                        .expect("exists");
+                    let b_ancestors_count = pool
+                        .get(&b_id)
+                        .map(|entry| entry.ancestors_count)
+                        .expect("exists");
+                    a_ancestors_count.cmp(&b_ancestors_count)
+                });
+                proposals.extend(
+                    ancestors
+                        .into_iter()
+                        .take(proposals_limit - proposals.len()),
+                );
+            }
+        };
+
         let tx_pool = self.tx_pool.borrow();
-        let entries = tx_pool
-            .proposed
-            .txs_iter()
-            .take_while(|tx| {
-                cycles += tx.cycles;
-                size += tx.size;
-                (size < txs_size_limit) && (cycles < cycles_limit)
-            })
-            .cloned()
-            .collect();
-        (entries, size, cycles)
+        let mut proposals = HashSet::with_capacity(proposals_limit);
+        fill_from_pool(&tx_pool.pending, &mut proposals);
+        fill_from_pool(&tx_pool.gap, &mut proposals);
+        proposals
     }
 
     pub fn tx_pool(&self) -> Ref<TxPool> {

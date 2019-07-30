@@ -1,16 +1,15 @@
-use crate::tx_pool::types::ProposedEntry;
+use crate::tx_pool::types::{AncestorsScoreSortKey, ProposedEntry, TxLink};
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::{Bytes, Capacity, Cycle};
-use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct Edges<K: Hash + Eq, V: Copy + Eq + Hash> {
-    pub(crate) inner: FnvHashMap<K, Option<V>>,
-    pub(crate) outer: FnvHashMap<K, Option<V>>,
-    pub(crate) deps: FnvHashMap<K, FnvHashSet<V>>,
+    pub(crate) inner: HashMap<K, Option<V>>,
+    pub(crate) outer: HashMap<K, Option<V>>,
+    pub(crate) deps: HashMap<K, HashSet<V>>,
 }
 
 impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
@@ -52,11 +51,11 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
         self.inner.get_mut(key)
     }
 
-    pub(crate) fn get_deps(&self, key: &K) -> Option<&FnvHashSet<V>> {
+    pub(crate) fn get_deps(&self, key: &K) -> Option<&HashSet<V>> {
         self.deps.get(key)
     }
 
-    pub(crate) fn remove_deps(&mut self, key: &K) -> Option<FnvHashSet<V>> {
+    pub(crate) fn remove_deps(&mut self, key: &K) -> Option<HashSet<V>> {
         self.deps.remove(key)
     }
 
@@ -65,7 +64,7 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
     }
 
     pub(crate) fn insert_deps(&mut self, key: K, value: V) {
-        let e = self.deps.entry(key).or_insert_with(FnvHashSet::default);
+        let e = self.deps.entry(key).or_insert_with(HashSet::default);
         e.insert(value);
     }
 
@@ -84,9 +83,13 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 }
 
 #[derive(Default, Debug, Clone)]
-pub(crate) struct ProposedPool {
-    pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, ProposedEntry>,
+pub struct ProposedPool {
+    pub(crate) vertices: HashMap<ProposalShortId, ProposedEntry>,
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
+    /// A index sorted by tx ancestors score
+    ancestors_score_index: BTreeSet<AncestorsScoreSortKey>,
+    /// A map track transaction ancestors and descendants
+    links: HashMap<ProposalShortId, TxLink>,
 }
 
 impl CellProvider for ProposedPool {
@@ -122,7 +125,7 @@ impl ProposedPool {
         self.vertices.contains_key(id)
     }
 
-    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&ProposedEntry> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&ProposedEntry> {
         self.vertices.get(id)
     }
 
@@ -141,14 +144,18 @@ impl ProposedPool {
         })
     }
 
-    pub(crate) fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
+    // remove entry and all it's descendants
+    pub(crate) fn remove_entry_and_descendants(
+        &mut self,
+        id: &ProposalShortId,
+    ) -> Vec<ProposedEntry> {
         let mut entries = Vec::new();
         let mut queue = VecDeque::new();
 
         queue.push_back(id.to_owned());
 
         while let Some(id) = queue.pop_front() {
-            if let Some(entry) = self.vertices.remove(&id) {
+            if let Some(entry) = self.remove_entry(&id) {
                 let tx = &entry.transaction;
                 let inputs = tx.input_pts_iter();
                 let outputs = tx.output_pts();
@@ -181,45 +188,44 @@ impl ProposedPool {
         entries
     }
 
-    pub(crate) fn remove(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
-        self.remove_vertex(id)
-    }
-
     pub(crate) fn add_tx(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
         let inputs = tx.input_pts_iter();
         let outputs = tx.output_pts();
         let deps = tx.deps_iter();
 
-        let id = tx.proposal_short_id();
+        let tx_short_id = tx.proposal_short_id();
 
         let mut count: usize = 0;
+        let mut parents: HashSet<ProposalShortId> = Default::default();
 
         for i in inputs {
-            let mut flag = true;
-            if let Some(x) = self.edges.get_inner_mut(i) {
-                *x = Some(id);
+            if let Some(id) = self.edges.get_inner_mut(i) {
+                *id = Some(tx_short_id);
                 count += 1;
-                flag = false;
-            }
-
-            if flag {
-                self.edges.insert_outer(i.to_owned(), id);
+                if let Some(cell_out_point) = i.cell.as_ref() {
+                    parents.insert(ProposalShortId::from_tx_hash(&cell_out_point.tx_hash));
+                }
+            } else {
+                self.edges.insert_outer(i.to_owned(), tx_short_id);
             }
         }
 
         for d in deps {
             if self.edges.contains_key(d) {
                 count += 1;
+                if let Some(cell_out_point) = d.cell.as_ref() {
+                    parents.insert(ProposalShortId::from_tx_hash(&cell_out_point.tx_hash));
+                }
             }
-            self.edges.insert_deps(d.to_owned(), id);
+            self.edges.insert_deps(d.to_owned(), tx_short_id);
         }
 
         for o in outputs {
             self.edges.mark_inpool(o);
         }
 
-        self.vertices
-            .insert(id, ProposedEntry::new(tx, count, cycles, fee, size));
+        let entry = ProposedEntry::new(tx, count, cycles, fee, size);
+        self.insert_entry(tx_short_id, entry, parents);
     }
 
     pub(crate) fn remove_committed_tx(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
@@ -230,7 +236,7 @@ impl ProposedPool {
 
         let mut removed = Vec::new();
 
-        if let Some(entry) = self.vertices.remove(&id) {
+        if let Some(entry) = self.remove_entry(&id) {
             removed.push(entry);
             for o in outputs {
                 if let Some(cid) = self.edges.remove_inner(&o) {
@@ -258,41 +264,140 @@ impl ProposedPool {
         removed
     }
 
-    pub(crate) fn resolve_conflict(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
+    fn resolve_conflict(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
         let inputs = tx.input_pts_iter();
         let mut removed = Vec::new();
 
         for i in inputs {
             if let Some(id) = self.edges.remove_outer(i) {
-                removed.append(&mut self.remove(&id));
+                removed.append(&mut self.remove_entry_and_descendants(&id));
             }
 
             if let Some(x) = self.edges.remove_deps(&i) {
                 for id in x {
-                    removed.append(&mut self.remove(&id));
+                    removed.append(&mut self.remove_entry_and_descendants(&id));
                 }
             }
         }
         removed
     }
 
-    /// Get n transactions in topology
-    #[cfg(test)]
-    pub(crate) fn get_txs(&self, n: usize) -> Vec<ProposedEntry> {
-        self.vertices
-            .front_n(n)
-            .iter()
-            .map(|x| x.1.clone())
-            .collect()
-    }
-
-    pub(crate) fn txs_iter(&self) -> impl Iterator<Item = &ProposedEntry> {
-        self.vertices.values()
+    /// Iterate sorted transactions
+    /// transaction is sorted by ancestor score from higher to lower,
+    /// this method is used for package txs into block
+    pub(crate) fn with_sorted_by_score_iter<F, Ret>(&self, func: F) -> Ret
+    where
+        F: FnOnce(&mut dyn Iterator<Item = &ProposedEntry>) -> Ret,
+    {
+        let mut iter = self.ancestors_score_index.iter().rev().map(|key| {
+            self.vertices
+                .get(&key.id)
+                .expect("proposed pool must be consistent")
+        });
+        func(&mut iter)
     }
 
     pub(crate) fn dec_ref(&mut self, id: &ProposalShortId) {
         if let Some(x) = self.vertices.get_mut(&id) {
             x.refs_count -= 1;
+        }
+    }
+
+    /// find all ancestors from pool
+    pub fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        TxLink::get_ancestors(&self.links, tx_short_id)
+    }
+
+    /// find all descendants from pool
+    pub fn get_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        TxLink::get_descendants(&self.links, tx_short_id)
+    }
+
+    /// update entry ancestor prefix fields
+    fn update_ancestors_stat_for_entry(
+        &self,
+        entry: &mut ProposedEntry,
+        parents: &HashSet<ProposalShortId>,
+    ) {
+        for id in parents {
+            let tx_entry = self.vertices.get(&id).expect("pool consistent");
+            entry.ancestors_cycles = entry
+                .ancestors_cycles
+                .saturating_add(tx_entry.ancestors_cycles);
+            entry.ancestors_size = entry.ancestors_size.saturating_add(tx_entry.ancestors_size);
+            entry.ancestors_fee = Capacity::shannons(
+                entry
+                    .ancestors_fee
+                    .as_u64()
+                    .saturating_add(tx_entry.ancestors_fee.as_u64()),
+            );
+            entry.ancestors_count = entry
+                .ancestors_count
+                .saturating_add(tx_entry.ancestors_count);
+        }
+    }
+
+    /// insert an entry
+    fn insert_entry(
+        &mut self,
+        id: ProposalShortId,
+        mut entry: ProposedEntry,
+        parents: HashSet<ProposalShortId>,
+    ) {
+        // update ancestor_fields
+        self.update_ancestors_stat_for_entry(&mut entry, &parents);
+        // insert links
+        self.insert_link(id, parents);
+        let key = AncestorsScoreSortKey::from(&entry);
+        self.ancestors_score_index.insert(key);
+        self.vertices.insert(id, entry);
+    }
+
+    /// delete an entry
+    fn remove_entry(&mut self, id: &ProposalShortId) -> Option<ProposedEntry> {
+        self.vertices.remove(id).map(|entry| {
+            let key = AncestorsScoreSortKey::from(&entry);
+            self.ancestors_score_index.remove(&key);
+            self.remove_link(id.to_owned());
+            entry
+        })
+    }
+
+    /// insert a link then update related links
+    /// NOTICE: you should consider insert_entry instead call this function directly
+    fn insert_link(&mut self, tx_short_id: ProposalShortId, parents: HashSet<ProposalShortId>) {
+        // update parents links
+        for id in &parents {
+            if let Some(link) = self.links.get_mut(id) {
+                link.children.insert(tx_short_id);
+            }
+        }
+        self.links.insert(
+            tx_short_id,
+            TxLink {
+                parents,
+                children: Default::default(),
+            },
+        );
+    }
+    /// remove a link then update related links
+    /// NOTICE: you should consider remove_entry instead call this function directly
+    fn remove_link(&mut self, tx_short_id: ProposalShortId) {
+        let mut remove_queue = vec![tx_short_id];
+        while !remove_queue.is_empty() {
+            let id = remove_queue.pop().expect("exists");
+            // link may removed by previous loop in case B -> A, C -> A, B
+            if let Some(TxLink { children, parents }) = self.links.remove(&id) {
+                // remove children
+                remove_queue.extend(children);
+                // update parents
+                for parent in parents {
+                    // parent may removed by previous loop
+                    if let Some(parent_entry) = self.links.get_mut(&parent) {
+                        parent_entry.children.remove(&id);
+                    }
+                }
+            }
         }
     }
 }
@@ -369,21 +474,6 @@ mod tests {
         assert_eq!(pool.edges.inner_len(), 4);
         assert_eq!(pool.edges.outer_len(), 4);
 
-        let mut mineable: Vec<_> = pool.get_txs(0).into_iter().map(|e| e.transaction).collect();
-        assert_eq!(0, mineable.len());
-
-        mineable = pool.get_txs(1).into_iter().map(|e| e.transaction).collect();
-        assert_eq!(1, mineable.len());
-        assert!(mineable.contains(&tx1));
-
-        mineable = pool.get_txs(2).into_iter().map(|e| e.transaction).collect();
-        assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-
-        mineable = pool.get_txs(3).into_iter().map(|e| e.transaction).collect();
-        assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-
         pool.remove_committed_tx(&tx1);
 
         assert_eq!(pool.edges.inner_len(), 3);
@@ -422,66 +512,177 @@ mod tests {
         assert_eq!(pool.edges.inner_len(), 13);
         assert_eq!(pool.edges.outer_len(), 2);
 
-        let mut mineable: Vec<Transaction> =
-            pool.get_txs(0).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(0, mineable.len());
-
-        mineable = pool.get_txs(1).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(1, mineable.len());
-        assert!(mineable.contains(&tx1));
-
-        mineable = pool.get_txs(2).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-
-        mineable = pool.get_txs(3).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(3, mineable.len());
-
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2) && mineable.contains(&tx3));
-
-        mineable = pool.get_txs(4).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(4, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
-
-        mineable = pool.get_txs(5).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(5, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
-        assert!(mineable.contains(&tx5));
-
-        mineable = pool.get_txs(6).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(5, mineable.len());
-        assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
-        assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
-        assert!(mineable.contains(&tx5));
-
         pool.remove_committed_tx(&tx1);
 
         assert_eq!(pool.get(&id3).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id5).unwrap().refs_count, 1);
         assert_eq!(pool.edges.inner_len(), 10);
         assert_eq!(pool.edges.outer_len(), 4);
+    }
 
-        mineable = pool.get_txs(1).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(1, mineable.len());
-        assert!(mineable.contains(&tx2));
+    #[test]
+    fn test_sorted_by_tx_fee_rate() {
+        let tx1 = build_tx(vec![(&H256::zero(), 1)], 1);
+        let tx2 = build_tx(vec![(&H256::zero(), 2)], 1);
+        let tx3 = build_tx(vec![(&H256::zero(), 3)], 1);
 
-        mineable = pool.get_txs(2).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(2, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
+        let mut pool = ProposedPool::new();
 
-        mineable = pool.get_txs(3).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(3, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
-        assert!(mineable.contains(&tx4));
+        let cycles = 5_000_000;
+        let size = 200;
 
-        mineable = pool.get_txs(4).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(4, mineable.len());
-        assert!(mineable.contains(&tx2) && mineable.contains(&tx3));
-        assert!(mineable.contains(&tx4) && mineable.contains(&tx5));
+        pool.add_tx(cycles, Capacity::shannons(100), size, tx1.clone());
+        pool.add_tx(cycles, Capacity::shannons(300), size, tx2.clone());
+        pool.add_tx(cycles, Capacity::shannons(200), size, tx3.clone());
 
-        mineable = pool.get_txs(5).into_iter().map(|x| x.transaction).collect();
-        assert_eq!(4, mineable.len());
+        let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
+            iter.map(|entry| entry.transaction.hash().to_owned())
+                .collect::<Vec<_>>()
+        });
+        let expect_result = vec![
+            tx2.hash().to_owned(),
+            tx3.hash().to_owned(),
+            tx1.hash().to_owned(),
+        ];
+        assert_eq!(txs_sorted_by_fee_rate, expect_result);
+    }
+
+    #[test]
+    fn test_sorted_by_ancestors_score() {
+        let tx1 = build_tx(vec![(&H256::zero(), 1)], 2);
+        let tx1_hash = tx1.hash();
+        let tx2 = build_tx(vec![(&tx1_hash, 1)], 1);
+        let tx2_hash = tx2.hash();
+        let tx3 = build_tx(vec![(&tx1_hash, 2)], 1);
+        let tx4 = build_tx(vec![(&tx2_hash, 1)], 1);
+
+        let mut pool = ProposedPool::new();
+
+        let cycles = 5_000_000;
+        let size = 200;
+
+        pool.add_tx(cycles, Capacity::shannons(100), size, tx1.clone());
+        pool.add_tx(cycles, Capacity::shannons(300), size, tx2.clone());
+        pool.add_tx(cycles, Capacity::shannons(200), size, tx3.clone());
+        pool.add_tx(cycles, Capacity::shannons(400), size, tx4.clone());
+
+        let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
+            iter.map(|entry| entry.transaction.hash().to_owned())
+                .collect::<Vec<_>>()
+        });
+        let expect_result = vec![
+            tx4.hash().to_owned(),
+            tx2.hash().to_owned(),
+            tx3.hash().to_owned(),
+            tx1.hash().to_owned(),
+        ];
+        assert_eq!(txs_sorted_by_fee_rate, expect_result);
+    }
+
+    #[test]
+    fn test_sorted_by_ancestors_score_competitive() {
+        let tx1 = build_tx(vec![(&H256::zero(), 1)], 2);
+        let tx1_hash = tx1.hash();
+        let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
+        let tx2_hash = tx2.hash();
+        let tx3 = build_tx(vec![(&tx2_hash, 0)], 1);
+
+        let tx2_1 = build_tx(vec![(&H256::zero(), 2)], 2);
+        let tx2_1_hash = tx2_1.hash();
+        let tx2_2 = build_tx(vec![(&tx2_1_hash, 0)], 1);
+        let tx2_2_hash = tx2_2.hash();
+        let tx2_3 = build_tx(vec![(&tx2_2_hash, 0)], 1);
+        let tx2_3_hash = tx2_3.hash();
+        let tx2_4 = build_tx(vec![(&tx2_3_hash, 0)], 1);
+
+        let mut pool = ProposedPool::new();
+
+        let cycles = 5_000_000;
+        let size = 200;
+
+        for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {
+            pool.add_tx(cycles, Capacity::shannons(200), size, tx.clone());
+        }
+
+        let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
+            iter.map(|entry| format!("{:x}", entry.transaction.hash()))
+                .collect::<Vec<_>>()
+        });
+        // the entry with most ancestors score will win
+        let expect_result = format!("{:x}", tx2_4.hash());
+        assert_eq!(txs_sorted_by_fee_rate[0], expect_result);
+    }
+
+    #[test]
+    fn test_get_ancestors() {
+        let tx1 = build_tx(vec![(&H256::zero(), 1)], 2);
+        let tx1_hash = tx1.hash();
+        let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
+        let tx2_hash = tx2.hash();
+        let tx3 = build_tx(vec![(&tx1_hash, 1)], 1);
+        let tx4 = build_tx(vec![(&tx2_hash, 0)], 1);
+
+        let mut pool = ProposedPool::new();
+
+        let cycles = 5_000_000;
+        let size = 200;
+
+        pool.add_tx(cycles, Capacity::shannons(100), size, tx1.clone());
+        pool.add_tx(cycles, Capacity::shannons(300), size, tx2.clone());
+        pool.add_tx(cycles, Capacity::shannons(200), size, tx3.clone());
+        pool.add_tx(cycles, Capacity::shannons(400), size, tx4.clone());
+
+        let ancestors = pool.get_ancestors(&tx4.proposal_short_id());
+        let expect_result = vec![tx1.proposal_short_id(), tx2.proposal_short_id()]
+            .into_iter()
+            .collect();
+        assert_eq!(ancestors, expect_result);
+        let entry = pool.get(&tx4.proposal_short_id()).expect("exists");
+        assert_eq!(
+            entry.ancestors_cycles,
+            ancestors
+                .iter()
+                .map(|id| pool.get(id).unwrap().cycles)
+                .sum::<u64>()
+                + cycles
+        );
+        assert_eq!(
+            entry.ancestors_size,
+            ancestors
+                .iter()
+                .map(|id| pool.get(id).unwrap().size)
+                .sum::<usize>()
+                + size
+        );
+        assert_eq!(entry.ancestors_count, ancestors.len() + 1);
+
+        let ancestors = pool.get_ancestors(&tx3.proposal_short_id());
+        let expect_result = vec![tx1.proposal_short_id()].into_iter().collect();
+        assert_eq!(ancestors, expect_result);
+        let entry = pool.get(&tx3.proposal_short_id()).expect("exists");
+        assert_eq!(
+            entry.ancestors_cycles,
+            ancestors
+                .iter()
+                .map(|id| pool.get(id).unwrap().cycles)
+                .sum::<u64>()
+                + cycles
+        );
+        assert_eq!(
+            entry.ancestors_size,
+            ancestors
+                .iter()
+                .map(|id| pool.get(id).unwrap().size)
+                .sum::<usize>()
+                + size
+        );
+        assert_eq!(entry.ancestors_count, ancestors.len() + 1);
+
+        let ancestors = pool.get_ancestors(&tx1.proposal_short_id());
+        assert_eq!(ancestors, Default::default());
+        let entry = pool.get(&tx1.proposal_short_id()).expect("exists");
+        assert_eq!(entry.ancestors_cycles, cycles);
+        assert_eq!(entry.ancestors_size, size);
+        assert_eq!(entry.ancestors_count, 1);
     }
 }

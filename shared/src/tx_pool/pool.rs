@@ -113,16 +113,22 @@ impl TxPool {
 
     // enqueue_tx inserts a new transaction into pending queue.
     // If did have this value present, false is returned.
-    pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, size: usize, tx: Transaction) -> bool {
+    pub fn enqueue_tx(
+        &mut self,
+        cycles: Cycle,
+        fee: Capacity,
+        size: usize,
+        tx: Transaction,
+    ) -> bool {
         if self.gap.contains_key(&tx.proposal_short_id()) {
             return false;
         }
-        self.pending.add_tx(cycles, size, tx).is_none()
+        self.pending.add_tx(cycles, fee, size, tx).is_none()
     }
 
     // add_gap inserts proposed but still uncommittable transaction.
-    pub fn add_gap(&mut self, cycles: Option<Cycle>, size: usize, tx: Transaction) -> bool {
-        self.gap.add_tx(cycles, size, tx).is_none()
+    pub fn add_gap(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) -> bool {
+        self.gap.add_tx(cycles, fee, size, tx).is_none()
     }
 
     pub(crate) fn add_orphan(
@@ -136,13 +142,7 @@ impl TxPool {
         self.orphan.add_tx(cycles, size, tx, unknowns.into_iter())
     }
 
-    pub(crate) fn add_proposed(
-        &mut self,
-        cycles: Cycle,
-        fee: Capacity,
-        size: usize,
-        tx: Transaction,
-    ) {
+    pub fn add_proposed(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
         trace_target!(crate::LOG_TARGET_TX_POOL, "add_proposed {:#x}", tx.hash());
         self.touch_last_txs_updated_at();
         self.proposed.add_tx(cycles, fee, size, tx);
@@ -152,8 +152,13 @@ impl TxPool {
         self.last_txs_updated_at = unix_time_as_millis();
     }
 
-    pub fn proposed_txs_iter(&self) -> impl Iterator<Item = &ProposedEntry> {
-        self.proposed.txs_iter()
+    /// Proposed txs iterator
+    /// txs is sorted by it's ancestors score
+    pub fn with_sorted_proposed_txs_iter<F, Ret>(&self, func: F) -> Ret
+    where
+        F: FnOnce(&mut dyn Iterator<Item = &ProposedEntry>) -> Ret,
+    {
+        self.proposed.with_sorted_by_score_iter(func)
     }
 
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
@@ -175,12 +180,12 @@ impl TxPool {
         self.pending
             .get(id)
             .cloned()
-            .map(|entry| (entry.transaction, entry.cycles))
+            .map(|entry| (entry.transaction, Some(entry.cycles)))
             .or_else(|| {
                 self.gap
                     .get(id)
                     .cloned()
-                    .map(|entry| (entry.transaction, entry.cycles))
+                    .map(|entry| (entry.transaction, Some(entry.cycles)))
             })
             .or_else(|| {
                 self.proposed
@@ -221,8 +226,8 @@ impl TxPool {
             .cloned()
     }
 
-    pub fn get_tx_from_proposed(&self, id: &ProposalShortId) -> Option<Transaction> {
-        self.proposed.get_tx(id).cloned()
+    pub fn proposed(&self) -> &ProposedPool {
+        &self.proposed
     }
 
     pub fn get_tx_from_proposed_and_others(&self, id: &ProposalShortId) -> Option<Transaction> {
@@ -252,11 +257,11 @@ impl TxPool {
 
     pub fn remove_expired<'a>(&mut self, ids: impl Iterator<Item = &'a ProposalShortId>) {
         for id in ids {
-            if let Some(entry) = self.gap.remove(id) {
-                self.enqueue_tx(entry.cycles, entry.size, entry.transaction);
+            for entry in self.gap.remove_entry_and_descendants(id) {
+                self.enqueue_tx(entry.cycles, entry.fee, entry.size, entry.transaction);
             }
-            for entry in self.proposed.remove(id) {
-                self.enqueue_tx(Some(entry.cycles), entry.size, entry.transaction);
+            for entry in self.proposed.remove_entry_and_descendants(id) {
+                self.enqueue_tx(entry.cycles, entry.fee, entry.size, entry.transaction);
             }
         }
     }

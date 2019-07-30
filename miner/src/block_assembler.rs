@@ -19,7 +19,14 @@ use ckb_jsonrpc_types::{
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
-use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
+use ckb_shared::{
+    chain_state::ChainState,
+    shared::Shared,
+    tx_pool::{
+        types::{AncestorsScoreSortKey, TxEntryContainer},
+        ProposedEntry, TxPool,
+    },
+};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
@@ -39,6 +46,8 @@ type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
+/// node will give up to package more txs after MAX_CONSECUTIVE_FAILED
+const MAX_CONSECUTIVE_FAILED: usize = 500;
 
 struct TemplateCache {
     pub time: u64,
@@ -332,8 +341,7 @@ impl BlockAssembler {
         let proposals = chain_state.get_proposals(proposals_limit as usize);
         let txs_size_limit =
             self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
-
-        let (entries, size, cycles) = chain_state.get_proposed_txs(txs_size_limit, cycles_limit);
+        let (entries, size, cycles) = self.package_txs(&chain_state, txs_size_limit, cycles_limit);
         if !entries.is_empty() {
             info!(
                 "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
@@ -411,6 +419,212 @@ impl BlockAssembler {
         );
 
         Ok(template)
+    }
+
+    fn package_txs(
+        &self,
+        chain_state: &ChainState,
+        size_limit: usize,
+        cycles_limit: Cycle,
+    ) -> (Vec<ProposedEntry>, usize, Cycle) {
+        /// update descendants txs into modified entries
+        fn update_modified_entries(
+            tx_pool: &TxPool,
+            in_block_txs: &HashSet<ProposalShortId>,
+            package_txs: &HashSet<ProposedEntry>,
+            modified_entries: &mut TxEntryContainer,
+        ) {
+            for ptx in package_txs {
+                let ptx_id = ptx.transaction.proposal_short_id();
+                if in_block_txs.contains(&ptx_id) {
+                    continue;
+                }
+                let descendants = tx_pool.proposed().get_descendants(&ptx_id);
+                for id in descendants {
+                    let mut tx = match modified_entries.remove(&id) {
+                        Some(modified_tx) => modified_tx,
+                        None => tx_pool
+                            .proposed()
+                            .get(&id)
+                            .map(ToOwned::to_owned)
+                            .expect("pool consistent"),
+                    };
+                    tx.ancestors_count -= 1;
+                    tx.ancestors_size -= ptx.size;
+                    tx.ancestors_cycles -= ptx.cycles;
+                    tx.ancestors_fee = tx
+                        .ancestors_fee
+                        .safe_sub(ptx.fee)
+                        .expect("safe sub ancestor fee");
+                    modified_entries.insert(tx);
+                }
+            }
+        }
+
+        /// find a valid tx_entry
+        fn find_tx_entry<F: Fn(&ProposedEntry) -> bool>(
+            entry: &mut Option<ProposedEntry>,
+            iter: &mut dyn Iterator<Item = &ProposedEntry>,
+            size_limit: usize,
+            cycles_limit: Cycle,
+            size: usize,
+            cycles: Cycle,
+            check_tx_skip: F,
+        ) {
+            let check_limit_is_ok = |entry: &ProposedEntry| -> bool {
+                let next_cycles = cycles.saturating_add(entry.ancestors_cycles);
+                let next_size = size.saturating_add(entry.ancestors_size);
+                next_cycles <= cycles_limit && next_size <= size_limit
+            };
+            // try return previous entry
+            if let Some(tx_entry) = entry {
+                if check_tx_skip(&tx_entry) && check_limit_is_ok(&tx_entry) {
+                    return;
+                }
+            }
+            let mut consecutive_failed = 0;
+            for tx_entry in iter {
+                if check_tx_skip(&tx_entry) {
+                    continue;
+                }
+
+                if !check_limit_is_ok(&tx_entry) {
+                    consecutive_failed += 1;
+                    // give up
+                    if consecutive_failed > MAX_CONSECUTIVE_FAILED {
+                        break;
+                    }
+                    continue;
+                }
+
+                // find new tx entry
+                entry.replace(tx_entry.to_owned());
+                return;
+            }
+            // set entry to None if iter is end or consecutive failed
+            entry.take();
+        }
+
+        let mut size: usize = 0;
+        let mut cycles: Cycle = 0;
+        let tx_pool = chain_state.tx_pool();
+        let entries = tx_pool.with_sorted_proposed_txs_iter(|iter| {
+            let mut entries: Vec<ProposedEntry> = Vec::new();
+            // modified entries, after put a tx into block,
+            // the scores of descendants txs should be updated,
+            // these modified entries is stored in modified_entries.
+            // in each loop,
+            // we pick tx from modified_entries and pool to find the best tx to package
+            let mut modified_entries: TxEntryContainer = TxEntryContainer::default();
+            // track in block txs
+            let mut in_block_txs: HashSet<ProposalShortId> = HashSet::new();
+            let mut pool_tx = None;
+            let mut modified_tx = None;
+            loop {
+                // 1. choose best tx from pool and modified entries
+                // 2. compare the two txs, package the better one
+                // 3. update modified entries
+                find_tx_entry(
+                    &mut pool_tx,
+                    iter,
+                    size_limit,
+                    cycles_limit,
+                    size,
+                    cycles,
+                    |tx| {
+                        let tx_id = tx.transaction.proposal_short_id();
+                        in_block_txs.contains(&tx_id) || modified_entries.contains_key(&tx_id)
+                    },
+                );
+                modified_entries.with_sorted_by_score_iter(|iter| {
+                    find_tx_entry(
+                        &mut modified_tx,
+                        iter,
+                        size_limit,
+                        cycles_limit,
+                        size,
+                        cycles,
+                        |_| false,
+                    );
+                });
+                // find tx with higher scores
+                let tx_entry = match (pool_tx.take(), modified_tx.take()) {
+                    (None, None) => {
+                        break;
+                    }
+                    (Some(pool), None) => pool,
+                    (None, Some(modified)) => modified,
+                    (Some(pool), Some(modified)) => {
+                        let pool_tx_key = AncestorsScoreSortKey::from(&pool);
+                        let modified_tx_key = AncestorsScoreSortKey::from(&modified);
+                        // find better scored tx and put another tx back
+                        if pool_tx_key > modified_tx_key {
+                            modified_tx.replace(modified);
+                            pool
+                        } else {
+                            pool_tx.replace(pool);
+                            modified
+                        }
+                    }
+                };
+                debug_assert!(!in_block_txs.contains(&tx_entry.transaction.proposal_short_id()));
+                let mut ancestors = tx_pool
+                    .proposed()
+                    .get_ancestors(&tx_entry.transaction.proposal_short_id())
+                    .into_iter()
+                    .filter_map(|short_id| {
+                        if in_block_txs.contains(&short_id) {
+                            None
+                        } else {
+                            modified_entries.get(&short_id).or_else(|| {
+                                let entry = tx_pool
+                                    .proposed()
+                                    .get(&short_id)
+                                    .expect("pool should be consistent");
+                                Some(entry)
+                            })
+                        }
+                    })
+                    .cloned()
+                    .collect::<HashSet<ProposedEntry>>();
+                ancestors.insert(tx_entry.to_owned());
+                debug_assert_eq!(
+                    tx_entry.ancestors_cycles,
+                    ancestors.iter().map(|entry| entry.cycles).sum::<u64>(),
+                    "proposed tx pool ancestors cycles inconsistent"
+                );
+                debug_assert_eq!(
+                    tx_entry.ancestors_size,
+                    ancestors.iter().map(|entry| entry.size).sum::<usize>(),
+                    "proposed tx pool ancestors size inconsistent"
+                );
+                debug_assert_eq!(
+                    tx_entry.ancestors_count,
+                    ancestors.len(),
+                    "proposed tx pool ancestors count inconsistent"
+                );
+                // find all decendents then update and insert into modified
+                update_modified_entries(&tx_pool, &in_block_txs, &ancestors, &mut modified_entries);
+                // sort acestors by ancestors_count,
+                // if A is an ancestor of B, B.ancestors_count must large than A
+                let mut ancestors = ancestors.into_iter().collect::<Vec<_>>();
+                ancestors.sort_unstable_by(|a, b| a.ancestors_count.cmp(&b.ancestors_count));
+                // insert ancestors
+                for entry in ancestors {
+                    let entry_cycles = entry.cycles;
+                    let entry_size = entry.size;
+                    let short_id = entry.transaction.proposal_short_id();
+                    modified_entries.remove(&short_id);
+                    let is_inserted = in_block_txs.insert(short_id);
+                    assert!(is_inserted, "package duplicate txs");
+                    cycles = cycles.saturating_add(entry_cycles);
+                    size = size.saturating_add(entry_size);
+                    entries.push(entry);
+                }
+            }
+            entries
+        });
+        (entries, size, cycles)
     }
 
     /// Miner mined block H(c), the block reward will be finalized at H(c + w_far + 1).
@@ -529,7 +743,7 @@ mod tests {
     use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::ScriptHashType;
     use ckb_core::transaction::{
-        CellInput, CellOutputBuilder, ProposalShortId, Transaction, TransactionBuilder,
+        CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
     };
     use ckb_core::{BlockNumber, Bytes};
     use ckb_dao_utils::genesis_dao_data;
@@ -718,5 +932,353 @@ mod tests {
             .unwrap();
         // block number 5, epoch 1, block_template should not include last epoch uncles
         assert!(block_template.uncles.is_empty());
+    }
+
+    fn build_tx(parent_tx: &Transaction, inputs: &[u32], outputs_len: usize) -> Transaction {
+        let per_output_capacity =
+            Capacity::shannons(parent_tx.outputs_capacity().unwrap().as_u64() / outputs_len as u64);
+        TransactionBuilder::default()
+            .inputs(inputs.iter().map(|index| {
+                CellInput::new(OutPoint::new_cell(parent_tx.hash().to_owned(), *index), 0)
+            }))
+            .outputs(
+                (0..outputs_len)
+                    .map(|_| {
+                        CellOutputBuilder::default()
+                            .capacity(per_output_capacity)
+                            .build()
+                    })
+                    .collect::<Vec<CellOutput>>(),
+            )
+            .outputs_data((0..outputs_len).map(|_| Bytes::new()))
+            .build()
+    }
+
+    #[test]
+    fn test_package_basic() {
+        const BASIC_BLOCK_SIZE: u64 = 374;
+        let mut consensus = Consensus::default();
+        consensus.genesis_epoch_ext.set_length(5);
+        let epoch = consensus.genesis_epoch_ext().clone();
+
+        let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
+        let config = BlockAssemblerConfig {
+            code_hash: H256::zero(),
+            args: vec![],
+            data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data,
+        };
+        let block_assembler = setup_block_assembler(shared.clone(), config);
+        let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
+
+        let genesis = shared
+            .store()
+            .get_block_header(&shared.store().get_block_hash(0).unwrap())
+            .unwrap();
+        let mut parent_header = genesis.to_owned();
+        let mut blocks = vec![];
+        for _i in 0..4 {
+            let block = gen_block(&parent_header, 11, &epoch);
+            chain_controller
+                .process_block(Arc::new(block.clone()), false)
+                .expect("process block");
+            parent_header = block.header().to_owned();
+            blocks.push(block);
+        }
+
+        let tx0 = &blocks[0].transactions()[0];
+        let tx1 = build_tx(tx0, &[0], 2);
+        let tx2 = build_tx(&tx1, &[0], 2);
+        let tx3 = build_tx(&tx2, &[0], 2);
+        let tx4 = build_tx(&tx3, &[0], 2);
+
+        let tx2_0 = &blocks[1].transactions()[0];
+        let tx2_1 = build_tx(tx2_0, &[0], 2);
+        let tx2_2 = build_tx(&tx2_1, &[0], 2);
+        let tx2_3 = build_tx(&tx2_2, &[0], 2);
+
+        {
+            let mut chain_state = shared.lock_chain_state();
+            let tx_pool = chain_state.mut_tx_pool();
+            for (tx, fee, cycles, size) in &[
+                (&tx1, 100, 0, 100),
+                (&tx2, 100, 0, 100),
+                (&tx3, 100, 0, 100),
+                (&tx4, 1500, 0, 500),
+                (&tx2_1, 150, 0, 100),
+                (&tx2_2, 150, 0, 100),
+                (&tx2_3, 150, 0, 100),
+            ] {
+                tx_pool.add_proposed(*cycles, Capacity::shannons(*fee), *size, (*tx).to_owned());
+            }
+        }
+
+        let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&Transaction>| {
+            assert_eq!(
+                block_template
+                    .transactions
+                    .iter()
+                    .map(|tx| format!("{:x}", tx.hash))
+                    .collect::<Vec<_>>(),
+                expect_txs
+                    .iter()
+                    .map(|tx| format!("{:x}", tx.hash()))
+                    .collect::<Vec<_>>()
+            );
+        };
+
+        // 300 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(300 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3]);
+
+        // 400 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(400 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3, &tx1]);
+
+        // 500 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(500 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3, &tx1, &tx2]);
+
+        // 600 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(600 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(
+            &block_template,
+            vec![&tx2_1, &tx2_2, &tx2_3, &tx1, &tx2, &tx3],
+        );
+
+        // 700 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(700 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(
+            &block_template,
+            vec![&tx2_1, &tx2_2, &tx2_3, &tx1, &tx2, &tx3],
+        );
+
+        // 800 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(800 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4]);
+
+        // none package txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(30 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![]);
+
+        // best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        check_txs(
+            &block_template,
+            vec![&tx1, &tx2, &tx3, &tx4, &tx2_1, &tx2_2, &tx2_3],
+        );
+    }
+
+    #[test]
+    fn test_package_multi_best_scores() {
+        const BASIC_BLOCK_SIZE: u64 = 374;
+        let mut consensus = Consensus::default();
+        consensus.genesis_epoch_ext.set_length(5);
+        let epoch = consensus.genesis_epoch_ext().clone();
+
+        let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
+        let config = BlockAssemblerConfig {
+            code_hash: H256::zero(),
+            args: vec![],
+            data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data,
+        };
+        let block_assembler = setup_block_assembler(shared.clone(), config);
+        let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
+
+        let genesis = shared
+            .store()
+            .get_block_header(&shared.store().get_block_hash(0).unwrap())
+            .unwrap();
+        let mut parent_header = genesis.to_owned();
+        let mut blocks = vec![];
+        for _i in 0..4 {
+            let block = gen_block(&parent_header, 11, &epoch);
+            chain_controller
+                .process_block(Arc::new(block.clone()), false)
+                .expect("process block");
+            parent_header = block.header().to_owned();
+            blocks.push(block);
+        }
+
+        let tx0 = &blocks[0].transactions()[0];
+        let tx1 = build_tx(tx0, &[0], 2);
+        let tx2 = build_tx(&tx1, &[0], 2);
+        let tx3 = build_tx(&tx2, &[0], 2);
+        let tx4 = build_tx(&tx3, &[0], 2);
+
+        let tx2_0 = &blocks[1].transactions()[0];
+        let tx2_1 = build_tx(tx2_0, &[0], 2);
+        let tx2_2 = build_tx(&tx2_1, &[0], 2);
+        let tx2_3 = build_tx(&tx2_2, &[0], 2);
+        let tx2_4 = build_tx(&tx2_3, &[0], 2);
+
+        let tx3_0 = &blocks[2].transactions()[0];
+        let tx3_1 = build_tx(tx3_0, &[0], 1);
+
+        let tx4_0 = &blocks[3].transactions()[0];
+        let tx4_1 = build_tx(tx4_0, &[0], 1);
+
+        {
+            let mut chain_state = shared.lock_chain_state();
+            let tx_pool = chain_state.mut_tx_pool();
+            for (tx, fee, cycles, size) in &[
+                (&tx1, 200, 0, 100),
+                (&tx2, 200, 0, 100),
+                (&tx3, 50, 0, 50),
+                (&tx4, 1500, 0, 500),
+                (&tx2_1, 150, 0, 100),
+                (&tx2_2, 150, 0, 100),
+                (&tx2_3, 150, 0, 100),
+                (&tx2_4, 150, 0, 100),
+                (&tx3_1, 1000, 0, 1000),
+                (&tx4_1, 300, 0, 250),
+            ] {
+                tx_pool.add_proposed(*cycles, Capacity::shannons(*fee), *size, (*tx).to_owned());
+            }
+        }
+
+        let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&Transaction>| {
+            assert_eq!(
+                block_template
+                    .transactions
+                    .iter()
+                    .map(|tx| format!("{:x}", tx.hash))
+                    .collect::<Vec<_>>(),
+                expect_txs
+                    .iter()
+                    .map(|tx| format!("{:x}", tx.hash()))
+                    .collect::<Vec<_>>()
+            );
+        };
+
+        // 250 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(250 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx1, &tx2, &tx3]);
+
+        // 400 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(400 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx1, &tx2, &tx2_1, &tx2_2]);
+
+        // 500 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(500 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx1, &tx2, &tx2_1, &tx2_2, &tx2_3]);
+
+        // 900 size best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(900 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4, &tx2_1]);
+
+        // none package txs
+        let block_template = block_assembler_controller
+            .get_block_template(Some(30 + BASIC_BLOCK_SIZE), None, None)
+            .unwrap();
+        check_txs(&block_template, vec![]);
+
+        // best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        check_txs(
+            &block_template,
+            vec![
+                &tx1, &tx2, &tx3, &tx4, &tx2_1, &tx2_2, &tx2_3, &tx2_4, &tx4_1, &tx3_1,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_package_zero_fee_txs() {
+        let mut consensus = Consensus::default();
+        consensus.genesis_epoch_ext.set_length(5);
+        let epoch = consensus.genesis_epoch_ext().clone();
+
+        let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
+        let config = BlockAssemblerConfig {
+            code_hash: H256::zero(),
+            args: vec![],
+            data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data,
+        };
+        let block_assembler = setup_block_assembler(shared.clone(), config);
+        let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
+
+        let genesis = shared
+            .store()
+            .get_block_header(&shared.store().get_block_hash(0).unwrap())
+            .unwrap();
+        let mut parent_header = genesis.to_owned();
+        let mut blocks = vec![];
+        for _i in 0..4 {
+            let block = gen_block(&parent_header, 11, &epoch);
+            chain_controller
+                .process_block(Arc::new(block.clone()), false)
+                .expect("process block");
+            parent_header = block.header().to_owned();
+            blocks.push(block);
+        }
+
+        let tx0 = &blocks[0].transactions()[0];
+        let tx1 = build_tx(tx0, &[0], 2);
+        let tx2 = build_tx(&tx1, &[0], 2);
+        let tx3 = build_tx(&tx2, &[0], 2);
+        let tx4 = build_tx(&tx3, &[0], 2);
+        let tx5 = build_tx(&tx4, &[0], 2);
+
+        {
+            let mut chain_state = shared.lock_chain_state();
+            let tx_pool = chain_state.mut_tx_pool();
+            for (tx, fee, cycles, size) in &[
+                (&tx1, 1000, 0, 100),
+                (&tx2, 0, 0, 100),
+                (&tx3, 0, 0, 100),
+                (&tx4, 0, 0, 100),
+                (&tx5, 0, 0, 100),
+            ] {
+                tx_pool.add_proposed(*cycles, Capacity::shannons(*fee), *size, (*tx).to_owned());
+            }
+        }
+
+        let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&Transaction>| {
+            assert_eq!(
+                block_template
+                    .transactions
+                    .iter()
+                    .map(|tx| format!("{:x}", tx.hash))
+                    .collect::<Vec<_>>(),
+                expect_txs
+                    .iter()
+                    .map(|tx| format!("{:x}", tx.hash()))
+                    .collect::<Vec<_>>()
+            );
+        };
+        // best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4, &tx5]);
     }
 }
