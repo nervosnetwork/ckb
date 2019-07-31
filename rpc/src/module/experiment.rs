@@ -1,11 +1,9 @@
 use crate::error::RPCError;
 use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderProvider, HeaderStatus};
 use ckb_core::script::Script as CoreScript;
-use ckb_core::transaction::{
-    CellOutput as CoreCellOutput, OutPoint as CoreOutPoint, Transaction as CoreTransaction,
-};
+use ckb_core::transaction::{OutPoint as CoreOutPoint, Transaction as CoreTransaction};
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, JsonBytes, OutPoint, Script, Transaction};
+use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Script, Transaction};
 use ckb_logger::error;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
@@ -20,9 +18,6 @@ use std::sync::Arc;
 pub trait ExperimentRpc {
     #[rpc(name = "_compute_transaction_hash")]
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256>;
-
-    #[rpc(name = "_compute_code_hash")]
-    fn compute_code_hash(&self, data: JsonBytes) -> Result<H256>;
 
     #[rpc(name = "_compute_script_hash")]
     fn compute_script_hash(&self, script: Script) -> Result<H256>;
@@ -45,10 +40,6 @@ impl<CS: ChainStore + 'static> ExperimentRpc for ExperimentRpcImpl<CS> {
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256> {
         let tx: CoreTransaction = tx.into();
         Ok(tx.hash().to_owned())
-    }
-
-    fn compute_code_hash(&self, data: JsonBytes) -> Result<H256> {
-        Ok(CoreCellOutput::calculate_data_hash(&data.into_bytes()))
     }
 
     fn compute_script_hash(&self, script: Script) -> Result<H256> {

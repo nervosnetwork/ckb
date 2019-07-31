@@ -85,7 +85,7 @@ matrix:
       before_cache: skip
       script:
         - make check-cargotoml
-        - make check-dirty-doc
+        - make check-dirty-rpc-doc
 
     - name: Integration on macOS
       env: CACHE_NAME=integration

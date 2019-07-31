@@ -935,20 +935,6 @@
         ]
     },
     {
-        "description": "Returns code hash of given hex encoded data\n\n**Deprecated**: will be removed in a later version",
-        "method": "_compute_code_hash",
-        "module": "experiment",
-        "params": [
-            "0x123456"
-        ],
-        "result": "0x7dacea2e6ae8131b7f187570135ebb1b217a69458b3eae350104942c06939783",
-        "types": [
-            {
-                "data": "Hex encoded data"
-            }
-        ]
-    },
-    {
         "description": "Returns script hash of given transaction script\n\n**Deprecated**: will be removed in a later version",
         "method": "_compute_script_hash",
         "module": "experiment",
@@ -966,6 +952,9 @@
             },
             {
                 "code_hash": "Code hash of referenced cell"
+            },
+            {
+                "hash_type": "Data: code_hash matches against dep cell data hash; Type: code_hash matches against dep cell type hash."
             }
         ]
     }
