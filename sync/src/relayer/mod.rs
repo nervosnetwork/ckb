@@ -10,7 +10,7 @@ mod get_block_transactions_process;
 mod get_transaction_process;
 #[cfg(test)]
 mod tests;
-mod transaction_hash_process;
+mod transaction_hashes_process;
 mod transaction_process;
 
 use self::block_proposal_process::BlockProposalProcess;
@@ -21,7 +21,7 @@ pub use self::error::{Error, Misbehavior};
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transaction_process::GetTransactionProcess;
-use self::transaction_hash_process::TransactionHashProcess;
+use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transaction_process::TransactionProcess;
 use crate::block_status::BlockStatus;
 use crate::types::SyncSharedState;
@@ -39,13 +39,15 @@ use ckb_tx_pool_executor::TxPoolExecutor;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
+use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const ASK_FOR_TXS_TOKEN: u64 = 1;
+pub const TX_HASHES_TOKEN: u64 = 2;
 
 pub const MAX_RELAY_PEERS: usize = 128;
 
@@ -104,11 +106,10 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 )
                 .execute()?;
             }
-            RelayPayload::RelayTransactionHash => {
-                TransactionHashProcess::new(
-                    &cast!(message.payload_as_relay_transaction_hash())?,
+            RelayPayload::RelayTransactionHashes => {
+                TransactionHashesProcess::new(
+                    &cast!(message.payload_as_relay_transaction_hashes())?,
                     self,
-                    nc,
                     peer,
                 )
                 .execute()?;
@@ -432,6 +433,48 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             }
         }
     }
+
+    // Send bulk of tx hashes to selected peers
+    pub fn send_bulk_of_tx_hashes(&self, nc: &CKBProtocolContext) {
+        let mut selected: FnvHashMap<PeerIndex, FnvHashSet<H256>> = FnvHashMap::default();
+        {
+            let peer_tx_hashes = self.shared.take_tx_hashes();
+            let mut known_txs = self.shared.known_txs();
+
+            for (peer_index, tx_hashes) in peer_tx_hashes.into_iter() {
+                for tx_hash in tx_hashes {
+                    let peers: Vec<PeerIndex> = nc
+                        .connected_peers()
+                        .into_iter()
+                        .filter(|target_peer| {
+                            known_txs.insert(*target_peer, tx_hash.clone())
+                                && (peer_index != *target_peer)
+                        })
+                        .take(MAX_RELAY_PEERS)
+                        .collect();
+                    for peer in peers {
+                        let hashes = selected.entry(peer).or_insert_with(FnvHashSet::default);
+                        hashes.insert(tx_hash.clone());
+                    }
+                }
+            }
+        };
+
+        for (peer, hashes) in selected {
+            let fbb = &mut FlatBufferBuilder::new();
+            let vec: Vec<H256> = hashes.into_iter().collect();
+            let message = RelayMessage::build_transaction_hashes(fbb, &vec);
+            fbb.finish(message, None);
+            let data = fbb.finished_data().into();
+            if let Err(err) = nc.filter_broadcast(TargetSession::Single(peer), data) {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer send TransactionHashes error: {:?}",
+                    err,
+                );
+            }
+        }
+    }
 }
 
 impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
@@ -439,6 +482,8 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
         nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN)
             .expect("set_notify at init is ok");
         nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(Duration::from_millis(300), TX_HASHES_TOKEN)
             .expect("set_notify at init is ok");
     }
 
@@ -518,6 +563,7 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
         match token {
             TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
+            TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(nc.as_ref()),
             _ => unreachable!(),
         }
         trace_target!(

@@ -10,7 +10,7 @@ use crate::protocol_generated::ckb::protocol::{
     MerkleProofBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
     ProposalShortId as FbsProposalShortId, RelayMessage, RelayMessageBuilder, RelayPayload,
     RelayTransaction as FbsRelayTransaction, RelayTransactionBuilder,
-    RelayTransactionHash as FbsRelayTransactionHash, RelayTransactionHashBuilder,
+    RelayTransactionHashes as FbsRelayTransactionHashes, RelayTransactionHashesBuilder,
     Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
     Time as FbsTime, TimeBuilder, TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction,
     TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder, Witness as FbsWitness,
@@ -163,14 +163,15 @@ impl<'a> FbsRelayTransaction<'a> {
     }
 }
 
-impl<'a> FbsRelayTransactionHash<'a> {
+impl<'a> FbsRelayTransactionHashes<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        tx_hash: &H256,
-    ) -> WIPOffset<FbsRelayTransactionHash<'b>> {
-        let mut builder = RelayTransactionHashBuilder::new(fbb);
-        let tx_hash = tx_hash.into();
-        builder.add_tx_hash(&tx_hash);
+        tx_hashes: &[H256],
+    ) -> WIPOffset<FbsRelayTransactionHashes<'b>> {
+        let vec = tx_hashes.iter().map(Into::into).collect::<Vec<FbsH256>>();
+        let vec = fbb.create_vector(&vec);
+        let mut builder = RelayTransactionHashesBuilder::new(fbb);
+        builder.add_tx_hashes(vec);
         builder.finish()
     }
 }
@@ -592,14 +593,14 @@ impl<'a> RelayMessage<'a> {
         builder.finish()
     }
 
-    pub fn build_transaction_hash<'b>(
+    pub fn build_transaction_hashes<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        tx_hash: &H256,
+        tx_hashes: &[H256],
     ) -> WIPOffset<RelayMessage<'b>> {
-        let fbs_tx_hash = FbsRelayTransactionHash::build(fbb, tx_hash);
+        let fbs_tx_hashes = FbsRelayTransactionHashes::build(fbb, tx_hashes);
         let mut builder = RelayMessageBuilder::new(fbb);
-        builder.add_payload_type(RelayPayload::RelayTransactionHash);
-        builder.add_payload(fbs_tx_hash.as_union_value());
+        builder.add_payload_type(RelayPayload::RelayTransactionHashes);
+        builder.add_payload(fbs_tx_hashes.as_union_value());
         builder.finish()
     }
 

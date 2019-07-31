@@ -1,12 +1,11 @@
 use crate::relayer::Relayer;
-use crate::relayer::MAX_RELAY_PEERS;
 use ckb_core::{transaction::Transaction, Cycle};
 use ckb_logger::debug_target;
-use ckb_network::{CKBProtocolContext, PeerIndex, TargetSession};
-use ckb_protocol::{RelayMessage, RelayTransaction as FbsRelayTransaction};
+use ckb_network::{CKBProtocolContext, PeerIndex};
+use ckb_protocol::RelayTransaction as FbsRelayTransaction;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
-use flatbuffers::FlatBufferBuilder;
+use fnv::FnvHashSet;
 use futures::{self, future::FutureResult, lazy};
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -68,7 +67,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
             {
                 // prepare sync data
                 let nc = Arc::clone(&self.nc);
-                let self_peer = self.peer;
+                let peer_index = self.peer;
                 let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
                 let shared = Arc::clone(self.relayer.shared());
                 let tx_hash = tx_hash.clone();
@@ -79,49 +78,27 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                     // disconnect peer if cycles mismatch
                     match tx_result {
                         Ok(cycles) if cycles == relay_cycles => {
-                            let selected_peers: Vec<PeerIndex> = {
-                                let mut known_txs = shared.known_txs();
-                                nc.connected_peers()
-                                    .into_iter()
-                                    .filter(|target_peer| {
-                                        known_txs.insert(*target_peer, tx_hash.clone())
-                                            && (self_peer != *target_peer)
-                                    })
-                                    .take(MAX_RELAY_PEERS)
-                                    .collect()
-                            };
-
-                            let fbb = &mut FlatBufferBuilder::new();
-                            let message = RelayMessage::build_transaction_hash(fbb, &tx_hash);
-                            fbb.finish(message, None);
-                            let data = fbb.finished_data().into();
-                            if let Err(err) =
-                                nc.filter_broadcast(TargetSession::Multi(selected_peers), data)
-                            {
-                                debug_target!(
-                                    crate::LOG_TARGET_RELAY,
-                                    "relayer send TransactionHash error: {:?}",
-                                    err,
-                                );
-                            }
+                            let mut cache = shared.tx_hashes();
+                            let entry = cache.entry(peer_index).or_insert_with(FnvHashSet::default);
+                            entry.insert(tx_hash);
                         }
                         Ok(cycles) => {
                             debug_target!(
                             crate::LOG_TARGET_RELAY,
                             "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",
-                            self_peer,
+                            peer_index,
                             tx,
                             cycles,
                             relay_cycles,
                         );
-                            nc.ban_peer(self_peer, DEFAULT_BAN_TIME);
+                            nc.ban_peer(peer_index, DEFAULT_BAN_TIME);
                         }
                         Err(err) => {
                             if err.is_bad_tx() {
                                 debug_target!(
                                     crate::LOG_TARGET_RELAY,
                                     "peer {} relay a invalid tx: {:x}, error: {:?}",
-                                    self_peer,
+                                    peer_index,
                                     tx_hash,
                                     err
                                 );
@@ -138,18 +115,18 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionProcess<'a, CS> {
                                             &format!(
                                                 "ban peer {} {:?}, reason: \
                                                  relay invalid tx: {:?}, error: {:?}",
-                                                self_peer, DEFAULT_BAN_TIME, tx, err
+                                                peer_index, DEFAULT_BAN_TIME, tx, err
                                             ),
                                             Level::Info,
                                         )
                                     },
                                 );
-                                nc.ban_peer(self_peer, DEFAULT_BAN_TIME);
+                                nc.ban_peer(peer_index, DEFAULT_BAN_TIME);
                             } else {
                                 debug_target!(
                                 crate::LOG_TARGET_RELAY,
                                 "peer {} relay a conflict or missing input tx: {:x}, error: {:?}",
-                                self_peer,
+                                peer_index,
                                 tx_hash,
                                 err
                             );
