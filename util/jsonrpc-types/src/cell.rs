@@ -24,7 +24,6 @@ impl From<CellStatus> for CellWithStatus {
             CellStatus::Live(cell_meta) => (Some(cell_meta.cell_output), "live"),
             CellStatus::Dead => (None, "dead"),
             CellStatus::Unknown => (None, "unknown"),
-            CellStatus::Unspecified => (None, "unspecified"),
         };
         Self {
             cell: cell.map(Into::into),

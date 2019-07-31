@@ -62,6 +62,7 @@ impl OutPoint {
         (tx_hash, index)
     }
 
+    /// Just for cellbase input or test usage
     pub fn null() -> Self {
         OutPoint {
             tx_hash: H256::zero(),

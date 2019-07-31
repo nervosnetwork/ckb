@@ -6,7 +6,7 @@ use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::reward::BlockReward as CoreBlockReward;
 use ckb_core::script::{Script as CoreScript, ScriptHashType as CoreScriptHashType};
 use ckb_core::transaction::{
-    CellInput as CoreCellInput, CellOutPoint as CoreCellOutPoint, CellOutput as CoreCellOutput,
+    CellDep as CoreCellDep, CellInput as CoreCellInput, CellOutput as CoreCellOutput,
     OutPoint as CoreOutPoint, Transaction as CoreTransaction, TransactionBuilder,
     Witness as CoreWitness,
 };
@@ -119,53 +119,62 @@ impl From<CellOutput> for CoreCellOutput {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct CellOutPoint {
+pub struct OutPoint {
     pub tx_hash: H256,
     pub index: Unsigned,
 }
 
-impl From<CoreCellOutPoint> for CellOutPoint {
-    fn from(core: CoreCellOutPoint) -> CellOutPoint {
+impl From<CoreOutPoint> for OutPoint {
+    fn from(core: CoreOutPoint) -> OutPoint {
         let (tx_hash, index) = core.destruct();
-        CellOutPoint {
+        OutPoint {
             tx_hash,
             index: Unsigned(u64::from(index)),
         }
     }
 }
 
-impl From<CellOutPoint> for CoreCellOutPoint {
-    fn from(json: CellOutPoint) -> Self {
-        let CellOutPoint { tx_hash, index } = json;
-        CoreCellOutPoint {
+impl From<OutPoint> for CoreOutPoint {
+    fn from(json: OutPoint) -> Self {
+        let OutPoint { tx_hash, index } = json;
+        CoreOutPoint {
             tx_hash,
             index: index.0 as u32,
         }
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct OutPoint {
-    pub cell: Option<CellOutPoint>,
-    pub block_hash: Option<H256>,
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum CellDep {
+    Cell(OutPoint),
+    CellWithHeader(OutPoint, H256),
+    DepGroup(OutPoint),
+    Header(H256),
 }
 
-impl From<CoreOutPoint> for OutPoint {
-    fn from(core: CoreOutPoint) -> OutPoint {
-        let (block_hash, cell) = core.destruct();
-        OutPoint {
-            cell: cell.map(Into::into),
-            block_hash: block_hash.map(Into::into),
+impl From<CoreCellDep> for CellDep {
+    fn from(core: CoreCellDep) -> CellDep {
+        match core {
+            CoreCellDep::Cell(out_point) => CellDep::Cell(out_point.into()),
+            CoreCellDep::CellWithHeader(out_point, block_hash) => {
+                CellDep::CellWithHeader(out_point.into(), block_hash)
+            }
+            CoreCellDep::DepGroup(out_point) => CellDep::DepGroup(out_point.into()),
+            CoreCellDep::Header(block_hash) => CellDep::Header(block_hash),
         }
     }
 }
 
-impl From<OutPoint> for CoreOutPoint {
-    fn from(json: OutPoint) -> Self {
-        let OutPoint { cell, block_hash } = json;
-        CoreOutPoint {
-            cell: cell.map(Into::into),
-            block_hash,
+impl From<CellDep> for CoreCellDep {
+    fn from(json: CellDep) -> CoreCellDep {
+        match json {
+            CellDep::Cell(out_point) => CoreCellDep::Cell(out_point.into()),
+            CellDep::CellWithHeader(out_point, block_hash) => {
+                CoreCellDep::CellWithHeader(out_point.into(), block_hash)
+            }
+            CellDep::DepGroup(out_point) => CoreCellDep::DepGroup(out_point.into()),
+            CellDep::Header(block_hash) => CoreCellDep::Header(block_hash),
         }
     }
 }
@@ -218,7 +227,7 @@ impl From<Witness> for CoreWitness {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Transaction {
     pub version: Version,
-    pub deps: Vec<OutPoint>,
+    pub deps: Vec<CellDep>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
     pub outputs_data: Vec<JsonBytes>,
@@ -672,7 +681,7 @@ mod tests {
 
     fn mock_full_tx(data: Bytes, arg: Bytes) -> CoreTransaction {
         TransactionBuilder::default()
-            .deps(vec![CoreOutPoint::default()])
+            .deps(vec![CoreCellDep::Cell(CoreOutPoint::null())])
             .inputs(vec![mock_cell_input()])
             .outputs(vec![mock_cell_output(data.clone(), arg.clone())])
             .outputs_data(vec![data])
