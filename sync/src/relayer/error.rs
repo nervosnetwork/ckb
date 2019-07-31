@@ -56,4 +56,6 @@ pub enum Ignored {
     AlreadyInFlight,
     #[fail(display = "Already stored")]
     AlreadyStored,
+    #[fail(display = "Block is too old")]
+    TooOldBlock,
 }
