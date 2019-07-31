@@ -5,7 +5,6 @@ use crate::{BlockNumber, Bytes, Version};
 use bincode::serialize;
 use ckb_hash::blake2b_256;
 use ckb_occupied_capacity::{Capacity, Result as CapacityResult};
-use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
@@ -27,15 +26,15 @@ impl CellKey {
         CellKey(key)
     }
 
-    pub fn recover(&self) -> CellOutPoint {
+    pub fn recover(&self) -> OutPoint {
         Self::deconstruct(&self.0)
     }
 
-    pub fn deconstruct(bytes: &[u8]) -> CellOutPoint {
+    pub fn deconstruct(bytes: &[u8]) -> OutPoint {
         let tx_hash = H256::from_slice(&bytes[..32]).expect("should not be failed");
         let le_bytes: [u8; 4] = bytes[32..36].try_into().expect("should not be failed");
         let index = u32::from_le_bytes(le_bytes);
-        CellOutPoint { tx_hash, index }
+        OutPoint { tx_hash, index }
     }
 }
 
@@ -46,35 +45,32 @@ impl AsRef<[u8]> for CellKey {
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct CellOutPoint {
+pub struct OutPoint {
     // Hash of Transaction
     pub tx_hash: H256,
     // Index of output
     pub index: u32,
 }
 
-impl fmt::Debug for CellOutPoint {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("CellOutPoint")
-            .field("tx_hash", &format_args!("{:#x}", self.tx_hash))
-            .field("index", &self.index)
-            .finish()
+impl OutPoint {
+    pub fn new(tx_hash: H256, index: u32) -> Self {
+        OutPoint{ tx_hash, index }
     }
-}
 
-impl Default for CellOutPoint {
-    fn default() -> Self {
-        CellOutPoint {
+    pub fn destruct(self) -> (H256, u32) {
+        let OutPoint { tx_hash, index } = self;
+        (tx_hash, index)
+    }
+
+    pub fn null() -> Self {
+        OutPoint {
             tx_hash: H256::zero(),
             index: u32::max_value(),
         }
     }
-}
 
-impl CellOutPoint {
-    pub fn destruct(self) -> (H256, u32) {
-        let CellOutPoint { tx_hash, index } = self;
-        (tx_hash, index)
+    pub fn is_null(&self) -> bool {
+        self.tx_hash.is_zero() && self.index == u32::max_value()
     }
 
     pub const fn serialized_size() -> usize {
@@ -86,69 +82,41 @@ impl CellOutPoint {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct OutPoint {
-    pub cell: Option<CellOutPoint>,
-    pub block_hash: Option<H256>,
-}
-
 impl fmt::Debug for OutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("OutPoint")
-            .field("cell", &self.cell)
-            .field(
-                "block_hash",
-                &format_args!("{:#x}", LowerHexOption(self.block_hash.as_ref())),
-            )
+            .field("tx_hash", &format_args!("{:#x}", self.tx_hash))
+            .field("index", &self.index)
             .finish()
     }
 }
 
-impl OutPoint {
-    pub fn new(block_hash: H256, tx_hash: H256, index: u32) -> Self {
+impl Default for OutPoint {
+    fn default() -> Self {
         OutPoint {
-            block_hash: Some(block_hash),
-            cell: Some(CellOutPoint { tx_hash, index }),
+            tx_hash: H256::zero(),
+            index: u32::max_value(),
         }
     }
+}
 
-    pub fn new_cell(tx_hash: H256, index: u32) -> Self {
-        OutPoint {
-            block_hash: None,
-            cell: Some(CellOutPoint { tx_hash, index }),
-        }
-    }
+// TODO: impl Debug later
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub enum CellDep {
+    Cell(OutPoint),
+    CellWithHeader(OutPoint, H256),
+    DepGroup(OutPoint),
+    Header(H256),
+}
 
-    pub fn new_block_hash(block_hash: H256) -> Self {
-        OutPoint {
-            block_hash: Some(block_hash),
-            cell: None,
-        }
-    }
-
-    pub fn null() -> Self {
-        OutPoint::default()
-    }
-
-    pub fn is_null(&self) -> bool {
-        self.cell.is_none() && self.block_hash.is_none()
-    }
-
+impl CellDep {
     pub fn serialized_size(&self) -> usize {
-        self.cell
-            .as_ref()
-            .map(|_| CellOutPoint::serialized_size())
-            .unwrap_or(0)
-            + self
-                .block_hash
-                .as_ref()
-                .map(|_| H256::size_of())
-                .unwrap_or(0)
-    }
-
-    pub fn destruct(self) -> (Option<H256>, Option<CellOutPoint>) {
-        let OutPoint { block_hash, cell } = self;
-        (block_hash, cell)
+        match self {
+            CellDep::Cell(_) => OutPoint::serialized_size(),
+            CellDep::CellWithHeader(_, _) => OutPoint::serialized_size() + H256::size_of(),
+            CellDep::DepGroup(_) => OutPoint::serialized_size(),
+            CellDep::Header(_) => H256::size_of(),
+        }
     }
 }
 
@@ -182,7 +150,7 @@ impl CellInput {
     }
 
     pub fn serialized_size(&self) -> usize {
-        self.previous_output.serialized_size() + mem::size_of::<u64>()
+        OutPoint::serialized_size() + mem::size_of::<u64>()
     }
 }
 
@@ -328,7 +296,7 @@ pub type Witness = Vec<Bytes>;
 #[derive(Clone, Serialize, Eq, Debug)]
 pub struct Transaction {
     version: Version,
-    deps: Vec<OutPoint>,
+    deps: Vec<CellDep>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
     #[serde(skip)]
@@ -462,7 +430,7 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
 #[derive(Serialize)]
 struct RawTransaction<'a> {
     version: Version,
-    deps: &'a [OutPoint],
+    deps: &'a [CellDep],
     inputs: &'a [CellInput],
     outputs: &'a [CellOutput],
 }
@@ -482,7 +450,7 @@ impl PartialEq for Transaction {
 impl Transaction {
     pub(crate) fn new(
         version: Version,
-        deps: Vec<OutPoint>,
+        deps: Vec<CellDep>,
         inputs: Vec<CellInput>,
         outputs: Vec<CellOutput>,
         outputs_data: Vec<Bytes>,
@@ -516,7 +484,7 @@ impl Transaction {
         self.version
     }
 
-    pub fn deps(&self) -> &[OutPoint] {
+    pub fn deps(&self) -> &[CellDep] {
         &self.deps
     }
 
@@ -555,7 +523,7 @@ impl Transaction {
     pub fn output_pts(&self) -> Vec<OutPoint> {
         let h = self.hash();
         (0..self.outputs.len())
-            .map(|x| OutPoint::new_cell(h.clone(), x as u32))
+            .map(|x| OutPoint::new(h.clone(), x as u32))
             .collect()
     }
 
@@ -563,7 +531,7 @@ impl Transaction {
         self.inputs.iter().map(|x| &x.previous_output)
     }
 
-    pub fn deps_iter(&self) -> impl Iterator<Item = &OutPoint> {
+    pub fn deps_iter(&self) -> impl Iterator<Item = &CellDep> {
         self.deps.iter()
     }
 
@@ -603,7 +571,7 @@ impl Transaction {
             + self
                 .deps
                 .iter()
-                .map(OutPoint::serialized_size)
+                .map(CellDep::serialized_size)
                 .sum::<usize>()
             + 4
             + self
@@ -631,7 +599,7 @@ impl Transaction {
 
 pub struct TransactionBuilder {
     version: Version,
-    deps: Vec<OutPoint>,
+    deps: Vec<CellDep>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
     outputs_data: Vec<Bytes>,
@@ -677,7 +645,7 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn dep(mut self, dep: OutPoint) -> Self {
+    pub fn dep(mut self, dep: CellDep) -> Self {
         self.deps.push(dep);
         self
     }
@@ -685,7 +653,7 @@ impl TransactionBuilder {
     pub fn deps<I, T>(mut self, deps: I) -> Self
     where
         I: IntoIterator<Item = T>,
-        T: Into<OutPoint>,
+        T: Into<CellDep>,
     {
         self.deps.extend(deps.into_iter().map(Into::into));
         self
