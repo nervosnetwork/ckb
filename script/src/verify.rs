@@ -54,10 +54,7 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     rtx: &'a ResolvedTransaction<'a>,
 
     binaries_by_data_hash: FnvHashMap<H256, Bytes>,
-    binaries_by_type_hash: FnvHashMap<H256, Bytes>,
-    // Used to denied the case when multiple matches are found for
-    // a type hash reference.
-    occurences_by_type_hash: FnvHashMap<H256, usize>,
+    binaries_by_type_hash: FnvHashMap<H256, (Bytes, bool)>,
     lock_groups: FnvHashMap<H256, ScriptGroup>,
     type_groups: FnvHashMap<H256, ScriptGroup>,
 
@@ -95,18 +92,16 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             .collect();
 
         let mut binaries_by_data_hash: FnvHashMap<H256, Bytes> = FnvHashMap::default();
-        let mut binaries_by_type_hash: FnvHashMap<H256, Bytes> = FnvHashMap::default();
-        let mut occurences_by_type_hash: FnvHashMap<H256, usize> = FnvHashMap::default();
+        let mut binaries_by_type_hash: FnvHashMap<H256, (Bytes, bool)> = FnvHashMap::default();
         for resolved_dep in resolved_deps {
             if let Some(cell_meta) = &resolved_dep.cell() {
                 let data = data_loader.load_cell_data(cell_meta).expect("cell data");
                 binaries_by_data_hash.insert(cell_meta.data_hash().to_owned(), data.to_owned());
                 if let Some(t) = &cell_meta.cell_output.type_ {
-                    binaries_by_type_hash.insert(t.hash(), data.to_owned());
-                    occurences_by_type_hash
+                    binaries_by_type_hash
                         .entry(t.hash())
-                        .and_modify(|o| *o += 1)
-                        .or_insert(1);
+                        .and_modify(|e| e.1 = true)
+                        .or_insert((data.to_owned(), false));
                 }
             }
         }
@@ -143,7 +138,6 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             data_loader,
             binaries_by_data_hash,
             binaries_by_type_hash,
-            occurences_by_type_hash,
             outputs,
             rtx,
             config,
@@ -242,16 +236,11 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 }
             }
             ScriptHashType::Type => {
-                if let Some(data) = self.binaries_by_type_hash.get(&script.code_hash) {
-                    if self
-                        .occurences_by_type_hash
-                        .get(&script.code_hash)
-                        .unwrap_or(&0)
-                        == &1
-                    {
-                        Ok(data.to_owned())
-                    } else {
+                if let Some((data, multiple)) = self.binaries_by_type_hash.get(&script.code_hash) {
+                    if *multiple {
                         Err(ScriptError::MultipleMatches)
+                    } else {
+                        Ok(data.to_owned())
                     }
                 } else {
                     Err(ScriptError::InvalidCodeHash)
