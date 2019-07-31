@@ -271,17 +271,17 @@ where
 
         // If we're in IBD, we want outbound peers that will serve us a useful
         // chain. Disconnect peers that are on chains with insufficient work.
-        let (is_outbound, is_protected) = self
+        let peer_flags = self
             .synchronizer
             .peers()
             .state
             .read()
             .get(&self.peer)
-            .map(|state| (state.peer_flags.is_outbound, state.peer_flags.is_protect))
-            .unwrap_or((false, false));
+            .map(|state| state.peer_flags)
+            .unwrap_or_default();
         if self.synchronizer.shared.is_initial_block_download()
             && headers.len() != MAX_HEADERS_LEN
-            && (is_outbound && !is_protected)
+            && (!peer_flags.is_protect && !peer_flags.is_whitelist && peer_flags.is_outbound)
         {
             debug!("Disconnect peer({}) is unprotected outbound", self.peer);
             if let Err(err) = self
