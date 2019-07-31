@@ -16,7 +16,6 @@ use crate::protocol_generated::ckb::protocol::{
     TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder, Witness as FbsWitness,
     WitnessBuilder, H256 as FbsH256,
 };
-use crate::{short_transaction_id, short_transaction_id_keys};
 use ckb_core::alert::Alert;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
@@ -28,7 +27,6 @@ use ckb_merkle_tree::build_merkle_proof;
 use flatbuffers::{FlatBufferBuilder, WIPOffset};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use rand::{thread_rng, Rng};
 use std::borrow::ToOwned;
 use std::collections::HashSet;
 
@@ -519,10 +517,9 @@ impl<'a> CompactBlock<'a> {
         block: &Block,
         prefilled_transactions_indexes: &HashSet<usize>,
     ) -> WIPOffset<CompactBlock<'b>> {
-        let nonce: u64 = thread_rng().gen();
         // always prefill cellbase
         let prefilled_transactions_len = prefilled_transactions_indexes.len() + 1;
-        let mut short_ids: Vec<_> = Vec::with_capacity(
+        let mut short_ids: Vec<FbsProposalShortId> = Vec::with_capacity(
             block
                 .transactions()
                 .len()
@@ -530,7 +527,6 @@ impl<'a> CompactBlock<'a> {
         );
         let mut prefilled_transactions = Vec::with_capacity(prefilled_transactions_len);
 
-        let (key0, key1) = short_transaction_id_keys(block.header().nonce(), nonce);
         for (transaction_index, transaction) in block.transactions().iter().enumerate() {
             if prefilled_transactions_indexes.contains(&transaction_index)
                 || transaction.is_cellbase()
@@ -541,10 +537,7 @@ impl<'a> CompactBlock<'a> {
                 builder.add_transaction(fbs_transaction);
                 prefilled_transactions.push(builder.finish());
             } else {
-                short_ids.push(FbsBytes::build(
-                    fbb,
-                    &short_transaction_id(key0, key1, &transaction.witness_hash()),
-                ));
+                short_ids.push((&transaction.proposal_short_id()).into());
             }
         }
 
@@ -566,7 +559,6 @@ impl<'a> CompactBlock<'a> {
 
         let mut builder = CompactBlockBuilder::new(fbb);
         builder.add_header(header);
-        builder.add_nonce(nonce);
         builder.add_short_ids(short_ids);
         builder.add_prefilled_transactions(prefilled_transactions);
         builder.add_uncles(uncles);

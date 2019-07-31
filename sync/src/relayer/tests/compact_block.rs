@@ -1,10 +1,13 @@
 use crate::relayer::compact_block::CompactBlock;
-use ckb_core::transaction::{IndexTransaction, TransactionBuilder};
+use ckb_core::transaction::{IndexTransaction, ProposalShortId, TransactionBuilder};
 
 #[test]
 fn test_block_short_ids() {
     let mut compact_block = CompactBlock::default();
-    let short_ids = vec![[1u8; 6], [2u8; 6]];
+    let short_ids = vec![
+        ProposalShortId::new([1u8; 10]),
+        ProposalShortId::new([2u8; 10]),
+    ];
     let prefilled_transactions = vec![
         IndexTransaction {
             index: 0,
@@ -21,6 +24,11 @@ fn test_block_short_ids() {
 
     assert_eq!(
         compact_block.block_short_ids(),
-        vec![None, Some([1u8; 6]), None, Some([2u8; 6])]
+        vec![
+            None,
+            Some(ProposalShortId::new([1u8; 10])),
+            None,
+            Some(ProposalShortId::new([2u8; 10]))
+        ]
     );
 }

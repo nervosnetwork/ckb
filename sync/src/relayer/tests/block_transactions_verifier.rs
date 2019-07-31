@@ -1,7 +1,6 @@
 use super::helper::new_index_transaction;
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::error::{Error, Misbehavior};
-use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
 
 use crate::relayer::compact_block::CompactBlock;
 use ckb_core::transaction::IndexTransaction;
@@ -9,7 +8,6 @@ use ckb_core::transaction::IndexTransaction;
 // block_short_ids: vec![None, Some(1), None, Some(3), Some(4), None]
 fn build_compact_block() -> CompactBlock {
     let mut block = CompactBlock::default();
-    let (key0, key1) = short_transaction_id_keys(block.header.nonce(), block.nonce);
 
     let prefilled: Vec<IndexTransaction> = vec![0, 2, 5]
         .into_iter()
@@ -20,7 +18,7 @@ fn build_compact_block() -> CompactBlock {
         .into_iter()
         .map(new_index_transaction)
         .clone()
-        .map(|tx| short_transaction_id(key0, key1, &tx.transaction.witness_hash()))
+        .map(|tx| tx.transaction.proposal_short_id())
         .collect();
     block.prefilled_transactions = prefilled;
     block.short_ids = short_ids;
@@ -54,17 +52,8 @@ fn test_invalid() {
         .map(|i| new_index_transaction(i).transaction)
         .collect();
 
-    let (key0, key1) = short_transaction_id_keys(block.header.nonce(), block.nonce);
-    let expect = short_transaction_id(
-        key0,
-        key1,
-        new_index_transaction(3).transaction.witness_hash(),
-    );
-    let got = short_transaction_id(
-        key0,
-        key1,
-        new_index_transaction(4).transaction.witness_hash(),
-    );
+    let expect = new_index_transaction(3).transaction.proposal_short_id();
+    let got = new_index_transaction(4).transaction.proposal_short_id();
 
     let ret = BlockTransactionsVerifier::verify(&block, &indexes, &block_txs);
 

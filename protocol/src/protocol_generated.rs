@@ -2275,7 +2275,6 @@ impl<'a> CompactBlock<'a> {
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
         args: &'args CompactBlockArgs<'args>) -> flatbuffers::WIPOffset<CompactBlock<'bldr>> {
       let mut builder = CompactBlockBuilder::new(_fbb);
-      builder.add_nonce(args.nonce);
       if let Some(x) = args.proposals { builder.add_proposals(x); }
       if let Some(x) = args.uncles { builder.add_uncles(x); }
       if let Some(x) = args.prefilled_transactions { builder.add_prefilled_transactions(x); }
@@ -2285,23 +2284,18 @@ impl<'a> CompactBlock<'a> {
     }
 
     pub const VT_HEADER: flatbuffers::VOffsetT = 4;
-    pub const VT_NONCE: flatbuffers::VOffsetT = 6;
-    pub const VT_SHORT_IDS: flatbuffers::VOffsetT = 8;
-    pub const VT_PREFILLED_TRANSACTIONS: flatbuffers::VOffsetT = 10;
-    pub const VT_UNCLES: flatbuffers::VOffsetT = 12;
-    pub const VT_PROPOSALS: flatbuffers::VOffsetT = 14;
+    pub const VT_SHORT_IDS: flatbuffers::VOffsetT = 6;
+    pub const VT_PREFILLED_TRANSACTIONS: flatbuffers::VOffsetT = 8;
+    pub const VT_UNCLES: flatbuffers::VOffsetT = 10;
+    pub const VT_PROPOSALS: flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub fn header(&self) -> Option<Header<'a>> {
     self._tab.get::<flatbuffers::ForwardsUOffset<Header<'a>>>(CompactBlock::VT_HEADER, None)
   }
   #[inline]
-  pub fn nonce(&self) -> u64 {
-    self._tab.get::<u64>(CompactBlock::VT_NONCE, Some(0)).unwrap()
-  }
-  #[inline]
-  pub fn short_ids(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Bytes<'a>>>> {
-    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<flatbuffers::ForwardsUOffset<Bytes<'a>>>>>(CompactBlock::VT_SHORT_IDS, None)
+  pub fn short_ids(&self) -> Option<&'a [ProposalShortId]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<ProposalShortId>>>(CompactBlock::VT_SHORT_IDS, None).map(|v| v.safe_slice() )
   }
   #[inline]
   pub fn prefilled_transactions(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<IndexTransaction<'a>>>> {
@@ -2319,8 +2313,7 @@ impl<'a> CompactBlock<'a> {
 
 pub struct CompactBlockArgs<'a> {
     pub header: Option<flatbuffers::WIPOffset<Header<'a >>>,
-    pub nonce: u64,
-    pub short_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<Bytes<'a >>>>>,
+    pub short_ids: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , ProposalShortId>>>,
     pub prefilled_transactions: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<IndexTransaction<'a >>>>>,
     pub uncles: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , flatbuffers::ForwardsUOffset<UncleBlock<'a >>>>>,
     pub proposals: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , ProposalShortId>>>,
@@ -2330,7 +2323,6 @@ impl<'a> Default for CompactBlockArgs<'a> {
     fn default() -> Self {
         CompactBlockArgs {
             header: None,
-            nonce: 0,
             short_ids: None,
             prefilled_transactions: None,
             uncles: None,
@@ -2348,11 +2340,7 @@ impl<'a: 'b, 'b> CompactBlockBuilder<'a, 'b> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Header>>(CompactBlock::VT_HEADER, header);
   }
   #[inline]
-  pub fn add_nonce(&mut self, nonce: u64) {
-    self.fbb_.push_slot::<u64>(CompactBlock::VT_NONCE, nonce, 0);
-  }
-  #[inline]
-  pub fn add_short_ids(&mut self, short_ids: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Bytes<'b >>>>) {
+  pub fn add_short_ids(&mut self, short_ids: flatbuffers::WIPOffset<flatbuffers::Vector<'b , ProposalShortId>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(CompactBlock::VT_SHORT_IDS, short_ids);
   }
   #[inline]

@@ -1113,15 +1113,6 @@ pub mod ckb {
                     }
                 }
 
-                if Self::VT_NONCE as usize + flatbuffers::SIZE_VOFFSET
-                    <= vtab_num_bytes
-                {
-                    let voffset = vtab.get(Self::VT_NONCE) as usize;
-                    if voffset > 0 && object_inline_num_bytes - voffset < 8 {
-                        return Err(Error::OutOfBounds);
-                    }
-                }
-
                 if Self::VT_SHORT_IDS as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
@@ -1135,8 +1126,7 @@ pub mod ckb {
                             buf,
                             try_follow_uoffset(buf, tab.loc + voffset)?,
                         );
-                        short_ids_verifier
-                            .verify_reference_elements::<reader::Bytes>()?;
+                        short_ids_verifier.verify_scalar_elements(10)?;
                     }
                 }
 

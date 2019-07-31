@@ -1,6 +1,6 @@
-use crate::relayer::compact_block::{CompactBlock, ShortTransactionID};
+use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::error::{Error, Misbehavior};
-use ckb_protocol::{short_transaction_id, short_transaction_id_keys};
+use ckb_core::transaction::ProposalShortId;
 use std::collections::HashSet;
 
 pub struct CompactBlockVerifier {}
@@ -56,7 +56,7 @@ impl ShortIdsVerifier {
     pub(crate) fn verify(block: &CompactBlock) -> Result<(), Error> {
         let prefilled_transactions = &block.prefilled_transactions;
         let short_ids = &block.short_ids;
-        let short_ids_set: HashSet<&ShortTransactionID> = short_ids.iter().collect();
+        let short_ids_set: HashSet<&ProposalShortId> = short_ids.iter().collect();
 
         // Check duplicated short ids
         if short_ids.len() != short_ids_set.len() {
@@ -64,11 +64,9 @@ impl ShortIdsVerifier {
         }
 
         // Check intersection of prefilled transactions and short ids
-        let (key0, key1) = short_transaction_id_keys(block.header.nonce(), block.nonce);
-        let is_intersect = prefilled_transactions.iter().any(|it| {
-            let short_id = short_transaction_id(key0, key1, &it.transaction.witness_hash());
-            short_ids_set.contains(&short_id)
-        });
+        let is_intersect = prefilled_transactions
+            .iter()
+            .any(|pt| short_ids_set.contains(&pt.transaction.proposal_short_id()));
         if is_intersect {
             return Err(Error::Misbehavior(
                 Misbehavior::IntersectedPrefilledTransactions,
