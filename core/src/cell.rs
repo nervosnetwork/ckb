@@ -1,6 +1,6 @@
 use crate::block::Block;
 use crate::header::Header;
-use crate::transaction::{OutPoint, CellOutput, CellDep, Transaction};
+use crate::transaction::{CellDep, CellOutput, OutPoint, Transaction};
 use crate::{BlockNumber, EpochNumber};
 use crate::{Bytes, Capacity};
 use ckb_occupied_capacity::Result as CapacityResult;
@@ -212,17 +212,16 @@ impl HeaderStatus {
     pub fn is_unknown(&self) -> bool {
         self == &HeaderStatus::Unknown
     }
-
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedInput {
     cell: CellMeta,
 }
 
 impl ResolvedInput {
     pub fn new(cell: CellMeta) -> ResolvedInput {
-        ResolvedInput{ cell }
+        ResolvedInput { cell }
     }
 
     pub fn cell(&self) -> &CellMeta {
@@ -242,15 +241,24 @@ pub struct ResolvedDep {
 
 impl ResolvedDep {
     pub fn cell_only(cell: CellMeta) -> ResolvedDep {
-        ResolvedDep { cell: Some(cell), header: None }
+        ResolvedDep {
+            cell: Some(cell),
+            header: None,
+        }
     }
 
     pub fn cell_and_header(cell: CellMeta, header: Header) -> ResolvedDep {
-        ResolvedDep { cell: Some(cell), header: Some(header) }
+        ResolvedDep {
+            cell: Some(cell),
+            header: Some(header),
+        }
     }
 
     pub fn header_only(header: Header) -> ResolvedDep {
-        ResolvedDep { cell: None, header: Some(header) }
+        ResolvedDep {
+            cell: None,
+            header: Some(header),
+        }
     }
 
     pub fn cell(&self) -> Option<&CellMeta> {
@@ -332,7 +340,7 @@ impl<'a> BlockCellProvider<'a> {
                     CellDep::Cell(out_point) => Some(out_point),
                     CellDep::CellWithHeader(out_point, _) => Some(out_point),
                     CellDep::DepGroup(out_point) => Some(out_point),
-                    CellDep::Header(_) => None
+                    CellDep::Header(_) => None,
                 };
                 if let Some(out_point) = out_point_opt {
                     if let Some(output_idx) = output_indices.get(&out_point.tx_hash) {
@@ -489,8 +497,6 @@ impl HeaderProvider for BlockHeadersProvider {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UnresolvableError {
-    // OutPoint is empty
-    Empty,
     // OutPoint specifies an invalid header, this could be due to either
     // of the following 2 reasons:
     // 1. Specified header doesn't exist on chain.
@@ -503,35 +509,20 @@ pub enum UnresolvableError {
     OutOfOrder(OutPoint),
 }
 
-fn resolve_cell<CP: CellProvider>(
+fn resolve_dep_group<
+    F: FnMut(&OutPoint, bool) -> Result<Option<Box<CellMeta>>, UnresolvableError>,
+>(
     out_point: &OutPoint,
-    with_data: bool,
-    cell_provider: &CP,
-    unknown_out_points: &mut Vec<OutPoint>,
-) -> Result<Option<Box<CellMeta>>, UnresolvableError> {
-    let cell_status = cell_provider.cell(out_point, with_data);
-    match cell_status {
-        CellStatus::Dead => {
-            Err(UnresolvableError::Dead(out_point.clone()))
-        }
-        CellStatus::Unknown => {
-            unknown_out_points.push(out_point.clone());
-            Ok(None)
-        }
-        CellStatus::Live(cell_meta) => Ok(Some(cell_meta))
-    }
-}
-
-fn resolve_dep_group<CP: CellProvider>(
-    out_point: &OutPoint,
-    cell_provider: &CP,
-    unknown_out_points: &mut Vec<OutPoint>,
+    mut cell_resolver: F,
 ) -> Result<Vec<ResolvedDep>, UnresolvableError> {
-    let data = match resolve_cell(out_point, true, cell_provider, unknown_out_points)? {
-        Some(cell_meta) => cell_meta.mem_cell_data.expect("Load cell meta must with data"),
+    let data = match cell_resolver(out_point, true)? {
+        Some(cell_meta) => cell_meta
+            .mem_cell_data
+            .expect("Load cell meta must with data"),
         None => return Ok(Vec::new()),
     };
 
+    // tx hash (32 bytes) + output index (4 bytes)
     const OUT_POINT_LEN: usize = mem::size_of::<H256>() + mem::size_of::<u32>();
 
     if data.is_empty() && data.len() % OUT_POINT_LEN != 0 {
@@ -545,15 +536,15 @@ fn resolve_dep_group<CP: CellProvider>(
         let tx_hash_end = tx_hash_start + mem::size_of::<H256>();
         let index_start = tx_hash_end;
         let index_end = index_start + mem::size_of::<u32>();
-        let tx_hash = H256::from_slice(&data[tx_hash_start..tx_hash_end])
-            .expect("Invalid tx hash length");
+        let tx_hash =
+            H256::from_slice(&data[tx_hash_start..tx_hash_end]).expect("Invalid tx hash length");
         let mut index_bytes = [0u8; mem::size_of::<u32>()];
         index_bytes.copy_from_slice(&data[index_start..index_end]);
         // Deserialize as little endian u32
         let index = u32::from_le_bytes(index_bytes);
 
         let sub_out_point = OutPoint::new(tx_hash, index);
-        if let Some(sub_cell_meta) = resolve_cell(&sub_out_point, false, cell_provider, unknown_out_points)? {
+        if let Some(sub_cell_meta) = cell_resolver(&sub_out_point, false)? {
             resolved_deps.push(ResolvedDep::cell_only(*sub_cell_meta));
         }
     }
@@ -574,19 +565,39 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
     );
     let mut current_inputs = FnvHashSet::default();
 
+    let mut resolve_cell = |out_point: &OutPoint,
+                            with_data: bool|
+     -> Result<Option<Box<CellMeta>>, UnresolvableError> {
+        if seen_inputs.contains(out_point) {
+            return Err(UnresolvableError::Dead(out_point.clone()));
+        }
+
+        let cell_status = cell_provider.cell(out_point, with_data);
+        match cell_status {
+            CellStatus::Dead => Err(UnresolvableError::Dead(out_point.clone())),
+            CellStatus::Unknown => {
+                unknown_out_points.push(out_point.clone());
+                Ok(None)
+            }
+            CellStatus::Live(cell_meta) => Ok(Some(cell_meta)),
+        }
+    };
+
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
             if !current_inputs.insert(out_point.to_owned()) {
                 return Err(UnresolvableError::Dead(out_point.to_owned()));
             }
-            if let Some(cell_meta) = resolve_cell(out_point, false, cell_provider, &mut unknown_out_points)? {
+            if let Some(cell_meta) = resolve_cell(out_point, false)? {
                 resolved_inputs.push(ResolvedInput::new(*cell_meta));
             }
         }
     }
 
-    let resolve_header = |block_hash, out_point| -> Result<Box<Header>, UnresolvableError> {
+    let resolve_header = |block_hash: &H256,
+                          out_point: Option<&OutPoint>|
+     -> Result<Box<Header>, UnresolvableError> {
         match header_provider.header(block_hash, out_point) {
             HeaderStatus::Unknown => {
                 // TODO: should we change transaction pool so transactions
@@ -596,35 +607,35 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
                     block_hash.clone(),
                     out_point.cloned(),
                 ))
-            },
+            }
             HeaderStatus::InclusionFaliure => Err(UnresolvableError::InvalidHeader(
                 block_hash.clone(),
                 out_point.cloned(),
             )),
-            HeaderStatus::Live(header) => Ok(header)
+            HeaderStatus::Live(header) => Ok(header),
         }
     };
     for dep in transaction.deps_iter() {
         match dep {
             CellDep::Cell(out_point) => {
-                if let Some(cell_meta) = resolve_cell(&out_point, false, cell_provider, &mut unknown_out_points)? {
+                if let Some(cell_meta) = resolve_cell(&out_point, false)? {
                     resolved_deps.push(ResolvedDep::cell_only(*cell_meta));
                 }
-            },
+            }
             CellDep::CellWithHeader(out_point, block_hash) => {
                 let header = resolve_header(&block_hash, Some(&out_point))?;
-                if let Some(cell_meta) = resolve_cell(&out_point, false, cell_provider, &mut unknown_out_points)? {
+                if let Some(cell_meta) = resolve_cell(&out_point, false)? {
                     resolved_deps.push(ResolvedDep::cell_and_header(*cell_meta, *header));
                 }
-            },
+            }
             CellDep::DepGroup(out_point) => {
-                let sub_resolved_deps = resolve_dep_group(out_point, cell_provider, &mut unknown_out_points)?;
+                let sub_resolved_deps = resolve_dep_group(out_point, &mut resolve_cell)?;
                 resolved_deps.extend(sub_resolved_deps);
             }
             CellDep::Header(block_hash) => {
                 let header = resolve_header(&block_hash, None)?;
                 resolved_deps.push(ResolvedDep::header_only(*header));
-            },
+            }
         }
     }
 
@@ -662,7 +673,7 @@ impl<'a> ResolvedTransaction<'a> {
 mod tests {
     use super::super::block::{Block, BlockBuilder};
     use super::super::script::Script;
-    use super::super::transaction::{CellInput, OutPoint, OutPoint, TransactionBuilder};
+    use super::super::transaction::{CellInput, OutPoint, TransactionBuilder};
     use super::*;
     use crate::{capacity_bytes, Bytes, Capacity};
     use numext_fixed_hash::{h256, H256};
@@ -674,11 +685,7 @@ mod tests {
     }
     impl CellProvider for CellMemoryDb {
         fn cell(&self, o: &OutPoint, _with_data: bool) -> CellStatus {
-            if o.cell.is_none() {
-                return CellStatus::Unspecified;
-            }
-
-            match self.cells.get(o.cell.as_ref().unwrap()) {
+            match self.cells.get(o) {
                 Some(&Some(ref cell_meta)) => CellStatus::live_cell(cell_meta.clone()),
                 Some(&None) => CellStatus::Dead,
                 None => CellStatus::Unknown,
@@ -720,34 +727,25 @@ mod tests {
         let mut db = CellMemoryDb::default();
 
         let p1 = OutPoint {
-            block_hash: None,
-            cell: Some(OutPoint {
-                tx_hash: H256::zero(),
-                index: 1,
-            }),
+            tx_hash: H256::zero(),
+            index: 1,
         };
         let p2 = OutPoint {
-            block_hash: None,
-            cell: Some(OutPoint {
-                tx_hash: H256::zero(),
-                index: 2,
-            }),
+            tx_hash: H256::zero(),
+            index: 2,
         };
         let p3 = OutPoint {
-            block_hash: None,
-            cell: Some(OutPoint {
-                tx_hash: H256::zero(),
-                index: 3,
-            }),
+            tx_hash: H256::zero(),
+            index: 3,
         };
         let o = generate_dummy_cell_meta();
 
-        db.cells.insert(p1.cell.clone().unwrap(), Some(o.clone()));
-        db.cells.insert(p2.cell.clone().unwrap(), None);
+        db.cells.insert(p1.clone(), Some(o.clone()));
+        db.cells.insert(p2.clone(), None);
 
-        assert_eq!(CellStatus::Live(Box::new(o)), db.cell(&p1));
-        assert_eq!(CellStatus::Dead, db.cell(&p2));
-        assert_eq!(CellStatus::Unknown, db.cell(&p3));
+        assert_eq!(CellStatus::Live(Box::new(o)), db.cell(&p1, false));
+        assert_eq!(CellStatus::Dead, db.cell(&p2, false));
+        assert_eq!(CellStatus::Unknown, db.cell(&p3, false));
     }
 
     #[test]
@@ -760,8 +758,8 @@ mod tests {
 
         header_provider.push_attached(&block);
 
-        let out_point = OutPoint::new_block_hash(header_hash.clone());
-        let transaction = TransactionBuilder::default().dep(out_point).build();
+        let dep = CellDep::Header(header_hash.clone());
+        let transaction = TransactionBuilder::default().dep(dep).build();
 
         let mut seen_inputs = FnvHashSet::default();
         let result = resolve_transaction(
@@ -773,39 +771,7 @@ mod tests {
         .unwrap();
 
         assert!(result.resolved_deps[0].cell().is_none());
-        assert_eq!(
-            result.resolved_deps[0].header,
-            Some(Box::new(block.header().clone()))
-        );
-    }
-
-    #[test]
-    fn resolve_transaction_should_reject_input_without_cells() {
-        let cell_provider = CellMemoryDb::default();
-        let mut header_provider = BlockHeadersProvider::default();
-
-        let block = generate_block(vec![]);
-        let header_hash = block.header().hash();
-
-        header_provider.push_attached(&block);
-
-        let out_point = OutPoint::new_block_hash(header_hash.clone());
-        let transaction = TransactionBuilder::default()
-            .input(CellInput::new(out_point.clone(), 0))
-            .build();
-
-        let mut seen_inputs = FnvHashSet::default();
-        let result = resolve_transaction(
-            &transaction,
-            &mut seen_inputs,
-            &cell_provider,
-            &header_provider,
-        );
-
-        assert_eq!(
-            result.err(),
-            Some(UnresolvableError::UnspecifiedInputCell(out_point))
-        );
+        assert_eq!(result.resolved_deps[0].header(), Some(block.header()));
     }
 
     #[test]
@@ -815,19 +781,17 @@ mod tests {
 
         let block = generate_block(vec![]);
         let header_hash = block.header().hash();
-        let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
+        let out_point = OutPoint::new(h256!("0x2"), 3);
+        let dep = CellDep::CellWithHeader(out_point.clone(), header_hash.clone());
 
-        cell_provider.cells.insert(
-            out_point.cell.clone().unwrap(),
-            Some(generate_dummy_cell_meta()),
-        );
+        cell_provider
+            .cells
+            .insert(out_point.clone(), Some(generate_dummy_cell_meta()));
         header_provider.push_attached(&block);
-        header_provider.insert_attached_transaction_block(
-            out_point.cell.clone().unwrap().tx_hash,
-            header_hash.clone(),
-        );
+        header_provider
+            .insert_attached_transaction_block(out_point.clone().tx_hash, header_hash.clone());
 
-        let transaction = TransactionBuilder::default().dep(out_point).build();
+        let transaction = TransactionBuilder::default().dep(dep).build();
 
         let mut seen_inputs = FnvHashSet::default();
         let result = resolve_transaction(
@@ -839,10 +803,7 @@ mod tests {
         .unwrap();
 
         assert!(result.resolved_deps[0].cell().is_some());
-        assert_eq!(
-            result.resolved_deps[0].header,
-            Some(Box::new(block.header().clone()))
-        );
+        assert_eq!(result.resolved_deps[0].header(), Some(block.header()));
     }
 
     #[test]
@@ -852,15 +813,15 @@ mod tests {
 
         let block = generate_block(vec![]);
         let header_hash = block.header().hash();
-        let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
+        let out_point = OutPoint::new(h256!("0x2"), 3);
+        let dep = CellDep::CellWithHeader(out_point.clone(), header_hash.clone());
 
-        cell_provider.cells.insert(
-            out_point.cell.clone().unwrap(),
-            Some(generate_dummy_cell_meta()),
-        );
+        cell_provider
+            .cells
+            .insert(out_point.clone(), Some(generate_dummy_cell_meta()));
         header_provider.push_attached(&block);
 
-        let transaction = TransactionBuilder::default().dep(out_point.clone()).build();
+        let transaction = TransactionBuilder::default().dep(dep).build();
 
         let mut seen_inputs = FnvHashSet::default();
         let result = resolve_transaction(
@@ -872,47 +833,16 @@ mod tests {
 
         assert_eq!(
             result.err(),
-            Some(UnresolvableError::InvalidHeader(out_point))
+            Some(UnresolvableError::InvalidHeader(
+                header_hash.clone(),
+                Some(out_point)
+            ))
         );
-    }
-
-    #[test]
-    fn resolve_transaction_should_reject_empty_out_point() {
-        let mut cell_provider = CellMemoryDb::default();
-        let mut header_provider = BlockHeadersProvider::default();
-
-        let block = generate_block(vec![]);
-        let header_hash = block.header().hash();
-        let out_point = OutPoint::new(header_hash.clone(), h256!("0x2"), 3);
-
-        cell_provider.cells.insert(
-            out_point.cell.clone().unwrap(),
-            Some(generate_dummy_cell_meta()),
-        );
-        header_provider.push_attached(&block);
-        header_provider.insert_attached_transaction_block(
-            out_point.cell.clone().unwrap().tx_hash,
-            header_hash.clone(),
-        );
-
-        let transaction = TransactionBuilder::default()
-            .dep(OutPoint::default())
-            .build();
-
-        let mut seen_inputs = FnvHashSet::default();
-        let result = resolve_transaction(
-            &transaction,
-            &mut seen_inputs,
-            &cell_provider,
-            &header_provider,
-        );
-
-        assert_eq!(result.err(), Some(UnresolvableError::Empty));
     }
 
     #[test]
     fn resolve_transaction_should_reject_incorrect_order_txs() {
-        let out_point = OutPoint::new_cell(h256!("0x2"), 3);
+        let out_point = OutPoint::new(h256!("0x2"), 3);
 
         let tx1 = TransactionBuilder::default()
             .input(CellInput::new(out_point.clone(), 0))
@@ -926,15 +856,11 @@ mod tests {
             .build();
 
         let tx2 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx1.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx1.hash().to_owned(), 0), 0))
             .build();
 
-        let tx3 = TransactionBuilder::default()
-            .dep(OutPoint::new_cell(tx1.hash().to_owned(), 0))
-            .build();
+        let dep = CellDep::Cell(OutPoint::new(tx1.hash().to_owned(), 0));
+        let tx3 = TransactionBuilder::default().dep(dep).build();
 
         // tx1 <- tx2
         // ok
@@ -952,7 +878,7 @@ mod tests {
 
             assert_eq!(
                 provider.err(),
-                Some(UnresolvableError::OutOfOrder(OutPoint::new_cell(
+                Some(UnresolvableError::OutOfOrder(OutPoint::new(
                     tx1.hash().to_owned(),
                     0
                 )))
@@ -976,7 +902,7 @@ mod tests {
 
             assert_eq!(
                 provider.err(),
-                Some(UnresolvableError::OutOfOrder(OutPoint::new_cell(
+                Some(UnresolvableError::OutOfOrder(OutPoint::new(
                     tx1.hash().to_owned(),
                     0
                 )))
@@ -989,17 +915,17 @@ mod tests {
         let mut cell_provider = CellMemoryDb::default();
         let header_provider = BlockHeadersProvider::default();
 
-        let out_point = OutPoint::new_cell(h256!("0x2"), 3);
+        let out_point = OutPoint::new(h256!("0x2"), 3);
 
         let dummy_cell_meta = generate_dummy_cell_meta();
-        cell_provider.cells.insert(
-            out_point.cell.clone().unwrap(),
-            Some(dummy_cell_meta.clone()),
-        );
+        cell_provider
+            .cells
+            .insert(out_point.clone(), Some(dummy_cell_meta.clone()));
 
+        let dep = CellDep::Cell(out_point.clone());
         let tx = TransactionBuilder::default()
             .input(CellInput::new(out_point.clone(), 0))
-            .dep(out_point.clone())
+            .dep(dep)
             .build();
 
         let mut seen_inputs = FnvHashSet::default();
@@ -1008,7 +934,7 @@ mod tests {
 
         assert_eq!(
             rtx.resolved_deps[0],
-            ResolvedOutPoint::cell_only(dummy_cell_meta),
+            ResolvedDep::cell_only(dummy_cell_meta),
         );
     }
 
@@ -1017,18 +943,18 @@ mod tests {
         let mut cell_provider = CellMemoryDb::default();
         let header_provider = BlockHeadersProvider::default();
 
-        let out_point = OutPoint::new_cell(h256!("0x2"), 3);
+        let out_point = OutPoint::new(h256!("0x2"), 3);
 
-        cell_provider.cells.insert(
-            out_point.cell.clone().unwrap(),
-            Some(generate_dummy_cell_meta()),
-        );
+        cell_provider
+            .cells
+            .insert(out_point.clone(), Some(generate_dummy_cell_meta()));
 
         // tx1 dep
         // tx2 input consumed
         // ok
         {
-            let tx1 = TransactionBuilder::default().dep(out_point.clone()).build();
+            let dep = CellDep::Cell(out_point.clone());
+            let tx1 = TransactionBuilder::default().dep(dep).build();
             let tx2 = TransactionBuilder::default()
                 .input(CellInput::new(out_point.clone(), 0))
                 .build();
@@ -1051,7 +977,8 @@ mod tests {
                 .input(CellInput::new(out_point.clone(), 0))
                 .build();
 
-            let tx2 = TransactionBuilder::default().dep(out_point.clone()).build();
+            let dep = CellDep::Cell(out_point.clone());
+            let tx2 = TransactionBuilder::default().dep(dep).build();
 
             let mut seen_inputs = FnvHashSet::default();
             let result1 =

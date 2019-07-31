@@ -54,7 +54,7 @@ pub struct OutPoint {
 
 impl OutPoint {
     pub fn new(tx_hash: H256, index: u32) -> Self {
-        OutPoint{ tx_hash, index }
+        OutPoint { tx_hash, index }
     }
 
     pub fn destruct(self) -> (H256, u32) {
@@ -862,17 +862,17 @@ mod test {
                 None,
             ))
             .output_data(data)
-            .input(CellInput::new(OutPoint::new_cell(H256::zero(), 0), 0))
+            .input(CellInput::new(OutPoint::new(H256::zero(), 0), 0))
             .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "03ee6001f7706408f2ede5d6c25d3a2fe42a025ef327b5a0805f7045060649f2"
+            "836205d20fb8e1fe087a82d4ecfced048441e2aec4b7466b3ad9b3bf0747b3d6"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "bd59c098cdea5225c00bfd68e39f627719acb4dcfacd7233eb16a977e9869f36"
+            "bef1e599c6583f79b0c2c000f95982a50854032b1ea979b8b69cfe0547bd821a"
         );
     }
 
