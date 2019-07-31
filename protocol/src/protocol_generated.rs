@@ -117,7 +117,7 @@ pub enum RelayPayload {
   NONE = 0,
   CompactBlock = 1,
   RelayTransaction = 2,
-  RelayTransactionHash = 3,
+  RelayTransactionHashes = 3,
   GetRelayTransaction = 4,
   GetBlockTransactions = 5,
   BlockTransactions = 6,
@@ -165,7 +165,7 @@ const ENUM_VALUES_RELAY_PAYLOAD:[RelayPayload; 9] = [
   RelayPayload::NONE,
   RelayPayload::CompactBlock,
   RelayPayload::RelayTransaction,
-  RelayPayload::RelayTransactionHash,
+  RelayPayload::RelayTransactionHashes,
   RelayPayload::GetRelayTransaction,
   RelayPayload::GetBlockTransactions,
   RelayPayload::BlockTransactions,
@@ -178,7 +178,7 @@ const ENUM_NAMES_RELAY_PAYLOAD:[&'static str; 9] = [
     "NONE",
     "CompactBlock",
     "RelayTransaction",
-    "RelayTransactionHash",
+    "RelayTransactionHashes",
     "GetRelayTransaction",
     "GetBlockTransactions",
     "BlockTransactions",
@@ -2145,9 +2145,9 @@ impl<'a> RelayMessage<'a> {
 
   #[inline]
   #[allow(non_snake_case)]
-  pub fn payload_as_relay_transaction_hash(&self) -> Option<RelayTransactionHash<'a>> {
-    if self.payload_type() == RelayPayload::RelayTransactionHash {
-      self.payload().map(|u| RelayTransactionHash::init_from_table(u))
+  pub fn payload_as_relay_transaction_hashes(&self) -> Option<RelayTransactionHashes<'a>> {
+    if self.payload_type() == RelayPayload::RelayTransactionHashes {
+      self.payload().map(|u| RelayTransactionHashes::init_from_table(u))
     } else {
       None
     }
@@ -2458,15 +2458,15 @@ impl<'a: 'b, 'b> IndexTransactionBuilder<'a, 'b> {
   }
 }
 
-pub enum RelayTransactionHashOffset {}
+pub enum RelayTransactionHashesOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
-pub struct RelayTransactionHash<'a> {
+pub struct RelayTransactionHashes<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for RelayTransactionHash<'a> {
-    type Inner = RelayTransactionHash<'a>;
+impl<'a> flatbuffers::Follow<'a> for RelayTransactionHashes<'a> {
+    type Inner = RelayTransactionHashes<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -2475,60 +2475,60 @@ impl<'a> flatbuffers::Follow<'a> for RelayTransactionHash<'a> {
     }
 }
 
-impl<'a> RelayTransactionHash<'a> {
+impl<'a> RelayTransactionHashes<'a> {
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        RelayTransactionHash {
+        RelayTransactionHashes {
             _tab: table,
         }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args RelayTransactionHashArgs<'args>) -> flatbuffers::WIPOffset<RelayTransactionHash<'bldr>> {
-      let mut builder = RelayTransactionHashBuilder::new(_fbb);
-      if let Some(x) = args.tx_hash { builder.add_tx_hash(x); }
+        args: &'args RelayTransactionHashesArgs<'args>) -> flatbuffers::WIPOffset<RelayTransactionHashes<'bldr>> {
+      let mut builder = RelayTransactionHashesBuilder::new(_fbb);
+      if let Some(x) = args.tx_hashes { builder.add_tx_hashes(x); }
       builder.finish()
     }
 
-    pub const VT_TX_HASH: flatbuffers::VOffsetT = 4;
+    pub const VT_TX_HASHES: flatbuffers::VOffsetT = 4;
 
   #[inline]
-  pub fn tx_hash(&self) -> Option<&'a H256> {
-    self._tab.get::<H256>(RelayTransactionHash::VT_TX_HASH, None)
+  pub fn tx_hashes(&self) -> Option<&'a [H256]> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<H256>>>(RelayTransactionHashes::VT_TX_HASHES, None).map(|v| v.safe_slice() )
   }
 }
 
-pub struct RelayTransactionHashArgs<'a> {
-    pub tx_hash: Option<&'a  H256>,
+pub struct RelayTransactionHashesArgs<'a> {
+    pub tx_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a , H256>>>,
 }
-impl<'a> Default for RelayTransactionHashArgs<'a> {
+impl<'a> Default for RelayTransactionHashesArgs<'a> {
     #[inline]
     fn default() -> Self {
-        RelayTransactionHashArgs {
-            tx_hash: None,
+        RelayTransactionHashesArgs {
+            tx_hashes: None,
         }
     }
 }
-pub struct RelayTransactionHashBuilder<'a: 'b, 'b> {
+pub struct RelayTransactionHashesBuilder<'a: 'b, 'b> {
   fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> RelayTransactionHashBuilder<'a, 'b> {
+impl<'a: 'b, 'b> RelayTransactionHashesBuilder<'a, 'b> {
   #[inline]
-  pub fn add_tx_hash(&mut self, tx_hash: &'b  H256) {
-    self.fbb_.push_slot_always::<&H256>(RelayTransactionHash::VT_TX_HASH, tx_hash);
+  pub fn add_tx_hashes(&mut self, tx_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , H256>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(RelayTransactionHashes::VT_TX_HASHES, tx_hashes);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> RelayTransactionHashBuilder<'a, 'b> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> RelayTransactionHashesBuilder<'a, 'b> {
     let start = _fbb.start_table();
-    RelayTransactionHashBuilder {
+    RelayTransactionHashesBuilder {
       fbb_: _fbb,
       start_: start,
     }
   }
   #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<RelayTransactionHash<'a>> {
+  pub fn finish(self) -> flatbuffers::WIPOffset<RelayTransactionHashes<'a>> {
     let o = self.fbb_.end_table(self.start_);
     flatbuffers::WIPOffset::new(o.value())
   }

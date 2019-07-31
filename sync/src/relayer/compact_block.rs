@@ -127,3 +127,21 @@ impl<'a> TryFrom<ckb_protocol::GetBlockProposal<'a>> for GetBlockProposal {
         })
     }
 }
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TransactionHashes {
+    pub hashes: Vec<H256>,
+}
+
+impl<'a> TryFrom<ckb_protocol::RelayTransactionHashes<'a>> for TransactionHashes {
+    type Error = FailureError;
+
+    fn try_from(b: ckb_protocol::RelayTransactionHashes<'a>) -> Result<Self, Self::Error> {
+        let hashes: Result<Vec<_>, FailureError> = cast!(b.tx_hashes())?
+            .iter()
+            .map(TryInto::try_into)
+            .collect();
+
+        Ok(TransactionHashes { hashes: hashes? })
+    }
+}

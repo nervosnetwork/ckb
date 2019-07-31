@@ -2591,8 +2591,8 @@ pub mod ckb {
                                 .payload_as_relay_transaction()
                                 .ok_or(Error::UnmatchedUnion)?
                                 .verify()?,
-                            reader::RelayPayload::RelayTransactionHash => self
-                                .payload_as_relay_transaction_hash()
+                            reader::RelayPayload::RelayTransactionHashes => self
+                                .payload_as_relay_transaction_hashes()
                                 .ok_or(Error::UnmatchedUnion)?
                                 .verify()?,
                             reader::RelayPayload::GetRelayTransaction => self
@@ -2715,7 +2715,7 @@ pub mod ckb {
             }
         }
 
-        impl<'a> Verify for reader::RelayTransactionHash<'a> {
+        impl<'a> Verify for reader::RelayTransactionHashes<'a> {
             fn verify(&self) -> Result {
                 let tab = self._tab;
                 let buf = tab.buf;
@@ -2778,12 +2778,20 @@ pub mod ckb {
                     }
                 }
 
-                if Self::VT_TX_HASH as usize + flatbuffers::SIZE_VOFFSET
+                if Self::VT_TX_HASHES as usize + flatbuffers::SIZE_VOFFSET
                     <= vtab_num_bytes
                 {
-                    let voffset = vtab.get(Self::VT_TX_HASH) as usize;
-                    if voffset > 0 && object_inline_num_bytes - voffset < 32 {
-                        return Err(Error::OutOfBounds);
+                    let voffset = vtab.get(Self::VT_TX_HASHES) as usize;
+                    if voffset > 0 {
+                        if voffset + 4 > object_inline_num_bytes {
+                            return Err(Error::OutOfBounds);
+                        }
+
+                        let tx_hashes_verifier = VectorVerifier::follow(
+                            buf,
+                            try_follow_uoffset(buf, tab.loc + voffset)?,
+                        );
+                        tx_hashes_verifier.verify_scalar_elements(32)?;
                     }
                 }
 
