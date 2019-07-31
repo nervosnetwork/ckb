@@ -176,6 +176,8 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
         ChainService { shared, notify }
     }
 
+    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
+    #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(mut self, thread_name: Option<S>) -> ChainController {
         let (signal_sender, signal_receiver) =
             crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);

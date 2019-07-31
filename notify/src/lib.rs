@@ -42,6 +42,8 @@ impl Drop for NotifyController {
 }
 
 impl NotifyService {
+    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
+    #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(self, thread_name: Option<S>) -> NotifyController {
         let (signal_sender, signal_receiver) =
             crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
