@@ -12,7 +12,7 @@ use std::path::PathBuf;
 struct SystemCell {
     pub path: String,
     pub index: usize,
-    pub code_hash: H256,
+    pub code_hash: Option<H256>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

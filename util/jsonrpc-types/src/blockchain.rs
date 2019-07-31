@@ -82,7 +82,7 @@ impl From<CoreScript> for Script {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
     pub capacity: Capacity,
-    pub data_hash: H256,
+    pub data_hash: Option<H256>,
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,

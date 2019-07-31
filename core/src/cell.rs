@@ -136,7 +136,7 @@ impl CellMeta {
         self.cell_output.capacity
     }
 
-    pub fn data_hash(&self) -> &H256 {
+    pub fn data_hash(&self) -> &Option<H256> {
         &self.cell_output.data_hash
     }
 

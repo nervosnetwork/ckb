@@ -189,7 +189,7 @@ impl CellInput {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct CellOutput {
     pub capacity: Capacity,
-    pub data_hash: H256,
+    pub data_hash: Option<H256>,
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
@@ -199,7 +199,7 @@ impl fmt::Debug for CellOutput {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("CellOutput")
             .field("capacity", &self.capacity)
-            .field("data_hash", &format_args!("{:#x}", &self.data_hash))
+            .field("data_hash", &self.data_hash)
             .field("lock", &self.lock)
             .field("type", &self.type_)
             .finish()
@@ -207,7 +207,12 @@ impl fmt::Debug for CellOutput {
 }
 
 impl CellOutput {
-    pub fn new(capacity: Capacity, data_hash: H256, lock: Script, type_: Option<Script>) -> Self {
+    pub fn new(
+        capacity: Capacity,
+        data_hash: Option<H256>,
+        lock: Script,
+        type_: Option<Script>,
+    ) -> Self {
         CellOutput {
             capacity,
             data_hash,
@@ -216,15 +221,15 @@ impl CellOutput {
         }
     }
 
-    pub fn calculate_data_hash(data: &Bytes) -> H256 {
+    pub fn calculate_data_hash(data: &Bytes) -> Option<H256> {
         if data.is_empty() {
-            H256::zero()
+            None
         } else {
-            blake2b_256(data).into()
+            Some(blake2b_256(data).into())
         }
     }
 
-    pub fn data_hash(&self) -> &H256 {
+    pub fn data_hash(&self) -> &Option<H256> {
         &self.data_hash
     }
 
@@ -239,7 +244,7 @@ impl CellOutput {
                 .unwrap_or(0)
     }
 
-    pub fn destruct(self) -> (Capacity, H256, Script, Option<Script>) {
+    pub fn destruct(self) -> (Capacity, Option<H256>, Script, Option<Script>) {
         let CellOutput {
             capacity,
             data_hash,
@@ -271,7 +276,7 @@ impl CellOutput {
 
 pub struct CellOutputBuilder {
     pub capacity: Capacity,
-    pub data_hash: H256,
+    pub data_hash: Option<H256>,
     pub lock: Script,
     pub type_: Option<Script>,
 }
@@ -297,7 +302,7 @@ impl CellOutputBuilder {
         self
     }
 
-    pub fn data_hash(mut self, data_hash: H256) -> Self {
+    pub fn data_hash(mut self, data_hash: Option<H256>) -> Self {
         self.data_hash = data_hash;
         self
     }

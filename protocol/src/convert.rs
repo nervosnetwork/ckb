@@ -337,9 +337,14 @@ impl<'a> TryFrom<ckb_protocol::CellOutput<'a>> for ckb_core::transaction::CellOu
             None => None,
         };
 
+        let data_hash = match cell_output.data_hash() {
+            Some(data_hash) => Some(TryInto::try_into(data_hash)?),
+            None => None,
+        };
+
         Ok(ckb_core::transaction::CellOutput {
             capacity: ckb_core::Capacity::shannons(cell_output.capacity()),
-            data_hash: cast!(cell_output.data_hash())?.try_into()?,
+            data_hash: data_hash,
             lock: TryInto::try_into(lock)?,
             type_,
         })

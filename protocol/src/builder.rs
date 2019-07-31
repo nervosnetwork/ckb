@@ -264,12 +264,14 @@ impl<'a> FbsCellOutput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_output: &CellOutput,
     ) -> WIPOffset<FbsCellOutput<'b>> {
-        let data_hash = (&cell_output.data_hash).into();
+        let data_hash = cell_output.data_hash.clone().map(|hash| (&hash).into());
         let lock = FbsScript::build(fbb, &cell_output.lock);
         let type_ = cell_output.type_.as_ref().map(|s| FbsScript::build(fbb, s));
         let mut builder = CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity.as_u64());
-        builder.add_data_hash(&data_hash);
+        if let Some(ref hash) = data_hash {
+            builder.add_data_hash(hash);
+        }
         builder.add_lock(lock);
         if let Some(s) = type_ {
             builder.add_type_(s);

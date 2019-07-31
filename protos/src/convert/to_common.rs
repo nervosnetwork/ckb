@@ -104,7 +104,7 @@ impl<'a> CanBuild<'a> for protos::CellOutput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_output: &Self::Input,
     ) -> WIPOffset<protos::CellOutput<'b>> {
-        let data_hash = (&cell_output.data_hash).into();
+        let data_hash = cell_output.data_hash.clone().map(|hash| (&hash).into());
         let lock = protos::Script::build(fbb, &cell_output.lock);
         let type_ = cell_output
             .type_
@@ -112,7 +112,9 @@ impl<'a> CanBuild<'a> for protos::CellOutput<'a> {
             .map(|s| protos::Script::build(fbb, s));
         let mut builder = protos::CellOutputBuilder::new(fbb);
         builder.add_capacity(cell_output.capacity.as_u64());
-        builder.add_data_hash(&data_hash);
+        if let Some(ref hash) = data_hash {
+            builder.add_data_hash(hash);
+        }
         builder.add_lock(lock);
         if let Some(s) = type_ {
             builder.add_type_(s);

@@ -324,10 +324,10 @@ impl<'a> TryFrom<protos::CellOutput<'a>> for CellOutput {
     fn try_from(cell_output: protos::CellOutput<'a>) -> Result<Self> {
         let lock = cell_output.lock().unwrap_some()?;
         let type_ = cell_output.type_().map(TryInto::try_into).transpose()?;
-        let data_hash = cell_output.data_hash().unwrap_some()?;
+        let data_hash = cell_output.data_hash().map(TryInto::try_into).transpose()?;
         let ret = CellOutput {
             capacity: Capacity::shannons(cell_output.capacity()),
-            data_hash: data_hash.try_into()?,
+            data_hash: data_hash,
             lock: lock.try_into()?,
             type_,
         };

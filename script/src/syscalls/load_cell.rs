@@ -120,10 +120,14 @@ impl<'a> LoadCell<'a> {
                 (SUCCESS, buffer.len())
             }
             CellField::DataHash => {
-                let hash = output.data_hash();
-                let bytes = hash.as_bytes();
-                store_data(machine, &bytes)?;
-                (SUCCESS, bytes.len())
+                if let Some(hash) = output.data_hash() {
+                    let bytes = hash.as_bytes();
+                    store_data(machine, &bytes)?;
+                    (SUCCESS, bytes.len())
+                } else {
+                    store_data(machine, &vec![])?;
+                    (SUCCESS, 0)
+                }
             }
             CellField::Lock => {
                 let mut builder = FlatBufferBuilder::new();

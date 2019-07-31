@@ -426,7 +426,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
             let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
             let witness = lock.into_witness();
             let input = CellInput::new_cellbase_input(candidate_number);
-            let raw_output = CellOutput::new(block_reward.total, H256::zero(), target_lock, None);
+            let raw_output = CellOutput::new(block_reward.total, None, target_lock, None);
             let (output, output_data) = self.custom_output(block_reward.total, raw_output)?;
 
             TransactionBuilder::default()

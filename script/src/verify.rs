@@ -96,7 +96,9 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         for resolved_dep in resolved_deps {
             if let Some(cell_meta) = &resolved_dep.cell() {
                 let data = data_loader.load_cell_data(cell_meta).expect("cell data");
-                binaries_by_data_hash.insert(cell_meta.data_hash().to_owned(), data.to_owned());
+                if let Some(data_hash) = cell_meta.data_hash() {
+                    binaries_by_data_hash.insert(data_hash.to_owned(), data.to_owned());
+                }
                 if let Some(t) = &cell_meta.cell_output.type_ {
                     binaries_by_type_hash.insert(t.hash(), data.to_owned());
                 }
