@@ -845,7 +845,10 @@ mod tests {
         };
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
-        assert!(verifier.verify(100_000_000).is_err());
+        assert_eq!(
+            verifier.verify(100_000_000),
+            Err(ScriptError::MultipleMatches)
+        );
     }
 
     #[test]
