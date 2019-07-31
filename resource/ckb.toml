@@ -96,7 +96,7 @@ runner = "Rust" # {{
 
 [store]
 header_cache_size       = 4096
-cell_output_cache_size  = 128
+cell_data_cache_size  = 128
 
 # [alert_notifier]
 # # Script will be notified when node received an alert, first arg is alert message string.
