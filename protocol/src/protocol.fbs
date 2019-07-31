@@ -268,4 +268,5 @@ table Identify {
   name: string;
   // flag
   flag: uint64;
+  client_version: string;
 }

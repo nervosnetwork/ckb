@@ -3958,12 +3958,14 @@ impl<'a> Identify<'a> {
         args: &'args IdentifyArgs<'args>) -> flatbuffers::WIPOffset<Identify<'bldr>> {
       let mut builder = IdentifyBuilder::new(_fbb);
       builder.add_flag(args.flag);
+      if let Some(x) = args.client_version { builder.add_client_version(x); }
       if let Some(x) = args.name { builder.add_name(x); }
       builder.finish()
     }
 
     pub const VT_NAME: flatbuffers::VOffsetT = 4;
     pub const VT_FLAG: flatbuffers::VOffsetT = 6;
+    pub const VT_CLIENT_VERSION: flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub fn name(&self) -> Option<&'a str> {
@@ -3973,11 +3975,16 @@ impl<'a> Identify<'a> {
   pub fn flag(&self) -> u64 {
     self._tab.get::<u64>(Identify::VT_FLAG, Some(0)).unwrap()
   }
+  #[inline]
+  pub fn client_version(&self) -> Option<&'a str> {
+    self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(Identify::VT_CLIENT_VERSION, None)
+  }
 }
 
 pub struct IdentifyArgs<'a> {
     pub name: Option<flatbuffers::WIPOffset<&'a  str>>,
     pub flag: u64,
+    pub client_version: Option<flatbuffers::WIPOffset<&'a  str>>,
 }
 impl<'a> Default for IdentifyArgs<'a> {
     #[inline]
@@ -3985,6 +3992,7 @@ impl<'a> Default for IdentifyArgs<'a> {
         IdentifyArgs {
             name: None,
             flag: 0,
+            client_version: None,
         }
     }
 }
@@ -4000,6 +4008,10 @@ impl<'a: 'b, 'b> IdentifyBuilder<'a, 'b> {
   #[inline]
   pub fn add_flag(&mut self, flag: u64) {
     self.fbb_.push_slot::<u64>(Identify::VT_FLAG, flag, 0);
+  }
+  #[inline]
+  pub fn add_client_version(&mut self, client_version: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Identify::VT_CLIENT_VERSION, client_version);
   }
   #[inline]
   pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> IdentifyBuilder<'a, 'b> {

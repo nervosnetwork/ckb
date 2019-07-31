@@ -1,5 +1,5 @@
 // use crate::peer_store::Behaviour;
-use crate::{network::FEELER_PROTOCOL_ID, NetworkState};
+use crate::{network::FEELER_PROTOCOL_ID, NetworkState, PeerIdentifyInfo};
 use ckb_logger::{debug, trace};
 use ckb_protocol::{
     flatbuffers::FlatBufferBuilder, get_root, Identify as FbsIdentify,
@@ -27,12 +27,16 @@ pub(crate) struct IdentifyCallback {
 }
 
 impl IdentifyCallback {
-    pub(crate) fn new(network_state: Arc<NetworkState>, name: String) -> IdentifyCallback {
+    pub(crate) fn new(
+        network_state: Arc<NetworkState>,
+        name: String,
+        client_version: String,
+    ) -> IdentifyCallback {
         let flags = Flags(Flag::FullNode as u64);
 
         IdentifyCallback {
             network_state,
-            identify: Identify::new(name, flags),
+            identify: Identify::new(name, flags, client_version),
             remote_listen_addrs: HashMap::default(),
         }
     }
@@ -62,9 +66,21 @@ impl Callback for IdentifyCallback {
     ) -> MisbehaveResult {
         match self.identify.verify(identify) {
             None => MisbehaveResult::Disconnect,
-            Some(flags) => {
+            Some((flags, client_version)) => {
+                let registry_client_version = |version: &str| {
+                    self.network_state.with_peer_registry_mut(|registry| {
+                        if let Some(peer) = registry.get_peer_mut(context.session.id) {
+                            peer.identify_info = Some(PeerIdentifyInfo {
+                                client_version: version.to_string(),
+                            })
+                        }
+                    });
+                };
+
                 if context.session.ty.is_outbound() {
                     if flags.contains(self.identify.flags) {
+                        registry_client_version(client_version);
+
                         // The remote end can support all local protocols.
                         let protos = self
                             .network_state
@@ -76,6 +92,8 @@ impl Callback for IdentifyCallback {
                         // The remote end cannot support all local protocols.
                         return MisbehaveResult::Disconnect;
                     }
+                } else {
+                    registry_client_version(client_version);
                 }
                 MisbehaveResult::Continue
             }
@@ -153,14 +171,16 @@ impl Callback for IdentifyCallback {
 #[derive(Clone)]
 struct Identify {
     name: String,
+    client_version: String,
     flags: Flags,
     encode_data: Vec<u8>,
 }
 
 impl Identify {
-    fn new(name: String, flags: Flags) -> Self {
+    fn new(name: String, flags: Flags, client_version: String) -> Self {
         Identify {
             name,
+            client_version,
             flags,
             encode_data: Vec::default(),
         }
@@ -170,11 +190,13 @@ impl Identify {
         if self.encode_data.is_empty() {
             let mut fbb = FlatBufferBuilder::new();
             let name = fbb.create_string(&self.name);
+            let client_version = fbb.create_string(&self.client_version);
 
             let mut builder = FbsIdentifyBuilder::new(&mut fbb);
 
             builder.add_flag(self.flags.0);
             builder.add_name(name);
+            builder.add_client_version(client_version);
 
             let data = builder.finish();
             fbb.finish(data, None);
@@ -184,11 +206,15 @@ impl Identify {
         &self.encode_data
     }
 
-    fn verify(&self, data: &[u8]) -> Option<Flags> {
+    fn verify<'a>(&self, data: &'a [u8]) -> Option<(Flags, &'a str)> {
         let fbs_message = get_root::<FbsIdentify>(data).ok()?;
 
-        match (fbs_message.name(), fbs_message.flag()) {
-            (Some(raw_name), flag) => {
+        match (
+            fbs_message.name(),
+            fbs_message.flag(),
+            fbs_message.client_version(),
+        ) {
+            (Some(raw_name), flag, Some(raw_client_version)) => {
                 if self.name != raw_name {
                     debug!(
                         "Not the same chain, self: {}, remote: {}",
@@ -201,7 +227,7 @@ impl Identify {
                     return None;
                 }
 
-                Some(Flags::from(flag))
+                Some((Flags::from(flag), raw_client_version))
             }
             _ => None,
         }

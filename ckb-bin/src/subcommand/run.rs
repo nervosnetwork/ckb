@@ -133,6 +133,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         Arc::clone(&network_state),
         protocols,
         shared.consensus().identify_name(),
+        version.to_string(),
     )
     .start(version, Some("NetworkService"))
     .expect("Start network service failed");

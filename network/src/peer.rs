@@ -7,9 +7,6 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Debug)]
 pub struct PeerIdentifyInfo {
     pub client_version: String,
-    pub protocol_version: String,
-    pub supported_protocols: Vec<String>,
-    pub count_of_known_listen_addrs: usize,
 }
 
 #[derive(Clone, Debug)]
