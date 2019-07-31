@@ -110,6 +110,8 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         }
     }
 
+    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
+    #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn start<S: ToString>(
         mut self,
         thread_name: Option<S>,

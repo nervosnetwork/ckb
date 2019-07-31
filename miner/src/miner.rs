@@ -65,6 +65,8 @@ impl Miner {
         }
     }
 
+    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
+    #[allow(clippy::zero_ptr, clippy::drop_copy)]
     pub fn run(&mut self) {
         loop {
             select! {
