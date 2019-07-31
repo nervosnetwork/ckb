@@ -54,7 +54,7 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     rtx: &'a ResolvedTransaction<'a>,
 
     binaries_by_data_hash: FnvHashMap<H256, Bytes>,
-    binaries_by_type_hash: FnvHashMap<H256, Bytes>,
+    binaries_by_type_hash: FnvHashMap<H256, (Bytes, bool)>,
     lock_groups: FnvHashMap<H256, ScriptGroup>,
     type_groups: FnvHashMap<H256, ScriptGroup>,
 
@@ -92,13 +92,16 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             .collect();
 
         let mut binaries_by_data_hash: FnvHashMap<H256, Bytes> = FnvHashMap::default();
-        let mut binaries_by_type_hash: FnvHashMap<H256, Bytes> = FnvHashMap::default();
+        let mut binaries_by_type_hash: FnvHashMap<H256, (Bytes, bool)> = FnvHashMap::default();
         for resolved_dep in resolved_deps {
             if let Some(cell_meta) = &resolved_dep.cell() {
                 let data = data_loader.load_cell_data(cell_meta).expect("cell data");
                 binaries_by_data_hash.insert(cell_meta.data_hash().to_owned(), data.to_owned());
                 if let Some(t) = &cell_meta.cell_output.type_ {
-                    binaries_by_type_hash.insert(t.hash(), data.to_owned());
+                    binaries_by_type_hash
+                        .entry(t.hash())
+                        .and_modify(|e| e.1 = true)
+                        .or_insert((data.to_owned(), false));
                 }
             }
         }
@@ -224,14 +227,26 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
-        let binaries = match script.hash_type {
-            ScriptHashType::Data => &self.binaries_by_data_hash,
-            ScriptHashType::Type => &self.binaries_by_type_hash,
-        };
-        if let Some(data) = binaries.get(&script.code_hash) {
-            return Ok(data.to_owned());
-        };
-        Err(ScriptError::InvalidCodeHash)
+        match script.hash_type {
+            ScriptHashType::Data => {
+                if let Some(data) = self.binaries_by_data_hash.get(&script.code_hash) {
+                    Ok(data.to_owned())
+                } else {
+                    Err(ScriptError::InvalidCodeHash)
+                }
+            }
+            ScriptHashType::Type => {
+                if let Some((data, multiple)) = self.binaries_by_type_hash.get(&script.code_hash) {
+                    if *multiple {
+                        Err(ScriptError::MultipleMatches)
+                    } else {
+                        Ok(data.to_owned())
+                    }
+                } else {
+                    Err(ScriptError::InvalidCodeHash)
+                }
+            }
+        }
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
@@ -738,6 +753,91 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert!(verifier.verify(100_000_000).is_ok());
+    }
+
+    #[test]
+    fn check_signature_referenced_via_type_hash_failure_with_multiple_matches() {
+        let mut file = open_cell_verify();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+        let data = Bytes::from(buffer);
+
+        let (privkey, pubkey) = random_keypair();
+        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+
+        let signature = sign_args(&args, &privkey);
+        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
+        args.push(Bytes::from(to_hex_signature(&signature)));
+
+        let dep_out_point = OutPoint::new_cell(h256!("0x123"), 8);
+        let output = CellOutputBuilder::from_data(&data.clone())
+            .capacity(Capacity::bytes(data.len()).unwrap())
+            .type_(Some(Script::new(
+                vec![],
+                h256!("0x123456abcd90"),
+                ScriptHashType::Data,
+            )))
+            .build();
+        let type_hash: H256 = output.type_.as_ref().unwrap().hash();
+        let dep_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output, data.clone())
+                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .build(),
+        );
+
+        let dep_out_point2 = OutPoint::new_cell(h256!("0x1234"), 8);
+        let output2 = CellOutputBuilder::from_data(&data.clone())
+            .capacity(Capacity::bytes(data.len()).unwrap())
+            .type_(Some(Script::new(
+                vec![],
+                h256!("0x123456abcd90"),
+                ScriptHashType::Data,
+            )))
+            .build();
+        let dep_cell2 = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output2, data)
+                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .out_point(dep_out_point2.cell.as_ref().unwrap().clone())
+                .build(),
+        );
+
+        let script = Script::new(args, type_hash, ScriptHashType::Type);
+        let input = CellInput::new(OutPoint::null(), 0);
+
+        let transaction = TransactionBuilder::default()
+            .input(input.clone())
+            .dep(dep_out_point)
+            .dep(dep_out_point2)
+            .build();
+
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100))
+            .lock(script)
+            .build();
+        let dummy_cell = ResolvedOutPoint::cell_only(
+            CellMetaBuilder::from_cell_output(output, Bytes::new())
+                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .build(),
+        );
+
+        let rtx = ResolvedTransaction {
+            transaction: &transaction,
+            resolved_deps: vec![dep_cell, dep_cell2],
+            resolved_inputs: vec![dummy_cell],
+        };
+        let store = Arc::new(new_memory_store());
+        let data_loader = DataLoaderWrapper::new(store);
+
+        let config = ScriptConfig {
+            runner: Runner::default(),
+        };
+        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
+
+        assert_eq!(
+            verifier.verify(100_000_000),
+            Err(ScriptError::MultipleMatches)
+        );
     }
 
     #[test]

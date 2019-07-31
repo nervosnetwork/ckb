@@ -71,4 +71,5 @@ pub enum ScriptError {
     Secp,
     ArgumentNumber,
     NoWitness,
+    MultipleMatches,
 }
