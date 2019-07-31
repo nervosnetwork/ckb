@@ -124,8 +124,8 @@ impl PeerState {
     }
 
     pub fn can_sync(&self, now: u64, ibd: bool) -> bool {
-        // only sync with outbound/whitelist peer in IBD
-        ((self.peer_flags.is_outbound || self.peer_flags.is_whitelist) || !ibd)
+        // only sync with protect/whitelist peer in IBD
+        ((self.peer_flags.is_protect || self.peer_flags.is_whitelist) || !ibd)
             && !self.sync_started
             && self
                 .chain_sync
