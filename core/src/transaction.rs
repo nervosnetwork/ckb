@@ -120,6 +120,14 @@ impl CellDep {
         }
     }
 
+    pub fn out_point(&self) -> Option<&OutPoint> {
+        match self {
+            CellDep::Cell(out_point) => Some(out_point),
+            CellDep::DepGroup(out_point) => Some(out_point),
+            _ => None,
+        }
+    }
+
     pub fn block_hash(&self) -> Option<&H256> {
         match self {
             CellDep::CellWithHeader(_, block_hash) => Some(block_hash),
