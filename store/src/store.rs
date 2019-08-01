@@ -8,7 +8,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMeta};
 use ckb_core::extras::{BlockExt, EpochExt, TransactionInfo};
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{CellOutPoint, CellOutput, ProposalShortId, Transaction};
+use ckb_core::transaction::{CellOutPoint, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Bytes, EpochNumber};
@@ -27,14 +27,14 @@ const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct StoreConfig {
     pub header_cache_size: usize,
-    pub cell_output_cache_size: usize,
+    pub cell_data_cache_size: usize,
 }
 
 impl Default for StoreConfig {
     fn default() -> Self {
         Self {
             header_cache_size: 4096,
-            cell_output_cache_size: 128,
+            cell_data_cache_size: 128,
         }
     }
 }
@@ -42,7 +42,7 @@ impl Default for StoreConfig {
 pub struct ChainKVStore<T> {
     db: T,
     header_cache: Mutex<LruCache<H256, Header>>,
-    cell_output_cache: Mutex<LruCache<(H256, u32), CellOutput>>,
+    cell_data_cache: Mutex<LruCache<(H256, u32), Bytes>>,
 }
 
 impl<T: KeyValueDB> ChainKVStore<T> {
@@ -54,7 +54,7 @@ impl<T: KeyValueDB> ChainKVStore<T> {
         ChainKVStore {
             db,
             header_cache: Mutex::new(LruCache::new(config.header_cache_size)),
-            cell_output_cache: Mutex::new(LruCache::new(config.cell_output_cache_size)),
+            cell_data_cache: Mutex::new(LruCache::new(config.cell_data_cache_size)),
         }
     }
 
@@ -122,7 +122,6 @@ pub trait ChainStore: Sync + Send {
     fn get_transaction(&self, h: &H256) -> Option<(Transaction, H256)>;
     fn get_transaction_info(&self, hash: &H256) -> Option<TransactionInfo>;
     fn get_cell_meta(&self, tx_hash: &H256, index: u32) -> Option<CellMeta>;
-    fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput>;
     fn get_cell_data(&self, tx_hash: &H256, index: u32) -> Option<Bytes>;
     // Get current epoch ext
     fn get_current_epoch_ext(&self) -> Option<EpochExt>;
@@ -426,44 +425,33 @@ impl<T: KeyValueDB> ChainStore for ChainKVStore<T> {
         })
     }
 
-    fn get_cell_output(&self, tx_hash: &H256, index: u32) -> Option<CellOutput> {
-        let mut cell_output_cache_unlocked = self
-            .cell_output_cache
+    fn get_cell_data(&self, tx_hash: &H256, index: u32) -> Option<Bytes> {
+        let mut cell_data_cache_unlocked = self
+            .cell_data_cache
             .lock()
-            .expect("poisoned cell output cache lock");
-        if let Some(cell_output) = cell_output_cache_unlocked.get_refresh(&(tx_hash.clone(), index))
-        {
-            return Some(cell_output.clone());
+            .expect("poisoned cell data cache lock");
+        if let Some(data) = cell_data_cache_unlocked.get_refresh(&(tx_hash.clone(), index)) {
+            return Some(data.clone());
         }
         // release lock asap
-        drop(cell_output_cache_unlocked);
+        drop(cell_data_cache_unlocked);
 
         self.get_transaction_info(&tx_hash)
             .and_then(|info| {
                 self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
-                    let output_opt = protos::StoredBlockBody::from_slice(slice)
-                        .output(info.index, index as usize)?;
-                    Ok(output_opt)
+                    let data = protos::StoredBlockBody::from_slice(slice)
+                        .output_data(info.index, index as usize)?;
+                    Ok(data)
                 })
             })
-            .map(|cell_output: CellOutput| {
-                let mut cell_output_cache_unlocked = self
-                    .cell_output_cache
+            .map(|data: Bytes| {
+                let mut cell_data_cache_unlocked = self
+                    .cell_data_cache
                     .lock()
-                    .expect("poisoned cell output cache lock");
-                cell_output_cache_unlocked.insert((tx_hash.clone(), index), cell_output.clone());
-                cell_output
+                    .expect("poisoned cell data cache lock");
+                cell_data_cache_unlocked.insert((tx_hash.clone(), index), data.clone());
+                data
             })
-    }
-
-    fn get_cell_data(&self, tx_hash: &H256, index: u32) -> Option<Bytes> {
-        self.get_transaction_info(&tx_hash).and_then(|info| {
-            self.process_get(COLUMN_BLOCK_BODY, info.block_hash.as_bytes(), |slice| {
-                let data = protos::StoredBlockBody::from_slice(slice)
-                    .output_data(info.index, index as usize)?;
-                Ok(data)
-            })
-        })
     }
 
     fn traverse_cell_set<F>(&self, mut callback: F) -> Result<(), Error>
