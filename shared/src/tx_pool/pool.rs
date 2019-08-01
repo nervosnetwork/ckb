@@ -163,6 +163,14 @@ impl TxPool {
             || self.orphan.contains_key(id)
     }
 
+    pub fn contains_tx(&self, id: &ProposalShortId) -> bool {
+        self.pending.contains_key(id)
+            || self.gap.contains_key(id)
+            || self.proposed.contains_key(id)
+            || self.orphan.contains_key(id)
+            || self.conflict.contains_key(id)
+    }
+
     pub fn get_tx_with_cycles(&self, id: &ProposalShortId) -> Option<(Transaction, Option<Cycle>)> {
         self.pending
             .get(id)

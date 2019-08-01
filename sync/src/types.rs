@@ -1027,6 +1027,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.tx_filter.lock().contains(hash)
     }
 
+    pub fn tx_filter(&self) -> MutexGuard<Filter<H256>> {
+        self.tx_filter.lock()
+    }
+
     // Return true when the block is that we have requested and received first time.
     pub fn new_block_received(&self, block: &Block) -> bool {
         self.write_inflight_blocks()
