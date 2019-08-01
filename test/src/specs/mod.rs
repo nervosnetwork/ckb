@@ -27,22 +27,50 @@ macro_rules! name {
     };
 }
 
+#[macro_export]
+macro_rules! setup {
+    ($($setup:tt)*) => {
+        fn setup(&self) -> $crate::Setup{ crate::setup_internal!($($setup)*) }
+    };
+}
+
+#[macro_export]
+macro_rules! setup_internal {
+    ($field:ident: $value:expr,) => {
+        crate::setup_internal!($field: $value)
+    };
+    ($field:ident: $value:expr) => {
+        $crate::Setup{ $field: $value, ..Default::default() }
+    };
+    ($field:ident: $value:expr, $($rest:tt)*) =>  {
+        $crate::Setup{ $field: $value, ..crate::setup_internal!($($rest)*) }
+    };
+}
+
+pub struct Setup {
+    pub num_nodes: usize,
+    pub connect_all: bool,
+    pub protocols: Vec<TestProtocol>,
+}
+
+impl Default for Setup {
+    fn default() -> Self {
+        Setup {
+            num_nodes: 1,
+            connect_all: true,
+            protocols: vec![],
+        }
+    }
+}
+
 pub trait Spec {
     fn name(&self) -> &'static str;
 
+    fn setup(&self) -> Setup {
+        Setup::default()
+    }
+
     fn run(&self, net: Net);
-
-    fn num_nodes(&self) -> usize {
-        1
-    }
-
-    fn connect_all(&self) -> bool {
-        true
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![]
-    }
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {
         Box::new(|_| ())
@@ -57,7 +85,9 @@ pub trait Spec {
     }
 
     fn setup_net(&self, binary: &str, start_port: u16) -> Net {
-        let mut net = Net::new(binary, self.num_nodes(), start_port, self.test_protocols());
+        let setup = self.setup();
+
+        let mut net = Net::new(binary, setup.num_nodes, start_port, setup.protocols);
 
         // start all nodes
         net.nodes.iter_mut().for_each(|node| {
@@ -65,7 +95,7 @@ pub trait Spec {
         });
 
         // connect the nodes as a linear chain: node0 <-> node1 <-> node2 <-> ...
-        if self.connect_all() {
+        if setup.connect_all {
             net.connect_all();
         }
 

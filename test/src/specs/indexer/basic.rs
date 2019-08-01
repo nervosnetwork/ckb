@@ -7,6 +7,8 @@ pub struct IndexerBasic;
 impl Spec for IndexerBasic {
     crate::name!("indexer_basic");
 
+    crate::setup!(num_nodes: 2, connect_all: false);
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -100,13 +102,5 @@ impl Spec for IndexerBasic {
         let tip_header = rpc_client.get_tip_header();
         assert_eq!(index_state.block_number, tip_header.inner.number);
         assert_eq!(index_state.block_hash, tip_header.hash);
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }

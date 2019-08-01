@@ -9,6 +9,8 @@ pub struct MalformedMessage;
 impl Spec for MalformedMessage {
     crate::name!("malformed_message");
 
+    crate::setup!(protocols: vec![TestProtocol::sync()]);
+
     fn run(&self, net: Net) {
         info!("Connect node0");
         let node0 = &net.nodes[0];
@@ -41,9 +43,5 @@ impl Spec for MalformedMessage {
                 .any(|ban| ban.address == "127.0.0.1/32")
         });
         assert!(ret, "Node0 should ban test node");
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
     }
 }
