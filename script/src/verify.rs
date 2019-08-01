@@ -439,8 +439,7 @@ mod tests {
     use ckb_core::cell::{BlockInfo, CellMetaBuilder};
     use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{
-        CellDep,
-        CellInput, CellOutput, CellOutputBuilder, OutPoint, TransactionBuilder,
+        CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, TransactionBuilder,
     };
     use ckb_core::{capacity_bytes, Capacity};
     use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
@@ -562,7 +561,7 @@ mod tests {
         let dep_cell = ResolvedDep::cell_only(
             CellMetaBuilder::from_cell_output(output, data)
                 .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .out_point(dep_out_point.clone())
                 .build(),
         );
 
@@ -642,7 +641,7 @@ mod tests {
         let dep_cell = ResolvedDep::cell_only(
             CellMetaBuilder::from_cell_output(output, data)
                 .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .out_point(dep_out_point.cell.clone().unwrap())
+                .out_point(dep_out_point.clone())
                 .build(),
         );
 
@@ -711,13 +710,13 @@ mod tests {
         let dep_cell = ResolvedDep::cell_only(
             CellMetaBuilder::from_cell_output(output, data)
                 .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .out_point(dep_out_point.clone())
                 .build(),
         );
-        let dep = CellDep::Cell(dep_out_point);
 
         let script = Script::new(args, type_hash, ScriptHashType::Type);
         let input = CellInput::new(OutPoint::null(), 0);
+        let dep = CellDep::Cell(dep_out_point);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -777,7 +776,7 @@ mod tests {
         let dep_cell = ResolvedDep::cell_only(
             CellMetaBuilder::from_cell_output(output, data.clone())
                 .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .out_point(dep_out_point.clone())
                 .build(),
         );
         let dep = CellDep::Cell(dep_out_point);
@@ -794,7 +793,7 @@ mod tests {
         let dep_cell2 = ResolvedDep::cell_only(
             CellMetaBuilder::from_cell_output(output2, data)
                 .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .out_point(dep_out_point2.cell.as_ref().unwrap().clone())
+                .out_point(dep_out_point2.clone())
                 .build(),
         );
         let dep2 = CellDep::Cell(dep_out_point2);
@@ -874,13 +873,13 @@ mod tests {
         let dep_cell = ResolvedDep::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned(), data)
                 .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .out_point(dep_out_point.clone())
                 .build(),
         );
-        let dep = CellDep::Cell(dep_out_point);
 
         let script = Script::new(args, code_hash, ScriptHashType::Data);
         let input = CellInput::new(OutPoint::null(), 0);
+        let dep = CellDep::Cell(dep_out_point);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -941,10 +940,10 @@ mod tests {
                 .block_info(BlockInfo::new(1, 0, H256::zero()))
                 .build(),
         );
-        let dep = CellDep::Cell(dep_out_point);
 
         let script = Script::new(args, code_hash, ScriptHashType::Data);
         let input = CellInput::new(OutPoint::null(), 0);
+        let dep = CellDep::Cell(dep_out_point);
 
         let transaction = TransactionBuilder::default()
             .input(input.clone())
@@ -1082,7 +1081,7 @@ mod tests {
             ResolvedDep::cell_only(
                 CellMetaBuilder::from_cell_output(output.to_owned(), data)
                     .block_info(BlockInfo::new(1, 0, H256::zero()))
-                    .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                    .out_point(dep_out_point.clone())
                     .build(),
             )
         };
@@ -1216,7 +1215,7 @@ mod tests {
         let dep_cell = ResolvedDep::cell_only(
             CellMetaBuilder::from_cell_output(output, data)
                 .block_info(BlockInfo::new(1, 0, H256::zero()))
-                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .out_point(dep_out_point.clone())
                 .build(),
         );
         let dep = CellDep::Cell(dep_out_point);
