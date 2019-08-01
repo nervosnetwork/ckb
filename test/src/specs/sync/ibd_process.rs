@@ -6,6 +6,8 @@ use std::{thread::sleep, time::Duration};
 pub struct IBDProcess;
 
 impl Spec for IBDProcess {
+    crate::name!("ibd_process");
+
     fn run(&self, net: Net) {
         info!("Running IBD process");
 

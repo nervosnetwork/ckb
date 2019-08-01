@@ -6,6 +6,8 @@ use log::info;
 pub struct Discovery;
 
 impl Spec for Discovery {
+    crate::name!("discovery");
+
     fn run(&self, net: Net) {
         let node0_id = &net.nodes[0].node_id().clone().unwrap();
         let node2 = &net.nodes[2];

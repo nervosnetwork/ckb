@@ -12,6 +12,8 @@ use std::time::Duration;
 pub struct BlockSyncFromOne;
 
 impl Spec for BlockSyncFromOne {
+    crate::name!("block_sync_from_one");
+
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
@@ -53,6 +55,8 @@ impl Spec for BlockSyncFromOne {
 pub struct BlockSyncForks;
 
 impl Spec for BlockSyncForks {
+    crate::name!("block_sync_forks");
+
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
@@ -119,6 +123,8 @@ impl Spec for BlockSyncForks {
 pub struct BlockSyncDuplicatedAndReconnect;
 
 impl Spec for BlockSyncDuplicatedAndReconnect {
+    crate::name!("block_sync_duplicated_and_reconnect");
+
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
@@ -190,6 +196,8 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
 pub struct BlockSyncOrphanBlocks;
 
 impl Spec for BlockSyncOrphanBlocks {
+    crate::name!("block_sync_orphan_blocks");
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];

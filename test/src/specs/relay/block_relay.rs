@@ -5,6 +5,8 @@ use log::info;
 pub struct BlockRelayBasic;
 
 impl Spec for BlockRelayBasic {
+    crate::name!("block_relay_basic");
+
     fn run(&self, net: Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];

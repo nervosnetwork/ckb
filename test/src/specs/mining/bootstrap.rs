@@ -10,6 +10,8 @@ use numext_fixed_hash::{h256, H256};
 pub struct BootstrapCellbase;
 
 impl Spec for BootstrapCellbase {
+    crate::name!("bootstrap_cellbase");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 

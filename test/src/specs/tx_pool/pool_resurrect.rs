@@ -4,6 +4,8 @@ use log::info;
 pub struct PoolResurrect;
 
 impl Spec for PoolResurrect {
+    crate::name!("pool_resurrect");
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];

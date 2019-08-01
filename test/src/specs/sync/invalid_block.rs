@@ -9,6 +9,8 @@ use std::time::Duration;
 pub struct ChainContainsInvalidBlock;
 
 impl Spec for ChainContainsInvalidBlock {
+    crate::name!("chain_contains_invalid_block");
+
     // Case:
     //   1. `bad_node` generate a long chain `CN` contains a invalid block
     //      B[i] is an invalid block.
@@ -84,6 +86,8 @@ impl Spec for ChainContainsInvalidBlock {
 pub struct ForkContainsInvalidBlock;
 
 impl Spec for ForkContainsInvalidBlock {
+    crate::name!("fork_contains_invalid_block");
+
     fn run(&self, net: Net) {
         let mut net = net;
 

@@ -5,6 +5,8 @@ use log::info;
 pub struct SizeLimit;
 
 impl Spec for SizeLimit {
+    crate::name!("size_limit");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 
@@ -52,6 +54,8 @@ impl Spec for SizeLimit {
 pub struct CyclesLimit;
 
 impl Spec for CyclesLimit {
+    crate::name!("cycles_limit");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 

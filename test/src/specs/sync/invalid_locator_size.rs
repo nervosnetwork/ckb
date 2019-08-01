@@ -9,6 +9,8 @@ use numext_fixed_hash::{h256, H256};
 pub struct InvalidLocatorSize;
 
 impl Spec for InvalidLocatorSize {
+    crate::name!("invalid_locator_size");
+
     fn run(&self, net: Net) {
         info!("Connect node0");
         net.exit_ibd_mode();
