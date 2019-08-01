@@ -58,14 +58,15 @@ fn create_transaction(
         .type_(Some(always_success_script.to_owned()))
         .build();
     let inputs: Vec<CellInput> = (0..100)
-        .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0))
+        .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), 0))
         .collect();
+    let dep = CellDep::Cell(always_success_out_point.clone());
 
     TransactionBuilder::default()
         .inputs(inputs)
         .outputs(vec![output; 100])
         .outputs_data(vec![Bytes::new(); 100])
-        .dep(always_success_out_point.to_owned())
+        .dep(dep)
         .build()
 }
 
@@ -121,7 +122,7 @@ fn setup_env() -> (ChainController, Shared, H256, Script, OutPoint) {
         shared,
         tx_hash.to_owned(),
         always_success_script.clone(),
-        OutPoint::new_cell(tx_hash, 0),
+        OutPoint::new(tx_hash, 0),
     )
 }
 

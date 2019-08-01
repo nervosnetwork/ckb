@@ -1,7 +1,7 @@
 use crate::error::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::{
-    cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
+    cell::{CellMeta, ResolvedDep, ResolvedInput, ResolvedTransaction},
     transaction::{CellOutput, Transaction, TX_VERSION},
     BlockNumber, Capacity, Cycle, EpochNumber,
 };
@@ -235,14 +235,14 @@ impl<'a> MaturityVerifier<'a> {
             self.transaction
                 .resolved_inputs
                 .iter()
-                .filter_map(ResolvedOutPoint::cell)
+                .map(ResolvedInput::cell)
                 .any(cellbase_immature)
         };
         let dep_immature_spend = || {
             self.transaction
                 .resolved_deps
                 .iter()
-                .filter_map(ResolvedOutPoint::cell)
+                .filter_map(ResolvedDep::cell)
                 .any(cellbase_immature)
         };
 
@@ -320,13 +320,10 @@ impl<'a> CapacityVerifier<'a> {
             .any(|input| {
                 input
                     .cell()
-                    .map(|cell| {
-                        cell.cell_output
-                            .type_
-                            .as_ref()
-                            .map(|type_| type_.code_hash == CODE_HASH_DAO)
-                            .unwrap_or(false)
-                    })
+                    .cell_output
+                    .type_
+                    .as_ref()
+                    .map(|type_| type_.code_hash == CODE_HASH_DAO)
                     .unwrap_or(false)
             })
     }
@@ -495,16 +492,16 @@ where
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        for (resolved_out_point, input) in self
+        for (resolved_input, input) in self
             .rtx
             .resolved_inputs
             .iter()
             .zip(self.rtx.transaction.inputs())
         {
-            if resolved_out_point.cell().is_none() {
+            if resolved_input.cell().out_point.is_null() {
                 continue;
             }
-            let cell_meta = resolved_out_point.cell().unwrap();
+            let cell_meta = resolved_input.cell();
             // ignore empty since
             if input.since == 0 {
                 continue;

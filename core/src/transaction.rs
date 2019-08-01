@@ -101,13 +101,18 @@ impl Default for OutPoint {
     }
 }
 
-// TODO: impl Debug later
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum CellDep {
     Cell(OutPoint),
     CellWithHeader(OutPoint, H256),
     DepGroup(OutPoint),
     Header(H256),
+}
+
+impl Default for CellDep {
+    fn default() -> CellDep {
+        CellDep::Cell(OutPoint::null())
+    }
 }
 
 impl CellDep {

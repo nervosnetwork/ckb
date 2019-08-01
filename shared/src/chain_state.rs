@@ -243,41 +243,39 @@ impl ChainState {
         let updated_old_inputs = old_inputs
             .into_iter()
             .filter_map(|out_point| {
-                out_point.cell.and_then(|cell| {
-                    // if old_input reference the old_output, skip.
-                    if !old_outputs.contains(&cell.tx_hash) {
-                        if let Some(tx_meta) = self.cell_set.try_mark_live(&cell) {
-                            Some((cell.tx_hash, tx_meta))
-                        } else {
-                            let ret = self.store.get_transaction(&cell.tx_hash);
-                            if ret.is_none() {
-                                info_target!(
-                                    crate::LOG_TARGET_CHAIN,
-                                    "[update_tip] get_transaction error tx_hash {:x} cell {:?}",
-                                    &cell.tx_hash,
-                                    cell,
-                                );
-                            }
-                            let (tx, block_hash) = ret.expect("we should have this transaction");
-                            let block = self
-                                .store
-                                .get_block(&block_hash)
-                                .expect("we should have this block");
-                            let cellbase = block.transactions()[0].hash() == tx.hash();
-                            let tx_meta = self.cell_set.insert_cell(
-                                &cell,
-                                block.header().number(),
-                                block.header().epoch(),
-                                block.header().hash().to_owned(),
-                                cellbase,
-                                tx.outputs().len(),
-                            );
-                            Some((cell.tx_hash, tx_meta))
-                        }
+                // if old_input reference the old_output, skip.
+                if !old_outputs.contains(&out_point.tx_hash) {
+                    if let Some(tx_meta) = self.cell_set.try_mark_live(&out_point) {
+                        Some((out_point.tx_hash, tx_meta))
                     } else {
-                        None
+                        let ret = self.store.get_transaction(&out_point.tx_hash);
+                        if ret.is_none() {
+                            info_target!(
+                                crate::LOG_TARGET_CHAIN,
+                                "[update_tip] get_transaction error tx_hash {:x} cell {:?}",
+                                &out_point.tx_hash,
+                                out_point,
+                            );
+                        }
+                        let (tx, block_hash) = ret.expect("we should have this transaction");
+                        let block = self
+                            .store
+                            .get_block(&block_hash)
+                            .expect("we should have this block");
+                        let cellbase = block.transactions()[0].hash() == tx.hash();
+                        let tx_meta = self.cell_set.insert_cell(
+                            &out_point,
+                            block.header().number(),
+                            block.header().epoch(),
+                            block.header().hash().to_owned(),
+                            cellbase,
+                            tx.outputs().len(),
+                        );
+                        Some((out_point.tx_hash, tx_meta))
                     }
-                })
+                } else {
+                    None
+                }
             })
             .collect::<Vec<_>>();
 
@@ -304,12 +302,14 @@ impl ChainState {
         let mut updated_new_inputs = Vec::new();
         let mut removed_new_inputs = Vec::new();
         new_inputs.into_iter().for_each(|out_point| {
-            out_point.cell.and_then(|cell| {
-                self.cell_set.mark_dead(&cell).map(|opr| match opr {
-                    CellSetOpr::Delete => removed_new_inputs.push(cell.tx_hash),
-                    CellSetOpr::Update(tx_meta) => updated_new_inputs.push((cell.tx_hash, tx_meta)),
-                })
-            });
+            if let Some(opr) = self.cell_set.mark_dead(&out_point) {
+                match opr {
+                    CellSetOpr::Delete => removed_new_inputs.push(out_point.tx_hash),
+                    CellSetOpr::Update(tx_meta) => {
+                        updated_new_inputs.push((out_point.tx_hash, tx_meta))
+                    }
+                }
+            }
         });
 
         for (tx_hash, tx_meta) in updated_old_inputs.iter() {
@@ -536,9 +536,8 @@ impl ChainState {
                     // InvalidHeader. They all represent invalid transactions
                     // that should just be discarded.
                     // OutOfOrder should only appear in BlockCellProvider
-                    UnresolvableError::Empty
-                    | UnresolvableError::UnspecifiedInputCell(_)
-                    | UnresolvableError::InvalidHeader(_)
+                    UnresolvableError::InvalidHeader(_, _)
+                    | UnresolvableError::InvalidDepGroup(_)
                     | UnresolvableError::OutOfOrder(_) => {
                         tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                     }
@@ -748,75 +747,73 @@ pub struct ChainCellSetOverlay<'a, CS> {
 }
 
 impl CellProvider for ChainState {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(cell_out_point) = &out_point.cell {
-            match self.cell_set.get(&cell_out_point.tx_hash) {
-                Some(tx_meta) => match tx_meta.is_dead(cell_out_point.index as usize) {
-                    Some(false) => {
-                        let cell_meta = self
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
+        match self.cell_set.get(&out_point.tx_hash) {
+            Some(tx_meta) => match tx_meta.is_dead(out_point.index as usize) {
+                Some(false) => {
+                    let mut cell_meta = self
+                        .store
+                        .get_cell_meta(&out_point.tx_hash, out_point.index)
+                        .expect("store should be consistent with cell_set");
+                    if with_data {
+                        cell_meta.mem_cell_data = self
                             .store
-                            .get_cell_meta(&cell_out_point.tx_hash, cell_out_point.index)
-                            .expect("store should be consistent with cell_set");
-                        CellStatus::live_cell(cell_meta)
+                            .get_cell_data(&out_point.tx_hash, out_point.index)
                     }
-                    Some(true) => CellStatus::Dead,
-                    None => CellStatus::Unknown,
-                },
+                    CellStatus::live_cell(cell_meta)
+                }
+                Some(true) => CellStatus::Dead,
                 None => CellStatus::Unknown,
-            }
-        } else {
-            CellStatus::Unspecified
+            },
+            None => CellStatus::Unknown,
         }
     }
 }
 
 impl HeaderProvider for ChainState {
-    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
-        if let Some(block_hash) = &out_point.block_hash {
-            match self.store.get_block_header(&block_hash) {
-                Some(header) => {
-                    if let Some(cell_out_point) = &out_point.cell {
-                        self.store
-                            .get_transaction_info(&cell_out_point.tx_hash)
-                            .map_or(HeaderStatus::InclusionFaliure, |info| {
-                                if info.block_hash == *block_hash {
-                                    HeaderStatus::live_header(header)
-                                } else {
-                                    HeaderStatus::InclusionFaliure
-                                }
-                            })
-                    } else {
-                        HeaderStatus::live_header(header)
-                    }
+    fn header(&self, block_hash: &H256, out_point: Option<&OutPoint>) -> HeaderStatus {
+        match self.store.get_block_header(&block_hash) {
+            Some(header) => {
+                if let Some(out_point) = out_point {
+                    self.store.get_transaction_info(&out_point.tx_hash).map_or(
+                        HeaderStatus::InclusionFaliure,
+                        |info| {
+                            if info.block_hash == *block_hash {
+                                HeaderStatus::live_header(header)
+                            } else {
+                                HeaderStatus::InclusionFaliure
+                            }
+                        },
+                    )
+                } else {
+                    HeaderStatus::live_header(header)
                 }
-                None => HeaderStatus::Unknown,
             }
-        } else {
-            HeaderStatus::Unspecified
+            None => HeaderStatus::Unknown,
         }
     }
 }
 
 impl<'a, CS: ChainStore<'a>> CellProvider for ChainCellSetOverlay<'a, CS> {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(cell_out_point) = &out_point.cell {
-            match self.overlay.get(&cell_out_point.tx_hash) {
-                Some(tx_meta) => match tx_meta.is_dead(cell_out_point.index as usize) {
-                    Some(false) => {
-                        let cell_meta = self
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
+        match self.overlay.get(&out_point.tx_hash) {
+            Some(tx_meta) => match tx_meta.is_dead(out_point.index as usize) {
+                Some(false) => {
+                    let mut cell_meta = self
+                        .store
+                        .get_cell_meta(&out_point.tx_hash, out_point.index)
+                        .expect("store should be consistent with cell_set");
+                    if with_data {
+                        cell_meta.mem_cell_data = self
                             .store
-                            .get_cell_meta(&cell_out_point.tx_hash, cell_out_point.index)
-                            .expect("store should be consistent with cell_set");
-
-                        CellStatus::live_cell(cell_meta)
+                            .get_cell_data(&out_point.tx_hash, out_point.index)
                     }
-                    Some(true) => CellStatus::Dead,
-                    None => CellStatus::Unknown,
-                },
+                    CellStatus::live_cell(cell_meta)
+                }
+                Some(true) => CellStatus::Dead,
                 None => CellStatus::Unknown,
-            }
-        } else {
-            CellStatus::Unspecified
+            },
+            None => CellStatus::Unknown,
         }
     }
 }

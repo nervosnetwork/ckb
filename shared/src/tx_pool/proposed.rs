@@ -1,6 +1,6 @@
 use crate::tx_pool::types::ProposedEntry;
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
-use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
+use ckb_core::transaction::{CellDep, CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::{Bytes, Capacity, Cycle};
 use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
 use std::collections::VecDeque;
@@ -86,26 +86,25 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 #[derive(Default, Debug, Clone)]
 pub(crate) struct ProposedPool {
     pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, ProposedEntry>,
-    pub(crate) edges: Edges<OutPoint, ProposalShortId>,
+    pub(crate) edges: Edges<CellDep, ProposalShortId>,
 }
 
 impl CellProvider for ProposedPool {
-    fn cell(&self, o: &OutPoint) -> CellStatus {
-        if o.cell.is_none() {
-            return CellStatus::Unspecified;
-        }
-        if let Some(x) = self.edges.get_inner(o) {
+    fn cell(&self, o: &OutPoint, _with_data: bool) -> CellStatus {
+        // FIXME: this can be a problem, need specific search function or more index?
+        let dep = CellDep::Cell(o.clone());
+        if let Some(x) = self.edges.get_inner(&dep) {
             if x.is_some() {
                 CellStatus::Dead
             } else {
                 let (output, data) = self.get_output_with_data(o).expect("output");
                 CellStatus::live_cell(
                     CellMetaBuilder::from_cell_output(output.to_owned(), data)
-                        .out_point(o.cell.as_ref().unwrap().to_owned())
+                        .out_point(o.clone())
                         .build(),
                 )
             }
-        } else if self.edges.get_outer(o).is_some() {
+        } else if self.edges.get_outer(&dep).is_some() {
             CellStatus::Dead
         } else {
             CellStatus::Unknown
@@ -130,15 +129,10 @@ impl ProposedPool {
         self.get(id).map(|x| &x.transaction)
     }
 
-    pub(crate) fn get_output_with_data(&self, o: &OutPoint) -> Option<(CellOutput, Bytes)> {
-        o.cell.as_ref().and_then(|cell_out_point| {
-            self.vertices
-                .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
-                .and_then(|x| {
-                    x.transaction
-                        .get_output_with_data(cell_out_point.index as usize)
-                })
-        })
+    pub(crate) fn get_output_with_data(&self, out_point: &OutPoint) -> Option<(CellOutput, Bytes)> {
+        self.vertices
+            .get(&ProposalShortId::from_tx_hash(&out_point.tx_hash))
+            .and_then(|x| x.transaction.get_output_with_data(out_point.index as usize))
     }
 
     pub(crate) fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
@@ -154,8 +148,11 @@ impl ProposedPool {
                 let outputs = tx.output_pts();
                 let deps = tx.deps_iter();
                 for i in inputs {
-                    if self.edges.inner.remove(i).is_none() {
-                        self.edges.outer.remove(i);
+                    // FIXME: also a problem
+                    let dep = CellDep::Cell(i.clone());
+
+                    if self.edges.inner.remove(&dep).is_none() {
+                        self.edges.outer.remove(&dep);
                     }
                 }
 
@@ -164,11 +161,14 @@ impl ProposedPool {
                 }
 
                 for o in outputs {
-                    if let Some(cid) = self.edges.remove_inner(&o) {
+                    // FIXME: also a problem
+                    let dep = CellDep::Cell(o.clone());
+
+                    if let Some(cid) = self.edges.remove_inner(&dep) {
                         queue.push_back(cid);
                     }
 
-                    if let Some(ids) = self.edges.remove_deps(&o) {
+                    if let Some(ids) = self.edges.remove_deps(&dep) {
                         for cid in ids {
                             queue.push_back(cid);
                         }
@@ -195,15 +195,18 @@ impl ProposedPool {
         let mut count: usize = 0;
 
         for i in inputs {
+            // FIXME: also a problem
+            let dep = CellDep::Cell(i.clone());
+
             let mut flag = true;
-            if let Some(x) = self.edges.get_inner_mut(i) {
+            if let Some(x) = self.edges.get_inner_mut(&dep) {
                 *x = Some(id);
                 count += 1;
                 flag = false;
             }
 
             if flag {
-                self.edges.insert_outer(i.to_owned(), id);
+                self.edges.insert_outer(dep, id);
             }
         }
 
@@ -215,7 +218,9 @@ impl ProposedPool {
         }
 
         for o in outputs {
-            self.edges.mark_inpool(o);
+            // FIXME: also a problem
+            let dep = CellDep::Cell(o.clone());
+            self.edges.mark_inpool(dep);
         }
 
         self.vertices
@@ -233,12 +238,15 @@ impl ProposedPool {
         if let Some(entry) = self.vertices.remove(&id) {
             removed.push(entry);
             for o in outputs {
-                if let Some(cid) = self.edges.remove_inner(&o) {
+                // FIXME: also a problem
+                let dep = CellDep::Cell(o.clone());
+
+                if let Some(cid) = self.edges.remove_inner(&dep) {
                     self.dec_ref(&cid);
-                    self.edges.insert_outer(o.clone(), cid);
+                    self.edges.insert_outer(dep.clone(), cid);
                 }
 
-                if let Some(x) = { self.edges.get_deps(&o).cloned() } {
+                if let Some(x) = { self.edges.get_deps(&dep).cloned() } {
                     for cid in x {
                         self.dec_ref(&cid);
                     }
@@ -246,7 +254,9 @@ impl ProposedPool {
             }
 
             for i in inputs {
-                self.edges.remove_outer(i);
+                // FIXME: also a problem
+                let dep = CellDep::Cell(i.clone());
+                self.edges.remove_outer(&dep);
             }
 
             for d in deps {
@@ -263,11 +273,14 @@ impl ProposedPool {
         let mut removed = Vec::new();
 
         for i in inputs {
-            if let Some(id) = self.edges.remove_outer(i) {
+            // FIXME: also a problem
+            let dep = CellDep::Cell(i.clone());
+
+            if let Some(id) = self.edges.remove_outer(&dep) {
                 removed.append(&mut self.remove(&id));
             }
 
-            if let Some(x) = self.edges.remove_deps(&i) {
+            if let Some(x) = self.edges.remove_deps(&dep) {
                 for id in x {
                     removed.append(&mut self.remove(&id));
                 }
@@ -307,9 +320,9 @@ mod tests {
     fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
             .inputs(
-                inputs.into_iter().map(|(txid, index)| {
-                    CellInput::new(OutPoint::new_cell(txid.to_owned(), index), 0)
-                }),
+                inputs
+                    .into_iter()
+                    .map(|(txid, index)| CellInput::new(OutPoint::new(txid.to_owned(), index), 0)),
             )
             .outputs((0..outputs_len).map(|i| {
                 CellOutputBuilder::default()

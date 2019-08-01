@@ -3,7 +3,7 @@ use super::super::transaction_verifier::{
     Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
 use crate::error::TransactionError;
-use ckb_core::cell::{BlockInfo, CellMetaBuilder, ResolvedOutPoint, ResolvedTransaction};
+use ckb_core::cell::{BlockInfo, CellMetaBuilder, ResolvedDep, ResolvedInput, ResolvedTransaction};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
     CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder, TX_VERSION,
@@ -239,7 +239,7 @@ pub fn test_capacity_invalid() {
 
 #[test]
 pub fn test_duplicate_deps() {
-    let out_point = OutPoint::new_cell(h256!("0x1"), 0);
+    let out_point = OutPoint::new(h256!("0x1"), 0);
     let transaction = TransactionBuilder::default()
         .deps(vec![out_point.clone(), out_point])
         .build();
@@ -302,10 +302,7 @@ fn test_since() {
 
 fn create_tx_with_lock(since: u64) -> Transaction {
     TransactionBuilder::default()
-        .inputs(vec![CellInput::new(
-            OutPoint::new_cell(h256!("0x1"), 0),
-            since,
-        )])
+        .inputs(vec![CellInput::new(OutPoint::new(h256!("0x1"), 0), since)])
         .build()
 }
 
@@ -413,9 +410,9 @@ pub fn test_since_both() {
     let transaction = TransactionBuilder::default()
         .inputs(vec![
             // absolute lock until epoch number 0xa
-            CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0x0000_0000_0000_000a),
+            CellInput::new(OutPoint::new(h256!("0x1"), 0), 0x0000_0000_0000_000a),
             // relative lock until after 2 blocks
-            CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0xc000_0000_0000_0002),
+            CellInput::new(OutPoint::new(h256!("0x1"), 0), 0xc000_0000_0000_0002),
         ])
         .build();
 

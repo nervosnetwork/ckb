@@ -75,18 +75,14 @@ impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for VerifyContext<'a, CS> {
 }
 
 impl<'a, CS: ChainStore<'a>> HeaderProvider for VerifyContext<'a, CS> {
-    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
-        if let Some(block_hash) = &out_point.block_hash {
-            match self.store.get_block_number(&block_hash) {
-                Some(_) => HeaderStatus::live_header(
-                    self.store
-                        .get_block_header(&block_hash)
-                        .expect("header index checked"),
-                ),
-                None => HeaderStatus::Unknown,
-            }
-        } else {
-            HeaderStatus::Unspecified
+    fn header(&self, block_hash: &H256, _out_point: Option<&OutPoint>) -> HeaderStatus {
+        match self.store.get_block_number(&block_hash) {
+            Some(_) => HeaderStatus::live_header(
+                self.store
+                    .get_block_header(&block_hash)
+                    .expect("header index checked"),
+            ),
+            None => HeaderStatus::Unknown,
         }
     }
 }

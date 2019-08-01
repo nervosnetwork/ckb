@@ -40,7 +40,7 @@ fn create_cellbase_transaction() -> Transaction {
 
 fn create_normal_transaction() -> Transaction {
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new_cell(h256!("0x1"), 0), 0))
+        .input(CellInput::new(OutPoint::new(h256!("0x1"), 0), 0))
         .output(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(100))
