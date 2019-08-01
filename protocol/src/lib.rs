@@ -11,6 +11,11 @@ mod protocol_generated_verifier;
 pub use crate::protocol_generated::ckb::protocol::*;
 pub use flatbuffers;
 
+pub const DEP_TYPE_CELL: u8 = 0;
+pub const DEP_TYPE_CELL_WITH_HEADER: u8 = 1;
+pub const DEP_TYPE_DEP_GROUP: u8 = 2;
+pub const DEP_TYPE_HEADER: u8 = 3;
+
 pub fn get_root<'a, T>(data: &'a [u8]) -> Result<T::Inner, error::Error>
 where
     T: flatbuffers::Follow<'a> + 'a,
