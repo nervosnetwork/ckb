@@ -67,7 +67,9 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
     fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256> {
         let tx: CoreTransaction = transaction.into();
         let fbb = &mut FlatBufferBuilder::new();
-        let message = RelayMessage::build_transaction(fbb, &tx, 10000);
+        let hash = tx.hash().to_owned();
+        let relay_tx = (tx, 10000);
+        let message = RelayMessage::build_transactions(fbb, &[relay_tx]);
         fbb.finish(message, None);
         let data = fbb.finished_data().into();
         if let Err(err) = self
@@ -77,7 +79,7 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
             error!("Broadcast transaction failed: {:?}", err);
             Err(RPCError::custom(RPCError::Invalid, err.to_string()))
         } else {
-            Ok(tx.hash().to_owned())
+            Ok(hash)
         }
     }
 }

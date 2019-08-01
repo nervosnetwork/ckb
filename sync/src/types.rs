@@ -1023,6 +1023,21 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.tx_filter.lock().insert(hash);
     }
 
+    pub fn mark_as_known_txes(&self, hashes: Vec<H256>) {
+        {
+            let mut inflight_transactions = self.inflight_transactions.lock();
+            for hash in hashes.iter() {
+                inflight_transactions.remove(&hash);
+            }
+        }
+
+        let mut tx_filter = self.tx_filter.lock();
+
+        for hash in hashes {
+            tx_filter.insert(hash);
+        }
+    }
+
     pub fn already_known_tx(&self, hash: &H256) -> bool {
         self.tx_filter.lock().contains(hash)
     }
