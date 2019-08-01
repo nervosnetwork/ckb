@@ -225,7 +225,7 @@ impl HeaderStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedOutPoint {
     pub cell: Option<Box<CellMeta>>,
     pub header: Option<Box<Header>>,
@@ -546,11 +546,16 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
         Vec::with_capacity(transaction.inputs().len()),
         Vec::with_capacity(transaction.deps().len()),
     );
+    let mut current_inputs = FnvHashSet::default();
 
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
-            let (cell_status, header_status) = if seen_inputs.insert(out_point.to_owned()) {
+            if seen_inputs.contains(out_point) {
+                return Err(UnresolvableError::Dead(out_point.to_owned()));
+            }
+
+            let (cell_status, header_status) = if current_inputs.insert(out_point.to_owned()) {
                 (
                     cell_provider.cell(out_point),
                     header_provider.header(out_point),
@@ -633,6 +638,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
     if !unknown_out_points.is_empty() {
         Err(UnresolvableError::Unknown(unknown_out_points))
     } else {
+        seen_inputs.extend(current_inputs);
         Ok(ResolvedTransaction {
             transaction,
             resolved_inputs,
@@ -986,6 +992,34 @@ mod tests {
     }
 
     #[test]
+    fn resolve_transaction_should_allow_dep_cell_in_current_tx_input() {
+        let mut cell_provider = CellMemoryDb::default();
+        let header_provider = BlockHeadersProvider::default();
+
+        let out_point = OutPoint::new_cell(h256!("0x2"), 3);
+
+        let dummy_cell_meta = generate_dummy_cell_meta();
+        cell_provider.cells.insert(
+            out_point.cell.clone().unwrap(),
+            Some(dummy_cell_meta.clone()),
+        );
+
+        let tx = TransactionBuilder::default()
+            .input(CellInput::new(out_point.clone(), 0))
+            .dep(out_point.clone())
+            .build();
+
+        let mut seen_inputs = FnvHashSet::default();
+        let rtx =
+            resolve_transaction(&tx, &mut seen_inputs, &cell_provider, &header_provider).unwrap();
+
+        assert_eq!(
+            rtx.resolved_deps[0],
+            ResolvedOutPoint::cell_only(dummy_cell_meta),
+        );
+    }
+
+    #[test]
     fn resolve_transaction_should_reject_dep_cell_consumed_by_previous_input() {
         let mut cell_provider = CellMemoryDb::default();
         let header_provider = BlockHeadersProvider::default();
@@ -996,23 +1030,6 @@ mod tests {
             out_point.cell.clone().unwrap(),
             Some(generate_dummy_cell_meta()),
         );
-
-        // dep's outpoint consumed by input
-        {
-            let tx = TransactionBuilder::default()
-                .input(CellInput::new(out_point.clone(), 0))
-                .dep(out_point.clone())
-                .build();
-
-            let mut seen_inputs = FnvHashSet::default();
-            let result =
-                resolve_transaction(&tx, &mut seen_inputs, &cell_provider, &header_provider);
-
-            assert_eq!(
-                result.err(),
-                Some(UnresolvableError::Dead(out_point.clone()))
-            );
-        }
 
         // tx1 dep
         // tx2 input consumed
