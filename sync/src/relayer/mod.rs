@@ -442,7 +442,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
 
             for (peer_index, tx_hashes) in peer_tx_hashes.into_iter() {
                 for tx_hash in tx_hashes {
-                    let peers: Vec<PeerIndex> = nc
+                    for peer in nc
                         .connected_peers()
                         .into_iter()
                         .filter(|target_peer| {
@@ -450,8 +450,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                                 && (peer_index != *target_peer)
                         })
                         .take(MAX_RELAY_PEERS)
-                        .collect();
-                    for peer in peers {
+                    {
                         let hashes = selected.entry(peer).or_insert_with(FnvHashSet::default);
                         hashes.insert(tx_hash.clone());
                     }
