@@ -6,7 +6,7 @@ use crate::error::TransactionError;
 use ckb_core::cell::{BlockInfo, CellMetaBuilder, ResolvedDep, ResolvedInput, ResolvedTransaction};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
-    CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder, TX_VERSION,
+    CellDep, CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder, TX_VERSION,
 };
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity, Version};
 use ckb_resource::CODE_HASH_DAO;
@@ -68,7 +68,7 @@ pub fn test_capacity_outofbound() {
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_deps: Vec::new(),
-        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+        resolved_inputs: vec![ResolvedInput::new(
             CellMetaBuilder::from_cell_output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(50))
@@ -124,7 +124,7 @@ pub fn test_inputs_cellbase_maturity() {
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_deps: Vec::new(),
-        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+        resolved_inputs: vec![ResolvedInput::new(
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                 .block_info(MockMedianTime::get_block_info(30, 0))
                 .cellbase(true)
@@ -158,13 +158,13 @@ pub fn test_deps_cellbase_maturity() {
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_deps: vec![
-            ResolvedOutPoint::cell_only(
+            ResolvedDep::cell_only(
                 CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                     .block_info(MockMedianTime::get_block_info(30, 0))
                     .cellbase(true)
                     .build(),
             ),
-            ResolvedOutPoint::cell_only(
+            ResolvedDep::cell_only(
                 CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                     .block_info(MockMedianTime::get_block_info(40, 0))
                     .cellbase(false)
@@ -209,7 +209,7 @@ pub fn test_capacity_invalid() {
         transaction: &transaction,
         resolved_deps: Vec::new(),
         resolved_inputs: vec![
-            ResolvedOutPoint::cell_only(
+            ResolvedInput::new(
                 CellMetaBuilder::from_cell_output(
                     CellOutputBuilder::default()
                         .capacity(capacity_bytes!(49))
@@ -218,7 +218,7 @@ pub fn test_capacity_invalid() {
                 )
                 .build(),
             ),
-            ResolvedOutPoint::cell_only(
+            ResolvedInput::new(
                 CellMetaBuilder::from_cell_output(
                     CellOutputBuilder::default()
                         .capacity(capacity_bytes!(100))
@@ -240,8 +240,9 @@ pub fn test_capacity_invalid() {
 #[test]
 pub fn test_duplicate_deps() {
     let out_point = OutPoint::new(h256!("0x1"), 0);
+    let dep = CellDep::Cell(out_point);
     let transaction = TransactionBuilder::default()
-        .deps(vec![out_point.clone(), out_point])
+        .deps(vec![dep.clone(), dep])
         .build();
 
     let verifier = DuplicateDepsVerifier::new(&transaction);
@@ -313,7 +314,7 @@ fn create_resolve_tx_with_block_info(
     ResolvedTransaction {
         transaction: &tx,
         resolved_deps: Vec::new(),
-        resolved_inputs: vec![ResolvedOutPoint::cell_only(
+        resolved_inputs: vec![ResolvedInput::new(
             CellMetaBuilder::from_cell_output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(50))
