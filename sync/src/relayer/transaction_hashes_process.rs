@@ -6,8 +6,8 @@ use ckb_network::PeerIndex;
 use ckb_protocol::RelayTransactionHashes as FbsRelayTransactionHashes;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
+use numext_fixed_hash::H256;
 use std::convert::TryInto;
-use std::mem;
 
 pub struct TransactionHashesProcess<'a, CS> {
     message: &'a FbsRelayTransactionHashes<'a>,
@@ -31,29 +31,33 @@ impl<'a, CS: ChainStore + 'static> TransactionHashesProcess<'a, CS> {
     pub fn execute(self) -> Result<(), FailureError> {
         let transaction_hashes: TransactionHashes = (*self.message).try_into()?;
 
-        let mut x_hashes = Vec::with_capacity(transaction_hashes.hashes.len());
-        {
+        let mut transit_hashes: Vec<H256> = {
             let tx_filter = self.relayer.shared().tx_filter();
-            for tx_hash in transaction_hashes.hashes {
-                if tx_filter.contains(&tx_hash) {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "transaction({:#x}) from {} already known, ignore it",
-                        tx_hash,
-                        self.peer,
-                    );
-                } else {
-                    x_hashes.push(tx_hash);
-                }
-            }
-        }
+            transaction_hashes
+                .hashes
+                .into_iter()
+                .filter(|tx_hash| {
+                    if tx_filter.contains(&tx_hash) {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "transaction({:#x}) from {} already known, ignore it",
+                            tx_hash,
+                            self.peer,
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect()
+        };
 
-        let mut knowned = Vec::with_capacity(x_hashes.len());
+        let mut knowned = Vec::with_capacity(transit_hashes.len());
         {
             let state = self.relayer.shared.lock_chain_state();
             let tx_pool = state.tx_pool();
 
-            for tx_hash in mem::replace(&mut x_hashes, vec![]) {
+            transit_hashes.retain(|tx_hash| {
                 let short_id = ProposalShortId::from_tx_hash(&tx_hash);
                 if tx_pool.contains_tx(&short_id) {
                     trace_target!(
@@ -62,15 +66,16 @@ impl<'a, CS: ChainStore + 'static> TransactionHashesProcess<'a, CS> {
                         tx_hash,
                         self.peer,
                     );
-                    knowned.push(tx_hash);
+                    knowned.push(tx_hash.to_owned());
+                    false
                 } else {
-                    x_hashes.push(tx_hash);
+                    true
                 }
-            }
+            })
         }
 
         {
-            self.relayer.shared().mark_as_known_txes(knowned);
+            self.relayer.shared().mark_as_known_txs(knowned);
         }
 
         if let Some(peer_state) = self
@@ -83,7 +88,7 @@ impl<'a, CS: ChainStore + 'static> TransactionHashesProcess<'a, CS> {
         {
             let mut inflight_transactions = self.relayer.shared().inflight_transactions();
 
-            for tx_hash in x_hashes {
+            for tx_hash in transit_hashes {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "transaction({:#x}) from {} not known, get it from the peer",

@@ -1,4 +1,4 @@
-use crate::relayer::compact_block::RelayTransactions;
+use crate::relayer::compact_block::{RelayTransaction, RelayTransactions};
 use crate::relayer::Relayer;
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -36,35 +36,39 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionsProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let relay_txes: RelayTransactions = (*self.message).try_into()?;
+        let relay_txs: RelayTransactions = (*self.message).try_into()?;
 
-        let mut txes = Vec::with_capacity(relay_txes.transactions.len());
-
-        {
+        let txs: Vec<RelayTransaction> = {
             let tx_filter = self.relayer.shared().tx_filter();
-            for relay_tx in relay_txes.transactions {
-                let tx_hash = relay_tx.transaction.hash();
-                if tx_filter.contains(tx_hash) {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "discarding already known transaction {:#x}",
-                        tx_hash
-                    );
-                } else {
-                    txes.push(relay_tx)
-                }
-            }
-        }
 
-        if txes.is_empty() {
+            relay_txs
+                .transactions
+                .into_iter()
+                .filter(|relay_tx| {
+                    let tx_hash = relay_tx.transaction.hash();
+                    if tx_filter.contains(tx_hash) {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "discarding already known transaction {:#x}",
+                            tx_hash
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect()
+        };
+
+        if txs.is_empty() {
             return Ok(());
         }
 
         // Insert tx_hash into `already_known`
         // Remove tx_hash from `inflight_transactions`
         {
-            self.relayer.shared.mark_as_known_txes(
-                txes.iter()
+            self.relayer.shared.mark_as_known_txs(
+                txs.iter()
                     .map(|tx| tx.transaction.hash().to_owned())
                     .collect(),
             );
@@ -80,7 +84,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionsProcess<'a, CS> {
                 .write()
                 .get_mut(&self.peer)
             {
-                for tx in txes.iter() {
+                for tx in txs.iter() {
                     peer_state.remove_ask_for_tx(tx.transaction.hash());
                 }
             }
@@ -96,7 +100,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionsProcess<'a, CS> {
                 Box::new(lazy(move || -> FutureResult<(), ()> {
                     let tx_pool_executor = Arc::clone(&tx_pool_executor);
 
-                    for relay_tx in txes.into_iter() {
+                    for relay_tx in txs.into_iter() {
                         let relay_cycles = relay_tx.cycles;
                         let tx = relay_tx.transaction;
                         let tx_hash = tx.hash().to_owned();

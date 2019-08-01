@@ -42,30 +42,34 @@ impl<'a, CS: ChainStore> GetTransactionsProcess<'a, CS> {
             get_relay_tx.hashes
         );
 
-        let mut transactions = Vec::with_capacity(get_relay_tx.hashes.len());
-        {
+        let transactions: Vec<_> = {
             let state = self.relayer.shared.lock_chain_state();
 
-            for tx_hash in get_relay_tx.hashes {
-                let entry_opt = {
-                    let short_id = ProposalShortId::from_tx_hash(&tx_hash);
-                    state
-                        .get_tx_with_cycles_from_pool(&short_id)
-                        .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
-                };
+            get_relay_tx
+                .hashes
+                .iter()
+                .filter_map(|tx_hash| {
+                    let entry_opt = {
+                        let short_id = ProposalShortId::from_tx_hash(&tx_hash);
+                        state
+                            .get_tx_with_cycles_from_pool(&short_id)
+                            .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
+                    };
 
-                if let Some((tx, cycles)) = entry_opt {
-                    transactions.push((tx, cycles));
-                } else {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "{} request transaction({:#x}), but not found or without cycles",
-                        self.peer,
-                        tx_hash,
-                    );
-                }
-            }
-        }
+                    if let Some((tx, cycles)) = entry_opt {
+                        Some((tx, cycles))
+                    } else {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "{} request transaction({:#x}), but not found or without cycles",
+                            self.peer,
+                            tx_hash,
+                        );
+                        None
+                    }
+                })
+                .collect()
+        };
 
         if !transactions.is_empty() {
             let fbb = &mut FlatBufferBuilder::new();
