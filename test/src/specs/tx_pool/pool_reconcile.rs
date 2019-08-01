@@ -6,6 +6,8 @@ pub struct PoolReconcile;
 impl Spec for PoolReconcile {
     crate::name!("pool_reconcile");
 
+    crate::setup!(connect_all: false, num_nodes: 2);
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -44,13 +46,5 @@ impl Spec for PoolReconcile {
             .tx_status
             .block_hash
             .is_none());
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }

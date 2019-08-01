@@ -8,6 +8,8 @@ pub struct IBDProcess;
 impl Spec for IBDProcess {
     crate::name!("ibd_process");
 
+    crate::setup!(num_nodes: 7, connect_all: false);
+
     fn run(&self, net: Net) {
         info!("Running IBD process");
 
@@ -39,13 +41,5 @@ impl Spec for IBDProcess {
         if !ret {
             panic!("refuse to connect fail");
         }
-    }
-
-    fn num_nodes(&self) -> usize {
-        7
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }

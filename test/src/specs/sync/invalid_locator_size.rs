@@ -11,6 +11,8 @@ pub struct InvalidLocatorSize;
 impl Spec for InvalidLocatorSize {
     crate::name!("invalid_locator_size");
 
+    crate::setup!(protocols: vec![TestProtocol::sync()]);
+
     fn run(&self, net: Net) {
         info!("Connect node0");
         net.exit_ibd_mode();
@@ -36,9 +38,5 @@ impl Spec for InvalidLocatorSize {
         net.connect(node0);
         let ret = wait_until(10, || !rpc_client.get_peers().is_empty());
         assert!(!ret, "Node0 should ban test node");
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
     }
 }

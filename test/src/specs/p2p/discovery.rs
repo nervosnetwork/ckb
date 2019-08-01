@@ -8,6 +8,8 @@ pub struct Discovery;
 impl Spec for Discovery {
     crate::name!("discovery");
 
+    crate::setup!(num_nodes: 3);
+
     fn run(&self, net: Net) {
         let node0_id = &net.nodes[0].node_id().clone().unwrap();
         let node2 = &net.nodes[2];
@@ -24,10 +26,6 @@ impl Spec for Discovery {
             ret,
             "the address of node0 should be discovered by node2 and connected"
         );
-    }
-
-    fn num_nodes(&self) -> usize {
-        3
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
