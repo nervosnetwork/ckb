@@ -7,6 +7,8 @@ use log::info;
 pub struct MalformedMessage;
 
 impl Spec for MalformedMessage {
+    crate::name!("malformed_message");
+
     fn run(&self, net: Net) {
         info!("Connect node0");
         let node0 = &net.nodes[0];

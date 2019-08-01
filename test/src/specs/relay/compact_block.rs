@@ -19,6 +19,8 @@ use std::time::Duration;
 pub struct CompactBlockEmptyParentUnknown;
 
 impl Spec for CompactBlockEmptyParentUnknown {
+    crate::name!("compact_block_empty_parent_unknown");
+
     // Case: Sent to node0 a parent-unknown empty block, node0 should be unable to reconstruct
     // it and send us back a `GetHeaders` message
     fn run(&self, net: Net) {
@@ -60,6 +62,8 @@ impl Spec for CompactBlockEmptyParentUnknown {
 pub struct CompactBlockEmpty;
 
 impl Spec for CompactBlockEmpty {
+    crate::name!("compact_block_empty");
+
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
@@ -85,6 +89,8 @@ impl Spec for CompactBlockEmpty {
 pub struct CompactBlockPrefilled;
 
 impl Spec for CompactBlockPrefilled {
+    crate::name!("compact_block_prefilled");
+
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
@@ -127,6 +133,8 @@ impl Spec for CompactBlockPrefilled {
 pub struct CompactBlockMissingFreshTxs;
 
 impl Spec for CompactBlockMissingFreshTxs {
+    crate::name!("compact_block_missing_fresh_txs");
+
     // Case: Send to node0 a block which missing a tx, which is a fresh tx for
     // tx_pool, node0 should send `GetBlockTransactions` back for requesting
     // these missing txs
@@ -180,6 +188,8 @@ impl Spec for CompactBlockMissingFreshTxs {
 pub struct CompactBlockMissingNotFreshTxs;
 
 impl Spec for CompactBlockMissingNotFreshTxs {
+    crate::name!("compact_block_missing_not_fresh_txs");
+
     // Case: As for the missing transactions of a compact block, we should try to find it from
     //       tx_pool. If we find out, we can reconstruct the target block without any requests
     //       to the peer.
@@ -230,6 +240,8 @@ impl Spec for CompactBlockMissingNotFreshTxs {
 pub struct CompactBlockLoseGetBlockTransactions;
 
 impl Spec for CompactBlockLoseGetBlockTransactions {
+    crate::name!("compact_block_lose_get_block_transactions");
+
     fn run(&self, net: Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];
@@ -301,6 +313,8 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
 pub struct CompactBlockRelayParentOfOrphanBlock;
 
 impl Spec for CompactBlockRelayParentOfOrphanBlock {
+    crate::name!("compact_block_relay_parent_of_orphan_block");
+
     // Case: A <- B, A == B.parent
     // 1. Sync B to node0. Node0 will put B into orphan_block_pool since B's parent unknown
     // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
@@ -422,6 +436,8 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 pub struct CompactBlockRelayLessThenSharedBestKnown;
 
 impl Spec for CompactBlockRelayLessThenSharedBestKnown {
+    crate::name!("compact_block_relay_less_then_shared_best_known");
+
     // Case: Relay a compact block which has lower total difficulty than shared_best_known
     // 1. Synchronize Headers[Tip+1, Tip+10]
     // 2. Relay CompactBlock[Tip+1]

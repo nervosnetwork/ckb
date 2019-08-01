@@ -7,6 +7,8 @@ use log::info;
 pub struct TransactionRelayBasic;
 
 impl Spec for TransactionRelayBasic {
+    crate::name!("transaction_relay_basic");
+
     fn run(&self, net: Net) {
         net.exit_ibd_mode();
 
@@ -50,6 +52,8 @@ const MIN_CAPACITY: u64 = 60_0000_0000;
 pub struct TransactionRelayMultiple;
 
 impl Spec for TransactionRelayMultiple {
+    crate::name!("transaction_relay_multiple");
+
     fn run(&self, net: Net) {
         let block = net.exit_ibd_mode();
         let node0 = &net.nodes[0];

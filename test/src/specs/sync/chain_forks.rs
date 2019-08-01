@@ -9,6 +9,8 @@ use numext_fixed_hash::{h256, H256};
 pub struct ChainFork1;
 
 impl Spec for ChainFork1 {
+    crate::name!("chain_fork1");
+
     // Test normal fork
     //                  1    2    3    4
     // node0 genesis -> A -> B -> C
@@ -53,6 +55,8 @@ impl Spec for ChainFork1 {
 pub struct ChainFork2;
 
 impl Spec for ChainFork2 {
+    crate::name!("chain_fork2");
+
     // Test normal fork switch back
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -106,6 +110,8 @@ impl Spec for ChainFork2 {
 pub struct ChainFork3;
 
 impl Spec for ChainFork3 {
+    crate::name!("chain_fork3");
+
     // Test invalid cellbase reward fork (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -172,6 +178,8 @@ impl Spec for ChainFork3 {
 pub struct ChainFork4;
 
 impl Spec for ChainFork4 {
+    crate::name!("chain_fork4");
+
     // Test invalid cellbase capacity overflow fork (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -238,6 +246,8 @@ impl Spec for ChainFork4 {
 pub struct ChainFork5;
 
 impl Spec for ChainFork5 {
+    crate::name!("chain_fork5");
+
     // Test dead cell fork (spent A cellbase in E, and spent A cellbase in F again)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -308,6 +318,8 @@ impl Spec for ChainFork5 {
 pub struct ChainFork6;
 
 impl Spec for ChainFork6 {
+    crate::name!("chain_fork6");
+
     // Test fork spending the outpoint of a non-existent transaction (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -370,6 +382,8 @@ impl Spec for ChainFork6 {
 pub struct ChainFork7;
 
 impl Spec for ChainFork7 {
+    crate::name!("chain_fork7");
+
     // Test fork spending the outpoint of an invalid index (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C

@@ -5,6 +5,8 @@ use log::info;
 pub struct DepentTxInSameBlock;
 
 impl Spec for DepentTxInSameBlock {
+    crate::name!("depent_tx_in_same_block");
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
 

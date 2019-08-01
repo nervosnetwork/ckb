@@ -8,6 +8,8 @@ const MATURITY: BlockNumber = 5;
 pub struct CellbaseMaturity;
 
 impl Spec for CellbaseMaturity {
+    crate::name!("cellbase_maturity");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 

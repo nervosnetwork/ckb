@@ -5,6 +5,8 @@ use log::info;
 pub struct Disconnect;
 
 impl Spec for Disconnect {
+    crate::name!("disconnect");
+
     fn run(&self, mut net: Net) {
         info!("Running Disconnect");
 

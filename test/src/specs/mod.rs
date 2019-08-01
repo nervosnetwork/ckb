@@ -20,7 +20,16 @@ use ckb_chain_spec::ChainSpec;
 use ckb_network::{ProtocolId, ProtocolVersion};
 use ckb_sync::NetworkProtocol;
 
+#[macro_export]
+macro_rules! name {
+    ($name:literal) => {
+        fn name(&self) -> &'static str { $name }
+    };
+}
+
 pub trait Spec {
+    fn name(&self) -> &'static str;
+
     fn run(&self, net: Net);
 
     fn num_nodes(&self) -> usize {

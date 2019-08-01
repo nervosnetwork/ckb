@@ -13,6 +13,8 @@ use numext_fixed_hash::{h256, H256};
 pub struct GenesisIssuedCells;
 
 impl Spec for GenesisIssuedCells {
+    crate::name!("genesis_issued_cells");
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
 

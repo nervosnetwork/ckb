@@ -4,6 +4,8 @@ use log::info;
 pub struct PoolReconcile;
 
 impl Spec for PoolReconcile {
+    crate::name!("pool_reconcile");
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];

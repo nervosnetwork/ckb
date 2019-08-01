@@ -24,6 +24,8 @@ impl Default for AlertPropagation {
 }
 
 impl Spec for AlertPropagation {
+    crate::name!("alert_propagation");
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let warning1 = "pretend we are in dangerous status";
