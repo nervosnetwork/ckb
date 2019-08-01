@@ -8,8 +8,8 @@ use ckb_core::{
     header::{Header, HeaderBuilder},
     script::Script,
     transaction::{
-        CellInput, CellOutPoint, CellOutput, OutPoint, ProposalShortId, Transaction,
-        TransactionBuilder, Witness,
+        CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+        Witness,
     },
     transaction_meta::{TransactionMeta, TransactionMetaBuilder},
     uncle::UncleBlock,
@@ -21,6 +21,7 @@ use crate::{
     self as protos,
     error::{Error, Result},
 };
+use crate::{DEP_TYPE_CELL, DEP_TYPE_CELL_WITH_HEADER, DEP_TYPE_DEP_GROUP, DEP_TYPE_HEADER};
 
 impl TryFrom<&protos::Bytes32> for H256 {
     type Error = Error;
@@ -204,7 +205,7 @@ impl<'a> protos::Transaction<'a> {
             .unwrap_some()?
             .iter()
             .map(TryInto::try_into)
-            .collect::<Result<Vec<OutPoint>>>()?;
+            .collect::<Result<Vec<CellDep>>>()?;
         let inputs = self
             .inputs()
             .unwrap_some()?
@@ -245,18 +246,8 @@ impl<'a> protos::Transaction<'a> {
 impl<'a> TryFrom<protos::OutPoint<'a>> for OutPoint {
     type Error = Error;
     fn try_from(out_point: protos::OutPoint<'a>) -> Result<Self> {
-        let cell = if let Some(tx_hash) = out_point.tx_hash() {
-            let cell = CellOutPoint {
-                tx_hash: tx_hash.try_into()?,
-                index: out_point.index(),
-            };
-            Some(cell)
-        } else {
-            None
-        };
-        let block_hash = out_point.block_hash().map(TryInto::try_into).transpose()?;
-        let ret = OutPoint { block_hash, cell };
-        Ok(ret)
+        let tx_hash = out_point.tx_hash().unwrap_some()?;
+        Ok(OutPoint::new(tx_hash.try_into()?, out_point.index()))
     }
 }
 
@@ -297,25 +288,66 @@ impl<'a> TryFrom<protos::Script<'a>> for Script {
     }
 }
 
+impl<'a> TryFrom<protos::CellDep<'a>> for CellDep {
+    type Error = Error;
+    fn try_from(dep: protos::CellDep<'a>) -> Result<Self> {
+        let convert_out_point = |dep: protos::CellDep| {
+            let raw_tx_hash = dep.tx_hash().unwrap_some()?;
+            let tx_hash = TryInto::try_into(raw_tx_hash)?;
+            let index = dep.index();
+            let out_point = OutPoint::new(tx_hash, index);
+            Ok(out_point)
+        };
+        let convert_block_hash = |dep: protos::CellDep| {
+            let raw_block_hash = dep.block_hash().unwrap_some()?;
+            let block_hash = TryInto::try_into(raw_block_hash)?;
+            Ok(block_hash)
+        };
+        match dep.dep_type() {
+            DEP_TYPE_CELL => {
+                if dep.block_hash().is_some() {
+                    Err(Error::Deserialize)
+                } else {
+                    let out_point = convert_out_point(dep)?;
+                    Ok(CellDep::Cell(out_point))
+                }
+            }
+            DEP_TYPE_CELL_WITH_HEADER => {
+                let out_point = convert_out_point(dep)?;
+                let block_hash = convert_block_hash(dep)?;
+                Ok(CellDep::CellWithHeader(out_point, block_hash))
+            }
+            DEP_TYPE_DEP_GROUP => {
+                if dep.block_hash().is_some() {
+                    Err(Error::Deserialize)
+                } else {
+                    let out_point = convert_out_point(dep)?;
+                    Ok(CellDep::Cell(out_point))
+                }
+            }
+            DEP_TYPE_HEADER => {
+                if dep.tx_hash().is_some() {
+                    Err(Error::Deserialize)
+                } else {
+                    let block_hash = convert_block_hash(dep)?;
+                    Ok(CellDep::Header(block_hash))
+                }
+            }
+            _ => Err(Error::Deserialize),
+        }
+    }
+}
+
 impl<'a> TryFrom<protos::CellInput<'a>> for CellInput {
     type Error = Error;
     fn try_from(cell_input: protos::CellInput<'a>) -> Result<Self> {
-        let cell = if let Some(tx_hash) = cell_input.tx_hash() {
-            let cell = CellOutPoint {
-                tx_hash: tx_hash.try_into()?,
-                index: cell_input.index(),
-            };
-            Some(cell)
-        } else {
-            None
-        };
-        let block_hash = cell_input.block_hash().map(TryInto::try_into).transpose()?;
-        let previous_output = OutPoint { block_hash, cell };
-        let ret = CellInput {
-            previous_output,
+        let tx_hash = cell_input.tx_hash().unwrap_some()?;
+        let index = cell_input.index();
+        let out_point = OutPoint::new(tx_hash.try_into()?, index);
+        Ok(CellInput {
+            previous_output: out_point,
             since: cell_input.since(),
-        };
-        Ok(ret)
+        })
     }
 }
 

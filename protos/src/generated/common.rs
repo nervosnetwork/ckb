@@ -1280,9 +1280,9 @@ impl<'a> Transaction<'a> {
     #[inline]
     pub fn deps(
         &self,
-    ) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<OutPoint<'a>>>> {
+    ) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CellDep<'a>>>> {
         self._tab.get::<flatbuffers::ForwardsUOffset<
-            flatbuffers::Vector<flatbuffers::ForwardsUOffset<OutPoint<'a>>>,
+            flatbuffers::Vector<flatbuffers::ForwardsUOffset<CellDep<'a>>>,
         >>(Transaction::VT_DEPS, None)
     }
     #[inline]
@@ -1322,7 +1322,7 @@ impl<'a> Transaction<'a> {
 pub struct TransactionArgs<'a> {
     pub version: u32,
     pub deps: Option<
-        flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<OutPoint<'a>>>>,
+        flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<CellDep<'a>>>>,
     >,
     pub inputs: Option<
         flatbuffers::WIPOffset<
@@ -1368,7 +1368,7 @@ impl<'a: 'b, 'b> TransactionBuilder<'a, 'b> {
     pub fn add_deps(
         &mut self,
         deps: flatbuffers::WIPOffset<
-            flatbuffers::Vector<'b, flatbuffers::ForwardsUOffset<OutPoint<'b>>>,
+            flatbuffers::Vector<'b, flatbuffers::ForwardsUOffset<CellDep<'b>>>,
         >,
     ) {
         self.fbb_
@@ -1516,6 +1516,123 @@ impl<'a: 'b, 'b> WitnessBuilder<'a, 'b> {
     }
 }
 
+pub enum CellDepOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct CellDep<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for CellDep<'a> {
+    type Inner = CellDep<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> CellDep<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        CellDep { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args CellDepArgs<'args>,
+    ) -> flatbuffers::WIPOffset<CellDep<'bldr>> {
+        let mut builder = CellDepBuilder::new(_fbb);
+        if let Some(x) = args.block_hash {
+            builder.add_block_hash(x);
+        }
+        builder.add_index(args.index);
+        if let Some(x) = args.tx_hash {
+            builder.add_tx_hash(x);
+        }
+        builder.add_dep_type(args.dep_type);
+        builder.finish()
+    }
+
+    pub const VT_TX_HASH: flatbuffers::VOffsetT = 4;
+    pub const VT_INDEX: flatbuffers::VOffsetT = 6;
+    pub const VT_BLOCK_HASH: flatbuffers::VOffsetT = 8;
+    pub const VT_DEP_TYPE: flatbuffers::VOffsetT = 10;
+
+    #[inline]
+    pub fn tx_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(CellDep::VT_TX_HASH, None)
+    }
+    #[inline]
+    pub fn index(&self) -> u32 {
+        self._tab.get::<u32>(CellDep::VT_INDEX, Some(0)).unwrap()
+    }
+    #[inline]
+    pub fn block_hash(&self) -> Option<&'a Bytes32> {
+        self._tab.get::<Bytes32>(CellDep::VT_BLOCK_HASH, None)
+    }
+    #[inline]
+    pub fn dep_type(&self) -> u8 {
+        self._tab.get::<u8>(CellDep::VT_DEP_TYPE, Some(0)).unwrap()
+    }
+}
+
+pub struct CellDepArgs<'a> {
+    pub tx_hash: Option<&'a Bytes32>,
+    pub index: u32,
+    pub block_hash: Option<&'a Bytes32>,
+    pub dep_type: u8,
+}
+impl<'a> Default for CellDepArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        CellDepArgs {
+            tx_hash: None,
+            index: 0,
+            block_hash: None,
+            dep_type: 0,
+        }
+    }
+}
+pub struct CellDepBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> CellDepBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_tx_hash(&mut self, tx_hash: &'b Bytes32) {
+        self.fbb_
+            .push_slot_always::<&Bytes32>(CellDep::VT_TX_HASH, tx_hash);
+    }
+    #[inline]
+    pub fn add_index(&mut self, index: u32) {
+        self.fbb_.push_slot::<u32>(CellDep::VT_INDEX, index, 0);
+    }
+    #[inline]
+    pub fn add_block_hash(&mut self, block_hash: &'b Bytes32) {
+        self.fbb_
+            .push_slot_always::<&Bytes32>(CellDep::VT_BLOCK_HASH, block_hash);
+    }
+    #[inline]
+    pub fn add_dep_type(&mut self, dep_type: u8) {
+        self.fbb_.push_slot::<u8>(CellDep::VT_DEP_TYPE, dep_type, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> CellDepBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        CellDepBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<CellDep<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
 pub enum OutPointOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
@@ -1548,20 +1665,12 @@ impl<'a> OutPoint<'a> {
         if let Some(x) = args.tx_hash {
             builder.add_tx_hash(x);
         }
-        if let Some(x) = args.block_hash {
-            builder.add_block_hash(x);
-        }
         builder.finish()
     }
 
-    pub const VT_BLOCK_HASH: flatbuffers::VOffsetT = 4;
-    pub const VT_TX_HASH: flatbuffers::VOffsetT = 6;
-    pub const VT_INDEX: flatbuffers::VOffsetT = 8;
+    pub const VT_TX_HASH: flatbuffers::VOffsetT = 4;
+    pub const VT_INDEX: flatbuffers::VOffsetT = 6;
 
-    #[inline]
-    pub fn block_hash(&self) -> Option<&'a Bytes32> {
-        self._tab.get::<Bytes32>(OutPoint::VT_BLOCK_HASH, None)
-    }
     #[inline]
     pub fn tx_hash(&self) -> Option<&'a Bytes32> {
         self._tab.get::<Bytes32>(OutPoint::VT_TX_HASH, None)
@@ -1573,7 +1682,6 @@ impl<'a> OutPoint<'a> {
 }
 
 pub struct OutPointArgs<'a> {
-    pub block_hash: Option<&'a Bytes32>,
     pub tx_hash: Option<&'a Bytes32>,
     pub index: u32,
 }
@@ -1581,7 +1689,6 @@ impl<'a> Default for OutPointArgs<'a> {
     #[inline]
     fn default() -> Self {
         OutPointArgs {
-            block_hash: None,
             tx_hash: None,
             index: 0,
         }
@@ -1592,11 +1699,6 @@ pub struct OutPointBuilder<'a: 'b, 'b> {
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b> OutPointBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_block_hash(&mut self, block_hash: &'b Bytes32) {
-        self.fbb_
-            .push_slot_always::<&Bytes32>(OutPoint::VT_BLOCK_HASH, block_hash);
-    }
     #[inline]
     pub fn add_tx_hash(&mut self, tx_hash: &'b Bytes32) {
         self.fbb_
@@ -1654,21 +1756,13 @@ impl<'a> CellInput<'a> {
         if let Some(x) = args.tx_hash {
             builder.add_tx_hash(x);
         }
-        if let Some(x) = args.block_hash {
-            builder.add_block_hash(x);
-        }
         builder.finish()
     }
 
-    pub const VT_BLOCK_HASH: flatbuffers::VOffsetT = 4;
-    pub const VT_TX_HASH: flatbuffers::VOffsetT = 6;
-    pub const VT_INDEX: flatbuffers::VOffsetT = 8;
-    pub const VT_SINCE: flatbuffers::VOffsetT = 10;
+    pub const VT_TX_HASH: flatbuffers::VOffsetT = 4;
+    pub const VT_INDEX: flatbuffers::VOffsetT = 6;
+    pub const VT_SINCE: flatbuffers::VOffsetT = 8;
 
-    #[inline]
-    pub fn block_hash(&self) -> Option<&'a Bytes32> {
-        self._tab.get::<Bytes32>(CellInput::VT_BLOCK_HASH, None)
-    }
     #[inline]
     pub fn tx_hash(&self) -> Option<&'a Bytes32> {
         self._tab.get::<Bytes32>(CellInput::VT_TX_HASH, None)
@@ -1684,7 +1778,6 @@ impl<'a> CellInput<'a> {
 }
 
 pub struct CellInputArgs<'a> {
-    pub block_hash: Option<&'a Bytes32>,
     pub tx_hash: Option<&'a Bytes32>,
     pub index: u32,
     pub since: u64,
@@ -1693,7 +1786,6 @@ impl<'a> Default for CellInputArgs<'a> {
     #[inline]
     fn default() -> Self {
         CellInputArgs {
-            block_hash: None,
             tx_hash: None,
             index: 0,
             since: 0,
@@ -1705,11 +1797,6 @@ pub struct CellInputBuilder<'a: 'b, 'b> {
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b> CellInputBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_block_hash(&mut self, block_hash: &'b Bytes32) {
-        self.fbb_
-            .push_slot_always::<&Bytes32>(CellInput::VT_BLOCK_HASH, block_hash);
-    }
     #[inline]
     pub fn add_tx_hash(&mut self, tx_hash: &'b Bytes32) {
         self.fbb_

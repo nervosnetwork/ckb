@@ -7,13 +7,14 @@ use ckb_core::{
     extras::{BlockExt, EpochExt, TransactionInfo},
     header::Header,
     script::Script,
-    transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction},
+    transaction::{CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Transaction},
     transaction_meta::TransactionMeta,
     uncle::UncleBlock,
     Bytes,
 };
 
 use crate::{self as protos, CanBuild};
+use crate::{DEP_TYPE_CELL, DEP_TYPE_CELL_WITH_HEADER, DEP_TYPE_DEP_GROUP, DEP_TYPE_HEADER};
 
 impl From<&H256> for protos::Bytes32 {
     fn from(h256: &H256) -> Self {
@@ -121,38 +122,47 @@ impl<'a> CanBuild<'a> for protos::CellOutput<'a> {
     }
 }
 
+impl<'a> CanBuild<'a> for protos::CellDep<'a> {
+    type Input = CellDep;
+    fn build<'b: 'a>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        dep: &Self::Input,
+    ) -> WIPOffset<protos::CellDep<'b>> {
+        let (dep_type, out_point_opt, block_hash_opt) = match dep {
+            CellDep::Cell(out_point) => (DEP_TYPE_CELL, Some(out_point), None),
+            CellDep::CellWithHeader(out_point, block_hash) => {
+                (DEP_TYPE_CELL_WITH_HEADER, Some(out_point), Some(block_hash))
+            }
+            CellDep::DepGroup(out_point) => (DEP_TYPE_DEP_GROUP, Some(out_point), None),
+            CellDep::Header(block_hash) => (DEP_TYPE_HEADER, None, Some(block_hash)),
+        };
+        let proto_tx_hash_opt = out_point_opt.map(|out_point| (&out_point.tx_hash).into());
+        let proto_block_hash_opt = block_hash_opt.map(|hash| hash.into());
+
+        let mut builder = protos::CellDepBuilder::new(fbb);
+        builder.add_dep_type(dep_type);
+        if let Some(ref out_point) = out_point_opt {
+            builder.add_tx_hash(proto_tx_hash_opt.as_ref().unwrap());
+            builder.add_index(out_point.index);
+        }
+        if let Some(ref block_hash) = proto_block_hash_opt {
+            builder.add_block_hash(block_hash);
+        }
+        builder.finish()
+    }
+}
+
 impl<'a> CanBuild<'a> for protos::CellInput<'a> {
     type Input = CellInput;
     fn build<'b: 'a>(
         fbb: &mut FlatBufferBuilder<'b>,
         cell_input: &Self::Input,
     ) -> WIPOffset<protos::CellInput<'b>> {
-        let tx_hash = cell_input
-            .previous_output
-            .cell
-            .clone()
-            .map(|cell| (&cell.tx_hash).into());
-        let tx_index = cell_input
-            .previous_output
-            .cell
-            .as_ref()
-            .map(|cell| cell.index);
-        let block_hash = cell_input
-            .previous_output
-            .block_hash
-            .clone()
-            .map(|hash| (&hash).into());
+        let tx_hash = (&cell_input.previous_output.tx_hash).into();
 
         let mut builder = protos::CellInputBuilder::new(fbb);
-        if let Some(ref hash) = tx_hash {
-            builder.add_tx_hash(hash);
-        }
-        if let Some(index) = tx_index {
-            builder.add_index(index);
-        }
-        if let Some(ref hash) = block_hash {
-            builder.add_block_hash(hash);
-        }
+        builder.add_tx_hash(&tx_hash);
+        builder.add_index(cell_input.previous_output.index);
         builder.add_since(cell_input.since);
         builder.finish()
     }
@@ -185,7 +195,7 @@ impl<'a> CanBuild<'a> for protos::Transaction<'a> {
         let vec = transaction
             .deps()
             .iter()
-            .map(|out_point| protos::OutPoint::build(fbb, out_point))
+            .map(|dep| protos::CellDep::build(fbb, dep))
             .collect::<Vec<_>>();
         let deps = fbb.create_vector(&vec);
 
@@ -234,20 +244,11 @@ impl<'a> CanBuild<'a> for protos::OutPoint<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         out_point: &Self::Input,
     ) -> WIPOffset<protos::OutPoint<'b>> {
-        let tx_hash = out_point.cell.clone().map(|tx| (&tx.tx_hash).into());
-        let tx_index = out_point.cell.as_ref().map(|tx| tx.index);
-        let block_hash = out_point.block_hash.clone().map(|hash| (&hash).into());
+        let tx_hash = (&out_point.tx_hash).into();
 
         let mut builder = protos::OutPointBuilder::new(fbb);
-        if let Some(ref hash) = tx_hash {
-            builder.add_tx_hash(hash);
-        }
-        if let Some(index) = tx_index {
-            builder.add_index(index);
-        }
-        if let Some(ref hash) = block_hash {
-            builder.add_block_hash(hash);
-        }
+        builder.add_tx_hash(&tx_hash);
+        builder.add_index(out_point.index);
         builder.finish()
     }
 }

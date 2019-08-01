@@ -1,4 +1,5 @@
 use crate::cast;
+use crate::error::Error;
 use crate::protocol_generated::ckb::protocol as ckb_protocol;
 use crate::FlatbuffersVectorIterator;
 use crate::{DEP_TYPE_CELL, DEP_TYPE_CELL_WITH_HEADER, DEP_TYPE_DEP_GROUP, DEP_TYPE_HEADER};
@@ -236,28 +237,21 @@ impl<'a> TryFrom<ckb_protocol::CellDep<'a>> for ckb_core::transaction::CellDep {
 
     fn try_from(dep: ckb_protocol::CellDep<'a>) -> Result<Self, Self::Error> {
         let convert_out_point = |dep: ckb_protocol::CellDep| -> Result<_, FailureError> {
-            let raw_tx_hash = dep
-                .tx_hash()
-                .ok_or_else(|| String::from("tx hash is required").into())
-                .map_err(FailureError::from_boxed_compat)?;
+            let raw_tx_hash = cast!(dep.tx_hash())?;
             let tx_hash = TryInto::try_into(raw_tx_hash)?;
             let index = dep.index();
             let out_point = ckb_core::transaction::OutPoint::new(tx_hash, index);
             Ok(out_point)
         };
         let convert_block_hash = |dep: ckb_protocol::CellDep| -> Result<_, FailureError> {
-            let raw_block_hash = dep
-                .block_hash()
-                .ok_or_else(|| String::from("block hash is required").into())
-                .map_err(FailureError::from_boxed_compat)?;
+            let raw_block_hash = cast!(dep.block_hash())?;
             let block_hash = TryInto::try_into(raw_block_hash)?;
             Ok(block_hash)
         };
         match dep.dep_type() {
             DEP_TYPE_CELL => {
                 if dep.block_hash().is_some() {
-                    Err(String::from("CellDep::Cell have no block_hash field").into())
-                        .map_err(FailureError::from_boxed_compat)
+                    Err(Error::Malformed.into())
                 } else {
                     let out_point = convert_out_point(dep)?;
                     Ok(ckb_core::transaction::CellDep::Cell(out_point))
@@ -272,8 +266,7 @@ impl<'a> TryFrom<ckb_protocol::CellDep<'a>> for ckb_core::transaction::CellDep {
             }
             DEP_TYPE_DEP_GROUP => {
                 if dep.block_hash().is_some() {
-                    Err(String::from("CellDep::DepGroup have no block_hash field").into())
-                        .map_err(FailureError::from_boxed_compat)
+                    Err(Error::Malformed.into())
                 } else {
                     let out_point = convert_out_point(dep)?;
                     Ok(ckb_core::transaction::CellDep::Cell(out_point))
@@ -281,15 +274,13 @@ impl<'a> TryFrom<ckb_protocol::CellDep<'a>> for ckb_core::transaction::CellDep {
             }
             DEP_TYPE_HEADER => {
                 if dep.tx_hash().is_some() {
-                    Err(String::from("CellDep::Header have no tx_hash field").into())
-                        .map_err(FailureError::from_boxed_compat)
+                    Err(Error::Malformed.into())
                 } else {
                     let block_hash = convert_block_hash(dep)?;
                     Ok(ckb_core::transaction::CellDep::Header(block_hash))
                 }
             }
-            _ => Err(String::from("Invalid dep type").into())
-                .map_err(FailureError::from_boxed_compat),
+            _ => Err(Error::Malformed.into()),
         }
     }
 }
@@ -298,10 +289,7 @@ impl<'a> TryFrom<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint
     type Error = FailureError;
 
     fn try_from(out_point: ckb_protocol::OutPoint<'a>) -> Result<Self, Self::Error> {
-        let raw_tx_hash = out_point
-            .tx_hash()
-            .ok_or_else(|| String::from("tx hash is required for out point").into())
-            .map_err(FailureError::from_boxed_compat)?;
+        let raw_tx_hash = cast!(out_point.tx_hash())?;
         let index = out_point.index();
         let tx_hash = TryInto::try_into(raw_tx_hash)?;
         Ok(ckb_core::transaction::OutPoint::new(tx_hash, index))
@@ -336,10 +324,7 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
     type Error = FailureError;
 
     fn try_from(cell_input: ckb_protocol::CellInput<'a>) -> Result<Self, Self::Error> {
-        let raw_tx_hash = cell_input
-            .tx_hash()
-            .ok_or_else(|| String::from("tx hash is required for cell input").into())
-            .map_err(FailureError::from_boxed_compat)?;
+        let raw_tx_hash = cast!(cell_input.tx_hash())?;
         let index = cell_input.index();
         let tx_hash = TryInto::try_into(raw_tx_hash)?;
         let out_point = ckb_core::transaction::OutPoint::new(tx_hash, index);
