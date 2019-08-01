@@ -5,16 +5,17 @@ use crate::protocol_generated::ckb::protocol::{
     CompactBlock, CompactBlockBuilder, FilteredBlock, FilteredBlockBuilder,
     GetBlockProposalBuilder, GetBlockTransactionsBuilder, GetBlocks as FbsGetBlocks,
     GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
-    GetRelayTransaction as FbsGetRelayTransaction, GetRelayTransactionBuilder, Header as FbsHeader,
-    HeaderBuilder, Headers as FbsHeaders, HeadersBuilder, InIBDBuilder, IndexTransactionBuilder,
-    MerkleProofBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
+    GetRelayTransactions as FbsGetRelayTransactions, GetRelayTransactionsBuilder,
+    Header as FbsHeader, HeaderBuilder, Headers as FbsHeaders, HeadersBuilder, InIBDBuilder,
+    IndexTransactionBuilder, MerkleProofBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
     ProposalShortId as FbsProposalShortId, RelayMessage, RelayMessageBuilder, RelayPayload,
     RelayTransaction as FbsRelayTransaction, RelayTransactionBuilder,
     RelayTransactionHashes as FbsRelayTransactionHashes, RelayTransactionHashesBuilder,
-    Script as FbsScript, ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload,
-    Time as FbsTime, TimeBuilder, TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction,
-    TransactionBuilder, UncleBlock as FbsUncleBlock, UncleBlockBuilder, Witness as FbsWitness,
-    WitnessBuilder, H256 as FbsH256,
+    RelayTransactions as FbsRelayTransactions, RelayTransactionsBuilder, Script as FbsScript,
+    ScriptBuilder, SyncMessage, SyncMessageBuilder, SyncPayload, Time as FbsTime, TimeBuilder,
+    TimeMessage, TimeMessageBuilder, Transaction as FbsTransaction, TransactionBuilder,
+    UncleBlock as FbsUncleBlock, UncleBlockBuilder, Witness as FbsWitness, WitnessBuilder,
+    H256 as FbsH256,
 };
 use ckb_core::alert::Alert;
 use ckb_core::block::Block;
@@ -163,6 +164,23 @@ impl<'a> FbsRelayTransaction<'a> {
     }
 }
 
+impl<'a> FbsRelayTransactions<'a> {
+    pub fn build<'b>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        transactions: &[(Transaction, Cycle)],
+    ) -> WIPOffset<FbsRelayTransactions<'b>> {
+        let vec = transactions
+            .iter()
+            .map(|t| FbsRelayTransaction::build(fbb, &t.0, t.1))
+            .collect::<Vec<_>>();
+        let vec = fbb.create_vector(&vec);
+
+        let mut builder = RelayTransactionsBuilder::new(fbb);
+        builder.add_transactions(vec);
+        builder.finish()
+    }
+}
+
 impl<'a> FbsRelayTransactionHashes<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
@@ -176,14 +194,16 @@ impl<'a> FbsRelayTransactionHashes<'a> {
     }
 }
 
-impl<'a> FbsGetRelayTransaction<'a> {
+impl<'a> FbsGetRelayTransactions<'a> {
     pub fn build<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        tx_hash: &H256,
-    ) -> WIPOffset<FbsGetRelayTransaction<'b>> {
-        let mut builder = GetRelayTransactionBuilder::new(fbb);
-        let tx_hash = tx_hash.into();
-        builder.add_tx_hash(&tx_hash);
+        tx_hashes: &[H256],
+    ) -> WIPOffset<FbsGetRelayTransactions<'b>> {
+        let vec = tx_hashes.iter().map(Into::into).collect::<Vec<FbsH256>>();
+        let vec = fbb.create_vector(&vec);
+
+        let mut builder = GetRelayTransactionsBuilder::new(fbb);
+        builder.add_tx_hashes(vec);
         builder.finish()
     }
 }
@@ -581,15 +601,14 @@ impl<'a> RelayMessage<'a> {
         builder.finish()
     }
 
-    pub fn build_transaction<'b>(
+    pub fn build_transactions<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        transaction: &Transaction,
-        cycles: Cycle,
+        transactions: &[(Transaction, Cycle)],
     ) -> WIPOffset<RelayMessage<'b>> {
-        let fbs_transaction = FbsRelayTransaction::build(fbb, transaction, cycles);
+        let fbs_transactions = FbsRelayTransactions::build(fbb, transactions);
         let mut builder = RelayMessageBuilder::new(fbb);
-        builder.add_payload_type(RelayPayload::RelayTransaction);
-        builder.add_payload(fbs_transaction.as_union_value());
+        builder.add_payload_type(RelayPayload::RelayTransactions);
+        builder.add_payload(fbs_transactions.as_union_value());
         builder.finish()
     }
 
@@ -604,13 +623,13 @@ impl<'a> RelayMessage<'a> {
         builder.finish()
     }
 
-    pub fn build_get_transaction<'b>(
+    pub fn build_get_transactions<'b>(
         fbb: &mut FlatBufferBuilder<'b>,
-        tx_hash: &H256,
+        tx_hashes: &[H256],
     ) -> WIPOffset<RelayMessage<'b>> {
-        let fbs_get_tx = FbsGetRelayTransaction::build(fbb, tx_hash);
+        let fbs_get_tx = FbsGetRelayTransactions::build(fbb, tx_hashes);
         let mut builder = RelayMessageBuilder::new(fbb);
-        builder.add_payload_type(RelayPayload::GetRelayTransaction);
+        builder.add_payload_type(RelayPayload::GetRelayTransactions);
         builder.add_payload(fbs_get_tx.as_union_value());
         builder.finish()
     }

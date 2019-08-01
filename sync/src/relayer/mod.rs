@@ -7,11 +7,11 @@ mod compact_block_verifier;
 mod error;
 mod get_block_proposal_process;
 mod get_block_transactions_process;
-mod get_transaction_process;
+mod get_transactions_process;
 #[cfg(test)]
 mod tests;
 mod transaction_hashes_process;
-mod transaction_process;
+mod transactions_process;
 
 use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
@@ -20,9 +20,9 @@ use self::compact_block_process::CompactBlockProcess;
 pub use self::error::{Error, Misbehavior};
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
-use self::get_transaction_process::GetTransactionProcess;
+use self::get_transactions_process::GetTransactionsProcess;
 use self::transaction_hashes_process::TransactionHashesProcess;
-use self::transaction_process::TransactionProcess;
+use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
 use crate::types::SyncSharedState;
 use crate::BAD_MESSAGE_BAN_TIME;
@@ -97,9 +97,9 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 )
                 .execute()?;
             }
-            RelayPayload::RelayTransaction => {
-                TransactionProcess::new(
-                    &cast!(message.payload_as_relay_transaction())?,
+            RelayPayload::RelayTransactions => {
+                TransactionsProcess::new(
+                    &cast!(message.payload_as_relay_transactions())?,
                     self,
                     nc,
                     peer,
@@ -114,9 +114,9 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 )
                 .execute()?;
             }
-            RelayPayload::GetRelayTransaction => {
-                GetTransactionProcess::new(
-                    &cast!(message.payload_as_get_relay_transaction())?,
+            RelayPayload::GetRelayTransactions => {
+                GetTransactionsProcess::new(
+                    &cast!(message.payload_as_get_relay_transactions())?,
                     self,
                     nc,
                     peer,
@@ -417,19 +417,18 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                     peer,
                 );
             }
-            for tx_hash in tx_hashes {
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_get_transaction(fbb, &tx_hash);
-                fbb.finish(message, None);
-                let data = fbb.finished_data().into();
-                if let Err(err) = nc.send_message_to(*peer, data) {
-                    debug_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "relayer send Transaction error: {:?}",
-                        err,
-                    );
-                    break;
-                }
+
+            let fbb = &mut FlatBufferBuilder::new();
+            let message = RelayMessage::build_get_transactions(fbb, &tx_hashes);
+            fbb.finish(message, None);
+            let data = fbb.finished_data().into();
+            if let Err(err) = nc.send_message_to(*peer, data) {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer send Transaction error: {:?}",
+                    err,
+                );
+                break;
             }
         }
     }

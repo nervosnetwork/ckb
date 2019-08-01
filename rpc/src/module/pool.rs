@@ -51,7 +51,9 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
         match result {
             Ok(cycles) => {
                 let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_transaction(fbb, &tx, cycles);
+                let hash = tx.hash().to_owned();
+                let relay_tx = (tx, cycles);
+                let message = RelayMessage::build_transactions(fbb, &[relay_tx]);
                 fbb.finish(message, None);
                 let data = fbb.finished_data().into();
                 if let Err(err) = self
@@ -60,7 +62,7 @@ impl<CS: ChainStore + 'static> PoolRpc for PoolRpcImpl<CS> {
                 {
                     error!("Broadcast transaction failed: {:?}", err);
                 }
-                Ok(tx.hash().to_owned())
+                Ok(hash)
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
         }
