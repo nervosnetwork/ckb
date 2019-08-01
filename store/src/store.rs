@@ -10,7 +10,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMeta};
 use ckb_core::extras::{BlockExt, EpochExt, TransactionInfo};
 use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{CellOutPoint, ProposalShortId, Transaction};
+use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Bytes, EpochNumber};
@@ -180,7 +180,7 @@ pub trait ChainStore<'a>: Send + Sync {
                     })
             })
             .map(|(tx_info, cell_output, data)| {
-                let out_point = CellOutPoint {
+                let out_point = OutPoint {
                     tx_hash: tx_hash.to_owned(),
                     index: index as u32,
                 };

@@ -170,51 +170,47 @@ impl StoreTransaction {
 }
 
 impl CellProvider for StoreTransaction {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(cell_out_point) = &out_point.cell {
-            match self.get_tx_meta(&cell_out_point.tx_hash) {
-                Some(tx_meta) => match tx_meta.is_dead(cell_out_point.index as usize) {
-                    Some(false) => {
-                        let cell_meta = self
-                            .get_cell_meta(&cell_out_point.tx_hash, cell_out_point.index)
-                            .expect("store should be consistent with cell_set");
-                        CellStatus::live_cell(cell_meta)
+    fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
+        match self.get_tx_meta(&out_point.tx_hash) {
+            Some(tx_meta) => match tx_meta.is_dead(out_point.index as usize) {
+                Some(false) => {
+                    let mut cell_meta = self
+                        .get_cell_meta(&out_point.tx_hash, out_point.index)
+                        .expect("store should be consistent with cell_set");
+                    if with_data {
+                        cell_meta.mem_cell_data =
+                            self.get_cell_data(&out_point.tx_hash, out_point.index);
                     }
-                    Some(true) => CellStatus::Dead,
-                    None => CellStatus::Unknown,
-                },
+                    CellStatus::live_cell(cell_meta)
+                }
+                Some(true) => CellStatus::Dead,
                 None => CellStatus::Unknown,
-            }
-        } else {
-            CellStatus::Unspecified
+            },
+            None => CellStatus::Unknown,
         }
     }
 }
 
 impl HeaderProvider for StoreTransaction {
-    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
-        if let Some(block_hash) = &out_point.block_hash {
-            match self.get_block_header(&block_hash) {
-                Some(header) => {
-                    if let Some(cell_out_point) = &out_point.cell {
-                        self.get_transaction_info(&cell_out_point.tx_hash).map_or(
-                            HeaderStatus::InclusionFaliure,
-                            |info| {
-                                if info.block_hash == *block_hash {
-                                    HeaderStatus::live_header(header)
-                                } else {
-                                    HeaderStatus::InclusionFaliure
-                                }
-                            },
-                        )
-                    } else {
-                        HeaderStatus::live_header(header)
-                    }
+    fn header(&self, block_hash: &H256, out_point: Option<&OutPoint>) -> HeaderStatus {
+        match self.get_block_header(block_hash) {
+            Some(header) => {
+                if let Some(out_point) = out_point {
+                    self.get_transaction_info(&out_point.tx_hash).map_or(
+                        HeaderStatus::InclusionFaliure,
+                        |info| {
+                            if info.block_hash == *block_hash {
+                                HeaderStatus::live_header(header)
+                            } else {
+                                HeaderStatus::InclusionFaliure
+                            }
+                        },
+                    )
+                } else {
+                    HeaderStatus::live_header(header)
                 }
-                None => HeaderStatus::Unknown,
             }
-        } else {
-            HeaderStatus::Unspecified
+            None => HeaderStatus::Unknown,
         }
     }
 }
