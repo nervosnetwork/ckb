@@ -119,6 +119,14 @@ impl CellDep {
             CellDep::Header(_) => H256::size_of(),
         }
     }
+
+    pub fn block_hash(&self) -> Option<&H256> {
+        match self {
+            CellDep::CellWithHeader(_, block_hash) => Some(block_hash),
+            CellDep::Header(block_hash) => Some(block_hash),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

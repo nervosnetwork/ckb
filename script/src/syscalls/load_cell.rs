@@ -3,7 +3,7 @@ use crate::syscalls::{
     LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
-use ckb_core::cell::{CellMeta, ResolvedOutPoint};
+use ckb_core::cell::{CellMeta, ResolvedDep, ResolvedInput};
 use ckb_core::transaction::CellOutput;
 use ckb_protocol::{CellOutput as FbsCellOutput, Script as FbsScript};
 use ckb_vm::{
@@ -14,8 +14,8 @@ use flatbuffers::FlatBufferBuilder;
 
 pub struct LoadCell<'a> {
     outputs: &'a [CellMeta],
-    resolved_inputs: &'a [ResolvedOutPoint],
-    resolved_deps: &'a [ResolvedOutPoint],
+    resolved_inputs: &'a [ResolvedInput],
+    resolved_deps: &'a [ResolvedDep],
     group_inputs: &'a [usize],
     group_outputs: &'a [usize],
 }
@@ -23,8 +23,8 @@ pub struct LoadCell<'a> {
 impl<'a> LoadCell<'a> {
     pub fn new(
         outputs: &'a [CellMeta],
-        resolved_inputs: &'a [ResolvedOutPoint],
-        resolved_deps: &'a [ResolvedOutPoint],
+        resolved_inputs: &'a [ResolvedInput],
+        resolved_deps: &'a [ResolvedDep],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
     ) -> LoadCell<'a> {
@@ -43,7 +43,7 @@ impl<'a> LoadCell<'a> {
                 .resolved_inputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+                .map(|r| r.cell()),
             Source::Transaction(SourceEntry::Output) => {
                 self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
@@ -61,7 +61,7 @@ impl<'a> LoadCell<'a> {
                         .get(*actual_index)
                         .ok_or(INDEX_OUT_OF_BOUND)
                 })
-                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+                .map(|r| r.cell()),
             Source::Group(SourceEntry::Output) => self
                 .group_outputs
                 .get(index)

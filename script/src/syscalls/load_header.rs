@@ -2,7 +2,7 @@ use crate::syscalls::{
     utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
     LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
 };
-use ckb_core::cell::ResolvedOutPoint;
+use ckb_core::cell::{ResolvedDep, ResolvedInput};
 use ckb_core::header::Header;
 use ckb_protocol::Header as FbsHeader;
 use ckb_vm::{
@@ -13,15 +13,15 @@ use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]
 pub struct LoadHeader<'a> {
-    resolved_inputs: &'a [ResolvedOutPoint],
-    resolved_deps: &'a [ResolvedOutPoint],
+    resolved_inputs: &'a [ResolvedInput],
+    resolved_deps: &'a [ResolvedDep],
     group_inputs: &'a [usize],
 }
 
 impl<'a> LoadHeader<'a> {
     pub fn new(
-        resolved_inputs: &'a [ResolvedOutPoint],
-        resolved_deps: &'a [ResolvedOutPoint],
+        resolved_inputs: &'a [ResolvedInput],
+        resolved_deps: &'a [ResolvedDep],
         group_inputs: &'a [usize],
     ) -> LoadHeader<'a> {
         LoadHeader {
@@ -33,29 +33,12 @@ impl<'a> LoadHeader<'a> {
 
     fn fetch_header(&self, source: Source, index: usize) -> Result<&Header, u8> {
         match source {
-            Source::Transaction(SourceEntry::Input) => self
-                .resolved_inputs
-                .get(index)
-                .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|r| r.header().ok_or(ITEM_MISSING)),
-            Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::Dep) => self
                 .resolved_deps
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|r| r.header().ok_or(ITEM_MISSING)),
-            Source::Group(SourceEntry::Input) => self
-                .group_inputs
-                .get(index)
-                .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| {
-                    self.resolved_inputs
-                        .get(*actual_index)
-                        .ok_or(INDEX_OUT_OF_BOUND)
-                })
-                .and_then(|r| r.header().ok_or(ITEM_MISSING)),
-            Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
-            Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            _ => Err(INDEX_OUT_OF_BOUND),
         }
     }
 }

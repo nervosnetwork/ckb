@@ -5,7 +5,7 @@ use crate::{
     },
     DataLoader,
 };
-use ckb_core::cell::{CellMeta, ResolvedOutPoint};
+use ckb_core::cell::{CellMeta, ResolvedDep, ResolvedInput};
 use ckb_vm::{
     memory::Memory,
     registers::{A0, A1, A2, A3, A4, A5, A6, A7},
@@ -15,8 +15,8 @@ use ckb_vm::{
 pub struct LoadCellData<'a, DL> {
     data_loader: &'a DL,
     outputs: &'a [CellMeta],
-    resolved_inputs: &'a [ResolvedOutPoint],
-    resolved_deps: &'a [ResolvedOutPoint],
+    resolved_inputs: &'a [ResolvedInput],
+    resolved_deps: &'a [ResolvedDep],
     group_inputs: &'a [usize],
     group_outputs: &'a [usize],
 }
@@ -25,8 +25,8 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
     pub fn new(
         data_loader: &'a DL,
         outputs: &'a [CellMeta],
-        resolved_inputs: &'a [ResolvedOutPoint],
-        resolved_deps: &'a [ResolvedOutPoint],
+        resolved_inputs: &'a [ResolvedInput],
+        resolved_deps: &'a [ResolvedDep],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
     ) -> LoadCellData<'a, DL> {
@@ -46,7 +46,7 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
                 .resolved_inputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+                .map(|r| r.cell()),
             Source::Transaction(SourceEntry::Output) => {
                 self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
@@ -64,7 +64,7 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
                         .get(*actual_index)
                         .ok_or(INDEX_OUT_OF_BOUND)
                 })
-                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+                .map(|r| r.cell()),
             Source::Group(SourceEntry::Output) => self
                 .group_outputs
                 .get(index)
