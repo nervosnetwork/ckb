@@ -7,6 +7,7 @@ use ckb_protocol::RelayTransactionHashes as FbsRelayTransactionHashes;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use std::convert::TryInto;
+use std::mem;
 
 pub struct TransactionHashesProcess<'a, CS> {
     message: &'a FbsRelayTransactionHashes<'a>,
@@ -30,61 +31,76 @@ impl<'a, CS: ChainStore + 'static> TransactionHashesProcess<'a, CS> {
     pub fn execute(self) -> Result<(), FailureError> {
         let transaction_hashes: TransactionHashes = (*self.message).try_into()?;
 
-        for tx_hash in transaction_hashes.hashes {
-            let short_id = ProposalShortId::from_tx_hash(&tx_hash);
-            if self.relayer.shared().already_known_tx(&tx_hash) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "transaction({:#x}) from {} already known, ignore it",
-                    tx_hash,
-                    self.peer,
-                );
-            } else if self
-                .relayer
-                .shared
-                .lock_chain_state()
-                .tx_pool()
-                .get_tx_with_cycles(&short_id)
-                .is_some()
-            {
-                trace_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "transaction({:#x}) from {} already in transaction pool, ignore it",
-                    tx_hash,
-                    self.peer,
-                );
-                self.relayer.shared().mark_as_known_tx(tx_hash.clone());
-            } else {
+        let mut x_hashes = Vec::with_capacity(transaction_hashes.hashes.len());
+        {
+            let tx_filter = self.relayer.shared().tx_filter();
+            for tx_hash in transaction_hashes.hashes {
+                if tx_filter.contains(&tx_hash) {
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "transaction({:#x}) from {} already known, ignore it",
+                        tx_hash,
+                        self.peer,
+                    );
+                } else {
+                    x_hashes.push(tx_hash);
+                }
+            }
+        }
+
+        let mut knowned = Vec::with_capacity(x_hashes.len());
+        {
+            let state = self.relayer.shared.lock_chain_state();
+            let tx_pool = state.tx_pool();
+
+            for tx_hash in mem::replace(&mut x_hashes, vec![]) {
+                let short_id = ProposalShortId::from_tx_hash(&tx_hash);
+                if tx_pool.contains_tx(&short_id) {
+                    trace_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "transaction({:#x}) from {} already in transaction pool, ignore it",
+                        tx_hash,
+                        self.peer,
+                    );
+                    knowned.push(tx_hash);
+                } else {
+                    x_hashes.push(tx_hash);
+                }
+            }
+        }
+
+        {
+            self.relayer.shared().mark_as_known_txes(knowned);
+        }
+
+        if let Some(peer_state) = self
+            .relayer
+            .shared()
+            .peers()
+            .state
+            .write()
+            .get_mut(&self.peer)
+        {
+            let mut inflight_transactions = self.relayer.shared().inflight_transactions();
+
+            for tx_hash in x_hashes {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "transaction({:#x}) from {} not known, get it from the peer",
                     tx_hash,
                     self.peer,
                 );
-                let last_ask_timeout = self
-                    .relayer
-                    .shared()
-                    .inflight_transactions()
-                    .get(&tx_hash)
-                    .cloned();
-                if let Some(next_ask_timeout) = self
-                    .relayer
-                    .shared()
-                    .peers()
-                    .state
-                    .write()
-                    .get_mut(&self.peer)
-                    .and_then(|peer_state| {
-                        peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout)
-                    })
+
+                let last_ask_timeout = inflight_transactions.get(&tx_hash).cloned();
+
+                if let Some(next_ask_timeout) =
+                    peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout)
                 {
-                    self.relayer
-                        .shared()
-                        .inflight_transactions()
-                        .insert(tx_hash.clone(), next_ask_timeout);
+                    inflight_transactions.insert(tx_hash.clone(), next_ask_timeout);
                 }
             }
         }
+
         Ok(())
     }
 }
