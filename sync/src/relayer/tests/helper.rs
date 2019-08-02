@@ -5,7 +5,8 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{
-    CellInput, CellOutputBuilder, IndexTransaction, OutPoint, Transaction, TransactionBuilder,
+    CellDep, CellInput, CellOutputBuilder, IndexTransaction, OutPoint, Transaction,
+    TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_notify::NotifyService;
@@ -69,6 +70,7 @@ pub(crate) fn new_transaction(
             .expect("getting cellbase from tip block");
         cellbase.output_pts()[0].clone()
     };
+    let dep = CellDep::Cell(always_success_out_point.to_owned());
 
     TransactionBuilder::default()
         .input(CellInput::new(previous_output, 0))
@@ -78,7 +80,7 @@ pub(crate) fn new_transaction(
             .build(),
         )
         .output_data(Bytes::new())
-        .dep(always_success_out_point.to_owned())
+        .dep(dep)
         .build()
 }
 
@@ -91,7 +93,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         .output_data(always_success_cell_data.clone())
         .witness(always_success_script.clone().into_witness())
         .build();
-    let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
+    let always_success_out_point = OutPoint::new(always_success_tx.hash().to_owned(), 0);
 
     let shared = {
         let genesis = BlockBuilder::from_header_builder(

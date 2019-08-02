@@ -2,8 +2,8 @@ use crate::error::RPCError;
 use ckb_core::cell::CellProvider;
 use ckb_core::transaction::ProposalShortId;
 use ckb_jsonrpc_types::{
-    BlockNumber, BlockRewardView, BlockView, Capacity, CellOutPoint, CellOutputWithOutPoint,
-    CellWithStatus, EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
+    BlockNumber, BlockRewardView, BlockView, Capacity, CellOutputWithOutPoint, CellWithStatus,
+    EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
 };
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -216,11 +216,8 @@ impl ChainRpc for ChainRpcImpl {
                         {
                             result.push(CellOutputWithOutPoint {
                                 out_point: OutPoint {
-                                    cell: Some(CellOutPoint {
-                                        tx_hash: transaction.hash().to_owned(),
-                                        index: Unsigned(i as u64),
-                                    }),
-                                    block_hash: Some(block_hash.to_owned()),
+                                    tx_hash: transaction.hash().to_owned(),
+                                    index: Unsigned(i as u64),
                                 },
                                 capacity: Capacity(output.capacity),
                                 lock: output.lock.clone().into(),
@@ -237,7 +234,7 @@ impl ChainRpc for ChainRpcImpl {
         let cell_status = self
             .shared
             .lock_chain_state()
-            .cell(&out_point.clone().into());
+            .cell(&out_point.clone().into(), false);
         Ok(cell_status.into())
     }
 

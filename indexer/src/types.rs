@@ -1,4 +1,4 @@
-use ckb_core::transaction::{CellOutPoint, CellOutput};
+use ckb_core::transaction::{CellOutput, OutPoint};
 use ckb_core::BlockNumber;
 use ckb_jsonrpc_types::{
     BlockNumber as JsonBlockNumber, CellTransaction as JsonCellTransaction,
@@ -11,7 +11,7 @@ use std::convert::TryInto;
 pub struct LockHashIndex {
     pub lock_hash: H256,
     pub block_number: BlockNumber,
-    pub cell_out_point: CellOutPoint,
+    pub out_point: OutPoint,
 }
 
 pub struct LiveCell {
@@ -51,7 +51,7 @@ impl LockHashIndex {
         LockHashIndex {
             lock_hash,
             block_number,
-            cell_out_point: CellOutPoint { tx_hash, index },
+            out_point: OutPoint { tx_hash, index },
         }
     }
 
@@ -65,7 +65,7 @@ impl LockHashIndex {
         Self {
             lock_hash,
             block_number,
-            cell_out_point: CellOutPoint { tx_hash, index },
+            out_point: OutPoint { tx_hash, index },
         }
     }
 
@@ -73,8 +73,8 @@ impl LockHashIndex {
         let mut result = Vec::with_capacity(76);
         result.extend_from_slice(self.lock_hash.as_bytes());
         result.extend_from_slice(&self.block_number.to_be_bytes());
-        result.extend_from_slice(self.cell_out_point.tx_hash.as_bytes());
-        result.extend_from_slice(&self.cell_out_point.index.to_be_bytes());
+        result.extend_from_slice(self.out_point.tx_hash.as_bytes());
+        result.extend_from_slice(&self.out_point.index.to_be_bytes());
         result
     }
 }
@@ -83,8 +83,8 @@ impl From<LockHashIndex> for TransactionPoint {
     fn from(lock_hash_index: LockHashIndex) -> Self {
         TransactionPoint {
             block_number: lock_hash_index.block_number,
-            tx_hash: lock_hash_index.cell_out_point.tx_hash,
-            index: lock_hash_index.cell_out_point.index,
+            tx_hash: lock_hash_index.out_point.tx_hash,
+            index: lock_hash_index.out_point.index,
         }
     }
 }

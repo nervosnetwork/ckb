@@ -4,7 +4,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{
-    CellInput, CellOutput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
+    CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
     TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
@@ -244,7 +244,7 @@ impl Chains {
 fn new_chain(txs_size: usize, chains_num: usize) -> (Chains, OutPoint) {
     let (_, _, always_success_script) = always_success_cell();
     let tx = create_always_success_tx();
-    let always_success_out_point = OutPoint::new_cell(tx.hash().to_owned(), 0);
+    let always_success_out_point = OutPoint::new(tx.hash().to_owned(), 0);
     let dao = genesis_dao_data(&tx).unwrap();
     let header_builder = HeaderBuilder::default()
         .dao(dao)
@@ -390,10 +390,7 @@ fn create_transaction(parent_hash: &H256, always_success_out_point: OutPoint) ->
             None,
         ))
         .output_data(data)
-        .input(CellInput::new(
-            OutPoint::new_cell(parent_hash.to_owned(), 0),
-            0,
-        ))
-        .dep(always_success_out_point)
+        .input(CellInput::new(OutPoint::new(parent_hash.to_owned(), 0), 0))
+        .dep(CellDep::Cell(always_success_out_point))
         .build()
 }

@@ -187,7 +187,9 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::cell::UnresolvableError;
     use ckb_core::header::HeaderBuilder;
-    use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
+    use ckb_core::transaction::{
+        CellDep, CellInput, CellOutputBuilder, OutPoint, TransactionBuilder,
+    };
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
@@ -207,7 +209,7 @@ mod tests {
             .output(always_success_cell.clone())
             .output_data(always_success_cell_data.clone())
             .build();
-        let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
+        let always_success_out_point = OutPoint::new(always_success_tx.hash().to_owned(), 0);
 
         let mut block = BlockBuilder::default()
             .header_builder(
@@ -256,9 +258,10 @@ mod tests {
                 .build();
 
             let txs = (10..20).map(|i| {
+                let dep = CellDep::Cell(always_success_out_point.to_owned());
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new_cell(cellbase.hash().to_owned(), i),
+                        OutPoint::new(cellbase.hash().to_owned(), i),
                         0,
                     ))
                     .output(
@@ -268,7 +271,7 @@ mod tests {
                             .build(),
                     )
                     .output_data(Bytes::new())
-                    .dep(always_success_out_point.to_owned())
+                    .dep(dep)
                     .build()
             });
 
@@ -306,9 +309,10 @@ mod tests {
         let txs = (0..20u8)
             .map(|i| {
                 let data = Bytes::from(vec![i]);
+                let dep = CellDep::Cell(always_success_out_point.to_owned());
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new_cell(last_cellbase.hash().to_owned(), u32::from(i)),
+                        OutPoint::new(last_cellbase.hash().to_owned(), u32::from(i)),
                         0,
                     ))
                     .output(
@@ -317,7 +321,7 @@ mod tests {
                             .build(),
                     )
                     .output_data(data)
-                    .dep(always_success_out_point.to_owned())
+                    .dep(dep)
                     .build()
             })
             .collect::<Vec<_>>();
@@ -373,9 +377,10 @@ mod tests {
         let transactions: Vec<Transaction> = (tip_number - 1..=tip_number + 2)
             .map(|number| {
                 let since = number;
+                let dep = CellDep::Cell(always_success_out_point.to_owned());
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new_cell(last_cellbase.hash().to_owned(), 0),
+                        OutPoint::new(last_cellbase.hash().to_owned(), 0),
                         since,
                     ))
                     .output(
@@ -384,7 +389,7 @@ mod tests {
                             .build(),
                     )
                     .output_data(Bytes::new())
-                    .dep(always_success_out_point.to_owned())
+                    .dep(dep)
                     .build()
             })
             .collect();

@@ -58,9 +58,7 @@ fn test_dead_cell_in_same_block() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new_cell(
-            tx1_hash, 0
-        ))),
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(tx1_hash, 0))),
         chain_controller
             .process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
@@ -117,7 +115,7 @@ fn test_dead_cell_in_different_block() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new_cell(
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(
             tx1_hash.to_owned(),
             0
         ))),
@@ -155,7 +153,7 @@ fn test_invalid_out_point_index_in_same_block() {
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
@@ -178,7 +176,7 @@ fn test_invalid_out_point_index_in_same_block() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new_cell(
+        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
             tx1_hash, 1,
         )])),
         chain_controller
@@ -215,7 +213,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     chain2.gen_empty_block(20000u64, &mock_store);
@@ -239,7 +237,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new_cell(
+        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
             tx1_hash.to_owned(),
             1,
         )])),

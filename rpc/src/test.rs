@@ -9,7 +9,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::resolve_transaction;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{
-    CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
+    CellDep, CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
 };
 use ckb_core::{alert::AlertBuilder, capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
@@ -281,13 +281,16 @@ fn load_cases_from_file() -> Vec<Value> {
 
 // Construct a transaction which use tip-cellbase as input cell
 fn construct_transaction() -> Transaction {
-    let previous_output = OutPoint::new_cell(UNSPENT.with(|unspent| unspent.borrow().clone()), 0);
+    let previous_output = OutPoint::new(UNSPENT.with(|unspent| unspent.borrow().clone()), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(1000))
         .lock(always_success_cell().2.clone())
         .build();
-    let dep = OutPoint::new_cell(always_success_transaction().hash().to_owned(), 0);
+    let dep = CellDep::Cell(OutPoint::new(
+        always_success_transaction().hash().to_owned(),
+        0,
+    ));
     TransactionBuilder::default()
         .input(input)
         .output(output)
@@ -335,7 +338,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
     let (_, _, always_success_script) = always_success_cell();
     let always_success_script_hash = json!(format!("{:#x}", always_success_script.hash()));
     let always_success_out_point = {
-        let out_point = OutPoint::new_cell(always_success_transaction().hash().to_owned(), 0);
+        let out_point = OutPoint::new(always_success_transaction().hash().to_owned(), 0);
         let json_out_point: ckb_jsonrpc_types::OutPoint = out_point.into();
         json!(json_out_point)
     };

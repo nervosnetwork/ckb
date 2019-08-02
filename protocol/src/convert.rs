@@ -269,7 +269,7 @@ impl<'a> TryFrom<ckb_protocol::CellDep<'a>> for ckb_core::transaction::CellDep {
                     Err(Error::Malformed.into())
                 } else {
                     let out_point = convert_out_point(dep)?;
-                    Ok(ckb_core::transaction::CellDep::Cell(out_point))
+                    Ok(ckb_core::transaction::CellDep::DepGroup(out_point))
                 }
             }
             DEP_TYPE_HEADER => {

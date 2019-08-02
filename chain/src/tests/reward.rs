@@ -7,7 +7,8 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
-    CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
+    TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, Bytes, Capacity};
@@ -89,6 +90,7 @@ pub(crate) fn gen_block(
 pub(crate) fn create_transaction(parent: &Transaction, index: u32) -> Transaction {
     let (_, _, always_success_script) = always_success_cell();
     let always_success_out_point = create_always_success_out_point();
+    let dep = CellDep::Cell(always_success_out_point);
 
     TransactionBuilder::default()
         .output(
@@ -99,10 +101,10 @@ pub(crate) fn create_transaction(parent: &Transaction, index: u32) -> Transactio
         )
         .output_data(Bytes::new())
         .input(CellInput::new(
-            OutPoint::new_cell(parent.hash().to_owned(), index),
+            OutPoint::new(parent.hash().to_owned(), index),
             0,
         ))
-        .dep(always_success_out_point)
+        .dep(dep)
         .build()
 }
 

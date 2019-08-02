@@ -4,7 +4,7 @@ use crate::types::{
 };
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
-use ckb_core::transaction::{CellOutPoint, CellOutput};
+use ckb_core::transaction::{CellOutput, OutPoint};
 use ckb_core::BlockNumber;
 use ckb_db::{db::RocksDB, Col, DBConfig, DBIterator, Direction, RocksDBTransaction};
 use ckb_logger::{debug, error, trace};
@@ -27,13 +27,13 @@ const COLUMNS: u32 = 4;
 /// | COLUMN_LOCK_HASH_INDEX_STATE    | H256          | LockHashIndexState       |
 /// | COLUMN_LOCK_HASH_LIVE_CELL      | LockHashIndex | CellOutput               |
 /// | COLUMN_LOCK_HASH_TRANSACTION    | LockHashIndex | Option<TransactionPoint> |
-/// | COLUMN_CELL_OUT_POINT_LOCK_HASH | CellOutPoint  | LockHashCellOutput       |
+/// | COLUMN_OUT_POINT_LOCK_HASH      | OutPoint      | LockHashCellOutput       |
 /// +---------------------------------+---------------+--------------------------+
 
 const COLUMN_LOCK_HASH_INDEX_STATE: Col = "0";
 const COLUMN_LOCK_HASH_LIVE_CELL: Col = "1";
 const COLUMN_LOCK_HASH_TRANSACTION: Col = "2";
-const COLUMN_CELL_OUT_POINT_LOCK_HASH: Col = "3";
+const COLUMN_OUT_POINT_LOCK_HASH: Col = "3";
 
 pub trait IndexerStore: Sync + Send {
     fn get_live_cells(
@@ -198,7 +198,7 @@ impl IndexerStore for DefaultIndexerStore {
                 .for_each(|(key, _)| {
                     let lock_hash_index = LockHashIndex::from_slice(&key);
                     txn.delete_lock_hash_live_cell(&lock_hash_index);
-                    txn.delete_cell_out_point_lock_hash(&lock_hash_index.cell_out_point);
+                    txn.delete_out_point_lock_hash(&lock_hash_index.out_point);
                 });
 
             let iter = self
@@ -385,26 +385,23 @@ impl DefaultIndexerStore {
                         LockHashIndex::new(lock_hash, block_number, tx_hash.clone(), index);
                     txn.delete_lock_hash_live_cell(&lock_hash_index);
                     txn.delete_lock_hash_transaction(&lock_hash_index);
-                    txn.delete_cell_out_point_lock_hash(&lock_hash_index.cell_out_point);
+                    txn.delete_out_point_lock_hash(&lock_hash_index.out_point);
                 }
             });
 
             if !tx.is_cellbase() {
                 tx.inputs().iter().for_each(|input| {
-                    if let Some(cell_out_point) = input.previous_output.cell.clone() {
-                        if let Some(lock_hash_cell_output) =
-                            txn.get_lock_hash_cell_output(&cell_out_point)
-                        {
-                            if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                                if let Some(cell_output) = lock_hash_cell_output.cell_output {
-                                    let lock_hash_index = LockHashIndex::new(
-                                        lock_hash_cell_output.lock_hash.clone(),
-                                        lock_hash_cell_output.block_number,
-                                        cell_out_point.tx_hash.clone(),
-                                        cell_out_point.index,
-                                    );
-                                    txn.generate_live_cell(lock_hash_index, cell_output);
-                                }
+                    let out_point = &input.previous_output;
+                    if let Some(lock_hash_cell_output) = txn.get_lock_hash_cell_output(out_point) {
+                        if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
+                            if let Some(cell_output) = lock_hash_cell_output.cell_output {
+                                let lock_hash_index = LockHashIndex::new(
+                                    lock_hash_cell_output.lock_hash.clone(),
+                                    lock_hash_cell_output.block_number,
+                                    out_point.tx_hash.clone(),
+                                    out_point.index,
+                                );
+                                txn.generate_live_cell(lock_hash_index, cell_output);
                             }
                         }
                     }
@@ -426,24 +423,21 @@ impl DefaultIndexerStore {
             if !tx.is_cellbase() {
                 tx.inputs().iter().enumerate().for_each(|(index, input)| {
                     let index = index as u32;
-                    if let Some(cell_out_point) = input.previous_output.cell.clone() {
-                        if let Some(lock_hash_cell_output) =
-                            txn.get_lock_hash_cell_output(&cell_out_point)
-                        {
-                            if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                                let lock_hash_index = LockHashIndex::new(
-                                    lock_hash_cell_output.lock_hash,
-                                    lock_hash_cell_output.block_number,
-                                    cell_out_point.tx_hash,
-                                    cell_out_point.index,
-                                );
-                                let consumed_by = TransactionPoint {
-                                    block_number,
-                                    tx_hash: tx_hash.clone(),
-                                    index,
-                                };
-                                txn.consume_live_cell(lock_hash_index, consumed_by);
-                            }
+                    let out_point = &input.previous_output;
+                    if let Some(lock_hash_cell_output) = txn.get_lock_hash_cell_output(&out_point) {
+                        if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
+                            let lock_hash_index = LockHashIndex::new(
+                                lock_hash_cell_output.lock_hash,
+                                lock_hash_cell_output.block_number,
+                                out_point.tx_hash.clone(),
+                                out_point.index,
+                            );
+                            let consumed_by = TransactionPoint {
+                                block_number,
+                                tx_hash: tx_hash.clone(),
+                                index,
+                            };
+                            txn.consume_live_cell(lock_hash_index, consumed_by);
                         }
                     }
                 });
@@ -476,10 +470,7 @@ impl IndexerStoreTransaction {
             block_number: lock_hash_index.block_number,
             cell_output: Some(cell_output),
         };
-        self.insert_cell_out_point_lock_hash(
-            &lock_hash_index.cell_out_point,
-            &lock_hash_cell_output,
-        );
+        self.insert_out_point_lock_hash(&lock_hash_index.out_point, &lock_hash_cell_output);
     }
 
     fn consume_live_cell(&self, lock_hash_index: LockHashIndex, consumed_by: TransactionPoint) {
@@ -496,10 +487,7 @@ impl IndexerStoreTransaction {
         {
             self.delete_lock_hash_live_cell(&lock_hash_index);
             self.insert_lock_hash_transaction(&lock_hash_index, &Some(consumed_by));
-            self.insert_cell_out_point_lock_hash(
-                &lock_hash_index.cell_out_point,
-                &lock_hash_cell_output,
-            );
+            self.insert_out_point_lock_hash(&lock_hash_index.out_point, &lock_hash_cell_output);
         }
     }
 
@@ -541,19 +529,19 @@ impl IndexerStoreTransaction {
             .expect("txn insert COLUMN_LOCK_HASH_TRANSACTION failed");
     }
 
-    fn insert_cell_out_point_lock_hash(
+    fn insert_out_point_lock_hash(
         &self,
-        cell_out_point: &CellOutPoint,
+        out_point: &OutPoint,
         lock_hash_cell_output: &LockHashCellOutput,
     ) {
         self.txn
             .put(
-                COLUMN_CELL_OUT_POINT_LOCK_HASH,
-                &serialize(&cell_out_point).expect("serialize OutPoint should be ok"),
-                &serialize(&lock_hash_cell_output)
+                COLUMN_OUT_POINT_LOCK_HASH,
+                &serialize(out_point).expect("serialize OutPoint should be ok"),
+                &serialize(lock_hash_cell_output)
                     .expect("serialize LockHashCellOutput should be ok"),
             )
-            .expect("txn insert COLUMN_CELL_OUT_POINT_LOCK_HASH failed");
+            .expect("txn insert COLUMN_OUT_POINT_LOCK_HASH failed");
     }
 
     fn delete_lock_hash_index_state(&self, lock_hash: &H256) {
@@ -574,23 +562,20 @@ impl IndexerStoreTransaction {
             .expect("txn delete COLUMN_LOCK_HASH_TRANSACTION failed");
     }
 
-    fn delete_cell_out_point_lock_hash(&self, cell_out_point: &CellOutPoint) {
+    fn delete_out_point_lock_hash(&self, out_point: &OutPoint) {
         self.txn
             .delete(
-                COLUMN_CELL_OUT_POINT_LOCK_HASH,
-                &serialize(cell_out_point).expect("serialize CellOutPoint should be ok"),
+                COLUMN_OUT_POINT_LOCK_HASH,
+                &serialize(out_point).expect("serialize OutPoint should be ok"),
             )
-            .expect("txn delete COLUMN_CELL_OUT_POINT_LOCK_HASH failed");
+            .expect("txn delete COLUMN_OUT_POINT_LOCK_HASH failed");
     }
 
-    fn get_lock_hash_cell_output(
-        &self,
-        cell_out_point: &CellOutPoint,
-    ) -> Option<LockHashCellOutput> {
+    fn get_lock_hash_cell_output(&self, out_point: &OutPoint) -> Option<LockHashCellOutput> {
         self.txn
             .get(
-                COLUMN_CELL_OUT_POINT_LOCK_HASH,
-                &serialize(cell_out_point).expect("serialize OutPoint should be ok"),
+                COLUMN_OUT_POINT_LOCK_HASH,
+                &serialize(out_point).expect("serialize OutPoint should be ok"),
             )
             .expect("indexer db read should be ok")
             .map(|value| deserialize(&value).expect("deserialize LockHashCellOutput should be ok"))
@@ -724,10 +709,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000))
@@ -738,10 +720,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000))
@@ -871,10 +850,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000))
@@ -885,10 +861,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000))
@@ -1027,10 +1000,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000))
@@ -1041,10 +1011,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000))
@@ -1131,10 +1098,7 @@ mod tests {
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(900))
@@ -1145,10 +1109,7 @@ mod tests {
             .build();
 
         let tx13 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(800))
@@ -1214,10 +1175,7 @@ mod tests {
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(900))
@@ -1228,10 +1186,7 @@ mod tests {
             .build();
 
         let tx21 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(800))
