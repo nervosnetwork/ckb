@@ -101,7 +101,7 @@ impl Default for OutPoint {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum CellDep {
     Cell(OutPoint),
     CellWithHeader(OutPoint, H256),
@@ -112,6 +112,27 @@ pub enum CellDep {
 impl Default for CellDep {
     fn default() -> CellDep {
         CellDep::Cell(OutPoint::null())
+    }
+}
+
+impl fmt::Debug for CellDep {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (name, out_point, block_hash) = match self {
+            CellDep::Cell(out_point) => ("CellDep::Cell", Some(out_point), None),
+            CellDep::CellWithHeader(out_point, block_hash) => {
+                ("CellDep::CellWithHeader", Some(out_point), Some(block_hash))
+            }
+            CellDep::DepGroup(out_point) => ("CellDep::DepGroup", Some(out_point), None),
+            CellDep::Header(block_hash) => ("CellDep::Header", None, Some(block_hash)),
+        };
+        let mut debug = f.debug_tuple(name);
+        if let Some(out_point) = out_point {
+            debug.field(out_point);
+        }
+        if let Some(block_hash) = block_hash {
+            debug.field(&format_args!("{:#x}", block_hash));
+        }
+        debug.finish()
     }
 }
 
