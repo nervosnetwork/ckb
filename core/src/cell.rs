@@ -525,7 +525,7 @@ fn resolve_dep_group<
     // tx hash (32 bytes) + output index (4 bytes)
     const OUT_POINT_LEN: usize = mem::size_of::<H256>() + mem::size_of::<u32>();
 
-    if data.is_empty() && data.len() % OUT_POINT_LEN != 0 {
+    if data.is_empty() || data.len() % OUT_POINT_LEN != 0 {
         return Err(UnresolvableError::InvalidDepGroup(out_point.clone()));
     }
 
@@ -693,8 +693,7 @@ mod tests {
         }
     }
 
-    fn generate_dummy_cell_meta() -> CellMeta {
-        let data = Bytes::default();
+    fn generate_dummy_cell_meta_with_info(out_point: OutPoint, data: Bytes) -> CellMeta {
         let cell_output = CellOutput {
             capacity: capacity_bytes!(2),
             data_hash: CellOutput::calculate_data_hash(&data),
@@ -708,14 +707,27 @@ mod tests {
                 hash: H256::zero(),
             }),
             cell_output,
-            out_point: OutPoint {
-                tx_hash: Default::default(),
-                index: 0,
-            },
+            out_point,
             cellbase: false,
             data_bytes: data.len() as u64,
             mem_cell_data: Some(data),
         }
+    }
+
+    fn generate_dummy_cell_meta_with_out_point(out_point: OutPoint) -> CellMeta {
+        generate_dummy_cell_meta_with_info(out_point, Bytes::default())
+    }
+
+    fn generate_dummy_cell_meta_with_data(data: Bytes) -> CellMeta {
+        generate_dummy_cell_meta_with_info(OutPoint::new(Default::default(), 0), data)
+    }
+
+    fn generate_dummy_cell_meta() -> CellMeta {
+        generate_dummy_cell_meta_with_data(Bytes::default())
+    }
+
+    fn out_point_to_dep_group_data(op: &OutPoint) -> Vec<u8> {
+        [op.tx_hash.to_vec(), op.index.to_le_bytes().to_vec()].concat()
     }
 
     fn generate_block(txs: Vec<Transaction>) -> Block {
@@ -746,6 +758,117 @@ mod tests {
         assert_eq!(CellStatus::Live(Box::new(o)), db.cell(&p1, false));
         assert_eq!(CellStatus::Dead, db.cell(&p2, false));
         assert_eq!(CellStatus::Unknown, db.cell(&p3, false));
+    }
+
+    #[test]
+    fn resolve_transaction_should_resolve_dep_group() {
+        let mut cell_provider = CellMemoryDb::default();
+        let header_provider = BlockHeadersProvider::default();
+
+        let op_dep = OutPoint::new(H256::zero(), 72);
+        let op_1 = OutPoint::new(h256!("0x13"), 1);
+        let op_2 = OutPoint::new(h256!("0x23"), 2);
+        let op_3 = OutPoint::new(h256!("0x33"), 3);
+
+        for op in &[&op_1, &op_2, &op_3] {
+            cell_provider.cells.insert(
+                (*op).clone(),
+                Some(generate_dummy_cell_meta_with_out_point((*op).clone())),
+            );
+        }
+        let cell_data = [
+            out_point_to_dep_group_data(&op_1),
+            out_point_to_dep_group_data(&op_2),
+            out_point_to_dep_group_data(&op_3),
+        ]
+        .concat();
+        let dep_group_cell = generate_dummy_cell_meta_with_data(Bytes::from(cell_data));
+        cell_provider
+            .cells
+            .insert(op_dep.clone(), Some(dep_group_cell));
+
+        let dep = CellDep::DepGroup(op_dep);
+
+        let transaction = TransactionBuilder::default().dep(dep).build();
+        let mut seen_inputs = FnvHashSet::default();
+        let result = resolve_transaction(
+            &transaction,
+            &mut seen_inputs,
+            &cell_provider,
+            &header_provider,
+        )
+        .unwrap();
+
+        assert_eq!(result.resolved_deps.len(), 3);
+        assert_eq!(
+            result.resolved_deps[0].cell().as_ref().unwrap().out_point,
+            op_1
+        );
+        assert_eq!(
+            result.resolved_deps[1].cell().as_ref().unwrap().out_point,
+            op_2
+        );
+        assert_eq!(
+            result.resolved_deps[2].cell().as_ref().unwrap().out_point,
+            op_3
+        );
+    }
+
+    #[test]
+    fn resolve_transaction_resolve_dep_group_failed_because_invalid_data() {
+        let mut cell_provider = CellMemoryDb::default();
+        let header_provider = BlockHeadersProvider::default();
+
+        let op_dep = OutPoint::new(H256::zero(), 72);
+        let cell_data = Bytes::from("this is invalid data");
+        let dep_group_cell = generate_dummy_cell_meta_with_data(cell_data);
+        cell_provider
+            .cells
+            .insert(op_dep.clone(), Some(dep_group_cell));
+
+        let dep = CellDep::DepGroup(op_dep.clone());
+
+        let transaction = TransactionBuilder::default().dep(dep).build();
+        let mut seen_inputs = FnvHashSet::default();
+        let result = resolve_transaction(
+            &transaction,
+            &mut seen_inputs,
+            &cell_provider,
+            &header_provider,
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            UnresolvableError::InvalidDepGroup(op_dep)
+        );
+    }
+
+    #[test]
+    fn resolve_transaction_resolve_dep_group_failed_because_unknown_sub_cell() {
+        let mut cell_provider = CellMemoryDb::default();
+        let header_provider = BlockHeadersProvider::default();
+
+        let op_unknown = OutPoint::new(h256!("0x45"), 5);
+        let op_dep = OutPoint::new(H256::zero(), 72);
+        let cell_data = Bytes::from(out_point_to_dep_group_data(&op_unknown));
+        let dep_group_cell = generate_dummy_cell_meta_with_data(cell_data);
+        cell_provider
+            .cells
+            .insert(op_dep.clone(), Some(dep_group_cell));
+
+        let dep = CellDep::DepGroup(op_dep.clone());
+
+        let transaction = TransactionBuilder::default().dep(dep).build();
+        let mut seen_inputs = FnvHashSet::default();
+        let result = resolve_transaction(
+            &transaction,
+            &mut seen_inputs,
+            &cell_provider,
+            &header_provider,
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            UnresolvableError::Unknown(vec![op_unknown])
+        );
     }
 
     #[test]

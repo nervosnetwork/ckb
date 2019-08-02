@@ -101,11 +101,16 @@ impl Default for OutPoint {
     }
 }
 
+/// A transaction dependency type
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum CellDep {
+    /// Cell only
     Cell(OutPoint),
+    /// Cell and Header
     CellWithHeader(OutPoint, H256),
+    /// Dependency group (alias to more than one cell only CellDeps)
     DepGroup(OutPoint),
+    /// Header only
     Header(H256),
 }
 
