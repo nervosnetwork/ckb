@@ -1019,8 +1019,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn mark_as_known_tx(&self, hash: H256) {
-        self.inflight_transactions().remove(&hash);
-        self.tx_filter.lock().insert(hash);
+        self.mark_as_known_txs(vec![hash]);
     }
 
     pub fn mark_as_known_txs(&self, hashes: Vec<H256>) {
