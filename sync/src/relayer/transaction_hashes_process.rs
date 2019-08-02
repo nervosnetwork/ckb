@@ -1,7 +1,7 @@
 use crate::relayer::compact_block::TransactionHashes;
 use crate::relayer::Relayer;
 use ckb_core::transaction::ProposalShortId;
-use ckb_logger::{debug_target, trace_target};
+use ckb_logger::debug_target;
 use ckb_network::PeerIndex;
 use ckb_protocol::RelayTransactionHashes as FbsRelayTransactionHashes;
 use ckb_store::ChainStore;
@@ -36,46 +36,16 @@ impl<'a, CS: ChainStore + 'static> TransactionHashesProcess<'a, CS> {
             transaction_hashes
                 .hashes
                 .into_iter()
-                .filter(|tx_hash| {
-                    if tx_filter.contains(&tx_hash) {
-                        debug_target!(
-                            crate::LOG_TARGET_RELAY,
-                            "transaction({:#x}) from {} already known, ignore it",
-                            tx_hash,
-                            self.peer,
-                        );
-                        false
-                    } else {
-                        true
-                    }
-                })
+                .filter(|tx_hash| !tx_filter.contains(&tx_hash))
                 .collect()
         };
 
-        let mut knowned = Vec::with_capacity(transit_hashes.len());
         {
             let state = self.relayer.shared.lock_chain_state();
             let tx_pool = state.tx_pool();
 
-            transit_hashes.retain(|tx_hash| {
-                let short_id = ProposalShortId::from_tx_hash(&tx_hash);
-                if tx_pool.contains_tx(&short_id) {
-                    trace_target!(
-                        crate::LOG_TARGET_RELAY,
-                        "transaction({:#x}) from {} already in transaction pool, ignore it",
-                        tx_hash,
-                        self.peer,
-                    );
-                    knowned.push(tx_hash.to_owned());
-                    false
-                } else {
-                    true
-                }
-            })
-        }
-
-        {
-            self.relayer.shared().mark_as_known_txs(knowned);
+            transit_hashes
+                .retain(|tx_hash| !tx_pool.contains_tx(&ProposalShortId::from_tx_hash(&tx_hash)))
         }
 
         if let Some(peer_state) = self
@@ -101,7 +71,7 @@ impl<'a, CS: ChainStore + 'static> TransactionHashesProcess<'a, CS> {
                 if let Some(next_ask_timeout) =
                     peer_state.add_ask_for_tx(tx_hash.clone(), last_ask_timeout)
                 {
-                    inflight_transactions.insert(tx_hash.clone(), next_ask_timeout);
+                    inflight_transactions.insert(tx_hash, next_ask_timeout);
                 }
             }
         }

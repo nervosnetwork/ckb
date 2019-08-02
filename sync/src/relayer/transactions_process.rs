@@ -44,19 +44,7 @@ impl<'a, CS: ChainStore + Sync + 'static> TransactionsProcess<'a, CS> {
             relay_txs
                 .transactions
                 .into_iter()
-                .filter(|relay_tx| {
-                    let tx_hash = relay_tx.transaction.hash();
-                    if tx_filter.contains(tx_hash) {
-                        debug_target!(
-                            crate::LOG_TARGET_RELAY,
-                            "discarding already known transaction {:#x}",
-                            tx_hash
-                        );
-                        false
-                    } else {
-                        true
-                    }
-                })
+                .filter(|relay_tx| !tx_filter.contains(relay_tx.transaction.hash()))
                 .collect()
         };
 
