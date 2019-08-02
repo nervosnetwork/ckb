@@ -156,7 +156,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
             .shared
             .store()
             .get_current_epoch_ext()
-            .map(|ext| EpochView::from_ext(self.shared.consensus().epoch_reward(), &ext))
+            .map(|ext| EpochView::from_ext(&ext))
             .expect("current_epoch exists"))
     }
 
@@ -169,7 +169,7 @@ impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
                 self.shared
                     .store()
                     .get_epoch_ext(&hash)
-                    .map(|ext| EpochView::from_ext(self.shared.consensus().epoch_reward(), &ext))
+                    .map(|ext| EpochView::from_ext(&ext))
             }))
     }
 
