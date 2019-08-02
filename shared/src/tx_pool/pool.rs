@@ -8,6 +8,7 @@ use ckb_core::{Capacity, Cycle};
 use ckb_logger::{error_target, trace_target};
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
+use numext_fixed_hash::H256;
 
 #[derive(Debug, Clone)]
 pub struct TxPool {
@@ -22,6 +23,8 @@ pub struct TxPool {
     pub(crate) orphan: OrphanPool,
     /// cache for conflict transaction
     pub(crate) conflict: LruCache<ProposalShortId, DefectEntry>,
+    /// cache for committed transactions hash
+    pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, H256>,
     /// last txs updated timestamp, used by getblocktemplate
     pub(crate) last_txs_updated_at: u64,
     // sum of all tx_pool tx's virtual sizes.
@@ -32,7 +35,8 @@ pub struct TxPool {
 
 impl TxPool {
     pub fn new(config: TxPoolConfig) -> TxPool {
-        let cache_size = config.max_conflict_cache_size;
+        let conflict_cache_size = config.max_conflict_cache_size;
+        let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
         let last_txs_updated_at = 0u64;
 
         TxPool {
@@ -41,7 +45,8 @@ impl TxPool {
             gap: PendingQueue::new(),
             proposed: ProposedPool::new(),
             orphan: OrphanPool::new(),
-            conflict: LruCache::new(cache_size),
+            conflict: LruCache::new(conflict_cache_size),
+            committed_txs_hash_cache: LruCache::new(committed_txs_hash_cache_size),
             last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
@@ -232,6 +237,8 @@ impl TxPool {
             for entry in self.proposed.remove_committed_tx(tx) {
                 self.update_statics_for_remove_tx(entry.size, entry.cycles);
             }
+            self.committed_txs_hash_cache
+                .insert(tx.proposal_short_id(), hash.to_owned());
         }
     }
 

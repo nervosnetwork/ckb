@@ -298,10 +298,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         if !short_ids_set.is_empty() {
             let chain_state = self.shared().lock_chain_state();
             short_ids_set.into_iter().for_each(|short_id| {
-                if let Some(tx) = chain_state
-                    .tx_pool()
-                    .get_tx_from_proposed_and_others(&short_id)
-                {
+                if let Some(tx) = chain_state.get_tx_from_pool_or_store(&short_id) {
                     txs_map.insert(*short_id, tx);
                 }
             })

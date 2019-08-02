@@ -715,6 +715,18 @@ impl<CS: ChainStore> ChainState<CS> {
         self.tx_pool.get_mut()
     }
 
+    pub fn get_tx_from_pool_or_store(&self, proposal_id: &ProposalShortId) -> Option<Transaction> {
+        let tx_pool = self.tx_pool();
+        tx_pool
+            .get_tx_from_proposed_and_others(proposal_id)
+            .or_else(|| {
+                tx_pool
+                    .committed_txs_hash_cache
+                    .get(proposal_id)
+                    .and_then(|tx_hash| self.store().get_transaction(tx_hash).map(|(tx, _)| tx))
+            })
+    }
+
     pub fn consensus(&self) -> Arc<Consensus> {
         Arc::clone(&self.consensus)
     }

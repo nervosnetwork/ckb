@@ -88,6 +88,7 @@ max_mem_size = 20_000_000 # 20mb
 max_cycles = 200_000_000_000
 max_verify_cache_size = 100_000
 max_conflict_cache_size = 1_000
+max_committed_txs_hash_cache_size = 100_000
 
 [script]
 runner = "Rust" # {{
