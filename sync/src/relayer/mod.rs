@@ -416,19 +416,18 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                     tx_hashes.len(),
                     peer,
                 );
-            }
 
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = RelayMessage::build_get_transactions(fbb, &tx_hashes);
-            fbb.finish(message, None);
-            let data = fbb.finished_data().into();
-            if let Err(err) = nc.send_message_to(*peer, data) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "relayer send Transaction error: {:?}",
-                    err,
-                );
-                break;
+                let fbb = &mut FlatBufferBuilder::new();
+                let message = RelayMessage::build_get_transactions(fbb, &tx_hashes);
+                fbb.finish(message, None);
+                let data = fbb.finished_data().into();
+                if let Err(err) = nc.send_message_to(*peer, data) {
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "relayer send Transaction error: {:?}",
+                        err,
+                    );
+                }
             }
         }
     }
