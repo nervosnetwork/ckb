@@ -108,7 +108,7 @@ impl CellSet {
             }
         }
 
-        for cell_input in &diff.old_inputs {
+        for cell_input in diff.old_inputs.iter().filter(|input| !input.is_null()) {
             if diff.old_outputs.contains(&cell_input.tx_hash) {
                 continue;
             }
@@ -152,7 +152,7 @@ impl CellSet {
             }
         }
 
-        for cell_input in &diff.new_inputs {
+        for cell_input in diff.new_inputs.iter().filter(|input| !input.is_null()) {
             if let Some(meta) = new.get_mut(&cell_input.tx_hash) {
                 meta.set_dead(cell_input.index as usize);
                 continue;

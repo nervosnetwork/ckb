@@ -242,6 +242,7 @@ impl ChainState {
 
         let updated_old_inputs = old_inputs
             .into_iter()
+            .filter(|out_point| !out_point.is_null())
             .filter_map(|out_point| {
                 // if old_input reference the old_output, skip.
                 if !old_outputs.contains(&out_point.tx_hash) {
@@ -301,16 +302,19 @@ impl ChainState {
 
         let mut updated_new_inputs = Vec::new();
         let mut removed_new_inputs = Vec::new();
-        new_inputs.into_iter().for_each(|out_point| {
-            if let Some(opr) = self.cell_set.mark_dead(&out_point) {
-                match opr {
-                    CellSetOpr::Delete => removed_new_inputs.push(out_point.tx_hash),
-                    CellSetOpr::Update(tx_meta) => {
-                        updated_new_inputs.push((out_point.tx_hash, tx_meta))
+        new_inputs
+            .into_iter()
+            .filter(|out_point| !out_point.is_null())
+            .for_each(|out_point| {
+                if let Some(opr) = self.cell_set.mark_dead(&out_point) {
+                    match opr {
+                        CellSetOpr::Delete => removed_new_inputs.push(out_point.tx_hash),
+                        CellSetOpr::Update(tx_meta) => {
+                            updated_new_inputs.push((out_point.tx_hash, tx_meta))
+                        }
                     }
                 }
-            }
-        });
+            });
 
         for (tx_hash, tx_meta) in updated_old_inputs.iter() {
             txn.update_cell_set(&tx_hash, &tx_meta)?;

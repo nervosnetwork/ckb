@@ -1,6 +1,6 @@
 use crate::tx_pool::types::ProposedEntry;
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
-use ckb_core::transaction::{CellDep, CellOutput, OutPoint, ProposalShortId, Transaction};
+use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
 use ckb_core::{Bytes, Capacity, Cycle};
 use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
 use std::collections::VecDeque;
@@ -86,14 +86,12 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 #[derive(Default, Debug, Clone)]
 pub(crate) struct ProposedPool {
     pub(crate) vertices: LinkedFnvHashMap<ProposalShortId, ProposedEntry>,
-    pub(crate) edges: Edges<CellDep, ProposalShortId>,
+    pub(crate) edges: Edges<OutPoint, ProposalShortId>,
 }
 
 impl CellProvider for ProposedPool {
     fn cell(&self, o: &OutPoint, _with_data: bool) -> CellStatus {
-        // FIXME: this can be a problem, need specific search function or more index?
-        let dep = CellDep::Cell(o.clone());
-        if let Some(x) = self.edges.get_inner(&dep) {
+        if let Some(x) = self.edges.get_inner(o) {
             if x.is_some() {
                 CellStatus::Dead
             } else {
@@ -104,7 +102,7 @@ impl CellProvider for ProposedPool {
                         .build(),
                 )
             }
-        } else if self.edges.get_outer(&dep).is_some() {
+        } else if self.edges.get_outer(o).is_some() {
             CellStatus::Dead
         } else {
             CellStatus::Unknown
@@ -148,27 +146,23 @@ impl ProposedPool {
                 let outputs = tx.output_pts();
                 let deps = tx.deps_iter();
                 for i in inputs {
-                    // FIXME: also a problem
-                    let dep = CellDep::Cell(i.clone());
-
-                    if self.edges.inner.remove(&dep).is_none() {
-                        self.edges.outer.remove(&dep);
+                    if self.edges.inner.remove(i).is_none() {
+                        self.edges.outer.remove(i);
                     }
                 }
 
                 for d in deps {
-                    self.edges.delete_value_in_deps(d, &id);
+                    if let Some(out_point) = d.out_point() {
+                        self.edges.delete_value_in_deps(out_point, &id);
+                    }
                 }
 
                 for o in outputs {
-                    // FIXME: also a problem
-                    let dep = CellDep::Cell(o.clone());
-
-                    if let Some(cid) = self.edges.remove_inner(&dep) {
+                    if let Some(cid) = self.edges.remove_inner(&o) {
                         queue.push_back(cid);
                     }
 
-                    if let Some(ids) = self.edges.remove_deps(&dep) {
+                    if let Some(ids) = self.edges.remove_deps(&o) {
                         for cid in ids {
                             queue.push_back(cid);
                         }
@@ -195,32 +189,29 @@ impl ProposedPool {
         let mut count: usize = 0;
 
         for i in inputs {
-            // FIXME: also a problem
-            let dep = CellDep::Cell(i.clone());
-
             let mut flag = true;
-            if let Some(x) = self.edges.get_inner_mut(&dep) {
+            if let Some(x) = self.edges.get_inner_mut(i) {
                 *x = Some(id);
                 count += 1;
                 flag = false;
             }
 
             if flag {
-                self.edges.insert_outer(dep, id);
+                self.edges.insert_outer(i.clone(), id);
             }
         }
 
         for d in deps {
-            if self.edges.contains_key(d) {
-                count += 1;
+            if let Some(out_point) = d.out_point() {
+                if self.edges.contains_key(out_point) {
+                    count += 1;
+                }
+                self.edges.insert_deps(out_point.to_owned(), id);
             }
-            self.edges.insert_deps(d.to_owned(), id);
         }
 
         for o in outputs {
-            // FIXME: also a problem
-            let dep = CellDep::Cell(o.clone());
-            self.edges.mark_inpool(dep);
+            self.edges.mark_inpool(o);
         }
 
         self.vertices
@@ -238,15 +229,12 @@ impl ProposedPool {
         if let Some(entry) = self.vertices.remove(&id) {
             removed.push(entry);
             for o in outputs {
-                // FIXME: also a problem
-                let dep = CellDep::Cell(o.clone());
-
-                if let Some(cid) = self.edges.remove_inner(&dep) {
+                if let Some(cid) = self.edges.remove_inner(&o) {
                     self.dec_ref(&cid);
-                    self.edges.insert_outer(dep.clone(), cid);
+                    self.edges.insert_outer(o.clone(), cid);
                 }
 
-                if let Some(x) = { self.edges.get_deps(&dep).cloned() } {
+                if let Some(x) = { self.edges.get_deps(&o).cloned() } {
                     for cid in x {
                         self.dec_ref(&cid);
                     }
@@ -254,13 +242,13 @@ impl ProposedPool {
             }
 
             for i in inputs {
-                // FIXME: also a problem
-                let dep = CellDep::Cell(i.clone());
-                self.edges.remove_outer(&dep);
+                self.edges.remove_outer(i);
             }
 
             for d in deps {
-                self.edges.delete_value_in_deps(d, &id);
+                if let Some(out_point) = d.out_point() {
+                    self.edges.delete_value_in_deps(out_point, &id);
+                }
             }
         } else {
             removed.append(&mut self.resolve_conflict(tx));
@@ -273,14 +261,11 @@ impl ProposedPool {
         let mut removed = Vec::new();
 
         for i in inputs {
-            // FIXME: also a problem
-            let dep = CellDep::Cell(i.clone());
-
-            if let Some(id) = self.edges.remove_outer(&dep) {
+            if let Some(id) = self.edges.remove_outer(i) {
                 removed.append(&mut self.remove(&id));
             }
 
-            if let Some(x) = self.edges.remove_deps(&dep) {
+            if let Some(x) = self.edges.remove_deps(i) {
                 for id in x {
                     removed.append(&mut self.remove(&id));
                 }
