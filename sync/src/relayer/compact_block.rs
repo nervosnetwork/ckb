@@ -1,6 +1,7 @@
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{IndexTransaction, ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
+use ckb_core::Cycle;
 use ckb_protocol::{self, cast, FlatbuffersVectorIterator};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
@@ -125,5 +126,76 @@ impl<'a> TryFrom<ckb_protocol::GetBlockProposal<'a>> for GetBlockProposal {
             block_hash: block_hash.try_into()?,
             proposals: proposals?,
         })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TransactionHashes {
+    pub hashes: Vec<H256>,
+}
+
+impl<'a> TryFrom<ckb_protocol::RelayTransactionHashes<'a>> for TransactionHashes {
+    type Error = FailureError;
+
+    fn try_from(b: ckb_protocol::RelayTransactionHashes<'a>) -> Result<Self, Self::Error> {
+        let hashes: Result<Vec<_>, FailureError> = cast!(b.tx_hashes())?
+            .iter()
+            .map(TryInto::try_into)
+            .collect();
+
+        Ok(TransactionHashes { hashes: hashes? })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct GetRelayTransactions {
+    pub hashes: Vec<H256>,
+}
+
+impl<'a> TryFrom<ckb_protocol::GetRelayTransactions<'a>> for GetRelayTransactions {
+    type Error = FailureError;
+
+    fn try_from(b: ckb_protocol::GetRelayTransactions<'a>) -> Result<Self, Self::Error> {
+        let hashes: Result<Vec<_>, FailureError> = cast!(b.tx_hashes())?
+            .iter()
+            .map(TryInto::try_into)
+            .collect();
+
+        Ok(GetRelayTransactions { hashes: hashes? })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct RelayTransaction {
+    pub cycles: Cycle,
+    pub transaction: Transaction,
+}
+
+impl<'a> TryFrom<ckb_protocol::RelayTransaction<'a>> for RelayTransaction {
+    type Error = FailureError;
+
+    fn try_from(vtx: ckb_protocol::RelayTransaction<'a>) -> Result<Self, Self::Error> {
+        let tx = cast!(vtx.transaction())?;
+        let cycles = vtx.cycles();
+        Ok(RelayTransaction {
+            transaction: TryInto::try_into(tx)?,
+            cycles,
+        })
+    }
+}
+
+pub struct RelayTransactions {
+    pub transactions: Vec<RelayTransaction>,
+}
+
+impl<'a> TryFrom<ckb_protocol::RelayTransactions<'a>> for RelayTransactions {
+    type Error = FailureError;
+
+    fn try_from(v: ckb_protocol::RelayTransactions<'a>) -> Result<Self, Self::Error> {
+        let transactions: Vec<RelayTransaction> =
+            FlatbuffersVectorIterator::new(cast!(v.transactions())?)
+                .map(TryInto::try_into)
+                .collect::<Result<_, FailureError>>()?;
+        Ok(RelayTransactions { transactions })
     }
 }

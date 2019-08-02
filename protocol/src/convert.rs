@@ -218,36 +218,6 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
     }
 }
 
-impl<'a> TryFrom<ckb_protocol::RelayTransaction<'a>>
-    for (ckb_core::transaction::Transaction, ckb_core::Cycle)
-{
-    type Error = FailureError;
-
-    fn try_from(vtx: ckb_protocol::RelayTransaction<'a>) -> Result<Self, Self::Error> {
-        let tx = cast!(vtx.transaction())?;
-        let cycles = vtx.cycles();
-        Ok((TryInto::try_into(tx)?, cycles))
-    }
-}
-
-impl<'a> TryFrom<ckb_protocol::RelayTransactionHash<'a>> for H256 {
-    type Error = FailureError;
-
-    fn try_from(message: ckb_protocol::RelayTransactionHash<'a>) -> Result<Self, Self::Error> {
-        let tx_hash = cast!(message.tx_hash())?;
-        Ok(TryInto::try_into(tx_hash)?)
-    }
-}
-
-impl<'a> TryFrom<ckb_protocol::GetRelayTransaction<'a>> for H256 {
-    type Error = FailureError;
-
-    fn try_from(message: ckb_protocol::GetRelayTransaction<'a>) -> Result<Self, Self::Error> {
-        let tx_hash = cast!(message.tx_hash())?;
-        Ok(TryInto::try_into(tx_hash)?)
-    }
-}
-
 impl<'a> TryFrom<ckb_protocol::Witness<'a>> for ckb_core::transaction::Witness {
     type Error = FailureError;
 

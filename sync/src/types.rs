@@ -33,7 +33,7 @@ use std::cmp;
 use std::collections::{hash_map::HashMap, hash_set::HashSet, BTreeMap};
 use std::fmt;
 use std::hash::Hash;
-use std::mem::swap;
+use std::mem;
 use std::ops::DerefMut;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -623,6 +623,9 @@ pub struct SyncSharedState<CS> {
     inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
     inflight_transactions: Mutex<LruCache<H256, Instant>>,
     inflight_blocks: RwLock<InflightBlocks>,
+
+    /* cached for sending bulk */
+    tx_hashes: Mutex<FnvHashMap<PeerIndex, FnvHashSet<H256>>>,
 }
 
 impl<CS: ChainStore> SyncSharedState<CS> {
@@ -665,6 +668,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
+            tx_hashes: Mutex::new(FnvHashMap::default()),
         }
     }
 
@@ -715,6 +719,13 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
     pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
         self.shared.lock_txs_verify_cache()
+    }
+    pub fn tx_hashes(&self) -> MutexGuard<FnvHashMap<PeerIndex, FnvHashSet<H256>>> {
+        self.tx_hashes.lock()
+    }
+    pub fn take_tx_hashes(&self) -> FnvHashMap<PeerIndex, FnvHashSet<H256>> {
+        let mut state = self.tx_hashes.lock();
+        mem::replace(&mut *state, FnvHashMap::default())
     }
     pub fn tip_header(&self) -> Header {
         self.shared
@@ -1008,12 +1019,30 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     }
 
     pub fn mark_as_known_tx(&self, hash: H256) {
-        self.inflight_transactions().remove(&hash);
-        self.tx_filter.lock().insert(hash);
+        self.mark_as_known_txs(vec![hash]);
+    }
+
+    pub fn mark_as_known_txs(&self, hashes: Vec<H256>) {
+        {
+            let mut inflight_transactions = self.inflight_transactions.lock();
+            for hash in hashes.iter() {
+                inflight_transactions.remove(&hash);
+            }
+        }
+
+        let mut tx_filter = self.tx_filter.lock();
+
+        for hash in hashes {
+            tx_filter.insert(hash);
+        }
     }
 
     pub fn already_known_tx(&self, hash: &H256) -> bool {
         self.tx_filter.lock().contains(hash)
+    }
+
+    pub fn tx_filter(&self) -> MutexGuard<Filter<H256>> {
+        self.tx_filter.lock()
     }
 
     // Return true when the block is that we have requested and received first time.
@@ -1094,7 +1123,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         let mut locked = self.pending_get_block_proposals.lock();
         let old = locked.deref_mut();
         let mut ret = FnvHashMap::default();
-        swap(old, &mut ret);
+        mem::swap(old, &mut ret);
         ret
     }
 

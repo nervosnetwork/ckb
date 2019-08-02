@@ -106,9 +106,9 @@ root_type SyncMessage;
 
 union RelayPayload {
     CompactBlock,
-    RelayTransaction,
-    RelayTransactionHash,
-    GetRelayTransaction,
+    RelayTransactions,
+    RelayTransactionHashes,
+    GetRelayTransactions,
     GetBlockTransactions,
     BlockTransactions,
     GetBlockProposal,
@@ -132,17 +132,21 @@ table IndexTransaction {
     transaction:                Transaction;
 }
 
-table RelayTransactionHash {
-    tx_hash: H256;
+table RelayTransactionHashes {
+    tx_hashes: [H256];
 }
 
-table GetRelayTransaction {
-    tx_hash: H256;
+table GetRelayTransactions {
+    tx_hashes: [H256];
 }
 
 table RelayTransaction {
     cycles:                     uint64;
     transaction:                Transaction;
+}
+
+table RelayTransactions {
+    transactions: [RelayTransaction];
 }
 
 table GetBlockTransactions {
