@@ -656,6 +656,7 @@ impl<CS: ChainStore + 'static> ChainService<CS> {
                     }
                 } else {
                     *verified = Some(false);
+                    return Err(found_error.unwrap().into());
                 }
             } else {
                 cell_set_diff.push_new(b);
