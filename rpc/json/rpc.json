@@ -37,11 +37,10 @@
         "module": "chain",
         "params": [],
         "result": {
-            "difficulty": "0x3e8",
-            "epoch_reward": "125000000000000",
-            "length": "1250",
-            "number": "0",
-            "start_number": "0"
+            "difficulty": "0x7a1200",
+            "length": "1800",
+            "number": "1",
+            "start_number": "1000"
         }
     },
     {
@@ -53,8 +52,7 @@
         ],
         "result": {
             "difficulty": "0x3e8",
-            "epoch_reward": "125000000000000",
-            "length": "1250",
+            "length": "1000",
             "number": "0",
             "start_number": "0"
         },
