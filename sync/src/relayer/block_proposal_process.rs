@@ -3,16 +3,15 @@ use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_logger::{debug_target, warn_target};
 use ckb_network::CKBProtocolContext;
 use ckb_protocol::BlockProposal as BlockProposalMessage;
-use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use futures::{self, future::FutureResult, lazy};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct BlockProposalProcess<'a, CS> {
+pub struct BlockProposalProcess<'a> {
     message: &'a BlockProposalMessage<'a>,
-    relayer: &'a Relayer<CS>,
+    relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
 }
 
@@ -23,10 +22,10 @@ pub enum Status {
     Ok,
 }
 
-impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
+impl<'a> BlockProposalProcess<'a> {
     pub fn new(
         message: &'a BlockProposalMessage,
-        relayer: &'a Relayer<CS>,
+        relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
     ) -> Self {
         BlockProposalProcess {

@@ -7,12 +7,11 @@ use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
-use std::sync::Arc;
 
 pub trait ChainProvider: Sync + Send {
-    type Store: ChainStore;
+    type Store: ChainStore<'static>;
 
-    fn store(&self) -> &Arc<Self::Store>;
+    fn store(&self) -> &Self::Store;
 
     fn script_config(&self) -> &ScriptConfig;
 

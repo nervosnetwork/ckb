@@ -22,7 +22,6 @@ ckb-store = { path = "../store" }
 ckb-chain-spec = {path = "../spec"}
 ckb-notify = { path = "../notify"}
 ckb-miner = { path = "../miner" }
-ckb-db = { path = "../db" }
 ckb-network = { path = "../network"}
 ckb-rpc = { path = "../rpc"}
 ckb-resource = { path = "../resource"}
@@ -36,6 +35,5 @@ ckb-hash = { path = "../util/hash"}
 ckb-build-info = { path = "../util/build-info" }
 ckb-traits = { path = "../traits" }
 ckb-verification = { path = "../verification" }
-tempfile = "3.0"
 faster-hex = "0.3"
 ckb-script = { path = "../script" }

@@ -1,6 +1,7 @@
 use crate::error::{CellbaseError, Error};
 use crate::header_verifier::HeaderResolver;
 use crate::Verifier;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
@@ -154,21 +155,21 @@ pub struct HeaderResolverWrapper<'a> {
 }
 
 impl<'a> HeaderResolverWrapper<'a> {
-    pub fn new<CP>(header: &'a Header, provider: &CP) -> Self
+    pub fn new<CS>(header: &'a Header, store: &'a CS, consensus: &'a Consensus) -> Self
     where
-        CP: ChainProvider,
+        CS: ChainStore<'a>,
     {
-        let parent = provider.store().get_block_header(header.parent_hash());
+        let parent = store.get_block_header(header.parent_hash());
         let epoch = parent
             .as_ref()
             .and_then(|parent| {
-                provider
+                store
                     .get_block_epoch(parent.hash())
                     .map(|ext| (parent, ext))
             })
             .map(|(parent, last_epoch)| {
-                provider
-                    .next_epoch_ext(&last_epoch, parent)
+                store
+                    .next_epoch_ext(consensus, &last_epoch, &parent)
                     .unwrap_or(last_epoch)
             });
 

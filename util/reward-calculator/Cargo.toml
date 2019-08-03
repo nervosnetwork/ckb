@@ -9,11 +9,10 @@ edition = "2018"
 ckb-core = { path = "../../core" }
 ckb-store = { path = "../../store" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ckb-traits = { path = "../../traits" }
 failure = "0.1.5"
-fnv = "1.0.3"
 ckb-dao = { path = "../dao" }
 ckb-logger = { path = "../logger" }
+ckb-chain-spec = {path = "../../spec"}
 
 [dev-dependencies]
 ckb-chain-spec = { path = "../../spec" }

@@ -8,10 +8,9 @@ use ckb_core::transaction::{
     CellInput, CellOutputBuilder, IndexTransaction, OutPoint, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
-use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::{ChainKVStore, ChainStore};
+use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
 use faketime::{self, unix_time_as_millis};
@@ -36,10 +35,7 @@ pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
     IndexTransaction { index, transaction }
 }
 
-pub(crate) fn new_header_builder(
-    shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
-    parent: &Header,
-) -> HeaderBuilder {
+pub(crate) fn new_header_builder(shared: &Shared, parent: &Header) -> HeaderBuilder {
     let parent_hash = parent.hash();
     let parent_epoch = shared.get_block_epoch(&parent_hash).unwrap();
     let epoch = shared
@@ -54,7 +50,7 @@ pub(crate) fn new_header_builder(
 }
 
 pub(crate) fn new_transaction(
-    relayer: &Relayer<ChainKVStore<MemoryKeyValueDB>>,
+    relayer: &Relayer,
     index: usize,
     always_success_out_point: &OutPoint,
 ) -> Transaction {
@@ -86,7 +82,7 @@ pub(crate) fn new_transaction(
         .build()
 }
 
-pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyValueDB>>, OutPoint) {
+pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let always_success_tx = TransactionBuilder::default()
@@ -108,7 +104,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer<ChainKVStore<MemoryKeyVa
         let consensus = Consensus::default()
             .set_genesis_block(genesis)
             .set_cellbase_maturity(0);
-        SharedBuilder::<MemoryKeyValueDB>::new()
+        SharedBuilder::default()
             .consensus(consensus)
             .build()
             .unwrap()

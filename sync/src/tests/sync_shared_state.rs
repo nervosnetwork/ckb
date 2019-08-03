@@ -6,7 +6,6 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::TransactionBuilder;
 use ckb_core::Capacity;
-use ckb_db::MemoryKeyValueDB;
 use ckb_network::PeerIndex;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
@@ -59,7 +58,7 @@ fn test_insert_invalid_block() {
 fn test_insert_parent_unknown_block() {
     let (shared1, _) = build_chain(2);
     let (shared, chain) = {
-        let shared = SharedBuilder::<MemoryKeyValueDB>::new()
+        let shared = SharedBuilder::default()
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();
@@ -93,6 +92,7 @@ fn test_insert_parent_unknown_block() {
     let invalid_hash = invalid_orphan.header().hash();
     let parent_hash = parent.header().hash();
 
+    shared.store().clear_header_cache();
     assert_eq!(
         shared
             .insert_new_block(&chain, PeerIndex::new(1), Arc::clone(&valid_orphan))

@@ -10,17 +10,15 @@ use ckb_core::transaction::{
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
-use ckb_store::{ChainKVStore, ChainStore};
+use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, build_block};
 use ckb_traits::chain_provider::ChainProvider;
-use fnv::FnvHashSet;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::sync::Arc;
+use std::collections::HashSet;
 
 pub use ckb_test_chain_utils::MockStore;
 
@@ -42,15 +40,8 @@ pub(crate) fn create_always_success_out_point() -> OutPoint {
     OutPoint::new_cell(create_always_success_tx().hash().to_owned(), 0)
 }
 
-pub(crate) fn start_chain(
-    consensus: Option<Consensus>,
-) -> (
-    ChainController,
-    Shared<ChainKVStore<MemoryKeyValueDB>>,
-    Header,
-) {
-    let builder = SharedBuilder::<MemoryKeyValueDB>::new();
-
+pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Header) {
+    let builder = SharedBuilder::default();
     let consensus = consensus.unwrap_or_else(|| {
         let tx = create_always_success_tx();
         let dao = genesis_dao_data(&tx).unwrap();
@@ -76,14 +67,14 @@ pub(crate) fn start_chain(
 }
 
 pub(crate) fn calculate_reward(
-    store: &mut MockStore,
+    store: &MockStore,
     consensus: &Consensus,
     parent: &Header,
 ) -> Capacity {
     let number = parent.number() + 1;
     let target_number = consensus.finalize_target(number).unwrap();
     let target = store.0.get_ancestor(parent.hash(), target_number).unwrap();
-    let calculator = DaoCalculator::new(consensus, Arc::clone(&store.0));
+    let calculator = DaoCalculator::new(consensus, store.store());
     calculator
         .primary_block_reward(&target)
         .unwrap()
@@ -92,7 +83,7 @@ pub(crate) fn calculate_reward(
 }
 
 pub(crate) fn create_cellbase(
-    store: &mut MockStore,
+    store: &MockStore,
     consensus: &Consensus,
     parent: &Header,
 ) -> Transaction {
@@ -202,7 +193,7 @@ impl<'a> MockChain<'a> {
         }
     }
 
-    pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<Transaction>, store: &mut MockStore) {
+    pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<Transaction>, store: &MockStore) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
@@ -227,7 +218,7 @@ impl<'a> MockChain<'a> {
         self.blocks.push(new_block);
     }
 
-    pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64, store: &mut MockStore) {
+    pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64, store: &MockStore) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
         let dao = dao_data(
@@ -250,7 +241,7 @@ impl<'a> MockChain<'a> {
         self.blocks.push(new_block);
     }
 
-    pub fn gen_empty_block(&mut self, diff: u64, store: &mut MockStore) {
+    pub fn gen_empty_block(&mut self, diff: u64, store: &MockStore) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
@@ -277,7 +268,7 @@ impl<'a> MockChain<'a> {
     pub fn gen_block_with_commit_txs(
         &mut self,
         txs: Vec<Transaction>,
-        store: &mut MockStore,
+        store: &MockStore,
         ignore_resolve_error: bool,
     ) {
         let difficulty = self.difficulty();
@@ -333,10 +324,10 @@ pub fn dao_data(
     consensus: &Consensus,
     parent: &Header,
     txs: &[Transaction],
-    store: &mut MockStore,
+    store: &MockStore,
     ignore_resolve_error: bool,
 ) -> Bytes {
-    let mut seen_inputs = FnvHashSet::default();
+    let mut seen_inputs = HashSet::default();
     // In case of resolving errors, we just output a dummp DAO field,
     // since those should be the cases where we are testing invalid
     // blocks
@@ -357,6 +348,6 @@ pub fn dao_data(
     } else {
         rtxs.unwrap()
     };
-    let calculator = DaoCalculator::new(consensus, Arc::clone(&store.0));
+    let calculator = DaoCalculator::new(consensus, store.store());
     calculator.dao_field(&rtxs, &parent).unwrap()
 }

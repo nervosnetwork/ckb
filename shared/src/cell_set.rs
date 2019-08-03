@@ -2,18 +2,16 @@ use ckb_core::block::Block;
 use ckb_core::transaction::{CellOutPoint, OutPoint};
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_store::ChainStore;
-use ckb_util::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::hash_map;
-use std::sync::Arc;
+use std::collections::{hash_map, HashMap, HashSet};
 
 #[derive(Default, Clone, Deserialize, Serialize)]
 pub struct CellSetDiff {
-    pub old_inputs: FnvHashSet<OutPoint>,
-    pub old_outputs: FnvHashSet<H256>,
-    pub new_inputs: FnvHashSet<OutPoint>,
-    pub new_outputs: FnvHashMap<H256, (u64, u64, H256, bool, usize)>,
+    pub old_inputs: HashSet<OutPoint>,
+    pub old_outputs: HashSet<H256>,
+    pub new_inputs: HashSet<OutPoint>,
+    pub new_outputs: HashMap<H256, (u64, u64, H256, bool, usize)>,
 }
 
 impl CellSetDiff {
@@ -49,9 +47,9 @@ impl CellSetDiff {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CellSetOverlay<'a> {
-    origin: &'a FnvHashMap<H256, TransactionMeta>,
-    new: FnvHashMap<H256, TransactionMeta>,
-    removed: FnvHashSet<H256>,
+    origin: &'a HashMap<H256, TransactionMeta>,
+    new: HashMap<H256, TransactionMeta>,
+    removed: HashSet<H256>,
 }
 
 impl<'a> CellSetOverlay<'a> {
@@ -66,7 +64,7 @@ impl<'a> CellSetOverlay<'a> {
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct CellSet {
-    pub(crate) inner: FnvHashMap<H256, TransactionMeta>,
+    pub(crate) inner: HashMap<H256, TransactionMeta>,
 }
 
 pub(crate) enum CellSetOpr {
@@ -77,17 +75,17 @@ pub(crate) enum CellSetOpr {
 impl CellSet {
     pub fn new() -> Self {
         CellSet {
-            inner: FnvHashMap::default(),
+            inner: HashMap::default(),
         }
     }
 
-    pub fn new_overlay<'a, CS: ChainStore>(
+    pub fn new_overlay<'a, CS: ChainStore<'a>>(
         &'a self,
         diff: &CellSetDiff,
-        store: &Arc<CS>,
+        store: &'a CS,
     ) -> CellSetOverlay<'a> {
-        let mut new = FnvHashMap::default();
-        let mut removed = FnvHashSet::default();
+        let mut new = HashMap::default();
+        let mut removed = HashSet::default();
 
         for hash in &diff.old_outputs {
             if self.inner.get(&hash).is_some() {
@@ -300,7 +298,7 @@ mod tests {
     //     tx1-meta(live, dead), txa(live) recovered, tx2-meta(_) removed, tx3-meta(dead), tx4-meta(live)
     #[test]
     fn test_new_overlay() {
-        let mut store = MockStore::default();
+        let store = MockStore::default();
 
         let tx1 = build_tx(vec![(&H256::zero(), 0)], 2);
         let tx1_hash = tx1.hash();
@@ -381,7 +379,7 @@ mod tests {
         diff.push_old(&old_block);
         diff.push_new(&new_block);
 
-        let overlay = set.new_overlay(&diff, &store.0);
+        let overlay = set.new_overlay(&diff, store.store());
 
         let mut tx1_meta = TransactionMeta::new(
             header.number(),

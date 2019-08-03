@@ -1,17 +1,13 @@
 use crate::shared::{Shared, SharedBuilder};
 use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
-use ckb_db::{KeyValueDB, MemoryKeyValueDB};
-use ckb_store::{ChainKVStore, ChainStore, StoreBatch};
+use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 
-fn new_shared() -> Shared<ChainKVStore<MemoryKeyValueDB>> {
-    SharedBuilder::<MemoryKeyValueDB>::new().build().unwrap()
+fn new_shared() -> Shared {
+    SharedBuilder::default().build().unwrap()
 }
 
-fn insert_block_timestamps<T>(store: &ChainKVStore<T>, timestamps: &[u64])
-where
-    T: KeyValueDB,
-{
+fn insert_block_timestamps(store: &ChainDB, timestamps: &[u64]) {
     let mut blocks = Vec::with_capacity(timestamps.len());
     let tip_header = store.get_tip_header().expect("tip");
     let mut parent_hash = tip_header.hash().to_owned();
@@ -26,12 +22,12 @@ where
         parent_number += 1;
         blocks.push(BlockBuilder::default().header(header).build());
     }
-    let mut batch = store.new_batch().unwrap();
+    let txn = store.begin_transaction();
     for b in blocks {
-        batch.insert_block(&b).unwrap();
-        batch.attach_block(&b).unwrap();
+        txn.insert_block(&b).unwrap();
+        txn.attach_block(&b).unwrap();
     }
-    batch.commit().unwrap();
+    txn.commit().unwrap();
 }
 
 #[test]

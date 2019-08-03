@@ -13,7 +13,6 @@ use ckb_sync::NetworkProtocol;
 use ckb_test_chain_utils::MockStore;
 use fnv::FnvHashSet;
 use numext_fixed_hash::{h256, H256};
-use std::sync::Arc;
 use std::time::Duration;
 
 pub struct CompactBlockEmptyParentUnknown;
@@ -322,7 +321,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         node.generate_blocks(6);
 
         let consensus = node.consensus.as_ref().unwrap();
-        let mut mock_store = MockStore::default();
+        let mock_store = MockStore::default();
         for i in 0..=node.get_tip_block_number() {
             mock_store.insert_block(&node.get_block_by_number(i), consensus.genesis_epoch_ext());
         }
@@ -337,7 +336,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .iter()
             .map(|tx| resolve_transaction(&tx, &mut seen_inputs, &mock_store, &mock_store).unwrap())
             .collect();
-        let calculator = DaoCalculator::new(&consensus, Arc::clone(&mock_store.0));
+        let calculator = DaoCalculator::new(&consensus, mock_store.store());
         let dao = calculator
             .dao_field(&rtxs, node.get_tip_block().header())
             .unwrap();
@@ -363,7 +362,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
                 resolve_transaction(&cellbase, &mut Default::default(), &mock_store, &mock_store)
                     .unwrap(),
             ];
-        let dao = DaoCalculator::new(&consensus, Arc::clone(&mock_store.0))
+        let dao = DaoCalculator::new(&consensus, mock_store.store())
             .dao_field(&rtxs, parent.header())
             .unwrap();
         let block = BlockBuilder::default()

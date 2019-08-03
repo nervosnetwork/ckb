@@ -34,7 +34,6 @@ use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_protocol::error::Error as ProtocalError;
 use ckb_protocol::{cast, get_root, RelayMessage, RelayPayload};
-use ckb_store::ChainStore;
 use ckb_tx_pool_executor::TxPoolExecutor;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -51,13 +50,13 @@ pub const TX_HASHES_TOKEN: u64 = 2;
 
 pub const MAX_RELAY_PEERS: usize = 128;
 
-pub struct Relayer<CS> {
+pub struct Relayer {
     chain: ChainController,
-    pub(crate) shared: Arc<SyncSharedState<CS>>,
-    pub(crate) tx_pool_executor: Arc<TxPoolExecutor<CS>>,
+    pub(crate) shared: Arc<SyncSharedState>,
+    pub(crate) tx_pool_executor: Arc<TxPoolExecutor>,
 }
 
-impl<CS: ChainStore> Clone for Relayer<CS> {
+impl Clone for Relayer {
     fn clone(&self) -> Self {
         Relayer {
             chain: self.chain.clone(),
@@ -67,8 +66,8 @@ impl<CS: ChainStore> Clone for Relayer<CS> {
     }
 }
 
-impl<CS: ChainStore + 'static> Relayer<CS> {
-    pub fn new(chain: ChainController, shared: Arc<SyncSharedState<CS>>) -> Self {
+impl Relayer {
+    pub fn new(chain: ChainController, shared: Arc<SyncSharedState>) -> Self {
         let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.shared().clone()));
         Relayer {
             chain,
@@ -77,7 +76,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         }
     }
 
-    pub fn shared(&self) -> &Arc<SyncSharedState<CS>> {
+    pub fn shared(&self) -> &Arc<SyncSharedState> {
         &self.shared
     }
 
@@ -474,7 +473,7 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
     }
 }
 
-impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
+impl CKBProtocolHandler for Relayer {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN)
             .expect("set_notify at init is ok");

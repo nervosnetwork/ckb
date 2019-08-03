@@ -2,16 +2,15 @@ use crate::ChainStore;
 use ckb_core::{cell::CellMeta, extras::BlockExt, Bytes};
 use ckb_script_data_loader::DataLoader;
 use numext_fixed_hash::H256;
-use std::sync::Arc;
 
-pub struct DataLoaderWrapper<CS>(Arc<CS>);
-impl<CS> DataLoaderWrapper<CS> {
-    pub fn new(source: Arc<CS>) -> Self {
+pub struct DataLoaderWrapper<'a, T>(&'a T);
+impl<'a, T: ChainStore<'a>> DataLoaderWrapper<'a, T> {
+    pub fn new(source: &'a T) -> Self {
         DataLoaderWrapper(source)
     }
 }
 
-impl<CS: ChainStore> DataLoader for DataLoaderWrapper<CS> {
+impl<'a, T: ChainStore<'a>> DataLoader for DataLoaderWrapper<'a, T> {
     // load CellOutput
     fn load_cell_data(&self, cell: &CellMeta) -> Option<Bytes> {
         cell.mem_cell_data

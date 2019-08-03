@@ -5,14 +5,14 @@ use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 
 // An iterator over the entries of a `Chain`.
-pub struct ChainIterator<CS> {
-    shared: Shared<CS>,
+pub struct ChainIterator {
+    shared: Shared,
     current: Option<Block>,
     tip: BlockNumber,
 }
 
-impl<CS: ChainStore> ChainIterator<CS> {
-    pub fn new(shared: Shared<CS>) -> Self {
+impl ChainIterator {
+    pub fn new(shared: Shared) -> Self {
         let current = shared
             .store()
             .get_block_hash(0)
@@ -30,7 +30,7 @@ impl<CS: ChainStore> ChainIterator<CS> {
     }
 }
 
-impl<CS: ChainStore> Iterator for ChainIterator<CS> {
+impl Iterator for ChainIterator {
     type Item = Block;
 
     fn next(&mut self) -> Option<Self::Item> {

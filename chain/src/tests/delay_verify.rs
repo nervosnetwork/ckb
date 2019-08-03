@@ -18,16 +18,16 @@ fn test_dead_cell_in_same_block() {
     let final_number = 20;
     let switch_fork_number = 10;
 
-    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mock_store = MockStore::new(&parent, shared.store());
     let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mut mock_store);
+        chain1.gen_empty_block(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mut mock_store);
+        chain2.gen_empty_block(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -37,12 +37,12 @@ fn test_dead_cell_in_same_block() {
     let tx3 = create_transaction(&tx1_hash, 3);
     let txs = vec![tx1, tx2, tx3];
 
-    chain2.gen_block_with_proposal_txs(txs.clone(), &mut mock_store);
-    chain2.gen_empty_block(20000u64, &mut mock_store);
-    chain2.gen_block_with_commit_txs(txs.clone(), &mut mock_store, true);
+    chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
+    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
 
     for _ in (switch_fork_number + 3)..final_number {
-        chain2.gen_empty_block(20000u64, &mut mock_store);
+        chain2.gen_empty_block(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
@@ -78,16 +78,16 @@ fn test_dead_cell_in_different_block() {
     let final_number = 20;
     let switch_fork_number = 10;
 
-    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mock_store = MockStore::new(&parent, shared.store());
     let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mut mock_store);
+        chain1.gen_empty_block(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(100u64, &mut mock_store);
+        chain2.gen_empty_block(100u64, &mock_store);
     }
 
     let last_cell_base = &chain2.tip().transactions()[0];
@@ -96,13 +96,12 @@ fn test_dead_cell_in_different_block() {
     let tx2 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![2]);
     let tx3 = create_multi_outputs_transaction(&tx1, vec![0], 2, vec![3]);
 
-    chain2
-        .gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mut mock_store);
-    chain2.gen_empty_block(20000u64, &mut mock_store);
-    chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mut mock_store, false);
-    chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mut mock_store, false);
+    chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
+    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
+    chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mock_store, false);
     for _ in (switch_fork_number + 4)..final_number {
-        chain2.gen_empty_block(20000u64, &mut mock_store);
+        chain2.gen_empty_block(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
@@ -139,16 +138,16 @@ fn test_invalid_out_point_index_in_same_block() {
     let final_number = 20;
     let switch_fork_number = 10;
 
-    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mock_store = MockStore::new(&parent, shared.store());
     let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mut mock_store);
+        chain1.gen_empty_block(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mut mock_store);
+        chain2.gen_empty_block(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -159,11 +158,11 @@ fn test_invalid_out_point_index_in_same_block() {
     let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
 
-    chain2.gen_block_with_proposal_txs(txs.clone(), &mut mock_store);
-    chain2.gen_empty_block(20000u64, &mut mock_store);
-    chain2.gen_block_with_commit_txs(txs.clone(), &mut mock_store, true);
+    chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
+    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_block_with_commit_txs(txs.clone(), &mock_store, true);
     for _ in (switch_fork_number + 3)..final_number {
-        chain2.gen_empty_block(20000u64, &mut mock_store);
+        chain2.gen_empty_block(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
@@ -199,16 +198,16 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let final_number = 20;
     let switch_fork_number = 10;
 
-    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mock_store = MockStore::new(&parent, shared.store());
     let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
     let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
 
     for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mut mock_store);
+        chain1.gen_empty_block(100u64, &mock_store);
     }
 
     for _ in 1..switch_fork_number {
-        chain2.gen_empty_block(99u64, &mut mock_store);
+        chain2.gen_empty_block(99u64, &mock_store);
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
@@ -218,14 +217,13 @@ fn test_invalid_out_point_index_in_different_blocks() {
     // create an invalid OutPoint index
     let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
 
-    chain2
-        .gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mut mock_store);
-    chain2.gen_empty_block(20000u64, &mut mock_store);
-    chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mut mock_store, false);
-    chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mut mock_store, true);
+    chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
+    chain2.gen_empty_block(20000u64, &mock_store);
+    chain2.gen_block_with_commit_txs(vec![tx1.clone(), tx2.clone()], &mock_store, false);
+    chain2.gen_block_with_commit_txs(vec![tx3.clone()], &mock_store, true);
 
     for _ in (switch_fork_number + 4)..final_number {
-        chain2.gen_empty_block(20000u64, &mut mock_store);
+        chain2.gen_empty_block(20000u64, &mock_store);
     }
 
     for block in chain1.blocks() {
@@ -266,14 +264,14 @@ fn test_full_dead_transaction() {
     let mut chain1: Vec<Block> = Vec::new();
     let mut chain2: Vec<Block> = Vec::new();
 
-    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mock_store = MockStore::new(&parent, shared.store());
 
-    let cellbase_tx = create_cellbase(&mut mock_store, shared.consensus(), &parent);
+    let cellbase_tx = create_cellbase(&mock_store, shared.consensus(), &parent);
     let dao = dao_data(
         shared.consensus(),
         &parent,
         &[cellbase_tx.clone()],
-        &mut mock_store,
+        &mock_store,
         false,
     );
 
@@ -297,16 +295,12 @@ fn test_full_dead_transaction() {
     for i in 2..switch_fork_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = if i == proposal_number {
-            let transactions = vec![create_cellbase(
-                &mut mock_store,
-                shared.consensus(),
-                &parent,
-            )];
+            let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
@@ -321,14 +315,14 @@ fn test_full_dead_transaction() {
             )
         } else if i == proposal_number + 2 {
             let transactions = vec![
-                create_cellbase(&mut mock_store, shared.consensus(), &parent),
+                create_cellbase(&mock_store, shared.consensus(), &parent),
                 tx1.clone(),
             ];
             let dao = dao_data(
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
@@ -341,16 +335,12 @@ fn test_full_dead_transaction() {
                 transactions: transactions,
             )
         } else {
-            let transactions = vec![create_cellbase(
-                &mut mock_store,
-                shared.consensus(),
-                &parent,
-            )];
+            let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
@@ -375,16 +365,12 @@ fn test_full_dead_transaction() {
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = if i == final_number - 3 {
-            let transactions = vec![create_cellbase(
-                &mut mock_store,
-                shared.consensus(),
-                &parent,
-            )];
+            let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
@@ -399,7 +385,7 @@ fn test_full_dead_transaction() {
             )
         } else if i == final_number - 1 {
             let transactions = vec![
-                create_cellbase(&mut mock_store, shared.consensus(), &parent),
+                create_cellbase(&mock_store, shared.consensus(), &parent),
                 tx2.clone(),
                 tx3.clone(),
             ];
@@ -407,7 +393,7 @@ fn test_full_dead_transaction() {
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
@@ -420,16 +406,12 @@ fn test_full_dead_transaction() {
                 transactions: transactions,
             )
         } else {
-            let transactions = vec![create_cellbase(
-                &mut mock_store,
-                shared.consensus(),
-                &parent,
-            )];
+            let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
@@ -451,16 +433,12 @@ fn test_full_dead_transaction() {
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
         let new_block = if i == final_number - 3 {
-            let transactions = vec![create_cellbase(
-                &mut mock_store,
-                shared.consensus(),
-                &parent,
-            )];
+            let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
@@ -475,7 +453,7 @@ fn test_full_dead_transaction() {
             )
         } else if i == final_number - 1 {
             let transactions = vec![
-                create_cellbase(&mut mock_store, shared.consensus(), &parent),
+                create_cellbase(&mock_store, shared.consensus(), &parent),
                 tx2.clone(),
                 tx3.clone(),
             ];
@@ -483,7 +461,7 @@ fn test_full_dead_transaction() {
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
@@ -496,16 +474,12 @@ fn test_full_dead_transaction() {
                 transactions: transactions,
             )
         } else {
-            let transactions = vec![create_cellbase(
-                &mut mock_store,
-                shared.consensus(),
-                &parent,
-            )];
+            let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
                 shared.consensus(),
                 &parent,
                 &transactions,
-                &mut mock_store,
+                &mock_store,
                 false,
             );
             build_block!(
