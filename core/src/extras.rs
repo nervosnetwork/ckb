@@ -25,6 +25,15 @@ pub struct TransactionInfo {
     pub index: usize,
 }
 
+impl TransactionInfo {
+    pub fn store_key(&self) -> Vec<u8> {
+        let mut key = Vec::with_capacity(36);
+        key.extend_from_slice(self.block_hash.as_bytes());
+        key.extend_from_slice(&(self.index as u32).to_be_bytes());
+        key
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug, Default)]
 pub struct EpochExt {
     pub(crate) number: EpochNumber,

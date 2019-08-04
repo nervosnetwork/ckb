@@ -4,7 +4,10 @@ use crate::COLUMN_CELL_SET;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::extras::BlockExt;
 use ckb_core::transaction_meta::TransactionMeta;
-use ckb_db::{Col, DBPinnableSlice, Error, RocksDB};
+use ckb_db::{
+    iter::{DBIterator, DBIteratorItem},
+    Col, DBPinnableSlice, Direction, Error, RocksDB,
+};
 use ckb_protos as protos;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
@@ -19,6 +22,17 @@ impl<'a> ChainStore<'a> for ChainDB {
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector> {
         self.db
             .get_pinned(col, key)
+            .expect("db operation should be ok")
+    }
+
+    fn get_iter<'i>(
+        &'i self,
+        col: Col,
+        from_key: &'i [u8],
+        direction: Direction,
+    ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
+        self.db
+            .iter(col, from_key, direction)
             .expect("db operation should be ok")
     }
 }
