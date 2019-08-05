@@ -4,8 +4,8 @@ use super::Message;
 use super::SECP256K1;
 use faster_hex::hex_string;
 use numext_fixed_hash::{h256, H256, H520};
+use secp256k1::recovery::{RecoverableSignature, RecoveryId};
 use secp256k1::Message as SecpMessage;
-use secp256k1::{RecoverableSignature, RecoveryId};
 use std::fmt;
 use std::str::FromStr;
 
@@ -104,7 +104,11 @@ impl Signature {
     }
 
     pub fn serialize_der(&self) -> Vec<u8> {
-        self.to_recoverable().unwrap().to_standard().serialize_der()
+        self.to_recoverable()
+            .unwrap()
+            .to_standard()
+            .serialize_der()
+            .to_vec()
     }
 }
 
