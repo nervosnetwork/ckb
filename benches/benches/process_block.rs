@@ -1,44 +1,56 @@
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::HeaderBuilder;
-use ckb_core::script::{Script, ScriptHashType};
+use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
+use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{
     CellInput, CellOutput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
     TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
-use ckb_db::DBConfig;
+use ckb_dao::DaoCalculator;
+use ckb_dao_utils::genesis_dao_data;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
+use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::chain_provider::ChainProvider;
 use criterion::{criterion_group, criterion_main, Criterion};
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use rand::random;
+use std::collections::HashSet;
 use std::sync::Arc;
-use tempfile::{tempdir, TempDir};
+
+#[cfg(not(feature = "ci"))]
+const SIZES: &[usize] = &[100usize, 200, 500, 1000];
+
+#[cfg(feature = "ci")]
+const SIZES: &[usize] = &[10usize];
 
 fn bench(c: &mut Criterion) {
-    let txs_sizes = vec![100usize, 200, 500, 1000];
-
     // benchmark processing 20 blocks on main branch
     c.bench_function_over_inputs(
         "main_branch",
         |b, txs_size| {
             b.iter_with_setup(
                 || {
-                    let (chain, shared, dir, system_cell_hash, data_hash) = new_chain(*txs_size);
+                    let (chains, out_point) = new_chain(**txs_size, 2);
+                    let (ref chain1, ref shared1) = chains.0[0];
+                    let (ref chain2, ref shared2) = chains.0[1];
                     let mut blocks =
-                        vec![shared.store().get_block(&shared.genesis_hash()).unwrap()];
+                        vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
+                    let mut parent = blocks[0].clone();
                     (0..20).for_each(|_| {
-                        let parent_index = blocks.len() - 1;
-                        gen_block(&mut blocks, parent_index, &system_cell_hash, &data_hash);
+                        let block = gen_block(&mut blocks, &parent, shared2, &out_point);
+                        chain2
+                            .process_block(Arc::new(block.clone()), false)
+                            .expect("process block OK");
+                        parent = block;
                     });
-                    (chain, blocks, dir)
+                    (chain1.clone(), blocks)
                 },
-                |(chain, blocks, _dir)| {
+                |(chain, blocks)| {
                     blocks.into_iter().skip(1).for_each(|block| {
                         chain
                             .process_block(Arc::new(block), true)
@@ -47,7 +59,7 @@ fn bench(c: &mut Criterion) {
                 },
             )
         },
-        txs_sizes.clone(),
+        SIZES,
     );
 
     // benchmark processing 2 blocks on side branch
@@ -59,16 +71,32 @@ fn bench(c: &mut Criterion) {
         |b, txs_size| {
             b.iter_with_setup(
                 || {
-                    let (chain, shared, dir, system_cell_hash, data_hash) = new_chain(*txs_size);
+                    let (chains, out_point) = new_chain(**txs_size, 3);
+                    let (ref chain1, ref shared1) = chains.0[0];
+                    let (ref chain2, ref shared2) = chains.0[1];
+                    let (ref chain3, ref shared3) = chains.0[2];
                     let mut blocks =
-                        vec![shared.store().get_block(&shared.genesis_hash()).unwrap()];
-                    (0..5).for_each(|_| {
-                        let parent_index = blocks.len() - 1;
-                        gen_block(&mut blocks, parent_index, &system_cell_hash, &data_hash);
+                        vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
+                    let mut parent = blocks[0].clone();
+                    (0..5).for_each(|i| {
+                        let block = gen_block(&mut blocks, &parent, &shared2, &out_point);
+                        chain2
+                            .process_block(Arc::new(block.clone()), false)
+                            .expect("process block OK");
+                        if i < 2 {
+                            chain3
+                                .process_block(Arc::new(block.clone()), false)
+                                .expect("process block OK");
+                        }
+                        parent = block;
                     });
-                    (0..2).for_each(|i| {
-                        let parent_index = i + 2;
-                        gen_block(&mut blocks, parent_index, &system_cell_hash, &data_hash);
+                    let mut parent = blocks[2].clone();
+                    (0..2).for_each(|_| {
+                        let block = gen_block(&mut blocks, &parent, &shared3, &out_point);
+                        chain3
+                            .process_block(Arc::new(block.clone()), false)
+                            .expect("process block OK");
+                        parent = block;
                     });
                     blocks
                         .clone()
@@ -76,13 +104,13 @@ fn bench(c: &mut Criterion) {
                         .skip(1)
                         .take(5)
                         .for_each(|block| {
-                            chain
+                            chain1
                                 .process_block(Arc::new(block), true)
                                 .expect("process block OK");
                         });
-                    (chain, blocks, dir)
+                    (chain1.clone(), blocks)
                 },
-                |(chain, blocks, _dir)| {
+                |(chain, blocks)| {
                     blocks.into_iter().skip(6).for_each(|block| {
                         chain
                             .process_block(Arc::new(block), true)
@@ -91,7 +119,7 @@ fn bench(c: &mut Criterion) {
                 },
             )
         },
-        txs_sizes.clone(),
+        SIZES,
     );
 
     // benchmark processing 4 blocks for switching fork
@@ -103,16 +131,33 @@ fn bench(c: &mut Criterion) {
         |b, txs_size| {
             b.iter_with_setup(
                 || {
-                    let (chain, shared, dir, system_cell_hash, data_hash) = new_chain(*txs_size);
+                    let (chains, out_point) = new_chain(**txs_size, 3);
+                    let (ref chain1, ref shared1) = chains.0[0];
+                    let (ref chain2, ref shared2) = chains.0[1];
+                    let (ref chain3, ref shared3) = chains.0[2];
                     let mut blocks =
-                        vec![shared.store().get_block(&shared.genesis_hash()).unwrap()];
-                    (0..5).for_each(|_| {
-                        let parent_index = blocks.len() - 1;
-                        gen_block(&mut blocks, parent_index, &system_cell_hash, &data_hash);
+                        vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
+                    let mut parent = blocks[0].clone();
+                    (0..5).for_each(|i| {
+                        let block = gen_block(&mut blocks, &parent, &shared2, &out_point);
+                        let arc_block = Arc::new(block.clone());
+                        chain2
+                            .process_block(Arc::clone(&arc_block), false)
+                            .expect("process block OK");
+                        if i < 2 {
+                            chain3
+                                .process_block(arc_block, false)
+                                .expect("process block OK");
+                        }
+                        parent = block;
                     });
-                    (0..4).for_each(|i| {
-                        let parent_index = i + 2;
-                        gen_block(&mut blocks, parent_index, &system_cell_hash, &data_hash);
+                    let mut parent = blocks[2].clone();
+                    (0..4).for_each(|_| {
+                        let block = gen_block(&mut blocks, &parent, &shared3, &out_point);
+                        chain3
+                            .process_block(Arc::new(block.clone()), false)
+                            .expect("process block OK");
+                        parent = block;
                     });
                     blocks
                         .clone()
@@ -120,13 +165,13 @@ fn bench(c: &mut Criterion) {
                         .skip(1)
                         .take(7)
                         .for_each(|block| {
-                            chain
+                            chain1
                                 .process_block(Arc::new(block), true)
                                 .expect("process block OK");
                         });
-                    (chain, blocks, dir)
+                    (chain1.clone(), blocks)
                 },
-                |(chain, blocks, _dir)| {
+                |(chain, blocks)| {
                     blocks.into_iter().skip(8).for_each(|block| {
                         chain
                             .process_block(Arc::new(block), true)
@@ -135,7 +180,7 @@ fn bench(c: &mut Criterion) {
                 },
             )
         },
-        txs_sizes.clone(),
+        SIZES,
     );
 }
 
@@ -146,31 +191,64 @@ criterion_group!(
 );
 criterion_main!(benches);
 
-fn new_chain(txs_size: usize) -> (ChainController, Shared, TempDir, H256, H256) {
-    let always_success = include_bytes!("../../script/testdata/always_success");
-    let data = Bytes::from(always_success.to_vec());
-    let mut cell_output = CellOutputBuilder::from_data(&data).build();
-    cell_output.capacity = cell_output
-        .occupied_capacity(Capacity::bytes(data.len()).unwrap())
-        .unwrap();
+pub(crate) fn create_always_success_tx() -> Transaction {
+    let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
+    TransactionBuilder::default()
+        .witness(script.clone().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .output(always_success_cell.clone())
+        .output_data(always_success_cell_data.clone())
+        .build()
+}
 
-    let data_hash = cell_output.data_hash().to_owned();
+pub(crate) fn calculate_reward(shared: &Shared, parent: &Header) -> Capacity {
+    let number = parent.number() + 1;
+    let target_number = shared.consensus().finalize_target(number).unwrap();
+    let target = shared
+        .store()
+        .get_ancestor(parent.hash(), target_number)
+        .expect("calculate_reward get_ancestor");
+    let calculator = DaoCalculator::new(shared.consensus(), shared.store());
+    calculator
+        .primary_block_reward(&target)
+        .expect("calculate_reward primary_block_reward")
+        .safe_add(calculator.secondary_block_reward(&target).unwrap())
+        .expect("calculate_reward safe_add")
+}
 
-    let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
-        .witness(
-            Script {
-                args: vec![],
-                code_hash: cell_output.data_hash().to_owned(),
-                hash_type: ScriptHashType::Data,
-            }
-            .into_witness(),
+pub(crate) fn create_cellbase(shared: &Shared, parent: &Header) -> Transaction {
+    let (_, _, always_success_script) = always_success_cell();
+    let capacity = calculate_reward(shared, parent);
+    TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(parent.number() + 1))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity)
+                .lock(always_success_script.clone())
+                .build(),
         )
-        .output(cell_output)
-        .output_data(data)
-        .build();
+        .output_data(Bytes::new())
+        .witness(always_success_script.clone().into_witness())
+        .build()
+}
 
-    let system_cell_hash = cellbase.hash().to_owned();
+#[derive(Default)]
+pub struct Chains(pub Vec<(ChainController, Shared)>);
+
+impl Chains {
+    pub fn push(&mut self, chain: (ChainController, Shared)) {
+        self.0.push(chain);
+    }
+}
+
+fn new_chain(txs_size: usize, chains_num: usize) -> (Chains, OutPoint) {
+    let (_, _, always_success_script) = always_success_cell();
+    let tx = create_always_success_tx();
+    let always_success_out_point = OutPoint::new_cell(tx.hash().to_owned(), 0);
+    let dao = genesis_dao_data(&tx).unwrap();
+    let header_builder = HeaderBuilder::default()
+        .dao(dao)
+        .difficulty(U256::from(1000u64));
 
     // create genesis block with N txs
     let transactions: Vec<Transaction> = (0..txs_size)
@@ -181,11 +259,7 @@ fn new_chain(txs_size: usize) -> (ChainController, Shared, TempDir, H256, H256) 
                 .output(
                     CellOutputBuilder::from_data(&data)
                         .capacity(capacity_bytes!(50_000))
-                        .lock(Script::new(
-                            Vec::new(),
-                            data_hash.clone(),
-                            ScriptHashType::Data,
-                        ))
+                        .lock(always_success_script.clone())
                         .build(),
                 )
                 .output_data(data)
@@ -193,65 +267,81 @@ fn new_chain(txs_size: usize) -> (ChainController, Shared, TempDir, H256, H256) 
         })
         .collect();
 
-    let genesis_block = BlockBuilder::default()
-        .transaction(cellbase)
+    let genesis_block = BlockBuilder::from_header_builder(header_builder)
+        .transaction(tx)
         .transactions(transactions)
-        .header_builder(HeaderBuilder::default().difficulty(U256::from(1000u64)))
         .build();
 
-    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+    let mut consensus = Consensus::default()
+        .set_cellbase_maturity(0)
+        .set_genesis_block(genesis_block);
     consensus.tx_proposal_window = ProposalWindow(1, 10);
-    consensus.cellbase_maturity = 0;
 
-    let db_dir = tempdir().unwrap();
-    let shared = SharedBuilder::with_db_config(&DBConfig {
-        path: db_dir.path().to_owned(),
-        options: None,
-    })
-    .consensus(consensus)
-    .build()
-    .unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), notify);
-    (
-        chain_service.start::<&str>(None),
-        shared,
-        db_dir,
-        system_cell_hash,
-        data_hash.to_owned(),
-    )
+    let mut chains = Chains::default();
+
+    for _ in 0..chains_num {
+        let shared = SharedBuilder::default()
+            .consensus(consensus.clone())
+            .build()
+            .unwrap();
+        let notify = NotifyService::default().start::<&str>(None);
+        let chain_service = ChainService::new(shared.clone(), notify);
+
+        chains.push((chain_service.start::<&str>(None), shared));
+    }
+
+    (chains, always_success_out_point)
+}
+
+pub fn dao_data(shared: &Shared, parent: &Header, txs: &[Transaction]) -> Bytes {
+    let mut seen_inputs = HashSet::default();
+    // In case of resolving errors, we just output a dummp DAO field,
+    // since those should be the cases where we are testing invalid
+    // blocks
+    let transactions_provider = TransactionsProvider::new(txs);
+    let chain_state = shared.lock_chain_state();
+    let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, &*chain_state);
+    let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
+        let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, &*chain_state);
+        match rtx {
+            Ok(rtx) => {
+                rtxs.push(rtx);
+                Ok(rtxs)
+            }
+            Err(e) => Err(e),
+        }
+    });
+    let rtxs = rtxs.expect("dao_data resolve_transaction");
+    let calculator = DaoCalculator::new(shared.consensus(), shared.store());
+    calculator
+        .dao_field(&rtxs, &parent)
+        .expect("calculator dao_field")
 }
 
 fn gen_block(
     blocks: &mut Vec<Block>,
-    parent_index: usize,
-    system_cell_hash: &H256,
-    data_hash: &H256,
-) {
-    let p_block = &blocks[parent_index];
-
+    p_block: &Block,
+    shared: &Shared,
+    always_success_out_point: &OutPoint,
+) -> Block {
     let (number, timestamp, difficulty) = (
         p_block.header().number() + 1,
         p_block.header().timestamp() + 10000,
         p_block.header().difficulty() + U256::from(1u64),
     );
-
-    let mut cell_output = CellOutput::default();
-    cell_output.capacity = cell_output.occupied_capacity(Capacity::zero()).unwrap();
-
-    let cellbase = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(number))
-        .output(cell_output)
-        .build();
+    let cellbase = create_cellbase(shared, p_block.header());
 
     // spent n-2 block's tx and proposal n-1 block's tx
     let transactions: Vec<Transaction> = if blocks.len() > 1 {
-        let pp_block = &blocks[parent_index - 1];
+        let pp_block = shared
+            .store()
+            .get_block(p_block.header().parent_hash())
+            .expect("gen_block get pp_block");
         pp_block
             .transactions()
             .iter()
             .skip(1)
-            .map(|tx| create_transaction(tx.hash(), system_cell_hash, data_hash))
+            .map(|tx| create_transaction(tx.hash(), always_success_out_point.clone()))
             .collect()
     } else {
         vec![]
@@ -261,8 +351,14 @@ fn gen_block(
         .transactions()
         .iter()
         .skip(1)
-        .map(|tx| create_transaction(tx.hash(), system_cell_hash, data_hash).proposal_short_id())
+        .map(|tx| {
+            create_transaction(tx.hash(), always_success_out_point.clone()).proposal_short_id()
+        })
         .collect();
+
+    let mut txs_to_resolve = vec![cellbase.clone()];
+    txs_to_resolve.extend_from_slice(&transactions);
+    let dao = dao_data(shared, p_block.header(), &txs_to_resolve);
 
     let block = BlockBuilder::default()
         .transaction(cellbase)
@@ -274,35 +370,30 @@ fn gen_block(
                 .number(number)
                 .timestamp(timestamp)
                 .difficulty(difficulty)
-                .nonce(random()),
+                .nonce(random())
+                .dao(dao),
         )
         .build();
 
-    blocks.push(block);
+    blocks.push(block.clone());
+    block
 }
 
-fn create_transaction(
-    parent_hash: &H256,
-    system_cell_hash: &H256,
-    data_hash: &H256,
-) -> Transaction {
+fn create_transaction(parent_hash: &H256, always_success_out_point: OutPoint) -> Transaction {
+    let (_, _, always_success_script) = always_success_cell();
     let data: Bytes = (0..255).collect();
     TransactionBuilder::default()
-        .output(
-            CellOutputBuilder::from_data(&data)
-                .capacity(capacity_bytes!(50_000))
-                .lock(Script::new(
-                    vec![(0..255).collect()],
-                    data_hash.to_owned(),
-                    ScriptHashType::Data,
-                ))
-                .build(),
-        )
+        .output(CellOutput::new(
+            capacity_bytes!(50_000),
+            CellOutput::calculate_data_hash(&data),
+            always_success_script.clone(),
+            None,
+        ))
         .output_data(data)
         .input(CellInput::new(
             OutPoint::new_cell(parent_hash.to_owned(), 0),
             0,
         ))
-        .dep(OutPoint::new_cell(system_cell_hash.to_owned(), 0))
+        .dep(always_success_out_point)
         .build()
 }
