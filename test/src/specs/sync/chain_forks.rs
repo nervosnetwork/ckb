@@ -9,6 +9,10 @@ use numext_fixed_hash::{h256, H256};
 pub struct ChainFork1;
 
 impl Spec for ChainFork1 {
+    crate::name!("chain_fork1");
+
+    crate::setup!(num_nodes: 2, connect_all: false);
+
     // Test normal fork
     //                  1    2    3    4
     // node0 genesis -> A -> B -> C
@@ -36,14 +40,6 @@ impl Spec for ChainFork1 {
         net.waiting_for_sync(4);
     }
 
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
-
     // workaround to disable node discovery
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         Box::new(|config| config.network.connect_outbound_interval_secs = 100_000)
@@ -53,6 +49,10 @@ impl Spec for ChainFork1 {
 pub struct ChainFork2;
 
 impl Spec for ChainFork2 {
+    crate::name!("chain_fork2");
+
+    crate::setup!(num_nodes: 3, connect_all: false);
+
     // Test normal fork switch back
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -93,19 +93,15 @@ impl Spec for ChainFork2 {
         node1.connect(node2);
         net.waiting_for_sync(5);
     }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
 }
 
 pub struct ChainFork3;
 
 impl Spec for ChainFork3 {
+    crate::name!("chain_fork3");
+
+    crate::setup!(num_nodes: 3, connect_all: false);
+
     // Test invalid cellbase reward fork (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -159,19 +155,15 @@ impl Spec for ChainFork3 {
         node2.connect_and_wait_ban(node1);
         node0.waiting_for_sync(node2, 4);
     }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
 }
 
 pub struct ChainFork4;
 
 impl Spec for ChainFork4 {
+    crate::name!("chain_fork4");
+
+    crate::setup!(num_nodes: 3, connect_all: false);
+
     // Test invalid cellbase capacity overflow fork (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -225,19 +217,15 @@ impl Spec for ChainFork4 {
         node2.connect_and_wait_ban(node1);
         node0.waiting_for_sync(node2, 4);
     }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
 }
 
 pub struct ChainFork5;
 
 impl Spec for ChainFork5 {
+    crate::name!("chain_fork5");
+
+    crate::setup!(num_nodes: 3, connect_all: false);
+
     // Test dead cell fork (spent A cellbase in E, and spent A cellbase in F again)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -295,19 +283,15 @@ impl Spec for ChainFork5 {
         node2.connect_and_wait_ban(node1);
         node0.waiting_for_sync(node2, 4);
     }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
 }
 
 pub struct ChainFork6;
 
 impl Spec for ChainFork6 {
+    crate::name!("chain_fork6");
+
+    crate::setup!(num_nodes: 3, connect_all: false);
+
     // Test fork spending the outpoint of a non-existent transaction (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -357,19 +341,15 @@ impl Spec for ChainFork6 {
         node2.connect_and_wait_ban(node1);
         node0.waiting_for_sync(node2, 4);
     }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
 }
 
 pub struct ChainFork7;
 
 impl Spec for ChainFork7 {
+    crate::name!("chain_fork7");
+
+    crate::setup!(num_nodes: 3, connect_all: false);
+
     // Test fork spending the outpoint of an invalid index (in block F)
     //                  1    2    3    4    5
     // node0 genesis -> A -> B -> C
@@ -426,14 +406,6 @@ impl Spec for ChainFork7 {
         node2.connect(node0);
         node2.connect_and_wait_ban(node1);
         node0.waiting_for_sync(node2, 4);
-    }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }
 

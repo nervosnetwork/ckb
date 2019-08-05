@@ -4,6 +4,8 @@ use log::info;
 pub struct TemplateSizeLimit;
 
 impl Spec for TemplateSizeLimit {
+    crate::name!("template_size_limit");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 

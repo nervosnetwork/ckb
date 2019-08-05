@@ -7,6 +7,10 @@ use log::info;
 pub struct TransactionRelayBasic;
 
 impl Spec for TransactionRelayBasic {
+    crate::name!("transaction_relay_basic");
+
+    crate::setup!(num_nodes: 3);
+
     fn run(&self, net: Net) {
         net.exit_ibd_mode();
 
@@ -39,10 +43,6 @@ impl Spec for TransactionRelayBasic {
         });
         assert!(ret, "Transaction should be relayed to node2");
     }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
 }
 
 const MIN_CAPACITY: u64 = 60_0000_0000;
@@ -50,6 +50,10 @@ const MIN_CAPACITY: u64 = 60_0000_0000;
 pub struct TransactionRelayMultiple;
 
 impl Spec for TransactionRelayMultiple {
+    crate::name!("transaction_relay_multiple");
+
+    crate::setup!(num_nodes: 5);
+
     fn run(&self, net: Net) {
         let block = net.exit_ibd_mode();
         let node0 = &net.nodes[0];
@@ -104,9 +108,5 @@ impl Spec for TransactionRelayMultiple {
                 txs_num + 1
             )
         });
-    }
-
-    fn num_nodes(&self) -> usize {
-        5
     }
 }

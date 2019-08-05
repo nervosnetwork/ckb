@@ -6,6 +6,8 @@ use log::info;
 pub struct DifferentTxsWithSameInput;
 
 impl Spec for DifferentTxsWithSameInput {
+    crate::name!("different_txs_with_same_input");
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
 

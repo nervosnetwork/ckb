@@ -18,6 +18,10 @@ use std::time::Duration;
 pub struct CompactBlockEmptyParentUnknown;
 
 impl Spec for CompactBlockEmptyParentUnknown {
+    crate::name!("compact_block_empty_parent_unknown");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: Sent to node0 a parent-unknown empty block, node0 should be unable to reconstruct
     // it and send us back a `GetHeaders` message
     fn run(&self, net: Net) {
@@ -50,15 +54,15 @@ impl Spec for CompactBlockEmptyParentUnknown {
             "Node0 should send back GetHeaders message for unknown parent header"
         );
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
 }
 
 pub struct CompactBlockEmpty;
 
 impl Spec for CompactBlockEmpty {
+    crate::name!("compact_block_empty");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
@@ -75,15 +79,15 @@ impl Spec for CompactBlockEmpty {
         let ret = wait_until(10, move || node.get_tip_block() == new_empty_block);
         assert!(ret, "Node0 should reconstruct empty block successfully");
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
 }
 
 pub struct CompactBlockPrefilled;
 
 impl Spec for CompactBlockPrefilled {
+    crate::name!("compact_block_prefilled");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
@@ -117,15 +121,15 @@ impl Spec for CompactBlockPrefilled {
             "Node0 should reconstruct all-prefilled block successfully"
         );
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
 }
 
 pub struct CompactBlockMissingFreshTxs;
 
 impl Spec for CompactBlockMissingFreshTxs {
+    crate::name!("compact_block_missing_fresh_txs");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: Send to node0 a block which missing a tx, which is a fresh tx for
     // tx_pool, node0 should send `GetBlockTransactions` back for requesting
     // these missing txs
@@ -170,15 +174,15 @@ impl Spec for CompactBlockMissingFreshTxs {
             "Node0 should send GetBlockTransactions message for missing transactions",
         );
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
 }
 
 pub struct CompactBlockMissingNotFreshTxs;
 
 impl Spec for CompactBlockMissingNotFreshTxs {
+    crate::name!("compact_block_missing_not_fresh_txs");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: As for the missing transactions of a compact block, we should try to find it from
     //       tx_pool. If we find out, we can reconstruct the target block without any requests
     //       to the peer.
@@ -220,15 +224,19 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
         assert!(ret, "Node0 should be able to reconstruct the block");
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::relay(), TestProtocol::sync()]
-    }
 }
 
 pub struct CompactBlockLoseGetBlockTransactions;
 
 impl Spec for CompactBlockLoseGetBlockTransactions {
+    crate::name!("compact_block_lose_get_block_transactions");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
+    );
+
     fn run(&self, net: Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];
@@ -283,23 +291,15 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         node1.submit_block(&block);
         node1.waiting_for_sync(node0, node1.get_tip_block().header().number());
     }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
 }
 
 pub struct CompactBlockRelayParentOfOrphanBlock;
 
 impl Spec for CompactBlockRelayParentOfOrphanBlock {
+    crate::name!("compact_block_relay_parent_of_orphan_block");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: A <- B, A == B.parent
     // 1. Sync B to node0. Node0 will put B into orphan_block_pool since B's parent unknown
     // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
@@ -412,15 +412,19 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             "relayer should process the two blocks, including the orphan block"
         );
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
 }
 
 pub struct CompactBlockRelayLessThenSharedBestKnown;
 
 impl Spec for CompactBlockRelayLessThenSharedBestKnown {
+    crate::name!("compact_block_relay_less_then_shared_best_known");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
+    );
+
     // Case: Relay a compact block which has lower total difficulty than shared_best_known
     // 1. Synchronize Headers[Tip+1, Tip+10]
     // 2. Relay CompactBlock[Tip+1]
@@ -461,17 +465,5 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
             wait_until(20, move || node0.get_tip_block().header().number() == old_tip + 1),
             "node0 should process the new block, even its difficulty is less then best_shared_known",
         );
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }

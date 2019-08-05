@@ -5,6 +5,10 @@ use log::info;
 pub struct Disconnect;
 
 impl Spec for Disconnect {
+    crate::name!("disconnect");
+
+    crate::setup!(num_nodes: 2);
+
     fn run(&self, mut net: Net) {
         info!("Running Disconnect");
 
@@ -21,9 +25,5 @@ impl Spec for Disconnect {
             ret,
             "The address of node1 should be removed from node0's peers",
         )
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
     }
 }
