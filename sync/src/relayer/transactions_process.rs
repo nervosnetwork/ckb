@@ -94,12 +94,25 @@ impl<'a> TransactionsProcess<'a> {
                         let tx_result = tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
                         // disconnect peer if cycles mismatch
                         match tx_result {
-                            Ok(cycles) if cycles == relay_cycles => {
+                            Ok((cycles, fee)) if cycles == relay_cycles => {
+                                let min_fee_rate = shared.shared().min_fee_rate();
+                                if fee < min_fee_rate.fee(tx.serialized_size()) {
+                                    debug_target!(
+                                        crate::LOG_TARGET_RELAY,
+                                        "peer {} relay tx lower than our min fee rate {} shannons per bytes. tx: {:?}  size {} fee {}",
+                                        peer_index,
+                                        min_fee_rate,
+                                        tx,
+                                        tx.serialized_size(),
+                                        fee,
+                                    );
+                                    break;
+                                }
                                 let mut cache = shared.tx_hashes();
                                 let entry = cache.entry(peer_index).or_insert_with(FnvHashSet::default);
                                 entry.insert(tx_hash);
                             }
-                            Ok(cycles) => {
+                            Ok((cycles, _fee)) => {
                                 debug_target!(
                                     crate::LOG_TARGET_RELAY,
                                     "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",

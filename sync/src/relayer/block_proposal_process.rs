@@ -76,7 +76,7 @@ impl<'a> BlockProposalProcess<'a> {
             {
                 let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
                 Box::new(lazy(move || -> FutureResult<(), ()> {
-                    let ret = tx_pool_executor.verify_and_add_txs_to_pool(asked_txs);
+                    let ret = tx_pool_executor.verify_and_add_txs_to_pool(asked_txs, None);
                     if ret.is_err() {
                         warn_target!(
                             crate::LOG_TARGET_RELAY,

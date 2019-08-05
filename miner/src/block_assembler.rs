@@ -335,7 +335,8 @@ impl BlockAssembler {
         let (cellbase, cellbase_size) = self.build_cellbase(&tip_header, cellbase_lock)?;
 
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
-        let proposals = chain_state.get_proposals(proposals_limit as usize);
+        let proposals =
+            chain_state.get_proposals(proposals_limit as usize, self.shared.min_fee_rate());
         let txs_size_limit =
             self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
         let (entries, size, cycles) = self.package_txs(&chain_state, txs_size_limit, cycles_limit);
@@ -499,6 +500,7 @@ impl BlockAssembler {
         let mut size: usize = 0;
         let mut cycles: Cycle = 0;
         let tx_pool = chain_state.tx_pool();
+        let min_fee_rate = self.shared.min_fee_rate();
         let entries = tx_pool.with_sorted_proposed_txs_iter(|iter| {
             let mut entries: Vec<TxEntry> = Vec::new();
             // modified entries, after put a tx into block,
@@ -524,7 +526,9 @@ impl BlockAssembler {
                     cycles,
                     |tx| {
                         let tx_id = tx.transaction.proposal_short_id();
-                        in_block_txs.contains(&tx_id) || modified_entries.contains_key(&tx_id)
+                        in_block_txs.contains(&tx_id)
+                            || modified_entries.contains_key(&tx_id)
+                            || tx.ancestors_fee < min_fee_rate.fee(tx.ancestors_size)
                     },
                 );
                 modified_entries.with_sorted_by_score_iter(|iter| {
@@ -535,7 +539,7 @@ impl BlockAssembler {
                         cycles_limit,
                         size,
                         cycles,
-                        |_| false,
+                        |tx| tx.ancestors_fee < min_fee_rate.fee(tx.ancestors_size),
                     );
                 });
                 // take tx with higher scores
@@ -1188,7 +1192,7 @@ mod tests {
     }
 
     #[test]
-    fn test_package_zero_fee_txs() {
+    fn test_package_lower_fee_decendants() {
         let mut consensus = Consensus::default();
         consensus.genesis_epoch_ext.set_length(5);
         let epoch = consensus.genesis_epoch_ext().clone();
@@ -1230,10 +1234,10 @@ mod tests {
             let tx_pool = chain_state.mut_tx_pool();
             for (tx, fee, cycles, size) in &[
                 (&tx1, 1000, 0, 100),
-                (&tx2, 0, 0, 100),
-                (&tx3, 0, 0, 100),
-                (&tx4, 0, 0, 100),
-                (&tx5, 0, 0, 100),
+                (&tx2, 100, 0, 100),
+                (&tx3, 100, 0, 100),
+                (&tx4, 100, 0, 100),
+                (&tx5, 100, 0, 100),
             ] {
                 tx_pool.add_proposed(*cycles, Capacity::shannons(*fee), *size, (*tx).to_owned());
             }
@@ -1257,5 +1261,77 @@ mod tests {
             .get_block_template(None, None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4, &tx5]);
+    }
+
+    #[test]
+    fn test_package_lower_than_min_fee_rate() {
+        let mut consensus = Consensus::default();
+        consensus.genesis_epoch_ext.set_length(5);
+        let epoch = consensus.genesis_epoch_ext().clone();
+
+        let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
+        let config = BlockAssemblerConfig {
+            code_hash: H256::zero(),
+            args: vec![],
+            data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data,
+        };
+        let block_assembler = setup_block_assembler(shared.clone(), config);
+        let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
+
+        let genesis = shared
+            .store()
+            .get_block_header(&shared.store().get_block_hash(0).unwrap())
+            .unwrap();
+        let mut parent_header = genesis.to_owned();
+        let mut blocks = vec![];
+        for _i in 0..4 {
+            let block = gen_block(&parent_header, 11, &epoch);
+            chain_controller
+                .process_block(Arc::new(block.clone()), false)
+                .expect("process block");
+            parent_header = block.header().to_owned();
+            blocks.push(block);
+        }
+
+        let tx0 = &blocks[0].transactions()[0];
+        let tx1 = build_tx(tx0, &[0], 2);
+        let tx2 = build_tx(&tx1, &[0], 2);
+        let tx3 = build_tx(&tx2, &[0], 2);
+        let tx4 = build_tx(&tx3, &[0], 2);
+        let tx5 = build_tx(&tx4, &[0], 2);
+
+        {
+            let mut chain_state = shared.lock_chain_state();
+            let tx_pool = chain_state.mut_tx_pool();
+            for (tx, fee, cycles, size) in &[
+                (&tx1, 1000, 0, 100),
+                (&tx2, 80, 0, 100),
+                (&tx3, 50, 0, 100),
+                (&tx4, 20, 0, 100),
+                (&tx5, 0, 0, 100),
+            ] {
+                tx_pool.add_proposed(*cycles, Capacity::shannons(*fee), *size, (*tx).to_owned());
+            }
+        }
+
+        let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&Transaction>| {
+            assert_eq!(
+                block_template
+                    .transactions
+                    .iter()
+                    .map(|tx| format!("{:x}", tx.hash))
+                    .collect::<Vec<_>>(),
+                expect_txs
+                    .iter()
+                    .map(|tx| format!("{:x}", tx.hash()))
+                    .collect::<Vec<_>>()
+            );
+        };
+        // best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx1]);
     }
 }

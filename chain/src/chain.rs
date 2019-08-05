@@ -5,7 +5,7 @@ use ckb_core::cell::{
 use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::ProposalShortId;
-use ckb_core::{BlockNumber, Cycle};
+use ckb_core::{BlockNumber, Capacity, Cycle};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
@@ -504,7 +504,7 @@ impl ChainService {
         txn: &StoreTransaction,
         fork: &mut ForkChanges,
         chain_state: &mut ChainState,
-        txs_verify_cache: &mut LruCache<H256, Cycle>,
+        txs_verify_cache: &mut LruCache<H256, (Cycle, Capacity)>,
         need_verify: bool,
     ) -> Result<CellSetDiff, FailureError> {
         let verified_len = fork.verified_len();

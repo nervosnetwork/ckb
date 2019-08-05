@@ -1,6 +1,6 @@
 use crate::tx_pool::types::DefectEntry;
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_core::Cycle;
+use ckb_core::{Capacity, Cycle};
 use ckb_util::FnvHashMap;
 use std::collections::hash_map;
 use std::collections::VecDeque;
@@ -38,13 +38,13 @@ impl OrphanPool {
     /// add orphan transaction
     pub(crate) fn add_tx(
         &mut self,
-        cycles: Option<Cycle>,
+        cached: Option<(Cycle, Capacity)>,
         size: usize,
         tx: Transaction,
         unknown: impl ExactSizeIterator<Item = OutPoint>,
     ) -> Option<DefectEntry> {
         let short_id = tx.proposal_short_id();
-        let entry = DefectEntry::new(tx, unknown.len(), cycles, size);
+        let entry = DefectEntry::new(tx, unknown.len(), cached, size);
         for out_point in unknown {
             let edge = self.edges.entry(out_point).or_insert_with(Vec::new);
             edge.push(short_id);

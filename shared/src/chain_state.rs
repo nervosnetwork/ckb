@@ -1,5 +1,6 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOpr, CellSetOverlay};
 use crate::error::SharedError;
+use crate::fee_rate::FeeRate;
 use crate::tx_pool::types::{DefectEntry, TxEntry};
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
@@ -343,7 +344,7 @@ impl ChainState {
     pub fn get_tx_with_cycles_from_pool(
         &self,
         short_id: &ProposalShortId,
-    ) -> Option<(Transaction, Option<Cycle>)> {
+    ) -> Option<(Transaction, Option<(Cycle, Capacity)>)> {
         self.tx_pool.borrow().get_tx_with_cycles(short_id)
     }
 
@@ -354,7 +355,12 @@ impl ChainState {
 
     // Add a verified tx into pool
     // this method will handle fork related verifications to make sure we are safe during a fork
-    pub fn add_tx_to_pool(&self, tx: Transaction, cycles: Cycle) -> Result<Cycle, PoolError> {
+    pub fn add_tx_to_pool(
+        &self,
+        tx: Transaction,
+        cycles: Cycle,
+        fee: Capacity,
+    ) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
         let tx_size = tx.serialized_size();
         if self.reach_tx_pool_limit(tx_size, cycles) {
@@ -372,7 +378,7 @@ impl ChainState {
                         // if tx is proposed, we resolve from proposed, verify again
                         if let Err(e) = self.proposed_tx_and_descendants(
                             &mut tx_pool,
-                            Some(cycles),
+                            Some((cycles, fee)),
                             tx_size,
                             tx,
                         ) {
@@ -386,7 +392,7 @@ impl ChainState {
                         }
                         tx_pool.update_statics_for_add_tx(tx_size, cycles);
                     } else if self
-                        .pending_tx(&mut tx_pool, Some(cycles), tx_size, tx)
+                        .pending_tx(&mut tx_pool, Some((cycles, fee)), tx_size, tx)
                         .is_ok()
                     {
                         tx_pool.update_statics_for_add_tx(tx_size, cycles);
@@ -465,9 +471,12 @@ impl ChainState {
         for entry in entries {
             let tx_hash = entry.transaction.hash().to_owned();
             if self.contains_proposal_id(&tx.proposal_short_id()) {
-                let ret = self.proposed_tx(tx_pool, entry.cycles, entry.size, entry.transaction);
+                let ret = self.proposed_tx(tx_pool, entry.cached, entry.size, entry.transaction);
                 if ret.is_err() {
-                    tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles.unwrap_or(0));
+                    tx_pool.update_statics_for_remove_tx(
+                        entry.size,
+                        entry.cached.map(|c| c.0).unwrap_or(0),
+                    );
                     trace_target!(
                         crate::LOG_TARGET_TX_POOL,
                         "proposed tx {:x} failed {:?}",
@@ -476,9 +485,12 @@ impl ChainState {
                     );
                 }
             } else {
-                let ret = self.pending_tx(tx_pool, entry.cycles, entry.size, entry.transaction);
+                let ret = self.pending_tx(tx_pool, entry.cached, entry.size, entry.transaction);
                 if ret.is_err() {
-                    tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles.unwrap_or(0));
+                    tx_pool.update_statics_for_remove_tx(
+                        entry.size,
+                        entry.cached.map(|c| c.0).unwrap_or(0),
+                    );
                     trace_target!(
                         crate::LOG_TARGET_TX_POOL,
                         "pending tx {:x} failed {:?}",
@@ -509,12 +521,12 @@ impl ChainState {
         &self,
         pool_name: &str,
         tx_pool: &mut TxPool,
-        cycles: Option<Cycle>,
+        cached: Option<(Cycle, Capacity)>,
         size: usize,
         tx: Transaction,
         tx_resolved_result: Result<(Cycle, Capacity), PoolError>,
         send_to_pool: F,
-    ) -> Result<Cycle, PoolError>
+    ) -> Result<(Cycle, Capacity), PoolError>
     where
         F: FnOnce(&mut TxPool, Cycle, Capacity, usize, Transaction) -> Result<(), PoolError>,
     {
@@ -524,10 +536,10 @@ impl ChainState {
         match tx_resolved_result {
             Ok((cycles, fee)) => {
                 send_to_pool(tx_pool, cycles, fee, size, tx)?;
-                Ok(cycles)
+                Ok((cycles, fee))
             }
             Err(PoolError::InvalidTx(e)) => {
-                tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                tx_pool.update_statics_for_remove_tx(size, cached.map(|c| c.0).unwrap_or(0));
                 debug_target!(
                     crate::LOG_TARGET_TX_POOL,
                     "Failed to add tx to {} {:x}, verify failed, reason: {:?}",
@@ -542,18 +554,24 @@ impl ChainState {
                     UnresolvableError::Dead(_) => {
                         if tx_pool
                             .conflict
-                            .insert(short_id, DefectEntry::new(tx, 0, cycles, size))
+                            .insert(short_id, DefectEntry::new(tx, 0, cached, size))
                             .is_some()
                         {
-                            tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                            tx_pool.update_statics_for_remove_tx(
+                                size,
+                                cached.map(|c| c.0).unwrap_or(0),
+                            );
                         }
                     }
                     UnresolvableError::Unknown(out_points) => {
                         if tx_pool
-                            .add_orphan(cycles, size, tx, out_points.to_owned())
+                            .add_orphan(cached, size, tx, out_points.to_owned())
                             .is_some()
                         {
-                            tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                            tx_pool.update_statics_for_remove_tx(
+                                size,
+                                cached.map(|c| c.0).unwrap_or(0),
+                            );
                         }
                     }
                     // The remaining errors are Empty, UnspecifiedInputCell and
@@ -564,7 +582,8 @@ impl ChainState {
                     | UnresolvableError::UnspecifiedInputCell(_)
                     | UnresolvableError::InvalidHeader(_)
                     | UnresolvableError::OutOfOrder(_) => {
-                        tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                        tx_pool
+                            .update_statics_for_remove_tx(size, cached.map(|c| c.0).unwrap_or(0));
                     }
                 }
                 Err(PoolError::UnresolvableTransaction(err))
@@ -577,7 +596,7 @@ impl ChainState {
                     tx_hash,
                     err
                 );
-                tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                tx_pool.update_statics_for_remove_tx(size, cached.map(|c| c.0).unwrap_or(0));
                 Err(err)
             }
         }
@@ -586,23 +605,28 @@ impl ChainState {
     fn gap_tx(
         &self,
         tx_pool: &mut TxPool,
-        cycles: Option<Cycle>,
+        cached: Option<(Cycle, Capacity)>,
         size: usize,
         tx: Transaction,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<(Cycle, Capacity), PoolError> {
         let tx_result = self
             .resolve_tx_from_pending_and_proposed(&tx, tx_pool)
             .map_err(PoolError::UnresolvableTransaction)
             .and_then(|rtx| {
-                self.verify_rtx(&rtx, cycles).and_then(|cycles| {
-                    let fee = self.calculate_transaction_fee(&rtx);
-                    fee.map(|fee| (cycles, fee))
-                })
+                self.verify_rtx(&rtx, cached.map(|c| c.0))
+                    .and_then(|cycles| {
+                        if let Some((_cycles, fee)) = cached {
+                            Ok((cycles, fee))
+                        } else {
+                            let fee = self.calculate_transaction_fee(&rtx);
+                            fee.map(|fee| (cycles, fee))
+                        }
+                    })
             });
         self.send_tx_to_pool(
             "gap",
             tx_pool,
-            cycles,
+            cached,
             size,
             tx,
             tx_result,
@@ -620,23 +644,28 @@ impl ChainState {
     pub(crate) fn proposed_tx(
         &self,
         tx_pool: &mut TxPool,
-        cycles: Option<Cycle>,
+        cached: Option<(Cycle, Capacity)>,
         size: usize,
         tx: Transaction,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<(Cycle, Capacity), PoolError> {
         let tx_result = self
             .resolve_tx_from_proposed(&tx, tx_pool)
             .map_err(PoolError::UnresolvableTransaction)
             .and_then(|rtx| {
-                self.verify_rtx(&rtx, cycles).and_then(|cycles| {
-                    let fee = self.calculate_transaction_fee(&rtx);
-                    fee.map(|fee| (cycles, fee))
-                })
+                self.verify_rtx(&rtx, cached.map(|c| c.0))
+                    .and_then(|cycles| {
+                        if let Some((_cycles, fee)) = cached {
+                            Ok((cycles, fee))
+                        } else {
+                            let fee = self.calculate_transaction_fee(&rtx);
+                            fee.map(|fee| (cycles, fee))
+                        }
+                    })
             });
         self.send_tx_to_pool(
             "proposed",
             tx_pool,
-            cycles,
+            cached,
             size,
             tx,
             tx_result,
@@ -650,23 +679,24 @@ impl ChainState {
     fn pending_tx(
         &self,
         tx_pool: &mut TxPool,
-        cycles: Option<Cycle>,
+        cached: Option<(Cycle, Capacity)>,
         size: usize,
         tx: Transaction,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<(Cycle, Capacity), PoolError> {
         let tx_result = self
             .resolve_tx_from_pending_and_proposed(&tx, tx_pool)
             .map_err(PoolError::UnresolvableTransaction)
             .and_then(|rtx| {
-                self.verify_rtx(&rtx, cycles).and_then(|cycles| {
-                    let fee = self.calculate_transaction_fee(&rtx);
-                    fee.map(|fee| (cycles, fee))
-                })
+                self.verify_rtx(&rtx, cached.map(|c| c.0))
+                    .and_then(|cycles| {
+                        let fee = self.calculate_transaction_fee(&rtx);
+                        fee.map(|fee| (cycles, fee))
+                    })
             });
         self.send_tx_to_pool(
             "pending",
             tx_pool,
-            cycles,
+            cached,
             size,
             tx,
             tx_result,
@@ -684,14 +714,14 @@ impl ChainState {
     pub(crate) fn proposed_tx_and_descendants(
         &self,
         tx_pool: &mut TxPool,
-        cycles: Option<Cycle>,
+        cached: Option<(Cycle, Capacity)>,
         size: usize,
         tx: Transaction,
-    ) -> Result<Cycle, PoolError> {
-        self.proposed_tx(tx_pool, cycles, size, tx.clone())
-            .map(|cycles| {
+    ) -> Result<(Cycle, Capacity), PoolError> {
+        self.proposed_tx(tx_pool, cached, size, tx.clone())
+            .map(|cached| {
                 self.try_proposed_orphan_by_ancestor(tx_pool, &tx);
-                cycles
+                cached
             })
     }
 
@@ -700,39 +730,39 @@ impl ChainState {
         detached_blocks: impl Iterator<Item = &'a Block>,
         attached_blocks: impl Iterator<Item = &'a Block>,
         detached_proposal_id: impl Iterator<Item = &'a ProposalShortId>,
-        txs_verify_cache: &mut LruCache<H256, Cycle>,
+        txs_verify_cache: &mut LruCache<H256, (Cycle, Capacity)>,
     ) {
         fn readd_dettached_tx(
             chain_state: &ChainState,
             tx_pool: &mut TxPool,
-            txs_verify_cache: &mut LruCache<H256, Cycle>,
+            txs_verify_cache: &mut LruCache<H256, (Cycle, Capacity)>,
             tx: Transaction,
         ) {
             let tx_hash = tx.hash().to_owned();
-            let cached_cycles = txs_verify_cache.get(&tx_hash).cloned();
+            let cached = txs_verify_cache.get(&tx_hash).cloned();
             let tx_short_id = tx.proposal_short_id();
             let tx_size = tx.serialized_size();
             if chain_state.contains_proposal_id(&tx_short_id) {
-                if let Ok(cycles) =
-                    chain_state.proposed_tx_and_descendants(tx_pool, cached_cycles, tx_size, tx)
+                if let Ok((cycles, fee)) =
+                    chain_state.proposed_tx_and_descendants(tx_pool, cached, tx_size, tx)
                 {
-                    if cached_cycles.is_none() {
-                        txs_verify_cache.insert(tx_hash, cycles);
+                    if cached.is_none() {
+                        txs_verify_cache.insert(tx_hash, (cycles, fee));
                     }
                     tx_pool.update_statics_for_add_tx(tx_size, cycles);
                 }
             } else if chain_state.contains_gap(&tx_short_id) {
-                if let Ok(cycles) = chain_state.gap_tx(tx_pool, cached_cycles, tx_size, tx) {
-                    if cached_cycles.is_none() {
-                        txs_verify_cache.insert(tx_hash, cycles);
+                if let Ok((cycles, fee)) = chain_state.gap_tx(tx_pool, cached, tx_size, tx) {
+                    if cached.is_none() {
+                        txs_verify_cache.insert(tx_hash, (cycles, fee));
                     }
-                    tx_pool.update_statics_for_add_tx(tx_size, cached_cycles.unwrap_or(0));
+                    tx_pool.update_statics_for_add_tx(tx_size, cycles);
                 }
-            } else if let Ok(cycles) = chain_state.pending_tx(tx_pool, cached_cycles, tx_size, tx) {
-                if cached_cycles.is_none() {
-                    txs_verify_cache.insert(tx_hash, cycles);
+            } else if let Ok((cycles, fee)) = chain_state.pending_tx(tx_pool, cached, tx_size, tx) {
+                if cached.is_none() {
+                    txs_verify_cache.insert(tx_hash, (cycles, fee));
                 }
-                tx_pool.update_statics_for_add_tx(tx_size, cached_cycles.unwrap_or(0));
+                tx_pool.update_statics_for_add_tx(tx_size, cycles);
             }
         }
         let mut tx_pool = self.tx_pool.borrow_mut();
@@ -766,11 +796,15 @@ impl ChainState {
         // pending ---> gap ----> proposed
         // try move gap to proposed
         let mut removed = Vec::with_capacity(tx_pool.gap.size());
-        for id in tx_pool.gap.sorted_keys() {
-            if self.contains_proposal_id(&id) {
-                let entry = tx_pool.gap.get(&id).expect("exists");
-                removed.push(*id);
-                entries.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
+        for key in tx_pool.gap.sorted_keys() {
+            if self.contains_proposal_id(&key.id) {
+                let entry = tx_pool.gap.get(&key.id).expect("exists");
+                removed.push(key.id);
+                entries.push((
+                    Some((entry.cycles, entry.fee)),
+                    entry.size,
+                    entry.transaction.to_owned(),
+                ));
             }
         }
         removed.into_iter().for_each(|id| {
@@ -779,14 +813,23 @@ impl ChainState {
 
         // try move pending to proposed
         let mut removed = Vec::with_capacity(tx_pool.pending.size());
-        for id in tx_pool.pending.sorted_keys() {
+        for key in tx_pool.pending.sorted_keys() {
+            let id = &key.id;
             let entry = tx_pool.pending.get(&id).expect("exists");
             if self.contains_proposal_id(&id) {
                 removed.push(*id);
-                entries.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
+                entries.push((
+                    Some((entry.cycles, entry.fee)),
+                    entry.size,
+                    entry.transaction.to_owned(),
+                ));
             } else if self.contains_gap(&id) {
                 removed.push(*id);
-                gaps.push((Some(entry.cycles), entry.size, entry.transaction.to_owned()));
+                gaps.push((
+                    Some((entry.cycles, entry.fee)),
+                    entry.size,
+                    entry.transaction.to_owned(),
+                ));
             }
         }
         removed.into_iter().for_each(|id| {
@@ -797,10 +840,10 @@ impl ChainState {
         for entry in tx_pool.conflict.entries() {
             if self.contains_proposal_id(entry.key()) {
                 let entry = entry.remove();
-                entries.push((entry.cycles, entry.size, entry.transaction));
+                entries.push((entry.cached, entry.size, entry.transaction));
             } else if self.contains_gap(entry.key()) {
                 let entry = entry.remove();
-                gaps.push((entry.cycles, entry.size, entry.transaction));
+                gaps.push((entry.cached, entry.size, entry.transaction));
             }
         }
 
@@ -816,14 +859,14 @@ impl ChainState {
             }
         }
 
-        for (cycles, size, tx) in gaps {
+        for (cached, size, tx) in gaps {
             debug_target!(
                 crate::LOG_TARGET_TX_POOL,
                 "tx proposed, add to gap {:x}",
                 tx.hash()
             );
             let tx_hash = tx.hash().to_owned();
-            if let Err(e) = self.gap_tx(&mut tx_pool, cycles, size, tx) {
+            if let Err(e) = self.gap_tx(&mut tx_pool, cached, size, tx) {
                 debug_target!(
                     crate::LOG_TARGET_TX_POOL,
                     "Failed to add tx to gap {:x}, reason: {:?}",
@@ -838,24 +881,30 @@ impl ChainState {
         self.tx_pool.borrow().last_txs_updated_at
     }
 
-    pub fn get_proposals(&self, proposals_limit: usize) -> HashSet<ProposalShortId> {
+    pub fn get_proposals(
+        &self,
+        proposals_limit: usize,
+        min_fee_rate: FeeRate,
+    ) -> HashSet<ProposalShortId> {
         use crate::tx_pool::pending::PendingQueue;
 
         let fill_from_pool = |pool: &PendingQueue, proposals: &mut HashSet<ProposalShortId>| {
-            for id in pool.sorted_keys() {
+            for key in pool.sorted_keys() {
                 if proposals.len() == proposals_limit {
                     break;
-                } else if proposals.contains(&id) {
-                    // implies that ancestors are already in proposals
+                } else if proposals.contains(&key.id)
+                    || key.ancestors_fee < min_fee_rate.fee(key.ancestors_size)
+                {
+                    // skip tx if tx fee rate is lower than min fee rate
                     continue;
                 }
-                let mut ancestors = pool.get_ancestors(&id).into_iter().collect::<Vec<_>>();
+                let mut ancestors = pool.get_ancestors(&key.id).into_iter().collect::<Vec<_>>();
                 ancestors.sort_unstable_by_key(|id| {
                     pool.get(&id)
                         .map(|entry| entry.ancestors_count)
                         .expect("exists")
                 });
-                ancestors.push(*id);
+                ancestors.push(key.id);
                 proposals.extend(
                     ancestors
                         .into_iter()

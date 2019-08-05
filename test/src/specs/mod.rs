@@ -17,7 +17,9 @@ pub use tx_pool::*;
 use crate::Net;
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::ChainSpec;
+use ckb_core::Capacity;
 use ckb_network::{ProtocolId, ProtocolVersion};
+use ckb_shared::fee_rate::FeeRate;
 use ckb_sync::NetworkProtocol;
 
 #[macro_export]
@@ -81,6 +83,7 @@ pub trait Spec {
         Box::new(|config| {
             config.network.connect_outbound_interval_secs = 0;
             config.network.discovery_local_address = true;
+            config.tx_pool.min_fee_rate = FeeRate::new(Capacity::zero());
         })
     }
 

@@ -11,7 +11,7 @@ use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::ProposalShortId;
-use ckb_core::Cycle;
+use ckb_core::{Capacity, Cycle};
 use ckb_logger::{debug, debug_target, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
@@ -716,7 +716,7 @@ impl SyncSharedState {
     pub fn lock_chain_state(&self) -> MutexGuard<ChainState> {
         self.shared.lock_chain_state()
     }
-    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, (Cycle, Capacity)>> {
         self.shared.lock_txs_verify_cache()
     }
     pub fn tx_hashes(&self) -> MutexGuard<FnvHashMap<PeerIndex, FnvHashSet<H256>>> {

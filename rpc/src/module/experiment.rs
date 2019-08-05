@@ -1,13 +1,12 @@
 use crate::error::RPCError;
-use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderProvider, HeaderStatus};
+use ckb_core::cell::resolve_transaction;
 use ckb_core::script::Script as CoreScript;
-use ckb_core::transaction::{OutPoint as CoreOutPoint, Transaction as CoreTransaction};
+use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Script, Transaction};
 use ckb_logger::error;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
 use ckb_verification::ScriptVerifier;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
@@ -71,42 +70,23 @@ pub(crate) struct DryRunner<'a> {
     chain_state: &'a ChainState,
 }
 
-impl<'a> CellProvider for DryRunner<'a> {
-    fn cell(&self, o: &CoreOutPoint) -> CellStatus {
-        if o.cell.is_none() {
-            return CellStatus::Unspecified;
-        }
-        let co = o.cell.as_ref().expect("checked below");
-        self
-            .chain_state
-            .store()
-            .get_cell_meta(&co.tx_hash, co.index)
-            .map(CellStatus::live_cell)  // treat as live cell, regardless of live or dead
-            .unwrap_or(CellStatus::Unknown)
-    }
-}
-
-impl<'a> HeaderProvider for DryRunner<'a> {
-    fn header(&self, o: &CoreOutPoint) -> HeaderStatus {
-        if o.block_hash.is_none() {
-            return HeaderStatus::Unspecified;
-        }
-        let block_hash = o.block_hash.as_ref().expect("checked below");
-        self.chain_state
-            .store()
-            .get_block_header(&block_hash)
-            .map(|header| HeaderStatus::Live(Box::new(header)))
-            .unwrap_or(HeaderStatus::Unknown)
-    }
-}
-
 impl<'a> DryRunner<'a> {
     pub(crate) fn new(chain_state: &'a ChainState) -> Self {
         Self { chain_state }
     }
 
     pub(crate) fn run(&self, tx: CoreTransaction) -> Result<DryRunResult> {
-        match resolve_transaction(&tx, &mut Default::default(), self, self) {
+        match resolve_transaction(
+            &tx,
+            &mut Default::default(),
+            self.chain_state,
+            self.chain_state,
+        )
+        .or_else(|_| {
+            let tx_pool = self.chain_state.tx_pool();
+            self.chain_state
+                .resolve_tx_from_pending_and_proposed(&tx, &tx_pool)
+        }) {
             Ok(resolved) => {
                 let consensus = self.chain_state.consensus();
                 let max_cycles = consensus.max_block_cycles;

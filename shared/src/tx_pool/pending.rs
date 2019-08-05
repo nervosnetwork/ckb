@@ -1,4 +1,4 @@
-use crate::tx_pool::types::{TxEntriesPool, TxEntry};
+use crate::tx_pool::types::{AncestorsScoreSortKey, TxEntriesPool, TxEntry};
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use std::collections::HashSet;
@@ -44,8 +44,9 @@ impl PendingQueue {
         self.inner.get_ancestors(tx_short_id)
     }
 
-    pub(crate) fn sorted_keys(&self) -> impl Iterator<Item = &ProposalShortId> {
-        self.inner.sorted_keys().map(|key| &key.id)
+    /// return sorted keys from higher scores to lower scores.
+    pub(crate) fn sorted_keys(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
+        self.inner.sorted_keys()
     }
 }
 
@@ -129,7 +130,11 @@ mod tests {
             MOCK_SIZE,
         ));
 
-        let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
+        let txs_sorted_by_fee_rate = pool
+            .sorted_keys()
+            .map(|key| &key.id)
+            .cloned()
+            .collect::<Vec<_>>();
         let expect_result = vec![
             tx2.proposal_short_id(),
             tx3.proposal_short_id(),
@@ -174,7 +179,11 @@ mod tests {
             MOCK_SIZE,
         ));
 
-        let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
+        let txs_sorted_by_fee_rate = pool
+            .sorted_keys()
+            .map(|key| &key.id)
+            .cloned()
+            .collect::<Vec<_>>();
         let expect_result = vec![
             tx4.proposal_short_id(),
             tx2.proposal_short_id(),
@@ -214,6 +223,6 @@ mod tests {
         let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
         // the entry with most ancestors score will win
         let expect_result = tx2_4.proposal_short_id();
-        assert_eq!(txs_sorted_by_fee_rate[0], expect_result);
+        assert_eq!(txs_sorted_by_fee_rate[0].id, expect_result);
     }
 }

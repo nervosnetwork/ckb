@@ -42,6 +42,7 @@ impl<'a> GetTransactionsProcess<'a> {
         );
 
         let transactions: Vec<_> = {
+            let min_fee_rate = self.relayer.shared.shared().min_fee_rate();
             let state = self.relayer.shared.lock_chain_state();
 
             get_relay_tx
@@ -52,11 +53,15 @@ impl<'a> GetTransactionsProcess<'a> {
                         let short_id = ProposalShortId::from_tx_hash(&tx_hash);
                         state
                             .get_tx_with_cycles_from_pool(&short_id)
-                            .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
+                            .and_then(|(tx, cached)| cached.map(|cached| (tx, cached)))
                     };
 
-                    if let Some((tx, cycles)) = entry_opt {
-                        Some((tx, cycles))
+                    if let Some((tx, (cycles, fee))) = entry_opt {
+                        if fee >= min_fee_rate.fee(tx.serialized_size()) {
+                            Some((tx, cycles))
+                        } else {
+                            None
+                        }
                     } else {
                         debug_target!(
                             crate::LOG_TARGET_RELAY,

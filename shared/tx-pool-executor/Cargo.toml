@@ -11,6 +11,8 @@ ckb-core = { path = "../../core" }
 ckb-store = { path = "../../store" }
 ckb-traits = { path = "../../traits" }
 ckb-verification = { path = "../../verification" }
+ckb-logger = { path = "../../util/logger" }
+ckb-dao = { path = "../../util/dao" }
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 fnv = "1.0.3"
 [dev-dependencies]

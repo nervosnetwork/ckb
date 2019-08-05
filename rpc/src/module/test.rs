@@ -2,7 +2,7 @@ use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block as CoreBlock;
 use ckb_core::transaction::Transaction as CoreTransaction;
-use ckb_jsonrpc_types::{Block, Transaction};
+use ckb_jsonrpc_types::{Block, Cycle, Transaction};
 use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
@@ -28,7 +28,7 @@ pub trait IntegrationTestRpc {
     fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>>;
 
     #[rpc(name = "broadcast_transaction")]
-    fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256>;
+    fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256>;
 }
 
 pub(crate) struct IntegrationTestRpcImpl {
@@ -63,11 +63,11 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
         }
     }
 
-    fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256> {
+    fn broadcast_transaction(&self, transaction: Transaction, cycles: Cycle) -> Result<H256> {
         let tx: CoreTransaction = transaction.into();
         let fbb = &mut FlatBufferBuilder::new();
         let hash = tx.hash().to_owned();
-        let relay_tx = (tx, 10000);
+        let relay_tx = (tx, cycles.0);
         let message = RelayMessage::build_transactions(fbb, &[relay_tx]);
         fbb.finish(message, None);
         let data = fbb.finished_data().into();

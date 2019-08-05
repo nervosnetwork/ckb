@@ -130,13 +130,13 @@ impl TxPool {
 
     pub(crate) fn add_orphan(
         &mut self,
-        cycles: Option<Cycle>,
+        cached: Option<(Cycle, Capacity)>,
         size: usize,
         tx: Transaction,
         unknowns: Vec<OutPoint>,
     ) -> Option<DefectEntry> {
         trace_target!(crate::LOG_TARGET_TX_POOL, "add_orphan {:#x}", &tx.hash());
-        self.orphan.add_tx(cycles, size, tx, unknowns.into_iter())
+        self.orphan.add_tx(cached, size, tx, unknowns.into_iter())
     }
 
     pub fn add_proposed(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
@@ -173,34 +173,37 @@ impl TxPool {
             || self.conflict.contains_key(id)
     }
 
-    pub fn get_tx_with_cycles(&self, id: &ProposalShortId) -> Option<(Transaction, Option<Cycle>)> {
+    pub fn get_tx_with_cycles(
+        &self,
+        id: &ProposalShortId,
+    ) -> Option<(Transaction, Option<(Cycle, Capacity)>)> {
         self.pending
             .get(id)
             .cloned()
-            .map(|entry| (entry.transaction, Some(entry.cycles)))
+            .map(|entry| (entry.transaction, Some((entry.cycles, entry.fee))))
             .or_else(|| {
                 self.gap
                     .get(id)
                     .cloned()
-                    .map(|entry| (entry.transaction, Some(entry.cycles)))
+                    .map(|entry| (entry.transaction, Some((entry.cycles, entry.fee))))
             })
             .or_else(|| {
                 self.proposed
                     .get(id)
                     .cloned()
-                    .map(|entry| (entry.transaction, Some(entry.cycles)))
+                    .map(|entry| (entry.transaction, Some((entry.cycles, entry.fee))))
             })
             .or_else(|| {
                 self.orphan
                     .get(id)
                     .cloned()
-                    .map(|entry| (entry.transaction, entry.cycles))
+                    .map(|entry| (entry.transaction, entry.cached))
             })
             .or_else(|| {
                 self.conflict
                     .get(id)
                     .cloned()
-                    .map(|entry| (entry.transaction, entry.cycles))
+                    .map(|entry| (entry.transaction, entry.cached))
             })
     }
 
