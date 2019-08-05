@@ -46,9 +46,14 @@ impl PoolRpc for PoolRpcImpl {
         let result = self.tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
 
         match result {
-            Ok(cycles) => {
+            Ok(tx_cache) => {
+                let min_fee_rate = self.shared.min_fee_rate();
+                let min_fee = min_fee_rate.fee(tx.serialized_size());
+                if tx_cache.fee < min_fee {
+                    return Err(RPCError::custom(RPCError::Invalid, format!("transaction fee rate lower than min_fee_rate: {} shannons/kilobytes. hint: at least pay {} shannons fee", min_fee_rate, min_fee)));
+                }
                 let relay_tx = packed::RelayTransaction::new_builder()
-                    .cycles(cycles.pack())
+                    .cycles(tx_cache.cycles.pack())
                     .transaction(tx.data())
                     .build();
                 let relay_txs = packed::RelayTransactions::new_builder()

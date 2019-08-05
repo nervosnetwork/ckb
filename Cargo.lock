@@ -422,13 +422,13 @@ dependencies = [
  "ckb-store 0.19.0-pre",
  "ckb-test-chain-utils 0.19.0-pre",
  "ckb-traits 0.19.0-pre",
+ "ckb-tx-cache 0.19.0-pre",
  "ckb-types 0.19.0-pre",
  "ckb-verification 0.19.0-pre",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -849,11 +849,13 @@ dependencies = [
  "ckb-db 0.19.0-pre",
  "ckb-logger 0.19.0-pre",
  "ckb-notify 0.19.0-pre",
+ "ckb-occupied-capacity 0.19.0-pre",
  "ckb-reward-calculator 0.19.0-pre",
  "ckb-script 0.19.0-pre",
  "ckb-store 0.19.0-pre",
  "ckb-test-chain-utils 0.19.0-pre",
  "ckb-traits 0.19.0-pre",
+ "ckb-tx-cache 0.19.0-pre",
  "ckb-types 0.19.0-pre",
  "ckb-util 0.19.0-pre",
  "ckb-verification 0.19.0-pre",
@@ -912,6 +914,7 @@ dependencies = [
  "ckb-store 0.19.0-pre",
  "ckb-test-chain-utils 0.19.0-pre",
  "ckb-traits 0.19.0-pre",
+ "ckb-tx-cache 0.19.0-pre",
  "ckb-tx-pool-executor 0.19.0-pre",
  "ckb-types 0.19.0-pre",
  "ckb-util 0.19.0-pre",
@@ -965,17 +968,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ckb-tx-cache"
+version = "0.19.0-pre"
+dependencies = [
+ "ckb-types 0.19.0-pre",
+ "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
+]
+
+[[package]]
 name = "ckb-tx-pool-executor"
 version = "0.19.0-pre"
 dependencies = [
  "ckb-chain 0.19.0-pre",
  "ckb-chain-spec 0.19.0-pre",
+ "ckb-dao 0.19.0-pre",
  "ckb-db 0.19.0-pre",
+ "ckb-logger 0.19.0-pre",
  "ckb-notify 0.19.0-pre",
  "ckb-shared 0.19.0-pre",
  "ckb-store 0.19.0-pre",
  "ckb-test-chain-utils 0.19.0-pre",
  "ckb-traits 0.19.0-pre",
+ "ckb-tx-cache 0.19.0-pre",
  "ckb-types 0.19.0-pre",
  "ckb-verification 0.19.0-pre",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1027,6 +1041,7 @@ dependencies = [
  "ckb-store 0.19.0-pre",
  "ckb-test-chain-utils 0.19.0-pre",
  "ckb-traits 0.19.0-pre",
+ "ckb-tx-cache 0.19.0-pre",
  "ckb-types 0.19.0-pre",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",

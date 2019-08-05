@@ -1,7 +1,8 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use crate::tx_pool::get_transaction_virtual_bytes;
+use crate::{fee_rate::FeeRate, tx_pool::get_transaction_virtual_bytes};
+use ckb_tx_cache::TxCacheItem;
 use ckb_types::{
     core::{cell::UnresolvableError, Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
@@ -14,6 +15,9 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+// default min fee rate, 1000 shannons per kilobyte
+const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::new(Capacity::shannons(1000));
 
 /// Transaction pool configuration
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -28,6 +32,8 @@ pub struct TxPoolConfig {
     pub max_conflict_cache_size: usize,
     // committed transactions hash cache capacity
     pub max_committed_txs_hash_cache_size: usize,
+    // txs with lower fee rate than this will not be relay or package in block
+    pub min_fee_rate: FeeRate,
 }
 
 impl Default for TxPoolConfig {
@@ -38,6 +44,7 @@ impl Default for TxPoolConfig {
             max_verify_cache_size: 100_000,
             max_conflict_cache_size: 1_000,
             max_committed_txs_hash_cache_size: 100_000,
+            min_fee_rate: DEFAULT_MIN_FEE_RATE,
         }
     }
 }
@@ -58,8 +65,10 @@ pub enum PoolError {
     InvalidBlockNumber,
     /// Duplicate tx
     Duplicate,
-    /// tx fee
+    /// tx fee error
     TxFee,
+    /// tx fee is lower than min fee rate
+    TxFeeToLow,
 }
 
 impl PoolError {
@@ -86,8 +95,8 @@ pub struct DefectEntry {
     pub transaction: TransactionView,
     /// refs count
     pub refs_count: usize,
-    /// Cycles
-    pub cycles: Option<Cycle>,
+    /// Cycles and fee
+    pub tx_cache: Option<TxCacheItem>,
     /// tx size
     pub size: usize,
 }
@@ -97,13 +106,13 @@ impl DefectEntry {
     pub fn new(
         tx: TransactionView,
         refs_count: usize,
-        cycles: Option<Cycle>,
+        tx_cache: Option<TxCacheItem>,
         size: usize,
     ) -> DefectEntry {
         DefectEntry {
             transaction: tx,
             refs_count,
-            cycles,
+            tx_cache,
             size,
         }
     }
@@ -168,6 +177,7 @@ impl TxEntry {
                 .saturating_add(entry.fee.as_u64()),
         );
     }
+
     pub fn sub_entry_weight(&mut self, entry: &TxEntry) {
         self.ancestors_count = self.ancestors_count.saturating_sub(1);
         self.ancestors_size = self.ancestors_size.saturating_sub(entry.size);
@@ -212,6 +222,7 @@ impl From<&TxEntry> for AncestorsScoreSortKey {
             id: entry.transaction.proposal_short_id(),
             ancestors_fee: entry.ancestors_fee,
             ancestors_vbytes,
+            ancestors_size: entry.ancestors_size,
         }
     }
 }
@@ -248,6 +259,7 @@ pub struct AncestorsScoreSortKey {
     pub id: ProposalShortId,
     pub ancestors_fee: Capacity,
     pub ancestors_vbytes: u64,
+    pub ancestors_size: usize,
 }
 
 impl AncestorsScoreSortKey {

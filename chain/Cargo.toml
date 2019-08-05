@@ -16,10 +16,10 @@ ckb-verification = { path = "../verification" }
 faketime = "0.2.0"
 crossbeam-channel = "0.3"
 ckb-stop-handler = { path = "../util/stop-handler" }
-lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-dao = { path = "../util/dao" }
+ckb-tx-cache = { path = "../util/tx-cache" }
 
 [dev-dependencies]
 env_logger = "0.6"

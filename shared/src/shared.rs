@@ -1,5 +1,6 @@
 use crate::chain_state::ChainState;
 use crate::error::SharedError;
+use crate::fee_rate::FeeRate;
 use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{DBConfig, RocksDB};
@@ -8,9 +9,10 @@ use ckb_script::ScriptConfig;
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
+use ckb_tx_cache::TxCache;
 use ckb_types::{
-    core::{BlockReward, Cycle, EpochExt, HeaderView},
-    packed::{Byte32, Script},
+    core::{BlockReward, EpochExt, HeaderView},
+    packed::Script,
     prelude::*,
     H256,
 };
@@ -23,9 +25,10 @@ use std::sync::Arc;
 pub struct Shared {
     store: Arc<ChainDB>,
     chain_state: Arc<Mutex<ChainState>>,
-    txs_verify_cache: Arc<Mutex<LruCache<Byte32, Cycle>>>,
+    txs_verify_cache: Arc<Mutex<TxCache>>,
     consensus: Arc<Consensus>,
     script_config: ScriptConfig,
+    min_fee_rate: FeeRate,
 }
 
 impl Shared {
@@ -37,6 +40,7 @@ impl Shared {
     ) -> Result<Self, SharedError> {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
+        let min_fee_rate = tx_pool_config.min_fee_rate;
         let txs_verify_cache = Arc::new(Mutex::new(LruCache::new(
             tx_pool_config.max_verify_cache_size,
         )));
@@ -53,6 +57,7 @@ impl Shared {
             consensus,
             script_config,
             txs_verify_cache,
+            min_fee_rate,
         })
     }
 
@@ -60,8 +65,12 @@ impl Shared {
         lock_or_panic(&self.chain_state)
     }
 
-    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<Byte32, Cycle>> {
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<TxCache> {
         lock_or_panic(&self.txs_verify_cache)
+    }
+
+    pub fn min_fee_rate(&self) -> FeeRate {
+        self.min_fee_rate
     }
 }
 

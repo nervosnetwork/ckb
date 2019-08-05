@@ -352,7 +352,8 @@ impl BlockAssembler {
         let cellbase = self.build_cellbase(&tip_header, cellbase_lock)?;
 
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
-        let proposals = chain_state.get_proposals(proposals_limit as usize);
+        let proposals =
+            chain_state.get_proposals(proposals_limit as usize, self.shared.min_fee_rate());
         let txs_size_limit =
             self.calculate_txs_size_limit(bytes_limit, cellbase.data(), &uncles, &proposals)?;
         let (entries, size, cycles) = self.package_txs(&chain_state, txs_size_limit, cycles_limit);
@@ -442,7 +443,12 @@ impl BlockAssembler {
         cycles_limit: Cycle,
     ) -> (Vec<TxEntry>, usize, Cycle) {
         let tx_pool = chain_state.tx_pool();
-        CommitTxsScanner::new(tx_pool.proposed()).txs_to_commit(size_limit, cycles_limit)
+        let min_fee_rate = self.shared.min_fee_rate();
+        CommitTxsScanner::new(tx_pool.proposed()).txs_to_commit(
+            size_limit,
+            cycles_limit,
+            min_fee_rate,
+        )
     }
 
     /// Miner mined block H(c), the block reward will be finalized at H(c + w_far + 1).
@@ -842,12 +848,16 @@ mod tests {
                 (&tx2_2, 150, 0, 100),
                 (&tx2_3, 150, 0, 100),
             ] {
+                let deps = tx
+                    .cell_deps_iter()
+                    .map(|c| c.out_point())
+                    .collect::<Vec<_>>();
                 tx_pool.add_proposed(
                     *cycles,
                     Capacity::shannons(*fee),
                     *size,
                     (*tx).to_owned(),
-                    vec![],
+                    deps,
                 );
             }
         }
@@ -988,12 +998,16 @@ mod tests {
                 (&tx3_1, 1000, 0, 1000),
                 (&tx4_1, 300, 0, 250),
             ] {
+                let deps = tx
+                    .cell_deps_iter()
+                    .map(|c| c.out_point())
+                    .collect::<Vec<_>>();
                 tx_pool.add_proposed(
                     *cycles,
                     Capacity::shannons(*fee),
                     *size,
                     (*tx).to_owned(),
-                    vec![],
+                    deps,
                 );
             }
         }
@@ -1055,7 +1069,7 @@ mod tests {
     }
 
     #[test]
-    fn test_package_zero_fee_txs() {
+    fn test_package_lower_fee_decendants() {
         let mut consensus = Consensus::default();
         consensus.genesis_epoch_ext.set_length(5);
         let epoch = consensus.genesis_epoch_ext().clone();
@@ -1097,17 +1111,21 @@ mod tests {
             let tx_pool = chain_state.mut_tx_pool();
             for (tx, fee, cycles, size) in &[
                 (&tx1, 1000, 0, 100),
-                (&tx2, 0, 0, 100),
-                (&tx3, 0, 0, 100),
-                (&tx4, 0, 0, 100),
-                (&tx5, 0, 0, 100),
+                (&tx2, 100, 0, 100),
+                (&tx3, 100, 0, 100),
+                (&tx4, 100, 0, 100),
+                (&tx5, 100, 0, 100),
             ] {
+                let deps = tx
+                    .cell_deps_iter()
+                    .map(|c| c.out_point())
+                    .collect::<Vec<_>>();
                 tx_pool.add_proposed(
                     *cycles,
                     Capacity::shannons(*fee),
                     *size,
                     (*tx).to_owned(),
-                    vec![],
+                    deps,
                 );
             }
         }
@@ -1130,5 +1148,87 @@ mod tests {
             .get_block_template(None, None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4, &tx5]);
+    }
+
+    #[test]
+    fn test_package_lower_than_min_fee_rate() {
+        let mut consensus = Consensus::default();
+        consensus.genesis_epoch_ext.set_length(5);
+        let epoch = consensus.genesis_epoch_ext().clone();
+
+        let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
+        let config = BlockAssemblerConfig {
+            code_hash: H256::zero(),
+            args: vec![],
+            data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data,
+        };
+        let block_assembler = setup_block_assembler(shared.clone(), config);
+        let block_assembler_controller = block_assembler.start(Some("test"), &notify.clone());
+
+        let genesis = shared
+            .store()
+            .get_block_header(&shared.store().get_block_hash(0).unwrap())
+            .unwrap();
+        let mut parent_header = genesis.to_owned();
+        let mut blocks = vec![];
+        for _i in 0..4 {
+            let block = gen_block(&parent_header, 11, &epoch);
+            chain_controller
+                .process_block(Arc::new(block.clone()), false)
+                .expect("process block");
+            parent_header = block.header().to_owned();
+            blocks.push(block);
+        }
+
+        let tx0 = &blocks[0].transactions()[0];
+        let tx1 = build_tx(tx0, &[0], 2);
+        let tx2 = build_tx(&tx1, &[0], 2);
+        let tx3 = build_tx(&tx2, &[0], 2);
+        let tx4 = build_tx(&tx3, &[0], 2);
+        let tx5 = build_tx(&tx4, &[0], 2);
+
+        {
+            let mut chain_state = shared.lock_chain_state();
+            let tx_pool = chain_state.mut_tx_pool();
+            for (tx, fee, cycles, size) in &[
+                (&tx1, 1000, 0, 100),
+                (&tx2, 80, 0, 100),
+                (&tx3, 50, 0, 100),
+                (&tx4, 20, 0, 100),
+                (&tx5, 0, 0, 100),
+            ] {
+                let deps = tx
+                    .cell_deps_iter()
+                    .map(|c| c.out_point())
+                    .collect::<Vec<_>>();
+                tx_pool.add_proposed(
+                    *cycles,
+                    Capacity::shannons(*fee),
+                    *size,
+                    (*tx).to_owned(),
+                    deps,
+                );
+            }
+        }
+
+        let check_txs = |block_template: &BlockTemplate, expect_txs: Vec<&TransactionView>| {
+            assert_eq!(
+                block_template
+                    .transactions
+                    .iter()
+                    .map(|tx| format!("{}", tx.hash))
+                    .collect::<Vec<_>>(),
+                expect_txs
+                    .iter()
+                    .map(|tx| format!("{}", Unpack::<H256>::unpack(&tx.hash())))
+                    .collect::<Vec<_>>()
+            );
+        };
+        // best scored txs
+        let block_template = block_assembler_controller
+            .get_block_template(None, None, None)
+            .unwrap();
+        check_txs(&block_template, vec![&tx1]);
     }
 }

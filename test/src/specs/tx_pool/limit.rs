@@ -1,5 +1,7 @@
 use crate::{assert_regex_match, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
+use ckb_shared::fee_rate::FeeRate;
+use ckb_types::core::Capacity;
 use log::info;
 
 pub struct SizeLimit;
@@ -48,6 +50,7 @@ impl Spec for SizeLimit {
         Box::new(|config| {
             config.tx_pool.max_mem_size = 1710;
             config.tx_pool.max_cycles = 200_000_000_000;
+            config.tx_pool.min_fee_rate = FeeRate::new(Capacity::zero());
         })
     }
 }
@@ -98,6 +101,7 @@ impl Spec for CyclesLimit {
         Box::new(|config| {
             config.tx_pool.max_mem_size = 20_000_000;
             config.tx_pool.max_cycles = 60;
+            config.tx_pool.min_fee_rate = FeeRate::new(Capacity::zero());
         })
     }
 }

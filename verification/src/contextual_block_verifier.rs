@@ -8,6 +8,7 @@ use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_tx_cache::{TxCache, TxCacheItem};
 use ckb_types::{
     core::{
         cell::{HeaderChecker, ResolvedTransaction},
@@ -17,7 +18,6 @@ use ckb_types::{
     packed::{Byte32, Script},
     prelude::*,
 };
-use lru_cache::LruCache;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 
@@ -329,7 +329,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         }
     }
 
-    pub fn verify(&self, txs_verify_cache: &mut LruCache<Byte32, Cycle>) -> Result<Cycle, Error> {
+    pub fn verify(&self, txs_verify_cache: &TxCache) -> Result<Vec<Cycle>, Error> {
         // make verifiers orthogonal
         let ret_set = self
             .resolved
@@ -337,7 +337,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             .enumerate()
             .map(|(index, tx)| {
                 let tx_hash = tx.transaction.hash().to_owned();
-                if let Some(cycles) = txs_verify_cache.get(&tx_hash) {
+                if let Some(tx_cache) = txs_verify_cache.get(&tx_hash) {
                     ContextualTransactionVerifier::new(
                         &tx,
                         self.context,
@@ -348,7 +348,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                     )
                     .verify()
                     .map_err(|e| Error::Transactions((index, e)))
-                    .map(|_| (tx_hash, *cycles))
+                    .map(|_| (tx_hash, tx_cache.cycles))
                 } else {
                     TransactionVerifier::new(
                         &tx,
@@ -367,16 +367,16 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let sum: Cycle = ret_set.iter().map(|(_, cycles)| cycles).sum();
+        let cycles_vec = ret_set
+            .iter()
+            .map(|(_, cycles)| cycles)
+            .cloned()
+            .collect::<Vec<_>>();
 
-        for (hash, cycles) in ret_set {
-            txs_verify_cache.insert(hash, cycles);
-        }
-
-        if sum > self.context.consensus.max_block_cycles() {
+        if cycles_vec.iter().sum::<Cycle>() > self.context.consensus.max_block_cycles() {
             Err(Error::ExceededMaximumCycles)
         } else {
-            Ok(sum)
+            Ok(cycles_vec)
         }
     }
 }
@@ -407,7 +407,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
-        txs_verify_cache: &mut LruCache<Byte32, Cycle>,
+        txs_verify_cache: &mut TxCache,
     ) -> Result<(Cycle, Vec<Capacity>), Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
@@ -438,6 +438,17 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         )
         .verify(txs_verify_cache)?;
 
-        Ok((cycles, txs_fees))
+        debug_assert_eq!(cycles.len(), txs_fees.len() + 1);
+        let iter = cycles.iter().skip(1).zip(&txs_fees).collect::<Vec<_>>();
+
+        // update cache
+        for (tx, (cycles, fee)) in resolved.iter().zip(iter) {
+            let tx_hash = tx.transaction.hash();
+            if !txs_verify_cache.contains_key(&tx_hash) {
+                txs_verify_cache.insert(tx_hash, TxCacheItem::new(*cycles, *fee));
+            }
+        }
+
+        Ok((cycles.into_iter().sum(), txs_fees))
     }
 }

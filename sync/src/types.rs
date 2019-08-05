@@ -12,8 +12,9 @@ use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::ChainProvider;
+use ckb_tx_cache::TxCache;
 use ckb_types::{
-    core::{self, BlockNumber, Cycle, EpochExt},
+    core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,
     H256, U256,
@@ -719,7 +720,7 @@ impl SyncSharedState {
     pub fn lock_chain_state(&self) -> MutexGuard<ChainState> {
         self.shared.lock_chain_state()
     }
-    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<Byte32, Cycle>> {
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<TxCache> {
         self.shared.lock_txs_verify_cache()
     }
     pub fn tx_hashes(&self) -> MutexGuard<FnvHashMap<PeerIndex, FnvHashSet<Byte32>>> {

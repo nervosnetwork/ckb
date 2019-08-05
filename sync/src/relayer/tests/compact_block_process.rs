@@ -599,7 +599,7 @@ fn test_collision() {
     let parent = {
         let chain_state = relayer.shared.lock_chain_state();
         chain_state
-            .add_tx_to_pool(missing_tx.clone(), 100u16.into())
+            .add_tx_to_pool(missing_tx.clone(), 100u16.into(), Capacity::shannons(1000))
             .unwrap();
         chain_state.tip_header().clone()
     };

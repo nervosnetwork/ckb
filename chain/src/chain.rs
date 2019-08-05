@@ -7,11 +7,12 @@ use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreTransaction};
 use ckb_traits::ChainProvider;
+use ckb_tx_cache::TxCache;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockExt, BlockNumber, BlockView, Cycle,
+        BlockExt, BlockNumber, BlockView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
@@ -21,7 +22,6 @@ use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyC
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use lru_cache::LruCache;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::{cmp, thread};
@@ -505,7 +505,7 @@ impl ChainService {
         txn: &StoreTransaction,
         fork: &mut ForkChanges,
         chain_state: &mut ChainState,
-        txs_verify_cache: &mut LruCache<Byte32, Cycle>,
+        txs_verify_cache: &mut TxCache,
         need_verify: bool,
     ) -> Result<CellSetDiff, FailureError> {
         let verified_len = fork.verified_len();

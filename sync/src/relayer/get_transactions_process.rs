@@ -38,6 +38,7 @@ impl<'a> GetTransactionsProcess<'a> {
         );
 
         let transactions: Vec<_> = {
+            let min_fee_rate = self.relayer.shared.shared().min_fee_rate();
             let state = self.relayer.shared.lock_chain_state();
 
             tx_hashes
@@ -48,15 +49,19 @@ impl<'a> GetTransactionsProcess<'a> {
                             packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity().unpack());
                         state
                             .get_tx_with_cycles_from_pool(&short_id)
-                            .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
+                            .and_then(|(tx, cached)| cached.map(|cached| (tx, cached)))
                     };
 
-                    if let Some((tx, cycles)) = entry_opt {
-                        let content = packed::RelayTransaction::new_builder()
-                            .cycles(cycles.pack())
-                            .transaction(tx.data())
-                            .build();
-                        Some(content)
+                    if let Some((tx, tx_cache)) = entry_opt {
+                        if tx_cache.fee >= min_fee_rate.fee(tx.serialized_size()) {
+                            let content = packed::RelayTransaction::new_builder()
+                                .cycles(tx_cache.cycles.pack())
+                                .transaction(tx.data())
+                                .build();
+                            Some(content)
+                        } else {
+                            None
+                        }
                     } else {
                         debug_target!(
                             crate::LOG_TARGET_RELAY,

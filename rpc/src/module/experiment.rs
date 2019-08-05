@@ -108,7 +108,12 @@ impl<'a> DryRunner<'a> {
     }
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
-        match resolve_transaction(&tx.into_view(), &mut HashSet::new(), self, self) {
+        let tx_view = tx.into_view();
+        match resolve_transaction(&tx_view, &mut HashSet::new(), self, self).or_else(|_| {
+            let tx_pool = self.chain_state.tx_pool();
+            self.chain_state
+                .resolve_tx_from_pending_and_proposed(&tx_view, &tx_pool)
+        }) {
             Ok(resolved) => {
                 let consensus = self.chain_state.consensus();
                 let max_cycles = consensus.max_block_cycles;

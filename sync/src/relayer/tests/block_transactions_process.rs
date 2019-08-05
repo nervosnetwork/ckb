@@ -254,7 +254,9 @@ fn test_collision_and_send_missing_indexes() {
 
     {
         let chain_state = relayer.shared.lock_chain_state();
-        chain_state.add_tx_to_pool(tx3, 10000u16.into()).unwrap();
+        chain_state
+            .add_tx_to_pool(tx3, 10000u16.into(), Capacity::shannons(1000u64))
+            .unwrap();
     }
 
     {

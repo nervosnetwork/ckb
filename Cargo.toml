@@ -18,6 +18,7 @@ ckb-bin = { path = "ckb-bin" }
 [workspace]
 members = [
     # Members are ordered by dependencies. Crates at top has fewer dependencies.
+    "util/tx-cache",
     "util/build-info",
     "util/logger",
     "util",

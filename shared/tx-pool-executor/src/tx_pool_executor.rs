@@ -1,10 +1,13 @@
+use ckb_dao::DaoCalculator;
+use ckb_logger::error;
 use ckb_shared::shared::Shared;
-use ckb_shared::tx_pool::PoolError;
+use ckb_shared::{fee_rate::FeeRate, tx_pool::PoolError};
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_tx_cache::TxCacheItem;
 use ckb_types::{
-    core::{BlockNumber, Cycle, TransactionView},
+    core::{BlockNumber, TransactionView},
     packed::Byte32,
 };
 use ckb_verification::TransactionVerifier;
@@ -44,15 +47,17 @@ impl TxPoolExecutor {
         TxPoolExecutor { shared }
     }
 
-    pub fn verify_and_add_tx_to_pool(&self, tx: TransactionView) -> Result<Cycle, PoolError> {
-        self.verify_and_add_txs_to_pool(vec![tx])
+    pub fn verify_and_add_tx_to_pool(&self, tx: TransactionView) -> Result<TxCacheItem, PoolError> {
+        let min_fee_rate = self.shared.min_fee_rate();
+        self.verify_and_add_txs_to_pool(vec![tx], Some(min_fee_rate))
             .map(|cycles_vec| *cycles_vec.get(0).expect("tx verified cycles"))
     }
 
     pub fn verify_and_add_txs_to_pool(
         &self,
         txs: Vec<TransactionView>,
-    ) -> Result<Vec<Cycle>, PoolError> {
+        min_fee_rate: Option<FeeRate>,
+    ) -> Result<Vec<TxCacheItem>, PoolError> {
         if txs.is_empty() {
             return Ok(Vec::new());
         }
@@ -77,8 +82,8 @@ impl TxPoolExecutor {
             let mut unresolvable_txs = Vec::with_capacity(txs.len());
             let mut cached_txs = Vec::with_capacity(txs.len());
             for tx in &txs {
-                if let Some(cycles) = txs_verify_cache.get(&tx.hash()) {
-                    cached_txs.push((tx.hash(), Ok(*cycles)));
+                if let Some(tx_cache) = txs_verify_cache.get(&tx.hash()) {
+                    cached_txs.push((tx.hash(), Ok(*tx_cache)));
                 } else {
                     let tx_pool = chain_state.tx_pool();
                     match chain_state.resolve_tx_from_pending_and_proposed(tx, &tx_pool) {
@@ -114,9 +119,9 @@ impl TxPoolExecutor {
         // parallet verify txs
         let cycles_vec = resolved_txs
             .iter()
-            .map(|(tx_hash, tx)| {
+            .map(|(tx_hash, rtx)| {
                 let verified_result = TransactionVerifier::new(
-                    &tx,
+                    &rtx,
                     &block_median_time_context,
                     parent_number + 1,
                     epoch_number,
@@ -126,8 +131,20 @@ impl TxPoolExecutor {
                     self.shared.store(),
                 )
                 .verify(max_block_cycles)
-                .map(|cycles| (tx, cycles))
-                .map_err(PoolError::InvalidTx);
+                .map_err(PoolError::InvalidTx)
+                .and_then(|cycles| {
+                    let fee = DaoCalculator::new(self.shared.consensus(), self.shared.store())
+                        .transaction_fee(&rtx)
+                        .map_err(|err| {
+                            error!(
+                                "Failed to calculate tx fee for {}, reason: {:?}",
+                                rtx.transaction.hash(),
+                                err
+                            );
+                            PoolError::TxFee
+                        });
+                    fee.map(|fee| (rtx, TxCacheItem::new(cycles, fee)))
+                });
                 (tx_hash.to_owned(), verified_result)
             })
             .collect::<Vec<_>>();
@@ -142,15 +159,16 @@ impl TxPoolExecutor {
                 .into_iter()
                 .map(|(i, result)| {
                     let result = match result {
-                        Ok((rtx, cycles)) => {
-                            txs_verify_cache.insert(rtx.transaction.hash(), cycles);
-                            Ok(cycles)
+                        Ok((rtx, tx_cache)) => {
+                            let tx_hash = rtx.transaction.hash();
+                            txs_verify_cache.insert(tx_hash, tx_cache);
+                            Ok(tx_cache)
                         }
                         Err(err) => Err(err),
                     };
                     (i, result)
                 })
-                .collect::<Vec<(Byte32, Result<Cycle, _>)>>()
+                .collect::<Vec<(Byte32, Result<TxCacheItem, _>)>>()
         };
 
         // join all txs
@@ -159,7 +177,7 @@ impl TxPoolExecutor {
                 .into_iter()
                 .chain(cached_txs)
                 .chain(unresolvable_txs.into_iter().map(|(tx, err)| (tx, Err(err))))
-                .collect::<HashMap<Byte32, Result<Cycle, PoolError>>>();
+                .collect::<HashMap<Byte32, Result<TxCacheItem, PoolError>>>();
             txs.iter()
                 .map(|tx| {
                     cycles_vec
@@ -167,13 +185,21 @@ impl TxPoolExecutor {
                         .expect("verified tx should exists")
                         .map(|cycles| (cycles, tx.to_owned()))
                 })
-                .collect::<Vec<Result<(Cycle, TransactionView), PoolError>>>()
+                .collect::<Vec<Result<(TxCacheItem, TransactionView), PoolError>>>()
         };
         cycles_vec
             .into_iter()
-            .map(|result| match result {
-                Ok((cycles, tx)) => chain_state.add_tx_to_pool(tx, cycles),
-                Err(err) => Err(err),
+            .map(|result| {
+                result.and_then(|(tx_cache, tx)| {
+                    if let Some(min_fee_rate) = min_fee_rate {
+                        if tx_cache.fee < min_fee_rate.fee(tx.serialized_size()) {
+                            return Err(PoolError::TxFeeToLow);
+                        }
+                    }
+                    chain_state
+                        .add_tx_to_pool(tx, tx_cache.cycles, tx_cache.fee)
+                        .map(|_| tx_cache)
+                })
             })
             .collect()
     }
@@ -185,7 +211,11 @@ mod tests {
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_notify::NotifyService;
-    use ckb_shared::shared::{Shared, SharedBuilder};
+    use ckb_shared::{
+        fee_rate::FeeRate,
+        shared::{Shared, SharedBuilder},
+        tx_pool::TxPoolConfig,
+    };
     use ckb_test_chain_utils::always_success_cell;
     use ckb_traits::ChainProvider;
     use ckb_types::{
@@ -221,8 +251,12 @@ mod tests {
             .set_genesis_block(block.clone())
             .set_cellbase_maturity(0);
 
+        let mut tx_pool_config = TxPoolConfig::default();
+        tx_pool_config.min_fee_rate = FeeRate::new(Capacity::zero());
+
         let shared = SharedBuilder::default()
             .consensus(consensus)
+            .tx_pool_config(tx_pool_config)
             .build()
             .unwrap();
 
@@ -324,11 +358,11 @@ mod tests {
 
         // spent cell
         let result = tx_pool_executor
-            .verify_and_add_txs_to_pool(txs[1..=5].to_vec())
+            .verify_and_add_txs_to_pool(txs[1..=5].to_vec(), None)
             .expect("verify relay tx");
-        assert_eq!(result, vec![12; 5]);
+        assert_eq!(result, vec![TxCacheItem::new(12, Capacity::shannons(0)); 5]);
         // spent conflict cell
-        let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[10..15].to_vec());
+        let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[10..15].to_vec(), None);
         assert_eq!(
             result,
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
@@ -336,7 +370,7 @@ mod tests {
             )))
         );
         // spent half available half conflict cells
-        let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[6..=15].to_vec());
+        let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[6..=15].to_vec(), None);
         assert_eq!(
             result,
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
@@ -389,15 +423,15 @@ mod tests {
 
         assert_eq!(
             tx_pool_executor.verify_and_add_tx_to_pool(transactions[0].clone()),
-            Ok(12),
+            Ok(TxCacheItem::new(12, Capacity::shannons(0))),
         );
         assert_eq!(
             tx_pool_executor.verify_and_add_tx_to_pool(transactions[1].clone()),
-            Ok(12),
+            Ok(TxCacheItem::new(12, Capacity::shannons(0))),
         );
         assert_eq!(
             tx_pool_executor.verify_and_add_tx_to_pool(transactions[2].clone()),
-            Ok(12),
+            Ok(TxCacheItem::new(12, Capacity::shannons(0))),
         );
         assert_eq!(
             tx_pool_executor.verify_and_add_tx_to_pool(transactions[3].clone()),

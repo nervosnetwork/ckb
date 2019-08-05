@@ -1,6 +1,7 @@
 use crate::tx_pool::types::DefectEntry;
+use ckb_tx_cache::TxCacheItem;
 use ckb_types::{
-    core::{Cycle, TransactionView},
+    core::TransactionView,
     packed::{OutPoint, ProposalShortId},
 };
 use ckb_util::FnvHashMap;
@@ -40,13 +41,13 @@ impl OrphanPool {
     /// add orphan transaction
     pub(crate) fn add_tx(
         &mut self,
-        cycles: Option<Cycle>,
+        tx_cache: Option<TxCacheItem>,
         size: usize,
         tx: TransactionView,
         unknown: impl ExactSizeIterator<Item = OutPoint>,
     ) -> Option<DefectEntry> {
         let short_id = tx.proposal_short_id();
-        let entry = DefectEntry::new(tx, unknown.len(), cycles, size);
+        let entry = DefectEntry::new(tx, unknown.len(), tx_cache, size);
         for out_point in unknown {
             let edge = self.edges.entry(out_point).or_insert_with(Vec::new);
             edge.push(short_id.clone());

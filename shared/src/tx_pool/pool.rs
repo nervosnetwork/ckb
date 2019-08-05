@@ -4,6 +4,7 @@ use crate::tx_pool::orphan::OrphanPool;
 use crate::tx_pool::pending::PendingQueue;
 use crate::tx_pool::proposed::ProposedPool;
 use ckb_logger::{error_target, trace_target};
+use ckb_tx_cache::TxCacheItem;
 use ckb_types::{
     core::{Capacity, Cycle, TransactionView},
     packed::{Byte32, OutPoint, ProposalShortId},
@@ -131,13 +132,13 @@ impl TxPool {
 
     pub(crate) fn add_orphan(
         &mut self,
-        cycles: Option<Cycle>,
+        tx_cache: Option<TxCacheItem>,
         size: usize,
         tx: TransactionView,
         unknowns: Vec<OutPoint>,
     ) -> Option<DefectEntry> {
         trace_target!(crate::LOG_TARGET_TX_POOL, "add_orphan {}", &tx.hash());
-        self.orphan.add_tx(cycles, size, tx, unknowns.into_iter())
+        self.orphan.add_tx(tx_cache, size, tx, unknowns.into_iter())
     }
 
     pub fn add_proposed(
@@ -176,34 +177,43 @@ impl TxPool {
     pub fn get_tx_with_cycles(
         &self,
         id: &ProposalShortId,
-    ) -> Option<(TransactionView, Option<Cycle>)> {
+    ) -> Option<(TransactionView, Option<TxCacheItem>)> {
         self.pending
             .get(id)
             .cloned()
-            .map(|entry| (entry.transaction, Some(entry.cycles)))
-            .or_else(|| {
-                self.gap
-                    .get(id)
-                    .cloned()
-                    .map(|entry| (entry.transaction, Some(entry.cycles)))
+            .map(|entry| {
+                (
+                    entry.transaction,
+                    Some(TxCacheItem::new(entry.cycles, entry.fee)),
+                )
             })
             .or_else(|| {
-                self.proposed
-                    .get(id)
-                    .cloned()
-                    .map(|entry| (entry.transaction, Some(entry.cycles)))
+                self.gap.get(id).cloned().map(|entry| {
+                    (
+                        entry.transaction,
+                        Some(TxCacheItem::new(entry.cycles, entry.fee)),
+                    )
+                })
+            })
+            .or_else(|| {
+                self.proposed.get(id).cloned().map(|entry| {
+                    (
+                        entry.transaction,
+                        Some(TxCacheItem::new(entry.cycles, entry.fee)),
+                    )
+                })
             })
             .or_else(|| {
                 self.orphan
                     .get(id)
                     .cloned()
-                    .map(|entry| (entry.transaction, entry.cycles))
+                    .map(|entry| (entry.transaction, entry.tx_cache))
             })
             .or_else(|| {
                 self.conflict
                     .get(id)
                     .cloned()
-                    .map(|entry| (entry.transaction, entry.cycles))
+                    .map(|entry| (entry.transaction, entry.tx_cache))
             })
     }
 
