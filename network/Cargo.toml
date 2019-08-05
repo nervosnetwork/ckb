@@ -33,7 +33,7 @@ bs58 = "0.2.0"
 sentry = "^0.15.4"
 faster-hex = "0.3"
 ckb-hash = {path = "../util/hash"}
-secp256k1 = {version = "0.12.2" }
+secp256k1 = {version = "0.15.0", features = ["recovery"] }
 resolve = "0.2.0"
 ckb-build-info = {path = "../util/build-info"}
 num_cpus = "1.10"

@@ -24,7 +24,9 @@ hash_type = "Data"
 # the directory containing this config file.
 [genesis.system_cells]
 files = [
-  { file = "cells/always_success" }
+  { file = "cells/always_success" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+  { bundled = "specs/cells/dao" }
 ]
 
 [genesis.system_cells.lock]
