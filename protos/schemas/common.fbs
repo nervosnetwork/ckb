@@ -129,18 +129,12 @@ struct TransactionInfo {
     index:          uint32;
 }
 
-struct DaoStats {
-    accumulated_rate:       uint64;
-    accumulated_capacity:   uint64;
-}
-
 table BlockExt {
     received_at:        uint64;
     total_difficulty:   Bytes32;
     total_uncles_count: uint64;
     has_verified:       bool;
     verified:           bool;
-    dao_stats:          DaoStats;
     txs_fees:           [uint64];
 }
 
