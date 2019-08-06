@@ -17,7 +17,10 @@ pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(600_
 pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
 pub(crate) const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
-pub(crate) const CELLBASE_MATURITY: BlockNumber = 100;
+// Cellbase outputs are "locked" and require 4 * MAX_EPOCH_LENGTH(1800) confirmations(approximately 16 hours)
+// before they mature sufficiently to be spendable,
+// This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
+pub(crate) const CELLBASE_MATURITY: BlockNumber = 4 * MAX_EPOCH_LENGTH;
 // TODO: should adjust this value based on CKB average block time
 pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
