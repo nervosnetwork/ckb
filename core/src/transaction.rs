@@ -81,6 +81,30 @@ impl OutPoint {
     pub fn cell_key(&self) -> CellKey {
         CellKey::calculate(&self.tx_hash, self.index)
     }
+
+    /// Convert from dep group data
+    pub fn from_group_data(data: &[u8]) -> Result<OutPoint, usize> {
+        if data.len() != mem::size_of::<H256>() + mem::size_of::<u32>() {
+            Err(data.len())
+        } else {
+            let tx_hash_start = 0;
+            let tx_hash_end = tx_hash_start + mem::size_of::<H256>();
+            let index_start = tx_hash_end;
+            let index_end = index_start + mem::size_of::<u32>();
+            let tx_hash = H256::from_slice(&data[tx_hash_start..tx_hash_end])
+                .expect("Invalid tx hash length");
+            let mut index_bytes = [0u8; mem::size_of::<u32>()];
+            index_bytes.copy_from_slice(&data[index_start..index_end]);
+            // Deserialize as little endian u32
+            let index = u32::from_le_bytes(index_bytes);
+            Ok(OutPoint::new(tx_hash, index))
+        }
+    }
+
+    /// Convert OutPoint to one dep group data item
+    pub fn to_group_data(&self) -> Vec<u8> {
+        [self.tx_hash.to_vec(), self.index.to_le_bytes().to_vec()].concat()
+    }
 }
 
 impl fmt::Debug for OutPoint {
@@ -94,9 +118,10 @@ impl fmt::Debug for OutPoint {
 
 impl Default for OutPoint {
     fn default() -> Self {
+        // This is not cellbase out point, just a invalid out point for test
         OutPoint {
             tx_hash: H256::zero(),
-            index: u32::max_value(),
+            index: 0,
         }
     }
 }
@@ -108,7 +133,7 @@ pub enum CellDep {
     Cell(OutPoint),
     /// Cell and Header
     CellWithHeader(OutPoint, H256),
-    /// Dependency group (alias to more than one cell only CellDeps)
+    /// Dependency group (alias to multiple cell only CellDeps)
     DepGroup(OutPoint),
     /// Header only
     Header(H256),
@@ -148,14 +173,6 @@ impl CellDep {
             CellDep::CellWithHeader(_, _) => OutPoint::serialized_size() + H256::size_of(),
             CellDep::DepGroup(_) => OutPoint::serialized_size(),
             CellDep::Header(_) => H256::size_of(),
-        }
-    }
-
-    pub fn out_point(&self) -> Option<&OutPoint> {
-        match self {
-            CellDep::Cell(out_point) => Some(out_point),
-            CellDep::DepGroup(out_point) => Some(out_point),
-            _ => None,
         }
     }
 

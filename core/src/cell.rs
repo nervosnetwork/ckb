@@ -509,6 +509,27 @@ pub enum UnresolvableError {
     OutOfOrder(OutPoint),
 }
 
+pub fn parse_dep_group_data(data: Bytes) -> Result<Vec<OutPoint>, usize> {
+    // tx hash (32 bytes) + output index (4 bytes)
+    const OUT_POINT_LEN: usize = mem::size_of::<H256>() + mem::size_of::<u32>();
+
+    if data.is_empty() || data.len() % OUT_POINT_LEN != 0 {
+        return Err(data.len());
+    }
+
+    let dep_len = data.len() / OUT_POINT_LEN;
+    let mut out_points = Vec::with_capacity(dep_len);
+    for dep_idx in 0..dep_len {
+        let item_start = dep_idx * OUT_POINT_LEN;
+        let item_end = (dep_idx + 1) * OUT_POINT_LEN;
+        out_points.push(
+            OutPoint::from_group_data(&data[item_start..item_end])
+                .expect("parse group item data failed"),
+        );
+    }
+    Ok(out_points)
+}
+
 fn resolve_dep_group<
     F: FnMut(&OutPoint, bool) -> Result<Option<Box<CellMeta>>, UnresolvableError>,
 >(
@@ -522,33 +543,14 @@ fn resolve_dep_group<
         None => return Ok(Vec::new()),
     };
 
-    // tx hash (32 bytes) + output index (4 bytes)
-    const OUT_POINT_LEN: usize = mem::size_of::<H256>() + mem::size_of::<u32>();
-
-    if data.is_empty() || data.len() % OUT_POINT_LEN != 0 {
-        return Err(UnresolvableError::InvalidDepGroup(out_point.clone()));
-    }
-
-    let dep_len = data.len() / OUT_POINT_LEN;
-    let mut resolved_deps = Vec::with_capacity(dep_len);
-    for dep_idx in 0..dep_len {
-        let tx_hash_start = dep_idx * OUT_POINT_LEN;
-        let tx_hash_end = tx_hash_start + mem::size_of::<H256>();
-        let index_start = tx_hash_end;
-        let index_end = index_start + mem::size_of::<u32>();
-        let tx_hash =
-            H256::from_slice(&data[tx_hash_start..tx_hash_end]).expect("Invalid tx hash length");
-        let mut index_bytes = [0u8; mem::size_of::<u32>()];
-        index_bytes.copy_from_slice(&data[index_start..index_end]);
-        // Deserialize as little endian u32
-        let index = u32::from_le_bytes(index_bytes);
-
-        let sub_out_point = OutPoint::new(tx_hash, index);
+    let sub_out_points = parse_dep_group_data(data)
+        .map_err(|_| UnresolvableError::InvalidDepGroup(out_point.clone()))?;
+    let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
+    for sub_out_point in sub_out_points {
         if let Some(sub_cell_meta) = cell_resolver(&sub_out_point, false)? {
             resolved_deps.push(ResolvedDep::cell_only(*sub_cell_meta));
         }
     }
-
     Ok(resolved_deps)
 }
 
@@ -726,10 +728,6 @@ mod tests {
         generate_dummy_cell_meta_with_data(Bytes::default())
     }
 
-    fn out_point_to_dep_group_data(op: &OutPoint) -> Vec<u8> {
-        [op.tx_hash.to_vec(), op.index.to_le_bytes().to_vec()].concat()
-    }
-
     fn generate_block(txs: Vec<Transaction>) -> Block {
         BlockBuilder::default().transactions(txs).build()
     }
@@ -777,9 +775,9 @@ mod tests {
             );
         }
         let cell_data = [
-            out_point_to_dep_group_data(&op_1),
-            out_point_to_dep_group_data(&op_2),
-            out_point_to_dep_group_data(&op_3),
+            op_1.to_group_data(),
+            op_2.to_group_data(),
+            op_3.to_group_data(),
         ]
         .concat();
         let dep_group_cell = generate_dummy_cell_meta_with_data(Bytes::from(cell_data));
@@ -849,7 +847,7 @@ mod tests {
 
         let op_unknown = OutPoint::new(h256!("0x45"), 5);
         let op_dep = OutPoint::new(H256::zero(), 72);
-        let cell_data = Bytes::from(out_point_to_dep_group_data(&op_unknown));
+        let cell_data = Bytes::from(op_unknown.to_group_data());
         let dep_group_cell = generate_dummy_cell_meta_with_data(cell_data);
         cell_provider
             .cells

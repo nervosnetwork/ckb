@@ -20,6 +20,7 @@ faketime = "0.2"
 ckb-logger = { path = "../util/logger" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
+bytes = "0.4.12"
 ckb-verification = { path = "../verification" }
 ckb-script = { path = "../script" }
 ckb-dao = { path = "../util/dao" }

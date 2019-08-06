@@ -503,7 +503,15 @@ impl ChainState {
                             tx_pool.update_statics_for_remove_tx(size, cycles);
                             PoolError::TxFee
                         })?;
-                    tx_pool.add_proposed(cycles, fee, size, tx);
+
+                    // Because we have dep group
+                    let resolved_deps = rtx
+                        .resolved_deps
+                        .into_iter()
+                        .filter_map(|dep| dep.destruct().0)
+                        .map(|cell_meta| cell_meta.out_point)
+                        .collect::<Vec<_>>();
+                    tx_pool.add_proposed(cycles, fee, size, tx, resolved_deps);
                     Ok(cycles)
                 }
                 Err(e) => {
@@ -587,8 +595,12 @@ impl ChainState {
 
         let retain: Vec<Transaction> = detached.difference(&attached).cloned().collect();
 
+        let get_cell_data = |out_point: &OutPoint| {
+            self.store
+                .get_cell_data(&out_point.tx_hash, out_point.index)
+        };
         tx_pool.remove_expired(detached_proposal_id);
-        tx_pool.remove_committed_txs_from_proposed(attached.iter());
+        tx_pool.remove_committed_txs_from_proposed(attached.iter(), get_cell_data);
 
         for tx in retain {
             let tx_hash = tx.hash().to_owned();

@@ -3,7 +3,9 @@ use super::types::{DefectEntry, ProposedEntry, TxPoolConfig};
 use crate::tx_pool::orphan::OrphanPool;
 use crate::tx_pool::pending::PendingQueue;
 use crate::tx_pool::proposed::ProposedPool;
-use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
+use bytes::Bytes;
+use ckb_core::cell::parse_dep_group_data;
+use ckb_core::transaction::{CellDep, OutPoint, ProposalShortId, Transaction};
 use ckb_core::{Capacity, Cycle};
 use ckb_logger::{error_target, trace_target};
 use faketime::unix_time_as_millis;
@@ -142,10 +144,11 @@ impl TxPool {
         fee: Capacity,
         size: usize,
         tx: Transaction,
+        resolved_deps: Vec<OutPoint>,
     ) {
         trace_target!(crate::LOG_TARGET_TX_POOL, "add_proposed {:#x}", tx.hash());
         self.touch_last_txs_updated_at();
-        self.proposed.add_tx(cycles, fee, size, tx);
+        self.proposed.add_tx(cycles, fee, size, tx, resolved_deps);
     }
 
     pub(crate) fn touch_last_txs_updated_at(&mut self) {
@@ -235,14 +238,35 @@ impl TxPool {
             .cloned()
     }
 
-    pub(crate) fn remove_committed_txs_from_proposed<'a>(
+    pub(crate) fn remove_committed_txs_from_proposed<'a, F: Fn(&OutPoint) -> Option<Bytes>>(
         &mut self,
         txs: impl Iterator<Item = &'a Transaction>,
+        get_cell_data: F,
     ) {
         for tx in txs {
             let hash = tx.hash();
             trace_target!(crate::LOG_TARGET_TX_POOL, "committed {:#x}", hash);
-            for entry in self.proposed.remove_committed_tx(tx) {
+            let resolved_deps = tx.deps_iter().fold(
+                Vec::with_capacity(tx.deps().len()),
+                |mut out_points, dep| {
+                    match dep {
+                        CellDep::Cell(out_point) => out_points.push(out_point.clone()),
+                        CellDep::CellWithHeader(out_point, _) => out_points.push(out_point.clone()),
+                        CellDep::DepGroup(out_point) => {
+                            // If we didn't delete it, we should always can load the cell meta
+                            let data = get_cell_data(out_point)
+                                .expect("Cell data must exists when remove dep group");
+                            let sub_out_points = parse_dep_group_data(data)
+                                .expect("Parse dep group data fialed when remove dep group");
+                            out_points.extend(sub_out_points);
+                        }
+                        CellDep::Header(_) => (),
+                    }
+                    out_points
+                },
+            );
+
+            for entry in self.proposed.remove_committed_tx(tx, &resolved_deps[..]) {
                 self.update_statics_for_remove_tx(entry.size, entry.cycles);
             }
             self.committed_txs_hash_cache

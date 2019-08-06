@@ -27,6 +27,7 @@ use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 // A script group will only be executed once per transaction, the
 // script itself should check against all inputs/outputs in its group
 // if needed.
+#[derive(Debug)]
 struct ScriptGroup {
     script: Script,
     input_indices: Vec<usize>,

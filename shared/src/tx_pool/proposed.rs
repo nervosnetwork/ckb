@@ -144,17 +144,14 @@ impl ProposedPool {
                 let tx = &entry.transaction;
                 let inputs = tx.input_pts_iter();
                 let outputs = tx.output_pts();
-                let deps = tx.deps_iter();
                 for i in inputs {
                     if self.edges.inner.remove(i).is_none() {
                         self.edges.outer.remove(i);
                     }
                 }
 
-                for d in deps {
-                    if let Some(out_point) = d.out_point() {
-                        self.edges.delete_value_in_deps(out_point, &id);
-                    }
+                for d in &entry.resolved_deps {
+                    self.edges.delete_value_in_deps(d, &id);
                 }
 
                 for o in outputs {
@@ -179,11 +176,16 @@ impl ProposedPool {
         self.remove_vertex(id)
     }
 
-    pub(crate) fn add_tx(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
+    pub(crate) fn add_tx(
+        &mut self,
+        cycles: Cycle,
+        fee: Capacity,
+        size: usize,
+        tx: Transaction,
+        resolved_deps: Vec<OutPoint>,
+    ) {
         let inputs = tx.input_pts_iter();
         let outputs = tx.output_pts();
-        let deps = tx.deps_iter();
-
         let id = tx.proposal_short_id();
 
         let mut count: usize = 0;
@@ -201,27 +203,30 @@ impl ProposedPool {
             }
         }
 
-        for d in deps {
-            if let Some(out_point) = d.out_point() {
-                if self.edges.contains_key(out_point) {
-                    count += 1;
-                }
-                self.edges.insert_deps(out_point.to_owned(), id);
+        for d in &resolved_deps {
+            if self.edges.contains_key(d) {
+                count += 1;
             }
+            self.edges.insert_deps(d.clone(), id);
         }
 
         for o in outputs {
             self.edges.mark_inpool(o);
         }
 
-        self.vertices
-            .insert(id, ProposedEntry::new(tx, count, cycles, fee, size));
+        self.vertices.insert(
+            id,
+            ProposedEntry::new(tx, resolved_deps, count, cycles, fee, size),
+        );
     }
 
-    pub(crate) fn remove_committed_tx(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
+    pub(crate) fn remove_committed_tx(
+        &mut self,
+        tx: &Transaction,
+        resolved_deps: &[OutPoint],
+    ) -> Vec<ProposedEntry> {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts_iter();
-        let deps = tx.deps_iter();
         let id = tx.proposal_short_id();
 
         let mut removed = Vec::new();
@@ -245,10 +250,8 @@ impl ProposedPool {
                 self.edges.remove_outer(i);
             }
 
-            for d in deps {
-                if let Some(out_point) = d.out_point() {
-                    self.edges.delete_value_in_deps(out_point, &id);
-                }
+            for d in resolved_deps {
+                self.edges.delete_value_in_deps(d, &id);
             }
         } else {
             removed.append(&mut self.resolve_conflict(tx));
@@ -298,7 +301,10 @@ impl ProposedPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
+    use ckb_core::cell::parse_dep_group_data;
+    use ckb_core::transaction::{
+        CellDep, CellInput, CellOutputBuilder, Transaction, TransactionBuilder,
+    };
     use ckb_core::{Bytes, Capacity};
     use numext_fixed_hash::{h256, H256};
 
@@ -318,6 +324,31 @@ mod tests {
             .build()
     }
 
+    fn expand_tx_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
+        tx: &Transaction,
+        get_cell_data: F,
+    ) -> Vec<OutPoint> {
+        tx.deps_iter().fold(
+            Vec::with_capacity(tx.deps().len()),
+            |mut out_points, dep| {
+                match dep {
+                    CellDep::Cell(out_point) => out_points.push(out_point.clone()),
+                    CellDep::CellWithHeader(out_point, _) => out_points.push(out_point.clone()),
+                    CellDep::DepGroup(out_point) => {
+                        // If we didn't delete it, we should always can load the cell meta
+                        let data = get_cell_data(out_point)
+                            .expect("Cell data must exists when expanded dep group");
+                        let sub_out_points = parse_dep_group_data(data)
+                            .expect("Parse dep group data fialed when expanded dep group");
+                        out_points.extend(sub_out_points);
+                    }
+                    CellDep::Header(_) => (),
+                }
+                out_points
+            },
+        )
+    }
+
     const MOCK_CYCLES: Cycle = 0;
     const MOCK_FEE: Capacity = Capacity::zero();
     const MOCK_SIZE: usize = 0;
@@ -327,13 +358,27 @@ mod tests {
         let tx1 = build_tx(vec![(&H256::zero(), 1), (&H256::zero(), 2)], 1);
         let tx1_hash = tx1.hash();
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
+        let resolved_deps1 = expand_tx_dep_out_points(&tx1, |_| None);
+        let resolved_deps2 = expand_tx_dep_out_points(&tx2, |_| None);
 
         let mut pool = ProposedPool::new();
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx1.clone(),
+            resolved_deps1.clone(),
+        );
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx2.clone(),
+            resolved_deps2.clone(),
+        );
 
         assert_eq!(pool.vertices.len(), 2);
         assert_eq!(pool.edges.inner_len(), 2);
@@ -342,7 +387,7 @@ mod tests {
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id2).unwrap().refs_count, 1);
 
-        pool.remove_committed_tx(&tx1);
+        pool.remove_committed_tx(&tx1, &resolved_deps1);
         assert_eq!(pool.edges.inner_len(), 1);
         assert_eq!(pool.edges.outer_len(), 1);
 
@@ -353,14 +398,28 @@ mod tests {
     fn test_add_roots() {
         let tx1 = build_tx(vec![(&H256::zero(), 1), (&H256::zero(), 2)], 1);
         let tx2 = build_tx(vec![(&h256!("0x2"), 1), (&h256!("0x3"), 2)], 3);
+        let resolved_deps1 = expand_tx_dep_out_points(&tx1, |_| None);
+        let resolved_deps2 = expand_tx_dep_out_points(&tx2, |_| None);
 
         let mut pool = ProposedPool::new();
 
         let id1 = tx1.proposal_short_id();
         let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx1.clone(),
+            resolved_deps1.clone(),
+        );
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx2.clone(),
+            resolved_deps2.clone(),
+        );
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id2).unwrap().refs_count, 0);
@@ -382,7 +441,7 @@ mod tests {
         assert_eq!(2, mineable.len());
         assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
 
-        pool.remove_committed_tx(&tx1);
+        pool.remove_committed_tx(&tx1, &resolved_deps1);
 
         assert_eq!(pool.edges.inner_len(), 3);
         assert_eq!(pool.edges.outer_len(), 2);
@@ -408,11 +467,47 @@ mod tests {
 
         let mut pool = ProposedPool::new();
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx3.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx4.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx5.clone());
+        let resolved_deps1 = expand_tx_dep_out_points(&tx1, |_| None);
+        let resolved_deps2 = expand_tx_dep_out_points(&tx2, |_| None);
+        let resolved_deps3 = expand_tx_dep_out_points(&tx3, |_| None);
+        let resolved_deps4 = expand_tx_dep_out_points(&tx4, |_| None);
+        let resolved_deps5 = expand_tx_dep_out_points(&tx5, |_| None);
+
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx1.clone(),
+            resolved_deps1.clone(),
+        );
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx2.clone(),
+            resolved_deps2.clone(),
+        );
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx3.clone(),
+            resolved_deps3.clone(),
+        );
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx4.clone(),
+            resolved_deps4.clone(),
+        );
+        pool.add_tx(
+            MOCK_CYCLES,
+            MOCK_FEE,
+            MOCK_SIZE,
+            tx5.clone(),
+            resolved_deps5.clone(),
+        );
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id3).unwrap().refs_count, 1);
@@ -454,7 +549,7 @@ mod tests {
         assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
         assert!(mineable.contains(&tx5));
 
-        pool.remove_committed_tx(&tx1);
+        pool.remove_committed_tx(&tx1, &resolved_deps1);
 
         assert_eq!(pool.get(&id3).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id5).unwrap().refs_count, 1);

@@ -2,7 +2,7 @@
 //! and its top-level members.
 
 use ckb_core::cell::UnresolvableError;
-use ckb_core::transaction::Transaction;
+use ckb_core::transaction::{OutPoint, Transaction};
 use ckb_core::Capacity;
 use ckb_core::Cycle;
 use ckb_verification::TransactionError;
@@ -132,6 +132,8 @@ impl PendingEntry {
 pub struct ProposedEntry {
     /// Transaction
     pub transaction: Transaction,
+    /// Resolved dependency (because dep group), the item type is same with `Edges::K`
+    pub resolved_deps: Vec<OutPoint>,
     /// refs count
     pub refs_count: usize,
     /// Cycles
@@ -146,6 +148,7 @@ impl ProposedEntry {
     /// Create new transaction pool entry
     pub fn new(
         tx: Transaction,
+        resolved_deps: Vec<OutPoint>,
         refs_count: usize,
         cycles: Cycle,
         fee: Capacity,
@@ -153,6 +156,7 @@ impl ProposedEntry {
     ) -> ProposedEntry {
         ProposedEntry {
             transaction: tx,
+            resolved_deps,
             refs_count,
             cycles,
             fee,
