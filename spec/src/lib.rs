@@ -21,6 +21,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::Resource;
+use failure::Fail;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -182,7 +183,7 @@ impl ChainSpec {
 impl Genesis {
     fn build_block(&self) -> Result<Block, Box<dyn Error>> {
         let cellbase_transaction = self.build_cellbase_transaction()?;
-        let dao = genesis_dao_data(&cellbase_transaction)?;
+        let dao = genesis_dao_data(&cellbase_transaction).map_err(|e| e.compat())?;
 
         let header_builder = HeaderBuilder::default()
             .version(self.version)

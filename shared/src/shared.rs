@@ -1,5 +1,4 @@
 use crate::chain_state::ChainState;
-use crate::error::SharedError;
 use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::extras::EpochExt;
@@ -8,13 +7,13 @@ use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
 use ckb_core::Cycle;
 use ckb_db::{DBConfig, RocksDB};
+use ckb_error::Error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
-use failure::Error as FailureError;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
@@ -34,7 +33,7 @@ impl Shared {
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
         script_config: ScriptConfig,
-    ) -> Result<Self, SharedError> {
+    ) -> Result<Self, Error> {
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
         let txs_verify_cache = Arc::new(Mutex::new(LruCache::new(
@@ -99,10 +98,7 @@ impl ChainProvider for Shared {
         )
     }
 
-    fn finalize_block_reward(
-        &self,
-        parent: &Header,
-    ) -> Result<(Script, BlockReward), FailureError> {
+    fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), Error> {
         RewardCalculator::new(self.consensus(), self.store()).block_reward(parent)
     }
 
@@ -162,7 +158,7 @@ impl SharedBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Shared, SharedError> {
+    pub fn build(self) -> Result<Shared, Error> {
         if let Some(config) = self.store_config {
             config.apply()
         }

@@ -24,6 +24,7 @@ ckb-verification = { path = "../verification" }
 ckb-script = { path = "../script" }
 ckb-dao = { path = "../util/dao" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
+ckb-error = { path = "../error" }
 
 [dev-dependencies]
 env_logger = "0.6"

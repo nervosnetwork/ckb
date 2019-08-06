@@ -1,6 +1,6 @@
 use crate::db::cf_handle;
 use crate::iter::{DBIterator, DBIteratorItem, Direction};
-use crate::{Col, Result};
+use crate::{from_db_error, Col, Result};
 use rocksdb::ops::{DeleteCF, GetCF, PutCF};
 use rocksdb::{
     ops::IterateCF, Direction as RdbDirection, IteratorMode, OptimisticTransaction,
@@ -17,17 +17,17 @@ pub struct RocksDBTransaction {
 impl RocksDBTransaction {
     pub fn get(&self, col: Col, key: &[u8]) -> Result<Option<DBVector>> {
         let cf = cf_handle(&self.db, col)?;
-        self.inner.get_cf(cf, key).map_err(Into::into)
+        self.inner.get_cf(cf, key).map_err(from_db_error)
     }
 
     pub fn put(&self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
         let cf = cf_handle(&self.db, col)?;
-        self.inner.put_cf(cf, key, value).map_err(Into::into)
+        self.inner.put_cf(cf, key, value).map_err(from_db_error)
     }
 
     pub fn delete(&self, col: Col, key: &[u8]) -> Result<()> {
         let cf = cf_handle(&self.db, col)?;
-        self.inner.delete_cf(cf, key).map_err(Into::into)
+        self.inner.delete_cf(cf, key).map_err(from_db_error)
     }
 
     pub fn get_for_update<'a>(
@@ -41,15 +41,15 @@ impl RocksDBTransaction {
         opts.set_snapshot(&snapshot.inner);
         self.inner
             .get_for_update_cf_opt(cf, key, &opts, true)
-            .map_err(Into::into)
+            .map_err(from_db_error)
     }
 
     pub fn commit(&self) -> Result<()> {
-        self.inner.commit().map_err(Into::into)
+        self.inner.commit().map_err(from_db_error)
     }
 
     pub fn rollback(&self) -> Result<()> {
-        self.inner.rollback().map_err(Into::into)
+        self.inner.rollback().map_err(from_db_error)
     }
 
     pub fn get_snapshot(&self) -> RocksDBTransactionSnapshot<'_> {
@@ -64,7 +64,7 @@ impl RocksDBTransaction {
     }
 
     pub fn rollback_to_savepoint(&self) -> Result<()> {
-        self.inner.rollback_to_savepoint().map_err(Into::into)
+        self.inner.rollback_to_savepoint().map_err(from_db_error)
     }
 }
 
@@ -84,7 +84,7 @@ impl DBIterator for RocksDBTransaction {
         self.inner
             .iterator_cf(cf, mode)
             .map(|iter| Box::new(iter) as Box<_>)
-            .map_err(Into::into)
+            .map_err(from_db_error)
     }
 }
 
@@ -96,7 +96,7 @@ pub struct RocksDBTransactionSnapshot<'a> {
 impl<'a> RocksDBTransactionSnapshot<'a> {
     pub fn get(&self, col: Col, key: &[u8]) -> Result<Option<DBVector>> {
         let cf = cf_handle(&self.db, col)?;
-        self.inner.get_cf(cf, key).map_err(Into::into)
+        self.inner.get_cf(cf, key).map_err(from_db_error)
     }
 }
 
@@ -116,6 +116,6 @@ impl<'a> DBIterator for RocksDBTransactionSnapshot<'a> {
         self.inner
             .iterator_cf(cf, mode)
             .map(|iter| Box::new(iter) as Box<_>)
-            .map_err(Into::into)
+            .map_err(from_db_error)
     }
 }

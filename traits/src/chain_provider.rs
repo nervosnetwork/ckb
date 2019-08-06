@@ -3,9 +3,9 @@ use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
+use ckb_error::Error;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
-use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 
 pub trait ChainProvider: Sync + Send {
@@ -21,8 +21,7 @@ pub trait ChainProvider: Sync + Send {
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt>;
 
-    fn finalize_block_reward(&self, parent: &Header)
-        -> Result<(Script, BlockReward), FailureError>;
+    fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), Error>;
 
     fn consensus(&self) -> &Consensus;
 }

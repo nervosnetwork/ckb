@@ -6,7 +6,7 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::cell::{BlockInfo, CellMeta, CellProvider, CellStatus, UnresolvableError};
+use ckb_core::cell::{BlockInfo, CellMeta, CellProvider, CellStatus};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
@@ -16,7 +16,7 @@ use ckb_core::transaction::{
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao_utils::genesis_dao_data;
-use ckb_shared::error::SharedError;
+use ckb_error::{into_eop, OutPointError};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{build_block, header_builder};
@@ -223,15 +223,8 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new_cell(
-            tx1_hash.to_owned(),
-            0
-        ))),
-        chain_controller
-            .process_block(Arc::new(chain.blocks()[3].clone()), true)
-            .unwrap_err()
-            .downcast()
-            .unwrap()
+        Err(OutPointError::DeadCell(into_eop!(OutPoint::new_cell(tx1_hash.to_owned(), 0))).into()),
+        chain_controller.process_block(Arc::new(chain.blocks()[3].clone()), true)
     );
 }
 
@@ -265,15 +258,8 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new_cell(
-            tx1_hash.to_owned(),
-            0
-        ))),
-        chain_controller
-            .process_block(Arc::new(chain.blocks()[4].clone()), true)
-            .unwrap_err()
-            .downcast()
-            .unwrap()
+        Err(OutPointError::DeadCell(into_eop!(OutPoint::new_cell(tx1_hash.to_owned(), 0))).into()),
+        chain_controller.process_block(Arc::new(chain.blocks()[4].clone()), true)
     );
 }
 
@@ -304,15 +290,13 @@ fn test_invalid_out_point_index_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new_cell(
-            tx1_hash.to_owned(),
-            1,
-        )])),
-        chain_controller
-            .process_block(Arc::new(chain.blocks()[3].clone()), true)
-            .unwrap_err()
-            .downcast()
-            .unwrap()
+        Err(
+            OutPointError::UnknownCell(vec![into_eop!(
+                OutPoint::new_cell(tx1_hash.to_owned(), 1,)
+            )])
+            .into()
+        ),
+        chain_controller.process_block(Arc::new(chain.blocks()[3].clone()), true)
     );
 }
 
@@ -345,15 +329,13 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new_cell(
-            tx1_hash.to_owned(),
-            1,
-        )])),
-        chain_controller
-            .process_block(Arc::new(chain.blocks()[4].clone()), true)
-            .unwrap_err()
-            .downcast()
-            .unwrap()
+        Err(
+            OutPointError::UnknownCell(vec![into_eop!(
+                OutPoint::new_cell(tx1_hash.to_owned(), 1,)
+            )])
+            .into()
+        ),
+        chain_controller.process_block(Arc::new(chain.blocks()[4].clone()), true)
     );
 }
 

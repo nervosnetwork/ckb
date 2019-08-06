@@ -2,7 +2,6 @@ use super::super::block_verifier::{
     BlockBytesVerifier, BlockProposalsLimitVerifier, CellbaseVerifier, DuplicateVerifier,
     MerkleRootVerifier,
 };
-use super::super::error::{CellbaseError, Error as VerifyError};
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
@@ -10,6 +9,7 @@ use ckb_core::transaction::{
     CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_error::{BlockError, CellbaseError};
 use numext_fixed_hash::{h256, H256};
 
 fn create_cellbase_transaction_with_block_number(number: BlockNumber) -> Transaction {
@@ -58,7 +58,7 @@ pub fn test_block_without_cellbase() {
     let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
+        Err(BlockError::Cellbase(CellbaseError::InvalidQuantity).into())
     );
 }
 
@@ -94,7 +94,7 @@ pub fn test_block_with_incorrect_cellbase_number() {
     let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidInput))
+        Err(BlockError::Cellbase(CellbaseError::InvalidInput).into())
     );
 }
 
@@ -108,7 +108,7 @@ pub fn test_block_with_one_cellbase_at_last() {
     let verifier = CellbaseVerifier::new();
     assert_eq!(
         verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidPosition))
+        Err(BlockError::Cellbase(CellbaseError::InvalidPosition).into())
     );
 }
 
@@ -122,8 +122,8 @@ pub fn test_block_with_duplicated_txs() {
 
     let verifier = DuplicateVerifier::new();
     assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::CommitTransactionDuplicate)
+        verifier.verify(&block).err(),
+        Some(BlockError::DuplicatedCommittedTransactions.into())
     );
 }
 
@@ -136,8 +136,8 @@ pub fn test_block_with_duplicated_proposals() {
 
     let verifier = DuplicateVerifier::new();
     assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::ProposalTransactionDuplicate)
+        verifier.verify(&block).err(),
+        Some(BlockError::DuplicatedProposalTransactions.into())
     );
 }
 
@@ -154,8 +154,8 @@ pub fn test_transaction_root() {
 
     let verifier = MerkleRootVerifier::new();
     assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::CommitTransactionsRoot)
+        verifier.verify(&block).err(),
+        Some(BlockError::UnmatchedCommittedRoot.into())
     );
 }
 
@@ -172,8 +172,8 @@ pub fn test_proposals_root() {
 
     let verifier = MerkleRootVerifier::new();
     assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::CommitTransactionsRoot)
+        verifier.verify(&block).err(),
+        Some(BlockError::UnmatchedCommittedRoot.into())
     );
 }
 
@@ -190,8 +190,8 @@ pub fn test_witnesses_root() {
 
     let verifier = MerkleRootVerifier::new();
     assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::WitnessesMerkleRoot)
+        verifier.verify(&block).err(),
+        Some(BlockError::UnmatchedWitnessesRoot.into())
     );
 }
 
@@ -204,8 +204,8 @@ pub fn test_block_with_two_cellbases() {
 
     let verifier = CellbaseVerifier::new();
     assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
+        verifier.verify(&block).err(),
+        Some(BlockError::Cellbase(CellbaseError::InvalidQuantity).into())
     );
 }
 
@@ -272,8 +272,8 @@ pub fn test_max_block_bytes_verifier() {
         let verifier =
             BlockBytesVerifier::new(block.serialized_size(proof_size) as u64 - 1, proof_size);
         assert_eq!(
-            verifier.verify(&block),
-            Err(VerifyError::ExceededMaximumBlockBytes)
+            verifier.verify(&block).err(),
+            Some(BlockError::TooLargeSize.into())
         );
     }
 }
@@ -292,8 +292,8 @@ pub fn test_max_proposals_limit_verifier() {
     {
         let verifier = BlockProposalsLimitVerifier::new(0);
         assert_eq!(
-            verifier.verify(&block),
-            Err(VerifyError::ExceededMaximumProposalsLimit)
+            verifier.verify(&block).err(),
+            Some(BlockError::TooManyProposals.into())
         );
     }
 }

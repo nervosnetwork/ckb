@@ -33,7 +33,6 @@ env_logger = "0.6"
 bytes = "0.4.12"
 crossbeam-channel = "0.3"
 flatbuffers = "0.6.0"
-regex = "1"
 faketime = "0.2"
 
 # Prevent this from interfering with workspaces

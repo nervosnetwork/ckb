@@ -1,8 +1,10 @@
 use super::Verifier;
-use crate::error::{EpochError, Error, NumberError, PowError, TimestampError};
 use crate::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{Header, HEADER_VERSION};
+use ckb_error::{
+    BlockError, EpochError, Error, HeaderError, NumberError, PowError, TimestampError,
+};
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
 use faketime::unix_time_as_millis;
@@ -42,7 +44,7 @@ impl<T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<T
         PowVerifier::new(header, &self.pow).verify()?;
         let parent = target
             .parent()
-            .ok_or_else(|| Error::UnknownParent(header.parent_hash().to_owned()))?;
+            .ok_or_else(|| BlockError::UnknownParent(header.parent_hash().to_owned()))?;
         NumberVerifier::new(parent, header).verify()?;
         TimestampVerifier::new(&self.block_median_time_context, header).verify()?;
         EpochVerifier::verify(target)?;
@@ -61,7 +63,7 @@ impl<'a> VersionVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.header.version() != HEADER_VERSION {
-            return Err(Error::Version);
+            Err(BlockError::MismatchedVersion)?;
         }
         Ok(())
     }
@@ -92,17 +94,17 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             .block_median_time_context
             .block_median_time(self.header.parent_hash());
         if self.header.timestamp() <= min {
-            return Err(Error::Timestamp(TimestampError::BlockTimeTooOld {
+            Err(HeaderError::Timestamp(TimestampError::BlockTimeTooOld {
                 min,
-                found: self.header.timestamp(),
-            }));
+                actual: self.header.timestamp(),
+            }))?;
         }
         let max = self.now + ALLOWED_FUTURE_BLOCKTIME;
         if self.header.timestamp() > max {
-            return Err(Error::Timestamp(TimestampError::BlockTimeTooNew {
+            Err(HeaderError::Timestamp(TimestampError::BlockTimeTooNew {
                 max,
-                found: self.header.timestamp(),
-            }));
+                actual: self.header.timestamp(),
+            }))?;
         }
         Ok(())
     }
@@ -120,10 +122,10 @@ impl<'a> NumberVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.header.number() != self.parent.number() + 1 {
-            return Err(Error::Number(NumberError {
+            Err(HeaderError::Number(NumberError {
                 expected: self.parent.number() + 1,
                 actual: self.header.number(),
-            }));
+            }))?;
         }
         Ok(())
     }
@@ -137,20 +139,20 @@ impl<T: HeaderResolver> EpochVerifier<T> {
     pub fn verify(target: &T) -> Result<(), Error> {
         let epoch = target
             .epoch()
-            .ok_or_else(|| Error::Epoch(EpochError::AncestorNotFound))?;
+            .ok_or_else(|| HeaderError::Epoch(EpochError::MissingAncestor))?;
         let actual_epoch_number = target.header().epoch();
         if actual_epoch_number != epoch.number() {
-            return Err(Error::Epoch(EpochError::NumberMismatch {
+            Err(HeaderError::Epoch(EpochError::UnmatchedNumber {
                 expected: epoch.number(),
                 actual: actual_epoch_number,
-            }));
+            }))?;
         }
         let actual_difficulty = target.header().difficulty();
         if epoch.difficulty() != actual_difficulty {
-            return Err(Error::Epoch(EpochError::DifficultyMismatch {
+            Err(HeaderError::Epoch(EpochError::UnmatchedDifficulty {
                 expected: epoch.difficulty().clone(),
                 actual: actual_difficulty.clone(),
-            }));
+            }))?;
         }
         Ok(())
     }
@@ -173,7 +175,7 @@ impl<'a> PowVerifier<'a> {
         if self.pow.verify_header(self.header) {
             Ok(())
         } else {
-            Err(Error::Pow(PowError::InvalidProof))
+            Err(HeaderError::Pow(PowError::InvalidProof).into())
         }
     }
 }

@@ -1,26 +1,26 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOpr, CellSetOverlay};
-use crate::error::SharedError;
 use crate::tx_pool::types::{DefectEntry, ProposedEntry};
-use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
+use crate::tx_pool::{TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
     resolve_transaction, CellProvider, CellStatus, HeaderProvider, HeaderStatus,
-    OverlayCellProvider, ResolvedTransaction, UnresolvableError,
+    OverlayCellProvider, ResolvedTransaction,
 };
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_dao::DaoCalculator;
+use ckb_error::{from_eop, Error, ErrorKind, InternalError, OutPointError, SpecError};
 use ckb_logger::{debug_target, error_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainDB, ChainStore, StoreTransaction};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_util::LinkedFnvHashSet;
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
-use failure::Error as FailureError;
+use failure::Fail;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
@@ -48,7 +48,7 @@ impl ChainState {
         consensus: Arc<Consensus>,
         tx_pool_config: TxPoolConfig,
         script_config: ScriptConfig,
-    ) -> Result<Self, SharedError> {
+    ) -> Result<Self, Error> {
         // check head in store or save the genesis block as head
         let (tip_header, epoch_ext) = {
             match store
@@ -61,28 +61,22 @@ impl ChainState {
                         if &genesis_hash == expect_genesis_hash {
                             Ok((tip_header, epoch))
                         } else {
-                            Err(SharedError::InvalidData(format!(
-                                "mismatch genesis hash, expect {:#x} but {:#x} in database",
-                                expect_genesis_hash, genesis_hash
-                            )))
+                            Err(SpecError::UnmatchedGenesis {
+                                expect: expect_genesis_hash.to_owned(),
+                                actual: genesis_hash,
+                            }
+                            .into())
                         }
                     } else {
-                        Err(SharedError::InvalidData(
-                            "the genesis hash was not found".to_owned(),
-                        ))
+                        panic!("The genesis hash was not found");
                     }
                 }
-                None => store
-                    .init(&consensus)
-                    .map_err(|e| {
-                        SharedError::InvalidData(format!("failed to init genesis block {:?}", e))
-                    })
-                    .map(|_| {
-                        (
-                            consensus.genesis_block().header().to_owned(),
-                            consensus.genesis_epoch_ext().to_owned(),
-                        )
-                    }),
+                None => store.init(&consensus).map(|_| {
+                    (
+                        consensus.genesis_block().header().to_owned(),
+                        consensus.genesis_epoch_ext().to_owned(),
+                    )
+                }),
             }
         }?;
 
@@ -90,13 +84,10 @@ impl ChainState {
         let tip_number = tip_header.number();
         let proposal_window = consensus.tx_proposal_window();
         let proposal_ids = Self::init_proposal_ids(&store, proposal_window, tip_number);
-
-        let cell_set = Self::init_cell_set(&store)
-            .map_err(|e| SharedError::InvalidData(format!("failed to load cell set{:?}", e)))?;
-
+        let cell_set = Self::init_cell_set(&store)?;
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
-            .ok_or_else(|| SharedError::InvalidData("failed to get block_ext".to_owned()))?
+            .expect("tip block_ext exists")
             .total_difficulty;
         Ok(ChainState {
             store: Arc::clone(store),
@@ -141,7 +132,7 @@ impl ChainState {
         proposal_ids
     }
 
-    fn init_cell_set(store: &ChainDB) -> Result<CellSet, FailureError> {
+    fn init_cell_set(store: &ChainDB) -> Result<CellSet, Error> {
         let mut cell_set = CellSet::new();
         let mut count = 0;
         info_target!(crate::LOG_TARGET_CHAIN, "Start: loading live cells ...");
@@ -230,7 +221,7 @@ impl ChainState {
         &mut self,
         txo_diff: CellSetDiff,
         txn: &StoreTransaction,
-    ) -> Result<(), FailureError> {
+    ) -> Result<(), Error> {
         let CellSetDiff {
             old_inputs,
             old_outputs,
@@ -330,11 +321,7 @@ impl ChainState {
         Ok(())
     }
 
-    pub fn update_tip(
-        &mut self,
-        header: Header,
-        total_difficulty: U256,
-    ) -> Result<(), FailureError> {
+    pub fn update_tip(&mut self, header: Header, total_difficulty: U256) -> Result<(), Error> {
         self.tip_header = header;
         self.total_difficulty = total_difficulty;
         Ok(())
@@ -354,11 +341,11 @@ impl ChainState {
 
     // Add a verified tx into pool
     // this method will handle fork related verifications to make sure we are safe during a fork
-    pub fn add_tx_to_pool(&self, tx: Transaction, cycles: Cycle) -> Result<Cycle, PoolError> {
+    pub fn add_tx_to_pool(&self, tx: Transaction, cycles: Cycle) -> Result<Cycle, Error> {
         let short_id = tx.proposal_short_id();
         let tx_size = tx.serialized_size();
         if self.reach_tx_pool_limit(tx_size, cycles) {
-            return Err(PoolError::LimitReached);
+            Err(InternalError::FullTransactionPool)?;
         }
         match self.resolve_tx_from_pending_and_proposed(&tx) {
             Ok(rtx) => {
@@ -387,14 +374,14 @@ impl ChainState {
                     Ok(cycles)
                 })
             }
-            Err(err) => Err(PoolError::UnresolvableTransaction(err)),
+            Err(err) => Err(err),
         }
     }
 
     pub fn resolve_tx_from_pending_and_proposed<'b>(
         &self,
         tx: &'b Transaction,
-    ) -> Result<ResolvedTransaction<'b>, UnresolvableError> {
+    ) -> Result<ResolvedTransaction<'b>, Error> {
         let tx_pool = self.tx_pool.borrow_mut();
         let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
         let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &proposed_provider);
@@ -408,7 +395,7 @@ impl ChainState {
         &self,
         tx: &'a Transaction,
         tx_pool: &TxPool,
-    ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+    ) -> Result<ResolvedTransaction<'a>, Error> {
         let cell_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
         let mut seen_inputs = HashSet::default();
         resolve_transaction(tx, &mut seen_inputs, &cell_provider, self)
@@ -418,7 +405,7 @@ impl ChainState {
         &self,
         rtx: &ResolvedTransaction,
         cycles: Option<Cycle>,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<Cycle, Error> {
         match cycles {
             Some(cycles) => {
                 ContextualTransactionVerifier::new(
@@ -429,13 +416,12 @@ impl ChainState {
                     self.tip_hash(),
                     &self.consensus(),
                 )
-                .verify()
-                .map_err(PoolError::InvalidTx)?;
+                .verify()?;
                 Ok(cycles)
             }
             None => {
                 let max_cycles = self.consensus.max_block_cycles();
-                let cycles = TransactionVerifier::new(
+                TransactionVerifier::new(
                     &rtx,
                     &self,
                     self.tip_number() + 1,
@@ -446,8 +432,6 @@ impl ChainState {
                     self.store(),
                 )
                 .verify(max_cycles)
-                .map_err(PoolError::InvalidTx)?;
-                Ok(cycles)
             }
         }
     }
@@ -480,7 +464,7 @@ impl ChainState {
         cycles: Option<Cycle>,
         size: usize,
         tx: Transaction,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<Cycle, Error> {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
 
@@ -497,7 +481,7 @@ impl ChainState {
                                 e
                             );
                             tx_pool.update_statics_for_remove_tx(size, cycles);
-                            PoolError::TxFee
+                            e
                         })?;
                     tx_pool.add_proposed(cycles, fee, size, tx);
                     Ok(cycles)
@@ -514,8 +498,18 @@ impl ChainState {
                 }
             },
             Err(err) => {
-                match &err {
-                    UnresolvableError::Dead(_) => {
+                if err.kind() != &ErrorKind::OutPoint {
+                    debug_target!(crate::LOG_TARGET_TX_POOL, "Meet a unknown error {:?}", err,);
+                    return Err(err);
+                }
+
+                match err
+                    .cause()
+                    .unwrap()
+                    .downcast_ref::<OutPointError>()
+                    .unwrap()
+                {
+                    OutPointError::DeadCell(_) => {
                         if tx_pool
                             .conflict
                             .insert(short_id, DefectEntry::new(tx, 0, cycles, size))
@@ -524,7 +518,9 @@ impl ChainState {
                             tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                         }
                     }
-                    UnresolvableError::Unknown(out_points) => {
+                    OutPointError::UnknownCell(out_points) => {
+                        let out_points: Vec<_> =
+                            out_points.iter().map(|o| from_eop!(o.to_owned())).collect();
                         if tx_pool
                             .add_orphan(cycles, size, tx, out_points.to_owned())
                             .is_some()
@@ -536,14 +532,16 @@ impl ChainState {
                     // InvalidHeader. They all represent invalid transactions
                     // that should just be discarded.
                     // OutOfOrder should only appear in BlockCellProvider
-                    UnresolvableError::Empty
-                    | UnresolvableError::UnspecifiedInputCell(_)
-                    | UnresolvableError::InvalidHeader(_)
-                    | UnresolvableError::OutOfOrder(_) => {
+                    OutPointError::MissingInputCellAndHeader
+                    | OutPointError::MissingInputCell(_)
+                    | OutPointError::ExclusiveInputCell(_)
+                    | OutPointError::UnknownHeader(_)
+                    | OutPointError::OutOfOrder(_) => {
                         tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                     }
                 }
-                Err(PoolError::UnresolvableTransaction(err))
+
+                Err(err)
             }
         }
     }
@@ -554,7 +552,7 @@ impl ChainState {
         cycles: Option<Cycle>,
         size: usize,
         tx: Transaction,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<Cycle, Error> {
         self.proposed_tx(tx_pool, cycles, size, tx.clone())
             .map(|cycles| {
                 self.try_proposed_orphan_by_ancestor(tx_pool, &tx);

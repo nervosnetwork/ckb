@@ -9,7 +9,6 @@
 
 pub mod cell_set;
 pub mod chain_state;
-pub mod error;
 pub mod shared;
 pub mod tx_pool;
 mod tx_proposal_table;

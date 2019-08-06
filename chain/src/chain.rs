@@ -6,18 +6,17 @@ use ckb_core::extras::BlockExt;
 use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::{BlockNumber, Cycle};
+use ckb_error::{Error, HeaderError};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
 use ckb_shared::chain_state::ChainState;
-use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreTransaction};
 use ckb_traits::ChainProvider;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
 use crossbeam_channel::{self, select, Receiver, Sender};
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
@@ -28,7 +27,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::{cmp, thread};
 
-type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<bool, FailureError>>;
+type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<bool, Error>>;
 
 #[derive(Clone)]
 pub struct ChainController {
@@ -43,11 +42,7 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    pub fn process_block(
-        &self,
-        block: Arc<Block>,
-        need_verify: bool,
-    ) -> Result<bool, FailureError> {
+    pub fn process_block(&self, block: Arc<Block>, need_verify: bool) -> Result<bool, Error> {
         Request::call(&self.process_block_sender, (block, need_verify))
             .expect("process_block() failed")
     }
@@ -185,7 +180,7 @@ impl ChainService {
         &mut self,
         block: Arc<Block>,
         need_verify: bool,
-    ) -> Result<bool, FailureError> {
+    ) -> Result<bool, Error> {
         debug!("begin processing block: {:x}", block.header().hash());
         if block.header().number() < 1 {
             warn!(
@@ -200,15 +195,15 @@ impl ChainService {
         })
     }
 
-    fn non_contextual_verify(&self, block: &Block) -> Result<(), FailureError> {
+    fn non_contextual_verify(&self, block: &Block) -> Result<(), Error> {
         let block_verifier = BlockVerifier::new(self.shared.clone());
         block_verifier.verify(&block).map_err(|e| {
             debug!("[process_block] verification error {:?}", e);
-            e.into()
+            e
         })
     }
 
-    fn insert_block(&self, block: Arc<Block>, need_verify: bool) -> Result<bool, FailureError> {
+    fn insert_block(&self, block: Arc<Block>, need_verify: bool) -> Result<bool, Error> {
         // insert_block are assumed be executed in single thread
         if self.shared.store().block_exists(block.header().hash()) {
             return Ok(false);
@@ -245,7 +240,7 @@ impl ChainService {
         );
 
         if parent_ext.verified == Some(false) {
-            Err(SharedError::InvalidParentBlock)?;
+            Err(HeaderError::InvalidParent)?;
         }
 
         let db_txn = self.shared.store().begin_transaction();
@@ -369,11 +364,7 @@ impl ChainService {
         }
     }
 
-    pub(crate) fn rollback(
-        &self,
-        fork: &ForkChanges,
-        txn: &StoreTransaction,
-    ) -> Result<(), FailureError> {
+    pub(crate) fn rollback(&self, fork: &ForkChanges, txn: &StoreTransaction) -> Result<(), Error> {
         for block in fork.detached_blocks() {
             txn.detach_block(block)?;
         }
@@ -507,7 +498,7 @@ impl ChainService {
         chain_state: &mut ChainState,
         txs_verify_cache: &mut LruCache<H256, Cycle>,
         need_verify: bool,
-    ) -> Result<CellSetDiff, FailureError> {
+    ) -> Result<CellSetDiff, Error> {
         let verified_len = fork.verified_len();
 
         let mut cell_set_diff = fork.build_cell_set_diff();
@@ -540,7 +531,7 @@ impl ChainService {
                     let block_cp = match BlockCellProvider::new(b) {
                         Ok(block_cp) => block_cp,
                         Err(err) => {
-                            found_error = Some(SharedError::UnresolvableTransaction(err));
+                            found_error = Some(err);
                             continue;
                         }
                     };
@@ -586,13 +577,13 @@ impl ChainService {
                                     if log_enabled!(ckb_logger::Level::Trace) {
                                         trace!("block {}", serde_json::to_string(b).unwrap());
                                     }
-                                    found_error = Some(SharedError::InvalidBlock(err.to_string()));
+                                    found_error = Some(err);
                                     *verified = Some(false);
                                 }
                             }
                         }
                         Err(err) => {
-                            found_error = Some(SharedError::UnresolvableTransaction(err));
+                            found_error = Some(err);
                             *verified = Some(false);
                         }
                     }

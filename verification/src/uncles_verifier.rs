@@ -1,9 +1,9 @@
-use crate::error::{Error, UnclesError};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::Block;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::BlockNumber;
+use ckb_error::{BlockError, Error, HeaderError, PowError, UnclesError};
 use numext_fixed_hash::H256;
 use std::collections::{HashMap, HashSet};
 
@@ -45,19 +45,19 @@ where
         // verify uncles_count
         let uncles_count = self.block.uncles().len() as u32;
         if uncles_count != self.block.header().uncles_count() {
-            return Err(Error::Uncles(UnclesError::MissMatchCount {
+            Err(BlockError::Uncles(UnclesError::UnmatchedCount {
                 expected: self.block.header().uncles_count(),
                 actual: uncles_count,
-            }));
+            }))?;
         }
 
         // verify uncles_hash
         let actual_uncles_hash = self.block.cal_uncles_hash();
         if &actual_uncles_hash != self.block.header().uncles_hash() {
-            return Err(Error::Uncles(UnclesError::InvalidHash {
+            Err(BlockError::Uncles(UnclesError::UnmatchedUnclesHash {
                 expected: self.block.header().uncles_hash().to_owned(),
                 actual: actual_uncles_hash,
-            }));
+            }))?;
         }
 
         // if self.block.uncles is empty, return
@@ -67,33 +67,33 @@ where
 
         // if block is genesis, which is expected with zero uncles, return error
         if self.block.is_genesis() {
-            return Err(Error::Uncles(UnclesError::OverCount {
+            Err(BlockError::Uncles(UnclesError::TooManyUncles {
                 max: 0,
                 actual: uncles_count,
-            }));
+            }))?;
         }
 
         // verify uncles length =< max_uncles_num
         let max_uncles_num = self.provider.consensus().max_uncles_num() as u32;
         if uncles_count > max_uncles_num {
-            return Err(Error::Uncles(UnclesError::OverCount {
+            Err(BlockError::Uncles(UnclesError::TooManyUncles {
                 max: max_uncles_num,
                 actual: uncles_count,
-            }));
+            }))?;
         }
 
         let mut included: HashMap<H256, BlockNumber> = HashMap::default();
         for uncle in self.block.uncles() {
             if uncle.header().difficulty() != self.provider.epoch().difficulty() {
-                return Err(Error::Uncles(UnclesError::InvalidDifficulty));
+                Err(BlockError::Uncles(UnclesError::UnmatchedDifficulty))?;
             }
 
             if self.provider.epoch().number() != uncle.header().epoch() {
-                return Err(Error::Uncles(UnclesError::InvalidDifficultyEpoch));
+                Err(BlockError::Uncles(UnclesError::UnmatchedEpochNumber))?;
             }
 
             if uncle.header().number() >= self.block.header().number() {
-                return Err(Error::Uncles(UnclesError::InvalidNumber));
+                Err(BlockError::Uncles(UnclesError::UnmatchedBlockNumber))?;
             }
 
             let uncle_number = uncle.header.number();
@@ -103,33 +103,37 @@ where
                 .unwrap_or(false);
 
             if !(embedded_descendant || self.provider.descendant(&uncle.header)) {
-                return Err(Error::Uncles(UnclesError::DescendantLimit));
+                Err(BlockError::Uncles(UnclesError::DescendantLimit))?;
             }
 
             let uncle_hash = uncle.header.hash().to_owned();
             if included.contains_key(&uncle_hash) {
-                return Err(Error::Uncles(UnclesError::Duplicate(uncle_hash.clone())));
+                Err(BlockError::Uncles(UnclesError::DuplicatedUncles(
+                    uncle_hash.clone(),
+                )))?;
             }
 
             if self.provider.double_inclusion(&uncle_hash) {
-                return Err(Error::Uncles(UnclesError::DoubleInclusion(
+                Err(BlockError::Uncles(UnclesError::DoubleInclusion(
                     uncle_hash.clone(),
-                )));
+                )))?;
             }
 
             if uncle.proposals().len()
                 > self.provider.consensus().max_block_proposals_limit() as usize
             {
-                return Err(Error::Uncles(UnclesError::ExceededMaximumProposalsLimit));
+                Err(BlockError::Uncles(UnclesError::TooManyProposals))?;
             }
 
             if uncle.header.proposals_hash() != &uncle.cal_proposals_hash() {
-                return Err(Error::Uncles(UnclesError::ProposalsHash));
+                Err(BlockError::Uncles(UnclesError::UnmatchedProposalRoot))?;
             }
 
             let mut seen = HashSet::with_capacity(uncle.proposals().len());
             if !uncle.proposals().iter().all(|id| seen.insert(id)) {
-                return Err(Error::Uncles(UnclesError::ProposalDuplicate));
+                Err(BlockError::Uncles(
+                    UnclesError::DuplicatedProposalTransactions,
+                ))?;
             }
 
             if !self
@@ -138,7 +142,7 @@ where
                 .pow_engine()
                 .verify_header(&uncle.header)
             {
-                return Err(Error::Uncles(UnclesError::InvalidProof));
+                Err(HeaderError::Pow(PowError::InvalidProof))?;
             }
 
             included.insert(uncle_hash, uncle_number);

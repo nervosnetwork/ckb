@@ -130,11 +130,7 @@ impl Spec for WithdrawDAOWithNotMaturitySince {
                 .build()
         };
         node0.generate_blocks(20);
-        assert_send_transaction_fail(
-            node0,
-            &transaction,
-            "InvalidTx(ScriptFailure(ValidationFailure(-14)))",
-        );
+        assert_send_transaction_fail(node0, &transaction, "ScriptError(ValidationFailure(-14))");
     }
 }
 
@@ -169,11 +165,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
         };
         node0.generate_blocks(20);
         // Withdraw DAO with empty witnesses. Return DAO script ERROR_INCORRECT_CAPACITY
-        assert_send_transaction_fail(
-            node0,
-            &transaction,
-            "InvalidTx(ScriptFailure(ValidationFailure(-15)))",
-        );
+        assert_send_transaction_fail(node0, &transaction, "ScriptError(ValidationFailure(-15))");
     }
 }
 
@@ -200,11 +192,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
             .witnesses_clear()
             .build();
             node0.generate_blocks(20);
-            assert_send_transaction_fail(
-                node0,
-                &transaction,
-                "InvalidTx(ScriptFailure(ValidationFailure(-4)))",
-            );
+            assert_send_transaction_fail(node0, &transaction, "ScriptError(ValidationFailure(-4))");
         }
 
         // Withdraw DAO with not-enough witnesses. Return DAO script ERROR_WRONG_NUMBER_OF_ARGUMENTS
@@ -217,11 +205,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
             .witness(vec![Bytes::from(vec![0, 0, 0, 0, 0, 0, 0, 0])])
             .build();
             node0.generate_blocks(20);
-            assert_send_transaction_fail(
-                node0,
-                &transaction,
-                "InvalidTx(ScriptFailure(ValidationFailure(-2)))",
-            );
+            assert_send_transaction_fail(node0, &transaction, "ScriptError(ValidationFailure(-2))");
         }
 
         // Withdraw DAO with witness has bad format. Return DAO script ERROR_ENCODING.
@@ -239,7 +223,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
             assert_send_transaction_fail(
                 node0,
                 &transaction,
-                "InvalidTx(ScriptFailure(ValidationFailure(-11)))",
+                "ScriptError(ValidationFailure(-11))",
             );
         }
 
@@ -255,11 +239,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
             .witness(witness)
             .build();
             node0.generate_blocks(20);
-            assert_send_transaction_fail(
-                node0,
-                &transaction,
-                "InvalidTx(ScriptFailure(ValidationFailure(1)))",
-            );
+            assert_send_transaction_fail(node0, &transaction, "ScriptError(ValidationFailure(1))");
         }
     }
 }

@@ -1208,7 +1208,6 @@ impl SyncSharedState {
         if ret.is_err() {
             error!("accept block {:?} {:?}", block, ret);
             self.insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
-            return ret;
         } else {
             // Clear the newly inserted block from block_status_map.
             //
@@ -1217,12 +1216,11 @@ impl SyncSharedState {
             // and the next time `get_block_status` would acquire the real-time
             // status via fetching block_ext from the database.
             self.remove_block_status(block.header().hash());
+            self.remove_header_view(block.header().hash());
+            self.peers()
+                .set_last_common_header(peer, block.header().clone());
         }
-
-        self.remove_header_view(block.header().hash());
-        self.peers()
-            .set_last_common_header(peer, block.header().clone());
-        ret
+        Ok(ret?)
     }
 
     pub(crate) fn new_header_resolver<'a>(

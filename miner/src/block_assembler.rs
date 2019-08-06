@@ -12,6 +12,7 @@ use ckb_core::transaction::{
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, Version};
 use ckb_dao::DaoCalculator;
+use ckb_error::TransactionError;
 use ckb_jsonrpc_types::{
     BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
     EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
@@ -23,7 +24,6 @@ use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -452,7 +452,7 @@ impl BlockAssembler {
         let occupied_capacity = output.occupied_capacity(Capacity::bytes(data.len())?)?;
 
         if reward < occupied_capacity {
-            return Err(TransactionError::InsufficientCellCapacity.into());
+            Err(TransactionError::OccupiedOverflowCapacity)?;
         }
 
         if !data.is_empty() {

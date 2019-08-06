@@ -1,10 +1,10 @@
-use crate::error::{EpochError, Error, NumberError, PowError, TimestampError};
 use crate::header_verifier::{
     EpochVerifier, HeaderResolver, NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier,
 };
 use crate::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header, HeaderBuilder, HEADER_VERSION};
+use ckb_error::{BlockError, EpochError, HeaderError, NumberError, PowError, TimestampError};
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
 use faketime::unix_time_as_millis;
@@ -22,7 +22,10 @@ pub fn test_version() {
     let header = HeaderBuilder::default().version(HEADER_VERSION + 1).build();
     let verifier = VersionVerifier::new(&header);
 
-    assert_eq!(verifier.verify().err(), Some(Error::Version));
+    assert_eq!(
+        verifier.verify().err(),
+        Some(BlockError::MismatchedVersion.into())
+    );
 }
 
 #[cfg(not(disable_faketime))]
@@ -59,10 +62,13 @@ fn test_timestamp_too_old() {
 
     assert_eq!(
         timestamp_verifier.verify().err(),
-        Some(Error::Timestamp(TimestampError::BlockTimeTooOld {
-            min,
-            found: timestamp,
-        }))
+        Some(
+            HeaderError::Timestamp(TimestampError::BlockTimeTooOld {
+                min,
+                actual: timestamp,
+            })
+            .into()
+        )
     );
 }
 
@@ -82,10 +88,13 @@ fn test_timestamp_too_new() {
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
     assert_eq!(
         timestamp_verifier.verify().err(),
-        Some(Error::Timestamp(TimestampError::BlockTimeTooNew {
-            max,
-            found: timestamp,
-        }))
+        Some(
+            HeaderError::Timestamp(TimestampError::BlockTimeTooNew {
+                max,
+                actual: timestamp,
+            })
+            .into()
+        )
     );
 }
 
@@ -97,10 +106,13 @@ fn test_number() {
     let verifier = NumberVerifier::new(&parent, &header);
     assert_eq!(
         verifier.verify().err(),
-        Some(Error::Number(NumberError {
-            expected: 11,
-            actual: 10,
-        }))
+        Some(
+            HeaderError::Number(NumberError {
+                expected: 11,
+                actual: 10,
+            })
+            .into()
+        )
     );
 }
 
@@ -136,10 +148,13 @@ fn test_epoch_number() {
 
     assert_eq!(
         EpochVerifier::verify(&fake_header_resolver).err(),
-        Some(Error::Epoch(EpochError::NumberMismatch {
-            expected: 0,
-            actual: 2,
-        }))
+        Some(
+            HeaderError::Epoch(EpochError::UnmatchedNumber {
+                expected: 0,
+                actual: 2,
+            })
+            .into()
+        )
     )
 }
 
@@ -154,10 +169,13 @@ fn test_epoch_difficulty() {
 
     assert_eq!(
         EpochVerifier::verify(&fake_header_resolver).err(),
-        Some(Error::Epoch(EpochError::DifficultyMismatch {
-            expected: U256::from(1u64),
-            actual: U256::from(2u64),
-        }))
+        Some(
+            HeaderError::Epoch(EpochError::UnmatchedDifficulty {
+                expected: U256::from(1u64),
+                actual: U256::from(2u64),
+            })
+            .into()
+        )
     );
 }
 
@@ -189,6 +207,6 @@ fn test_pow_verifier() {
 
     assert_eq!(
         verifier.verify().err(),
-        Some(Error::Pow(PowError::InvalidProof))
+        Some(HeaderError::Pow(PowError::InvalidProof).into())
     );
 }

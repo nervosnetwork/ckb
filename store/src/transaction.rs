@@ -13,8 +13,9 @@ use ckb_core::transaction::OutPoint;
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_db::{
     iter::{DBIterator, DBIteratorItem},
-    Col, DBVector, Direction, Error, RocksDBTransaction, RocksDBTransactionSnapshot,
+    Col, DBVector, Direction, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
+use ckb_error::Error;
 use ckb_protos::{self as protos, CanBuild};
 use numext_fixed_hash::H256;
 

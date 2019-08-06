@@ -11,4 +11,4 @@ numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heap
 ckb-chain-spec = {path = "../spec"}
 ckb-store = { path = "../store" }
 ckb-script = { path = "../script" }
-failure = "0.1.5"
+ckb-error = { path = "../error" }

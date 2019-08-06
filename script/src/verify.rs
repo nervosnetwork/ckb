@@ -5,12 +5,13 @@ use crate::{
         LoadWitness,
     },
     type_id::{TypeIdSystemScript, TYPE_ID_CODE_HASH},
-    DataLoader, ScriptConfig, ScriptError,
+    DataLoader, ScriptConfig,
 };
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{Bytes, Cycle};
+use ckb_error::{Error, InternalError, ScriptError};
 use ckb_logger::{debug, info};
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
@@ -227,39 +228,31 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 
     // Extracts actual script binary either in dep cells.
-    fn extract_script(&self, script: &'a Script) -> Result<Bytes, ScriptError> {
+    fn extract_script(&self, script: &'a Script) -> Result<Bytes, Error> {
         match script.hash_type {
             ScriptHashType::Data => {
                 if let Some(data) = self.binaries_by_data_hash.get(&script.code_hash) {
                     Ok(data.to_owned())
                 } else {
-                    Err(ScriptError::InvalidCodeHash)
+                    Err(ScriptError::InvalidCodeHash)?
                 }
             }
             ScriptHashType::Type => {
                 if let Some((data, multiple)) = self.binaries_by_type_hash.get(&script.code_hash) {
                     if *multiple {
-                        Err(ScriptError::MultipleMatches)
+                        Err(ScriptError::MultipleMatches)?
                     } else {
                         Ok(data.to_owned())
                     }
                 } else {
-                    Err(ScriptError::InvalidCodeHash)
+                    Err(ScriptError::InvalidCodeHash)?
                 }
             }
         }
     }
 
-    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, ScriptError> {
+    pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
         let mut cycles: Cycle = 0;
-        // Check if all inputs are resolved correctly
-        if self
-            .resolved_inputs()
-            .iter()
-            .any(|input| input.cell.is_none())
-        {
-            return Err(ScriptError::NoScript);
-        }
 
         // Now run each script group
         for group in self.lock_groups.values().chain(self.type_groups.values()) {
@@ -287,9 +280,9 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             })?;
             let current_cycles = cycles
                 .checked_add(cycle)
-                .ok_or(ScriptError::ExceededMaximumCycles)?;
+                .ok_or(ScriptError::TooMuchCycles)?;
             if current_cycles > max_cycles {
-                return Err(ScriptError::ExceededMaximumCycles);
+                Err(ScriptError::TooMuchCycles)?;
             }
             cycles = current_cycles;
         }
@@ -302,7 +295,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         program: &Bytes,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-    ) -> Result<Cycle, ScriptError> {
+    ) -> Result<Cycle, Error> {
         let current_script_hash = script_group.script.hash();
         let prefix = format!("script group: {:x}", current_script_hash);
         let debug_printer = |message: &str| {
@@ -344,8 +337,10 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 let mut machine = AsmMachine::new(machine, None);
                 machine
                     .load_program(&program, &args)
-                    .map_err(ScriptError::VMError)?;
-                let code = machine.run().map_err(ScriptError::VMError)?;
+                    .map_err(|vm_err| InternalError::VM(format!("{:?}", vm_err)))?;
+                let code = machine
+                    .run()
+                    .map_err(|vm_err| InternalError::VM(format!("{:?}", vm_err)))?;
                 (code, machine.machine.cycles())
             }
             Runner::Rust => {
@@ -379,15 +374,17 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 let mut machine = TraceMachine::new(machine);
                 machine
                     .load_program(&program, &args)
-                    .map_err(ScriptError::VMError)?;
-                let code = machine.run().map_err(ScriptError::VMError)?;
+                    .map_err(|vm_err| InternalError::VM(format!("{:?}", vm_err)))?;
+                let code = machine
+                    .run()
+                    .map_err(|vm_err| InternalError::VM(format!("{:?}", vm_err)))?;
                 (code, machine.machine.cycles())
             }
         };
         if code == 0 {
             Ok(cycles)
         } else {
-            Err(ScriptError::ValidationFailure(code))
+            Err(ScriptError::ValidationFailure(code))?
         }
     }
 
@@ -397,7 +394,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         program: &Bytes,
         script_group: &ScriptGroup,
         max_cycles: Cycle,
-    ) -> Result<Cycle, ScriptError> {
+    ) -> Result<Cycle, Error> {
         let current_script_hash = script_group.script.hash();
         let prefix = format!("script group: {:x}", current_script_hash);
         let debug_printer = |message: &str| {
@@ -442,12 +439,14 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         let mut machine = TraceMachine::new(machine);
         machine
             .load_program(&program, &args)
-            .map_err(ScriptError::VMError)?;
-        let code = machine.run().map_err(ScriptError::VMError)?;
+            .map_err(|vm_err| InternalError::VM(format!("{:?}", vm_err)))?;
+        let code = machine
+            .run()
+            .map_err(|vm_err| InternalError::VM(format!("{:?}", vm_err)))?;
         if code == 0 {
             Ok(machine.machine.cycles())
         } else {
-            Err(ScriptError::ValidationFailure(code))
+            Err(ScriptError::ValidationFailure(code))?
         }
     }
 }
@@ -621,10 +620,10 @@ mod tests {
         // Default Runner
         assert!(verifier.verify(100_000_000).is_ok());
 
-        // Not enought cycles
+        // Not enough cycles
         assert_eq!(
-            verifier.verify(100).err(),
-            Some(ScriptError::VMError(VMInternalError::InvalidCycles))
+            verifier.verify(100),
+            Err(InternalError::VM(format!("{:?}", VMInternalError::InvalidCycles)).into()),
         );
 
         // Rust Runner
@@ -849,7 +848,7 @@ mod tests {
 
         assert_eq!(
             verifier.verify(100_000_000),
-            Err(ScriptError::MultipleMatches)
+            Err(ScriptError::MultipleMatches.into())
         );
     }
 
@@ -990,7 +989,7 @@ mod tests {
 
         assert_eq!(
             verifier.verify(100_000_000).err(),
-            Some(ScriptError::ValidationFailure(2))
+            Some(ScriptError::ValidationFailure(2).into())
         );
     }
 
@@ -1041,8 +1040,8 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert_eq!(
-            verifier.verify(100_000_000).err(),
-            Some(ScriptError::InvalidCodeHash)
+            verifier.verify(100_000_000),
+            Err(ScriptError::InvalidCodeHash.into())
         );
     }
 
@@ -1197,8 +1196,8 @@ mod tests {
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
 
         assert_eq!(
-            verifier.verify(100_000_000).err(),
-            Some(ScriptError::ValidationFailure(2))
+            verifier.verify(100_000_000),
+            Err(ScriptError::ValidationFailure(2).into())
         );
     }
 
@@ -1388,7 +1387,7 @@ mod tests {
 
         assert_eq!(
             verifier.verify(500_000).err(),
-            Some(ScriptError::ExceededMaximumCycles)
+            Some(ScriptError::TooMuchCycles.into()),
         );
     }
 
@@ -1615,7 +1614,7 @@ mod tests {
 
         assert_eq!(
             verifier.verify(1_001_000).err(),
-            Some(ScriptError::ValidationFailure(-3))
+            Some(ScriptError::ValidationFailure(-3).into())
         );
     }
 
@@ -1703,7 +1702,7 @@ mod tests {
 
         assert_eq!(
             verifier.verify(1_001_000).err(),
-            Some(ScriptError::ValidationFailure(-1))
+            Some(ScriptError::ValidationFailure(-1).into())
         );
     }
 
@@ -1774,7 +1773,7 @@ mod tests {
 
         assert_eq!(
             verifier.verify(1_001_000).err(),
-            Some(ScriptError::ValidationFailure(-2))
+            Some(ScriptError::ValidationFailure(-2).into())
         );
     }
 }

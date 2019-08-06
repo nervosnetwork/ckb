@@ -1,5 +1,4 @@
 use super::super::contextual_block_verifier::{CommitVerifier, VerifyContext};
-use super::super::error::{CommitError, Error};
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
@@ -10,6 +9,7 @@ use ckb_core::transaction::{
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
+use ckb_error::{BlockError, CommitError};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
@@ -169,7 +169,7 @@ fn test_proposal() {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         assert_eq!(
             CommitVerifier::new(&context, &block).verify(),
-            Err(Error::Commit(CommitError::Invalid))
+            Err(BlockError::Commit(CommitError::NotInProposalWindow).into())
         );
 
         //test chain forward
@@ -244,7 +244,10 @@ fn test_uncle_proposal() {
     for _ in (proposed + 1)..(proposed + proposal_window.closest()) {
         let block: Block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(&context, &block);
-        assert_eq!(verifier.verify(), Err(Error::Commit(CommitError::Invalid)));
+        assert_eq!(
+            verifier.verify(),
+            Err(BlockError::Commit(CommitError::NotInProposalWindow).into())
+        );
 
         //test chain forward
         let new_block: Block = gen_block(&parent, vec![], vec![], vec![]);

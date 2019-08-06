@@ -1,5 +1,6 @@
 use crate::transaction::RocksDBTransaction;
-use crate::{Col, DBConfig, Error, Result};
+use crate::{from_db_error, Col, DBConfig, Result};
+use ckb_error::InternalError;
 use ckb_logger::{info, warn};
 use rocksdb::ops::{Get, GetColumnFamilys, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions};
 use rocksdb::{
@@ -43,13 +44,13 @@ impl RocksDB {
                     opts.create_if_missing(true);
                     let db = OptimisticTransactionDB::open_cf(&opts, &config.path, &cf_options)
                         .map_err(|err| {
-                            Error::DBError(format!(
+                            InternalError::Database(format!(
                                 "failed to open a new created database: {}",
                                 err
                             ))
                         })?;
                     db.put(ver_key, ver_val).map_err(|err| {
-                        Error::DBError(format!("failed to initiate the database: {}", err))
+                        InternalError::Database(format!("failed to initiate the database: {}", err))
                     })?;
                     Ok(db)
                 } else if err.as_ref().starts_with("Corruption:") {
@@ -58,16 +59,19 @@ impl RocksDB {
                     repair_opts.create_if_missing(false);
                     repair_opts.create_missing_column_families(false);
                     OptimisticTransactionDB::repair(repair_opts, &config.path).map_err(|err| {
-                        Error::DBError(format!("failed to repair the database: {}", err))
+                        InternalError::Database(format!("failed to repair the database: {}", err))
                     })?;
                     warn!("Opening the repaired rocksdb ...");
                     OptimisticTransactionDB::open_cf(&opts, &config.path, &cf_options).map_err(
                         |err| {
-                            Error::DBError(format!("failed to open the repaired database: {}", err))
+                            InternalError::Database(format!(
+                                "failed to open the repaired database: {}",
+                                err
+                            ))
                         },
                     )
                 } else {
-                    Err(Error::DBError(format!(
+                    Err(InternalError::Database(format!(
                         "failed to open the database: {}",
                         err
                     )))
@@ -80,26 +84,29 @@ impl RocksDB {
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect();
             db.set_options(&rocksdb_options)
-                .map(|_| Error::DBError("failed to set database option".to_owned()))?;
+                .map_err(|_| InternalError::Database("failed to set database option".to_owned()))?;
         }
 
         let version_bytes = db
             .get(ver_key)
             .map_err(|err| {
-                Error::DBError(format!("failed to check the version of database: {}", err))
+                InternalError::Database(format!("failed to check the version of database: {}", err))
             })?
-            .ok_or_else(|| Error::DBError("version info about database is lost".to_owned()))?;
+            .ok_or_else(|| {
+                InternalError::Database("version info about database is lost".to_owned())
+            })?;
         let version_str = unsafe { ::std::str::from_utf8_unchecked(&version_bytes) };
-        let version = semver::Version::parse(version_str)
-            .map_err(|err| Error::DBError(format!("database version is malformed: {}", err)))?;
+        let version = semver::Version::parse(version_str).map_err(|err| {
+            InternalError::Database(format!("database version is malformed: {}", err))
+        })?;
         let required_version = semver::Version::parse(ver_val).map_err(|err| {
-            Error::DBError(format!("required database version is malformed: {}", err))
+            InternalError::Database(format!("required database version is malformed: {}", err))
         })?;
         if required_version.major != version.major
             || required_version.minor != version.minor
             || required_version.patch < version.patch
         {
-            Err(Error::DBError(format!(
+            Err(InternalError::Database(format!(
                 "the database version is not matched, require {} but it's {}",
                 required_version, version
             )))?;
@@ -110,7 +117,7 @@ impl RocksDB {
             );
             // Do data migration here.
             db.put(ver_key, ver_val).map_err(|err| {
-                Error::DBError(format!("Failed to update database version: {}", err))
+                InternalError::Database(format!("Failed to update database version: {}", err))
             })?;
         }
 
@@ -137,7 +144,7 @@ impl RocksDB {
 
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.inner, col)?;
-        self.inner.get_pinned_cf(cf, &key).map_err(Into::into)
+        self.inner.get_pinned_cf(cf, &key).map_err(from_db_error)
     }
 
     pub fn traverse<F>(&self, col: Col, mut callback: F) -> Result<()>
@@ -145,7 +152,10 @@ impl RocksDB {
         F: FnMut(&[u8], &[u8]) -> Result<()>,
     {
         let cf = cf_handle(&self.inner, col)?;
-        let iter = self.inner.full_iterator_cf(cf, IteratorMode::Start)?;
+        let iter = self
+            .inner
+            .full_iterator_cf(cf, IteratorMode::Start)
+            .map_err(from_db_error)?;
         for (key, val) in iter {
             callback(&key, &val)?;
         }
@@ -167,12 +177,13 @@ impl RocksDB {
 
 pub(crate) fn cf_handle(db: &OptimisticTransactionDB, col: Col) -> Result<&ColumnFamily> {
     db.cf_handle(col)
-        .ok_or_else(|| Error::DBError(format!("column {} not found", col)))
+        .ok_or_else(|| InternalError::Database(format!("column {} not found", col)).into())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DBConfig, Error, Result, RocksDB, VERSION_KEY, VERSION_VALUE};
+    use super::{DBConfig, Result, RocksDB, VERSION_KEY, VERSION_VALUE};
+    use ckb_error::InternalError;
     use std::collections::HashMap;
     use tempfile;
 
@@ -296,9 +307,12 @@ mod tests {
         let r = RocksDB::open_with_check(&config, 1, VERSION_KEY, "0.2.0");
         assert_eq!(
             r.err(),
-            Some(Error::DBError(
-                "the database version is not matched, require 0.2.0 but it's 0.1.0".to_owned()
-            ))
+            Some(
+                InternalError::Database(
+                    "the database version is not matched, require 0.2.0 but it's 0.1.0".to_owned()
+                )
+                .into()
+            )
         );
     }
 

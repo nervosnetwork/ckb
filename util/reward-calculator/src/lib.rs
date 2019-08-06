@@ -1,26 +1,18 @@
 //! This mod implemented a ckb block reward calculator
 
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::header::{BlockNumber, Header};
+use ckb_core::header::Header;
 use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
 use ckb_core::transaction::ProposalShortId;
 use ckb_core::Capacity;
 use ckb_dao::DaoCalculator;
+use ckb_error::Error;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
-use failure::{Error as FailureError, Fail};
 use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::HashSet;
-
-#[derive(Debug, PartialEq, Clone, Eq, Fail)]
-pub enum Error {
-    #[fail(display = "Can't resolve finalize target: {}", _0)]
-    Target(BlockNumber),
-    #[fail(display = "Can't parse Script from target witness: {:x}", _0)]
-    Script(H256),
-}
 
 pub struct RewardCalculator<'a, CS> {
     pub consensus: &'a Consensus,
@@ -34,20 +26,20 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
     /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
-    pub fn block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), FailureError> {
+    pub fn block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), Error> {
         let consensus = self.consensus;
         let store = self.store;
 
         let block_number = parent.number() + 1;
         let target_number = consensus
             .finalize_target(block_number)
-            .ok_or_else(|| Error::Target(block_number))?;
+            .expect("block number checked before involving finalize_target");
 
         let target = self
             .store
             .get_block_hash(target_number)
             .and_then(|hash| self.store.get_block_header(&hash))
-            .ok_or_else(|| Error::Target(block_number))?;
+            .expect("block hash checked before involving get_ancestor");
 
         let target_lock = Script::from_witness(
             &store
@@ -55,7 +47,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
                 .expect("target cellbase exist")
                 .witnesses()[0],
         )
-        .ok_or_else(|| Error::Script(target.hash().to_owned()))?;
+        .expect("cellbase loaded from store should has non-empty witness");
 
         let txs_fees = self.txs_fees(&target)?;
         let proposal_reward = self.proposal_reward(parent, &target)?;
@@ -91,7 +83,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// Miner get (tx_fee - 40% of tx fee) for tx commitment.
     /// Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
-    pub fn txs_fees(&self, target: &Header) -> Result<Capacity, FailureError> {
+    pub fn txs_fees(&self, target: &Header) -> Result<Capacity, Error> {
         let consensus = self.consensus;
         let target_ext = self
             .store
@@ -124,11 +116,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
     ///         \____________/
     ///
 
-    pub fn proposal_reward(
-        &self,
-        parent: &Header,
-        target: &Header,
-    ) -> Result<Capacity, FailureError> {
+    pub fn proposal_reward(&self, parent: &Header, target: &Header) -> Result<Capacity, Error> {
         let mut target_proposals = self.get_proposal_ids_by_hash(target.hash());
 
         let proposal_window = self.consensus.tx_proposal_window();
@@ -219,7 +207,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         Ok(reward)
     }
 
-    fn base_block_reward(&self, target: &Header) -> Result<(Capacity, Capacity), FailureError> {
+    fn base_block_reward(&self, target: &Header) -> Result<(Capacity, Capacity), Error> {
         let calculator = DaoCalculator::new(&self.consensus, self.store);
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;

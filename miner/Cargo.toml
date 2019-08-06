@@ -33,6 +33,7 @@ indicatif = "0.11"
 console = "0.7.5"
 ckb-dao = { path = "../util/dao" }
 ckb-hash = { path = "../util/hash"}
+ckb-error = { path = "../error" }
 
 [dev-dependencies]
 proptest = "0.9"

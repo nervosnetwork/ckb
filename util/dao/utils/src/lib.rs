@@ -1,26 +1,14 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::transaction::Transaction;
 use ckb_core::{Bytes, Capacity};
-use failure::{Error as FailureError, Fail};
+use ckb_error::{DaoError, Error};
 
 // This is multiplied by 10**16 to make sure we have enough precision.
 pub const DEFAULT_ACCUMULATED_RATE: u64 = 10_000_000_000_000_000;
 
 pub const DAO_VERSION: u8 = 1;
 
-#[derive(Debug, PartialEq, Clone, Eq, Fail)]
-pub enum Error {
-    #[fail(display = "Unknown")]
-    Unknown,
-    #[fail(display = "InvalidHeader")]
-    InvalidHeader,
-    #[fail(display = "InvalidOutPoint")]
-    InvalidOutPoint,
-    #[fail(display = "Format")]
-    Format,
-}
-
-pub fn genesis_dao_data(genesis_cellbase_tx: &Transaction) -> Result<Bytes, FailureError> {
+pub fn genesis_dao_data(genesis_cellbase_tx: &Transaction) -> Result<Bytes, Error> {
     let c = genesis_cellbase_tx
         .outputs()
         .iter()
@@ -40,9 +28,9 @@ pub fn genesis_dao_data(genesis_cellbase_tx: &Transaction) -> Result<Bytes, Fail
     Ok(pack_dao_data(DEFAULT_ACCUMULATED_RATE, c, u))
 }
 
-pub fn extract_dao_data(data: &[u8]) -> Result<(u64, Capacity, Capacity), FailureError> {
+pub fn extract_dao_data(data: &[u8]) -> Result<(u64, Capacity, Capacity), Error> {
     if data.len() != 32 || data[0] != DAO_VERSION {
-        return Err(Error::Format.into());
+        return Err(DaoError::InvalidDaoFormat.into());
     }
 
     let ar = LittleEndian::read_u64(&data[8..16]);

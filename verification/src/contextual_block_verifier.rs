@@ -1,4 +1,3 @@
-use crate::error::{CellbaseError, CommitError, Error};
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use crate::{ContextualTransactionVerifier, TransactionVerifier};
 use ckb_chain_spec::consensus::Consensus;
@@ -11,6 +10,7 @@ use ckb_core::transaction::{OutPoint, Transaction};
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber, Capacity, EpochNumber};
 use ckb_dao::DaoCalculator;
+use ckb_error::{BlockError, CellbaseError, CommitError, Error, TransactionError};
 use ckb_logger::error_target;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
@@ -37,9 +37,7 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
     }
 
     fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), Error> {
-        RewardCalculator::new(self.consensus, self.store)
-            .block_reward(parent)
-            .map_err(|_| Error::CannotFetchBlockReward)
+        RewardCalculator::new(self.consensus, self.store).block_reward(parent)
     }
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
@@ -162,7 +160,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
             .context
             .store
             .get_block_hash(proposal_end)
-            .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
+            .ok_or_else(|| BlockError::Commit(CommitError::NonexistentAncestor))?;
 
         let mut proposal_txs_ids = HashSet::default();
 
@@ -171,7 +169,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
                 .context
                 .store
                 .get_block_header(&block_hash)
-                .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
+                .ok_or_else(|| BlockError::Commit(CommitError::NonexistentAncestor))?;
             if header.is_genesis() {
                 break;
             }
@@ -217,7 +215,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
                 "proposal_txs_ids {} ",
                 serde_json::to_string(&proposal_txs_ids).unwrap()
             );
-            return Err(Error::Commit(CommitError::Invalid));
+            Err(BlockError::Commit(CommitError::NotInProposalWindow))?;
         }
         Ok(())
     }
@@ -246,19 +244,17 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
         let cellbase = &self.resolved[0];
         let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
         if cellbase.transaction.outputs_capacity()? != block_reward.total {
-            return Err(Error::Cellbase(CellbaseError::InvalidRewardAmount));
+            Err(BlockError::Cellbase(CellbaseError::InvalidRewardAmount))?;
         }
         if cellbase.transaction.outputs()[0].lock != target_lock {
-            return Err(Error::Cellbase(CellbaseError::InvalidRewardTarget));
+            Err(BlockError::Cellbase(CellbaseError::InvalidRewardTarget))?;
         }
         let txs_fees = self
             .resolved
             .iter()
             .skip(1)
             .map(|tx| {
-                DaoCalculator::new(self.context.consensus, self.context.store)
-                    .transaction_fee(&tx)
-                    .map_err(|_| Error::FeeCalculation)
+                DaoCalculator::new(self.context.consensus, self.context.store).transaction_fee(&tx)
             })
             .collect::<Result<Vec<Capacity>, Error>>()?;
 
@@ -298,11 +294,11 @@ impl<'a, 'b, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, CS> {
                     self.header.hash(),
                     e
                 );
-                Error::DAOGeneration
+                e
             })?;
 
         if dao != self.header.dao() {
-            return Err(Error::InvalidDAO);
+            Err(BlockError::InvalidDAO)?;
         }
         Ok(())
     }
@@ -352,7 +348,10 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         self.context.consensus,
                     )
                     .verify()
-                    .map_err(|e| Error::Transactions((index, e)))
+                    .map_err(|e| match e.downcast_ref::<TransactionError>() {
+                        Some(err) => BlockError::Transactions(index, err.clone()).into(),
+                        None => e,
+                    })
                     .map(|_| (tx_hash, *cycles))
                 } else {
                     TransactionVerifier::new(
@@ -366,7 +365,10 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         self.context.store,
                     )
                     .verify(self.context.consensus.max_block_cycles())
-                    .map_err(|e| Error::Transactions((index, e)))
+                    .map_err(|e| match e.downcast_ref::<TransactionError>() {
+                        Some(err) => BlockError::Transactions(index, err.clone()).into(),
+                        None => e,
+                    })
                     .map(|cycles| (tx_hash, cycles))
                 }
             })
@@ -379,7 +381,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         }
 
         if sum > self.context.consensus.max_block_cycles() {
-            Err(Error::ExceededMaximumCycles)
+            Err(BlockError::TooMuchCycles)?
         } else {
             Ok(sum)
         }
@@ -393,7 +395,7 @@ fn prepare_epoch_ext<'a, CS: ChainStore<'a>>(
     let parent_ext = context
         .store
         .get_block_epoch(parent.hash())
-        .ok_or_else(|| Error::UnknownParent(parent.hash().clone()))?;
+        .ok_or_else(|| BlockError::UnknownParent(parent.hash().clone()))?;
     Ok(context
         .next_epoch_ext(&parent_ext, parent)
         .unwrap_or(parent_ext))
@@ -419,7 +421,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             .context
             .store
             .get_block_header(parent_hash)
-            .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
+            .ok_or_else(|| BlockError::UnknownParent(parent_hash.clone()))?;
 
         let epoch_ext = if block.is_genesis() {
             self.context.consensus.genesis_epoch_ext().to_owned()

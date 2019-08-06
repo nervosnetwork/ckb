@@ -6,8 +6,9 @@ use ckb_core::extras::BlockExt;
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_db::{
     iter::{DBIterator, DBIteratorItem},
-    Col, DBPinnableSlice, Direction, Error, RocksDB,
+    Col, DBPinnableSlice, Direction, RocksDB,
 };
+use ckb_error::{Error, InternalError};
 use ckb_protos as protos;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
@@ -50,8 +51,9 @@ impl ChainDB {
             .traverse(COLUMN_CELL_SET, |hash_slice, tx_meta_bytes| {
                 let tx_hash =
                     H256::from_slice(hash_slice).expect("deserialize tx hash should be ok");
-                let tx_meta: TransactionMeta =
-                    protos::TransactionMeta::from_slice(tx_meta_bytes).try_into()?;
+                let tx_meta: TransactionMeta = protos::TransactionMeta::from_slice(tx_meta_bytes)
+                    .try_into()
+                    .map_err(|e: protos::Error| InternalError::CorruptedData(e.to_string()))?;
                 callback(tx_hash, tx_meta)
             })
     }
