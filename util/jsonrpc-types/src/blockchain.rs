@@ -145,23 +145,37 @@ impl From<OutPoint> for CoreOutPoint {
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum CellDep {
-    Cell(OutPoint),
-    CellWithHeader(OutPoint, H256),
-    DepGroup(OutPoint),
-    Header(H256),
+    Cell {
+        previous_output: OutPoint,
+    },
+    CellWithHeader {
+        previous_output: OutPoint,
+        block_hash: H256,
+    },
+    DepGroup {
+        previous_output: OutPoint,
+    },
+    Header {
+        block_hash: H256,
+    },
 }
 
 impl From<CoreCellDep> for CellDep {
     fn from(core: CoreCellDep) -> CellDep {
         match core {
-            CoreCellDep::Cell(out_point) => CellDep::Cell(out_point.into()),
-            CoreCellDep::CellWithHeader(out_point, block_hash) => {
-                CellDep::CellWithHeader(out_point.into(), block_hash)
-            }
-            CoreCellDep::DepGroup(out_point) => CellDep::DepGroup(out_point.into()),
-            CoreCellDep::Header(block_hash) => CellDep::Header(block_hash),
+            CoreCellDep::Cell(out_point) => CellDep::Cell {
+                previous_output: out_point.into(),
+            },
+            CoreCellDep::CellWithHeader(out_point, block_hash) => CellDep::CellWithHeader {
+                previous_output: out_point.into(),
+                block_hash,
+            },
+            CoreCellDep::DepGroup(out_point) => CellDep::DepGroup {
+                previous_output: out_point.into(),
+            },
+            CoreCellDep::Header(block_hash) => CellDep::Header { block_hash },
         }
     }
 }
@@ -169,12 +183,13 @@ impl From<CoreCellDep> for CellDep {
 impl From<CellDep> for CoreCellDep {
     fn from(json: CellDep) -> CoreCellDep {
         match json {
-            CellDep::Cell(out_point) => CoreCellDep::Cell(out_point.into()),
-            CellDep::CellWithHeader(out_point, block_hash) => {
-                CoreCellDep::CellWithHeader(out_point.into(), block_hash)
-            }
-            CellDep::DepGroup(out_point) => CoreCellDep::DepGroup(out_point.into()),
-            CellDep::Header(block_hash) => CoreCellDep::Header(block_hash),
+            CellDep::Cell { previous_output } => CoreCellDep::Cell(previous_output.into()),
+            CellDep::CellWithHeader {
+                previous_output,
+                block_hash,
+            } => CoreCellDep::CellWithHeader(previous_output.into(), block_hash),
+            CellDep::DepGroup { previous_output } => CoreCellDep::DepGroup(previous_output.into()),
+            CellDep::Header { block_hash } => CoreCellDep::Header(block_hash),
         }
     }
 }
@@ -331,7 +346,7 @@ impl TransactionWithStatus {
 
 /// Status for transaction
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum Status {
     /// Transaction on pool, not proposed
     Pending,

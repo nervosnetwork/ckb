@@ -9,7 +9,7 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::resolve_transaction;
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{
-    CellDep, CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
+    CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
 };
 use ckb_core::{alert::AlertBuilder, capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
@@ -87,10 +87,37 @@ fn always_success_consensus() -> Consensus {
 fn always_success_transaction() -> Transaction {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
+    let for_dep_group_input_cell = CellOutput::new(
+        capacity_bytes!(1000),
+        H256::zero(),
+        always_success_script.clone(),
+        None,
+    );
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
         .output_data(always_success_cell_data.to_owned())
+        .output(for_dep_group_input_cell)
+        .output_data(Bytes::new())
+        .witness(always_success_script.clone().into_witness())
+        .build()
+}
+
+fn dep_group_transation() -> Transaction {
+    let (_, _, always_success_script) = always_success_cell();
+    let always_success_tx = always_success_transaction();
+    let dep = CellDep::Cell(OutPoint::new(always_success_tx.hash().clone(), 0));
+    let input = CellInput::new(OutPoint::new(always_success_tx.hash().clone(), 1), 0);
+    let output_data =
+        Bytes::from(OutPoint::new(always_success_tx.hash().clone(), 0).to_group_data());
+    let output = CellOutputBuilder::from_data(&output_data)
+        .capacity(capacity_bytes!(1000))
+        .build();
+    TransactionBuilder::default()
+        .dep(dep)
+        .input(input)
+        .output(output)
+        .output_data(output_data)
         .witness(always_success_script.clone().into_witness())
         .build()
 }
@@ -108,28 +135,36 @@ fn next_block(shared: &Shared, parent: &Header) -> Block {
     let (_, reward) = shared.finalize_block_reward(parent).unwrap();
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total);
 
+    let mut transactions = vec![cellbase];
+    let mut proposals = Vec::new();
     // We store a cellbase for constructing a new transaction later
     if parent.number() == 0 {
         UNSPENT.with(|unspent| {
-            *unspent.borrow_mut() = cellbase.hash().to_owned();
+            *unspent.borrow_mut() = transactions[0].hash().to_owned();
         });
+        proposals.push(dep_group_transation().proposal_short_id());
+    }
+
+    if parent.number() == 2 {
+        transactions.push(dep_group_transation());
     }
 
     let dao = {
         let chain_state = shared.lock_chain_state();
-        let resolved_cellbase = resolve_transaction(
-            &cellbase,
-            &mut Default::default(),
-            &*chain_state,
-            &*chain_state,
-        )
-        .unwrap();
+        let resolved_txs = transactions
+            .iter()
+            .map(|tx| {
+                resolve_transaction(tx, &mut Default::default(), &*chain_state, &*chain_state)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
         DaoCalculator::new(shared.consensus(), shared.store())
-            .dao_field(&[resolved_cellbase], parent)
+            .dao_field(&resolved_txs, parent)
             .unwrap()
     };
     BlockBuilder::default()
-        .transaction(cellbase)
+        .transactions(transactions)
+        .proposals(proposals)
         .header_builder(
             HeaderBuilder::default()
                 .parent_hash(parent.hash().to_owned())
@@ -280,22 +315,28 @@ fn load_cases_from_file() -> Vec<Value> {
 }
 
 // Construct a transaction which use tip-cellbase as input cell
-fn construct_transaction() -> Transaction {
+fn construct_transaction(genesis_hash: &H256) -> Transaction {
     let previous_output = OutPoint::new(UNSPENT.with(|unspent| unspent.borrow().clone()), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(1000))
         .lock(always_success_cell().2.clone())
         .build();
-    let dep = CellDep::Cell(OutPoint::new(
+    let dep1 = CellDep::Cell(OutPoint::new(
         always_success_transaction().hash().to_owned(),
         0,
     ));
+    let dep2 = CellDep::CellWithHeader(
+        OutPoint::new(always_success_transaction().hash().to_owned(), 0),
+        genesis_hash.clone(),
+    );
+    let dep3 = CellDep::DepGroup(OutPoint::new(dep_group_transation().hash().to_owned(), 0));
+    let dep4 = CellDep::Header(genesis_hash.clone());
     TransactionBuilder::default()
         .input(input)
         .output(output)
         .output_data(Bytes::new())
-        .dep(dep)
+        .deps(vec![dep1, dep2, dep3, dep4])
         .build()
 }
 
@@ -329,9 +370,11 @@ fn result_of(client: &reqwest::Client, uri: &str, method: &str, params: Value) -
 
 // Get the expected params of the given case
 fn params_of(shared: &Shared, method: &str) -> Value {
-    let tip = {
+    let (tip, genesis_hash) = {
         let chain = shared.lock_chain_state();
-        chain.tip_header().to_owned()
+        let tip = chain.tip_header().to_owned();
+        let genesis_hash = chain.consensus().genesis_hash().clone();
+        (tip, genesis_hash)
     };
     let tip_number = json!(tip.number().to_string());
     let tip_hash = json!(format!("{:#x}", tip.hash()));
@@ -343,7 +386,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         json!(json_out_point)
     };
     let (transaction, transaction_hash) = {
-        let transaction = construct_transaction();
+        let transaction = construct_transaction(&genesis_hash);
         let transaction_hash = transaction.hash().to_owned();
         let json_transaction: ckb_jsonrpc_types::Transaction = (&transaction).into();
         (
