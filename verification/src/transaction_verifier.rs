@@ -498,9 +498,6 @@ where
             .iter()
             .zip(self.rtx.transaction.inputs())
         {
-            if resolved_input.cell().out_point.is_null() {
-                continue;
-            }
             let cell_meta = resolved_input.cell();
             // ignore empty since
             if input.since == 0 {
