@@ -1,5 +1,5 @@
 use crate::benchmarks::util::{gen_secp_block, new_secp_chain};
-use ckb_store::ChainStore;
+use ckb_store::{self, ChainStore};
 use ckb_traits::chain_provider::ChainProvider;
 use criterion::{criterion_group, Criterion};
 use std::sync::Arc;
@@ -11,6 +11,7 @@ const SIZES: &[usize] = &[100usize, 200, 500, 1000];
 const SIZES: &[usize] = &[2usize];
 
 fn bench(c: &mut Criterion) {
+    ckb_store::set_cache_enable(false);
     // benchmark processing 20 blocks on main branch
     c.bench_function_over_inputs(
         "secp main_branch",
