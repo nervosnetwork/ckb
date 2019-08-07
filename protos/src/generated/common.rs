@@ -501,6 +501,7 @@ pub struct EpochExt {
     number_: u64,
     block_reward_: u64,
     remainder_reward_: u64,
+    previous_epoch_hash_rate_: Bytes32,
     last_block_hash_in_previous_epoch_: Bytes32,
     start_number_: u64,
     length_: u64,
@@ -548,6 +549,7 @@ impl EpochExt {
         _number: u64,
         _block_reward: u64,
         _remainder_reward: u64,
+        _previous_epoch_hash_rate: &'a Bytes32,
         _last_block_hash_in_previous_epoch: &'a Bytes32,
         _start_number: u64,
         _length: u64,
@@ -557,6 +559,7 @@ impl EpochExt {
             number_: _number.to_little_endian(),
             block_reward_: _block_reward.to_little_endian(),
             remainder_reward_: _remainder_reward.to_little_endian(),
+            previous_epoch_hash_rate_: *_previous_epoch_hash_rate,
             last_block_hash_in_previous_epoch_: *_last_block_hash_in_previous_epoch,
             start_number_: _start_number.to_little_endian(),
             length_: _length.to_little_endian(),
@@ -571,6 +574,9 @@ impl EpochExt {
     }
     pub fn remainder_reward<'a>(&'a self) -> u64 {
         self.remainder_reward_.from_little_endian()
+    }
+    pub fn previous_epoch_hash_rate<'a>(&'a self) -> &'a Bytes32 {
+        &self.previous_epoch_hash_rate_
     }
     pub fn last_block_hash_in_previous_epoch<'a>(&'a self) -> &'a Bytes32 {
         &self.last_block_hash_in_previous_epoch_
