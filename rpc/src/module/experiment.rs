@@ -2,9 +2,9 @@ use crate::error::RPCError;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Script, Transaction};
 use ckb_logger::error;
-use ckb_shared::chain_state::ChainState;
-use ckb_shared::shared::Shared;
+use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
+use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
     packed,
@@ -51,14 +51,13 @@ impl ExperimentRpc for ExperimentRpcImpl {
 
     fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {
         let tx: packed::Transaction = tx.into();
-        let chain_state = self.shared.lock_chain_state();
-        DryRunner::new(&chain_state).run(tx)
+        DryRunner::new(&self.shared).run(tx)
     }
 
     fn calculate_dao_maximum_withdraw(&self, out_point: OutPoint, hash: H256) -> Result<Capacity> {
-        let chain_state = self.shared.lock_chain_state();
-        let consensus = &chain_state.consensus();
-        let calculator = DaoCalculator::new(consensus, chain_state.store());
+        let snapshot: &Snapshot = &self.shared.snapshot();
+        let consensus = snapshot.consensus();
+        let calculator = DaoCalculator::new(consensus, snapshot);
         match calculator.maximum_withdraw(&out_point.into(), &hash.pack()) {
             Ok(capacity) => Ok(Capacity(capacity)),
             Err(err) => {
@@ -71,20 +70,17 @@ impl ExperimentRpc for ExperimentRpcImpl {
 
 // DryRunner dry run given transaction, and return the result, including execution cycles.
 pub(crate) struct DryRunner<'a> {
-    chain_state: &'a ChainState,
+    shared: &'a Shared,
 }
 
 impl<'a> CellProvider for DryRunner<'a> {
     fn cell(&self, out_point: &packed::OutPoint, with_data: bool) -> CellStatus {
-        self
-            .chain_state
-            .store()
+        let snapshot = self.shared.snapshot();
+        snapshot
             .get_cell_meta(&out_point.tx_hash(), out_point.index().unpack())
             .map(|mut cell_meta| {
                 if with_data {
-                    cell_meta.mem_cell_data = self
-                        .chain_state
-                        .store()
+                    cell_meta.mem_cell_data = snapshot
                         .get_cell_data(&out_point.tx_hash(), out_point.index().unpack());
                 }
                 CellStatus::live_cell(cell_meta)
@@ -95,25 +91,25 @@ impl<'a> CellProvider for DryRunner<'a> {
 
 impl<'a> HeaderChecker for DryRunner<'a> {
     fn is_valid(&self, block_hash: &packed::Byte32) -> bool {
-        self.chain_state
-            .store()
+        self.shared
+            .snapshot()
             .get_block_number(block_hash)
             .is_some()
     }
 }
 
 impl<'a> DryRunner<'a> {
-    pub(crate) fn new(chain_state: &'a ChainState) -> Self {
-        Self { chain_state }
+    pub(crate) fn new(shared: &'a Shared) -> Self {
+        Self { shared }
     }
 
     pub(crate) fn run(&self, tx: packed::Transaction) -> Result<DryRunResult> {
+        let snapshot: &Snapshot = &self.shared.snapshot();
         match resolve_transaction(&tx.into_view(), &mut HashSet::new(), self, self) {
             Ok(resolved) => {
-                let consensus = self.chain_state.consensus();
+                let consensus = snapshot.consensus();
                 let max_cycles = consensus.max_block_cycles;
-                let script_config = self.chain_state.script_config();
-                match ScriptVerifier::new(&resolved, self.chain_state.store(), script_config)
+                match ScriptVerifier::new(&resolved, snapshot, self.shared.script_config())
                     .verify(max_cycles)
                 {
                     Ok(cycles) => Ok(DryRunResult {

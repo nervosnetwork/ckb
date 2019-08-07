@@ -3,7 +3,6 @@ use crate::header_verifier::HeaderResolver;
 use crate::Verifier;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_store::ChainStore;
-use ckb_traits::ChainProvider;
 use ckb_types::{
     core::{BlockView, EpochExt, HeaderView},
     packed::{CellInput, Script},
@@ -12,29 +11,22 @@ use std::collections::HashSet;
 
 //TODO: cellbase, witness
 #[derive(Clone)]
-pub struct BlockVerifier<P> {
-    provider: P,
+pub struct BlockVerifier<'a> {
+    consensus: &'a Consensus,
 }
 
-impl<P> BlockVerifier<P>
-where
-    P: ChainProvider + Clone,
-{
-    pub fn new(provider: P) -> Self {
-        BlockVerifier { provider }
+impl<'a> BlockVerifier<'a> {
+    pub fn new(consensus: &'a Consensus) -> Self {
+        BlockVerifier { consensus }
     }
 }
 
-impl<P> Verifier for BlockVerifier<P>
-where
-    P: ChainProvider + Clone,
-{
+impl<'a> Verifier for BlockVerifier<'a> {
     type Target = BlockView;
 
     fn verify(&self, target: &BlockView) -> Result<(), Error> {
-        let consensus = self.provider.consensus();
-        let max_block_proposals_limit = consensus.max_block_proposals_limit();
-        let max_block_bytes = consensus.max_block_bytes();
+        let max_block_proposals_limit = self.consensus.max_block_proposals_limit();
+        let max_block_bytes = self.consensus.max_block_bytes();
         BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
         BlockBytesVerifier::new(max_block_bytes).verify(target)?;
         CellbaseVerifier::new().verify(target)?;

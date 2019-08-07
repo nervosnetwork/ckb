@@ -4,12 +4,12 @@ use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
+use arc_swap::Guard as ArcSwapGuard;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{debug, debug_target, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_shared::chain_state::ChainState;
-use ckb_shared::shared::Shared;
+use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::ChainProvider;
 use ckb_types::{
@@ -113,7 +113,7 @@ impl PeerState {
             disconnect: false,
             chain_sync: ChainSyncState::default(),
             tx_ask_for_map: BTreeMap::default(),
-            tx_ask_for_set: HashSet::default(),
+            tx_ask_for_set: HashSet::new(),
             best_known_header: None,
             last_common_header: None,
         }
@@ -633,14 +633,14 @@ pub struct SyncSharedState {
 impl SyncSharedState {
     pub fn new(shared: Shared) -> SyncSharedState {
         let (total_difficulty, header, total_uncles_count) = {
-            let chain_state = shared.lock_chain_state();
-            let block_ext = shared
-                .store()
-                .get_block_ext(&chain_state.tip_hash())
+            let snapshot = shared.snapshot();
+            let tip_header = snapshot.tip_header();
+            let block_ext = snapshot
+                .get_block_ext(&tip_header.hash())
                 .expect("tip block_ext must exist");
             (
-                chain_state.total_difficulty().to_owned(),
-                chain_state.tip_header().to_owned(),
+                snapshot.total_difficulty().to_owned(),
+                snapshot.tip_header().to_owned(),
                 block_ext.total_uncles_count,
             )
         };
@@ -716,8 +716,8 @@ impl SyncSharedState {
     pub fn store(&self) -> &ChainDB {
         self.shared.store()
     }
-    pub fn lock_chain_state(&self) -> MutexGuard<ChainState> {
-        self.shared.lock_chain_state()
+    pub fn snapshot(&self) -> ArcSwapGuard<Arc<Snapshot>> {
+        self.shared.snapshot()
     }
     pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<Byte32, Cycle>> {
         self.shared.lock_txs_verify_cache()

@@ -1,12 +1,10 @@
 use crate::db::cf_handle;
-use crate::iter::{DBIterator, DBIteratorItem, Direction};
 use crate::{Col, Result};
 use rocksdb::ops::{DeleteCF, GetCF, PutCF};
-use rocksdb::{
-    ops::IterateCF, Direction as RdbDirection, IteratorMode, OptimisticTransaction,
-    OptimisticTransactionDB, OptimisticTransactionSnapshot, ReadOptions,
-};
 pub use rocksdb::{DBPinnableSlice, DBVector};
+use rocksdb::{
+    OptimisticTransaction, OptimisticTransactionDB, OptimisticTransactionSnapshot, ReadOptions,
+};
 use std::sync::Arc;
 
 pub struct RocksDBTransaction {
@@ -68,26 +66,6 @@ impl RocksDBTransaction {
     }
 }
 
-impl DBIterator for RocksDBTransaction {
-    fn iter<'a>(
-        &'a self,
-        col: Col,
-        from_key: &'a [u8],
-        direction: Direction,
-    ) -> Result<Box<Iterator<Item = DBIteratorItem> + 'a>> {
-        let cf = cf_handle(&self.db, col)?;
-        let iter_direction = match direction {
-            Direction::Forward => RdbDirection::Forward,
-            Direction::Reverse => RdbDirection::Reverse,
-        };
-        let mode = IteratorMode::From(from_key, iter_direction);
-        self.inner
-            .iterator_cf(cf, mode)
-            .map(|iter| Box::new(iter) as Box<_>)
-            .map_err(Into::into)
-    }
-}
-
 pub struct RocksDBTransactionSnapshot<'a> {
     pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: OptimisticTransactionSnapshot<'a>,
@@ -97,25 +75,5 @@ impl<'a> RocksDBTransactionSnapshot<'a> {
     pub fn get(&self, col: Col, key: &[u8]) -> Result<Option<DBVector>> {
         let cf = cf_handle(&self.db, col)?;
         self.inner.get_cf(cf, key).map_err(Into::into)
-    }
-}
-
-impl<'a> DBIterator for RocksDBTransactionSnapshot<'a> {
-    fn iter<'b>(
-        &'b self,
-        col: Col,
-        from_key: &'b [u8],
-        direction: Direction,
-    ) -> Result<Box<Iterator<Item = DBIteratorItem> + 'b>> {
-        let cf = cf_handle(&self.db, col)?;
-        let iter_direction = match direction {
-            Direction::Forward => RdbDirection::Forward,
-            Direction::Reverse => RdbDirection::Reverse,
-        };
-        let mode = IteratorMode::From(from_key, iter_direction);
-        self.inner
-            .iterator_cf(cf, mode)
-            .map(|iter| Box::new(iter) as Box<_>)
-            .map_err(Into::into)
     }
 }

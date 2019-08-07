@@ -35,6 +35,10 @@ members = [
     "resource",
     "pow",
     "notify",
+    "util/reward-calculator",
+    "util/proposal-table",
+    "ckb-bin",
+    "traits",
     "network",
     "util/network-alert",
     "util/dao/utils",
@@ -57,7 +61,6 @@ members = [
     "util/app-config",
     "ckb-bin",
     "benches",
-   #"test",
 ]
 
 [profile.release]

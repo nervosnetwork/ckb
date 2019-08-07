@@ -4,7 +4,10 @@ use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_notify::NotifyService;
-use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_shared::{
+    shared::{Shared, SharedBuilder},
+    Snapshot,
+};
 use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::always_success_cell;
@@ -73,12 +76,12 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
     let mut chains = Chains::default();
 
     for _ in 0..chains_num {
-        let shared = SharedBuilder::default()
+        let (shared, table) = SharedBuilder::default()
             .consensus(consensus.clone())
             .build()
             .unwrap();
         let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), notify);
+        let chain_service = ChainService::new(shared.clone(), table, notify);
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -280,12 +283,12 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
     let mut chains = Chains::default();
 
     for _ in 0..chains_num {
-        let shared = SharedBuilder::default()
+        let (shared, table) = SharedBuilder::default()
             .consensus(consensus.clone())
             .build()
             .unwrap();
         let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), notify);
+        let chain_service = ChainService::new(shared.clone(), table, notify);
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -442,11 +445,11 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
     // In case of resolving errors, we just output a dummp DAO field,
     // since those should be the cases where we are testing invalid
     // blocks
-    let transactions_provider = TransactionsProvider::new(txs);
-    let chain_state = shared.lock_chain_state();
-    let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, &*chain_state);
+    let transactions_provider = TransactionsProvider::new(txs.iter());
+    let snapshot: &Snapshot = &shared.snapshot();
+    let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
     let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
-        let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, &*chain_state);
+        let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot);
         match rtx {
             Ok(rtx) => {
                 rtxs.push(rtx);

@@ -1,23 +1,46 @@
 use ckb_chain_spec::consensus::ProposalWindow;
-use ckb_logger::trace_target;
 use ckb_types::{core::BlockNumber, packed::ProposalShortId};
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound;
 
-#[derive(Debug, PartialEq, Clone, Eq)]
-pub struct TxProposalTable {
-    pub(crate) table: BTreeMap<BlockNumber, HashSet<ProposalShortId>>,
+#[derive(Default, Clone, Debug)]
+pub struct ProposalView {
     pub(crate) gap: HashSet<ProposalShortId>,
     pub(crate) set: HashSet<ProposalShortId>,
+}
+
+impl ProposalView {
+    pub fn new(gap: HashSet<ProposalShortId>, set: HashSet<ProposalShortId>) -> ProposalView {
+        ProposalView { gap, set }
+    }
+
+    pub fn gap(&self) -> &HashSet<ProposalShortId> {
+        &self.gap
+    }
+
+    pub fn set(&self) -> &HashSet<ProposalShortId> {
+        &self.set
+    }
+
+    pub fn contains_proposed(&self, id: &ProposalShortId) -> bool {
+        self.set.contains(id)
+    }
+
+    pub fn contains_gap(&self, id: &ProposalShortId) -> bool {
+        self.gap.contains(id)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub struct ProposalTable {
+    pub(crate) table: BTreeMap<BlockNumber, HashSet<ProposalShortId>>,
     pub(crate) proposal_window: ProposalWindow,
 }
 
-impl TxProposalTable {
+impl ProposalTable {
     pub fn new(proposal_window: ProposalWindow) -> Self {
-        TxProposalTable {
+        ProposalTable {
             proposal_window,
-            gap: HashSet::default(),
-            set: HashSet::default(),
             table: BTreeMap::default(),
         }
     }
@@ -32,34 +55,21 @@ impl TxProposalTable {
         self.table.remove(&number)
     }
 
-    pub fn contains(&self, id: &ProposalShortId) -> bool {
-        self.set.contains(id)
-    }
-
-    pub fn contains_gap(&self, id: &ProposalShortId) -> bool {
-        self.gap.contains(id)
-    }
-
-    pub fn get_ids_iter(&self) -> impl Iterator<Item = &ProposalShortId> {
-        self.set.iter()
-    }
-
     pub fn all(&self) -> &BTreeMap<BlockNumber, HashSet<ProposalShortId>> {
         &self.table
     }
 
-    pub fn finalize(&mut self, number: BlockNumber) -> HashSet<ProposalShortId> {
+    pub fn finalize(
+        &mut self,
+        origin: &ProposalView,
+        number: BlockNumber,
+    ) -> (HashSet<ProposalShortId>, ProposalView) {
         let proposal_start = number.saturating_sub(self.proposal_window.farthest()) + 1;
         let proposal_end = number.saturating_sub(self.proposal_window.closest()) + 1;
 
-        let mut left = self.table.split_off(&proposal_start);
-        ::std::mem::swap(&mut self.table, &mut left);
+        self.table = self.table.split_off(&proposal_start);
 
-        trace_target!(
-            crate::LOG_TARGET_CHAIN,
-            "[proposal_finalize] table {:?}",
-            self.table
-        );
+        ckb_logger::trace!("[proposal_finalize] table {:?}", self.table);
         let new_ids = self
             .table
             .range((Bound::Unbounded, Bound::Included(&proposal_end)))
@@ -68,7 +78,7 @@ impl TxProposalTable {
             .flatten()
             .collect();
 
-        self.gap = self
+        let gap = self
             .table
             .range((Bound::Excluded(&proposal_end), Bound::Unbounded))
             .map(|pair| pair.1)
@@ -77,23 +87,20 @@ impl TxProposalTable {
             .collect();
 
         let removed_ids: HashSet<ProposalShortId> =
-            self.set.difference(&new_ids).cloned().collect();
-        trace_target!(
-            crate::LOG_TARGET_CHAIN,
+            origin.set().difference(&new_ids).cloned().collect();
+        ckb_logger::trace!(
             "[proposal_finalize] number {} proposal_start {}----proposal_end {}",
             number,
             proposal_start,
             proposal_end
         );
-        trace_target!(
-            crate::LOG_TARGET_CHAIN,
+        ckb_logger::trace!(
             "[proposal_finalize] number {} new_ids {:?}----removed_ids {:?}",
             number,
             new_ids,
             removed_ids
         );
-        self.set = new_ids;
-        removed_ids
+        (removed_ids, ProposalView::new(gap, new_ids))
     }
 }
 
@@ -105,22 +112,27 @@ mod tests {
     fn test_finalize() {
         let id = ProposalShortId::zero();
         let window = ProposalWindow(2, 10);
-        let mut table = TxProposalTable::new(window);
-        let mut ids = HashSet::default();
+        let mut table = ProposalTable::new(window);
+        let mut ids = HashSet::new();
         ids.insert(id.clone());
         table.insert(1, ids.clone());
-        assert!(!table.contains(&id));
+        let (_, mut view) = table.finalize(&ProposalView::default(), 1);
 
         // in window
         for i in 2..10 {
-            assert!(table.finalize(i).is_empty());
-            assert!(table.contains(&id));
+            let (removed_ids, new_view) = table.finalize(&view, i);
+            assert!(removed_ids.is_empty());
+            assert!(new_view.contains_proposed(&id));
+            view = new_view;
         }
 
-        assert_eq!(table.finalize(11), ids);
-        assert!(!table.contains(&id));
+        let (removed_ids, new_view) = table.finalize(&view, 11);
+        assert_eq!(removed_ids, ids);
+        assert!(!new_view.contains_proposed(&id));
+        view = new_view;
 
-        assert!(table.finalize(12).is_empty());
-        assert!(!table.contains(&id));
+        let (removed_ids, new_view) = table.finalize(&view, 12);
+        assert!(removed_ids.is_empty());
+        assert!(!new_view.contains_proposed(&id));
     }
 }

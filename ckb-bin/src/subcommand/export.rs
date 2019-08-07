@@ -3,7 +3,7 @@ use ckb_instrument::Export;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn export(args: ExportArgs) -> Result<(), ExitCode> {
-    let shared = SharedBuilder::with_db_config(&args.config.db)
+    let (shared, _) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
         .build()
         .map_err(|err| {

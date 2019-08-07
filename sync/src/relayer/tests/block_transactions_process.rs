@@ -201,7 +201,7 @@ fn test_collision_and_send_missing_indexes() {
     let last_block = relayer
         .shared
         .store()
-        .get_block(&relayer.shared.lock_chain_state().tip_hash())
+        .get_block(&relayer.shared.snapshot().tip_hash())
         .unwrap();
     let last_cellbase = last_block.transactions().first().cloned().unwrap();
 
@@ -253,8 +253,8 @@ fn test_collision_and_send_missing_indexes() {
     let compact_block = CompactBlock::build_from_block(&block, &prefilled);
 
     {
-        let chain_state = relayer.shared.lock_chain_state();
-        chain_state.add_tx_to_pool(tx3, 10000u16.into()).unwrap();
+        let mut tx_pool = relayer.shared.shared().try_lock_tx_pool();
+        tx_pool.add_tx_to_pool(tx3, 10000u16.into()).unwrap();
     }
 
     {

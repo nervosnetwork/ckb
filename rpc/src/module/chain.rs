@@ -96,9 +96,7 @@ impl ChainRpc for ChainRpcImpl {
         let id = packed::ProposalShortId::from_tx_hash(&hash);
 
         let tx = {
-            let chan_state = self.shared.lock_chain_state();
-
-            let tx_pool = chan_state.tx_pool();
+            let tx_pool = self.shared.try_lock_tx_pool();
             tx_pool
                 .proposed()
                 .get(&id)
@@ -167,7 +165,7 @@ impl ChainRpc for ChainRpcImpl {
         to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
         let mut result = Vec::new();
-        let chain_state = self.shared.lock_chain_state();
+        let snapshot = self.shared.snapshot();
         let from = from.0;
         let to = to.0;
         if from > to {
@@ -183,21 +181,17 @@ impl ChainRpc for ChainRpcImpl {
         }
 
         for block_number in from..=to {
-            let block_hash = self.shared.store().get_block_hash(block_number);
+            let block_hash = snapshot.get_block_hash(block_number);
             if block_hash.is_none() {
                 break;
             }
 
             let block_hash = block_hash.unwrap();
-            let block = self
-                .shared
-                .store()
+            let block = snapshot
                 .get_block(&block_hash)
                 .ok_or_else(Error::internal_error)?;
             for transaction in block.transactions() {
-                if let Some(transaction_meta) =
-                    chain_state.cell_set().get(&transaction.hash().unpack())
-                {
+                if let Some(transaction_meta) = snapshot.cell_set().get(&transaction.hash()) {
                     for (i, output) in transaction.outputs().into_iter().enumerate() {
                         if output.calc_lock_hash() == lock_hash
                             && transaction_meta.is_dead(i) == Some(false)
@@ -223,7 +217,7 @@ impl ChainRpc for ChainRpcImpl {
     fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
         let cell_status = self
             .shared
-            .lock_chain_state()
+            .snapshot()
             .cell(&out_point.clone().into(), false);
         Ok(cell_status.into())
     }

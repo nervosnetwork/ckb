@@ -153,7 +153,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
             .get_block_hash(proposal_end)
             .ok_or_else(|| Error::Commit(CommitError::AncestorNotFound))?;
 
-        let mut proposal_txs_ids = HashSet::default();
+        let mut proposal_txs_ids = HashSet::new();
 
         while proposal_end >= proposal_start {
             let header = self

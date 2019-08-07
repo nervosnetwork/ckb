@@ -31,10 +31,10 @@ impl<'a> GetBlockProposalProcess<'a> {
         let proposals: Vec<packed::ProposalShortId> =
             self.message.proposals().to_entity().into_iter().collect();
         let proposals_transactions: Vec<Option<core::TransactionView>> = {
-            let chain_state = self.relayer.shared.lock_chain_state();
+            let tx_pool = self.relayer.shared.shared().try_lock_tx_pool();
             proposals
                 .iter()
-                .map(|short_id| chain_state.get_tx_from_pool_or_store(short_id))
+                .map(|short_id| tx_pool.get_tx_from_pool_or_store(short_id))
                 .collect()
         };
         let fresh_proposals: Vec<packed::ProposalShortId> = proposals

@@ -38,8 +38,7 @@ impl<'a> TransactionHashesProcess<'a> {
         };
 
         {
-            let state = self.relayer.shared.lock_chain_state();
-            let tx_pool = state.tx_pool();
+            let tx_pool = self.relayer.shared.shared().try_lock_tx_pool();
 
             transit_hashes.retain(|tx_hash| {
                 !tx_pool.contains_tx(&packed::ProposalShortId::from_tx_hash(&tx_hash.unpack()))

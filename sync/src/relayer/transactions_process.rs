@@ -83,11 +83,9 @@ impl<'a> TransactionsProcess<'a> {
                 // prepare sync data
                 let nc = Arc::clone(&self.nc);
                 let peer_index = self.peer;
-                let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
                 let shared = Arc::clone(self.relayer.shared());
+                let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
                 Box::new(lazy(move || -> FutureResult<(), ()> {
-                    let tx_pool_executor = Arc::clone(&tx_pool_executor);
-
                     for (_,relay_tx) in txs.into_iter() {
                         let relay_cycles: Cycle = relay_tx.cycles().unpack();
                         let tx = relay_tx.transaction().into_view();

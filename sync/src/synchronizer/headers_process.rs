@@ -148,11 +148,16 @@ impl<'a> HeadersProcess<'a> {
             .get_header(&first.data().raw().parent_hash());
         let resolver = VerifierResolver::new(parent.as_ref(), &first, &self.synchronizer);
         let verifier = HeaderVerifier::new(
-            resolver.clone(),
+            &resolver,
             Arc::clone(&self.synchronizer.shared.consensus().pow_engine()),
         );
-        let acceptor =
-            HeaderAcceptor::new(first, self.peer, &self.synchronizer, resolver, verifier);
+        let acceptor = HeaderAcceptor::new(
+            first,
+            self.peer,
+            &self.synchronizer,
+            resolver.clone(),
+            verifier,
+        );
         acceptor.accept()
     }
 
@@ -210,11 +215,16 @@ impl<'a> HeadersProcess<'a> {
             if let [parent, header] = &window {
                 let resolver = VerifierResolver::new(Some(&parent), &header, &self.synchronizer);
                 let verifier = HeaderVerifier::new(
-                    resolver.clone(),
+                    &resolver,
                     Arc::clone(&self.synchronizer.shared.consensus().pow_engine()),
                 );
-                let acceptor =
-                    HeaderAcceptor::new(&header, self.peer, &self.synchronizer, resolver, verifier);
+                let acceptor = HeaderAcceptor::new(
+                    &header,
+                    self.peer,
+                    &self.synchronizer,
+                    resolver.clone(),
+                    verifier,
+                );
                 let result = acceptor.accept();
 
                 if !result.is_valid() {
@@ -231,13 +241,13 @@ impl<'a> HeadersProcess<'a> {
 
         if log_enabled!(Level::Debug) {
             // Regain the updated best known
-            let chain_state = self.synchronizer.shared.lock_chain_state();
+            let snapshot = self.synchronizer.shared.snapshot();
             let shared_best_known = self.synchronizer.shared.shared_best_header();
             let peer_best_known = self.synchronizer.peers().get_best_known_header(self.peer);
             debug!(
                 "chain: num={}, diff={:#x};",
-                chain_state.tip_number(),
-                chain_state.total_difficulty()
+                snapshot.tip_number(),
+                snapshot.total_difficulty()
             );
             debug!(
                 "shared best_known_header: num={}, diff={:#x}, hash={};",

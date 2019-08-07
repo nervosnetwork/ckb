@@ -196,10 +196,10 @@ impl Synchronizer {
             if state.peer_flags.is_outbound {
                 let best_known_header = state.best_known_header.as_ref();
                 let (tip_header, local_total_difficulty) = {
-                    let chain_state = self.shared.lock_chain_state();
+                    let snapshot = self.shared.snapshot();
                     (
-                        chain_state.tip_header().to_owned(),
-                        chain_state.total_difficulty().to_owned(),
+                        snapshot.tip_header().to_owned(),
+                        snapshot.total_difficulty().to_owned(),
                     )
                 };
                 if best_known_header.map(HeaderView::total_difficulty)
@@ -283,10 +283,10 @@ impl Synchronizer {
 
         let tip = {
             let (header, total_difficulty) = {
-                let chain_state = self.shared.lock_chain_state();
+                let snapshot = self.shared.snapshot();
                 (
-                    chain_state.tip_header().to_owned(),
-                    chain_state.total_difficulty().to_owned(),
+                    snapshot.tip_header().to_owned(),
+                    snapshot.total_difficulty().to_owned(),
                 )
             };
             let best_known = self.shared.shared_best_header();
@@ -495,8 +495,10 @@ mod tests {
         TargetSession,
     };
     use ckb_notify::{NotifyController, NotifyService};
-    use ckb_shared::shared::Shared;
-    use ckb_shared::shared::SharedBuilder;
+    use ckb_shared::{
+        shared::{Shared, SharedBuilder},
+        Snapshot,
+    };
     use ckb_store::ChainStore;
     use ckb_traits::chain_provider::ChainProvider;
     use ckb_types::{
@@ -525,10 +527,10 @@ mod tests {
         let consensus = consensus.unwrap_or_else(Default::default);
         builder = builder.consensus(consensus);
 
-        let shared = builder.build().unwrap();
+        let (shared, table) = builder.build().unwrap();
 
         let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
-        let chain_service = ChainService::new(shared.clone(), notify.clone());
+        let chain_service = ChainService::new(shared.clone(), table, notify.clone());
         let chain_controller = chain_service.start::<&str>(None);
 
         (chain_controller, shared, notify)
@@ -567,10 +569,9 @@ mod tests {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(shared, parent_header, number);
         let dao = {
-            let chain_state = shared.lock_chain_state();
+            let snapshot: &Snapshot = &shared.snapshot();
             let resolved_cellbase =
-                resolve_transaction(&cellbase, &mut HashSet::new(), &*chain_state, &*chain_state)
-                    .unwrap();
+                resolve_transaction(&cellbase, &mut HashSet::new(), snapshot, snapshot).unwrap();
             DaoCalculator::new(shared.consensus(), shared.store())
                 .dao_field(&[resolved_cellbase], parent_header)
                 .unwrap()
@@ -627,7 +628,7 @@ mod tests {
 
         let locator = synchronizer
             .shared
-            .get_locator(shared.lock_chain_state().tip_header());
+            .get_locator(shared.snapshot().tip_header());
 
         let mut expect = Vec::new();
 
@@ -661,7 +662,7 @@ mod tests {
 
         let locator1 = synchronizer1
             .shared
-            .get_locator(shared1.lock_chain_state().tip_header());
+            .get_locator(shared1.snapshot().tip_header());
 
         let latest_common = synchronizer2
             .shared
@@ -729,7 +730,7 @@ mod tests {
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
         let locator1 = synchronizer1
             .shared
-            .get_locator(shared1.lock_chain_state().tip_header());
+            .get_locator(shared1.snapshot().tip_header());
 
         let latest_common = synchronizer2
             .shared
@@ -764,20 +765,17 @@ mod tests {
 
         let header = synchronizer
             .shared
-            .get_ancestor(&shared.lock_chain_state().tip_hash(), 100);
+            .get_ancestor(&shared.snapshot().tip_header().hash(), 100);
         let tip = synchronizer
             .shared
-            .get_ancestor(&shared.lock_chain_state().tip_hash(), 199);
+            .get_ancestor(&shared.snapshot().tip_header().hash(), 199);
         let noop = synchronizer
             .shared
-            .get_ancestor(&shared.lock_chain_state().tip_hash(), 200);
+            .get_ancestor(&shared.snapshot().tip_header().hash(), 200);
         assert!(tip.is_some());
         assert!(header.is_some());
         assert!(noop.is_none());
-        assert_eq!(
-            tip.unwrap(),
-            shared.lock_chain_state().tip_header().to_owned()
-        );
+        assert_eq!(tip.unwrap(), shared.snapshot().tip_header().to_owned());
         assert_eq!(
             header.unwrap(),
             shared
@@ -821,10 +819,7 @@ mod tests {
                 .insert_new_block(&synchronizer.chain, peer, Arc::new(block))
                 .expect("Insert new block failed");
         });
-        assert_eq!(
-            &chain1_last_block.header(),
-            shared2.lock_chain_state().tip_header()
-        );
+        assert_eq!(&chain1_last_block.header(), shared2.snapshot().tip_header());
     }
 
     #[test]
@@ -1005,7 +1000,7 @@ mod tests {
 
         let locator1 = synchronizer1
             .shared
-            .get_locator(&shared1.lock_chain_state().tip_header());
+            .get_locator(&shared1.snapshot().tip_header());
 
         for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
@@ -1146,10 +1141,7 @@ mod tests {
 
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
 
-        assert_eq!(
-            shared.lock_chain_state().total_difficulty(),
-            &U256::from(2u64)
-        );
+        assert_eq!(shared.snapshot().total_difficulty(), &U256::from(2u64));
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
@@ -1247,9 +1239,9 @@ mod tests {
             // where we checked against our tip.
             // Either way, set a new timeout based on current tip.
             let (tip, total_difficulty) = {
-                let chain_state = shared.lock_chain_state();
-                let header = chain_state.tip_header().to_owned();
-                let total_difficulty = chain_state.total_difficulty().to_owned();
+                let snapshot = shared.snapshot();
+                let header = snapshot.tip_header().to_owned();
+                let total_difficulty = snapshot.total_difficulty().to_owned();
                 (header, total_difficulty)
             };
             assert_eq!(

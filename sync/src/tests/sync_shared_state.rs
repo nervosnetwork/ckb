@@ -57,13 +57,13 @@ fn test_insert_parent_unknown_block() {
     ckb_store::set_cache_enable(false);
     let (shared1, _) = build_chain(2);
     let (shared, chain) = {
-        let shared = SharedBuilder::default()
+        let (shared, table) = SharedBuilder::default()
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();
         let chain_controller = {
             let notify_controller = NotifyService::default().start::<&str>(None);
-            let chain_service = ChainService::new(shared.clone(), notify_controller);
+            let chain_service = ChainService::new(shared.clone(), table, notify_controller);
             chain_service.start::<&str>(None)
         };
         (SyncSharedState::new(shared), chain_controller)

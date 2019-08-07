@@ -9,7 +9,10 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_notify::NotifyService;
-use ckb_shared::shared::{Shared, SharedBuilder};
+use ckb_shared::{
+    shared::{Shared, SharedBuilder},
+    Snapshot,
+};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
@@ -71,10 +74,10 @@ fn basic_sync() {
     // Wait node1 receive block from node2
     let _ = signal_rx1.recv();
 
-    assert_eq!(shared1.lock_chain_state().tip_number(), 3);
+    assert_eq!(shared1.snapshot().tip_number(), 3);
     assert_eq!(
-        shared1.lock_chain_state().tip_number(),
-        shared2.lock_chain_state().tip_number()
+        shared1.snapshot().tip_number(),
+        shared2.snapshot().tip_number()
     );
 }
 
@@ -100,13 +103,13 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
     let consensus = Consensus::default()
         .set_genesis_block(block.clone())
         .set_cellbase_maturity(0);
-    let shared = SharedBuilder::default()
+    let (shared, table) = SharedBuilder::default()
         .consensus(consensus)
         .build()
         .unwrap();
     let notify = NotifyService::default().start(Some(thread_name));
 
-    let chain_service = ChainService::new(shared.clone(), notify);
+    let chain_service = ChainService::new(shared.clone(), table, notify);
     let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {
@@ -136,10 +139,9 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
             .build();
 
         let dao = {
-            let chain_state = shared.lock_chain_state();
+            let snapshot: &Snapshot = &shared.snapshot();
             let resolved_cellbase =
-                resolve_transaction(&cellbase, &mut HashSet::new(), &*chain_state, &*chain_state)
-                    .unwrap();
+                resolve_transaction(&cellbase, &mut HashSet::new(), snapshot, snapshot).unwrap();
             DaoCalculator::new(shared.consensus(), shared.store())
                 .dao_field(&[resolved_cellbase], &block.header())
                 .unwrap()
