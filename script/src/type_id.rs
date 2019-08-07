@@ -61,7 +61,7 @@ impl<'a> TypeIdSystemScript<'a> {
                 .inputs()
                 .get(0)
                 .as_ref()
-                .and_then(|input| input.previous_output.cell.clone())
+                .map(|input| input.previous_output.clone())
                 .ok_or(ScriptError::ValidationFailure(ERROR_ARGS))?;
             // TODO: we use this weird way of hashing data to avoid
             // dependency on flatbuffers for now. We should change

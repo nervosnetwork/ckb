@@ -1,11 +1,11 @@
 use crate::{
     syscalls::{
-        LoadDataType, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
-        LOAD_CELL_DATA_SYSCALL_NUMBER, SLICE_OUT_OF_BOUND, SUCCESS,
+        LoadDataType, Source, SourceEntry, INDEX_OUT_OF_BOUND, LOAD_CELL_DATA_SYSCALL_NUMBER,
+        SLICE_OUT_OF_BOUND, SUCCESS,
     },
     DataLoader,
 };
-use ckb_core::cell::{CellMeta, ResolvedOutPoint};
+use ckb_core::cell::CellMeta;
 use ckb_vm::{
     memory::Memory,
     registers::{A0, A1, A2, A3, A4, A5, A6, A7},
@@ -15,8 +15,8 @@ use ckb_vm::{
 pub struct LoadCellData<'a, DL> {
     data_loader: &'a DL,
     outputs: &'a [CellMeta],
-    resolved_inputs: &'a [ResolvedOutPoint],
-    resolved_deps: &'a [ResolvedOutPoint],
+    resolved_inputs: &'a [CellMeta],
+    resolved_cell_deps: &'a [CellMeta],
     group_inputs: &'a [usize],
     group_outputs: &'a [usize],
 }
@@ -25,8 +25,8 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
     pub fn new(
         data_loader: &'a DL,
         outputs: &'a [CellMeta],
-        resolved_inputs: &'a [ResolvedOutPoint],
-        resolved_deps: &'a [ResolvedOutPoint],
+        resolved_inputs: &'a [CellMeta],
+        resolved_cell_deps: &'a [CellMeta],
         group_inputs: &'a [usize],
         group_outputs: &'a [usize],
     ) -> LoadCellData<'a, DL> {
@@ -34,7 +34,7 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
             data_loader,
             outputs,
             resolved_inputs,
-            resolved_deps,
+            resolved_cell_deps,
             group_inputs,
             group_outputs,
         }
@@ -42,19 +42,16 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
 
     fn fetch_cell(&self, source: Source, index: usize) -> Result<&'a CellMeta, u8> {
         match source {
-            Source::Transaction(SourceEntry::Input) => self
-                .resolved_inputs
-                .get(index)
-                .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+            Source::Transaction(SourceEntry::Input) => {
+                self.resolved_inputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
+            }
             Source::Transaction(SourceEntry::Output) => {
                 self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
-            Source::Transaction(SourceEntry::Dep) => self
-                .resolved_deps
-                .get(index)
-                .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+            Source::Transaction(SourceEntry::Dep) => {
+                self.resolved_cell_deps.get(index).ok_or(INDEX_OUT_OF_BOUND)
+            }
+            Source::Transaction(SourceEntry::Header) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
@@ -63,14 +60,14 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
                     self.resolved_inputs
                         .get(*actual_index)
                         .ok_or(INDEX_OUT_OF_BOUND)
-                })
-                .and_then(|r| r.cell().ok_or(ITEM_MISSING)),
+                }),
             Source::Group(SourceEntry::Output) => self
                 .group_outputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| self.outputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
             Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::Header) => Err(INDEX_OUT_OF_BOUND),
         }
     }
 }

@@ -1,10 +1,11 @@
 use ckb_core::block::Block;
-use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderProvider, HeaderStatus};
+use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderChecker};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::transaction::OutPoint;
 use ckb_db::RocksDB;
 use ckb_store::{ChainDB, ChainStore, COLUMNS};
+use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -52,42 +53,31 @@ impl MockStore {
 }
 
 impl CellProvider for MockStore {
-    fn cell(&self, out_point: &OutPoint) -> CellStatus {
-        if let Some(cell_out_point) = &out_point.cell {
-            match self.0.get_transaction(&cell_out_point.tx_hash) {
-                Some((tx, _)) => tx
-                    .outputs()
-                    .get(cell_out_point.index as usize)
-                    .map(|cell| {
-                        let data = tx
-                            .outputs_data()
-                            .get(cell_out_point.index as usize)
-                            .expect("output data");
-                        let cell = cell.to_owned();
-                        CellStatus::live_cell(
-                            CellMetaBuilder::from_cell_output(cell, data.to_owned())
-                                .out_point(cell_out_point.to_owned())
-                                .build(),
-                        )
-                    })
-                    .unwrap_or(CellStatus::Unknown),
-                None => CellStatus::Unknown,
-            }
-        } else {
-            CellStatus::Unspecified
+    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+        match self.0.get_transaction(&out_point.tx_hash) {
+            Some((tx, _)) => tx
+                .outputs()
+                .get(out_point.index as usize)
+                .map(|cell| {
+                    let data = tx
+                        .outputs_data()
+                        .get(out_point.index as usize)
+                        .expect("output data");
+                    let cell = cell.to_owned();
+                    CellStatus::live_cell(
+                        CellMetaBuilder::from_cell_output(cell, data.to_owned())
+                            .out_point(out_point.to_owned())
+                            .build(),
+                    )
+                })
+                .unwrap_or(CellStatus::Unknown),
+            None => CellStatus::Unknown,
         }
     }
 }
 
-impl HeaderProvider for MockStore {
-    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
-        if let Some(block_hash) = &out_point.block_hash {
-            match self.0.get_block_header(block_hash) {
-                Some(header) => HeaderStatus::Live(Box::new(header)),
-                None => HeaderStatus::Unknown,
-            }
-        } else {
-            HeaderStatus::Unspecified
-        }
+impl HeaderChecker for MockStore {
+    fn is_valid(&self, block_hash: &H256) -> bool {
+        self.0.get_block_number(block_hash).is_some()
     }
 }

@@ -32,6 +32,7 @@ impl<'a> LoadInput<'a> {
             }
             Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Transaction(SourceEntry::Header) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
@@ -39,6 +40,7 @@ impl<'a> LoadInput<'a> {
                 .and_then(|actual_index| self.inputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
             Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::Header) => Err(INDEX_OUT_OF_BOUND),
         }
     }
 

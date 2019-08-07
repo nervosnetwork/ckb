@@ -1,5 +1,5 @@
 use crate::ChainStore;
-use ckb_core::{cell::CellMeta, extras::BlockExt, Bytes};
+use ckb_core::{cell::CellMeta, extras::BlockExt, header::Header, Bytes};
 use ckb_script_data_loader::DataLoader;
 use numext_fixed_hash::H256;
 
@@ -25,5 +25,9 @@ impl<'a, T: ChainStore<'a>> DataLoader for DataLoaderWrapper<'a, T> {
     #[inline]
     fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt> {
         self.0.get_block_ext(block_hash)
+    }
+
+    fn get_header(&self, block_hash: &H256) -> Option<Header> {
+        self.0.get_block_header(block_hash)
     }
 }
