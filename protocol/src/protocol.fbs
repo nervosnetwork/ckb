@@ -65,7 +65,8 @@ table UncleBlock {
 
 table Transaction {
     version:        uint32;
-    deps:           [OutPoint];
+    cell_deps:      [CellDep];
+    header_deps:    [H256];
     inputs:         [CellInput];
     outputs:        [CellOutput];
     outputs_data:   [Bytes];
@@ -76,14 +77,18 @@ table Witness {
     data:           [Bytes];
 }
 
+table CellDep {
+    tx_hash:        H256;
+    index:          uint32;
+    is_dep_group:   uint8;
+}
+
 table OutPoint {
-    block_hash:     H256;
     tx_hash:        H256;
     index:          uint32;
 }
 
 table CellInput {
-    block_hash:     H256;
     tx_hash:        H256;
     index:          uint32;
     since:          uint64;
