@@ -621,6 +621,7 @@ name = "ckb-miner"
 version = "0.17.0"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cc 1.0.38 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain 0.17.0",
  "ckb-chain-spec 0.17.0",
  "ckb-core 0.17.0",
