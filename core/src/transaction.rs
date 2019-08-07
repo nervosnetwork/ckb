@@ -331,6 +331,10 @@ impl Deps {
         &self.headers
     }
 
+    pub fn destruct(self) -> (Vec<CellDep>, Vec<H256>) {
+        (self.cells, self.headers)
+    }
+
     pub fn serialized_size(&self) -> usize {
         CellDep::serialized_size() * self.cells.len() + 4 + H256::size_of() * self.headers.len() + 4
     }
@@ -680,6 +684,11 @@ impl TransactionBuilder {
 
     pub fn version(mut self, version: u32) -> Self {
         self.version = version;
+        self
+    }
+
+    pub fn deps(mut self, deps: Deps) -> Self {
+        self.deps = deps;
         self
     }
 
