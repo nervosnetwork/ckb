@@ -349,6 +349,7 @@ mod tests {
                     number,
                     Capacity::shannons(50_000_000_000),
                     Capacity::shannons(1_000_128),
+                    U256::one(),
                     h256!("0x1"),
                     target_epoch_start,
                     2091,

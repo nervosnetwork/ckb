@@ -454,6 +454,7 @@ dependencies = [
  "ckb-jsonrpc-types 0.19.0-pre",
  "ckb-occupied-capacity 0.19.0-pre",
  "ckb-pow 0.19.0-pre",
+ "ckb-rational 0.19.0-pre",
  "ckb-resource 0.19.0-pre",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -802,6 +803,14 @@ dependencies = [
  "flatbuffers 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ckb-rational"
+version = "0.19.0-pre"
+dependencies = [
+ "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proptest 0.9.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

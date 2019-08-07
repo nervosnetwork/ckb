@@ -400,10 +400,12 @@ impl From<&EpochExt> for protos::EpochExt {
         let start_number = ext.start_number();
         let length = ext.length();
         let difficulty = ext.difficulty().into();
+        let previous_epoch_hash_rate = ext.previous_epoch_hash_rate().into();
         Self::new(
             number,
             block_reward,
             remainder_reward,
+            &previous_epoch_hash_rate,
             &last_block_hash_in_previous_epoch,
             start_number,
             length,
