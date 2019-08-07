@@ -1,6 +1,5 @@
 use crate::utils::{assert_send_transaction_fail, is_committed};
 use crate::{Net, Node, Spec};
-use ckb_core::block::Block;
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
 use ckb_core::{BlockNumber, Bytes, Capacity};
@@ -320,16 +319,7 @@ fn deposit_dao_deps(node: &Node) -> Vec<OutPoint> {
 
 // deps = [cell-point-to-withdraw-header, always-success-cell, dao-cell]
 fn withdraw_dao_deps(node: &Node, withdraw_header_hash: H256) -> Vec<OutPoint> {
-    let withdraw_out_point = {
-        let withdraw_block: Block = node
-            .rpc_client()
-            .get_block(withdraw_header_hash.to_owned())
-            .unwrap()
-            .into();
-        let tx_hash = withdraw_block.transactions()[0].hash().to_owned();
-        OutPoint::new(withdraw_header_hash, tx_hash, 0)
-    };
-
+    let withdraw_out_point = OutPoint::new_block_hash(withdraw_header_hash);
     let mut deps = vec![withdraw_out_point];
     deps.extend(deposit_dao_deps(node));
     deps
@@ -391,23 +381,20 @@ fn deposit_dao_transaction(node: &Node) -> Transaction {
 // Construct a withdraw dao transaction, which consumes the tip-cellbase and a given deposited cell
 // as the inputs, generates the output with always-success-script as lock script, none type script
 fn withdraw_dao_transaction(node: &Node, out_point: OutPoint) -> Transaction {
-    let (cellbase_input, cellbase_capacity) = tip_cellbase_input(node);
+    let withdraw_header_hash: H256 = node.get_tip_block().header().hash().to_owned();
     let deposited_input = {
         let minimal_since = absolute_minimal_since(node);
         CellInput::new(out_point.clone(), minimal_since)
     };
-    let withdraw_header_hash: H256 = node.get_tip_block().header().parent_hash().to_owned();
-    let input_capacities = {
-        let withdraw_capacity = node
+    let (output, output_data) = {
+        let input_capacities = node
             .rpc_client()
             .calculate_dao_maximum_withdraw(out_point.into(), withdraw_header_hash.clone());
-        withdraw_capacity.safe_add(cellbase_capacity).unwrap()
+        withdraw_dao_output(input_capacities)
     };
-    let (output, output_data) = withdraw_dao_output(input_capacities);
     TransactionBuilder::default()
         .deps(withdraw_dao_deps(node, withdraw_header_hash))
         .input(deposited_input)
-        .input(cellbase_input)
         .output(output)
         .output_data(output_data)
         .witness(withdraw_dao_witness())
