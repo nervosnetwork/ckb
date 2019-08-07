@@ -11,5 +11,4 @@ edition = "2018"
 failure = "0.1.5"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ckb-vm = { version = "0.15.1", features = ["asm"] }
 ckb-occupied-capacity = { path = "../util/occupied-capacity" }

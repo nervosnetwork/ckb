@@ -56,7 +56,7 @@ impl TxPoolExecutor {
         let (
             resolved_txs,
             cached_txs,
-            mut unresolvable_txs,
+            unresolvable_txs,
             consensus,
             parent_number,
             epoch_number,
@@ -94,8 +94,8 @@ impl TxPoolExecutor {
 
         // immediately return if resolved_txs is empty
         if resolved_txs.is_empty() && cached_txs.is_empty() {
-            let (_tx, err) = unresolvable_txs.remove(0);
-            return Err(err);
+            let (_tx, err) = unresolvable_txs.first().expect("unresolved tx exists");
+            return Err(err.to_owned());
         }
 
         let max_block_cycles = consensus.max_block_cycles();

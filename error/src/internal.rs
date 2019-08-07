@@ -1,5 +1,4 @@
 use failure::Fail;
-// use ckb_vm::Error as VMInternalError;
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum InternalError {
@@ -20,9 +19,7 @@ pub enum InternalError {
     #[fail(display = "Full Transaction Pool")]
     FullTransactionPool,
 
-    // FIXME
     /// VM internal error
-    // VM(#[fail(cause)] VMInternalError),
     #[fail(display = "{:?}", _0)]
     VM(String),
 }

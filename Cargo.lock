@@ -545,7 +545,6 @@ name = "ckb-error"
 version = "0.19.0-pre"
 dependencies = [
  "ckb-occupied-capacity 0.19.0-pre",
- "ckb-vm 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-hash 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",

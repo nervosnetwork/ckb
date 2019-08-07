@@ -97,12 +97,12 @@ impl From<(Option<H256>, Option<(H256, u32)>)> for OutPoint {
 pub enum OutPointError {
     /// The specified cell is already dead
     // NOTE: the original name is Dead
-    #[fail(display = "Dead input-cell")]
+    #[fail(display = "Dead cell")]
     DeadCell(OutPoint),
 
     /// The specified cell is unknown in the chain
     // NOTE: the original name is Unknown
-    #[fail(display = "Unknown input-cell")]
+    #[fail(display = "Unknown cell")]
     UnknownCell(Vec<OutPoint>),
 
     /// The specified input cell is not-found inside the specified header

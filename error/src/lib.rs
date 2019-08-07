@@ -56,6 +56,25 @@ impl Display for Error {
     }
 }
 
+impl Clone for Error {
+    fn clone(&self) -> Self {
+        match self.kind() {
+            ErrorKind::OutPoint => self.downcast_ref::<OutPointError>().unwrap().clone().into(),
+            ErrorKind::Transaction => self
+                .downcast_ref::<TransactionError>()
+                .unwrap()
+                .clone()
+                .into(),
+            ErrorKind::Internal => self.downcast_ref::<InternalError>().unwrap().clone().into(),
+            ErrorKind::Dao => self.downcast_ref::<DaoError>().unwrap().clone().into(),
+            ErrorKind::Script => self.downcast_ref::<ScriptError>().unwrap().clone().into(),
+            ErrorKind::Header => self.downcast_ref::<HeaderError>().unwrap().clone().into(),
+            ErrorKind::Block => self.downcast_ref::<BlockError>().unwrap().clone().into(),
+            ErrorKind::Spec => self.downcast_ref::<SpecError>().unwrap().clone().into(),
+        }
+    }
+}
+
 impl From<ErrorKind> for Error {
     fn from(kind: ErrorKind) -> Self {
         Context::new(kind).into()
