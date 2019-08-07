@@ -150,7 +150,6 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         let committed_idx_proc = |hash: &H256| -> HashSet<ProposalShortId> {
             store
                 .get_block_txs_hashes(hash)
-                .expect("block body stored")
                 .iter()
                 .skip(1)
                 .map(ProposalShortId::from_tx_hash)

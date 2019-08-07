@@ -57,44 +57,6 @@ impl<'a> CanBuild<'a> for protos::StoredBlock<'a> {
     }
 }
 
-impl<'a> CanBuild<'a> for protos::StoredBlockBodyCache<'a> {
-    type Input = [Transaction];
-    fn build<'b: 'a>(
-        fbb: &mut FlatBufferBuilder<'b>,
-        transactions: &Self::Input,
-    ) -> WIPOffset<protos::StoredBlockBodyCache<'b>> {
-        let mut tx_hashes: Vec<protos::Bytes32> = Vec::with_capacity(transactions.len());
-        let mut tx_witness_hashes: Vec<protos::Bytes32> = Vec::with_capacity(transactions.len());
-        for tx in transactions {
-            tx_hashes.push(tx.hash().into());
-            tx_witness_hashes.push(tx.witness_hash().into());
-        }
-
-        let tx_hashes = fbb.create_vector(&tx_hashes);
-        let tx_witness_hashes = fbb.create_vector(&tx_witness_hashes);
-
-        let mut builder = protos::StoredBlockBodyCacheBuilder::new(fbb);
-        builder.add_tx_hashes(tx_hashes);
-        builder.add_tx_witness_hashes(tx_witness_hashes);
-        builder.finish()
-    }
-}
-
-impl<'a> CanBuild<'a> for protos::StoredBlockBody<'a> {
-    type Input = [Transaction];
-    fn build<'b: 'a>(
-        fbb: &mut FlatBufferBuilder<'b>,
-        transactions: &Self::Input,
-    ) -> WIPOffset<protos::StoredBlockBody<'b>> {
-        let data = protos::BlockBody::build(fbb, transactions);
-        let cache = protos::StoredBlockBodyCache::build(fbb, transactions);
-        let mut builder = protos::StoredBlockBodyBuilder::new(fbb);
-        builder.add_data(data);
-        builder.add_cache(cache);
-        builder.finish()
-    }
-}
-
 impl<'a> CanBuild<'a> for protos::StoredHeaderCache<'a> {
     type Input = Header;
     fn build<'b: 'a>(
@@ -149,6 +111,36 @@ impl<'a> CanBuild<'a> for protos::StoredUncleBlocksCache<'a> {
         let hashes = fbb.create_vector(&hashes_vec);
         let mut builder = protos::StoredUncleBlocksCacheBuilder::new(fbb);
         builder.add_hashes(hashes);
+        builder.finish()
+    }
+}
+
+impl<'a> CanBuild<'a> for protos::StoredTransaction<'a> {
+    type Input = Transaction;
+    fn build<'b: 'a>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        transaction: &Self::Input,
+    ) -> WIPOffset<protos::StoredTransaction<'b>> {
+        let data = protos::Transaction::build(fbb, transaction);
+        let cache = protos::StoredTransactionCache::build(fbb, transaction);
+        let mut builder = protos::StoredTransactionBuilder::new(fbb);
+        builder.add_data(data);
+        builder.add_cache(cache);
+        builder.finish()
+    }
+}
+
+impl<'a> CanBuild<'a> for protos::StoredTransactionCache<'a> {
+    type Input = Transaction;
+    fn build<'b: 'a>(
+        fbb: &mut FlatBufferBuilder<'b>,
+        transaction: &Self::Input,
+    ) -> WIPOffset<protos::StoredTransactionCache<'b>> {
+        let hash = transaction.hash().into();
+        let witness_hash = transaction.witness_hash().into();
+        let mut builder = protos::StoredTransactionCacheBuilder::new(fbb);
+        builder.add_hash(&hash);
+        builder.add_witness_hash(&witness_hash);
         builder.finish()
     }
 }

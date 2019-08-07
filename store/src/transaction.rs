@@ -11,7 +11,10 @@ use ckb_core::extras::{BlockExt, EpochExt, TransactionInfo};
 use ckb_core::header::Header;
 use ckb_core::transaction::OutPoint;
 use ckb_core::transaction_meta::TransactionMeta;
-use ckb_db::{Col, DBVector, Error, RocksDBTransaction, RocksDBTransactionSnapshot};
+use ckb_db::{
+    iter::{DBIterator, DBIteratorItem},
+    Col, DBVector, Direction, Error, RocksDBTransaction, RocksDBTransactionSnapshot,
+};
 use ckb_protos::{self as protos, CanBuild};
 use numext_fixed_hash::H256;
 
@@ -25,6 +28,17 @@ impl<'a> ChainStore<'a> for StoreTransaction {
     fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
         self.inner.get(col, key).expect("db operation should be ok")
     }
+
+    fn get_iter<'i>(
+        &'i self,
+        col: Col,
+        from_key: &'i [u8],
+        direction: Direction,
+    ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
+        self.inner
+            .iter(col, from_key, direction)
+            .expect("db operation should be ok")
+    }
 }
 
 impl<'a> ChainStore<'a> for RocksDBTransactionSnapshot<'a> {
@@ -32,6 +46,16 @@ impl<'a> ChainStore<'a> for RocksDBTransactionSnapshot<'a> {
 
     fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
         self.get(col, key).expect("db operation should be ok")
+    }
+
+    fn get_iter<'i>(
+        &'i self,
+        col: Col,
+        from_key: &'i [u8],
+        direction: Direction,
+    ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
+        self.iter(col, from_key, direction)
+            .expect("db operation should be ok")
     }
 }
 
@@ -80,9 +104,13 @@ impl StoreTransaction {
             let builder = protos::StoredProposalShortIds::full_build(block.proposals());
             self.insert_raw(COLUMN_BLOCK_PROPOSAL_IDS, hash, builder.as_slice())?;
         }
-        {
-            let builder = protos::StoredBlockBody::full_build(block.transactions());
-            self.insert_raw(COLUMN_BLOCK_BODY, hash, builder.as_slice())?;
+        // key len: 32 (block_hash) + 4 (index)
+        let mut store_key = Vec::with_capacity(36);
+        store_key.extend_from_slice(hash);
+        for (index, tx) in block.transactions().iter().enumerate() {
+            let builder = protos::StoredTransaction::full_build(tx);
+            store_key.splice(32.., (index as u32).to_be_bytes().iter().cloned());
+            self.insert_raw(COLUMN_BLOCK_BODY, &store_key, builder.as_slice())?;
         }
         Ok(())
     }

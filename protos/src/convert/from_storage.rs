@@ -24,86 +24,6 @@ impl<'a> protos::StoredBlock<'a> {
     }
 }
 
-impl<'a> TryFrom<protos::StoredBlockBody<'a>> for Vec<Transaction> {
-    type Error = Error;
-    fn try_from(proto: protos::StoredBlockBody<'a>) -> Result<Self> {
-        let transactions = proto.data().unwrap_some()?.transactions().unwrap_some()?;
-        let tx_hashes = proto.cache().unwrap_some()?.tx_hashes().unwrap_some()?;
-        let tx_witness_hashes = proto
-            .cache()
-            .unwrap_some()?
-            .tx_witness_hashes()
-            .unwrap_some()?;
-        transactions
-            .iter()
-            .zip(tx_hashes.iter())
-            .zip(tx_witness_hashes.iter())
-            .map(|((tx, hash), witness_hash)| {
-                tx.build_unchecked(hash.try_into()?, witness_hash.try_into()?)
-            })
-            .collect()
-    }
-}
-
-impl<'a> protos::StoredBlockBody<'a> {
-    pub fn tx_hashes(&self) -> Result<Vec<H256>> {
-        self.cache()
-            .unwrap_some()?
-            .tx_hashes()
-            .unwrap_some()?
-            .iter()
-            .map(TryInto::try_into)
-            .collect()
-    }
-
-    pub fn transaction(&self, index: usize) -> Result<Option<Transaction>> {
-        let transactions = self.data().unwrap_some()?.transactions().unwrap_some()?;
-        let ret = if transactions.len() <= index {
-            None
-        } else {
-            let tx_hashes = self.cache().unwrap_some()?.tx_hashes().unwrap_some()?;
-            let tx_witness_hashes = self
-                .cache()
-                .unwrap_some()?
-                .tx_witness_hashes()
-                .unwrap_some()?;
-            let tx = transactions.get(index).build_unchecked(
-                tx_hashes.get(index).unwrap_some()?.try_into()?,
-                tx_witness_hashes.get(index).unwrap_some()?.try_into()?,
-            )?;
-            Some(tx)
-        };
-        Ok(ret)
-    }
-
-    pub fn output(&self, tx_index: usize, output_index: usize) -> Result<Option<CellOutput>> {
-        let transactions = self.data().unwrap_some()?.transactions().unwrap_some()?;
-        let ret = if transactions.len() <= tx_index {
-            None
-        } else {
-            let outputs = transactions.get(tx_index).outputs().unwrap_some()?;
-            if outputs.len() <= output_index {
-                None
-            } else {
-                let output = outputs.get(output_index);
-                Some(output.try_into()?)
-            }
-        };
-        Ok(ret)
-    }
-
-    pub fn output_data(&self, tx_index: usize, output_index: usize) -> Result<Option<Bytes>> {
-        let transactions = self.data().unwrap_some()?.transactions().unwrap_some()?;
-        let ret = if transactions.len() <= tx_index {
-            None
-        } else {
-            let outputs_data = transactions.get(tx_index).outputs_data().unwrap_some()?;
-            outputs_data.get(output_index).seq().map(Bytes::from)
-        };
-        Ok(ret)
-    }
-}
-
 impl<'a> TryFrom<protos::StoredTransactionInfo<'a>> for TransactionInfo {
     type Error = Error;
     fn try_from(proto: protos::StoredTransactionInfo<'a>) -> Result<Self> {
@@ -117,6 +37,50 @@ impl<'a> TryFrom<protos::StoredHeader<'a>> for Header {
         let header = proto.data().unwrap_some()?;
         let hash = proto.cache().unwrap_some()?.hash().unwrap_some()?;
         header.build_unchecked(hash.try_into()?)
+    }
+}
+
+impl<'a> TryFrom<protos::StoredTransaction<'a>> for Transaction {
+    type Error = Error;
+    fn try_from(proto: protos::StoredTransaction<'a>) -> Result<Self> {
+        let transaction = proto.data().unwrap_some()?;
+        let hash = proto.cache().unwrap_some()?.hash().unwrap_some()?;
+        let witness_hash = proto.cache().unwrap_some()?.witness_hash().unwrap_some()?;
+        transaction.build_unchecked(hash.try_into()?, witness_hash.try_into()?)
+    }
+}
+
+impl<'a> protos::StoredTransaction<'a> {
+    pub fn hash(&self) -> Result<H256> {
+        self.cache().unwrap_some()?.hash().unwrap_some()?.try_into()
+    }
+
+    pub fn witness_hash(&self) -> Result<H256> {
+        self.cache()
+            .unwrap_some()?
+            .witness_hash()
+            .unwrap_some()?
+            .try_into()
+    }
+
+    pub fn cell_output(&self, output_index: usize) -> Result<Option<CellOutput>> {
+        let outputs = self.data().unwrap_some()?.outputs().unwrap_some()?;
+        let ret = if outputs.len() <= output_index {
+            None
+        } else {
+            Some(outputs.get(output_index).try_into()?)
+        };
+        Ok(ret)
+    }
+
+    pub fn output_data(&self, output_index: usize) -> Result<Option<Bytes>> {
+        let outputs_data = self.data().unwrap_some()?.outputs_data().unwrap_some()?;
+        let ret = if outputs_data.len() <= output_index {
+            None
+        } else {
+            Some(outputs_data.get(output_index).seq().unwrap_some()?.into())
+        };
+        Ok(ret)
     }
 }
 

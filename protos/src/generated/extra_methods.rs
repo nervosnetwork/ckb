@@ -88,18 +88,6 @@ impl<'a> super::StoredBlockCache<'a> {
     }
 }
 
-impl<'a> super::StoredBlockBody<'a> {
-    pub fn from_slice(slice: &'a [u8]) -> Self {
-        flatbuffers::get_root::<Self>(&slice)
-    }
-}
-
-impl<'a> super::StoredBlockBodyCache<'a> {
-    pub fn from_slice(slice: &'a [u8]) -> Self {
-        flatbuffers::get_root::<Self>(&slice)
-    }
-}
-
 impl<'a> super::StoredTransactionInfo<'a> {
     pub fn from_slice(slice: &'a [u8]) -> Self {
         flatbuffers::get_root::<Self>(&slice)
@@ -113,6 +101,18 @@ impl<'a> super::StoredHeader<'a> {
 }
 
 impl<'a> super::StoredHeaderCache<'a> {
+    pub fn from_slice(slice: &'a [u8]) -> Self {
+        flatbuffers::get_root::<Self>(&slice)
+    }
+}
+
+impl<'a> super::StoredTransaction<'a> {
+    pub fn from_slice(slice: &'a [u8]) -> Self {
+        flatbuffers::get_root::<Self>(&slice)
+    }
+}
+
+impl<'a> super::StoredTransactionCache<'a> {
     pub fn from_slice(slice: &'a [u8]) -> Self {
         flatbuffers::get_root::<Self>(&slice)
     }
