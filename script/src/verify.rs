@@ -276,7 +276,9 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
         // Now run each script group
         for group in self.lock_groups.values().chain(self.type_groups.values()) {
-            let result = if group.script.code_hash == TYPE_ID_CODE_HASH {
+            let result = if group.script.code_hash == TYPE_ID_CODE_HASH
+                && group.script.hash_type == ScriptHashType::Data
+            {
                 self.verify_type_id(&group, max_cycles)
             } else {
                 let program = self.extract_script(&group.script)?;
