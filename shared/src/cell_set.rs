@@ -1,5 +1,5 @@
 use ckb_core::block::Block;
-use ckb_core::transaction::{CellOutPoint, OutPoint};
+use ckb_core::transaction::OutPoint;
 use ckb_core::transaction_meta::TransactionMeta;
 use ckb_store::ChainStore;
 use numext_fixed_hash::H256;
@@ -108,65 +108,69 @@ impl CellSet {
             }
         }
 
-        for old_input in &diff.old_inputs {
-            if let Some(cell_input) = &old_input.cell {
-                if diff.old_outputs.contains(&cell_input.tx_hash) {
-                    continue;
-                }
-                if let Some(meta) = self.inner.get(&cell_input.tx_hash) {
-                    let meta = new
-                        .entry(cell_input.tx_hash.clone())
-                        .or_insert_with(|| meta.clone());
-                    meta.unset_dead(cell_input.index as usize);
-                } else {
-                    // the tx is full dead, deleted from cellset, we need recover it when fork
-                    if let Some((tx, header)) =
-                        store
-                            .get_transaction(&cell_input.tx_hash)
-                            .and_then(|(tx, block_hash)| {
-                                store
-                                    .get_block_header(&block_hash)
-                                    .map(|header| (tx, header))
-                            })
-                    {
-                        let meta = new.entry(cell_input.tx_hash.clone()).or_insert_with(|| {
-                            if tx.is_cellbase() {
-                                TransactionMeta::new_cellbase(
-                                    header.number(),
-                                    header.epoch(),
-                                    header.hash().to_owned(),
-                                    tx.outputs().len(),
-                                    true,
-                                )
-                            } else {
-                                TransactionMeta::new(
-                                    header.number(),
-                                    header.epoch(),
-                                    header.hash().to_owned(),
-                                    tx.outputs().len(),
-                                    true,
-                                )
-                            }
-                        });
-                        meta.unset_dead(cell_input.index as usize);
-                    }
+        for out_point in diff
+            .old_inputs
+            .iter()
+            .filter(|out_point| !out_point.is_null())
+        {
+            if diff.old_outputs.contains(&out_point.tx_hash) {
+                continue;
+            }
+            if let Some(meta) = self.inner.get(&out_point.tx_hash) {
+                let meta = new
+                    .entry(out_point.tx_hash.clone())
+                    .or_insert_with(|| meta.clone());
+                meta.unset_dead(out_point.index as usize);
+            } else {
+                // the tx is full dead, deleted from cellset, we need recover it when fork
+                if let Some((tx, header)) =
+                    store
+                        .get_transaction(&out_point.tx_hash)
+                        .and_then(|(tx, block_hash)| {
+                            store
+                                .get_block_header(&block_hash)
+                                .map(|header| (tx, header))
+                        })
+                {
+                    let meta = new.entry(out_point.tx_hash.clone()).or_insert_with(|| {
+                        if tx.is_cellbase() {
+                            TransactionMeta::new_cellbase(
+                                header.number(),
+                                header.epoch(),
+                                header.hash().to_owned(),
+                                tx.outputs().len(),
+                                true,
+                            )
+                        } else {
+                            TransactionMeta::new(
+                                header.number(),
+                                header.epoch(),
+                                header.hash().to_owned(),
+                                tx.outputs().len(),
+                                true,
+                            )
+                        }
+                    });
+                    meta.unset_dead(out_point.index as usize);
                 }
             }
         }
 
-        for new_input in &diff.new_inputs {
-            if let Some(cell_input) = &new_input.cell {
-                if let Some(meta) = new.get_mut(&cell_input.tx_hash) {
-                    meta.set_dead(cell_input.index as usize);
-                    continue;
-                }
+        for out_point in diff
+            .new_inputs
+            .iter()
+            .filter(|out_point| !out_point.is_null())
+        {
+            if let Some(meta) = new.get_mut(&out_point.tx_hash) {
+                meta.set_dead(out_point.index as usize);
+                continue;
+            }
 
-                if let Some(meta) = self.inner.get(&cell_input.tx_hash) {
-                    let meta = new
-                        .entry(cell_input.tx_hash.clone())
-                        .or_insert_with(|| meta.clone());
-                    meta.set_dead(cell_input.index as usize);
-                }
+            if let Some(meta) = self.inner.get(&out_point.tx_hash) {
+                let meta = new
+                    .entry(out_point.tx_hash.clone())
+                    .or_insert_with(|| meta.clone());
+                meta.set_dead(out_point.index as usize);
             }
         }
 
@@ -187,7 +191,7 @@ impl CellSet {
 
     pub(crate) fn insert_cell(
         &mut self,
-        cell: &CellOutPoint,
+        cell: &OutPoint,
         number: u64,
         epoch: u64,
         hash: H256,
@@ -226,7 +230,7 @@ impl CellSet {
         self.inner.remove(tx_hash)
     }
 
-    pub(crate) fn mark_dead(&mut self, cell: &CellOutPoint) -> Option<CellSetOpr> {
+    pub(crate) fn mark_dead(&mut self, cell: &OutPoint) -> Option<CellSetOpr> {
         if let hash_map::Entry::Occupied(mut o) = self.inner.entry(cell.tx_hash.clone()) {
             o.get_mut().set_dead(cell.index as usize);
             if o.get().all_dead() {
@@ -241,7 +245,7 @@ impl CellSet {
     }
 
     // if we aleady removed the cell, `mark` will return None, else return the meta
-    pub(crate) fn try_mark_live(&mut self, cell: &CellOutPoint) -> Option<TransactionMeta> {
+    pub(crate) fn try_mark_live(&mut self, cell: &OutPoint) -> Option<TransactionMeta> {
         if let Some(meta) = self.inner.get_mut(&cell.tx_hash) {
             meta.unset_dead(cell.index as usize);
             Some(meta.clone())
@@ -258,7 +262,7 @@ mod tests {
     use ckb_core::extras::EpochExt;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::transaction::{
-        CellInput, CellOutPoint, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
+        CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
     };
     use ckb_core::transaction_meta::TransactionMeta;
     use ckb_core::{Bytes, Capacity};
@@ -268,9 +272,9 @@ mod tests {
     fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
             .inputs(
-                inputs.into_iter().map(|(txid, index)| {
-                    CellInput::new(OutPoint::new_cell(txid.to_owned(), index), 0)
-                }),
+                inputs
+                    .into_iter()
+                    .map(|(txid, index)| CellInput::new(OutPoint::new(txid.to_owned(), index), 0)),
             )
             .outputs((0..outputs_len).map(|i| {
                 CellOutputBuilder::default()
@@ -337,7 +341,7 @@ mod tests {
         );
 
         assert_eq!(meta, tx1_meta);
-        let cell = CellOutPoint {
+        let cell = OutPoint {
             tx_hash: tx1_hash.clone(),
             index: 0,
         };

@@ -187,9 +187,9 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .iter()
             .filter_map(|cell_meta| {
                 cell_meta
-                    .block_info
+                    .transaction_info
                     .as_ref()
-                    .map(|info| (&cell_meta.out_point, &info.hash))
+                    .map(|info| (&cell_meta.out_point, &info.block_hash))
             })
             .collect();
         rtx.resolved_inputs
@@ -205,9 +205,9 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                         .unwrap_or(false)
                     {
                         let deposit_header_hash = cell_meta
-                            .block_info
+                            .transaction_info
                             .as_ref()
-                            .map(|info| &info.hash)
+                            .map(|info| &info.block_hash)
                             .filter(|hash| header_deps.contains(hash))
                             .ok_or(Error::InvalidOutPoint)?;
                         let withdraw_header_hash = rtx

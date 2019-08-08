@@ -120,9 +120,9 @@ mod tests {
     fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
             .inputs(
-                inputs.into_iter().map(|(txid, index)| {
-                    CellInput::new(OutPoint::new_cell(txid.to_owned(), index), 0)
-                }),
+                inputs
+                    .into_iter()
+                    .map(|(txid, index)| CellInput::new(OutPoint::new(txid.to_owned(), index), 0)),
             )
             .outputs((0..outputs_len).map(|i| {
                 CellOutputBuilder::default()

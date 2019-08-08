@@ -57,28 +57,21 @@ impl PendingQueue {
 }
 
 impl CellProvider for PendingQueue {
-    fn cell(&self, o: &OutPoint) -> CellStatus {
-        if let Some(cell_out_point) = &o.cell {
-            if let Some(x) = self
-                .inner
-                .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
-            {
-                match x
-                    .transaction
-                    .get_output_with_data(cell_out_point.index as usize)
-                {
-                    Some((output, data)) => CellStatus::live_cell(
-                        CellMetaBuilder::from_cell_output(output.to_owned(), data)
-                            .out_point(cell_out_point.to_owned())
-                            .build(),
-                    ),
-                    None => CellStatus::Unknown,
-                }
-            } else {
-                CellStatus::Unknown
+    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+        if let Some(x) = self
+            .inner
+            .get(&ProposalShortId::from_tx_hash(&out_point.tx_hash))
+        {
+            match x.transaction.get_output_with_data(out_point.index as usize) {
+                Some((output, data)) => CellStatus::live_cell(
+                    CellMetaBuilder::from_cell_output(output.to_owned(), data)
+                        .out_point(out_point.to_owned())
+                        .build(),
+                ),
+                None => CellStatus::Unknown,
             }
         } else {
-            CellStatus::Unspecified
+            CellStatus::Unknown
         }
     }
 }
