@@ -1231,7 +1231,7 @@ mod tests {
     fn check_type_id_one_in_one_out() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new_cell(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
 
         let type_id_script = Script::new(
             vec![Bytes::from(&h256!("0x1111")[..])],
@@ -1239,7 +1239,7 @@ mod tests {
             ScriptHashType::Type,
         );
 
-        let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000))
             .lock(always_success_script.clone())
@@ -1255,26 +1255,22 @@ mod tests {
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .output(output_cell)
-            .dep(always_success_out_point.clone())
+            .cell_dep(CellDep::new_cell(always_success_out_point.clone()))
             .build();
 
-        let resolved_input_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-                .out_point(input.previous_output.cell.clone().unwrap())
-                .build(),
-        );
-        let resolved_always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(
-                always_success_cell.clone(),
-                always_success_cell_data.to_owned(),
-            )
-            .out_point(always_success_out_point.cell.clone().unwrap())
-            .build(),
-        );
+        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+            .out_point(input.previous_output.clone())
+            .build();
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point.clone())
+        .build();
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![resolved_always_success_cell],
+            resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
         };
 
@@ -1293,7 +1289,7 @@ mod tests {
     fn check_type_id_one_in_one_out_not_enough_cycles() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new_cell(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
 
         let type_id_script = Script::new(
             vec![Bytes::from(&h256!("0x1111")[..])],
@@ -1301,7 +1297,7 @@ mod tests {
             ScriptHashType::Type,
         );
 
-        let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000))
             .lock(always_success_script.clone())
@@ -1317,26 +1313,22 @@ mod tests {
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .output(output_cell)
-            .dep(always_success_out_point.clone())
+            .cell_dep(CellDep::new_cell(always_success_out_point.clone()))
             .build();
 
-        let resolved_input_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-                .out_point(input.previous_output.cell.clone().unwrap())
-                .build(),
-        );
-        let resolved_always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(
-                always_success_cell.clone(),
-                always_success_cell_data.to_owned(),
-            )
-            .out_point(always_success_out_point.cell.clone().unwrap())
-            .build(),
-        );
+        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+            .out_point(input.previous_output.clone())
+            .build();
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point.clone())
+        .build();
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![resolved_always_success_cell],
+            resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
         };
 
@@ -1358,9 +1350,9 @@ mod tests {
     fn check_type_id_creation() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new_cell(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
 
-        let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000))
             .lock(always_success_script.clone())
@@ -1370,7 +1362,7 @@ mod tests {
             let mut blake2b = new_blake2b();
             blake2b.update(input.previous_output.tx_hash.as_bytes());
             let mut buf = [0; 4];
-            LittleEndian::write_u32(&mut buf, input.previous_output.cell.as_ref().unwrap().index);
+            LittleEndian::write_u32(&mut buf, input.previous_output.index);
             blake2b.update(&buf[..]);
             let mut buf = [0; 8];
             LittleEndian::write_u64(&mut buf, 0);
@@ -1391,26 +1383,22 @@ mod tests {
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .output(output_cell)
-            .dep(always_success_out_point.clone())
+            .cell_dep(CellDep::new_cell(always_success_out_point.clone()))
             .build();
 
-        let resolved_input_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-                .out_point(input.previous_output.cell.clone().unwrap())
-                .build(),
-        );
-        let resolved_always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(
-                always_success_cell.clone(),
-                always_success_cell_data.to_owned(),
-            )
-            .out_point(always_success_out_point.cell.clone().unwrap())
-            .build(),
-        );
+        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+            .out_point(input.previous_output.clone())
+            .build();
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point.clone())
+        .build();
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![resolved_always_success_cell],
+            resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
         };
 
@@ -1429,7 +1417,7 @@ mod tests {
     fn check_type_id_termination() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new_cell(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
 
         let type_id_script = Script::new(
             vec![Bytes::from(&h256!("0x1111")[..])],
@@ -1437,7 +1425,7 @@ mod tests {
             ScriptHashType::Type,
         );
 
-        let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000))
             .lock(always_success_script.clone())
@@ -1452,26 +1440,22 @@ mod tests {
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .output(output_cell)
-            .dep(always_success_out_point.clone())
+            .cell_dep(CellDep::new_cell(always_success_out_point.clone()))
             .build();
 
-        let resolved_input_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-                .out_point(input.previous_output.cell.clone().unwrap())
-                .build(),
-        );
-        let resolved_always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(
-                always_success_cell.clone(),
-                always_success_cell_data.to_owned(),
-            )
-            .out_point(always_success_out_point.cell.clone().unwrap())
-            .build(),
-        );
+        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+            .out_point(input.previous_output.clone())
+            .build();
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point.clone())
+        .build();
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![resolved_always_success_cell],
+            resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
         };
 
@@ -1490,9 +1474,9 @@ mod tests {
     fn check_type_id_invalid_creation() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new_cell(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
 
-        let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000))
             .lock(always_success_script.clone())
@@ -1502,7 +1486,7 @@ mod tests {
             let mut blake2b = new_blake2b();
             blake2b.update(input.previous_output.tx_hash.as_bytes());
             let mut buf = [0; 4];
-            LittleEndian::write_u32(&mut buf, input.previous_output.cell.as_ref().unwrap().index);
+            LittleEndian::write_u32(&mut buf, input.previous_output.index);
             blake2b.update(&buf[..]);
             let mut buf = [0; 8];
             LittleEndian::write_u64(&mut buf, 0);
@@ -1524,26 +1508,22 @@ mod tests {
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .output(output_cell)
-            .dep(always_success_out_point.clone())
+            .cell_dep(CellDep::new_cell(always_success_out_point.clone()))
             .build();
 
-        let resolved_input_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-                .out_point(input.previous_output.cell.clone().unwrap())
-                .build(),
-        );
-        let resolved_always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(
-                always_success_cell.clone(),
-                always_success_cell_data.to_owned(),
-            )
-            .out_point(always_success_out_point.cell.clone().unwrap())
-            .build(),
-        );
+        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+            .out_point(input.previous_output.clone())
+            .build();
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point.clone())
+        .build();
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![resolved_always_success_cell],
+            resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
         };
 
@@ -1565,9 +1545,9 @@ mod tests {
     fn check_type_id_invalid_creation_length() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new_cell(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
 
-        let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000))
             .lock(always_success_script.clone())
@@ -1577,7 +1557,7 @@ mod tests {
             let mut blake2b = new_blake2b();
             blake2b.update(input.previous_output.tx_hash.as_bytes());
             let mut buf = [0; 4];
-            LittleEndian::write_u32(&mut buf, input.previous_output.cell.as_ref().unwrap().index);
+            LittleEndian::write_u32(&mut buf, input.previous_output.index);
             blake2b.update(&buf[..]);
             let mut buf = [0; 8];
             LittleEndian::write_u64(&mut buf, 0);
@@ -1602,26 +1582,22 @@ mod tests {
         let transaction = TransactionBuilder::default()
             .input(input.clone())
             .output(output_cell)
-            .dep(always_success_out_point.clone())
+            .cell_dep(CellDep::new_cell(always_success_out_point.clone()))
             .build();
 
-        let resolved_input_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-                .out_point(input.previous_output.cell.clone().unwrap())
-                .build(),
-        );
-        let resolved_always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(
-                always_success_cell.clone(),
-                always_success_cell_data.to_owned(),
-            )
-            .out_point(always_success_out_point.cell.clone().unwrap())
-            .build(),
-        );
+        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+            .out_point(input.previous_output.clone())
+            .build();
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point.clone())
+        .build();
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![resolved_always_success_cell],
+            resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
         };
 
@@ -1643,7 +1619,7 @@ mod tests {
     fn check_type_id_one_in_two_out() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new_cell(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
 
         let type_id_script = Script::new(
             vec![Bytes::from(&h256!("0x1111")[..])],
@@ -1651,7 +1627,7 @@ mod tests {
             ScriptHashType::Type,
         );
 
-        let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(2000))
             .lock(always_success_script.clone())
@@ -1673,26 +1649,22 @@ mod tests {
             .input(input.clone())
             .output(output_cell)
             .output(output_cell2)
-            .dep(always_success_out_point.clone())
+            .cell_dep(CellDep::new_cell(always_success_out_point.clone()))
             .build();
 
-        let resolved_input_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
-                .out_point(input.previous_output.cell.clone().unwrap())
-                .build(),
-        );
-        let resolved_always_success_cell = ResolvedOutPoint::cell_only(
-            CellMetaBuilder::from_cell_output(
-                always_success_cell.clone(),
-                always_success_cell_data.to_owned(),
-            )
-            .out_point(always_success_out_point.cell.clone().unwrap())
-            .build(),
-        );
+        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+            .out_point(input.previous_output.clone())
+            .build();
+        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+            always_success_cell.clone(),
+            always_success_cell_data.to_owned(),
+        )
+        .out_point(always_success_out_point.clone())
+        .build();
 
         let rtx = ResolvedTransaction {
             transaction: &transaction,
-            resolved_deps: vec![resolved_always_success_cell],
+            resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
         };
 

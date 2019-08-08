@@ -5,7 +5,7 @@ use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvi
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{
-    CellInput, CellOutput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
+    CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
     TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
@@ -116,7 +116,7 @@ pub fn gen_always_success_block(
     shared: &Shared,
 ) -> Block {
     let tx = create_always_success_tx();
-    let always_success_out_point = OutPoint::new_cell(tx.hash().to_owned(), 0);
+    let always_success_out_point = OutPoint::new(tx.hash().to_owned(), 0);
     let (_, _, always_success_script) = always_success_cell();
     let (number, timestamp, difficulty) = (
         p_block.header().number() + 1,
@@ -295,7 +295,7 @@ pub fn create_secp_cellbase(shared: &Shared, parent: &Header) -> Transaction {
 
 pub fn gen_secp_block(blocks: &mut Vec<Block>, p_block: &Block, shared: &Shared) -> Block {
     let tx = create_secp_tx();
-    let secp_out_point = OutPoint::new_cell(tx.hash().to_owned(), 0);
+    let secp_out_point = OutPoint::new(tx.hash().to_owned(), 0);
     let (_, _, secp_script) = secp_cell();
     let (number, timestamp, difficulty) = (
         p_block.header().number() + 1,
@@ -369,11 +369,8 @@ fn create_transaction(parent_hash: &H256, lock: Script, dep: OutPoint) -> Transa
             None,
         ))
         .output_data(data)
-        .input(CellInput::new(
-            OutPoint::new_cell(parent_hash.to_owned(), 0),
-            0,
-        ))
-        .dep(dep)
+        .input(CellInput::new(OutPoint::new(parent_hash.to_owned(), 0), 0))
+        .cell_dep(CellDep::new_cell(dep))
         .build()
 }
 
@@ -394,7 +391,7 @@ fn create_2out_transaction(inputs: Vec<OutPoint>, lock: Script, dep: OutPoint) -
         .output_data(data.clone())
         .output_data(data)
         .inputs(cell_inputs)
-        .dep(dep)
+        .cell_dep(CellDep::new_cell(dep))
         .build();
 
     let privkey: Privkey = PRIVKEY.into();

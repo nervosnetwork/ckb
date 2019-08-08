@@ -187,7 +187,9 @@ mod tests {
     use ckb_core::block::BlockBuilder;
     use ckb_core::cell::UnresolvableError;
     use ckb_core::header::HeaderBuilder;
-    use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
+    use ckb_core::transaction::{
+        CellDep, CellInput, CellOutputBuilder, OutPoint, TransactionBuilder,
+    };
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
@@ -207,7 +209,7 @@ mod tests {
             .output(always_success_cell.clone())
             .output_data(always_success_cell_data.clone())
             .build();
-        let always_success_out_point = OutPoint::new_cell(always_success_tx.hash().to_owned(), 0);
+        let always_success_out_point = OutPoint::new(always_success_tx.hash().to_owned(), 0);
 
         let mut block = BlockBuilder::default()
             .header_builder(
@@ -258,7 +260,7 @@ mod tests {
             let txs = (10..20).map(|i| {
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new_cell(cellbase.hash().to_owned(), i),
+                        OutPoint::new(cellbase.hash().to_owned(), i),
                         0,
                     ))
                     .output(
@@ -268,7 +270,7 @@ mod tests {
                             .build(),
                     )
                     .output_data(Bytes::new())
-                    .dep(always_success_out_point.to_owned())
+                    .cell_dep(CellDep::new_cell(always_success_out_point.to_owned()))
                     .build()
             });
 
@@ -308,7 +310,7 @@ mod tests {
                 let data = Bytes::from(vec![i]);
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new_cell(last_cellbase.hash().to_owned(), u32::from(i)),
+                        OutPoint::new(last_cellbase.hash().to_owned(), u32::from(i)),
                         0,
                     ))
                     .output(
@@ -317,7 +319,7 @@ mod tests {
                             .build(),
                     )
                     .output_data(data)
-                    .dep(always_success_out_point.to_owned())
+                    .cell_dep(CellDep::new_cell(always_success_out_point.to_owned()))
                     .build()
             })
             .collect::<Vec<_>>();
@@ -375,7 +377,7 @@ mod tests {
                 let since = number;
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new_cell(last_cellbase.hash().to_owned(), 0),
+                        OutPoint::new(last_cellbase.hash().to_owned(), 0),
                         since,
                     ))
                     .output(
@@ -384,7 +386,7 @@ mod tests {
                             .build(),
                     )
                     .output_data(Bytes::new())
-                    .dep(always_success_out_point.to_owned())
+                    .cell_dep(CellDep::new_cell(always_success_out_point.to_owned()))
                     .build()
             })
             .collect();
