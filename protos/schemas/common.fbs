@@ -147,6 +147,7 @@ struct EpochExt {
     number:                             uint64;
     block_reward:                       uint64;
     remainder_reward:                   uint64;
+    previous_epoch_hash_rate:           Bytes32;
     last_block_hash_in_previous_epoch:  Bytes32;
     start_number:                       uint64;
     length:                             uint64;
