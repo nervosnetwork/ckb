@@ -11,9 +11,7 @@ use ckb_core::extras::{EpochExt, TransactionInfo};
 use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
-use ckb_core::transaction::{
-    CellInput, CellOutPoint, CellOutputBuilder, OutPoint, TransactionBuilder,
-};
+use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_shared::error::SharedError;
@@ -111,7 +109,7 @@ fn test_genesis_transaction_spend() {
     assert_eq!(
         shared
             .lock_chain_state()
-            .cell(&OutPoint::new_cell(genesis_tx_hash, 0)),
+            .cell(&OutPoint::new(genesis_tx_hash, 0), false),
         CellStatus::Dead
     );
 }
@@ -138,7 +136,7 @@ fn test_transaction_spend_in_same_block() {
         assert_eq!(
             shared
                 .lock_chain_state()
-                .cell(&OutPoint::new_cell(hash.to_owned().to_owned(), 0)),
+                .cell(&OutPoint::new(hash.to_owned().to_owned(), 0), false),
             CellStatus::Unknown
         );
     }
@@ -167,25 +165,25 @@ fn test_transaction_spend_in_same_block() {
     assert_eq!(
         shared
             .lock_chain_state()
-            .cell(&OutPoint::new_cell(last_cell_base_hash.to_owned(), 0)),
+            .cell(&OutPoint::new(last_cell_base_hash.to_owned(), 0), false),
         CellStatus::Unknown
     );
 
     assert_eq!(
         shared
             .lock_chain_state()
-            .cell(&OutPoint::new_cell(tx1_hash.to_owned(), 0)),
+            .cell(&OutPoint::new(tx1_hash.to_owned(), 0), false),
         CellStatus::Dead
     );
 
     assert_eq!(
         shared
             .lock_chain_state()
-            .cell(&OutPoint::new_cell(tx2_hash.to_owned(), 0)),
+            .cell(&OutPoint::new(tx2_hash.to_owned(), 0), false),
         CellStatus::live_cell(CellMeta {
             cell_output: tx2_output,
             data_bytes: tx2_output_data.len() as u64,
-            out_point: CellOutPoint {
+            out_point: OutPoint {
                 tx_hash: tx2_hash.to_owned(),
                 index: 0
             },
@@ -222,7 +220,7 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new_cell(
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(
             tx1_hash.to_owned(),
             0
         ))),
@@ -264,7 +262,7 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new_cell(
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(
             tx1_hash.to_owned(),
             0
         ))),
@@ -288,7 +286,7 @@ fn test_invalid_out_point_index_in_same_block() {
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
     // proposal txs
     chain.gen_block_with_proposal_txs(txs.clone(), &mock_store);
@@ -303,7 +301,7 @@ fn test_invalid_out_point_index_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new_cell(
+        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
             tx1_hash.to_owned(),
             1,
         )])),
@@ -327,7 +325,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new_cell(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
     // proposal txs
     chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     // empty N+1 block
@@ -344,7 +342,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new_cell(
+        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
             tx1_hash.to_owned(),
             1,
         )])),
@@ -381,8 +379,8 @@ fn test_genesis_transaction_fetch() {
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
 
-    let out_point = OutPoint::new_cell(root_hash, 0);
-    let state = shared.lock_chain_state().cell(&out_point);
+    let out_point = OutPoint::new(root_hash, 0);
+    let state = shared.lock_chain_state().cell(&out_point, false);
     assert!(state.is_live());
 }
 
