@@ -1,7 +1,7 @@
 pub struct Transaction {
     version: Version,
     deps: Vec<Dep>,
-    visible_headers: Vec<H256>,
+    loadable_headers: Vec<H256>,
     inputs: Vec<Input>,
     outputs: Vec<Output>,
     witnesses: Vec<Vec<Bytes>>,
