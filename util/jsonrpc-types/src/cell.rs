@@ -1,5 +1,6 @@
 use crate::{Capacity, CellOutput, OutPoint, Script};
 use ckb_core::cell::CellStatus;
+use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 
 // This is used as return value of get_cells_by_lock_hash RPC:
@@ -8,6 +9,7 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct CellOutputWithOutPoint {
     pub out_point: OutPoint,
+    pub block_hash: H256,
     pub capacity: Capacity,
     pub lock: Script,
 }

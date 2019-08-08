@@ -1,5 +1,5 @@
 use crate::error::RPCError;
-use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderProvider, HeaderStatus};
+use ckb_core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker};
 use ckb_core::script::Script as CoreScript;
 use ckb_core::transaction::{OutPoint as CoreOutPoint, Transaction as CoreTransaction};
 use ckb_dao::DaoCalculator;
@@ -72,31 +72,30 @@ pub(crate) struct DryRunner<'a> {
 }
 
 impl<'a> CellProvider for DryRunner<'a> {
-    fn cell(&self, o: &CoreOutPoint) -> CellStatus {
-        if o.cell.is_none() {
-            return CellStatus::Unspecified;
-        }
-        let co = o.cell.as_ref().expect("checked below");
+    fn cell(&self, out_point: &CoreOutPoint, with_data: bool) -> CellStatus {
         self
             .chain_state
             .store()
-            .get_cell_meta(&co.tx_hash, co.index)
-            .map(CellStatus::live_cell)  // treat as live cell, regardless of live or dead
+            .get_cell_meta(&out_point.tx_hash, out_point.index)
+            .map(|mut cell_meta| {
+                if with_data {
+                    cell_meta.mem_cell_data = self
+                        .chain_state
+                        .store()
+                        .get_cell_data(&out_point.tx_hash, out_point.index);
+                }
+                CellStatus::live_cell(cell_meta)
+            })  // treat as live cell, regardless of live or dead
             .unwrap_or(CellStatus::Unknown)
     }
 }
 
-impl<'a> HeaderProvider for DryRunner<'a> {
-    fn header(&self, o: &CoreOutPoint) -> HeaderStatus {
-        if o.block_hash.is_none() {
-            return HeaderStatus::Unspecified;
-        }
-        let block_hash = o.block_hash.as_ref().expect("checked below");
+impl<'a> HeaderChecker for DryRunner<'a> {
+    fn is_valid(&self, block_hash: &H256) -> bool {
         self.chain_state
             .store()
-            .get_block_header(&block_hash)
-            .map(|header| HeaderStatus::Live(Box::new(header)))
-            .unwrap_or(HeaderStatus::Unknown)
+            .get_block_number(block_hash)
+            .is_some()
     }
 }
 
