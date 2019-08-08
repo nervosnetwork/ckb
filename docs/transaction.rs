@@ -1,10 +1,15 @@
 pub struct Transaction {
     version: Version,
-    cell_deps: Vec<OutPoint>,
+    cell_deps: Vec<CellDep>,
     header_deps: Vec<H256>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
     witnesses: Vec<Vec<Bytes>>,
+}
+
+pub struct CellDep {
+    previous_output: OutPoint,
+    is_dep_group: bool,
 }
 
 pub struct OutPoint {
