@@ -81,15 +81,13 @@ matrix:
         - make check-dirty-doc
 
     - name: Integration on macOS
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop, staging, trying) OR branch =~ /^rc\//)'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
       os: osx
-      env: CACHE_NAME=integration
-      script: make integration-release
+      script: make integration
     - name: Integration on Linux
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, develop, staging, trying) OR branch =~ /^rc\//)'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
       os: linux
-      env: CACHE_NAME=integration
-      script: make integration-release
+      script: make integration
     - name: Code Coverage
       if: 'tag IS NOT present AND ((branch = master AND type != pull_request) OR head_branch =~ /^rc\//)'
       os: linux
