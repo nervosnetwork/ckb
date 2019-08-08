@@ -8,7 +8,7 @@ pub struct Transaction {
 }
 
 pub struct Dep {
-    previous_output: OutPoint,
+    out_point: OutPoint,
     is_group: bool,
 }
 
@@ -29,7 +29,7 @@ pub struct Script {
 }
 
 pub struct Input {
-    previous_output: OutPoint,
+    out_point: OutPoint,
     since: u64,
 }
 
