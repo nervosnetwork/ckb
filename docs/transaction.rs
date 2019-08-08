@@ -36,7 +36,7 @@ pub struct CellInput {
 
 pub struct CellOutput {
     properties: CellProperties,
-    data: H256,
+    data: Bytes,
 }
 
 pub struct CellProperties {
