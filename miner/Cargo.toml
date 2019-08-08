@@ -32,6 +32,7 @@ ckb-verification = { path = "../verification" }
 indicatif = "0.11"
 console = "0.7.5"
 ckb-dao = { path = "../util/dao" }
+ckb-hash = { path = "../util/hash"}
 
 [dev-dependencies]
 proptest = "0.9"
@@ -40,3 +41,6 @@ ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
 ckb-pow = { path = "../pow" }
 ckb-dao-utils = { path = "../util/dao/utils" }
+
+[build-dependencies]
+cc = "1.0"
