@@ -11,6 +11,7 @@ use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use std::cmp::max;
+use std::collections::{HashMap, HashSet};
 
 pub struct DaoCalculator<'a, CS, DL> {
     pub consensus: &'a Consensus,
@@ -159,18 +160,17 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         out_point: &OutPoint,
         withdraw_header_hash: &H256,
     ) -> Result<Capacity, FailureError> {
-        let cell_out_point = out_point.cell.as_ref().ok_or(Error::InvalidOutPoint)?;
         let (tx, block_hash) = self
             .store
-            .get_transaction(&cell_out_point.tx_hash)
+            .get_transaction(&out_point.tx_hash)
             .ok_or(Error::InvalidOutPoint)?;
         let output = tx
             .outputs()
-            .get(cell_out_point.index as usize)
+            .get(out_point.index as usize)
             .ok_or(Error::InvalidOutPoint)?;
         let output_data = tx
             .outputs_data()
-            .get(cell_out_point.index as usize)
+            .get(out_point.index as usize)
             .ok_or(Error::InvalidOutPoint)?;
         self.calculate_maximum_withdraw(
             &output,
@@ -181,64 +181,69 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
     }
 
     pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, FailureError> {
-        rtx.transaction
-            .inputs()
+        let header_deps: HashSet<_> = rtx.transaction.deps().headers().iter().collect();
+        let resolved_cell_deps: HashMap<&OutPoint, &H256> = rtx
+            .resolved_cell_deps
             .iter()
-            .zip(rtx.resolved_inputs.iter())
+            .filter_map(|cell_meta| {
+                cell_meta
+                    .block_info
+                    .as_ref()
+                    .map(|info| (&cell_meta.out_point, &info.hash))
+            })
+            .collect();
+        rtx.resolved_inputs
+            .iter()
             .enumerate()
-            .try_fold(
-                Capacity::zero(),
-                |capacities, (i, (input, resolved_input))| {
-                    let capacity: Result<Capacity, FailureError> = match &resolved_input.cell() {
-                        None => Err(Error::InvalidOutPoint.into()),
-                        Some(cell_meta) => {
-                            let output = &cell_meta.cell_output;
-                            if output
-                                .type_
-                                .as_ref()
-                                .map(|t| t.code_hash == CODE_HASH_DAO)
-                                .unwrap_or(false)
-                            {
-                                let deposit_header_hash = input
-                                    .previous_output
-                                    .block_hash
-                                    .as_ref()
-                                    .ok_or(Error::InvalidOutPoint)?;
-                                let withdraw_header_hash = rtx
-                                    .transaction
-                                    .witnesses()
-                                    .get(i)
-                                    .and_then(|witness| witness.get(1))
+            .try_fold(Capacity::zero(), |capacities, (i, cell_meta)| {
+                let capacity: Result<Capacity, FailureError> = {
+                    let output = &cell_meta.cell_output;
+                    if output
+                        .type_
+                        .as_ref()
+                        .map(|t| t.code_hash == CODE_HASH_DAO)
+                        .unwrap_or(false)
+                    {
+                        let deposit_header_hash = cell_meta
+                            .block_info
+                            .as_ref()
+                            .map(|info| &info.hash)
+                            .filter(|hash| header_deps.contains(hash))
+                            .ok_or(Error::InvalidOutPoint)?;
+                        let withdraw_header_hash = rtx
+                            .transaction
+                            .witnesses()
+                            .get(i)
+                            .and_then(|witness| witness.get(1))
+                            .ok_or(Error::InvalidOutPoint)
+                            .and_then(|witness_data| {
+                                if witness_data.len() != 8 {
+                                    Err(Error::Format)
+                                } else {
+                                    Ok(LittleEndian::read_u64(&witness_data[0..8]))
+                                }
+                            })
+                            .and_then(|dep_index| {
+                                rtx.transaction
+                                    .deps()
+                                    .cells()
+                                    .get(dep_index as usize)
+                                    .and_then(|dep| resolved_cell_deps.get(dep.out_point()))
+                                    .filter(|hash| header_deps.contains(*hash))
                                     .ok_or(Error::InvalidOutPoint)
-                                    .and_then(|witness_data| {
-                                        if witness_data.len() != 8 {
-                                            Err(Error::Format)
-                                        } else {
-                                            Ok(LittleEndian::read_u64(&witness_data[0..8]))
-                                        }
-                                    })
-                                    .and_then(|dep_index| {
-                                        rtx.transaction
-                                            .deps()
-                                            .get(dep_index as usize)
-                                            .as_ref()
-                                            .and_then(|out_point| out_point.block_hash.to_owned())
-                                            .ok_or(Error::InvalidOutPoint)
-                                    })?;
-                                self.calculate_maximum_withdraw(
-                                    &output,
-                                    Capacity::bytes(cell_meta.data_bytes as usize)?,
-                                    &deposit_header_hash,
-                                    &withdraw_header_hash,
-                                )
-                            } else {
-                                Ok(output.capacity)
-                            }
-                        }
-                    };
-                    capacity.and_then(|c| c.safe_add(capacities).map_err(Into::into))
-                },
-            )
+                            })?;
+                        self.calculate_maximum_withdraw(
+                            &output,
+                            Capacity::bytes(cell_meta.data_bytes as usize)?,
+                            &deposit_header_hash,
+                            &withdraw_header_hash,
+                        )
+                    } else {
+                        Ok(output.capacity)
+                    }
+                };
+                capacity.and_then(|c| c.safe_add(capacities).map_err(Into::into))
+            })
             .and_then(|x| {
                 rtx.transaction
                     .outputs_capacity()
@@ -253,12 +258,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
     ) -> Result<Capacity, FailureError> {
         rtx.resolved_inputs
             .iter()
-            .try_fold(Capacity::zero(), |capacities, resolved_input| {
-                let current_capacity = if let Some(cell_meta) = resolved_input.cell() {
-                    cell_meta.occupied_capacity()
-                } else {
-                    Ok(Capacity::zero())
-                };
+            .try_fold(Capacity::zero(), |capacities, cell_meta| {
+                let current_capacity = cell_meta.occupied_capacity();
                 current_capacity.and_then(|c| capacities.safe_add(c))
             })
             .map_err(Into::into)
@@ -317,7 +318,7 @@ fn calculate_g2(
 mod tests {
     use super::*;
     use ckb_core::block::BlockBuilder;
-    use ckb_core::cell::{CellMetaBuilder, ResolvedOutPoint};
+    use ckb_core::cell::CellMetaBuilder;
     use ckb_core::header::HeaderBuilder;
     use ckb_core::transaction::TransactionBuilder;
     use ckb_core::{capacity_bytes, BlockNumber};
@@ -564,10 +565,10 @@ mod tests {
             .build();
         let rtx = ResolvedTransaction {
             transaction: &tx,
-            resolved_deps: vec![],
-            resolved_inputs: vec![ResolvedOutPoint::cell_only(
+            resolved_cell_deps: vec![],
+            resolved_inputs: vec![
                 CellMetaBuilder::from_cell_output(input_cell, input_cell_data).build(),
-            )],
+            ],
         };
 
         let result = DaoCalculator::new(&consensus, &store)
@@ -610,11 +611,7 @@ mod tests {
             .transaction(tx.to_owned())
             .build();
 
-        let out_point = OutPoint::new(
-            deposit_block.header().hash().to_owned(),
-            tx.hash().to_owned(),
-            0,
-        );
+        let out_point = OutPoint::new(tx.hash().to_owned(), 0);
 
         let withdraw_header = HeaderBuilder::default()
             .number(200)
@@ -665,11 +662,7 @@ mod tests {
             .transaction(tx.to_owned())
             .build();
 
-        let out_point = OutPoint::new(
-            deposit_block.header().hash().to_owned(),
-            tx.hash().to_owned(),
-            0,
-        );
+        let out_point = OutPoint::new(tx.hash().to_owned(), 0);
 
         let withdraw_header = HeaderBuilder::default()
             .number(200)
