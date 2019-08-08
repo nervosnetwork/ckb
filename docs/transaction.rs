@@ -1,10 +1,16 @@
 pub struct Transaction {
     version: Version,
+
+    // Each input has a corresponding Vec<Bytes> in witnesses
+    inputs: Vec<Input>,
+    witnesses: Vec<Vec<Bytes>>,
+
+    // Each cell has a corresponding Kernel and Bytes in output_kernels and output_data
+    output_kernels: Vec<Kernel>,
+    output_data: Vec<Bytes>,
+
     deps: Vec<Dep>,
     loadable_headers: Vec<H256>,
-    inputs: Vec<Input>,
-    outputs: Vec<Output>,
-    witnesses: Vec<Vec<Bytes>>,
 }
 
 pub struct Dep {
@@ -31,11 +37,6 @@ pub struct Script {
 pub struct Input {
     out_point: OutPoint,
     since: u64,
-}
-
-pub struct Output {
-    kernel: Kernel,
-    data: Bytes,
 }
 
 pub struct Kernel {
