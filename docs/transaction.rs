@@ -1,13 +1,13 @@
 pub struct Transaction {
     version: Version,
-    cell_deps: Vec<CellDep>,
-    header_deps: Vec<H256>,
-    inputs: Vec<CellInput>,
-    outputs: Vec<CellOutput>,
+    deps: Vec<Dep>,
+    required_blocks: Vec<H256>,
+    inputs: Vec<Input>,
+    outputs: Vec<Output>,
     witnesses: Vec<Vec<Bytes>>,
 }
 
-pub struct CellDep {
+pub struct Dep {
     previous_output: OutPoint,
     is_group: bool,
 }
@@ -28,19 +28,18 @@ pub struct Script {
     hash_type: ScriptHashType,
 }
 
-pub struct CellInput {
+pub struct Input {
     previous_output: OutPoint,
-    lock_script: Script,
     since: u64,
 }
 
-pub struct CellOutput {
-    properties: CellProperties,
+pub struct Output {
+    kernel: Kernel,
     data: Bytes,
 }
 
-pub struct CellProperties {
+pub struct Kernel {
     capacity: Capacity,
-    lock_hash: H256,
-    type_script: Option<Script>,
+    lock: Script,
+    type_: Option<Script>,
 }
