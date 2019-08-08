@@ -4,47 +4,34 @@ use crate::{
         Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash,
         LoadWitness,
     },
+    type_id::{TypeIdSystemScript, TYPE_ID_CODE_HASH},
     DataLoader, ScriptConfig, ScriptError,
 };
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_core::cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction};
 use ckb_core::script::{Script, ScriptHashType};
 use ckb_core::transaction::{CellInput, CellOutPoint, Witness};
 use ckb_core::{Bytes, Cycle};
-use ckb_hash::new_blake2b;
 use ckb_logger::{debug, info};
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
     WXorXMemory,
 };
 use fnv::FnvHashMap;
-use numext_fixed_hash::{h256, H256};
+use numext_fixed_hash::H256;
 
 #[cfg(all(unix, target_pointer_width = "64"))]
 use crate::Runner;
 #[cfg(all(unix, target_pointer_width = "64"))]
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
 
-// "TYPE_ID" in hex
-pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
-// NOTE: we give this special TYPE_ID script a large cycle on purpose. This way
-// we can ensure that the special built-in TYPE_ID script here only exists for
-// safety, not for saving cycles. In fact if you want to optimize for the cycle
-// consumptions, you should implement the TYPE_ID script as a real script, which
-// will use far less cycles. This way we can ensure that we won't run into
-// situations in similar chains that developers yearn for builtin contracts
-// which can have far less gas/cycle consumptions than one implemented in native
-// bytecode support by that chain.
-pub const TYPE_ID_CYCLES: Cycle = 1_000_000;
-
 // A script group is defined as scripts that share the same hash.
 // A script group will only be executed once per transaction, the
 // script itself should check against all inputs/outputs in its group
 // if needed.
-struct ScriptGroup {
-    script: Script,
-    input_indices: Vec<usize>,
-    output_indices: Vec<usize>,
+pub struct ScriptGroup {
+    pub script: Script,
+    pub input_indices: Vec<usize>,
+    pub output_indices: Vec<usize>,
 }
 
 impl ScriptGroup {
@@ -277,9 +264,14 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         // Now run each script group
         for group in self.lock_groups.values().chain(self.type_groups.values()) {
             let result = if group.script.code_hash == TYPE_ID_CODE_HASH
-                && group.script.hash_type == ScriptHashType::Data
+                && group.script.hash_type == ScriptHashType::Type
             {
-                self.verify_type_id(&group, max_cycles)
+                let verifier = TypeIdSystemScript {
+                    rtx: self.rtx,
+                    script_group: group,
+                    max_cycles,
+                };
+                verifier.verify()
             } else {
                 let program = self.extract_script(&group.script)?;
                 self.run(&program, &group, max_cycles)
@@ -302,62 +294,6 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             cycles = current_cycles;
         }
         Ok(cycles)
-    }
-
-    fn verify_type_id(
-        &self,
-        script_group: &ScriptGroup,
-        max_cycles: Cycle,
-    ) -> Result<Cycle, ScriptError> {
-        if max_cycles < TYPE_ID_CYCLES {
-            return Err(ScriptError::ExceededMaximumCycles);
-        }
-        // TYPE_ID script should only accept one argument,
-        // which is the hash of all inputs when creating
-        // the cell.
-        if script_group.script.args.len() != 1 || script_group.script.args[0].len() != 32 {
-            return Err(ScriptError::ValidationFailure(-1));
-        }
-
-        // There could be at most one input cell and one
-        // output cell with current TYPE_ID script.
-        if script_group.input_indices.len() > 1 || script_group.output_indices.len() > 1 {
-            return Err(ScriptError::ValidationFailure(-2));
-        }
-
-        // If there's only one output cell with current
-        // TYPE_ID script, we are creating such a cell,
-        // we also need to validate that the hash of all
-        // inputs match the first argument of the script.
-        if script_group.input_indices.is_empty() {
-            let mut blake2b = new_blake2b();
-            for input in self.rtx.transaction.inputs() {
-                // TODO: we use this weird way of hashing data to avoid
-                // dependency on flatbuffers for now. We should change
-                // this when we have a better serialization solution.
-                if let Some(cell) = &input.previous_output.cell {
-                    blake2b.update(b"cell");
-                    blake2b.update(cell.tx_hash.as_bytes());
-                    let mut buf = [0; 4];
-                    LittleEndian::write_u32(&mut buf, cell.index);
-                    blake2b.update(&buf[..]);
-                }
-                if let Some(block_hash) = &input.previous_output.block_hash {
-                    blake2b.update(b"block_hash");
-                    blake2b.update(block_hash.as_bytes());
-                }
-                blake2b.update(b"since");
-                let mut buf = [0; 8];
-                LittleEndian::write_u64(&mut buf, input.since);
-                blake2b.update(&buf[..]);
-            }
-            let mut ret = [0; 32];
-            blake2b.finalize(&mut ret);
-            if ret[..] != script_group.script.args[0] {
-                return Err(ScriptError::ValidationFailure(-3));
-            }
-        }
-        Ok(TYPE_ID_CYCLES)
     }
 
     #[cfg(all(unix, target_pointer_width = "64"))]
@@ -521,6 +457,7 @@ mod tests {
     use super::*;
     #[cfg(not(all(unix, target_pointer_width = "64")))]
     use crate::Runner;
+    use byteorder::{ByteOrder, LittleEndian};
     use ckb_core::cell::{BlockInfo, CellMetaBuilder};
     use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{
@@ -529,7 +466,7 @@ mod tests {
     use ckb_core::{capacity_bytes, Capacity};
     use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
     use ckb_db::RocksDB;
-    use ckb_hash::blake2b_256;
+    use ckb_hash::{blake2b_256, new_blake2b};
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
     use faster_hex::hex_encode;
 
@@ -1337,7 +1274,7 @@ mod tests {
         let type_id_script = Script::new(
             vec![Bytes::from(&h256!("0x1111")[..])],
             TYPE_ID_CODE_HASH,
-            ScriptHashType::Data,
+            ScriptHashType::Type,
         );
 
         let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
@@ -1399,7 +1336,7 @@ mod tests {
         let type_id_script = Script::new(
             vec![Bytes::from(&h256!("0x1111")[..])],
             TYPE_ID_CODE_HASH,
-            ScriptHashType::Data,
+            ScriptHashType::Type,
         );
 
         let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
@@ -1491,7 +1428,7 @@ mod tests {
             Bytes::from(&ret[..])
         };
 
-        let type_id_script = Script::new(vec![input_hash], TYPE_ID_CODE_HASH, ScriptHashType::Data);
+        let type_id_script = Script::new(vec![input_hash], TYPE_ID_CODE_HASH, ScriptHashType::Type);
 
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990))
@@ -1545,7 +1482,7 @@ mod tests {
         let type_id_script = Script::new(
             vec![Bytes::from(&h256!("0x1111")[..])],
             TYPE_ID_CODE_HASH,
-            ScriptHashType::Data,
+            ScriptHashType::Type,
         );
 
         let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
@@ -1634,7 +1571,7 @@ mod tests {
             Bytes::from(&ret[..])
         };
 
-        let type_id_script = Script::new(vec![input_hash], TYPE_ID_CODE_HASH, ScriptHashType::Data);
+        let type_id_script = Script::new(vec![input_hash], TYPE_ID_CODE_HASH, ScriptHashType::Type);
 
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990))
@@ -1722,7 +1659,7 @@ mod tests {
             Bytes::from(&buf[..])
         };
 
-        let type_id_script = Script::new(vec![input_hash], TYPE_ID_CODE_HASH, ScriptHashType::Data);
+        let type_id_script = Script::new(vec![input_hash], TYPE_ID_CODE_HASH, ScriptHashType::Type);
 
         let output_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(990))
@@ -1779,7 +1716,7 @@ mod tests {
         let type_id_script = Script::new(
             vec![Bytes::from(&h256!("0x1111")[..])],
             TYPE_ID_CODE_HASH,
-            ScriptHashType::Data,
+            ScriptHashType::Type,
         );
 
         let input = CellInput::new(OutPoint::new_cell(h256!("0x1234"), 8), 0);
