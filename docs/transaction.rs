@@ -9,7 +9,7 @@ pub struct Transaction {
 
 pub struct CellDep {
     previous_output: OutPoint,
-    is_dep_group: bool,
+    is_group: bool,
 }
 
 pub struct OutPoint {
