@@ -81,15 +81,13 @@ matrix:
         - make check-dirty-rpc-doc
 
     - name: Integration on macOS
-      env: CACHE_NAME=integration
       if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
       os: osx
-      script: make integration-release
+      script: make integration
     - name: Integration on Linux
-      env: CACHE_NAME=integration
       if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
       os: linux
-      script: make integration-release
+      script: make integration
     - name: Code Coverage
       if: 'tag IS NOT present AND ((branch = master AND type != pull_request) OR head_branch =~ /^rc\//)'
       os: linux
