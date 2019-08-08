@@ -98,6 +98,11 @@ matrix:
         - make check-cargotoml
         - make check-dirty-rpc-doc
 
+    - name: Test benchmarks on Linux
+      env: CACHE_NAME=bench
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
+      os: linux
+      script: make bench-test
     - name: Integration on macOS
       env: CACHE_NAME=integration
       if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'

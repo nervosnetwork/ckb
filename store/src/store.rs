@@ -1,4 +1,4 @@
-use crate::{CELL_DATA_CACHE, HEADER_CACHE};
+use crate::{cache_enable, CELL_DATA_CACHE, HEADER_CACHE};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_INDEX,
@@ -50,21 +50,25 @@ pub trait ChainStore<'a>: Send + Sync {
 
     /// Get header by block header hash
     fn get_block_header(&'a self, hash: &H256) -> Option<Header> {
-        {
+        let cache_enable = cache_enable();
+        if cache_enable {
             if let Some(header) = HEADER_CACHE.lock().get_refresh(hash) {
                 return Some(header.clone());
             }
         }
-        self.get(COLUMN_BLOCK_HEADER, hash.as_bytes())
-            .map(|slice| {
-                protos::StoredHeader::from_slice(&slice.as_ref())
-                    .try_into()
-                    .expect("deserialize")
-            })
-            .map(|header: Header| {
+        let ret = self.get(COLUMN_BLOCK_HEADER, hash.as_bytes()).map(|slice| {
+            protos::StoredHeader::from_slice(&slice.as_ref())
+                .try_into()
+                .expect("deserialize")
+        });
+        if cache_enable {
+            ret.map(|header: Header| {
                 HEADER_CACHE.lock().insert(hash.clone(), header.clone());
                 header
             })
+        } else {
+            ret
+        }
     }
 
     /// Get block body by block header hash
@@ -212,7 +216,8 @@ pub trait ChainStore<'a>: Send + Sync {
     }
 
     fn get_cell_data(&'a self, tx_hash: &H256, index: u32) -> Option<Bytes> {
-        {
+        let cache_enable = cache_enable();
+        if cache_enable {
             if let Some(data) = CELL_DATA_CACHE
                 .lock()
                 .get_refresh(&(tx_hash.clone(), index))
@@ -221,22 +226,25 @@ pub trait ChainStore<'a>: Send + Sync {
             }
         }
 
-        self.get_transaction_info(&tx_hash)
-            .and_then(|info| {
-                self.get(COLUMN_BLOCK_BODY, &info.store_key()).map(|slice| {
-                    let stored_transaction = protos::StoredTransaction::from_slice(&slice.as_ref());
-                    stored_transaction
-                        .output_data(index as usize)
-                        .expect("deserialize")
-                        .expect("inconsistent index")
-                })
+        let ret = self.get_transaction_info(&tx_hash).and_then(|info| {
+            self.get(COLUMN_BLOCK_BODY, &info.store_key()).map(|slice| {
+                let stored_transaction = protos::StoredTransaction::from_slice(&slice.as_ref());
+                stored_transaction
+                    .output_data(index as usize)
+                    .expect("deserialize")
+                    .expect("inconsistent index")
             })
-            .map(|data: Bytes| {
+        });
+        if cache_enable {
+            ret.map(|data: Bytes| {
                 CELL_DATA_CACHE
                     .lock()
                     .insert((tx_hash.clone(), index), data.clone());
                 data
             })
+        } else {
+            ret
+        }
     }
 
     // Get current epoch ext
@@ -326,15 +334,5 @@ pub trait ChainStore<'a>: Send + Sync {
             return Some(index_walk);
         }
         None
-    }
-
-    // Only for test
-    fn clear_header_cache(&'a self) {
-        HEADER_CACHE.lock().clear();
-    }
-
-    // Only for test
-    fn clear_cell_data_cache(&'a self) {
-        CELL_DATA_CACHE.lock().clear();
     }
 }
