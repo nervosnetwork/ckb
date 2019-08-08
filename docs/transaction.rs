@@ -1,6 +1,9 @@
 pub struct Transaction {
     version: Version,
 
+    deps: Vec<Dep>,
+    loadable_headers: Vec<H256>,
+
     // Each input has a corresponding Vec<Bytes> in witnesses
     inputs: Vec<Input>,
     witnesses: Vec<Vec<Bytes>>,
@@ -8,9 +11,6 @@ pub struct Transaction {
     // Each cell has a corresponding Kernel and Bytes in output_kernels and output_data
     output_kernels: Vec<Kernel>,
     output_data: Vec<Bytes>,
-
-    deps: Vec<Dep>,
-    loadable_headers: Vec<H256>,
 }
 
 pub struct Dep {
