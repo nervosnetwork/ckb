@@ -45,10 +45,10 @@ impl<'a> LoadCell<'a> {
             Source::Transaction(SourceEntry::Output) => {
                 self.outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
-            Source::Transaction(SourceEntry::Dep) => {
+            Source::Transaction(SourceEntry::CellDep) => {
                 self.resolved_cell_deps.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
-            Source::Transaction(SourceEntry::Header) => Err(INDEX_OUT_OF_BOUND),
+            Source::Transaction(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
@@ -63,8 +63,8 @@ impl<'a> LoadCell<'a> {
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| self.outputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
-            Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
-            Source::Group(SourceEntry::Header) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
         }
     }
 

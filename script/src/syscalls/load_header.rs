@@ -61,12 +61,12 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|cell_meta| self.load_header(cell_meta).ok_or(ITEM_MISSING)),
             Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
-            Source::Transaction(SourceEntry::Dep) => self
+            Source::Transaction(SourceEntry::CellDep) => self
                 .resolved_cell_deps
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|cell_meta| self.load_header(cell_meta).ok_or(ITEM_MISSING)),
-            Source::Transaction(SourceEntry::Header) => self
+            Source::Transaction(SourceEntry::HeaderDep) => self
                 .header_deps
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
@@ -82,8 +82,8 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
                 })
                 .and_then(|cell_meta| self.load_header(cell_meta).ok_or(ITEM_MISSING)),
             Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
-            Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
-            Source::Group(SourceEntry::Header) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
         }
     }
 }

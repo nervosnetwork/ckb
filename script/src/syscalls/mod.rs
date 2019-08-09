@@ -86,9 +86,9 @@ enum SourceEntry {
     Input,
     Output,
     // Cell dep
-    Dep,
+    CellDep,
     // Header dep
-    Header,
+    HeaderDep,
 }
 
 impl From<SourceEntry> for u64 {
@@ -96,8 +96,8 @@ impl From<SourceEntry> for u64 {
         match s {
             SourceEntry::Input => 1,
             SourceEntry::Output => 2,
-            SourceEntry::Dep => 3,
-            SourceEntry::Header => 4,
+            SourceEntry::CellDep => 3,
+            SourceEntry::HeaderDep => 4,
         }
     }
 }
@@ -107,8 +107,8 @@ impl SourceEntry {
         match i {
             1 => Ok(SourceEntry::Input),
             2 => Ok(SourceEntry::Output),
-            3 => Ok(SourceEntry::Dep),
-            4 => Ok(SourceEntry::Header),
+            3 => Ok(SourceEntry::CellDep),
+            4 => Ok(SourceEntry::HeaderDep),
             _ => Err(Error::ParseError),
         }
     }
@@ -613,7 +613,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Dep))); //source: 3 dep
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::CellDep))); //source: 3 dep
         machine.set_register(A5, CellField::DataHash as u64); //field: 2 data hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
@@ -683,7 +683,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Header))); //source: 4 header
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::HeaderDep))); //source: 4 header
         machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
 
         let data_hash = blake2b_256(&data);
@@ -1020,7 +1020,7 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, load_data_type as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
@@ -1103,7 +1103,7 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, load_data_type as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
@@ -1166,7 +1166,7 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, LoadDataType::Code as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
         let dep_cell_data = Bytes::from(&data[..]);
@@ -1214,7 +1214,7 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64 + 3); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, LoadDataType::Code as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
@@ -1266,7 +1266,7 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, LoadDataType::Code as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
