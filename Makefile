@@ -49,8 +49,8 @@ gen-hashes: ## Generate docs/hashes.toml
 
 ##@ Building
 check: setup-ckb-test ## Runs all of the compiler's checks.
-	cargo check ${VERBOSE} --all --all-targets
-	cd test && cargo check ${VERBOSE} --all --all-targets
+	cargo check ${VERBOSE} --all --all-targets --all-features
+	cd test && cargo check ${VERBOSE} --all --all-targets --all-features
 
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
