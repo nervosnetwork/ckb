@@ -1,3 +1,5 @@
+#![allow(clippy::fallible_impl_from)]
+
 use crate::*;
 use numext_fixed_uint::U256;
 use proptest::arbitrary::Arbitrary;
