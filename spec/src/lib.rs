@@ -278,12 +278,9 @@ pub mod test {
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
-        let res = match name {
-            "ckb_dev" => Resource::bundled("specs/dev.toml".to_string()),
-            "ckb_testnet" => Resource::bundled("specs/testnet.toml".to_string()),
-            _ => panic!("Unknown spec name {}", name),
-        };
-
+        // remove "ckb_" prefix
+        let base_name = &name[4..];
+        let res = Resource::bundled(format!("specs/{}.toml", base_name));
         ChainSpec::load_from(&res).expect("load spec by name")
     }
 
