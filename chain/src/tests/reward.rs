@@ -23,7 +23,7 @@ pub(crate) fn create_cellbase(
     miner_lock: Script,
     reward_lock: Script,
     reward: Option<Capacity>,
-    store: &mut MockStore,
+    store: &MockStore,
     consensus: &Consensus,
 ) -> Transaction {
     let number = parent.number() + 1;
@@ -51,7 +51,7 @@ pub(crate) fn gen_block(
     reward_lock: Script,
     reward: Option<Capacity>,
     consensus: &Consensus,
-    store: &mut MockStore,
+    store: &MockStore,
 ) -> Block {
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(
@@ -135,7 +135,7 @@ fn finalize_reward() {
 
     let (chain_controller, shared, mut parent) = start_chain(Some(consensus));
 
-    let mut mock_store = MockStore::new(&parent, shared.store());
+    let mock_store = MockStore::new(&parent, shared.store());
 
     let mut txs = Vec::with_capacity(16);
     let mut tx_parent = tx;
@@ -191,7 +191,7 @@ fn finalize_reward() {
             always_success_script.clone(),
             None,
             shared.consensus(),
-            &mut mock_store,
+            &mock_store,
         );
 
         parent = block.header().clone();
@@ -207,7 +207,7 @@ fn finalize_reward() {
 
     // bob proposed 8 txs in 12, committed in 22
     // get all proposal reward
-    let block_reward = calculate_reward(&mut mock_store, shared.consensus(), &parent);
+    let block_reward = calculate_reward(&mock_store, shared.consensus(), &parent);
     let bob_reward = TX_FEE
         .safe_mul_ratio(shared.consensus().proposer_reward_ratio())
         .unwrap()
@@ -226,7 +226,7 @@ fn finalize_reward() {
         target,
         Some(bob_reward),
         shared.consensus(),
-        &mut mock_store,
+        &mock_store,
     );
 
     parent = block.header().clone();
@@ -241,7 +241,7 @@ fn finalize_reward() {
     // alice proposed 16 txs in block 13, committed in 22, 23
     // but bob proposed 8 txs earlier
     // get 8 proposal reward
-    let block_reward = calculate_reward(&mut mock_store, shared.consensus(), &parent);
+    let block_reward = calculate_reward(&mock_store, shared.consensus(), &parent);
     let alice_reward = TX_FEE
         .safe_mul_ratio(shared.consensus().proposer_reward_ratio())
         .unwrap()
@@ -260,7 +260,7 @@ fn finalize_reward() {
         target,
         Some(alice_reward),
         shared.consensus(),
-        &mut mock_store,
+        &mock_store,
     );
 
     chain_controller

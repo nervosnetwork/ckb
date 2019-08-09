@@ -9,6 +9,14 @@ use std::time::Duration;
 pub struct ChainContainsInvalidBlock;
 
 impl Spec for ChainContainsInvalidBlock {
+    crate::name!("chain_contains_invalid_block");
+
+    crate::setup!(
+        connect_all: false,
+        num_nodes: 3,
+        protocols: vec![TestProtocol::sync()],
+    );
+
     // Case:
     //   1. `bad_node` generate a long chain `CN` contains a invalid block
     //      B[i] is an invalid block.
@@ -67,23 +75,19 @@ impl Spec for ChainContainsInvalidBlock {
             "fresh_node should synchronize the valid blocks only",
         );
     }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
-    }
 }
 
 pub struct ForkContainsInvalidBlock;
 
 impl Spec for ForkContainsInvalidBlock {
+    crate::name!("fork_contains_invalid_block");
+
+    crate::setup!(
+        connect_all: false,
+        num_nodes: 2,
+        protocols: vec![TestProtocol::sync()],
+    );
+
     fn run(&self, net: Net) {
         let mut net = net;
 
@@ -177,18 +181,6 @@ impl Spec for ForkContainsInvalidBlock {
             !ret,
             "request an invalid fork via GetBlock should be failed"
         );
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
     }
 }
 

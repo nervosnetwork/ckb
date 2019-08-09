@@ -61,7 +61,10 @@ lock.hash_type = "Data"
 epoch_reward = 1_250_000_00000000
 secondary_epoch_reward = 600_000_00000000
 max_block_cycles = 10_000_000_000
-cellbase_maturity = 10
+# Cellbase outputs are "locked" and require 4 * MAX_EPOCH_LENGTH(1800) confirmations(approximately 16 hours)
+# before they mature sufficiently to be spendable,
+# This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
+cellbase_maturity = 7_200
 
 [pow]
 func = "Cuckoo"

@@ -13,12 +13,12 @@ use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 pub struct ContextualTransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
     pub since: SinceVerifier<'a, M>,
 }
+
 impl<'a, M> ContextualTransactionVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
@@ -65,7 +65,7 @@ pub struct TransactionVerifier<'a, M, CS> {
 impl<'a, M, CS> TransactionVerifier<'a, M, CS>
 where
     M: BlockMedianTimeContext,
-    CS: ChainStore,
+    CS: ChainStore<'a>,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -76,7 +76,7 @@ where
         parent_hash: &'a H256,
         consensus: &'a Consensus,
         script_config: &'a ScriptConfig,
-        chain_store: &'a Arc<CS>,
+        chain_store: &'a CS,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
@@ -152,15 +152,15 @@ impl<'a> SizeVerifier<'a> {
 }
 
 pub struct ScriptVerifier<'a, CS> {
-    chain_store: &'a Arc<CS>,
+    chain_store: &'a CS,
     resolved_transaction: &'a ResolvedTransaction<'a>,
     script_config: &'a ScriptConfig,
 }
 
-impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
+impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
     pub fn new(
         resolved_transaction: &'a ResolvedTransaction,
-        chain_store: &'a Arc<CS>,
+        chain_store: &'a CS,
         script_config: &'a ScriptConfig,
     ) -> Self {
         ScriptVerifier {
@@ -171,7 +171,7 @@ impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
-        let data_loader = DataLoaderWrapper::new(Arc::clone(&self.chain_store));
+        let data_loader = DataLoaderWrapper::new(self.chain_store);
         TransactionScriptsVerifier::new(
             &self.resolved_transaction,
             &data_loader,

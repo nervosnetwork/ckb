@@ -6,22 +6,16 @@ use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::Transaction;
 use ckb_core::BlockNumber;
 use ckb_dao::DaoCalculator;
-use ckb_db::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::{ChainKVStore, ChainStore};
+use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
 use ckb_traits::ChainProvider;
 use numext_fixed_hash::H256;
 use std::sync::Arc;
 
-pub fn build_chain(
-    tip: BlockNumber,
-) -> (
-    SyncSharedState<ChainKVStore<MemoryKeyValueDB>>,
-    ChainController,
-) {
-    let shared = SharedBuilder::<MemoryKeyValueDB>::new()
+pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController) {
+    let shared = SharedBuilder::default()
         .consensus(always_success_consensus())
         .build()
         .unwrap();
@@ -36,7 +30,7 @@ pub fn build_chain(
 }
 
 pub fn generate_blocks(
-    shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
+    shared: &Shared,
     chain_controller: &ChainController,
     target_tip: BlockNumber,
 ) {
@@ -51,10 +45,7 @@ pub fn generate_blocks(
     }
 }
 
-pub fn inherit_block(
-    shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
-    parent_hash: &H256,
-) -> BlockBuilder {
+pub fn inherit_block(shared: &Shared, parent_hash: &H256) -> BlockBuilder {
     let parent = shared.store().get_block(parent_hash).unwrap();
     let parent_epoch = shared.get_block_epoch(parent_hash).unwrap();
     let parent_number = parent.header().number();
@@ -74,7 +65,7 @@ pub fn inherit_block(
             &*chain_state,
         )
         .unwrap();
-        DaoCalculator::new(shared.consensus(), Arc::clone(shared.store()))
+        DaoCalculator::new(shared.consensus(), shared.store())
             .dao_field(&[resolved_cellbase], parent.header())
             .unwrap()
     };
@@ -91,10 +82,7 @@ pub fn inherit_block(
     .transaction(inherit_cellbase(shared, parent_number))
 }
 
-pub fn inherit_cellbase(
-    shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
-    parent_number: BlockNumber,
-) -> Transaction {
+pub fn inherit_cellbase(shared: &Shared, parent_number: BlockNumber) -> Transaction {
     let parent_header = {
         let chain = shared.lock_chain_state();
         let parent_hash = chain

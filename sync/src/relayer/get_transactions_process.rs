@@ -4,23 +4,22 @@ use ckb_core::transaction::ProposalShortId;
 use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetRelayTransactions as FbsGetRelayTransactions, RelayMessage};
-use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct GetTransactionsProcess<'a, CS> {
+pub struct GetTransactionsProcess<'a> {
     message: &'a FbsGetRelayTransactions<'a>,
-    relayer: &'a Relayer<CS>,
+    relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore> GetTransactionsProcess<'a, CS> {
+impl<'a> GetTransactionsProcess<'a> {
     pub fn new(
         message: &'a FbsGetRelayTransactions,
-        relayer: &'a Relayer<CS>,
+        relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {

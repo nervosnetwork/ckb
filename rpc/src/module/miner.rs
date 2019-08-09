@@ -6,7 +6,6 @@ use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
@@ -34,14 +33,14 @@ pub trait MinerRpc {
     fn submit_block(&self, _work_id: String, _data: Block) -> Result<Option<H256>>;
 }
 
-pub(crate) struct MinerRpcImpl<CS> {
+pub(crate) struct MinerRpcImpl {
     pub network_controller: NetworkController,
-    pub shared: Shared<CS>,
+    pub shared: Shared,
     pub block_assembler: BlockAssemblerController,
     pub chain: ChainController,
 }
 
-impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
+impl MinerRpc for MinerRpcImpl {
     fn get_block_template(
         &self,
         bytes_limit: Option<Unsigned>,
@@ -75,7 +74,11 @@ impl<CS: ChainStore + 'static> MinerRpc for MinerRpcImpl<CS> {
 
         debug!("[{}] submit block", work_id);
         let block: Arc<CoreBlock> = Arc::new(data.into());
-        let resolver = HeaderResolverWrapper::new(block.header(), &self.shared);
+        let resolver = HeaderResolverWrapper::new(
+            block.header(),
+            self.shared.store(),
+            self.shared.consensus(),
+        );
         let header_verify_ret = {
             let chain_state = self.shared.lock_chain_state();
             let header_verifier = HeaderVerifier::new(

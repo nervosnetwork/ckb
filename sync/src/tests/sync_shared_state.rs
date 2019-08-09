@@ -6,11 +6,10 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::TransactionBuilder;
 use ckb_core::Capacity;
-use ckb_db::MemoryKeyValueDB;
 use ckb_network::PeerIndex;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
-use ckb_store::ChainStore;
+use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
 use std::sync::Arc;
 
@@ -57,9 +56,10 @@ fn test_insert_invalid_block() {
 
 #[test]
 fn test_insert_parent_unknown_block() {
+    ckb_store::set_cache_enable(false);
     let (shared1, _) = build_chain(2);
     let (shared, chain) = {
-        let shared = SharedBuilder::<MemoryKeyValueDB>::new()
+        let shared = SharedBuilder::default()
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();

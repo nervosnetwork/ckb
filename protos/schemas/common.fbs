@@ -129,18 +129,12 @@ struct TransactionInfo {
     index:          uint32;
 }
 
-struct DaoStats {
-    accumulated_rate:       uint64;
-    accumulated_capacity:   uint64;
-}
-
 table BlockExt {
     received_at:        uint64;
     total_difficulty:   Bytes32;
     total_uncles_count: uint64;
     has_verified:       bool;
     verified:           bool;
-    dao_stats:          DaoStats;
     txs_fees:           [uint64];
 }
 
@@ -148,6 +142,7 @@ struct EpochExt {
     number:                             uint64;
     block_reward:                       uint64;
     remainder_reward:                   uint64;
+    previous_epoch_hash_rate:           Bytes32;
     last_block_hash_in_previous_epoch:  Bytes32;
     start_number:                       uint64;
     length:                             uint64;

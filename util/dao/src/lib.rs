@@ -11,17 +11,16 @@ use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use std::cmp::max;
-use std::sync::Arc;
 
 pub struct DaoCalculator<'a, CS, DL> {
     pub consensus: &'a Consensus,
-    pub store: Arc<CS>,
+    pub store: &'a CS,
     pub data_loader: DL,
 }
 
-impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
-    pub fn new(consensus: &'a Consensus, store: Arc<CS>) -> Self {
-        let data_loader = DataLoaderWrapper::new(Arc::clone(&store));
+impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
+    pub fn new(consensus: &'a Consensus, store: &'a CS) -> Self {
+        let data_loader = DataLoaderWrapper::new(store);
         DaoCalculator {
             consensus,
             store,
@@ -75,7 +74,8 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
             .ok_or(Error::InvalidHeader)?;
         let target = self
             .store
-            .get_ancestor(parent.hash(), target_number)
+            .get_block_hash(target_number)
+            .and_then(|hash| self.store.get_block_header(&hash))
             .ok_or(Error::InvalidHeader)?;
 
         let primary_block_reward = self.primary_block_reward(&target)?;
@@ -124,7 +124,8 @@ impl<'a, CS: ChainStore> DaoCalculator<'a, CS, DataLoaderWrapper<CS>> {
                 .ok_or(Error::InvalidHeader)?;
             let target = self
                 .store
-                .get_ancestor(parent.hash(), target_number)
+                .get_block_hash(target_number)
+                .and_then(|hash| self.store.get_block_header(&hash))
                 .ok_or(Error::InvalidHeader)?;
             let target_epoch = self
                 .store
@@ -320,22 +321,22 @@ mod tests {
     use ckb_core::header::HeaderBuilder;
     use ckb_core::transaction::TransactionBuilder;
     use ckb_core::{capacity_bytes, BlockNumber};
-    use ckb_db::MemoryKeyValueDB;
-    use ckb_store::{ChainKVStore, StoreBatch, COLUMNS};
+    use ckb_db::RocksDB;
+    use ckb_store::{ChainDB, COLUMNS};
     use numext_fixed_hash::{h256, H256};
     use numext_fixed_uint::U256;
 
-    fn new_memory_store() -> ChainKVStore<MemoryKeyValueDB> {
-        ChainKVStore::new(MemoryKeyValueDB::open(COLUMNS as usize))
+    fn new_store() -> ChainDB {
+        ChainDB::new(RocksDB::open_tmp(COLUMNS))
     }
 
     fn prepare_store(
         consensus: &Consensus,
         parent: &Header,
         target_epoch_start: Option<BlockNumber>,
-    ) -> (Arc<ChainKVStore<MemoryKeyValueDB>>, Header) {
-        let store = new_memory_store();
-        let mut batch = store.new_batch().unwrap();
+    ) -> (ChainDB, Header) {
+        let store = new_store();
+        let txn = store.begin_transaction();
 
         if let Some(target_number) = consensus.finalize_target(parent.number()) {
             let target_epoch_start = target_epoch_start.unwrap_or(target_number - 300);
@@ -348,6 +349,7 @@ mod tests {
                     number,
                     Capacity::shannons(50_000_000_000),
                     Capacity::shannons(1_000_128),
+                    U256::one(),
                     h256!("0x1"),
                     target_epoch_start,
                     2091,
@@ -362,12 +364,11 @@ mod tests {
 
                 index = header.clone();
 
-                batch.insert_block(&block).unwrap();
-                batch.attach_block(&block).unwrap();
-                batch
-                    .insert_block_epoch_index(header.hash(), header.hash())
+                txn.insert_block(&block).unwrap();
+                txn.attach_block(&block).unwrap();
+                txn.insert_block_epoch_index(header.hash(), header.hash())
                     .unwrap();
-                batch.insert_epoch_ext(header.hash(), &epoch_ext).unwrap();
+                txn.insert_epoch_ext(header.hash(), &epoch_ext).unwrap();
             }
 
             let parent = HeaderBuilder::from_header(parent.clone())
@@ -375,20 +376,20 @@ mod tests {
                 .build();
             let parent_block = BlockBuilder::default().header(parent.clone()).build();
 
-            batch.insert_block(&parent_block).unwrap();
-            batch.attach_block(&parent_block).unwrap();
+            txn.insert_block(&parent_block).unwrap();
+            txn.attach_block(&parent_block).unwrap();
 
-            batch.commit().unwrap();
+            txn.commit().unwrap();
 
-            return (Arc::new(store), parent.clone());
+            return (store, parent.clone());
         } else {
             let parent_block = BlockBuilder::default().header(parent.clone()).build();
-            batch.insert_block(&parent_block).unwrap();
-            batch.attach_block(&parent_block).unwrap();
+            txn.insert_block(&parent_block).unwrap();
+            txn.attach_block(&parent_block).unwrap();
 
-            batch.commit().unwrap();
+            txn.commit().unwrap();
 
-            return (Arc::new(store), parent.clone());
+            return (store, parent.clone());
         }
     }
 
@@ -407,7 +408,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
-        let result = DaoCalculator::new(&consensus, store)
+        let result = DaoCalculator::new(&consensus, &store)
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(&result).unwrap();
@@ -436,7 +437,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
-        let result = DaoCalculator::new(&consensus, store)
+        let result = DaoCalculator::new(&consensus, &store)
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(&result).unwrap();
@@ -465,7 +466,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&consensus, &parent_header, Some(12329));
-        let result = DaoCalculator::new(&consensus, store)
+        let result = DaoCalculator::new(&consensus, &store)
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(&result).unwrap();
@@ -494,7 +495,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
-        let result = DaoCalculator::new(&consensus, store)
+        let result = DaoCalculator::new(&consensus, &store)
             .dao_field(&[], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(&result).unwrap();
@@ -523,7 +524,7 @@ mod tests {
             .build();
 
         let (store, parent_header) = prepare_store(&consensus, &parent_header, None);
-        let result = DaoCalculator::new(&consensus, store).dao_field(&[], &parent_header);
+        let result = DaoCalculator::new(&consensus, &store).dao_field(&[], &parent_header);
         assert!(result.is_err());
     }
 
@@ -569,7 +570,7 @@ mod tests {
             )],
         };
 
-        let result = DaoCalculator::new(&consensus, store)
+        let result = DaoCalculator::new(&consensus, &store)
             .dao_field(&[rtx], &parent_header)
             .unwrap();
         let dao_data = extract_dao_data(&result).unwrap();
@@ -627,16 +628,16 @@ mod tests {
             .header(withdraw_header.to_owned())
             .build();
 
-        let store = new_memory_store();
-        let mut batch = store.new_batch().unwrap();
-        batch.insert_block(&deposit_block).unwrap();
-        batch.attach_block(&deposit_block).unwrap();
-        batch.insert_block(&withdraw_block).unwrap();
-        batch.attach_block(&withdraw_block).unwrap();
-        batch.commit().unwrap();
+        let store = new_store();
+        let txn = store.begin_transaction();
+        txn.insert_block(&deposit_block).unwrap();
+        txn.attach_block(&deposit_block).unwrap();
+        txn.insert_block(&withdraw_block).unwrap();
+        txn.attach_block(&withdraw_block).unwrap();
+        txn.commit().unwrap();
 
         let consensus = Consensus::default();
-        let calculator = DaoCalculator::new(&consensus, Arc::new(store));
+        let calculator = DaoCalculator::new(&consensus, &store);
         let result = calculator.maximum_withdraw(&out_point, withdraw_header.hash());
         assert_eq!(result.unwrap(), Capacity::shannons(100_000_000_009_999));
     }
@@ -682,16 +683,16 @@ mod tests {
             .header(withdraw_header.to_owned())
             .build();
 
-        let store = new_memory_store();
-        let mut batch = store.new_batch().unwrap();
-        batch.insert_block(&deposit_block).unwrap();
-        batch.attach_block(&deposit_block).unwrap();
-        batch.insert_block(&withdraw_block).unwrap();
-        batch.attach_block(&withdraw_block).unwrap();
-        batch.commit().unwrap();
+        let store = new_store();
+        let txn = store.begin_transaction();
+        txn.insert_block(&deposit_block).unwrap();
+        txn.attach_block(&deposit_block).unwrap();
+        txn.insert_block(&withdraw_block).unwrap();
+        txn.attach_block(&withdraw_block).unwrap();
+        txn.commit().unwrap();
 
         let consensus = Consensus::default();
-        let calculator = DaoCalculator::new(&consensus, Arc::new(store));
+        let calculator = DaoCalculator::new(&consensus, &store);
         let result = calculator.maximum_withdraw(&out_point, withdraw_header.hash());
         assert!(result.is_err());
     }

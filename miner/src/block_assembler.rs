@@ -27,10 +27,10 @@ use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::FnvHashSet;
 use lru_cache::LruCache;
 use numext_fixed_hash::H256;
 use std::cmp;
+use std::collections::HashSet;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
 use std::thread;
 
@@ -89,8 +89,8 @@ impl BlockAssemblerController {
     }
 }
 
-pub struct BlockAssembler<CS> {
-    shared: Shared<CS>,
+pub struct BlockAssembler {
+    shared: Shared,
     config: BlockAssemblerConfig,
     work_id: AtomicUsize,
     last_uncles_updated_at: AtomicU64,
@@ -98,8 +98,8 @@ pub struct BlockAssembler<CS> {
     proof_size: usize,
 }
 
-impl<CS: ChainStore + 'static> BlockAssembler<CS> {
-    pub fn new(shared: Shared<CS>, config: BlockAssemblerConfig) -> Self {
+impl BlockAssembler {
+    pub fn new(shared: Shared, config: BlockAssemblerConfig) -> Self {
         Self {
             proof_size: shared.consensus().pow_engine().proof_size(),
             shared,
@@ -237,7 +237,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         cellbase_size: usize,
         bytes_limit: u64,
         uncles: &[UncleBlock],
-        proposals: &FnvHashSet<ProposalShortId>,
+        proposals: &HashSet<ProposalShortId>,
     ) -> Result<usize, FailureError> {
         let occupied = Header::serialized_size(self.proof_size)
             + uncles
@@ -350,7 +350,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
         for entry in &entries {
             txs.push(entry.transaction.to_owned());
         }
-        let mut seen_inputs = FnvHashSet::default();
+        let mut seen_inputs = HashSet::default();
         let transactions_provider = TransactionsProvider::new(&txs);
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, &*chain_state);
 
@@ -371,7 +371,7 @@ impl<CS: ChainStore + 'static> BlockAssembler<CS> {
                 }
             })
             .map_err(|_| Error::InvalidInput)?;
-        let dao = DaoCalculator::new(&chain_state.consensus(), Arc::clone(chain_state.store()))
+        let dao = DaoCalculator::new(&chain_state.consensus(), chain_state.store())
             .dao_field(&rtxs, &tip_header)?;
 
         // Release the lock as soon as possible, let other services do their work
@@ -533,12 +533,11 @@ mod tests {
     };
     use ckb_core::{BlockNumber, Bytes};
     use ckb_dao_utils::genesis_dao_data;
-    use ckb_db::memorydb::MemoryKeyValueDB;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
-    use ckb_store::{ChainKVStore, ChainStore};
+    use ckb_store::ChainStore;
     use ckb_traits::ChainProvider;
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use numext_fixed_hash::H256;
@@ -547,12 +546,8 @@ mod tests {
     fn start_chain(
         consensus: Option<Consensus>,
         notify: Option<NotifyController>,
-    ) -> (
-        ChainController,
-        Shared<ChainKVStore<MemoryKeyValueDB>>,
-        NotifyController,
-    ) {
-        let mut builder = SharedBuilder::<MemoryKeyValueDB>::new();
+    ) -> (ChainController, Shared, NotifyController) {
+        let mut builder = SharedBuilder::default();
         if let Some(consensus) = consensus {
             builder = builder.consensus(consensus);
         }
@@ -564,10 +559,7 @@ mod tests {
         (chain_controller, shared, notify)
     }
 
-    fn setup_block_assembler<CS: ChainStore + 'static>(
-        shared: Shared<CS>,
-        config: BlockAssemblerConfig,
-    ) -> BlockAssembler<CS> {
+    fn setup_block_assembler(shared: Shared, config: BlockAssemblerConfig) -> BlockAssembler {
         BlockAssembler::new(shared, config)
     }
 
@@ -590,7 +582,8 @@ mod tests {
         let block: BlockBuilder = block_template.into();
         let block = block.build();
 
-        let resolver = HeaderResolverWrapper::new(block.header(), &shared);
+        let resolver =
+            HeaderResolverWrapper::new(block.header(), shared.store(), shared.consensus());
         let header_verify_result = {
             let chain_state = shared.lock_chain_state();
             let header_verifier = HeaderVerifier::new(&*chain_state, Pow::Dummy.engine());

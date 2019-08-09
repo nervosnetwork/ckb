@@ -2,7 +2,6 @@ use crate::helper::{deadlock_detection, wait_for_exit};
 use ckb_app_config::{ExitCode, RunArgs};
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
-use ckb_db::RocksDB;
 use ckb_logger::info_target;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
@@ -11,7 +10,6 @@ use ckb_notify::NotifyService;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::{BlockVerifier, Verifier};
@@ -22,9 +20,8 @@ const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
 
-    let shared = SharedBuilder::<RocksDB>::new()
+    let shared = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
-        .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool)
         .script_config(args.config.script)
         .store_config(args.config.store)
@@ -170,7 +167,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     Ok(())
 }
 
-fn verify_genesis<CS: ChainStore + 'static>(shared: &Shared<CS>) -> Result<(), ExitCode> {
+fn verify_genesis(shared: &Shared) -> Result<(), ExitCode> {
     let genesis = shared.consensus().genesis_block();
     BlockVerifier::new(shared.clone())
         .verify(genesis)

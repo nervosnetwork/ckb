@@ -172,10 +172,10 @@ mod tests {
     use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{CellOutPoint, CellOutput, CellOutputBuilder};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
-    use ckb_db::MemoryKeyValueDB;
+    use ckb_db::RocksDB;
     use ckb_hash::blake2b_256;
     use ckb_protocol::{CellOutput as FbsCellOutput, Header as FbsHeader, Witness as FbsWitness};
-    use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainKVStore, COLUMNS};
+    use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
         memory::{FLAG_EXECUTABLE, FLAG_FREEZED},
@@ -185,10 +185,9 @@ mod tests {
     use flatbuffers::FlatBufferBuilder;
     use numext_fixed_hash::H256;
     use proptest::{collection::size_range, prelude::*};
-    use std::sync::Arc;
 
-    fn new_memory_store() -> ChainKVStore<MemoryKeyValueDB> {
-        ChainKVStore::new(MemoryKeyValueDB::open(COLUMNS as usize))
+    fn new_store() -> ChainDB {
+        ChainDB::new(RocksDB::open_tmp(COLUMNS))
     }
 
     fn build_cell_meta(output: CellOutput, data: Bytes) -> CellMeta {
@@ -1010,8 +1009,8 @@ mod tests {
             dep_cell_data,
         );
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
         let resolved_deps = vec![dep_cell];
@@ -1049,6 +1048,9 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 10, .. ProptestConfig::default()
+        })]
         #[test]
         fn test_load_code(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
             _test_load_cell_data(LoadDataType::Code, data)?;
@@ -1090,8 +1092,8 @@ mod tests {
             dep_cell_data,
         );
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
         let resolved_deps = vec![dep_cell];
@@ -1115,6 +1117,9 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 10, .. ProptestConfig::default()
+        })]
         #[test]
         fn test_load_code_on_freezed_memory(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
             _test_load_cell_data_on_freezed_memory(LoadDataType::Code, data)?;
@@ -1149,8 +1154,8 @@ mod tests {
             dep_cell_data,
         );
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
         let resolved_deps = vec![dep_cell];
@@ -1198,8 +1203,8 @@ mod tests {
             dep_cell_data,
         );
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
         let resolved_deps = vec![dep_cell];
@@ -1250,8 +1255,8 @@ mod tests {
             dep_cell_data,
         );
 
-        let store = Arc::new(new_memory_store());
-        let data_loader = DataLoaderWrapper::new(store);
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
         let resolved_deps = vec![dep_cell];

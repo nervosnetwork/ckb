@@ -28,7 +28,7 @@ fn main() {
         None
     };
 
-    let all_specs = build_specs();
+    let all_specs = all_specs();
 
     if matches.is_present("list-specs") {
         let mut names: Vec<_> = all_specs.keys().collect();
@@ -169,89 +169,61 @@ fn canonicalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .unwrap_or_else(|_| path.as_ref().to_path_buf())
 }
 
-fn build_specs() -> SpecMap {
-    let mut specs = SpecMap::new();
-
-    specs.insert("block_relay_basic", Box::new(BlockRelayBasic));
-    specs.insert("block_sync_from_one", Box::new(BlockSyncFromOne));
-    specs.insert("block_sync_forks", Box::new(BlockSyncForks));
-    specs.insert(
-        "block_sync_duplicated_and_reconnect",
+fn all_specs() -> SpecMap {
+    let specs: Vec<Box<Spec>> = vec![
+        Box::new(BlockRelayBasic),
+        Box::new(BlockSyncFromOne),
+        Box::new(BlockSyncForks),
         Box::new(BlockSyncDuplicatedAndReconnect),
-    );
-    specs.insert("block_sync_orphan_blocks", Box::new(BlockSyncOrphanBlocks));
-    specs.insert("sync_timeout", Box::new(SyncTimeout));
-    specs.insert(
-        "chain_contains_invalid_block",
+        Box::new(BlockSyncOrphanBlocks),
+        Box::new(SyncTimeout),
         Box::new(ChainContainsInvalidBlock),
-    );
-    specs.insert(
-        "fork_contains_invalid_block",
         Box::new(ForkContainsInvalidBlock),
-    );
-    specs.insert("chain_fork_1", Box::new(ChainFork1));
-    specs.insert("chain_fork_2", Box::new(ChainFork2));
-    specs.insert("chain_fork_3", Box::new(ChainFork3));
-    specs.insert("chain_fork_4", Box::new(ChainFork4));
-    specs.insert("chain_fork_5", Box::new(ChainFork5));
-    specs.insert("chain_fork_6", Box::new(ChainFork6));
-    specs.insert("chain_fork_7", Box::new(ChainFork7));
-    specs.insert("mining_basic", Box::new(MiningBasic));
-    specs.insert("mining_bootstrap_cellbase", Box::new(BootstrapCellbase));
-    specs.insert("mining_template_size_limit", Box::new(TemplateSizeLimit));
-    specs.insert("pool_reconcile", Box::new(PoolReconcile));
-    specs.insert("pool_resurrect", Box::new(PoolResurrect));
-    specs.insert("transaction_relay_basic", Box::new(TransactionRelayBasic));
-    // FIXME: There is a probability of failure on low resouce CI server
-    // specs.insert(
-    //     "transaction_relay_multiple",
-    //     Box::new(TransactionRelayMultiple),
-    // );
-    specs.insert("discovery", Box::new(Discovery));
-    // TODO enable this after p2p lib resolve close timeout issue
-    // specs.insert("disconnect", Box::new(Disconnect));
-    specs.insert("malformed_message", Box::new(MalformedMessage));
-    specs.insert("depent_tx_in_same_block", Box::new(DepentTxInSameBlock));
-    // TODO enable these after proposed/pending pool tip verfiry logic changing
-    // specs.insert("cellbase_maturity", Box::new(CellbaseMaturity));
-    specs.insert("valid_since", Box::new(ValidSince));
-    specs.insert(
-        "different_txs_with_same_input",
+        Box::new(ChainFork1),
+        Box::new(ChainFork2),
+        Box::new(ChainFork3),
+        Box::new(ChainFork4),
+        Box::new(ChainFork5),
+        Box::new(ChainFork6),
+        Box::new(ChainFork7),
+        Box::new(DepositDAO),
+        Box::new(WithdrawDAO),
+        Box::new(WithdrawAndDepositDAOWithinSameTx),
+        Box::new(WithdrawDAOWithNotMaturitySince),
+        Box::new(WithdrawDAOWithOverflowCapacity),
+        Box::new(WithdrawDAOWithInvalidWitness),
+        Box::new(MiningBasic),
+        Box::new(BootstrapCellbase),
+        Box::new(TemplateSizeLimit),
+        Box::new(PoolReconcile),
+        Box::new(PoolResurrect),
+        Box::new(TransactionRelayBasic),
+        // FIXME: There is a probability of failure on low resouce CI server
+        // Box::new(TransactionRelayMultiple),
+        Box::new(Discovery),
+        // TODO enable this after p2p lib resolve close timeout issue
+        // Box::new(Disconnect),
+        Box::new(MalformedMessage),
+        Box::new(DepentTxInSameBlock),
+        // TODO enable these after proposed/pending pool tip verfiry logic changing
+        // Box::new(CellbaseMaturity),
+        Box::new(ValidSince),
         Box::new(DifferentTxsWithSameInput),
-    );
-    specs.insert("compact_block_empty", Box::new(CompactBlockEmpty));
-    specs.insert(
-        "compact_block_empty_parent_unknown",
+        Box::new(CompactBlockEmpty),
         Box::new(CompactBlockEmptyParentUnknown),
-    );
-    specs.insert("compact_block_prefilled", Box::new(CompactBlockPrefilled));
-    specs.insert(
-        "compact_block_missing_fresh_txs",
+        Box::new(CompactBlockPrefilled),
         Box::new(CompactBlockMissingFreshTxs),
-    );
-    specs.insert(
-        "compact_block_missing_not_fresh_txs",
         Box::new(CompactBlockMissingNotFreshTxs),
-    );
-    specs.insert(
-        "compact_block_lose_get_block_transactions",
         Box::new(CompactBlockLoseGetBlockTransactions),
-    );
-    specs.insert(
-        "compact_block_relay_parent_of_orphan_block",
         Box::new(CompactBlockRelayParentOfOrphanBlock),
-    );
-    specs.insert(
-        "compact_block_relay_less_then_shared_best_known",
         Box::new(CompactBlockRelayLessThenSharedBestKnown),
-    );
-    specs.insert("invalid_locator_size", Box::new(InvalidLocatorSize));
-    specs.insert("tx_pool_size_limit", Box::new(SizeLimit));
-    specs.insert("tx_pool_cycles_limit", Box::new(CyclesLimit));
-    specs.insert("alert_propagation", Box::new(AlertPropagation::default()));
-    specs.insert("indexer_basic", Box::new(IndexerBasic));
-    specs.insert("genesis_issued_cells", Box::new(GenesisIssuedCells));
-    specs.insert("ibd_process", Box::new(IBDProcess));
-
-    specs
+        Box::new(InvalidLocatorSize),
+        Box::new(SizeLimit),
+        Box::new(CyclesLimit),
+        Box::new(AlertPropagation::default()),
+        Box::new(IndexerBasic),
+        Box::new(GenesisIssuedCells),
+        Box::new(IBDProcess),
+    ];
+    specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }

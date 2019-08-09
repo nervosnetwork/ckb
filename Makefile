@@ -49,8 +49,8 @@ gen-hashes: ## Generate docs/hashes.toml
 
 ##@ Building
 check: setup-ckb-test ## Runs all of the compiler's checks.
-	cargo check ${VERBOSE} --all --all-targets
-	cd test && cargo check ${VERBOSE} --all --all-targets
+	cargo check ${VERBOSE} --all --all-targets --all-features
+	cd test && cargo check ${VERBOSE} --all --all-targets --all-features
 
 build: ## Build binary with release profile.
 	cargo build ${VERBOSE} --release
@@ -87,10 +87,13 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 	@cargo audit
 	# expecting to see "Success No vulnerable packages found"
 
+bench-test:
+	cd benches && cargo bench --features ci -- --test
+
 ##@ Continuous Integration
 
 ci: ## Run recipes for CI.
-ci: check-cargotoml fmt check-dirty-rpc-doc clippy security-audit test
+ci: check-cargotoml fmt check-dirty-rpc-doc clippy security-audit test bench-test
 	git diff --exit-code Cargo.lock
 
 check-cargotoml:

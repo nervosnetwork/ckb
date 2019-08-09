@@ -6,24 +6,20 @@ use ckb_core::block::Block;
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::Block as PBlock;
-use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use std::convert::TryInto;
 
-pub struct BlockProcess<'a, CS: ChainStore + 'a> {
+pub struct BlockProcess<'a> {
     message: &'a PBlock<'a>,
-    synchronizer: &'a Synchronizer<CS>,
+    synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, CS> BlockProcess<'a, CS>
-where
-    CS: ChainStore + 'a,
-{
+impl<'a> BlockProcess<'a> {
     pub fn new(
         message: &'a PBlock,
-        synchronizer: &'a Synchronizer<CS>,
+        synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {

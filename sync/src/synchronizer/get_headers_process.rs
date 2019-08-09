@@ -4,26 +4,22 @@ use ckb_core::header::Header;
 use ckb_logger::{debug, info, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
-use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 
-pub struct GetHeadersProcess<'a, CS: ChainStore + 'a> {
+pub struct GetHeadersProcess<'a> {
     message: &'a GetHeaders<'a>,
-    synchronizer: &'a Synchronizer<CS>,
+    synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, CS> GetHeadersProcess<'a, CS>
-where
-    CS: ChainStore + 'a,
-{
+impl<'a> GetHeadersProcess<'a> {
     pub fn new(
         message: &'a GetHeaders,
-        synchronizer: &'a Synchronizer<CS>,
+        synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {

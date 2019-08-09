@@ -12,6 +12,14 @@ use std::time::Duration;
 pub struct BlockSyncFromOne;
 
 impl Spec for BlockSyncFromOne {
+    crate::name!("block_sync_from_one");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync()],
+    );
+
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
@@ -36,23 +44,19 @@ impl Spec for BlockSyncFromOne {
             "Node0 and node1 should sync with each other until same tip chain",
         );
     }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
-    }
 }
 
 pub struct BlockSyncForks;
 
 impl Spec for BlockSyncForks {
+    crate::name!("block_sync_forks");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync()],
+    );
+
     // NOTE: ENSURE node0 and nodes1 is in genesis state.
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
@@ -102,23 +106,15 @@ impl Spec for BlockSyncForks {
         assert_eq!(info00.median_time, info11.median_time);
         assert_eq!(medians.len(), 2);
     }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
-    }
 }
 
 pub struct BlockSyncDuplicatedAndReconnect;
 
 impl Spec for BlockSyncDuplicatedAndReconnect {
+    crate::name!("block_sync_duplicated_and_reconnect");
+
+    crate::setup!(protocols: vec![TestProtocol::sync()]);
+
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
@@ -182,14 +178,19 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let hash = block.header().hash().clone();
         wait_until(10, || rpc_client.get_tip_header().hash == hash);
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
-    }
 }
+
 pub struct BlockSyncOrphanBlocks;
 
 impl Spec for BlockSyncOrphanBlocks {
+    crate::name!("block_sync_orphan_blocks");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync()],
+    );
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -230,18 +231,6 @@ impl Spec for BlockSyncOrphanBlocks {
         sync_block(&net, peer_id, &first);
         let ret = wait_until(10, || rpc_client.get_tip_block_number() > tip_number + 2);
         assert!(ret, "node0 should grow up");
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
     }
 }
 

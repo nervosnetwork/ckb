@@ -4,6 +4,10 @@ use log::info;
 pub struct PoolResurrect;
 
 impl Spec for PoolResurrect {
+    crate::name!("pool_resurrect");
+
+    crate::setup!(num_nodes: 2, connect_all: false);
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -46,13 +50,5 @@ impl Spec for PoolResurrect {
         info!("Generate 1 block on node0, 6 txs should be included in this block");
         node0.generate_block();
         node0.assert_tx_pool_size(0, 0);
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }

@@ -10,20 +10,17 @@ use flatbuffers::FlatBufferBuilder;
 use std::cmp::min;
 use std::convert::TryInto;
 
-pub struct GetBlocksProcess<'a, CS: ChainStore + 'a> {
+pub struct GetBlocksProcess<'a> {
     message: &'a GetBlocks<'a>,
-    synchronizer: &'a Synchronizer<CS>,
+    synchronizer: &'a Synchronizer,
     nc: &'a CKBProtocolContext,
     peer: PeerIndex,
 }
 
-impl<'a, CS> GetBlocksProcess<'a, CS>
-where
-    CS: ChainStore + 'a,
-{
+impl<'a> GetBlocksProcess<'a> {
     pub fn new(
         message: &'a GetBlocks,
-        synchronizer: &'a Synchronizer<CS>,
+        synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {

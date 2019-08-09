@@ -1,9 +1,10 @@
-use crate::Net;
+use crate::{Net, Node};
 use bytes::Bytes;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder, Seal};
+use ckb_core::transaction::Transaction;
 use ckb_core::BlockNumber;
-use ckb_jsonrpc_types::BlockTemplate;
+use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
 use ckb_protocol::{RelayMessage, SyncMessage};
 use flatbuffers::FlatBufferBuilder;
 use numext_fixed_hash::H256;
@@ -138,4 +139,26 @@ pub fn since_from_relative_timestamp(timestamp: u64) -> u64 {
 
 pub fn since_from_absolute_timestamp(timestamp: u64) -> u64 {
     FLAG_SINCE_TIMESTAMP | timestamp
+}
+
+pub fn assert_send_transaction_fail(node: &Node, transaction: &Transaction, message: &str) {
+    let result = node
+        .rpc_client()
+        .inner()
+        .lock()
+        .send_transaction(transaction.into())
+        .call();
+    let error = result.expect_err(&format!("transaction is invalid since {}", message));
+    let error_string = error.to_string();
+    assert!(
+        error_string.contains(message),
+        "expect error \"{}\" but got \"{}\"",
+        message,
+        error_string,
+    );
+}
+
+pub fn is_committed(tx_status: &TransactionWithStatus) -> bool {
+    let committed_status = TxStatus::committed(H256::zero());
+    tx_status.tx_status.status == committed_status.status
 }

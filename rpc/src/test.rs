@@ -15,7 +15,6 @@ use ckb_core::{alert::AlertBuilder, capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_db::DBConfig;
-use ckb_db::MemoryKeyValueDB;
 use ckb_indexer::{DefaultIndexerStore, IndexerStore};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
@@ -23,7 +22,6 @@ use ckb_network_alert::{
 };
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
 use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_traits::chain_provider::ChainProvider;
@@ -98,7 +96,7 @@ fn always_success_transaction() -> Transaction {
 }
 
 // Construct the next block based the given `parent`
-fn next_block(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, parent: &Header) -> Block {
+fn next_block(shared: &Shared, parent: &Header) -> Block {
     let epoch = {
         let last_epoch = shared
             .get_block_epoch(parent.hash())
@@ -126,7 +124,7 @@ fn next_block(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, parent: &Header) 
             &*chain_state,
         )
         .unwrap();
-        DaoCalculator::new(shared.consensus(), Arc::clone(shared.store()))
+        DaoCalculator::new(shared.consensus(), shared.store())
             .dao_field(&[resolved_cellbase], parent)
             .unwrap()
     };
@@ -145,14 +143,8 @@ fn next_block(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, parent: &Header) 
 }
 
 // Setup the running environment
-fn setup_node(
-    height: u64,
-) -> (
-    Shared<ChainKVStore<MemoryKeyValueDB>>,
-    ChainController,
-    RpcServer,
-) {
-    let shared = SharedBuilder::<MemoryKeyValueDB>::new()
+fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
+    let shared = SharedBuilder::default()
         .consensus(always_success_consensus())
         .build()
         .unwrap();
@@ -205,7 +197,7 @@ fn setup_node(
         let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
         let (_, _, always_success_script) = always_success_cell();
         indexer_store.insert_lock_hash(&always_success_script.hash(), Some(0));
-        // use hardcoded BATCH_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
+        // use hardcoded TXN_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
         (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
         indexer_store
     };
@@ -333,7 +325,7 @@ fn result_of(client: &reqwest::Client, uri: &str, method: &str, params: Value) -
 }
 
 // Get the expected params of the given case
-fn params_of(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, method: &str) -> Value {
+fn params_of(shared: &Shared, method: &str) -> Value {
     let tip = {
         let chain = shared.lock_chain_state();
         chain.tip_header().to_owned()
@@ -406,11 +398,7 @@ fn params_of(shared: &Shared<ChainKVStore<MemoryKeyValueDB>>, method: &str) -> V
 }
 
 // Print the expected documentation based the actual results
-fn print_document(
-    shared: &Shared<ChainKVStore<MemoryKeyValueDB>>,
-    client: &reqwest::Client,
-    uri: &str,
-) {
+fn print_document(shared: &Shared, client: &reqwest::Client, uri: &str) {
     let document: Vec<_> = load_cases_from_file()
         .iter_mut()
         .map(|case| {

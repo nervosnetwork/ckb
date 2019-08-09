@@ -11,6 +11,8 @@ use std::time::Duration;
 pub struct MiningBasic;
 
 impl Spec for MiningBasic {
+    crate::name!("mining_basic");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 

@@ -17,7 +17,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::SyncMessage;
 use ckb_shared::chain_state::ChainState;
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
+use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::ChainProvider;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -594,9 +594,8 @@ impl EpochIndices {
 
 type PendingCompactBlockMap = FnvHashMap<H256, (CompactBlock, FnvHashMap<PeerIndex, Vec<u32>>)>;
 
-pub struct SyncSharedState<CS> {
-    shared: Shared<CS>,
-
+pub struct SyncSharedState {
+    shared: Shared,
     n_sync_started: AtomicUsize,
     n_protected_outbound_peers: AtomicUsize,
     ibd_finished: AtomicBool,
@@ -628,8 +627,8 @@ pub struct SyncSharedState<CS> {
     tx_hashes: Mutex<FnvHashMap<PeerIndex, FnvHashSet<H256>>>,
 }
 
-impl<CS: ChainStore> SyncSharedState<CS> {
-    pub fn new(shared: Shared<CS>) -> SyncSharedState<CS> {
+impl SyncSharedState {
+    pub fn new(shared: Shared) -> SyncSharedState {
         let (total_difficulty, header, total_uncles_count) = {
             let chain_state = shared.lock_chain_state();
             let block_ext = shared
@@ -672,7 +671,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         }
     }
 
-    pub fn shared(&self) -> &Shared<CS> {
+    pub fn shared(&self) -> &Shared {
         &self.shared
     }
     pub fn n_sync_started(&self) -> &AtomicUsize {
@@ -711,10 +710,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn inflight_proposals(&self) -> MutexGuard<FnvHashSet<ProposalShortId>> {
         self.inflight_proposals.lock()
     }
-    pub fn store(&self) -> &Arc<CS> {
+    pub fn store(&self) -> &ChainDB {
         self.shared.store()
     }
-    pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
+    pub fn lock_chain_state(&self) -> MutexGuard<ChainState> {
         self.shared.lock_chain_state()
     }
     pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {

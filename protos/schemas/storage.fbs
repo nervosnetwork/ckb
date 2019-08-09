@@ -12,16 +12,6 @@ table StoredBlockCache {
     tx_witness_hashes: [Bytes32];
 }
 
-table StoredBlockBody {
-    data: BlockBody;
-    cache: StoredBlockBodyCache;
-}
-
-table StoredBlockBodyCache {
-    tx_hashes: [Bytes32];
-    tx_witness_hashes: [Bytes32];
-}
-
 table StoredTransactionInfo {
     data: TransactionInfo;
 }
@@ -33,6 +23,16 @@ table StoredHeader {
 
 table StoredHeaderCache {
     hash: Bytes32;
+}
+
+table StoredTransaction {
+    data: Transaction;
+    cache: StoredTransactionCache;
+}
+
+table StoredTransactionCache {
+    hash: Bytes32;
+    witness_hash: Bytes32;
 }
 
 table StoredUncleBlocks {

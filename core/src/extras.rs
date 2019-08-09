@@ -25,11 +25,21 @@ pub struct TransactionInfo {
     pub index: usize,
 }
 
+impl TransactionInfo {
+    pub fn store_key(&self) -> Vec<u8> {
+        let mut key = Vec::with_capacity(36);
+        key.extend_from_slice(self.block_hash.as_bytes());
+        key.extend_from_slice(&(self.index as u32).to_be_bytes());
+        key
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug, Default)]
 pub struct EpochExt {
     pub(crate) number: EpochNumber,
     pub(crate) block_reward: Capacity,
     pub(crate) remainder_reward: Capacity,
+    pub(crate) previous_epoch_hash_rate: U256,
     pub(crate) last_block_hash_in_previous_epoch: H256,
     pub(crate) start_number: BlockNumber,
     pub(crate) length: BlockNumber,
@@ -89,10 +99,20 @@ impl EpochExt {
         &self.last_block_hash_in_previous_epoch
     }
 
+    pub fn previous_epoch_hash_rate(&self) -> &U256 {
+        &self.previous_epoch_hash_rate
+    }
+
+    pub fn set_previous_epoch_hash_rate(&mut self, hash_rate: U256) {
+        self.previous_epoch_hash_rate = hash_rate
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         number: u64,
         block_reward: Capacity,
         remainder_reward: Capacity,
+        previous_epoch_hash_rate: U256,
         last_block_hash_in_previous_epoch: H256,
         start_number: BlockNumber,
         length: BlockNumber,
@@ -102,6 +122,7 @@ impl EpochExt {
             number,
             block_reward,
             remainder_reward,
+            previous_epoch_hash_rate,
             start_number,
             last_block_hash_in_previous_epoch,
             length,
@@ -115,6 +136,7 @@ impl EpochExt {
         u64,
         Capacity,
         Capacity,
+        U256,
         H256,
         BlockNumber,
         BlockNumber,
@@ -125,6 +147,7 @@ impl EpochExt {
             block_reward,
             remainder_reward,
             start_number,
+            previous_epoch_hash_rate,
             last_block_hash_in_previous_epoch,
             length,
             difficulty,
@@ -133,6 +156,7 @@ impl EpochExt {
             number,
             block_reward,
             remainder_reward,
+            previous_epoch_hash_rate,
             last_block_hash_in_previous_epoch,
             start_number,
             length,

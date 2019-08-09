@@ -262,222 +262,6 @@ impl<'a: 'b, 'b> StoredBlockCacheBuilder<'a, 'b> {
     }
 }
 
-pub enum StoredBlockBodyOffset {}
-#[derive(Copy, Clone, Debug, PartialEq)]
-
-pub struct StoredBlockBody<'a> {
-    pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for StoredBlockBody<'a> {
-    type Inner = StoredBlockBody<'a>;
-    #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table { buf: buf, loc: loc },
-        }
-    }
-}
-
-impl<'a> StoredBlockBody<'a> {
-    #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        StoredBlockBody { _tab: table }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args StoredBlockBodyArgs<'args>,
-    ) -> flatbuffers::WIPOffset<StoredBlockBody<'bldr>> {
-        let mut builder = StoredBlockBodyBuilder::new(_fbb);
-        if let Some(x) = args.cache {
-            builder.add_cache(x);
-        }
-        if let Some(x) = args.data {
-            builder.add_data(x);
-        }
-        builder.finish()
-    }
-
-    pub const VT_DATA: flatbuffers::VOffsetT = 4;
-    pub const VT_CACHE: flatbuffers::VOffsetT = 6;
-
-    #[inline]
-    pub fn data(&self) -> Option<BlockBody<'a>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<BlockBody<'a>>>(StoredBlockBody::VT_DATA, None)
-    }
-    #[inline]
-    pub fn cache(&self) -> Option<StoredBlockBodyCache<'a>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<StoredBlockBodyCache<'a>>>(
-                StoredBlockBody::VT_CACHE,
-                None,
-            )
-    }
-}
-
-pub struct StoredBlockBodyArgs<'a> {
-    pub data: Option<flatbuffers::WIPOffset<BlockBody<'a>>>,
-    pub cache: Option<flatbuffers::WIPOffset<StoredBlockBodyCache<'a>>>,
-}
-impl<'a> Default for StoredBlockBodyArgs<'a> {
-    #[inline]
-    fn default() -> Self {
-        StoredBlockBodyArgs {
-            data: None,
-            cache: None,
-        }
-    }
-}
-pub struct StoredBlockBodyBuilder<'a: 'b, 'b> {
-    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> StoredBlockBodyBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_data(&mut self, data: flatbuffers::WIPOffset<BlockBody<'b>>) {
-        self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<BlockBody>>(StoredBlockBody::VT_DATA, data);
-    }
-    #[inline]
-    pub fn add_cache(&mut self, cache: flatbuffers::WIPOffset<StoredBlockBodyCache<'b>>) {
-        self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<StoredBlockBodyCache>>(
-                StoredBlockBody::VT_CACHE,
-                cache,
-            );
-    }
-    #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> StoredBlockBodyBuilder<'a, 'b> {
-        let start = _fbb.start_table();
-        StoredBlockBodyBuilder {
-            fbb_: _fbb,
-            start_: start,
-        }
-    }
-    #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<StoredBlockBody<'a>> {
-        let o = self.fbb_.end_table(self.start_);
-        flatbuffers::WIPOffset::new(o.value())
-    }
-}
-
-pub enum StoredBlockBodyCacheOffset {}
-#[derive(Copy, Clone, Debug, PartialEq)]
-
-pub struct StoredBlockBodyCache<'a> {
-    pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for StoredBlockBodyCache<'a> {
-    type Inner = StoredBlockBodyCache<'a>;
-    #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table { buf: buf, loc: loc },
-        }
-    }
-}
-
-impl<'a> StoredBlockBodyCache<'a> {
-    #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        StoredBlockBodyCache { _tab: table }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args StoredBlockBodyCacheArgs<'args>,
-    ) -> flatbuffers::WIPOffset<StoredBlockBodyCache<'bldr>> {
-        let mut builder = StoredBlockBodyCacheBuilder::new(_fbb);
-        if let Some(x) = args.tx_witness_hashes {
-            builder.add_tx_witness_hashes(x);
-        }
-        if let Some(x) = args.tx_hashes {
-            builder.add_tx_hashes(x);
-        }
-        builder.finish()
-    }
-
-    pub const VT_TX_HASHES: flatbuffers::VOffsetT = 4;
-    pub const VT_TX_WITNESS_HASHES: flatbuffers::VOffsetT = 6;
-
-    #[inline]
-    pub fn tx_hashes(&self) -> Option<&'a [Bytes32]> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<Bytes32>>>(
-                StoredBlockBodyCache::VT_TX_HASHES,
-                None,
-            )
-            .map(|v| v.safe_slice())
-    }
-    #[inline]
-    pub fn tx_witness_hashes(&self) -> Option<&'a [Bytes32]> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<Bytes32>>>(
-                StoredBlockBodyCache::VT_TX_WITNESS_HASHES,
-                None,
-            )
-            .map(|v| v.safe_slice())
-    }
-}
-
-pub struct StoredBlockBodyCacheArgs<'a> {
-    pub tx_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Bytes32>>>,
-    pub tx_witness_hashes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, Bytes32>>>,
-}
-impl<'a> Default for StoredBlockBodyCacheArgs<'a> {
-    #[inline]
-    fn default() -> Self {
-        StoredBlockBodyCacheArgs {
-            tx_hashes: None,
-            tx_witness_hashes: None,
-        }
-    }
-}
-pub struct StoredBlockBodyCacheBuilder<'a: 'b, 'b> {
-    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> StoredBlockBodyCacheBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_tx_hashes(
-        &mut self,
-        tx_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, Bytes32>>,
-    ) {
-        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
-            StoredBlockBodyCache::VT_TX_HASHES,
-            tx_hashes,
-        );
-    }
-    #[inline]
-    pub fn add_tx_witness_hashes(
-        &mut self,
-        tx_witness_hashes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, Bytes32>>,
-    ) {
-        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
-            StoredBlockBodyCache::VT_TX_WITNESS_HASHES,
-            tx_witness_hashes,
-        );
-    }
-    #[inline]
-    pub fn new(
-        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    ) -> StoredBlockBodyCacheBuilder<'a, 'b> {
-        let start = _fbb.start_table();
-        StoredBlockBodyCacheBuilder {
-            fbb_: _fbb,
-            start_: start,
-        }
-    }
-    #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<StoredBlockBodyCache<'a>> {
-        let o = self.fbb_.end_table(self.start_);
-        flatbuffers::WIPOffset::new(o.value())
-    }
-}
-
 pub enum StoredTransactionInfoOffset {}
 #[derive(Copy, Clone, Debug, PartialEq)]
 
@@ -731,6 +515,209 @@ impl<'a: 'b, 'b> StoredHeaderCacheBuilder<'a, 'b> {
     }
     #[inline]
     pub fn finish(self) -> flatbuffers::WIPOffset<StoredHeaderCache<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+pub enum StoredTransactionOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct StoredTransaction<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for StoredTransaction<'a> {
+    type Inner = StoredTransaction<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> StoredTransaction<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        StoredTransaction { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args StoredTransactionArgs<'args>,
+    ) -> flatbuffers::WIPOffset<StoredTransaction<'bldr>> {
+        let mut builder = StoredTransactionBuilder::new(_fbb);
+        if let Some(x) = args.cache {
+            builder.add_cache(x);
+        }
+        if let Some(x) = args.data {
+            builder.add_data(x);
+        }
+        builder.finish()
+    }
+
+    pub const VT_DATA: flatbuffers::VOffsetT = 4;
+    pub const VT_CACHE: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub fn data(&self) -> Option<Transaction<'a>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<Transaction<'a>>>(StoredTransaction::VT_DATA, None)
+    }
+    #[inline]
+    pub fn cache(&self) -> Option<StoredTransactionCache<'a>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<StoredTransactionCache<'a>>>(
+                StoredTransaction::VT_CACHE,
+                None,
+            )
+    }
+}
+
+pub struct StoredTransactionArgs<'a> {
+    pub data: Option<flatbuffers::WIPOffset<Transaction<'a>>>,
+    pub cache: Option<flatbuffers::WIPOffset<StoredTransactionCache<'a>>>,
+}
+impl<'a> Default for StoredTransactionArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        StoredTransactionArgs {
+            data: None,
+            cache: None,
+        }
+    }
+}
+pub struct StoredTransactionBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> StoredTransactionBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_data(&mut self, data: flatbuffers::WIPOffset<Transaction<'b>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<Transaction>>(
+                StoredTransaction::VT_DATA,
+                data,
+            );
+    }
+    #[inline]
+    pub fn add_cache(&mut self, cache: flatbuffers::WIPOffset<StoredTransactionCache<'b>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<StoredTransactionCache>>(
+                StoredTransaction::VT_CACHE,
+                cache,
+            );
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> StoredTransactionBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        StoredTransactionBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<StoredTransaction<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+pub enum StoredTransactionCacheOffset {}
+#[derive(Copy, Clone, Debug, PartialEq)]
+
+pub struct StoredTransactionCache<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for StoredTransactionCache<'a> {
+    type Inner = StoredTransactionCache<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf: buf, loc: loc },
+        }
+    }
+}
+
+impl<'a> StoredTransactionCache<'a> {
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        StoredTransactionCache { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args StoredTransactionCacheArgs<'args>,
+    ) -> flatbuffers::WIPOffset<StoredTransactionCache<'bldr>> {
+        let mut builder = StoredTransactionCacheBuilder::new(_fbb);
+        if let Some(x) = args.witness_hash {
+            builder.add_witness_hash(x);
+        }
+        if let Some(x) = args.hash {
+            builder.add_hash(x);
+        }
+        builder.finish()
+    }
+
+    pub const VT_HASH: flatbuffers::VOffsetT = 4;
+    pub const VT_WITNESS_HASH: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub fn hash(&self) -> Option<&'a Bytes32> {
+        self._tab
+            .get::<Bytes32>(StoredTransactionCache::VT_HASH, None)
+    }
+    #[inline]
+    pub fn witness_hash(&self) -> Option<&'a Bytes32> {
+        self._tab
+            .get::<Bytes32>(StoredTransactionCache::VT_WITNESS_HASH, None)
+    }
+}
+
+pub struct StoredTransactionCacheArgs<'a> {
+    pub hash: Option<&'a Bytes32>,
+    pub witness_hash: Option<&'a Bytes32>,
+}
+impl<'a> Default for StoredTransactionCacheArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        StoredTransactionCacheArgs {
+            hash: None,
+            witness_hash: None,
+        }
+    }
+}
+pub struct StoredTransactionCacheBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> StoredTransactionCacheBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_hash(&mut self, hash: &'b Bytes32) {
+        self.fbb_
+            .push_slot_always::<&Bytes32>(StoredTransactionCache::VT_HASH, hash);
+    }
+    #[inline]
+    pub fn add_witness_hash(&mut self, witness_hash: &'b Bytes32) {
+        self.fbb_
+            .push_slot_always::<&Bytes32>(StoredTransactionCache::VT_WITNESS_HASH, witness_hash);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> StoredTransactionCacheBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        StoredTransactionCacheBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<StoredTransactionCache<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }

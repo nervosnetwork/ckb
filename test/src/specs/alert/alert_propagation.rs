@@ -24,6 +24,10 @@ impl Default for AlertPropagation {
 }
 
 impl Spec for AlertPropagation {
+    crate::name!("alert_propagation");
+
+    crate::setup!(num_nodes: 3);
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let warning1 = "pretend we are in dangerous status";
@@ -105,10 +109,6 @@ impl Spec for AlertPropagation {
         let alerts = node0.rpc_client().get_blockchain_info().alerts;
         assert_eq!(alerts.len(), 1);
         assert_eq!(alerts[0].message, warning2);
-    }
-
-    fn num_nodes(&self) -> usize {
-        3
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {

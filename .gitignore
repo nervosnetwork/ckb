@@ -51,3 +51,6 @@ tags
 
 # code coverage report
 cobertura.xml
+
+# proptest
+**/proptest-regressions

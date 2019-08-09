@@ -13,11 +13,9 @@ use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionB
 use ckb_core::Bytes;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_notify::NotifyService;
 use ckb_protocol::SyncMessage;
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainKVStore;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
 use ckb_util::RwLock;
@@ -73,10 +71,7 @@ fn basic_sync() {
     );
 }
 
-fn setup_node(
-    thread_name: &str,
-    height: u64,
-) -> (TestNode, Shared<ChainKVStore<MemoryKeyValueDB>>) {
+fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let always_success_tx = TransactionBuilder::default()
@@ -101,7 +96,7 @@ fn setup_node(
     let consensus = Consensus::default()
         .set_genesis_block(block.clone())
         .set_cellbase_maturity(0);
-    let shared = SharedBuilder::<MemoryKeyValueDB>::new()
+    let shared = SharedBuilder::default()
         .consensus(consensus)
         .build()
         .unwrap();
@@ -142,7 +137,7 @@ fn setup_node(
                 &*chain_state,
             )
             .unwrap();
-            DaoCalculator::new(shared.consensus(), Arc::clone(shared.store()))
+            DaoCalculator::new(shared.consensus(), shared.store())
                 .dao_field(&[resolved_cellbase], block.header())
                 .unwrap()
         };

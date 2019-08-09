@@ -4,21 +4,20 @@ use ckb_core::transaction::ProposalShortId;
 use ckb_logger::debug_target;
 use ckb_network::PeerIndex;
 use ckb_protocol::RelayTransactionHashes as FbsRelayTransactionHashes;
-use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 
-pub struct TransactionHashesProcess<'a, CS> {
+pub struct TransactionHashesProcess<'a> {
     message: &'a FbsRelayTransactionHashes<'a>,
-    relayer: &'a Relayer<CS>,
+    relayer: &'a Relayer,
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore + 'static> TransactionHashesProcess<'a, CS> {
+impl<'a> TransactionHashesProcess<'a> {
     pub fn new(
         message: &'a FbsRelayTransactionHashes,
-        relayer: &'a Relayer<CS>,
+        relayer: &'a Relayer,
         peer: PeerIndex,
     ) -> Self {
         TransactionHashesProcess {

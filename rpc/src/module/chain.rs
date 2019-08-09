@@ -61,11 +61,11 @@ pub trait ChainRpc {
     fn get_cellbase_output_capacity_details(&self, _hash: H256) -> Result<Option<BlockRewardView>>;
 }
 
-pub(crate) struct ChainRpcImpl<CS> {
-    pub shared: Shared<CS>,
+pub(crate) struct ChainRpcImpl {
+    pub shared: Shared,
 }
 
-impl<CS: ChainStore + 'static> ChainRpc for ChainRpcImpl<CS> {
+impl ChainRpc for ChainRpcImpl {
     fn get_block(&self, hash: H256) -> Result<Option<BlockView>> {
         Ok(self
             .shared

@@ -3,25 +3,21 @@ use crate::PROTECT_STOP_SYNC_TIME;
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::InIBD;
-use ckb_store::ChainStore;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::sync::atomic::Ordering;
 
-pub struct InIBDProcess<'a, CS: ChainStore + 'a> {
+pub struct InIBDProcess<'a> {
     _message: &'a InIBD<'a>,
-    synchronizer: &'a Synchronizer<CS>,
+    synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, CS> InIBDProcess<'a, CS>
-where
-    CS: ChainStore + 'a,
-{
+impl<'a> InIBDProcess<'a> {
     pub fn new(
         _message: &'a InIBD,
-        synchronizer: &'a Synchronizer<CS>,
+        synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {

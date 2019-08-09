@@ -6,10 +6,7 @@ use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
 use ckb_core::transaction::{CellOutPoint, CellOutput};
 use ckb_core::BlockNumber;
-use ckb_db::{
-    rocksdb::{RocksDB, RocksdbBatch},
-    Col, DBConfig, DbBatch, Direction, IterableKeyValueDB, KeyValueDB,
-};
+use ckb_db::{db::RocksDB, Col, DBConfig, DBIterator, Direction, RocksDBTransaction};
 use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -20,7 +17,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-const BATCH_ATTACH_BLOCK_NUMS: usize = 100;
+const TXN_ATTACH_BLOCK_NUMS: usize = 100;
 const SYNC_INTERVAL: Duration = Duration::from_secs(1);
 const COLUMNS: u32 = 4;
 
@@ -33,10 +30,10 @@ const COLUMNS: u32 = 4;
 /// | COLUMN_CELL_OUT_POINT_LOCK_HASH | CellOutPoint  | LockHashCellOutput       |
 /// +---------------------------------+---------------+--------------------------+
 
-const COLUMN_LOCK_HASH_INDEX_STATE: Col = 0;
-const COLUMN_LOCK_HASH_LIVE_CELL: Col = 1;
-const COLUMN_LOCK_HASH_TRANSACTION: Col = 2;
-const COLUMN_CELL_OUT_POINT_LOCK_HASH: Col = 3;
+const COLUMN_LOCK_HASH_INDEX_STATE: Col = "0";
+const COLUMN_LOCK_HASH_LIVE_CELL: Col = "1";
+const COLUMN_LOCK_HASH_TRANSACTION: Col = "2";
+const COLUMN_CELL_OUT_POINT_LOCK_HASH: Col = "3";
 
 pub trait IndexerStore: Sync + Send {
     fn get_live_cells(
@@ -66,12 +63,12 @@ pub trait IndexerStore: Sync + Send {
     fn remove_lock_hash(&self, lock_hash: &H256);
 }
 
-pub struct DefaultIndexerStore<CS> {
+pub struct DefaultIndexerStore {
     db: Arc<RocksDB>,
-    shared: Shared<CS>,
+    shared: Shared,
 }
 
-impl<CS: ChainStore> Clone for DefaultIndexerStore<CS> {
+impl Clone for DefaultIndexerStore {
     fn clone(&self) -> Self {
         DefaultIndexerStore {
             db: Arc::clone(&self.db),
@@ -80,7 +77,7 @@ impl<CS: ChainStore> Clone for DefaultIndexerStore<CS> {
     }
 }
 
-impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
+impl IndexerStore for DefaultIndexerStore {
     fn get_live_cells(
         &self,
         lock_hash: &H256,
@@ -180,14 +177,14 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
                     .expect("block exists"),
             }
         };
-        self.commit_batch(|batch| {
-            batch.insert_lock_hash_index_state(lock_hash, &index_state);
+        self.commit_txn(|txn| {
+            txn.insert_lock_hash_index_state(lock_hash, &index_state);
         });
         index_state
     }
 
     fn remove_lock_hash(&self, lock_hash: &H256) {
-        self.commit_batch(|batch| {
+        self.commit_txn(|txn| {
             let iter = self
                 .db
                 .iter(
@@ -200,8 +197,8 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
             iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
                 .for_each(|(key, _)| {
                     let lock_hash_index = LockHashIndex::from_slice(&key);
-                    batch.delete_lock_hash_live_cell(&lock_hash_index);
-                    batch.delete_cell_out_point_lock_hash(&lock_hash_index.cell_out_point);
+                    txn.delete_lock_hash_live_cell(&lock_hash_index);
+                    txn.delete_cell_out_point_lock_hash(&lock_hash_index.cell_out_point);
                 });
 
             let iter = self
@@ -216,16 +213,16 @@ impl<CS: ChainStore + 'static> IndexerStore for DefaultIndexerStore<CS> {
             iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
                 .for_each(|(key, _)| {
                     let lock_hash_index = LockHashIndex::from_slice(&key);
-                    batch.delete_lock_hash_transaction(&lock_hash_index);
+                    txn.delete_lock_hash_transaction(&lock_hash_index);
                 });
 
-            batch.delete_lock_hash_index_state(&lock_hash);
+            txn.delete_lock_hash_index_state(&lock_hash);
         });
     }
 }
 
-impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
-    pub fn new(db_config: &DBConfig, shared: Shared<CS>) -> Self {
+impl DefaultIndexerStore {
+    pub fn new(db_config: &DBConfig, shared: Shared) -> Self {
         let db = RocksDB::open(db_config, COLUMNS);
         DefaultIndexerStore {
             db: Arc::new(db),
@@ -248,24 +245,14 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
     }
 
     // helper function
-    fn commit_batch<F>(&self, process: F)
+    fn commit_txn<F>(&self, process: F)
     where
-        F: FnOnce(&mut IndexerStoreBatch),
+        F: FnOnce(&IndexerStoreTransaction),
     {
-        match self.db.batch() {
-            Ok(batch) => {
-                let mut batch = IndexerStoreBatch {
-                    batch,
-                    insert_buffer: HashMap::new(),
-                    delete_buffer: HashSet::new(),
-                };
-                process(&mut batch);
-                batch.commit();
-            }
-            Err(err) => {
-                error!("indexer db failed to create new batch, error: {:?}", err);
-            }
-        }
+        let db_txn = self.db.transaction();
+        let mut txn = IndexerStoreTransaction { txn: db_txn };
+        process(&mut txn);
+        txn.commit();
     }
 
     pub fn sync_index_states(&self) {
@@ -294,8 +281,8 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                     .get_block(&index_state.block_hash)
                     .expect("block exists");
                 // detach blocks until reach a block on main chain
-                self.commit_batch(|batch| {
-                    self.detach_block(batch, &index_lock_hashes, &block);
+                self.commit_txn(|txn| {
+                    self.detach_block(txn, &index_lock_hashes, &block);
                     while self
                         .shared
                         .store()
@@ -307,17 +294,17 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                             .store()
                             .get_block(block.header().parent_hash())
                             .expect("block exists");
-                        self.detach_block(batch, &index_lock_hashes, &block);
+                        self.detach_block(txn, &index_lock_hashes, &block);
                     }
                     let index_state = LockHashIndexState {
                         block_number: block.header().number() - 1,
                         block_hash: block.header().parent_hash().to_owned(),
                     };
-                    batch.insert_lock_hash_index_state(lock_hash, &index_state);
+                    txn.insert_lock_hash_index_state(lock_hash, &index_state);
                 });
             });
 
-        // attach blocks until reach tip or batch limit
+        // attach blocks until reach tip or txn limit
         // need to check empty again because `remove_lock_hash` may be called during detach
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
         if lock_hash_index_states.is_empty() {
@@ -344,9 +331,9 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                 .expect("tip header exists");
             (tip_header.number(), tip_header.hash().to_owned())
         };
-        self.commit_batch(|batch| {
+        self.commit_txn(|txn| {
             (start_number..=tip_number)
-                .take(BATCH_ATTACH_BLOCK_NUMS)
+                .take(TXN_ATTACH_BLOCK_NUMS)
                 .for_each(|block_number| {
                     let index_lock_hashes = lock_hash_index_states
                         .iter()
@@ -360,7 +347,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                         .get_ancestor(&tip_hash, block_number)
                         .and_then(|header| self.shared.store().get_block(&header.hash()))
                         .expect("block exists");
-                    self.attach_block(batch, &index_lock_hashes, &block);
+                    self.attach_block(txn, &index_lock_hashes, &block);
                     let index_state = LockHashIndexState {
                         block_number,
                         block_hash: block.header().hash().to_owned(),
@@ -373,7 +360,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
             lock_hash_index_states
                 .iter()
                 .for_each(|(lock_hash, index_state)| {
-                    batch.insert_lock_hash_index_state(lock_hash, index_state);
+                    txn.insert_lock_hash_index_state(lock_hash, index_state);
                 })
         });
 
@@ -382,7 +369,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
 
     fn detach_block(
         &self,
-        batch: &mut IndexerStoreBatch,
+        txn: &IndexerStoreTransaction,
         index_lock_hashes: &HashSet<H256>,
         block: &Block,
     ) {
@@ -396,9 +383,9 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                 if index_lock_hashes.contains(&lock_hash) {
                     let lock_hash_index =
                         LockHashIndex::new(lock_hash, block_number, tx_hash.clone(), index);
-                    batch.delete_lock_hash_live_cell(&lock_hash_index);
-                    batch.delete_lock_hash_transaction(&lock_hash_index);
-                    batch.delete_cell_out_point_lock_hash(&lock_hash_index.cell_out_point);
+                    txn.delete_lock_hash_live_cell(&lock_hash_index);
+                    txn.delete_lock_hash_transaction(&lock_hash_index);
+                    txn.delete_cell_out_point_lock_hash(&lock_hash_index.cell_out_point);
                 }
             });
 
@@ -406,7 +393,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                 tx.inputs().iter().for_each(|input| {
                     if let Some(cell_out_point) = input.previous_output.cell.clone() {
                         if let Some(lock_hash_cell_output) =
-                            batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
+                            txn.get_lock_hash_cell_output(&cell_out_point)
                         {
                             if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
                                 if let Some(cell_output) = lock_hash_cell_output.cell_output {
@@ -416,7 +403,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                                         cell_out_point.tx_hash.clone(),
                                         cell_out_point.index,
                                     );
-                                    batch.generate_live_cell(lock_hash_index, cell_output);
+                                    txn.generate_live_cell(lock_hash_index, cell_output);
                                 }
                             }
                         }
@@ -428,7 +415,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
 
     fn attach_block(
         &self,
-        batch: &mut IndexerStoreBatch,
+        txn: &IndexerStoreTransaction,
         index_lock_hashes: &HashSet<H256>,
         block: &Block,
     ) {
@@ -441,7 +428,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                     let index = index as u32;
                     if let Some(cell_out_point) = input.previous_output.cell.clone() {
                         if let Some(lock_hash_cell_output) =
-                            batch.get_lock_hash_cell_output(&cell_out_point, &self.db)
+                            txn.get_lock_hash_cell_output(&cell_out_point)
                         {
                             if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
                                 let lock_hash_index = LockHashIndex::new(
@@ -455,7 +442,7 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                                     tx_hash: tx_hash.clone(),
                                     index,
                                 };
-                                batch.consume_live_cell(lock_hash_index, consumed_by, &self.db);
+                                txn.consume_live_cell(lock_hash_index, consumed_by);
                             }
                         }
                     }
@@ -468,59 +455,43 @@ impl<CS: ChainStore + 'static> DefaultIndexerStore<CS> {
                 if index_lock_hashes.contains(&lock_hash) {
                     let lock_hash_index =
                         LockHashIndex::new(lock_hash.clone(), block_number, tx_hash.clone(), index);
-                    batch.generate_live_cell(lock_hash_index, output.clone());
+                    txn.generate_live_cell(lock_hash_index, output.clone());
                 }
             });
         })
     }
 }
 
-// rocksdb rust binding doesn't support transactional batch, have to use batch buffer as tranaction overlay here.
-struct IndexerStoreBatch {
-    pub batch: RocksdbBatch,
-    pub insert_buffer: HashMap<CellOutPoint, LockHashCellOutput>,
-    pub delete_buffer: HashSet<CellOutPoint>,
+struct IndexerStoreTransaction {
+    pub txn: RocksDBTransaction,
 }
 
-impl IndexerStoreBatch {
-    fn generate_live_cell(&mut self, lock_hash_index: LockHashIndex, cell_output: CellOutput) {
+impl IndexerStoreTransaction {
+    fn generate_live_cell(&self, lock_hash_index: LockHashIndex, cell_output: CellOutput) {
         self.insert_lock_hash_live_cell(&lock_hash_index, &cell_output);
         self.insert_lock_hash_transaction(&lock_hash_index, &None);
 
-        let mut lock_hash_cell_output = LockHashCellOutput {
+        let lock_hash_cell_output = LockHashCellOutput {
             lock_hash: lock_hash_index.lock_hash.clone(),
             block_number: lock_hash_index.block_number,
-            cell_output: None,
+            cell_output: Some(cell_output),
         };
         self.insert_cell_out_point_lock_hash(
             &lock_hash_index.cell_out_point,
             &lock_hash_cell_output,
         );
-        lock_hash_cell_output.cell_output = Some(cell_output);
-        self.delete_buffer.remove(&lock_hash_index.cell_out_point);
-        self.insert_buffer
-            .insert(lock_hash_index.cell_out_point, lock_hash_cell_output);
     }
 
-    fn consume_live_cell(
-        &mut self,
-        lock_hash_index: LockHashIndex,
-        consumed_by: TransactionPoint,
-        db: &RocksDB,
-    ) {
+    fn consume_live_cell(&self, lock_hash_index: LockHashIndex, consumed_by: TransactionPoint) {
         if let Some(lock_hash_cell_output) = self
-            .insert_buffer
-            .get(&lock_hash_index.cell_out_point)
-            .cloned()
-            .or_else(|| {
-                db.read(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
-                    .expect("indexer db read should be ok")
-                    .map(|value| deserialize(&value).expect("deserialize CellOutput should be ok"))
-                    .map(|cell_output: CellOutput| LockHashCellOutput {
-                        lock_hash: lock_hash_index.lock_hash.clone(),
-                        block_number: lock_hash_index.block_number,
-                        cell_output: Some(cell_output),
-                    })
+            .txn
+            .get(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
+            .expect("indexer db read should be ok")
+            .map(|value| deserialize(&value).expect("deserialize CellOutput should be ok"))
+            .map(|cell_output: CellOutput| LockHashCellOutput {
+                lock_hash: lock_hash_index.lock_hash.clone(),
+                block_number: lock_hash_index.block_number,
+                cell_output: Some(cell_output),
             })
         {
             self.delete_lock_hash_live_cell(&lock_hash_index);
@@ -532,113 +503,103 @@ impl IndexerStoreBatch {
         }
     }
 
-    fn insert_lock_hash_index_state(&mut self, lock_hash: &H256, index_state: &LockHashIndexState) {
-        self.batch
-            .insert(
+    fn insert_lock_hash_index_state(&self, lock_hash: &H256, index_state: &LockHashIndexState) {
+        self.txn
+            .put(
                 COLUMN_LOCK_HASH_INDEX_STATE,
                 lock_hash.as_bytes(),
                 &serialize(index_state).expect("serialize LockHashIndexState should be ok"),
             )
-            .expect("batch insert COLUMN_LOCK_HASH_INDEX_STATE failed");
+            .expect("txn insert COLUMN_LOCK_HASH_INDEX_STATE failed");
     }
 
     fn insert_lock_hash_live_cell(
-        &mut self,
+        &self,
         lock_hash_index: &LockHashIndex,
         cell_output: &CellOutput,
     ) {
-        self.batch
-            .insert(
+        self.txn
+            .put(
                 COLUMN_LOCK_HASH_LIVE_CELL,
                 &lock_hash_index.to_vec(),
                 &serialize(cell_output).expect("serialize CellOutput should be ok"),
             )
-            .expect("batch insert COLUMN_LOCK_HASH_LIVE_CELL failed");
+            .expect("txn insert COLUMN_LOCK_HASH_LIVE_CELL failed");
     }
 
     fn insert_lock_hash_transaction(
-        &mut self,
+        &self,
         lock_hash_index: &LockHashIndex,
         consumed_by: &Option<TransactionPoint>,
     ) {
-        self.batch
-            .insert(
+        self.txn
+            .put(
                 COLUMN_LOCK_HASH_TRANSACTION,
                 &lock_hash_index.to_vec(),
                 &serialize(consumed_by).expect("serialize TransactionPoint should be ok"),
             )
-            .expect("batch insert COLUMN_LOCK_HASH_TRANSACTION failed");
+            .expect("txn insert COLUMN_LOCK_HASH_TRANSACTION failed");
     }
 
     fn insert_cell_out_point_lock_hash(
-        &mut self,
+        &self,
         cell_out_point: &CellOutPoint,
         lock_hash_cell_output: &LockHashCellOutput,
     ) {
-        self.batch
-            .insert(
+        self.txn
+            .put(
                 COLUMN_CELL_OUT_POINT_LOCK_HASH,
                 &serialize(&cell_out_point).expect("serialize OutPoint should be ok"),
                 &serialize(&lock_hash_cell_output)
                     .expect("serialize LockHashCellOutput should be ok"),
             )
-            .expect("batch insert COLUMN_CELL_OUT_POINT_LOCK_HASH failed");
+            .expect("txn insert COLUMN_CELL_OUT_POINT_LOCK_HASH failed");
     }
 
-    fn delete_lock_hash_index_state(&mut self, lock_hash: &H256) {
-        self.batch
+    fn delete_lock_hash_index_state(&self, lock_hash: &H256) {
+        self.txn
             .delete(COLUMN_LOCK_HASH_INDEX_STATE, lock_hash.as_bytes())
-            .expect("batch delete COLUMN_LOCK_HASH_INDEX_STATE failed");
+            .expect("txn delete COLUMN_LOCK_HASH_INDEX_STATE failed");
     }
 
-    fn delete_lock_hash_live_cell(&mut self, lock_hash_index: &LockHashIndex) {
-        self.batch
+    fn delete_lock_hash_live_cell(&self, lock_hash_index: &LockHashIndex) {
+        self.txn
             .delete(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
-            .expect("batch delete COLUMN_LOCK_HASH_LIVE_CELL failed");
+            .expect("txn delete COLUMN_LOCK_HASH_LIVE_CELL failed");
     }
 
-    fn delete_lock_hash_transaction(&mut self, lock_hash_index: &LockHashIndex) {
-        self.batch
+    fn delete_lock_hash_transaction(&self, lock_hash_index: &LockHashIndex) {
+        self.txn
             .delete(COLUMN_LOCK_HASH_TRANSACTION, &lock_hash_index.to_vec())
-            .expect("batch delete COLUMN_LOCK_HASH_TRANSACTION failed");
+            .expect("txn delete COLUMN_LOCK_HASH_TRANSACTION failed");
     }
 
-    fn delete_cell_out_point_lock_hash(&mut self, cell_out_point: &CellOutPoint) {
-        self.batch
+    fn delete_cell_out_point_lock_hash(&self, cell_out_point: &CellOutPoint) {
+        self.txn
             .delete(
                 COLUMN_CELL_OUT_POINT_LOCK_HASH,
                 &serialize(cell_out_point).expect("serialize CellOutPoint should be ok"),
             )
-            .expect("batch delete COLUMN_CELL_OUT_POINT_LOCK_HASH failed");
-        self.insert_buffer.remove(cell_out_point);
-        self.delete_buffer.insert(cell_out_point.clone());
+            .expect("txn delete COLUMN_CELL_OUT_POINT_LOCK_HASH failed");
     }
 
     fn get_lock_hash_cell_output(
         &self,
         cell_out_point: &CellOutPoint,
-        db: &RocksDB,
     ) -> Option<LockHashCellOutput> {
-        if self.delete_buffer.contains(cell_out_point) {
-            None
-        } else {
-            self.insert_buffer.get(cell_out_point).cloned().or_else(|| {
-                db.read(
-                    COLUMN_CELL_OUT_POINT_LOCK_HASH,
-                    &serialize(cell_out_point).expect("serialize OutPoint should be ok"),
-                )
-                .expect("indexer db read should be ok")
-                .map(|value| {
-                    deserialize(&value).expect("deserialize LockHashCellOutput should be ok")
-                })
-            })
-        }
+        self.txn
+            .get(
+                COLUMN_CELL_OUT_POINT_LOCK_HASH,
+                &serialize(cell_out_point).expect("serialize OutPoint should be ok"),
+            )
+            .expect("indexer db read should be ok")
+            .map(|value| deserialize(&value).expect("deserialize LockHashCellOutput should be ok"))
     }
 
     fn commit(self) {
         // only log the error, indexer store commit failure should not causing the thread to panic entirely.
-        if let Err(err) = self.batch.commit() {
-            error!("indexer db failed to commit batch, error: {:?}", err)
+        if let Err(err) = self.txn.commit() {
+            error!("indexer db failed to commit txn, error: {:?}", err)
         }
     }
 }
@@ -653,23 +614,16 @@ mod tests {
     use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
-    use ckb_db::{DBConfig, MemoryKeyValueDB};
+    use ckb_db::DBConfig;
     use ckb_notify::NotifyService;
     use ckb_resource::CODE_HASH_DAO;
     use ckb_shared::shared::{Shared, SharedBuilder};
-    use ckb_store::ChainKVStore;
     use numext_fixed_uint::U256;
     use std::sync::Arc;
     use tempfile;
 
-    fn setup(
-        prefix: &str,
-    ) -> (
-        DefaultIndexerStore<ChainKVStore<MemoryKeyValueDB>>,
-        ChainController,
-        Shared<ChainKVStore<MemoryKeyValueDB>>,
-    ) {
-        let builder = SharedBuilder::<MemoryKeyValueDB>::new();
+    fn setup(prefix: &str) -> (DefaultIndexerStore, ChainController, Shared) {
+        let builder = SharedBuilder::default();
         let shared = builder.consensus(Consensus::default()).build().unwrap();
 
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();

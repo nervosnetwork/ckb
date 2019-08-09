@@ -435,65 +435,6 @@ impl TransactionInfo {
     }
 }
 
-// struct DaoStats, aligned to 8
-#[repr(C, align(8))]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DaoStats {
-    accumulated_rate_: u64,
-    accumulated_capacity_: u64,
-} // pub struct DaoStats
-impl flatbuffers::SafeSliceAccess for DaoStats {}
-impl<'a> flatbuffers::Follow<'a> for DaoStats {
-    type Inner = &'a DaoStats;
-    #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        <&'a DaoStats>::follow(buf, loc)
-    }
-}
-impl<'a> flatbuffers::Follow<'a> for &'a DaoStats {
-    type Inner = &'a DaoStats;
-    #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        flatbuffers::follow_cast_ref::<DaoStats>(buf, loc)
-    }
-}
-impl<'b> flatbuffers::Push for DaoStats {
-    type Output = DaoStats;
-    #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        let src = unsafe {
-            ::std::slice::from_raw_parts(self as *const DaoStats as *const u8, Self::size())
-        };
-        dst.copy_from_slice(src);
-    }
-}
-impl<'b> flatbuffers::Push for &'b DaoStats {
-    type Output = DaoStats;
-
-    #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        let src = unsafe {
-            ::std::slice::from_raw_parts(*self as *const DaoStats as *const u8, Self::size())
-        };
-        dst.copy_from_slice(src);
-    }
-}
-
-impl DaoStats {
-    pub fn new<'a>(_accumulated_rate: u64, _accumulated_capacity: u64) -> Self {
-        DaoStats {
-            accumulated_rate_: _accumulated_rate.to_little_endian(),
-            accumulated_capacity_: _accumulated_capacity.to_little_endian(),
-        }
-    }
-    pub fn accumulated_rate<'a>(&'a self) -> u64 {
-        self.accumulated_rate_.from_little_endian()
-    }
-    pub fn accumulated_capacity<'a>(&'a self) -> u64 {
-        self.accumulated_capacity_.from_little_endian()
-    }
-}
-
 // struct EpochExt, aligned to 8
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -501,6 +442,7 @@ pub struct EpochExt {
     number_: u64,
     block_reward_: u64,
     remainder_reward_: u64,
+    previous_epoch_hash_rate_: Bytes32,
     last_block_hash_in_previous_epoch_: Bytes32,
     start_number_: u64,
     length_: u64,
@@ -548,6 +490,7 @@ impl EpochExt {
         _number: u64,
         _block_reward: u64,
         _remainder_reward: u64,
+        _previous_epoch_hash_rate: &'a Bytes32,
         _last_block_hash_in_previous_epoch: &'a Bytes32,
         _start_number: u64,
         _length: u64,
@@ -557,6 +500,7 @@ impl EpochExt {
             number_: _number.to_little_endian(),
             block_reward_: _block_reward.to_little_endian(),
             remainder_reward_: _remainder_reward.to_little_endian(),
+            previous_epoch_hash_rate_: *_previous_epoch_hash_rate,
             last_block_hash_in_previous_epoch_: *_last_block_hash_in_previous_epoch,
             start_number_: _start_number.to_little_endian(),
             length_: _length.to_little_endian(),
@@ -571,6 +515,9 @@ impl EpochExt {
     }
     pub fn remainder_reward<'a>(&'a self) -> u64 {
         self.remainder_reward_.from_little_endian()
+    }
+    pub fn previous_epoch_hash_rate<'a>(&'a self) -> &'a Bytes32 {
+        &self.previous_epoch_hash_rate_
     }
     pub fn last_block_hash_in_previous_epoch<'a>(&'a self) -> &'a Bytes32 {
         &self.last_block_hash_in_previous_epoch_
@@ -2070,9 +2017,6 @@ impl<'a> BlockExt<'a> {
         if let Some(x) = args.txs_fees {
             builder.add_txs_fees(x);
         }
-        if let Some(x) = args.dao_stats {
-            builder.add_dao_stats(x);
-        }
         if let Some(x) = args.total_difficulty {
             builder.add_total_difficulty(x);
         }
@@ -2086,8 +2030,7 @@ impl<'a> BlockExt<'a> {
     pub const VT_TOTAL_UNCLES_COUNT: flatbuffers::VOffsetT = 8;
     pub const VT_HAS_VERIFIED: flatbuffers::VOffsetT = 10;
     pub const VT_VERIFIED: flatbuffers::VOffsetT = 12;
-    pub const VT_DAO_STATS: flatbuffers::VOffsetT = 14;
-    pub const VT_TXS_FEES: flatbuffers::VOffsetT = 16;
+    pub const VT_TXS_FEES: flatbuffers::VOffsetT = 14;
 
     #[inline]
     pub fn received_at(&self) -> u64 {
@@ -2119,10 +2062,6 @@ impl<'a> BlockExt<'a> {
             .unwrap()
     }
     #[inline]
-    pub fn dao_stats(&self) -> Option<&'a DaoStats> {
-        self._tab.get::<DaoStats>(BlockExt::VT_DAO_STATS, None)
-    }
-    #[inline]
     pub fn txs_fees(&self) -> Option<flatbuffers::Vector<'a, u64>> {
         self._tab
             .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u64>>>(
@@ -2138,7 +2077,6 @@ pub struct BlockExtArgs<'a> {
     pub total_uncles_count: u64,
     pub has_verified: bool,
     pub verified: bool,
-    pub dao_stats: Option<&'a DaoStats>,
     pub txs_fees: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u64>>>,
 }
 impl<'a> Default for BlockExtArgs<'a> {
@@ -2150,7 +2088,6 @@ impl<'a> Default for BlockExtArgs<'a> {
             total_uncles_count: 0,
             has_verified: false,
             verified: false,
-            dao_stats: None,
             txs_fees: None,
         }
     }
@@ -2184,11 +2121,6 @@ impl<'a: 'b, 'b> BlockExtBuilder<'a, 'b> {
     pub fn add_verified(&mut self, verified: bool) {
         self.fbb_
             .push_slot::<bool>(BlockExt::VT_VERIFIED, verified, false);
-    }
-    #[inline]
-    pub fn add_dao_stats(&mut self, dao_stats: &'b DaoStats) {
-        self.fbb_
-            .push_slot_always::<&DaoStats>(BlockExt::VT_DAO_STATS, dao_stats);
     }
     #[inline]
     pub fn add_txs_fees(&mut self, txs_fees: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u64>>) {

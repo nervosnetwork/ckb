@@ -1,5 +1,5 @@
 use ckb_pow::Cuckoo;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, Criterion};
 
 const TESTSET: [([u8; 80], [u32; 8]); 3] = [
     (
@@ -35,7 +35,7 @@ const TESTSET: [([u8; 80], [u32; 8]); 3] = [
 ];
 
 fn bench(c: &mut Criterion) {
-    c.bench_function("bench_verify", |b| {
+    c.bench_function("bench_cuckoo_verify", |b| {
         let cuckoo = Cuckoo::new(6, 8);
         b.iter(|| {
             for _ in 0..100 {
@@ -47,5 +47,4 @@ fn bench(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench);
-criterion_main!(benches);
+criterion_group!(cuckoo, bench);

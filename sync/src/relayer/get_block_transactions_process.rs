@@ -8,17 +8,17 @@ use flatbuffers::FlatBufferBuilder;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct GetBlockTransactionsProcess<'a, CS> {
+pub struct GetBlockTransactionsProcess<'a> {
     message: &'a GetBlockTransactions<'a>,
-    relayer: &'a Relayer<CS>,
+    relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
 
-impl<'a, CS: ChainStore> GetBlockTransactionsProcess<'a, CS> {
+impl<'a> GetBlockTransactionsProcess<'a> {
     pub fn new(
         message: &'a GetBlockTransactions,
-        relayer: &'a Relayer<CS>,
+        relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
