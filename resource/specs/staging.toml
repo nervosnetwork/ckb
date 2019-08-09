@@ -1,9 +1,9 @@
-name = "ckb_dev"
+name = "ckb_staging"
 
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 0
+timestamp = 1564207200792
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -12,7 +12,7 @@ nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = "ckb_dev"
+message = "ckb_staging"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
@@ -34,28 +34,41 @@ hash_type = "Data"
 
 [genesis.bootstrap_lock]
 code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
-args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
+# Lock for developers to run tests
+args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
 hash_type = "Data"
 
-# issue 5M cell for random generated private key: d00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc
+# Locks for developers to run tests
 [[genesis.issued_cells]]
-capacity = 5_000_000_00000000
+capacity = 50_000_000_00000000
 lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
-lock.args = ["0xc8328aabcd9b9e8e64fbc566c4385c3bdeb219d7"]
+lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
 lock.hash_type = "Data"
-
-# issue 5M cell for random generated private key: 63d86723e08f0f813a36ce6aa123bb2289d90680ae1e99d4de8cdb334553f24d
 [[genesis.issued_cells]]
-capacity = 5_000_000_00000000
+capacity = 50_000_000_00000000
 lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
-lock.args = ["0x470dcdc5e44064909650113a274b3b36aecb6dc7"]
+lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
+lock.hash_type = "Data"
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 lock.hash_type = "Data"
 
 [params]
 epoch_reward = 1_250_000_00000000
 secondary_epoch_reward = 600_000_00000000
 max_block_cycles = 10_000_000_000
-cellbase_maturity = 0
+cellbase_maturity = 10
 
 [pow]
-func = "Dummy"
+func = "Cuckoo"
+
+[pow.params]
+# the 2-log of the graph size, which is the size in bits of the node
+# identifiers
+edge_bits = 15
+
+# length of the cycle to be found, must be an even number, a minimum of 12 is
+# recommended
+cycle_length = 12
