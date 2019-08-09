@@ -10,7 +10,7 @@ use ckb_verification::TransactionError;
 use failure::Fail;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -109,8 +109,8 @@ impl DefectEntry {
 }
 
 /// An entry in the transaction pool.
-#[derive(Debug, Clone)]
-pub struct PendingEntry {
+#[derive(Debug, Clone, Eq)]
+pub struct TxEntry {
     /// Transaction
     pub transaction: Transaction,
     /// Cycles
@@ -129,10 +129,10 @@ pub struct PendingEntry {
     pub ancestors_count: usize,
 }
 
-impl PendingEntry {
+impl TxEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, cycles: Cycle, fee: Capacity, size: usize) -> PendingEntry {
-        PendingEntry {
+    pub fn new(tx: Transaction, cycles: Cycle, fee: Capacity, size: usize) -> Self {
+        TxEntry {
             transaction: tx,
             cycles,
             size,
@@ -143,10 +143,14 @@ impl PendingEntry {
             ancestors_count: 1,
         }
     }
+
+    pub fn as_sorted_key(&self) -> AncestorsScoreSortKey {
+        AncestorsScoreSortKey::from(self)
+    }
 }
 
-impl From<&PendingEntry> for AncestorsScoreSortKey {
-    fn from(entry: &PendingEntry) -> Self {
+impl From<&TxEntry> for AncestorsScoreSortKey {
+    fn from(entry: &TxEntry) -> Self {
         let vbytes = get_transaction_virtual_bytes(entry.size, entry.cycles);
         let ancestors_vbytes =
             get_transaction_virtual_bytes(entry.ancestors_size, entry.ancestors_cycles);
@@ -160,82 +164,15 @@ impl From<&PendingEntry> for AncestorsScoreSortKey {
     }
 }
 
-/// An entry in the transaction pool.
-#[derive(Debug, Clone, Eq)]
-pub struct ProposedEntry {
-    /// Transaction
-    pub transaction: Transaction,
-    /// refs count
-    pub refs_count: usize,
-    /// Cycles
-    pub cycles: Cycle,
-    /// fee
-    pub fee: Capacity,
-    /// tx size
-    pub size: usize,
-    /// ancestors txs size
-    pub ancestors_size: usize,
-    /// ancestors txs fee
-    pub ancestors_fee: Capacity,
-    /// ancestors txs cycles
-    pub ancestors_cycles: Cycle,
-    /// ancestors txs count
-    pub ancestors_count: usize,
-}
-
-impl ProposedEntry {
-    /// Create new transaction pool entry
-    pub fn new(
-        tx: Transaction,
-        refs_count: usize,
-        cycles: Cycle,
-        fee: Capacity,
-        size: usize,
-    ) -> ProposedEntry {
-        ProposedEntry {
-            transaction: tx,
-            refs_count,
-            cycles,
-            fee,
-            size,
-            ancestors_size: size,
-            ancestors_cycles: cycles,
-            ancestors_fee: fee,
-            ancestors_count: 1,
-        }
-    }
-
-    /// Virtual bytes(aka vbytes) is a concept to unify the size and cycles of a transaction,
-    /// tx_pool use vbytes to estimate transaction fee rate.
-    pub fn virtual_bytes(&self) -> u64 {
-        get_transaction_virtual_bytes(self.size, self.cycles)
-    }
-}
-
-impl Hash for ProposedEntry {
+impl Hash for TxEntry {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash(&self.transaction, state);
     }
 }
 
-impl PartialEq for ProposedEntry {
-    fn eq(&self, other: &ProposedEntry) -> bool {
+impl PartialEq for TxEntry {
+    fn eq(&self, other: &TxEntry) -> bool {
         self.transaction == other.transaction
-    }
-}
-
-impl From<&ProposedEntry> for AncestorsScoreSortKey {
-    fn from(entry: &ProposedEntry) -> Self {
-        AncestorsScoreSortKey {
-            fee: entry.fee,
-            vbytes: entry.virtual_bytes(),
-            id: entry.transaction.proposal_short_id(),
-            ancestors_fee: entry.ancestors_fee,
-            ancestors_vbytes: get_transaction_virtual_bytes(
-                entry.ancestors_size,
-                entry.ancestors_cycles,
-            ),
-        }
     }
 }
 
@@ -358,24 +295,219 @@ impl TxLink {
     }
 }
 
-pub struct TxEntryContainer {
-    entries: HashMap<ProposalShortId, ProposedEntry>,
+#[derive(Debug, Clone)]
+pub struct TxEntriesPool {
+    entries: HashMap<ProposalShortId, TxEntry>,
+    sorted_index: BTreeSet<AncestorsScoreSortKey>,
+    /// A map track transaction ancestors and descendants
+    links: HashMap<ProposalShortId, TxLink>,
+}
+
+impl Default for TxEntriesPool {
+    fn default() -> Self {
+        TxEntriesPool {
+            entries: HashMap::default(),
+            sorted_index: Default::default(),
+            links: Default::default(),
+        }
+    }
+}
+
+impl TxEntriesPool {
+    pub fn size(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// update entry ancestor prefix fields
+    fn update_ancestors_stat_for_entry(
+        &self,
+        entry: &mut TxEntry,
+        parents: &HashSet<ProposalShortId>,
+    ) {
+        for id in parents {
+            let tx_entry = self.entries.get(&id).expect("pool consistent");
+            entry.ancestors_cycles = entry
+                .ancestors_cycles
+                .saturating_add(tx_entry.ancestors_cycles);
+            entry.ancestors_size = entry.ancestors_size.saturating_add(tx_entry.ancestors_size);
+            entry.ancestors_fee = Capacity::shannons(
+                entry
+                    .ancestors_fee
+                    .as_u64()
+                    .saturating_add(tx_entry.ancestors_fee.as_u64()),
+            );
+            entry.ancestors_count = entry
+                .ancestors_count
+                .saturating_add(tx_entry.ancestors_count);
+        }
+    }
+
+    pub fn add_entry(&mut self, mut entry: TxEntry) -> Option<TxEntry> {
+        let short_id = entry.transaction.proposal_short_id();
+
+        // find in pool parents
+        let mut parents: HashSet<ProposalShortId> = HashSet::with_capacity(
+            entry.transaction.inputs().len() + entry.transaction.deps().len(),
+        );
+        for input in entry.transaction.inputs() {
+            let parent_hash = &input
+                .previous_output
+                .cell
+                .as_ref()
+                .expect("cell outpoint")
+                .tx_hash;
+            let id = ProposalShortId::from_tx_hash(&parent_hash);
+            if self.links.contains_key(&id) {
+                parents.insert(id);
+            }
+        }
+        for dep in entry.transaction.deps() {
+            if let Some(cell_output) = &dep.cell {
+                let id = ProposalShortId::from_tx_hash(&cell_output.tx_hash);
+                if self.links.contains_key(&id) {
+                    parents.insert(id);
+                }
+            }
+        }
+        // update ancestor_fields
+        self.update_ancestors_stat_for_entry(&mut entry, &parents);
+        // update parents references
+        for parent_id in &parents {
+            self.links
+                .get_mut(parent_id)
+                .expect("exists")
+                .children
+                .insert(short_id);
+        }
+        // insert links
+        self.links.insert(
+            short_id,
+            TxLink {
+                parents,
+                children: Default::default(),
+            },
+        );
+        self.sorted_index
+            .insert(AncestorsScoreSortKey::from(&entry));
+        self.entries.insert(short_id, entry)
+    }
+
+    pub fn contains_key(&self, id: &ProposalShortId) -> bool {
+        self.entries.contains_key(id)
+    }
+
+    pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
+        self.entries.get(id)
+    }
+
+    pub fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
+        let mut queue = VecDeque::new();
+        let mut removed = Vec::new();
+        queue.push_back(*id);
+        while let Some(id) = queue.pop_front() {
+            if let Some(entry) = self.entries.remove(&id) {
+                let deleted = self
+                    .sorted_index
+                    .remove(&AncestorsScoreSortKey::from(&entry));
+                debug_assert!(deleted, "pending pool inconsistent");
+                if let Some(link) = self.links.remove(&id) {
+                    queue.extend(link.children);
+                }
+                removed.push(entry);
+            }
+        }
+        removed
+    }
+
+    pub fn remove_entry(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
+        self.entries.remove(&id).map(|entry| {
+            let deleted = self
+                .sorted_index
+                .remove(&AncestorsScoreSortKey::from(&entry));
+            debug_assert!(deleted, "pending pool inconsistent");
+            // update descendants entries
+            for desc_id in self.get_descendants(&id) {
+                if let Some(key) = self
+                    .entries
+                    .get(&desc_id)
+                    .map(|entry| entry.as_sorted_key())
+                {
+                    self.sorted_index.remove(&key);
+                }
+                if let Some(desc_entry) = self.entries.get_mut(&desc_id) {
+                    // remove entry
+                    desc_entry.ancestors_count = desc_entry.ancestors_count.saturating_sub(1);
+                    desc_entry.ancestors_size =
+                        desc_entry.ancestors_size.saturating_sub(entry.size);
+                    desc_entry.ancestors_cycles =
+                        desc_entry.ancestors_cycles.saturating_sub(entry.cycles);
+                    desc_entry.ancestors_fee = Capacity::shannons(
+                        desc_entry
+                            .ancestors_fee
+                            .as_u64()
+                            .saturating_sub(entry.fee.as_u64()),
+                    );
+                }
+                if let Some(key) = self
+                    .entries
+                    .get(&desc_id)
+                    .map(|entry| entry.as_sorted_key())
+                {
+                    self.sorted_index.insert(key);
+                }
+            }
+            // update links
+            if let Some(link) = self.links.remove(&id) {
+                for p_id in link.parents {
+                    self.links
+                        .get_mut(&p_id)
+                        .map(|link| link.children.remove(&id));
+                }
+                for c_id in link.children {
+                    self.links
+                        .get_mut(&c_id)
+                        .map(|link| link.parents.remove(&id));
+                }
+            }
+            entry
+        })
+    }
+
+    /// find all ancestors from pool
+    pub fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        TxLink::get_ancestors(&self.links, tx_short_id)
+    }
+
+    /// find all descendants from pool
+    pub fn get_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
+        TxLink::get_descendants(&self.links, tx_short_id)
+    }
+
+    /// return sorted keys
+    pub fn sorted_keys(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
+        self.sorted_index.iter().rev()
+    }
+}
+
+// A template data struct used to store modified entries when package txs
+pub struct TxModifiedEntries {
+    entries: HashMap<ProposalShortId, TxEntry>,
     sort_index: BTreeSet<AncestorsScoreSortKey>,
 }
 
-impl Default for TxEntryContainer {
+impl Default for TxModifiedEntries {
     fn default() -> Self {
-        TxEntryContainer {
+        TxModifiedEntries {
             entries: HashMap::default(),
             sort_index: BTreeSet::default(),
         }
     }
 }
 
-impl TxEntryContainer {
+impl TxModifiedEntries {
     pub fn with_sorted_by_score_iter<F, Ret>(&self, func: F) -> Ret
     where
-        F: FnOnce(&mut dyn Iterator<Item = &ProposedEntry>) -> Ret,
+        F: FnOnce(&mut dyn Iterator<Item = &TxEntry>) -> Ret,
     {
         let mut iter = self
             .sort_index
@@ -385,7 +517,7 @@ impl TxEntryContainer {
         func(&mut iter)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&ProposedEntry> {
+    pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
         self.entries.get(id)
     }
 
@@ -393,14 +525,14 @@ impl TxEntryContainer {
         self.entries.contains_key(id)
     }
 
-    pub fn insert(&mut self, entry: ProposedEntry) {
+    pub fn insert(&mut self, entry: TxEntry) {
         let key = AncestorsScoreSortKey::from(&entry);
         let short_id = entry.transaction.proposal_short_id();
         self.entries.insert(short_id, entry);
         self.sort_index.insert(key);
     }
 
-    pub fn remove(&mut self, id: &ProposalShortId) -> Option<ProposedEntry> {
+    pub fn remove(&mut self, id: &ProposalShortId) -> Option<TxEntry> {
         self.entries.remove(id).map(|entry| {
             self.sort_index.remove(&(&entry).into());
             entry

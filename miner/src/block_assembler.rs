@@ -22,10 +22,7 @@ use ckb_notify::NotifyController;
 use ckb_shared::{
     chain_state::ChainState,
     shared::Shared,
-    tx_pool::{
-        types::{AncestorsScoreSortKey, TxEntryContainer},
-        ProposedEntry, TxPool,
-    },
+    tx_pool::{types::TxModifiedEntries, TxEntry, TxPool},
 };
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
@@ -228,7 +225,7 @@ impl BlockAssembler {
     }
 
     fn transform_tx(
-        tx: &ProposedEntry,
+        tx: &TxEntry,
         required: bool,
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
@@ -426,13 +423,13 @@ impl BlockAssembler {
         chain_state: &ChainState,
         size_limit: usize,
         cycles_limit: Cycle,
-    ) -> (Vec<ProposedEntry>, usize, Cycle) {
+    ) -> (Vec<TxEntry>, usize, Cycle) {
         /// update descendants txs into modified entries
         fn update_modified_entries(
             tx_pool: &TxPool,
             in_block_txs: &HashSet<ProposalShortId>,
-            package_txs: &HashSet<ProposedEntry>,
-            modified_entries: &mut TxEntryContainer,
+            package_txs: &HashSet<TxEntry>,
+            modified_entries: &mut TxModifiedEntries,
         ) {
             for ptx in package_txs {
                 let ptx_id = ptx.transaction.proposal_short_id();
@@ -462,16 +459,16 @@ impl BlockAssembler {
         }
 
         /// find a valid tx_entry
-        fn find_tx_entry<F: Fn(&ProposedEntry) -> bool>(
-            entry: &mut Option<ProposedEntry>,
-            iter: &mut dyn Iterator<Item = &ProposedEntry>,
+        fn find_tx_entry<F: Fn(&TxEntry) -> bool>(
+            entry: &mut Option<TxEntry>,
+            iter: &mut dyn Iterator<Item = &TxEntry>,
             size_limit: usize,
             cycles_limit: Cycle,
             size: usize,
             cycles: Cycle,
             check_tx_skip: F,
         ) {
-            let check_limit_is_ok = |entry: &ProposedEntry| -> bool {
+            let check_limit_is_ok = |entry: &TxEntry| -> bool {
                 let next_cycles = cycles.saturating_add(entry.ancestors_cycles);
                 let next_size = size.saturating_add(entry.ancestors_size);
                 next_cycles <= cycles_limit && next_size <= size_limit
@@ -509,13 +506,13 @@ impl BlockAssembler {
         let mut cycles: Cycle = 0;
         let tx_pool = chain_state.tx_pool();
         let entries = tx_pool.with_sorted_proposed_txs_iter(|iter| {
-            let mut entries: Vec<ProposedEntry> = Vec::new();
+            let mut entries: Vec<TxEntry> = Vec::new();
             // modified entries, after put a tx into block,
             // the scores of descendants txs should be updated,
             // these modified entries is stored in modified_entries.
             // in each loop,
             // we pick tx from modified_entries and pool to find the best tx to package
-            let mut modified_entries: TxEntryContainer = TxEntryContainer::default();
+            let mut modified_entries: TxModifiedEntries = TxModifiedEntries::default();
             // track in block txs
             let mut in_block_txs: HashSet<ProposalShortId> = HashSet::new();
             let mut pool_tx = None;
@@ -555,10 +552,8 @@ impl BlockAssembler {
                     (Some(pool), None) => pool,
                     (None, Some(modified)) => modified,
                     (Some(pool), Some(modified)) => {
-                        let pool_tx_key = AncestorsScoreSortKey::from(&pool);
-                        let modified_tx_key = AncestorsScoreSortKey::from(&modified);
                         // find better scored tx and put another tx back
-                        if pool_tx_key > modified_tx_key {
+                        if pool.as_sorted_key() > modified.as_sorted_key() {
                             modified_tx.replace(modified);
                             pool
                         } else {
@@ -586,7 +581,7 @@ impl BlockAssembler {
                         }
                     })
                     .cloned()
-                    .collect::<HashSet<ProposedEntry>>();
+                    .collect::<HashSet<TxEntry>>();
                 ancestors.insert(tx_entry.to_owned());
                 debug_assert_eq!(
                     tx_entry.ancestors_cycles,

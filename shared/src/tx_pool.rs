@@ -6,7 +6,7 @@ pub(crate) mod pending;
 mod proposed;
 
 pub use self::pool::TxPool;
-pub use self::types::{DefectEntry, PendingEntry, PoolError, ProposedEntry, TxPoolConfig};
+pub use self::types::{DefectEntry, PoolError, TxEntry, TxPoolConfig};
 
 const DEFAULT_BYTES_PER_CYCLES: f64 = 0.00042f64;
 

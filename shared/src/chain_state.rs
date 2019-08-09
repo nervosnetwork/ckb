@@ -1,6 +1,6 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOpr, CellSetOverlay};
 use crate::error::SharedError;
-use crate::tx_pool::types::DefectEntry;
+use crate::tx_pool::types::{DefectEntry, TxEntry};
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
@@ -607,7 +607,8 @@ impl ChainState {
             tx,
             tx_result,
             |tx_pool, cycles, fee, size, tx| {
-                if tx_pool.add_gap(cycles, fee, size, tx) {
+                let entry = TxEntry::new(tx, cycles, fee, size);
+                if tx_pool.add_gap(entry) {
                     Ok(())
                 } else {
                     Err(PoolError::Duplicate)
@@ -670,7 +671,8 @@ impl ChainState {
             tx,
             tx_result,
             |tx_pool, cycles, fee, size, tx| {
-                if tx_pool.enqueue_tx(cycles, fee, size, tx) {
+                let entry = TxEntry::new(tx, cycles, fee, size);
+                if tx_pool.enqueue_tx(entry) {
                     Ok(())
                 } else {
                     Err(PoolError::Duplicate)

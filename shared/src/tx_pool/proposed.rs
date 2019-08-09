@@ -1,8 +1,8 @@
-use crate::tx_pool::types::{AncestorsScoreSortKey, ProposedEntry, TxLink};
+use crate::tx_pool::types::{TxEntriesPool, TxEntry};
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
-use ckb_core::{Bytes, Capacity, Cycle};
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use ckb_core::Bytes;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 #[derive(Default, Debug, Clone)]
@@ -51,16 +51,8 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
         self.inner.get_mut(key)
     }
 
-    pub(crate) fn get_deps(&self, key: &K) -> Option<&HashSet<V>> {
-        self.deps.get(key)
-    }
-
     pub(crate) fn remove_deps(&mut self, key: &K) -> Option<HashSet<V>> {
         self.deps.remove(key)
-    }
-
-    pub(crate) fn contains_key(&self, key: &K) -> bool {
-        self.inner.contains_key(&key)
     }
 
     pub(crate) fn insert_deps(&mut self, key: K, value: V) {
@@ -84,12 +76,8 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
 
 #[derive(Default, Debug, Clone)]
 pub struct ProposedPool {
-    pub(crate) vertices: HashMap<ProposalShortId, ProposedEntry>,
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
-    /// A index sorted by tx ancestors score
-    ancestors_score_index: BTreeSet<AncestorsScoreSortKey>,
-    /// A map track transaction ancestors and descendants
-    links: HashMap<ProposalShortId, TxLink>,
+    inner: TxEntriesPool,
 }
 
 impl CellProvider for ProposedPool {
@@ -122,20 +110,24 @@ impl ProposedPool {
     }
 
     pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {
-        self.vertices.contains_key(id)
+        self.inner.contains_key(id)
     }
 
-    pub fn get(&self, id: &ProposalShortId) -> Option<&ProposedEntry> {
-        self.vertices.get(id)
+    pub fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
+        self.inner.get(id)
     }
 
     pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&Transaction> {
         self.get(id).map(|x| &x.transaction)
     }
 
+    pub(crate) fn size(&self) -> usize {
+        self.inner.size()
+    }
+
     pub(crate) fn get_output_with_data(&self, o: &OutPoint) -> Option<(CellOutput, Bytes)> {
         o.cell.as_ref().and_then(|cell_out_point| {
-            self.vertices
+            self.inner
                 .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
                 .and_then(|x| {
                     x.transaction
@@ -145,90 +137,32 @@ impl ProposedPool {
     }
 
     // remove entry and all it's descendants
-    pub(crate) fn remove_entry_and_descendants(
-        &mut self,
-        id: &ProposalShortId,
-    ) -> Vec<ProposedEntry> {
-        let mut entries = Vec::new();
-        let mut queue = VecDeque::new();
-
-        queue.push_back(id.to_owned());
-
-        while let Some(id) = queue.pop_front() {
-            if let Some(entry) = self.remove_entry(&id) {
-                let tx = &entry.transaction;
-                let inputs = tx.input_pts_iter();
-                let outputs = tx.output_pts();
-                let deps = tx.deps_iter();
-                for i in inputs {
-                    if self.edges.inner.remove(i).is_none() {
-                        self.edges.outer.remove(i);
-                    }
+    pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
+        let removed_entries = self.inner.remove_entry_and_descendants(id);
+        for entry in &removed_entries {
+            let tx = &entry.transaction;
+            let inputs = tx.input_pts_iter();
+            let outputs = tx.output_pts();
+            let deps = tx.deps_iter();
+            for i in inputs {
+                if self.edges.inner.remove(i).is_none() {
+                    self.edges.outer.remove(i);
                 }
+            }
 
-                for d in deps {
-                    self.edges.delete_value_in_deps(d, &id);
-                }
+            for d in deps {
+                self.edges.delete_value_in_deps(d, &id);
+            }
 
-                for o in outputs {
-                    if let Some(cid) = self.edges.remove_inner(&o) {
-                        queue.push_back(cid);
-                    }
-
-                    if let Some(ids) = self.edges.remove_deps(&o) {
-                        for cid in ids {
-                            queue.push_back(cid);
-                        }
-                    }
-                }
-
-                entries.push(entry);
+            for o in outputs {
+                self.edges.remove_inner(&o);
+                self.edges.remove_deps(&o);
             }
         }
-        entries
+        removed_entries
     }
 
-    pub(crate) fn add_tx(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
-        let inputs = tx.input_pts_iter();
-        let outputs = tx.output_pts();
-        let deps = tx.deps_iter();
-
-        let tx_short_id = tx.proposal_short_id();
-
-        let mut count: usize = 0;
-        let mut parents: HashSet<ProposalShortId> = Default::default();
-
-        for i in inputs {
-            if let Some(id) = self.edges.get_inner_mut(i) {
-                *id = Some(tx_short_id);
-                count += 1;
-                if let Some(cell_out_point) = i.cell.as_ref() {
-                    parents.insert(ProposalShortId::from_tx_hash(&cell_out_point.tx_hash));
-                }
-            } else {
-                self.edges.insert_outer(i.to_owned(), tx_short_id);
-            }
-        }
-
-        for d in deps {
-            if self.edges.contains_key(d) {
-                count += 1;
-                if let Some(cell_out_point) = d.cell.as_ref() {
-                    parents.insert(ProposalShortId::from_tx_hash(&cell_out_point.tx_hash));
-                }
-            }
-            self.edges.insert_deps(d.to_owned(), tx_short_id);
-        }
-
-        for o in outputs {
-            self.edges.mark_inpool(o);
-        }
-
-        let entry = ProposedEntry::new(tx, count, cycles, fee, size);
-        self.insert_entry(tx_short_id, entry, parents);
-    }
-
-    pub(crate) fn remove_committed_tx(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
+    pub(crate) fn remove_committed_tx(&mut self, tx: &Transaction) -> Vec<TxEntry> {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts_iter();
         let deps = tx.deps_iter();
@@ -236,18 +170,11 @@ impl ProposedPool {
 
         let mut removed = Vec::new();
 
-        if let Some(entry) = self.remove_entry(&id) {
+        if let Some(entry) = self.inner.remove_entry(&id) {
             removed.push(entry);
             for o in outputs {
                 if let Some(cid) = self.edges.remove_inner(&o) {
-                    self.dec_ref(&cid);
                     self.edges.insert_outer(o.clone(), cid);
-                }
-
-                if let Some(x) = { self.edges.get_deps(&o).cloned() } {
-                    for cid in x {
-                        self.dec_ref(&cid);
-                    }
                 }
             }
 
@@ -264,7 +191,32 @@ impl ProposedPool {
         removed
     }
 
-    fn resolve_conflict(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) {
+        let inputs = entry.transaction.input_pts_iter();
+        let outputs = entry.transaction.output_pts();
+        let deps = entry.transaction.deps_iter();
+
+        let tx_short_id = entry.transaction.proposal_short_id();
+
+        for i in inputs {
+            if let Some(id) = self.edges.get_inner_mut(i) {
+                *id = Some(tx_short_id);
+            } else {
+                self.edges.insert_outer(i.to_owned(), tx_short_id);
+            }
+        }
+
+        for d in deps {
+            self.edges.insert_deps(d.to_owned(), tx_short_id);
+        }
+
+        for o in outputs {
+            self.edges.mark_inpool(o);
+        }
+        self.inner.add_entry(entry);
+    }
+
+    fn resolve_conflict(&mut self, tx: &Transaction) -> Vec<TxEntry> {
         let inputs = tx.input_pts_iter();
         let mut removed = Vec::new();
 
@@ -287,118 +239,24 @@ impl ProposedPool {
     /// this method is used for package txs into block
     pub(crate) fn with_sorted_by_score_iter<F, Ret>(&self, func: F) -> Ret
     where
-        F: FnOnce(&mut dyn Iterator<Item = &ProposedEntry>) -> Ret,
+        F: FnOnce(&mut dyn Iterator<Item = &TxEntry>) -> Ret,
     {
-        let mut iter = self.ancestors_score_index.iter().rev().map(|key| {
-            self.vertices
+        let mut iter = self.inner.sorted_keys().map(|key| {
+            self.inner
                 .get(&key.id)
                 .expect("proposed pool must be consistent")
         });
         func(&mut iter)
     }
 
-    pub(crate) fn dec_ref(&mut self, id: &ProposalShortId) {
-        if let Some(x) = self.vertices.get_mut(&id) {
-            x.refs_count -= 1;
-        }
-    }
-
     /// find all ancestors from pool
     pub fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        TxLink::get_ancestors(&self.links, tx_short_id)
+        self.inner.get_ancestors(&tx_short_id)
     }
 
     /// find all descendants from pool
     pub fn get_descendants(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        TxLink::get_descendants(&self.links, tx_short_id)
-    }
-
-    /// update entry ancestor prefix fields
-    fn update_ancestors_stat_for_entry(
-        &self,
-        entry: &mut ProposedEntry,
-        parents: &HashSet<ProposalShortId>,
-    ) {
-        for id in parents {
-            let tx_entry = self.vertices.get(&id).expect("pool consistent");
-            entry.ancestors_cycles = entry
-                .ancestors_cycles
-                .saturating_add(tx_entry.ancestors_cycles);
-            entry.ancestors_size = entry.ancestors_size.saturating_add(tx_entry.ancestors_size);
-            entry.ancestors_fee = Capacity::shannons(
-                entry
-                    .ancestors_fee
-                    .as_u64()
-                    .saturating_add(tx_entry.ancestors_fee.as_u64()),
-            );
-            entry.ancestors_count = entry
-                .ancestors_count
-                .saturating_add(tx_entry.ancestors_count);
-        }
-    }
-
-    /// insert an entry
-    fn insert_entry(
-        &mut self,
-        id: ProposalShortId,
-        mut entry: ProposedEntry,
-        parents: HashSet<ProposalShortId>,
-    ) {
-        // update ancestor_fields
-        self.update_ancestors_stat_for_entry(&mut entry, &parents);
-        // insert links
-        self.insert_link(id, parents);
-        let key = AncestorsScoreSortKey::from(&entry);
-        self.ancestors_score_index.insert(key);
-        self.vertices.insert(id, entry);
-    }
-
-    /// delete an entry
-    fn remove_entry(&mut self, id: &ProposalShortId) -> Option<ProposedEntry> {
-        self.vertices.remove(id).map(|entry| {
-            let key = AncestorsScoreSortKey::from(&entry);
-            self.ancestors_score_index.remove(&key);
-            self.remove_link(id.to_owned());
-            entry
-        })
-    }
-
-    /// insert a link then update related links
-    /// NOTICE: you should consider insert_entry instead call this function directly
-    fn insert_link(&mut self, tx_short_id: ProposalShortId, parents: HashSet<ProposalShortId>) {
-        // update parents links
-        for id in &parents {
-            if let Some(link) = self.links.get_mut(id) {
-                link.children.insert(tx_short_id);
-            }
-        }
-        self.links.insert(
-            tx_short_id,
-            TxLink {
-                parents,
-                children: Default::default(),
-            },
-        );
-    }
-    /// remove a link then update related links
-    /// NOTICE: you should consider remove_entry instead call this function directly
-    fn remove_link(&mut self, tx_short_id: ProposalShortId) {
-        let mut remove_queue = vec![tx_short_id];
-        while !remove_queue.is_empty() {
-            let id = remove_queue.pop().expect("exists");
-            // link may removed by previous loop in case B -> A, C -> A, B
-            if let Some(TxLink { children, parents }) = self.links.remove(&id) {
-                // remove children
-                remove_queue.extend(children);
-                // update parents
-                for parent in parents {
-                    // parent may removed by previous loop
-                    if let Some(parent_entry) = self.links.get_mut(&parent) {
-                        parent_entry.children.remove(&id);
-                    }
-                }
-            }
-        }
+        self.inner.get_descendants(&tx_short_id)
     }
 }
 
@@ -406,7 +264,7 @@ impl ProposedPool {
 mod tests {
     use super::*;
     use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
-    use ckb_core::{Bytes, Capacity};
+    use ckb_core::{Bytes, Capacity, Cycle};
     use numext_fixed_hash::{h256, H256};
 
     fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
@@ -436,24 +294,17 @@ mod tests {
         let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
 
         let mut pool = ProposedPool::new();
-        let id1 = tx1.proposal_short_id();
-        let id2 = tx2.proposal_short_id();
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
+        pool.add_entry(TxEntry::new(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
+        pool.add_entry(TxEntry::new(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
 
-        assert_eq!(pool.vertices.len(), 2);
+        assert_eq!(pool.size(), 2);
         assert_eq!(pool.edges.inner_len(), 2);
         assert_eq!(pool.edges.outer_len(), 2);
-
-        assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
-        assert_eq!(pool.get(&id2).unwrap().refs_count, 1);
 
         pool.remove_committed_tx(&tx1);
         assert_eq!(pool.edges.inner_len(), 1);
         assert_eq!(pool.edges.outer_len(), 1);
-
-        assert_eq!(pool.get(&id2).unwrap().refs_count, 0);
     }
 
     #[test]
@@ -463,14 +314,9 @@ mod tests {
 
         let mut pool = ProposedPool::new();
 
-        let id1 = tx1.proposal_short_id();
-        let id2 = tx2.proposal_short_id();
+        pool.add_entry(TxEntry::new(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
+        pool.add_entry(TxEntry::new(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
-
-        assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
-        assert_eq!(pool.get(&id2).unwrap().refs_count, 0);
         assert_eq!(pool.edges.inner_len(), 4);
         assert_eq!(pool.edges.outer_len(), 4);
 
@@ -494,28 +340,19 @@ mod tests {
         let tx3_hash = tx3.hash();
         let tx5 = build_tx(vec![(tx1_hash, 2), (tx3_hash, 0)], 2);
 
-        let id1 = tx1.proposal_short_id();
-        let id3 = tx3.proposal_short_id();
-        let id5 = tx5.proposal_short_id();
-
         let mut pool = ProposedPool::new();
 
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx2.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx3.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx4.clone());
-        pool.add_tx(MOCK_CYCLES, MOCK_FEE, MOCK_SIZE, tx5.clone());
+        pool.add_entry(TxEntry::new(tx1.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
+        pool.add_entry(TxEntry::new(tx2.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
+        pool.add_entry(TxEntry::new(tx3.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
+        pool.add_entry(TxEntry::new(tx4.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
+        pool.add_entry(TxEntry::new(tx5.clone(), MOCK_CYCLES, MOCK_FEE, MOCK_SIZE));
 
-        assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
-        assert_eq!(pool.get(&id3).unwrap().refs_count, 1);
-        assert_eq!(pool.get(&id5).unwrap().refs_count, 2);
         assert_eq!(pool.edges.inner_len(), 13);
         assert_eq!(pool.edges.outer_len(), 2);
 
         pool.remove_committed_tx(&tx1);
 
-        assert_eq!(pool.get(&id3).unwrap().refs_count, 0);
-        assert_eq!(pool.get(&id5).unwrap().refs_count, 1);
         assert_eq!(pool.edges.inner_len(), 10);
         assert_eq!(pool.edges.outer_len(), 4);
     }
@@ -531,9 +368,24 @@ mod tests {
         let cycles = 5_000_000;
         let size = 200;
 
-        pool.add_tx(cycles, Capacity::shannons(100), size, tx1.clone());
-        pool.add_tx(cycles, Capacity::shannons(300), size, tx2.clone());
-        pool.add_tx(cycles, Capacity::shannons(200), size, tx3.clone());
+        pool.add_entry(TxEntry::new(
+            tx1.clone(),
+            cycles,
+            Capacity::shannons(100),
+            size,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx2.clone(),
+            cycles,
+            Capacity::shannons(300),
+            size,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx3.clone(),
+            cycles,
+            Capacity::shannons(200),
+            size,
+        ));
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
             iter.map(|entry| entry.transaction.hash().to_owned())
@@ -561,10 +413,30 @@ mod tests {
         let cycles = 5_000_000;
         let size = 200;
 
-        pool.add_tx(cycles, Capacity::shannons(100), size, tx1.clone());
-        pool.add_tx(cycles, Capacity::shannons(300), size, tx2.clone());
-        pool.add_tx(cycles, Capacity::shannons(200), size, tx3.clone());
-        pool.add_tx(cycles, Capacity::shannons(400), size, tx4.clone());
+        pool.add_entry(TxEntry::new(
+            tx1.clone(),
+            cycles,
+            Capacity::shannons(100),
+            size,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx2.clone(),
+            cycles,
+            Capacity::shannons(300),
+            size,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx3.clone(),
+            cycles,
+            Capacity::shannons(200),
+            size,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx4.clone(),
+            cycles,
+            Capacity::shannons(400),
+            size,
+        ));
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
             iter.map(|entry| entry.transaction.hash().to_owned())
@@ -601,7 +473,12 @@ mod tests {
         let size = 200;
 
         for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {
-            pool.add_tx(cycles, Capacity::shannons(200), size, tx.clone());
+            pool.add_entry(TxEntry::new(
+                tx.clone(),
+                cycles,
+                Capacity::shannons(200),
+                size,
+            ));
         }
 
         let txs_sorted_by_fee_rate = pool.with_sorted_by_score_iter(|iter| {
@@ -627,10 +504,30 @@ mod tests {
         let cycles = 5_000_000;
         let size = 200;
 
-        pool.add_tx(cycles, Capacity::shannons(100), size, tx1.clone());
-        pool.add_tx(cycles, Capacity::shannons(300), size, tx2.clone());
-        pool.add_tx(cycles, Capacity::shannons(200), size, tx3.clone());
-        pool.add_tx(cycles, Capacity::shannons(400), size, tx4.clone());
+        pool.add_entry(TxEntry::new(
+            tx1.clone(),
+            cycles,
+            Capacity::shannons(100),
+            size,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx2.clone(),
+            cycles,
+            Capacity::shannons(300),
+            size,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx3.clone(),
+            cycles,
+            Capacity::shannons(200),
+            size,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx4.clone(),
+            cycles,
+            Capacity::shannons(400),
+            size,
+        ));
 
         let ancestors = pool.get_ancestors(&tx4.proposal_short_id());
         let expect_result = vec![tx1.proposal_short_id(), tx2.proposal_short_id()]

@@ -1,141 +1,51 @@
-use crate::tx_pool::types::{AncestorsScoreSortKey, PendingEntry, TxLink};
+use crate::tx_pool::types::{TxEntriesPool, TxEntry};
 use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_core::{Capacity, Cycle};
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::HashSet;
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct PendingQueue {
-    inner: HashMap<ProposalShortId, PendingEntry>,
-    sorted_index: BTreeSet<AncestorsScoreSortKey>,
-    /// A map track transaction ancestors and descendants
-    links: HashMap<ProposalShortId, TxLink>,
+    inner: TxEntriesPool,
 }
 
 impl PendingQueue {
     pub(crate) fn new() -> Self {
         PendingQueue {
-            inner: HashMap::default(),
-            sorted_index: Default::default(),
-            links: Default::default(),
+            inner: Default::default(),
         }
     }
 
     pub(crate) fn size(&self) -> usize {
-        self.inner.len()
+        self.inner.size()
     }
 
-    /// update entry ancestor prefix fields
-    fn update_ancestors_stat_for_entry(
-        &self,
-        entry: &mut PendingEntry,
-        parents: &HashSet<ProposalShortId>,
-    ) {
-        for id in parents {
-            let tx_entry = self.inner.get(&id).expect("pool consistent");
-            entry.ancestors_cycles = entry
-                .ancestors_cycles
-                .saturating_add(tx_entry.ancestors_cycles);
-            entry.ancestors_size = entry.ancestors_size.saturating_add(tx_entry.ancestors_size);
-            entry.ancestors_fee = Capacity::shannons(
-                entry
-                    .ancestors_fee
-                    .as_u64()
-                    .saturating_add(tx_entry.ancestors_fee.as_u64()),
-            );
-            entry.ancestors_count = entry
-                .ancestors_count
-                .saturating_add(tx_entry.ancestors_count);
-        }
-    }
-
-    pub(crate) fn add_tx(
-        &mut self,
-        cycles: Cycle,
-        fee: Capacity,
-        size: usize,
-        tx: Transaction,
-    ) -> Option<PendingEntry> {
-        let short_id = tx.proposal_short_id();
-        let mut parents: HashSet<ProposalShortId> =
-            HashSet::with_capacity(tx.inputs().len() + tx.deps().len());
-        for input in tx.inputs() {
-            let parent_hash = &input
-                .previous_output
-                .cell
-                .as_ref()
-                .expect("cell outpoint")
-                .tx_hash;
-            let id = ProposalShortId::from_tx_hash(&parent_hash);
-            if self.links.contains_key(&id) {
-                parents.insert(id);
-            }
-        }
-        for dep in tx.deps() {
-            if let Some(cell_output) = &dep.cell {
-                let id = ProposalShortId::from_tx_hash(&cell_output.tx_hash);
-                if self.links.contains_key(&id) {
-                    parents.insert(id);
-                }
-            }
-        }
-        let mut entry = PendingEntry::new(tx, cycles, fee, size);
-        // update ancestor_fields
-        self.update_ancestors_stat_for_entry(&mut entry, &parents);
-        // insert links
-        self.links.insert(
-            short_id,
-            TxLink {
-                parents,
-                children: Default::default(),
-            },
-        );
-        self.sorted_index
-            .insert(AncestorsScoreSortKey::from(&entry));
-        self.inner.insert(short_id, entry)
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Option<TxEntry> {
+        self.inner.add_entry(entry)
     }
 
     pub(crate) fn contains_key(&self, id: &ProposalShortId) -> bool {
         self.inner.contains_key(id)
     }
 
-    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&PendingEntry> {
+    pub(crate) fn get(&self, id: &ProposalShortId) -> Option<&TxEntry> {
         self.inner.get(id)
     }
 
     pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&Transaction> {
-        self.get(id).map(|x| &x.transaction)
+        self.inner.get(id).map(|x| &x.transaction)
     }
 
-    pub(crate) fn remove_entry_and_descendants(
-        &mut self,
-        id: &ProposalShortId,
-    ) -> Vec<PendingEntry> {
-        let mut queue = VecDeque::new();
-        let mut removed = Vec::new();
-        queue.push_back(*id);
-        while let Some(id) = queue.pop_front() {
-            if let Some(entry) = self.inner.remove(&id) {
-                let deleted = self
-                    .sorted_index
-                    .remove(&AncestorsScoreSortKey::from(&entry));
-                debug_assert!(deleted, "pending pool inconsistent");
-                if let Some(link) = self.links.remove(&id) {
-                    queue.extend(link.children);
-                }
-                removed.push(entry);
-            }
-        }
-        removed
+    pub(crate) fn remove_entry_and_descendants(&mut self, id: &ProposalShortId) -> Vec<TxEntry> {
+        self.inner.remove_entry_and_descendants(id)
     }
 
     /// find all ancestors from pool
     pub(crate) fn get_ancestors(&self, tx_short_id: &ProposalShortId) -> HashSet<ProposalShortId> {
-        TxLink::get_ancestors(&self.links, tx_short_id)
+        self.inner.get_ancestors(tx_short_id)
     }
 
     pub(crate) fn sorted_keys(&self) -> impl Iterator<Item = &ProposalShortId> {
-        self.sorted_index.iter().rev().map(|key| &key.id)
+        self.inner.sorted_keys().map(|key| &key.id)
     }
 }
 
@@ -170,7 +80,7 @@ impl CellProvider for PendingQueue {
 mod tests {
     use super::*;
     use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
-    use ckb_core::{Bytes, Capacity};
+    use ckb_core::{Bytes, Capacity, Cycle};
     use numext_fixed_hash::H256;
 
     fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
@@ -200,9 +110,24 @@ mod tests {
 
         let mut pool = PendingQueue::new();
 
-        pool.add_tx(MOCK_CYCLES, Capacity::shannons(100), MOCK_SIZE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, Capacity::shannons(300), MOCK_SIZE, tx2.clone());
-        pool.add_tx(MOCK_CYCLES, Capacity::shannons(200), MOCK_SIZE, tx3.clone());
+        pool.add_entry(TxEntry::new(
+            tx1.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(100),
+            MOCK_SIZE,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx2.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(300),
+            MOCK_SIZE,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx3.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(200),
+            MOCK_SIZE,
+        ));
 
         let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
         let expect_result = vec![
@@ -224,10 +149,30 @@ mod tests {
 
         let mut pool = PendingQueue::new();
 
-        pool.add_tx(MOCK_CYCLES, Capacity::shannons(100), MOCK_SIZE, tx1.clone());
-        pool.add_tx(MOCK_CYCLES, Capacity::shannons(300), MOCK_SIZE, tx2.clone());
-        pool.add_tx(MOCK_CYCLES, Capacity::shannons(200), MOCK_SIZE, tx3.clone());
-        pool.add_tx(MOCK_CYCLES, Capacity::shannons(400), MOCK_SIZE, tx4.clone());
+        pool.add_entry(TxEntry::new(
+            tx1.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(100),
+            MOCK_SIZE,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx2.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(300),
+            MOCK_SIZE,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx3.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(200),
+            MOCK_SIZE,
+        ));
+        pool.add_entry(TxEntry::new(
+            tx4.clone(),
+            MOCK_CYCLES,
+            Capacity::shannons(400),
+            MOCK_SIZE,
+        ));
 
         let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
         let expect_result = vec![
@@ -258,7 +203,12 @@ mod tests {
         let mut pool = PendingQueue::new();
 
         for &tx in &[&tx1, &tx2, &tx3, &tx2_1, &tx2_2, &tx2_3, &tx2_4] {
-            pool.add_tx(MOCK_CYCLES, Capacity::shannons(200), MOCK_SIZE, tx.clone());
+            pool.add_entry(TxEntry::new(
+                tx.clone(),
+                MOCK_CYCLES,
+                Capacity::shannons(200),
+                MOCK_SIZE,
+            ));
         }
 
         let txs_sorted_by_fee_rate = pool.sorted_keys().cloned().collect::<Vec<_>>();
