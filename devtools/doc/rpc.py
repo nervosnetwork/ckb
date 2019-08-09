@@ -67,7 +67,6 @@ def print_result(case):
         json.dumps(result, sort_keys=True, indent=4, separators=(',', ': '))
     )
     print(bash)
-    newline(1)
 
 
 def print_toc(cases):
@@ -107,7 +106,13 @@ def main():
     print_toc(cases)
 
     module = ""
+    is_first = True
     for case in cases:
+        if is_first:
+            is_first = False
+        else:
+            newline(1)
+
         if case["module"] != module:
             module = case["module"]
             print('## {}'.format(module.capitalize()))
