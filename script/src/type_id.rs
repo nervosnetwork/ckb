@@ -48,38 +48,36 @@ impl<'a> TypeIdSystemScript<'a> {
 
         // If there's only one output cell with current
         // TYPE_ID script, we are creating such a cell,
-        // we also need to validate that the hash of all
-        // inputs match the first argument of the script.
+        // we also need to validate that the first argument matches
+        // the hash of following items concatenated:
+        // 1. Transaction hash of the first CellInput's OutPoint
+        // 2. Cell index of the first CellInput's OutPoint
+        // 3. Index of the first output cell in current script group.
         if self.script_group.input_indices.is_empty() {
             let mut blake2b = new_blake2b();
-            for input in self.rtx.transaction.inputs() {
-                // TODO: we use this weird way of hashing data to avoid
-                // dependency on flatbuffers for now. We should change
-                // this when we have a better serialization solution.
-                if let Some(cell) = &input.previous_output.cell {
-                    blake2b.update(b"cell");
-                    blake2b.update(cell.tx_hash.as_bytes());
-                    let mut buf = [0; 4];
-                    LittleEndian::write_u32(&mut buf, cell.index);
-                    blake2b.update(&buf[..]);
-                }
-                if let Some(block_hash) = &input.previous_output.block_hash {
-                    blake2b.update(b"block_hash");
-                    blake2b.update(block_hash.as_bytes());
-                }
-                blake2b.update(b"since");
-                let mut buf = [0; 8];
-                LittleEndian::write_u64(&mut buf, input.since);
-                blake2b.update(&buf[..]);
-            }
-            // Hash output indices(actually there is only one index) for current
-            // script group as well, so we can generate cells with different types
-            // In one transaction
-            for index in &self.script_group.output_indices {
-                let mut buf = [0; 8];
-                LittleEndian::write_u64(&mut buf, *index as u64);
-                blake2b.update(&buf[..]);
-            }
+            let first_cell_input = self
+                .rtx
+                .transaction
+                .inputs()
+                .get(0)
+                .as_ref()
+                .and_then(|input| input.previous_output.cell.clone())
+                .ok_or(ScriptError::ValidationFailure(ERROR_ARGS))?;
+            // TODO: we use this weird way of hashing data to avoid
+            // dependency on flatbuffers for now. We should change
+            // this when we have a better serialization solution.
+            blake2b.update(first_cell_input.tx_hash.as_bytes());
+            let mut buf = [0; 4];
+            LittleEndian::write_u32(&mut buf, first_cell_input.index);
+            blake2b.update(&buf[..]);
+            let first_output_index = self
+                .script_group
+                .output_indices
+                .get(0)
+                .ok_or(ScriptError::ValidationFailure(ERROR_ARGS))?;
+            let mut buf = [0; 8];
+            LittleEndian::write_u64(&mut buf, *first_output_index as u64);
+            blake2b.update(&buf[..]);
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
             if ret[..] != self.script_group.script.args[0] {

@@ -1406,7 +1406,6 @@ mod tests {
 
         let input_hash = {
             let mut blake2b = new_blake2b();
-            blake2b.update(b"cell");
             blake2b.update(
                 input
                     .previous_output
@@ -1419,10 +1418,7 @@ mod tests {
             let mut buf = [0; 4];
             LittleEndian::write_u32(&mut buf, input.previous_output.cell.as_ref().unwrap().index);
             blake2b.update(&buf[..]);
-            blake2b.update(b"since");
             let mut buf = [0; 8];
-            LittleEndian::write_u64(&mut buf, input.since);
-            blake2b.update(&buf[..]);
             LittleEndian::write_u64(&mut buf, 0);
             blake2b.update(&buf[..]);
             let mut ret = [0; 32];
@@ -1550,7 +1546,6 @@ mod tests {
 
         let input_hash = {
             let mut blake2b = new_blake2b();
-            blake2b.update(b"cell");
             blake2b.update(
                 input
                     .previous_output
@@ -1563,10 +1558,7 @@ mod tests {
             let mut buf = [0; 4];
             LittleEndian::write_u32(&mut buf, input.previous_output.cell.as_ref().unwrap().index);
             blake2b.update(&buf[..]);
-            blake2b.update(b"since");
             let mut buf = [0; 8];
-            LittleEndian::write_u64(&mut buf, input.since);
-            blake2b.update(&buf[..]);
             LittleEndian::write_u64(&mut buf, 0);
             blake2b.update(&buf[..]);
             blake2b.update(b"unnecessary data");
@@ -1637,7 +1629,6 @@ mod tests {
 
         let input_hash = {
             let mut blake2b = new_blake2b();
-            blake2b.update(b"cell");
             blake2b.update(
                 input
                     .previous_output
@@ -1650,10 +1641,7 @@ mod tests {
             let mut buf = [0; 4];
             LittleEndian::write_u32(&mut buf, input.previous_output.cell.as_ref().unwrap().index);
             blake2b.update(&buf[..]);
-            blake2b.update(b"since");
             let mut buf = [0; 8];
-            LittleEndian::write_u64(&mut buf, input.since);
-            blake2b.update(&buf[..]);
             LittleEndian::write_u64(&mut buf, 0);
             blake2b.update(&buf[..]);
             let mut ret = [0; 32];
