@@ -72,6 +72,14 @@ impl<'a> TypeIdSystemScript<'a> {
                 LittleEndian::write_u64(&mut buf, input.since);
                 blake2b.update(&buf[..]);
             }
+            // Hash output indices(actually there is only one index) for current
+            // script group as well, so we can generate cells with different types
+            // In one transaction
+            for index in &self.script_group.output_indices {
+                let mut buf = [0; 8];
+                LittleEndian::write_u64(&mut buf, *index as u64);
+                blake2b.update(&buf[..]);
+            }
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
             if ret[..] != self.script_group.script.args[0] {

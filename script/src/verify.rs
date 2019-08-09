@@ -1423,6 +1423,8 @@ mod tests {
             let mut buf = [0; 8];
             LittleEndian::write_u64(&mut buf, input.since);
             blake2b.update(&buf[..]);
+            LittleEndian::write_u64(&mut buf, 0);
+            blake2b.update(&buf[..]);
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
             Bytes::from(&ret[..])
@@ -1565,6 +1567,8 @@ mod tests {
             let mut buf = [0; 8];
             LittleEndian::write_u64(&mut buf, input.since);
             blake2b.update(&buf[..]);
+            LittleEndian::write_u64(&mut buf, 0);
+            blake2b.update(&buf[..]);
             blake2b.update(b"unnecessary data");
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
@@ -1649,6 +1653,8 @@ mod tests {
             blake2b.update(b"since");
             let mut buf = [0; 8];
             LittleEndian::write_u64(&mut buf, input.since);
+            blake2b.update(&buf[..]);
+            LittleEndian::write_u64(&mut buf, 0);
             blake2b.update(&buf[..]);
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
