@@ -93,7 +93,7 @@ bench-test:
 ##@ Continuous Integration
 
 ci: ## Run recipes for CI.
-ci: check-cargotoml fmt check-dirty-rpc-doc clippy security-audit test bench-test
+ci: fmt clippy test bench-test check-cargotoml check-dirty-rpc-doc security-audit
 	git diff --exit-code Cargo.lock
 
 check-cargotoml:
