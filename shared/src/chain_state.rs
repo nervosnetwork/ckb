@@ -518,7 +518,7 @@ impl ChainState {
             },
             Err(err) => {
                 match &err {
-                    UnresolvableError::Dead(_) => {
+                    UnresolvableError::Dead(_) | UnresolvableError::InvalidDepGroup(_) => {
                         if tx_pool
                             .conflict
                             .insert(short_id, DefectEntry::new(tx, 0, cycles, size))

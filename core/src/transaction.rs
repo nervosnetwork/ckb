@@ -98,6 +98,22 @@ impl OutPoint {
     pub fn cell_key(&self) -> CellKey {
         CellKey::calculate(&self.tx_hash, self.index)
     }
+
+    /// Convert from dep group data
+    pub fn from_group_data(data: &[u8]) -> Result<OutPoint, usize> {
+        if data.len() != mem::size_of::<H256>() + mem::size_of::<u32>() {
+            Err(data.len())
+        } else {
+            Ok(CellKey::deconstruct(data))
+        }
+    }
+
+    /// Convert OutPoint to one dep group data item
+    pub fn to_group_data(&self) -> Vec<u8> {
+        CellKey::calculate(&self.tx_hash, self.index)
+            .as_ref()
+            .to_vec()
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
