@@ -2,7 +2,7 @@ use failure::Fail;
 use numext_fixed_hash::H256;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 
-// NOTE: To avoid circle dependency, we re-define a flatten version of `ckb_core::OutPoint`,
+// NOTE: To avoid circle dependency, we re-define another `ckb_core::OutPoint`,
 // which is used in `OutPointError` to record error context information.
 #[derive(PartialEq, Eq, Clone)]
 pub struct OutPoint {
@@ -38,58 +38,6 @@ impl Debug for OutPoint {
                     .unwrap_or_else(|| "None".to_owned()),
             )
             .finish()
-    }
-}
-
-/// Cast `ckb_core::transaction::OutPoint` to `ckb_error::OutPoint`
-#[macro_export]
-macro_rules! into_eop {
-    ($cop:expr) => {{
-        let (block_hash, cell) = $cop.to_owned().destruct();
-        match cell {
-            Some(cell) => {
-                let (tx_hash, index) = cell.destruct();
-                ckb_error::OutPoint {
-                    cell: Some(ckb_error::CellOutPoint { tx_hash, index }),
-                    block_hash,
-                }
-            }
-            None => ckb_error::OutPoint {
-                cell: None,
-                block_hash,
-            },
-        }
-    }};
-}
-
-/// Cast `ckb_error::OutPoint` to `ckb_core::transaction::OutPoint`
-#[macro_export]
-macro_rules! from_eop {
-    ($eop:expr) => {{
-        let ckb_error::OutPoint { cell, block_hash } = $eop;
-        match cell {
-            Some(cell) => {
-                let ckb_error::CellOutPoint { tx_hash, index } = cell;
-                ckb_core::transaction::OutPoint {
-                    cell: Some(ckb_core::transaction::CellOutPoint { tx_hash, index }),
-                    block_hash,
-                }
-            }
-            None => ckb_core::transaction::OutPoint {
-                cell: None,
-                block_hash,
-            },
-        }
-    }};
-}
-
-impl From<(Option<H256>, Option<(H256, u32)>)> for OutPoint {
-    fn from((block_hash, cell): (Option<H256>, Option<(H256, u32)>)) -> Self {
-        let cell = cell.map(|c| CellOutPoint {
-            tx_hash: c.0,
-            index: c.1,
-        });
-        Self { block_hash, cell }
     }
 }
 

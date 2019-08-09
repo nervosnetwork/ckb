@@ -13,7 +13,7 @@ use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
 use ckb_core::Cycle;
 use ckb_dao::DaoCalculator;
-use ckb_error::{from_eop, Error, ErrorKind, InternalError, OutPointError, SpecError};
+use ckb_error::{Error, ErrorKind, InternalError, OutPointError, SpecError};
 use ckb_logger::{debug_target, error_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainDB, ChainStore, StoreTransaction};
@@ -520,7 +520,7 @@ impl ChainState {
                     }
                     OutPointError::UnknownCell(out_points) => {
                         let out_points: Vec<_> =
-                            out_points.iter().map(|o| from_eop!(o.to_owned())).collect();
+                            out_points.iter().map(|o| o.to_owned().into()).collect();
                         if tx_pool
                             .add_orphan(cycles, size, tx, out_points.to_owned())
                             .is_some()

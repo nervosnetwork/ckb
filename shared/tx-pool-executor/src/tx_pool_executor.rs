@@ -181,7 +181,7 @@ mod tests {
     use ckb_core::header::HeaderBuilder;
     use ckb_core::transaction::{CellInput, CellOutputBuilder, OutPoint, TransactionBuilder};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
-    use ckb_error::{into_eop, OutPointError, TransactionError};
+    use ckb_error::{OutPointError, TransactionError};
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
     use ckb_test_chain_utils::always_success_cell;
@@ -325,13 +325,19 @@ mod tests {
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[10..15].to_vec());
         assert_eq!(
             result.err(),
-            Some(OutPointError::DeadCell(into_eop!(txs[10].inputs()[0].previous_output)).into())
+            Some(
+                OutPointError::DeadCell(txs[10].inputs()[0].previous_output.to_owned().into())
+                    .into()
+            )
         );
         // spent half available half conflict cells
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[6..=15].to_vec());
         assert_eq!(
             result.err(),
-            Some(OutPointError::DeadCell(into_eop!(txs[10].inputs()[0].previous_output)).into())
+            Some(
+                OutPointError::DeadCell(txs[10].inputs()[0].previous_output.to_owned().into())
+                    .into()
+            )
         );
         // spent one cell
         let result = tx_pool_executor
@@ -342,7 +348,10 @@ mod tests {
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[13].to_owned());
         assert_eq!(
             result.err(),
-            Some(OutPointError::DeadCell(into_eop!(txs[13].inputs()[0].previous_output)).into())
+            Some(
+                OutPointError::DeadCell(txs[13].inputs()[0].previous_output.to_owned().into())
+                    .into()
+            )
         );
     }
 

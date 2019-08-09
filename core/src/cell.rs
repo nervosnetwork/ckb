@@ -3,7 +3,7 @@ use crate::header::Header;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
 use crate::{BlockNumber, EpochNumber};
 use crate::{Bytes, Capacity};
-use ckb_error::{into_eop, Error, OutPointError};
+use ckb_error::{Error, OutPointError};
 use ckb_occupied_capacity::Result as CapacityResult;
 use fnv::{FnvHashMap, FnvHashSet};
 use numext_fixed_hash::H256;
@@ -332,7 +332,7 @@ impl<'a> BlockCellProvider<'a> {
                     .and_then(|cell| output_indices.get(&cell.tx_hash))
                 {
                     if *output_idx >= idx {
-                        Err(OutPointError::OutOfOrder(into_eop!(dep)))?;
+                        Err(OutPointError::OutOfOrder(dep.to_owned().into()))?;
                     }
                 }
             }
@@ -343,7 +343,7 @@ impl<'a> BlockCellProvider<'a> {
                     .and_then(|cell| output_indices.get(&cell.tx_hash))
                 {
                     if *output_idx >= idx {
-                        Err(OutPointError::OutOfOrder(into_eop!(input_pt)))?;
+                        Err(OutPointError::OutOfOrder(input_pt.to_owned().into()))?;
                     }
                 }
             }
@@ -515,7 +515,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
             if seen_inputs.contains(out_point) {
-                Err(OutPointError::DeadCell(into_eop!(out_point)))?;
+                Err(OutPointError::DeadCell(out_point.to_owned().into()))?;
             }
 
             let (cell_status, header_status) = if current_inputs.insert(out_point.to_owned()) {
@@ -529,23 +529,25 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
 
             match (cell_status, header_status) {
                 (CellStatus::Dead, _) => {
-                    Err(OutPointError::DeadCell(into_eop!(out_point)))?;
+                    Err(OutPointError::DeadCell(out_point.to_owned().into()))?;
                 }
                 (CellStatus::Unknown, _) => {
                     unknown_out_points.push(out_point.to_owned());
                 }
                 // Input cell must exist
                 (CellStatus::Unspecified, _) => {
-                    Err(OutPointError::MissingInputCell(into_eop!(out_point)))?;
+                    Err(OutPointError::MissingInputCell(out_point.to_owned().into()))?;
                 }
                 (_, HeaderStatus::Unknown) => {
                     // TODO: should we change transaction pool so transactions
                     // with unknown header can be included as orphans, waiting
                     // for the correct block header to enable it?
-                    Err(OutPointError::UnknownHeader(into_eop!(out_point)))?;
+                    Err(OutPointError::UnknownHeader(out_point.to_owned().into()))?;
                 }
                 (_, HeaderStatus::InclusionFaliure) => {
-                    Err(OutPointError::ExclusiveInputCell(into_eop!(out_point)))?;
+                    Err(OutPointError::ExclusiveInputCell(
+                        out_point.to_owned().into(),
+                    ))?;
                 }
 
                 (CellStatus::Live(cell_meta), HeaderStatus::Live(header)) => {
@@ -564,7 +566,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
 
         match (cell_status, header_status) {
             (CellStatus::Dead, _) => {
-                Err(OutPointError::DeadCell(into_eop!(out_point)))?;
+                Err(OutPointError::DeadCell(out_point.to_owned().into()))?;
             }
             (CellStatus::Unknown, _) => {
                 unknown_out_points.push(out_point.to_owned());
@@ -573,13 +575,15 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
                 // TODO: should we change transaction pool so transactions
                 // with unknown header can be included as orphans, waiting
                 // for the correct block header to enable it?
-                Err(OutPointError::UnknownHeader(into_eop!(out_point)))?;
+                Err(OutPointError::UnknownHeader(out_point.to_owned().into()))?;
             }
             (_, HeaderStatus::InclusionFaliure) => {
-                Err(OutPointError::ExclusiveInputCell(into_eop!(out_point)))?;
+                Err(OutPointError::ExclusiveInputCell(
+                    out_point.to_owned().into(),
+                ))?;
             }
             (CellStatus::Live(_), _) if seen_inputs.contains(&out_point) => {
-                Err(OutPointError::DeadCell(into_eop!(out_point)))?;
+                Err(OutPointError::DeadCell(out_point.to_owned().into()))?;
             }
             (CellStatus::Live(cell_meta), HeaderStatus::Live(header)) => {
                 resolved_deps.push(ResolvedOutPoint::cell_and_header(*cell_meta, *header));
@@ -598,10 +602,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
 
     if !unknown_out_points.is_empty() {
         Err(OutPointError::UnknownCell(
-            unknown_out_points
-                .into_iter()
-                .map(|o| into_eop!(o))
-                .collect(),
+            unknown_out_points.into_iter().map(Into::into).collect(),
         ))?
     } else {
         seen_inputs.extend(current_inputs);
@@ -777,7 +778,7 @@ mod tests {
 
         assert_eq!(
             result.err(),
-            Some(OutPointError::MissingInputCell(into_eop!(out_point)).into()),
+            Some(OutPointError::MissingInputCell(out_point.into()).into()),
         );
     }
 
@@ -845,7 +846,7 @@ mod tests {
 
         assert_eq!(
             result.err(),
-            Some(OutPointError::ExclusiveInputCell(into_eop!(out_point)).into())
+            Some(OutPointError::ExclusiveInputCell(out_point.into()).into())
         );
     }
 
@@ -929,11 +930,8 @@ mod tests {
             assert_eq!(
                 provider.err(),
                 Some(
-                    OutPointError::OutOfOrder(into_eop!(OutPoint::new_cell(
-                        tx1.hash().to_owned(),
-                        0
-                    )))
-                    .into()
+                    OutPointError::OutOfOrder(OutPoint::new_cell(tx1.hash().to_owned(), 0).into())
+                        .into()
                 )
             );
         }
@@ -956,11 +954,8 @@ mod tests {
             assert_eq!(
                 provider.err(),
                 Some(
-                    OutPointError::OutOfOrder(into_eop!(OutPoint::new_cell(
-                        tx1.hash().to_owned(),
-                        0
-                    )))
-                    .into()
+                    OutPointError::OutOfOrder(OutPoint::new_cell(tx1.hash().to_owned(), 0).into())
+                        .into()
                 )
             );
         }
@@ -1046,7 +1041,7 @@ mod tests {
 
             assert_eq!(
                 result2.err(),
-                Some(OutPointError::DeadCell(into_eop!(out_point.clone())).into())
+                Some(OutPointError::DeadCell(out_point.clone().into()).into())
             );
         }
     }

@@ -5,6 +5,7 @@
 pub mod alert;
 pub mod block;
 pub mod cell;
+pub mod convert;
 pub mod difficulty;
 pub mod extras;
 pub mod header;
