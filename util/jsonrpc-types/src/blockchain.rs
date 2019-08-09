@@ -11,7 +11,6 @@ use ckb_core::transaction::{
     Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use ckb_core::Capacity as CoreCapacity;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
 use serde_derive::{Deserialize, Serialize};
@@ -606,20 +605,18 @@ impl From<BlockView> for CoreBlock {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct EpochView {
     pub number: EpochNumber,
-    pub epoch_reward: Capacity,
     pub start_number: BlockNumber,
     pub length: BlockNumber,
     pub difficulty: U256,
 }
 
 impl EpochView {
-    pub fn from_ext(epoch_reward: CoreCapacity, ext: &CoreEpochExt) -> EpochView {
+    pub fn from_ext(ext: &CoreEpochExt) -> EpochView {
         EpochView {
             number: EpochNumber(ext.number()),
             start_number: BlockNumber(ext.start_number()),
             length: BlockNumber(ext.length()),
             difficulty: ext.difficulty().clone(),
-            epoch_reward: Capacity(epoch_reward),
         }
     }
 }

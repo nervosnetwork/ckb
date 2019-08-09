@@ -385,7 +385,6 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "difficulty": "0x7a1200",
-        "epoch_reward": "125000000000000",
         "length": "1800",
         "number": "1",
         "start_number": "1000"
@@ -423,7 +422,6 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "difficulty": "0x3e8",
-        "epoch_reward": "125000000000000",
         "length": "1000",
         "number": "0",
         "start_number": "0"
