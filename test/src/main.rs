@@ -85,6 +85,8 @@ fn main() {
         }
     }
 
+    info!("Total elapsed time: {:?}", start_time.elapsed());
+
     rerun_specs.extend(specs_iter.map(|t| (t.1).0));
     if rerun_specs.is_empty() {
         return;
