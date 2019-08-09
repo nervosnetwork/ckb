@@ -1,19 +1,19 @@
 pub struct Transaction {
     version: Version,
 
-    deps: Vec<Dep>,
-    loadable_headers: Vec<H256>,
+    cell_deps: Vec<CellDep>,
+    header_deps: Vec<H256>,
 
     // Each input has a corresponding Vec<Bytes> in witnesses
     inputs: Vec<Input>,
     witnesses: Vec<Vec<Bytes>>,
 
-    // Each cell has a corresponding Kernel and Bytes in output_kernels and output_data
-    output_kernels: Vec<Kernel>,
-    output_data: Vec<Bytes>,
+    // Each cell has a corresponding output and data in outputs and outputs_data respectively.
+    outputs: Vec<Output>,
+    outputs_data: Vec<Bytes>,
 }
 
-pub struct Dep {
+pub struct CellDep {
     out_point: OutPoint,
     is_group: bool,
 }
@@ -39,7 +39,7 @@ pub struct Input {
     since: u64,
 }
 
-pub struct Kernel {
+pub struct Output {
     capacity: Capacity,
     lock: Script,
     type_: Option<Script>,
