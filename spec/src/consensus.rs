@@ -462,17 +462,17 @@ impl Consensus {
                 let denominator = U256::from(next_epoch_length);
                 (diff_numerator / denominator).into_u256()
             } else {
-                let orphan_rate_estimation = RationalU256::one()
-                    / (((&last_orphan_rate + U256::one())
-                        * &epoch_duration_target_u256
-                        * &last_epoch_length_u256
-                        / (&last_orphan_rate * &last_epoch_duration * &next_epoch_length_u256))
-                        .saturating_sub_u256(U256::one()));
+                let orphan_rate_estimation_recip = ((&last_orphan_rate + U256::one())
+                    * &epoch_duration_target_u256
+                    * &last_epoch_length_u256
+                    / (&last_orphan_rate * &last_epoch_duration * &next_epoch_length_u256))
+                    .saturating_sub_u256(U256::one());
 
-                let denominator = if orphan_rate_estimation.is_zero() {
+                let denominator = if orphan_rate_estimation_recip.is_zero() {
                     // small probability event, use o_ideal for now
                     (orphan_rate_target + U256::one()) * next_epoch_length_u256
                 } else {
+                    let orphan_rate_estimation = RationalU256::one() / orphan_rate_estimation_recip;
                     (orphan_rate_estimation + U256::one()) * next_epoch_length_u256
                 };
                 (diff_numerator / denominator).into_u256()
