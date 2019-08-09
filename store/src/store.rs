@@ -1,4 +1,7 @@
-use crate::{cache_enable, CELL_DATA_CACHE, HEADER_CACHE};
+use crate::{
+    cache_enable, BLOCK_EXT_CACHE, BLOCK_PROPOSALS_CACHE, BLOCK_TX_HASHES_CACHE,
+    BLOCK_UNCLES_CACHE, CELLBASE_CACHE, CELL_DATA_CACHE, HEADER_CACHE,
+};
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_INDEX,
@@ -86,44 +89,114 @@ pub trait ChainStore<'a>: Send + Sync {
 
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&'a self, hash: &H256) -> Vec<H256> {
+        let cache_enable = cache_enable();
+        if cache_enable {
+            if let Some(hashes) = BLOCK_TX_HASHES_CACHE.lock().get_refresh(hash) {
+                return hashes.clone();
+            }
+        }
+
         let prefix = hash.as_bytes();
-        self.get_iter(COLUMN_BLOCK_BODY, prefix, Direction::Forward)
+        let ret: Vec<H256> = self
+            .get_iter(COLUMN_BLOCK_BODY, prefix, Direction::Forward)
             .take_while(|(key, _)| key.starts_with(prefix))
             .map(|(_key, value)| {
                 protos::StoredTransaction::from_slice(&value)
                     .hash()
                     .expect("deserialize")
             })
-            .collect()
+            .collect();
+
+        if cache_enable {
+            BLOCK_TX_HASHES_CACHE
+                .lock()
+                .insert(hash.clone(), ret.clone());
+        }
+
+        ret
     }
 
     /// Get proposal short id by block header hash
     fn get_block_proposal_txs_ids(&'a self, hash: &H256) -> Option<Vec<ProposalShortId>> {
-        self.get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes())
+        let cache_enable = cache_enable();
+        if cache_enable {
+            if let Some(data) = BLOCK_PROPOSALS_CACHE.lock().get_refresh(hash) {
+                return Some(data.clone());
+            }
+        }
+
+        let ret = self
+            .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_bytes())
             .map(|slice| {
                 protos::StoredProposalShortIds::from_slice(&slice.as_ref())
                     .try_into()
                     .expect("deserialize")
+            });
+
+        if cache_enable {
+            ret.map(|data: Vec<ProposalShortId>| {
+                BLOCK_PROPOSALS_CACHE
+                    .lock()
+                    .insert(hash.clone(), data.clone());
+                data
             })
+        } else {
+            ret
+        }
     }
 
     /// Get block uncles by block header hash
     fn get_block_uncles(&'a self, hash: &H256) -> Option<Vec<UncleBlock>> {
-        self.get(COLUMN_BLOCK_UNCLE, hash.as_bytes()).map(|slice| {
+        let cache_enable = cache_enable();
+        if cache_enable {
+            if let Some(data) = BLOCK_UNCLES_CACHE.lock().get_refresh(&hash) {
+                return Some(data.clone());
+            }
+        }
+
+        let ret = self.get(COLUMN_BLOCK_UNCLE, hash.as_bytes()).map(|slice| {
             protos::StoredUncleBlocks::from_slice(&slice.as_ref())
                 .try_into()
                 .expect("deserialize")
-        })
+        });
+
+        if cache_enable {
+            ret.map(|data: Vec<UncleBlock>| {
+                BLOCK_UNCLES_CACHE.lock().insert(hash.clone(), data.clone());
+                data
+            })
+        } else {
+            ret
+        }
     }
 
     /// Get block ext by block header hash
     fn get_block_ext(&'a self, block_hash: &H256) -> Option<BlockExt> {
-        self.get(COLUMN_BLOCK_EXT, block_hash.as_bytes())
+        let cache_enable = cache_enable();
+        if cache_enable {
+            if let Some(data) = BLOCK_EXT_CACHE.lock().get_refresh(&block_hash) {
+                return Some(data.clone());
+            }
+        }
+
+        let ret = self
+            .get(COLUMN_BLOCK_EXT, block_hash.as_bytes())
             .map(|slice| {
                 protos::BlockExt::from_slice(&slice.as_ref()[..])
                     .try_into()
                     .expect("deserialize")
+            });
+
+        if cache_enable {
+            ret.map(|data: BlockExt| {
+                BLOCK_EXT_CACHE
+                    .lock()
+                    .insert(block_hash.clone(), data.clone());
+                data
             })
+        } else {
+            ret
+        }
     }
 
     /// Get block header hash by block number
@@ -292,13 +365,29 @@ pub trait ChainStore<'a>: Send + Sync {
 
     // Get cellbase by block hash
     fn get_cellbase(&'a self, hash: &H256) -> Option<Transaction> {
+        let cache_enable = cache_enable();
+        if cache_enable {
+            if let Some(data) = CELLBASE_CACHE.lock().get_refresh(&hash) {
+                return Some(data.clone());
+            }
+        }
+
         let mut store_key = Vec::with_capacity(36);
         store_key.extend_from_slice(hash.as_bytes());
         store_key.extend_from_slice(&(0u32).to_be_bytes());
-        self.get(COLUMN_BLOCK_BODY, &store_key).map(|slice| {
+        let ret = self.get(COLUMN_BLOCK_BODY, &store_key).map(|slice| {
             let stored_transaction = protos::StoredTransaction::from_slice(&slice.as_ref());
             stored_transaction.try_into().expect("deserialize")
-        })
+        });
+
+        if cache_enable {
+            ret.map(|data: Transaction| {
+                CELLBASE_CACHE.lock().insert(hash.clone(), data.clone());
+                data
+            })
+        } else {
+            ret
+        }
     }
 
     fn next_epoch_ext(

@@ -9,7 +9,10 @@ pub use db::ChainDB;
 pub use store::ChainStore;
 pub use transaction::StoreTransaction;
 
+use ckb_core::extras::BlockExt;
 use ckb_core::header::Header;
+use ckb_core::transaction::{ProposalShortId, Transaction};
+use ckb_core::uncle::UncleBlock;
 use ckb_core::Bytes;
 use ckb_db::Col;
 use ckb_util::Mutex;
@@ -40,6 +43,15 @@ lazy_static! {
     static ref HEADER_CACHE: Mutex<LruCache<H256, Header>> = { Mutex::new(LruCache::new(4096)) };
     static ref CELL_DATA_CACHE: Mutex<LruCache<(H256, u32), Bytes>> =
         { Mutex::new(LruCache::new(128)) };
+    static ref BLOCK_PROPOSALS_CACHE: Mutex<LruCache<H256, Vec<ProposalShortId>>> =
+        { Mutex::new(LruCache::new(30)) };
+    static ref BLOCK_TX_HASHES_CACHE: Mutex<LruCache<H256, Vec<H256>>> =
+        { Mutex::new(LruCache::new(20)) };
+    static ref BLOCK_EXT_CACHE: Mutex<LruCache<H256, BlockExt>> = { Mutex::new(LruCache::new(20)) };
+    static ref BLOCK_UNCLES_CACHE: Mutex<LruCache<H256, Vec<UncleBlock>>> =
+        { Mutex::new(LruCache::new(10)) };
+    static ref CELLBASE_CACHE: Mutex<LruCache<H256, Transaction>> =
+        { Mutex::new(LruCache::new(20)) };
 }
 
 pub fn cache_enable() -> bool {
