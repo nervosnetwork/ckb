@@ -7,7 +7,7 @@ use crate::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::cell::{BlockInfo, CellMeta};
+use ckb_core::cell::CellMeta;
 use ckb_core::extras::{BlockExt, EpochExt, TransactionInfo};
 use ckb_core::header::{BlockNumber, Header};
 use ckb_core::transaction::{CellOutPoint, ProposalShortId, Transaction};
@@ -196,18 +196,11 @@ pub trait ChainStore<'a>: Send + Sync {
                         tx_hash: tx_hash.to_owned(),
                         index,
                     };
-                    let cellbase = tx_info.index == 0;
-                    let block_info = BlockInfo {
-                        number: tx_info.block_number,
-                        epoch: tx_info.block_epoch,
-                        hash: tx_info.block_hash,
-                    };
                     // notice mem_cell_data is set to None, the cell data should be load in need
                     CellMeta {
                         cell_output,
                         out_point,
-                        block_info: Some(block_info),
-                        cellbase,
+                        transaction_info: Some(tx_info),
                         data_bytes: data.len() as u64,
                         mem_cell_data: None,
                     }
