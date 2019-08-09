@@ -7,7 +7,7 @@ use ckb_core::reward::BlockReward as CoreBlockReward;
 use ckb_core::script::{Script as CoreScript, ScriptHashType as CoreScriptHashType};
 use ckb_core::transaction::{
     CellDep as CoreCellDep, CellInput as CoreCellInput, CellOutput as CoreCellOutput,
-    Deps as CoreDeps, OutPoint as CoreOutPoint, Transaction as CoreTransaction, TransactionBuilder,
+    OutPoint as CoreOutPoint, Transaction as CoreTransaction, TransactionBuilder,
     Witness as CoreWitness,
 };
 use ckb_core::uncle::UncleBlock as CoreUncleBlock;
@@ -211,34 +211,10 @@ impl From<CellDep> for CoreCellDep {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct Deps {
-    pub cells: Vec<CellDep>,
-    pub headers: Vec<H256>,
-}
-
-impl From<CoreDeps> for Deps {
-    fn from(core: CoreDeps) -> Self {
-        let (cells, headers) = core.destruct();
-        Deps {
-            cells: cells.into_iter().map(Into::into).collect::<Vec<_>>(),
-            headers,
-        }
-    }
-}
-
-impl From<Deps> for CoreDeps {
-    fn from(json: Deps) -> Self {
-        CoreDeps::new(
-            json.cells.into_iter().map(Into::into).collect::<Vec<_>>(),
-            json.headers,
-        )
-    }
-}
-
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Transaction {
     pub version: Version,
-    pub deps: Deps,
+    pub cell_deps: Vec<CellDep>,
+    pub header_deps: Vec<H256>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
     pub outputs_data: Vec<JsonBytes>,
@@ -256,7 +232,8 @@ impl<'a> From<&'a CoreTransaction> for Transaction {
     fn from(core: &CoreTransaction) -> Self {
         Self {
             version: Version(core.version()),
-            deps: core.deps().clone().into(),
+            cell_deps: core.cell_deps().iter().cloned().map(Into::into).collect(),
+            header_deps: core.header_deps().to_vec(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
             outputs_data: core
@@ -283,7 +260,8 @@ impl From<Transaction> for CoreTransaction {
     fn from(json: Transaction) -> Self {
         let Transaction {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -292,7 +270,8 @@ impl From<Transaction> for CoreTransaction {
 
         TransactionBuilder::default()
             .version(version.0)
-            .deps(deps.into())
+            .cell_deps(cell_deps)
+            .header_deps(header_deps)
             .inputs(inputs)
             .outputs(outputs)
             .outputs_data(outputs_data.into_iter().map(JsonBytes::into_bytes))

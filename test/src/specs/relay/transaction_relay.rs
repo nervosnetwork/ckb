@@ -84,7 +84,7 @@ impl Spec for TransactionRelayMultiple {
             .enumerate()
             .for_each(|(i, output)| {
                 let tx = TransactionBuilder::default()
-                    .cell_dep(transaction.deps().cells()[0].clone())
+                    .cell_dep(transaction.cell_deps()[0].clone())
                     .output(output.clone())
                     .input(CellInput::new(OutPoint::new(tx_hash.clone(), i as u32), 0))
                     .build();

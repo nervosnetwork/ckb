@@ -90,11 +90,9 @@ http://localhost:8114
         "proposals": [],
         "transactions": [
             {
-                "deps": {
-                    "cells": [],
-                    "headers": []
-                },
+                "cell_deps": [],
                 "hash": "0xf2d214d2211ae5e526b9d4580afc9288d5026312191cb83df2baa1f0e1a421bb",
+                "header_deps": [],
                 "inputs": [
                     {
                         "previous_output": {
@@ -185,11 +183,9 @@ http://localhost:8114
         "proposals": [],
         "transactions": [
             {
-                "deps": {
-                    "cells": [],
-                    "headers": []
-                },
+                "cell_deps": [],
                 "hash": "0xf2d214d2211ae5e526b9d4580afc9288d5026312191cb83df2baa1f0e1a421bb",
+                "header_deps": [],
                 "inputs": [
                     {
                         "previous_output": {
@@ -674,21 +670,19 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "transaction": {
-            "deps": {
-                "cells": [
-                    {
-                        "is_dep_group": false,
-                        "out_point": {
-                            "index": "0",
-                            "tx_hash": "0xb62c98b6ed8fda85d56362e3c27586f1ea309ca5949506b3ed7b9ff094828df0"
-                        }
+            "cell_deps": [
+                {
+                    "is_dep_group": false,
+                    "out_point": {
+                        "index": "0",
+                        "tx_hash": "0xb62c98b6ed8fda85d56362e3c27586f1ea309ca5949506b3ed7b9ff094828df0"
                     }
-                ],
-                "headers": [
-                    "0x968e857abd52bcf416d4b4065d4334ec4c6a0e02a04812358540b8bfcfabcf47"
-                ]
-            },
+                }
+            ],
             "hash": "0x3a6db7279c45e5b24ae7fb7624aa4d599eee2c4224cf379c23e6c1d4464ae60f",
+            "header_deps": [
+                "0x968e857abd52bcf416d4b4065d4334ec4c6a0e02a04812358540b8bfcfabcf47"
+            ],
             "inputs": [
                 {
                     "previous_output": {
@@ -776,7 +770,8 @@ Return the transaction hash
 
     transaction - The transaction object
     version - Transaction version
-    deps - Dependent cells and headers
+    cell_deps - Cell dependencies
+    header_deps - Header dependencies
     inputs - Transaction inputs
     outputs - Transaction outputs
     witnesses - Witnesses
@@ -790,20 +785,18 @@ echo '{
     "method": "_compute_transaction_hash",
     "params": [
         {
-            "deps": {
-                "cells": [
-                    {
-                        "is_dep_group": false,
-                        "out_point": {
-                            "index": "0",
-                            "tx_hash": "0xb62c98b6ed8fda85d56362e3c27586f1ea309ca5949506b3ed7b9ff094828df0"
-                        }
+            "cell_deps": [
+                {
+                    "is_dep_group": false,
+                    "out_point": {
+                        "index": "0",
+                        "tx_hash": "0xb62c98b6ed8fda85d56362e3c27586f1ea309ca5949506b3ed7b9ff094828df0"
                     }
-                ],
-                "headers": [
-                    "0x968e857abd52bcf416d4b4065d4334ec4c6a0e02a04812358540b8bfcfabcf47"
-                ]
-            },
+                }
+            ],
+            "header_deps": [
+                "0x968e857abd52bcf416d4b4065d4334ec4c6a0e02a04812358540b8bfcfabcf47"
+            ],
             "inputs": [
                 {
                     "previous_output": {
@@ -864,20 +857,18 @@ echo '{
     "method": "dry_run_transaction",
     "params": [
         {
-            "deps": {
-                "cells": [
-                    {
-                        "is_dep_group": false,
-                        "out_point": {
-                            "index": "0",
-                            "tx_hash": "0xb62c98b6ed8fda85d56362e3c27586f1ea309ca5949506b3ed7b9ff094828df0"
-                        }
+            "cell_deps": [
+                {
+                    "is_dep_group": false,
+                    "out_point": {
+                        "index": "0",
+                        "tx_hash": "0xb62c98b6ed8fda85d56362e3c27586f1ea309ca5949506b3ed7b9ff094828df0"
                     }
-                ],
-                "headers": [
-                    "0x968e857abd52bcf416d4b4065d4334ec4c6a0e02a04812358540b8bfcfabcf47"
-                ]
-            },
+                }
+            ],
+            "header_deps": [
+                "0x968e857abd52bcf416d4b4065d4334ec4c6a0e02a04812358540b8bfcfabcf47"
+            ],
             "inputs": [
                 {
                     "previous_output": {
@@ -1337,7 +1328,8 @@ If <block_hash> of <previsous_output> is not specified, loads the corresponding 
 
     transaction - The transaction object
     version - Transaction version
-    deps - Dependent cells and headers
+    cell_deps - Cell dependencies
+    header_deps - Header dependencies
     inputs - Transaction inputs
     outputs - Transaction outputs
     witnesses - Witnesses
@@ -1351,20 +1343,18 @@ echo '{
     "method": "send_transaction",
     "params": [
         {
-            "deps": {
-                "cells": [
-                    {
-                        "is_dep_group": false,
-                        "out_point": {
-                            "index": "0",
-                            "tx_hash": "0xb62c98b6ed8fda85d56362e3c27586f1ea309ca5949506b3ed7b9ff094828df0"
-                        }
+            "cell_deps": [
+                {
+                    "is_dep_group": false,
+                    "out_point": {
+                        "index": "0",
+                        "tx_hash": "0xb62c98b6ed8fda85d56362e3c27586f1ea309ca5949506b3ed7b9ff094828df0"
                     }
-                ],
-                "headers": [
-                    "0x968e857abd52bcf416d4b4065d4334ec4c6a0e02a04812358540b8bfcfabcf47"
-                ]
-            },
+                }
+            ],
+            "header_deps": [
+                "0x968e857abd52bcf416d4b4065d4334ec4c6a0e02a04812358540b8bfcfabcf47"
+            ],
             "inputs": [
                 {
                     "previous_output": {

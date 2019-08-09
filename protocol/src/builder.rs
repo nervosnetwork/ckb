@@ -84,17 +84,13 @@ impl<'a> FbsTransaction<'a> {
         transaction: &Transaction,
     ) -> WIPOffset<FbsTransaction<'b>> {
         let vec = transaction
-            .deps()
-            .cells()
-            .iter()
+            .cell_deps_iter()
             .map(|cell_dep| FbsCellDep::build(fbb, cell_dep))
             .collect::<Vec<_>>();
         let cell_deps = fbb.create_vector(&vec);
 
         let vec = transaction
-            .deps()
-            .headers()
-            .iter()
+            .header_deps_iter()
             .map(Into::into)
             .collect::<Vec<FbsH256>>();
         let header_deps = fbb.create_vector(&vec);

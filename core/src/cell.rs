@@ -355,7 +355,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker>(
     let (mut unknown_out_points, mut resolved_inputs, mut resolved_cell_deps) = (
         Vec::new(),
         Vec::with_capacity(transaction.inputs().len()),
-        Vec::with_capacity(transaction.deps().cells().len()),
+        Vec::with_capacity(transaction.cell_deps().len()),
     );
     let mut current_inputs = FnvHashSet::default();
 

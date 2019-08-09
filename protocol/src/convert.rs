@@ -190,7 +190,6 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
             .iter()
             .map(TryInto::try_into)
             .collect();
-        let deps = ckb_core::transaction::Deps::new(cell_deps?, header_deps?);
 
         let inputs: Result<Vec<ckb_core::transaction::CellInput>, FailureError> =
             FlatbuffersVectorIterator::new(cast!(transaction.inputs())?)
@@ -215,7 +214,8 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
 
         Ok(ckb_core::transaction::TransactionBuilder::default()
             .version(transaction.version())
-            .deps(deps)
+            .cell_deps(cell_deps?)
+            .header_deps(header_deps?)
             .inputs(inputs?)
             .outputs(outputs?)
             .outputs_data(outputs_data)

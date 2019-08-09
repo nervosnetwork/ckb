@@ -8,8 +8,8 @@ use ckb_core::{
     header::{Header, HeaderBuilder},
     script::Script,
     transaction::{
-        CellDep, CellInput, CellOutput, Deps, OutPoint, ProposalShortId, Transaction,
-        TransactionBuilder, Witness,
+        CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+        Witness,
     },
     transaction_meta::{TransactionMeta, TransactionMetaBuilder},
     uncle::UncleBlock,
@@ -211,7 +211,6 @@ impl<'a> protos::Transaction<'a> {
             .iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<H256>>>()?;
-        let deps = Deps::new(cell_deps, header_deps);
 
         let inputs = self
             .inputs()
@@ -240,7 +239,8 @@ impl<'a> protos::Transaction<'a> {
             .collect::<Result<Vec<Witness>>>()?;
         let builder = TransactionBuilder::default()
             .version(self.version())
-            .deps(deps)
+            .cell_deps(cell_deps)
+            .header_deps(header_deps)
             .inputs(inputs)
             .outputs(outputs)
             .outputs_data(outputs_data)

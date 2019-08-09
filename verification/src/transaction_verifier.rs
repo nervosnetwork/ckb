@@ -263,18 +263,14 @@ impl<'a> DuplicateDepsVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
-        let mut seen_cells = HashSet::with_capacity(self.transaction.deps().cells().len());
-        let mut seen_headers = HashSet::with_capacity(self.transaction.deps().headers().len());
+        let mut seen_cells = HashSet::with_capacity(self.transaction.cell_deps().len());
+        let mut seen_headers = HashSet::with_capacity(self.transaction.header_deps().len());
 
         if transaction
-            .deps()
-            .cells()
-            .iter()
+            .cell_deps_iter()
             .all(|dep| seen_cells.insert(dep))
             && transaction
-                .deps()
-                .headers()
-                .iter()
+                .header_deps_iter()
                 .all(|hash| seen_headers.insert(hash))
         {
             Ok(())

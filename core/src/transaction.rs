@@ -312,38 +312,11 @@ impl CellOutputBuilder {
 
 pub type Witness = Vec<Bytes>;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
-pub struct Deps {
-    cells: Vec<CellDep>,
-    headers: Vec<H256>,
-}
-
-impl Deps {
-    pub fn new(cells: Vec<CellDep>, headers: Vec<H256>) -> Deps {
-        Deps { cells, headers }
-    }
-
-    pub fn cells(&self) -> &[CellDep] {
-        &self.cells
-    }
-
-    pub fn headers(&self) -> &[H256] {
-        &self.headers
-    }
-
-    pub fn destruct(self) -> (Vec<CellDep>, Vec<H256>) {
-        (self.cells, self.headers)
-    }
-
-    pub fn serialized_size(&self) -> usize {
-        CellDep::serialized_size() * self.cells.len() + 4 + H256::size_of() * self.headers.len() + 4
-    }
-}
-
 #[derive(Clone, Serialize, Eq, Debug)]
 pub struct Transaction {
     version: Version,
-    deps: Deps,
+    cell_deps: Vec<CellDep>,
+    header_deps: Vec<H256>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
     #[serde(skip)]
@@ -365,7 +338,8 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
         #[serde(field_identifier, rename_all = "snake_case")]
         enum Field {
             Version,
-            Deps,
+            CellDeps,
+            HeaderDeps,
             Inputs,
             Outputs,
             Witnesses,
@@ -387,21 +361,26 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                 let version = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
-                let deps = seq
+                let cell_deps = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
-                let inputs = seq
+                let header_deps = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
-                let outputs = seq
+                let inputs = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(3, &self))?;
+                let outputs = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
+                // NOTE: ignore outputs_data here
                 let witnesses = seq
                     .next_element()?
-                    .ok_or_else(|| serde::de::Error::invalid_length(5, &self))?;
+                    .ok_or_else(|| serde::de::Error::invalid_length(6, &self))?;
                 Ok(Self::Value::new(
                     version,
-                    deps,
+                    cell_deps,
+                    header_deps,
                     inputs,
                     outputs,
                     Default::default(),
@@ -414,7 +393,8 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                 V: serde::de::MapAccess<'de>,
             {
                 let mut version = None;
-                let mut deps = None;
+                let mut cell_deps = None;
+                let mut header_deps = None;
                 let mut inputs = None;
                 let mut outputs = None;
                 let mut witnesses = None;
@@ -426,11 +406,17 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                             }
                             version = Some(map.next_value()?);
                         }
-                        Field::Deps => {
-                            if deps.is_some() {
-                                return Err(serde::de::Error::duplicate_field("deps"));
+                        Field::CellDeps => {
+                            if cell_deps.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cell_deps"));
                             }
-                            deps = Some(map.next_value()?);
+                            cell_deps = Some(map.next_value()?);
+                        }
+                        Field::HeaderDeps => {
+                            if header_deps.is_some() {
+                                return Err(serde::de::Error::duplicate_field("header_deps"));
+                            }
+                            header_deps = Some(map.next_value()?);
                         }
                         Field::Inputs => {
                             if inputs.is_some() {
@@ -453,14 +439,18 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                     }
                 }
                 let version = version.ok_or_else(|| serde::de::Error::missing_field("version"))?;
-                let deps = deps.ok_or_else(|| serde::de::Error::missing_field("deps"))?;
+                let cell_deps =
+                    cell_deps.ok_or_else(|| serde::de::Error::missing_field("cell_deps"))?;
+                let header_deps =
+                    header_deps.ok_or_else(|| serde::de::Error::missing_field("header_deps"))?;
                 let inputs = inputs.ok_or_else(|| serde::de::Error::missing_field("inputs"))?;
                 let outputs = outputs.ok_or_else(|| serde::de::Error::missing_field("outputs"))?;
                 let witnesses =
                     witnesses.ok_or_else(|| serde::de::Error::missing_field("witnesses"))?;
                 Ok(Self::Value::new(
                     version,
-                    deps,
+                    cell_deps,
+                    header_deps,
                     inputs,
                     outputs,
                     Default::default(),
@@ -469,7 +459,14 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
             }
         }
 
-        const FIELDS: &[&str] = &["version", "deps", "inputs", "outputs", "witnesses"];
+        const FIELDS: &[&str] = &[
+            "version",
+            "cell_deps",
+            "header_deps",
+            "inputs",
+            "outputs",
+            "witnesses",
+        ];
         deserializer.deserialize_struct("Transaction", FIELDS, InnerVisitor)
     }
 }
@@ -477,7 +474,8 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
 #[derive(Serialize)]
 struct RawTransaction<'a> {
     version: Version,
-    deps: &'a Deps,
+    cell_deps: &'a [CellDep],
+    header_deps: &'a [H256],
     inputs: &'a [CellInput],
     outputs: &'a [CellOutput],
 }
@@ -497,7 +495,8 @@ impl PartialEq for Transaction {
 impl Transaction {
     pub(crate) fn new(
         version: Version,
-        deps: Deps,
+        cell_deps: Vec<CellDep>,
+        header_deps: Vec<H256>,
         inputs: Vec<CellInput>,
         outputs: Vec<CellOutput>,
         outputs_data: Vec<Bytes>,
@@ -505,7 +504,8 @@ impl Transaction {
     ) -> Self {
         let raw = RawTransaction {
             version,
-            deps: &deps,
+            cell_deps: &cell_deps,
+            header_deps: &header_deps,
             inputs: &inputs,
             outputs: &outputs,
         };
@@ -513,7 +513,8 @@ impl Transaction {
             blake2b_256(serialize(&raw).expect("RawTransaction serialize should not fail")).into();
         let mut tx = Self {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -531,8 +532,12 @@ impl Transaction {
         self.version
     }
 
-    pub fn deps(&self) -> &Deps {
-        &self.deps
+    pub fn cell_deps(&self) -> &[CellDep] {
+        &self.cell_deps
+    }
+
+    pub fn header_deps(&self) -> &[H256] {
+        &self.header_deps
     }
 
     pub fn inputs(&self) -> &[CellInput] {
@@ -579,11 +584,11 @@ impl Transaction {
     }
 
     pub fn cell_deps_iter(&self) -> impl Iterator<Item = &CellDep> {
-        self.deps.cells().iter()
+        self.cell_deps.iter()
     }
 
     pub fn header_deps_iter(&self) -> impl Iterator<Item = &H256> {
-        self.deps.headers().iter()
+        self.header_deps.iter()
     }
 
     pub fn outputs_with_data_iter(&self) -> impl Iterator<Item = (&CellOutput, &Bytes)> {
@@ -619,7 +624,10 @@ impl Transaction {
 
     pub fn serialized_size(&self) -> usize {
         mem::size_of::<Version>()
-            + self.deps.serialized_size()
+            + CellDep::serialized_size() * self.cell_deps.len()
+            + 4
+            + H256::size_of() * self.header_deps.len()
+            + 4
             + CellInput::serialized_size() * self.inputs.len()
             + 4
             + self
@@ -641,7 +649,8 @@ impl Transaction {
 
 pub struct TransactionBuilder {
     version: Version,
-    deps: Deps,
+    cell_deps: Vec<CellDep>,
+    header_deps: Vec<H256>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
     outputs_data: Vec<Bytes>,
@@ -652,7 +661,8 @@ impl Default for TransactionBuilder {
     fn default() -> Self {
         Self {
             version: TX_VERSION,
-            deps: Default::default(),
+            cell_deps: Default::default(),
+            header_deps: Default::default(),
             inputs: Default::default(),
             outputs: Default::default(),
             outputs_data: Default::default(),
@@ -665,7 +675,8 @@ impl TransactionBuilder {
     pub fn from_transaction(transaction: Transaction) -> Self {
         let Transaction {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -674,7 +685,8 @@ impl TransactionBuilder {
         } = transaction;
         Self {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -687,13 +699,8 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn deps(mut self, deps: Deps) -> Self {
-        self.deps = deps;
-        self
-    }
-
     pub fn cell_dep(mut self, dep: CellDep) -> Self {
-        self.deps.cells.push(dep);
+        self.cell_deps.push(dep);
         self
     }
 
@@ -702,17 +709,17 @@ impl TransactionBuilder {
         I: IntoIterator<Item = T>,
         T: Into<CellDep>,
     {
-        self.deps.cells.extend(deps.into_iter().map(Into::into));
+        self.cell_deps.extend(deps.into_iter().map(Into::into));
         self
     }
 
     pub fn cell_deps_clear(mut self) -> Self {
-        self.deps.cells.clear();
+        self.cell_deps.clear();
         self
     }
 
     pub fn header_dep(mut self, block_hash: H256) -> Self {
-        self.deps.headers.push(block_hash);
+        self.header_deps.push(block_hash);
         self
     }
 
@@ -721,14 +728,13 @@ impl TransactionBuilder {
         I: IntoIterator<Item = T>,
         T: Into<H256>,
     {
-        self.deps
-            .headers
+        self.header_deps
             .extend(block_hashes.into_iter().map(Into::into));
         self
     }
 
     pub fn header_deps_clear(mut self) -> Self {
-        self.deps.headers.clear();
+        self.header_deps.clear();
         self
     }
 
@@ -812,13 +818,22 @@ impl TransactionBuilder {
     pub fn build(self) -> Transaction {
         let Self {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
             witnesses,
         } = self;
-        Transaction::new(version, deps, inputs, outputs, outputs_data, witnesses)
+        Transaction::new(
+            version,
+            cell_deps,
+            header_deps,
+            inputs,
+            outputs,
+            outputs_data,
+            witnesses,
+        )
     }
 
     /// # Warning
@@ -828,7 +843,8 @@ impl TransactionBuilder {
     pub unsafe fn build_unchecked(self, hash: H256, witness_hash: H256) -> Transaction {
         let Self {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -836,7 +852,8 @@ impl TransactionBuilder {
         } = self;
         Transaction {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,

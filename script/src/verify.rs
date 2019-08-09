@@ -154,7 +154,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
     #[inline]
     fn header_deps(&self) -> &[H256] {
-        &self.rtx.transaction.deps().headers()
+        self.rtx.transaction.header_deps()
     }
 
     #[inline]

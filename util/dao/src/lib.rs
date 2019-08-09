@@ -181,7 +181,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
     }
 
     pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, FailureError> {
-        let header_deps: HashSet<_> = rtx.transaction.deps().headers().iter().collect();
+        let header_deps: HashSet<_> = rtx.transaction.header_deps_iter().collect();
         let resolved_cell_deps: HashMap<&OutPoint, &H256> = rtx
             .resolved_cell_deps
             .iter()
@@ -225,8 +225,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             })
                             .and_then(|dep_index| {
                                 rtx.transaction
-                                    .deps()
-                                    .cells()
+                                    .cell_deps()
                                     .get(dep_index as usize)
                                     .and_then(|dep| resolved_cell_deps.get(dep.out_point()))
                                     .filter(|hash| header_deps.contains(*hash))
