@@ -85,7 +85,7 @@ def usage():
     usages = """\
 Generate rpc README.md based on rpc descriptions file in json format
 
-Usage: 
+Usage:
     python {} /path/to/rpc.json
     """.format(__file__)
     print(usages)
