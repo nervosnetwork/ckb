@@ -177,10 +177,8 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .start::<&str>(Default::default(), None)
         .expect("Start network service failed")
     };
-    let synchronizer = {
-        let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
-        Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state))
-    };
+    let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
+    let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
     let indexer_store = {
         let db_config = DBConfig {
             path: dir.join("indexer"),
@@ -226,13 +224,8 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         }
         .to_delegate(),
     );
-    io.extend_with(PoolRpcImpl::new(shared.clone(), network_controller.clone()).to_delegate());
-    io.extend_with(
-        NetworkRpcImpl {
-            network_controller: network_controller.clone(),
-        }
-        .to_delegate(),
-    );
+    io.extend_with(PoolRpcImpl::new(shared.clone(), sync_shared_state).to_delegate());
+    io.extend_with(NetworkRpcImpl { network_controller }.to_delegate());
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),

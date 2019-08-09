@@ -11,6 +11,7 @@ use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
+use ckb_sync::SyncSharedState;
 use ckb_sync::Synchronizer;
 use ckb_util::Mutex;
 use jsonrpc_core::IoHandler;
@@ -36,10 +37,10 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    pub fn enable_pool(mut self, shared: Shared, network_controller: NetworkController) -> Self {
+    pub fn enable_pool(mut self, shared: Shared, sync_shared_state: Arc<SyncSharedState>) -> Self {
         if self.config.pool_enable() {
             self.io_handler
-                .extend_with(PoolRpcImpl::new(shared, network_controller).to_delegate());
+                .extend_with(PoolRpcImpl::new(shared, sync_shared_state).to_delegate());
         }
         self
     }

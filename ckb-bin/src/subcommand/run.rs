@@ -82,7 +82,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     );
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
 
-    let relayer = Relayer::new(chain_controller.clone(), sync_shared_state);
+    let relayer = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
     let net_timer = NetTimeProtocol::default();
     let alert_signature_config = args.config.alert_signature.unwrap_or_default();
     let alert_notifier_config = args.config.alert_notifier.unwrap_or_default();
@@ -137,7 +137,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
     let builder = ServiceBuilder::new(&args.config.rpc)
         .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), network_controller.clone())
+        .enable_pool(shared.clone(), sync_shared_state)
         .enable_miner(
             shared.clone(),
             network_controller.clone(),
