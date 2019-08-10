@@ -578,7 +578,7 @@ mod tests {
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
-            .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+            .out_point(dep_out_point.clone())
             .build();
 
         let script = Script::new(args, code_hash, ScriptHashType::Data);
@@ -654,7 +654,7 @@ mod tests {
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
-            .out_point(dep_out_point.cell.clone().unwrap())
+            .out_point(dep_out_point.clone())
             .build();
 
         let script = Script::new(args, code_hash, ScriptHashType::Data);
@@ -719,7 +719,7 @@ mod tests {
         let type_hash: H256 = output.type_.as_ref().unwrap().hash();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
-            .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+            .out_point(dep_out_point.clone())
             .build();
 
         let script = Script::new(args, type_hash, ScriptHashType::Type);
@@ -781,7 +781,7 @@ mod tests {
         let type_hash: H256 = output.type_.as_ref().unwrap().hash();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data.clone())
             .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
-            .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+            .out_point(dep_out_point.clone())
             .build();
 
         let dep_out_point2 = OutPoint::new(h256!("0x1234"), 8);
@@ -796,7 +796,7 @@ mod tests {
             .build();
         let dep_cell2 = CellMetaBuilder::from_cell_output(output2, data)
             .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
-            .out_point(dep_out_point2.cell.as_ref().unwrap().clone())
+            .out_point(dep_out_point2.clone())
             .build();
 
         let script = Script::new(args, type_hash, ScriptHashType::Type);
@@ -872,7 +872,7 @@ mod tests {
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output.to_owned(), data)
             .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
-            .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+            .out_point(dep_out_point.clone())
             .build();
 
         let script = Script::new(args, code_hash, ScriptHashType::Data);
@@ -1066,7 +1066,7 @@ mod tests {
                 .build();
             CellMetaBuilder::from_cell_output(output.to_owned(), data)
                 .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
-                .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+                .out_point(dep_out_point.clone())
                 .build()
         };
 
@@ -1192,7 +1192,7 @@ mod tests {
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
-            .out_point(dep_out_point.cell.as_ref().unwrap().clone())
+            .out_point(dep_out_point.clone())
             .build();
 
         let transaction = TransactionBuilder::default()
