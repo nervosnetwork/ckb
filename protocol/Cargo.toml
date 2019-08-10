@@ -1,6 +1,6 @@
 [package]
 name = "ckb-protocol"
-version = "0.18.0-pre"
+version = "0.18.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"

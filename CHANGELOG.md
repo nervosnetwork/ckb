@@ -1,3 +1,15 @@
+# [v0.18.0](https://github.com/nervosnetwork/ckb/compare/v0.17.0...v0.18.0) (2019-08-10)
+
+### Features
+
+* #1351: Difficulty adjustment rfc version (@zhangsoledad)
+* #1358: Add 10x faster miner (@kilb)
+
+### Bug Fixes
+
+* #1267: Header verifier with wrong header resolver (@u2)
+
+
 # [v0.17.0](https://github.com/nervosnetwork/ckb/compare/v0.16.0...v0.17.0) (2019-07-27)
 
 ### Features
