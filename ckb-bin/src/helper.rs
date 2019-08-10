@@ -1,5 +1,6 @@
 use ckb_logger::warn;
 use ckb_util::{parking_lot::deadlock, Condvar, Mutex};
+use std::io::{stdin, stdout, Write};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -35,4 +36,18 @@ pub fn deadlock_detection() {
             }
         }
     });
+}
+
+pub fn prompt(msg: &str) -> String {
+    let stdout = stdout();
+    let mut stdout = stdout.lock();
+    let stdin = stdin();
+
+    write!(stdout, "{}", msg).unwrap();
+    stdout.flush().unwrap();
+
+    let mut input = String::new();
+    let _ = stdin.read_line(&mut input);
+
+    input
 }

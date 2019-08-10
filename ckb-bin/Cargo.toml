@@ -37,3 +37,4 @@ ckb-traits = { path = "../traits" }
 ckb-verification = { path = "../verification" }
 faster-hex = "0.3"
 ckb-script = { path = "../script" }
+ckb-db = { path = "../db" }

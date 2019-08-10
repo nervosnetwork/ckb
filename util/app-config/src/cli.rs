@@ -21,6 +21,7 @@ pub const ARG_TARGET: &str = "target";
 pub const ARG_SOURCE: &str = "source";
 pub const ARG_DATA: &str = "data";
 pub const ARG_LIST_CHAINS: &str = "list-chains";
+pub const ARG_INTERACTIVE: &str = "interactive";
 pub const ARG_CHAIN: &str = "chain";
 pub const ARG_P2P_PORT: &str = "p2p-port";
 pub const ARG_RPC_PORT: &str = "rpc-port";
@@ -234,6 +235,12 @@ fn cli_secp256k1_lock() -> App<'static, 'static> {
 fn init() -> App<'static, 'static> {
     SubCommand::with_name(CMD_INIT)
         .about("Creates a CKB direcotry or reinitializes an existing one")
+        .arg(
+            Arg::with_name(ARG_INTERACTIVE)
+                .short("i")
+                .long(ARG_INTERACTIVE)
+                .help("Interactive mode"),
+        )
         .arg(
             Arg::with_name(ARG_LIST_CHAINS)
                 .short("l")

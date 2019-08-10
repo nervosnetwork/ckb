@@ -1,4 +1,10 @@
+use std::fs;
+use std::path::PathBuf;
+
+use crate::helper::prompt;
 use ckb_app_config::{ExitCode, InitArgs};
+use ckb_core::script::ScriptHashType;
+use ckb_db::{db::RocksDB, DBConfig, Error};
 use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME,
     CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
@@ -8,12 +14,79 @@ use ckb_script::Runner;
 
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20 * 2 + 2; // 42 = 20 x 2 + prefix 0x
 
+fn check_db_compatibility(path: PathBuf) {
+    if path.exists() {
+        let config = DBConfig {
+            path: path.clone(),
+            ..Default::default()
+        };
+        if let Some(Error::DBError(err_msg)) = RocksDB::open_with_error(&config, 1).err() {
+            if err_msg.contains("the database version is not matched") {
+                let input =
+                    prompt(format!("Database is not incompatible, remove {:?}? ", path).as_str());
+
+                if ["y", "Y"].contains(&input.trim()) {
+                    if let Some(e) = fs::remove_dir_all(path).err() {
+                        eprintln!("{}", e);
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn init(args: InitArgs) -> Result<(), ExitCode> {
+    let mut args = args;
+
     if args.list_chains {
         for spec in AVAILABLE_SPECS {
             println!("{}", spec);
         }
         return Ok(());
+    }
+
+    let exported = Resource::exported_in(&args.root_dir);
+    if !args.force && exported {
+        eprintln!("Config files already exists, use --force to overwrite.");
+
+        if args.interactive {
+            let input = prompt("Overwrite config file now? ");
+
+            if !["y", "Y"].contains(&input.trim()) {
+                return Err(ExitCode::Failure);
+            }
+        } else {
+            return Err(ExitCode::Failure);
+        }
+    }
+
+    if args.interactive {
+        let data_dir = args.root_dir.join("data");
+        let db_path = data_dir.join("db");
+        let indexer_db_path = data_dir.join("indexer_db");
+
+        check_db_compatibility(db_path);
+        check_db_compatibility(indexer_db_path);
+
+        let _block_assembler_code_hash = prompt("code hash: ");
+        let _args = prompt("args: ");
+        let _data = prompt("data: ");
+        let _hash_type = prompt("hash_type: ");
+
+        args.block_assembler_code_hash = Some(_block_assembler_code_hash.trim().to_string());
+
+        args.block_assembler_args = _args
+            .trim()
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+
+        args.block_assembler_data = Some(_data.trim().to_string());
+
+        match serde_plain::from_str::<ScriptHashType>(_hash_type.trim()).ok() {
+            Some(hash_type) => args.block_assembler_hash_type = hash_type,
+            None => eprintln!("Invalid block assembler hash type"),
+        }
     }
 
     let runner = Runner::default().to_string();
@@ -78,12 +151,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         runner: &runner,
         block_assembler: &block_assembler,
     };
-
-    let exported = Resource::exported_in(&args.root_dir);
-    if !args.force && exported {
-        eprintln!("Config files already exists, use --force to overwrite.");
-        return Err(ExitCode::Failure);
-    }
 
     println!(
         "{} CKB directory in {}",
