@@ -47,6 +47,10 @@ impl<'a> TransactionHashesProcess<'a> {
                 .retain(|tx_hash| !tx_pool.contains_tx(&ProposalShortId::from_tx_hash(&tx_hash)))
         }
 
+        if transit_hashes.is_empty() {
+            return Ok(());
+        }
+
         if let Some(peer_state) = self
             .relayer
             .shared()
