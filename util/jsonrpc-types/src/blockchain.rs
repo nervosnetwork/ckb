@@ -197,7 +197,7 @@ impl From<CellInput> for CoreCellInput {
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Witness {
-    data: Vec<JsonBytes>,
+    pub data: Vec<JsonBytes>,
 }
 
 impl<'a> From<&'a CoreWitness> for Witness {
