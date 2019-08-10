@@ -43,19 +43,20 @@ uint32_t c_solve(uint32_t* prof, const uint8_t* mesg, const uint64_t max_edge, c
     uint64_t k0, k1, k2, k3;
     uint64_t v0, v1, v2, v3;
     uint64_t h;
+    uint64_t i;
 
     setkeys();
 
-    for (uint32_t i = 0; i < graph_size; ++i) {
+    for (i = 0; i < graph_size; ++i) {
         graph[i] = -1;
     }
 
-    for (uint64_t i = 0; i < max_edge; ++i) {
+    for (i = 0; i < max_edge; ++i) {
         siphash24((i << 1)); U[i] = h;
         siphash24((i << 1) | 1); V[i] = h | 1;
     }
 
-    for (uint64_t i = 0; i < max_edge; ++i) {
+    for (i = 0; i < max_edge; ++i) {
         int u = U[i];
         int v = V[i];
 
