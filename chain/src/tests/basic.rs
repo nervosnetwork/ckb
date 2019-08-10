@@ -1,3 +1,4 @@
+use crate::chain::ChainController;
 use crate::tests::util::{
     create_always_success_tx, create_cellbase, create_multi_outputs_transaction,
     create_transaction, create_transaction_with_out_point, dao_data, start_chain, MockChain,
@@ -6,13 +7,16 @@ use crate::tests::util::{
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::cell::{BlockInfo, CellMetaBuilder, CellProvider, CellStatus, UnresolvableError};
-use ckb_core::header::HeaderBuilder;
+use ckb_core::extras::EpochExt;
+use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{CellInput, CellOutPoint, CellOutput, OutPoint, TransactionBuilder};
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao_utils::genesis_dao_data;
+use ckb_db::memorydb::MemoryKeyValueDB;
 use ckb_shared::error::SharedError;
-use ckb_store::ChainStore;
+use ckb_shared::shared::Shared;
+use ckb_store::{ChainKVStore, ChainStore};
 use ckb_test_chain_utils::{build_block, header_builder};
 use ckb_traits::ChainProvider;
 use numext_fixed_uint::U256;
@@ -530,23 +534,16 @@ fn test_chain_get_ancestor() {
     );
 }
 
-#[test]
-fn test_next_epoch_ext() {
-    let cellbase = TransactionBuilder::default()
-        .witness(Script::default().into_witness())
-        .input(CellInput::new(OutPoint::null(), 0))
-        .build();
-    let dao = genesis_dao_data(&cellbase).unwrap();
-    let genesis_block = build_block! {
-        header_builder: header_builder!(difficulty: U256::from(1000u64),
-                                        dao: dao,),
-        transaction: cellbase,
-    };
-
-    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
-    consensus.genesis_epoch_ext.set_length(400);
+fn prepare_context_chain(
+    consensus: Consensus,
+    orphan_count: u64,
+) -> (
+    ChainController,
+    Shared<ChainKVStore<MemoryKeyValueDB>>,
+    Header,
+    EpochExt,
+) {
     let epoch = consensus.genesis_epoch_ext.clone();
-
     let (chain_controller, shared, genesis) = start_chain(Some(consensus.clone()));
     let final_number = shared.consensus().genesis_epoch_ext().length();
 
@@ -596,14 +593,14 @@ fn test_next_epoch_ext() {
         last_epoch = epoch;
     }
 
-    parent = genesis;
+    parent = genesis.clone();
     let mut last_epoch = epoch.clone();
     for i in 1..final_number {
         let epoch = shared
             .next_epoch_ext(&last_epoch, &parent)
             .unwrap_or(last_epoch);
         let mut uncles = vec![];
-        if i < 26 {
+        if i < orphan_count {
             uncles.push(chain1[i as usize].clone());
         }
 
@@ -640,6 +637,122 @@ fn test_next_epoch_ext() {
         parent = new_block.header().clone();
         last_epoch = epoch;
     }
+    (chain_controller, shared, genesis, last_epoch)
+}
+
+#[test]
+fn test_epoch_hash_rate_dampening() {
+    let cellbase = TransactionBuilder::default()
+        .witness(Script::default().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let dao = genesis_dao_data(&cellbase).unwrap();
+    let genesis_block = build_block! {
+        header_builder: header_builder!(
+            difficulty: U256::from(1000u64),
+            dao: dao,
+        ),
+        transaction: cellbase,
+    };
+
+    // last_difficulty 1000
+    // last_uncles_count 25
+    // last_epoch_length 400
+    // last_duration 7980
+    let mut consensus = Consensus::default().set_genesis_block(genesis_block.clone());
+    consensus.genesis_epoch_ext.set_length(400);
+    consensus
+        .genesis_epoch_ext
+        .set_previous_epoch_hash_rate(U256::from(10u64));
+    let (_chain_controller, shared, _genesis, _last_epoch) =
+        prepare_context_chain(consensus.clone(), 26);
+
+    {
+        let chain_state = shared.lock_chain_state();
+        let tip = chain_state.tip_header().clone();
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
+        assert_eq!(total_uncles_count, 25);
+
+        let epoch = shared
+            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+            .unwrap();
+
+        // last_epoch_previous_epoch_hash_rate 10
+        // HPS  = dampen(last_difficulty * (last_epoch_length + last_uncles_count) / last_duration)
+        // 1000 *( 400 + 25) / 7980 = 53
+        // TAU = 2
+        // dampen(53) = 10 * 2
+        assert_eq!(
+            epoch.previous_epoch_hash_rate(),
+            &U256::from(20u64),
+            "previous_epoch_hash_rate {}",
+            epoch.previous_epoch_hash_rate()
+        );
+    }
+
+    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+    consensus.genesis_epoch_ext.set_length(400);
+    consensus
+        .genesis_epoch_ext
+        .set_previous_epoch_hash_rate(U256::from(200u64));
+    let (_chain_controller, shared, _genesis, _last_epoch) =
+        prepare_context_chain(consensus.clone(), 26);
+
+    {
+        let chain_state = shared.lock_chain_state();
+        let tip = chain_state.tip_header().clone();
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
+        assert_eq!(total_uncles_count, 25);
+
+        let epoch = shared
+            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+            .unwrap();
+
+        // last_epoch_previous_epoch_hash_rate 200
+        // HPS  = dampen(last_difficulty * (last_epoch_length + last_uncles_count) / last_duration)
+        // 1000 *( 400 + 25) / 7980 = 53
+        // TAU = 2
+        // dampen(53) = 200 / 2
+        assert_eq!(
+            epoch.previous_epoch_hash_rate(),
+            &U256::from(100u64),
+            "previous_epoch_hash_rate {}",
+            epoch.previous_epoch_hash_rate()
+        );
+    }
+}
+
+#[test]
+fn test_next_epoch_ext() {
+    let cellbase = TransactionBuilder::default()
+        .witness(Script::default().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let dao = genesis_dao_data(&cellbase).unwrap();
+    let genesis_block = build_block! {
+        header_builder: header_builder!(difficulty: U256::from(1000u64),
+                                        dao: dao,),
+        transaction: cellbase,
+    };
+
+    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+    consensus.genesis_epoch_ext.set_length(400);
+
+    // last_difficulty 1000
+    // last_epoch_length 400
+    // epoch_duration_target 14400
+    // orphan_rate_target 1/20
+    // last_duration 7980
+    let (_chain_controller, shared, _genesis, _last_epoch) =
+        prepare_context_chain(consensus.clone(), 26);
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
@@ -655,21 +768,31 @@ fn test_next_epoch_ext() {
             .unwrap();
 
         // last_uncles_count 25
-        // last_epoch_length 400
-        // epoch_duration_target 14400000
-        // target_recip 20
-        // last_duration 7980000
+        // HPS  = dampen(last_difficulty * (last_epoch_length + last_uncles_count) / last_duration)
+        assert_eq!(
+            epoch.previous_epoch_hash_rate(),
+            &U256::from(53u64),
+            "previous_epoch_hash_rate {}",
+            epoch.previous_epoch_hash_rate()
+        );
 
-        // (Diff_last * o_last) / o
-        // (25 * 1000 * 20) / 400
-        assert_eq!(epoch.difficulty(), &U256::from(1250u64));
+        // C_i+1,m = (o_ideal * (1 + o_i ) * L_ideal × C_i,m) / (o_i * (1 + o_ideal ) * L_i)
+        // (1/20 * (1+ 25/400) * 14400 * 400) / (25 / 400 * ( 1+ 1/20) * 7980)
+        // (425 * 14400 * 400) / (25 * 21 * 7980)
+        assert_eq!(epoch.length(), 584, "epoch length {}", epoch.length());
 
-        // ((Cu_last + Cm_last) * L * Cm_last) / ((u + 1) * Cu_last * L_last)
-        // ((25 + 400) * 14400000 * 400) / (( 20 + 1)* 25 * 7980000)
-        assert_eq!(epoch.length(), 584);
+        // None of the edge cases is triggered
+        // Diff_i+1 = (HPS_i · L_ideal) / (1 + 0_i+1 ) * C_i+1,m
+        // (53 * 14400) / ((1 + 1/20) * 584)
+        // (20 * 53 * 14400) / (21 * 584)
+        assert_eq!(
+            epoch.difficulty(),
+            &U256::from(1244u64),
+            "epoch difficulty {}",
+            epoch.difficulty()
+        );
 
         let consensus = shared.consensus();
-
         let epoch_reward = consensus.epoch_reward();
         let block_reward = Capacity::shannons(epoch_reward.as_u64() / epoch.length());
         let block_reward1 = block_reward.safe_add(Capacity::one()).unwrap();
@@ -679,74 +802,18 @@ fn test_next_epoch_ext() {
         // remainder_reward 960
         assert_eq!(
             epoch.block_reward(400).unwrap(),
-            block_reward1, // Capacity::shannons(428082191781)
+            block_reward1,
             "block_reward {:?}, remainder_reward{:?}",
             block_reward,
             epoch.remainder_reward()
         );
 
-        assert_eq!(
-            epoch.block_reward(bound - 1).unwrap(),
-            block_reward1 // Capacity::shannons(428082191781)
-        );
-        assert_eq!(
-            epoch.block_reward(bound).unwrap(),
-            block_reward // Capacity::shannons(428082191780)
-        );
+        assert_eq!(epoch.block_reward(bound - 1).unwrap(), block_reward1);
+        assert_eq!(epoch.block_reward(bound).unwrap(), block_reward);
     }
 
-    let (chain_controller, shared, genesis) = start_chain(Some(consensus.clone()));
-    let mut chain2: Vec<Block> = Vec::new();
-    for i in 1..final_number - 1 {
-        chain_controller
-            .process_block(Arc::new(chain1[(i - 1) as usize].clone()), false)
-            .expect("process block ok");
-    }
-
-    parent = genesis.clone();
-    for i in 1..final_number {
-        let epoch = shared
-            .next_epoch_ext(&last_epoch, &parent)
-            .unwrap_or(last_epoch);
-        let mut uncles = vec![];
-        if i < 11 {
-            uncles.push(chain1[i as usize].clone());
-        }
-
-        let transactions = vec![create_cellbase(
-            &mut mock_store,
-            shared.consensus(),
-            &parent,
-        )];
-        let dao = dao_data(
-            shared.consensus(),
-            &parent,
-            &transactions,
-            &mut mock_store,
-            false,
-        );
-
-        let new_block = build_block!(
-            from_header_builder: {
-                parent_hash: parent.hash().to_owned(),
-                number: parent.number() + 1,
-                timestamp: parent.timestamp() + 20_000,
-                difficulty: epoch.difficulty().clone(),
-                dao: dao,
-            },
-            transactions: transactions,
-            uncles: uncles,
-        );
-
-        chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
-            .expect("process block ok");
-        chain2.push(new_block.clone());
-        mock_store.insert_block(&new_block, &epoch);
-        parent = new_block.header().clone();
-        last_epoch = epoch;
-    }
-
+    let (_chain_controller, shared, _genesis, _last_epoch) =
+        prepare_context_chain(consensus.clone(), 11);
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
@@ -761,62 +828,30 @@ fn test_next_epoch_ext() {
             .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
             .unwrap();
 
-        assert_eq!(epoch.difficulty(), &U256::from(1000u64));
-    }
+        // last_uncles_count 10
+        // last_epoch_length 400
+        // epoch_duration_target 14400
+        // last_duration 7980
 
-    let (chain_controller, shared, genesis) = start_chain(Some(consensus.clone()));
-    let mut chain2: Vec<Block> = Vec::new();
-    for i in 1..final_number - 1 {
-        chain_controller
-            .process_block(Arc::new(chain1[(i - 1) as usize].clone()), false)
-            .expect("process block ok");
-    }
+        // C_i+1,m = (o_ideal * (1 + o_i ) * L_ideal × C_i,m) / (o_i * (1 + o_ideal ) * L_i)
+        // (1/20 * (1+ 10/400) * 14400 * 400) / (10 / 400 * ( 1+ 1/20) * 7980)
+        // (410 * 14400 * 400) / (21 * 10 * 7980) = 1409
+        // upper bound trigger
+        assert_eq!(epoch.length(), 800, "epoch length {}", epoch.length());
 
-    parent = genesis.clone();
-    let mut last_epoch = epoch.clone();
-    for i in 1..final_number {
-        let epoch = shared
-            .next_epoch_ext(&last_epoch, &parent)
-            .unwrap_or(last_epoch);
-        let mut uncles = vec![];
-        if i < 151 {
-            uncles.push(chain1[i as usize].clone());
-        }
-
-        let transactions = vec![create_cellbase(
-            &mut mock_store,
-            shared.consensus(),
-            &parent,
-        )];
-        let dao = dao_data(
-            shared.consensus(),
-            &parent,
-            &transactions,
-            &mut mock_store,
-            false,
+        // orphan_rate_estimation = 1 / ( (1 + o_i ) * L_ideal * C_i,m / (o_i * L_i * C_i+1,m) − 1) = 133 / 4787
+        // Diff_i+1 = (HPS_i · L_ideal) / (1 + orphan_rate_estimation ) * C_i+1,m
+        // 51 * 14400 * 4787 / ((133 + 4787) * 800)
+        assert_eq!(
+            epoch.difficulty(),
+            &U256::from(893u64),
+            "epoch difficulty {}",
+            epoch.difficulty()
         );
-
-        let new_block = build_block!(
-            from_header_builder: {
-                parent_hash: parent.hash().to_owned(),
-                number: parent.number() + 1,
-                timestamp: parent.timestamp() + 20_000,
-                difficulty: epoch.difficulty().clone(),
-                dao: dao,
-            },
-            transactions: transactions,
-            uncles: uncles,
-        );
-
-        chain_controller
-            .process_block(Arc::new(new_block.clone()), false)
-            .expect("process block ok");
-        chain2.push(new_block.clone());
-        mock_store.insert_block(&new_block, &epoch);
-        parent = new_block.header().clone();
-        last_epoch = epoch;
     }
 
+    let (_chain_controller, shared, _genesis, _last_epoch) =
+        prepare_context_chain(consensus.clone(), 151);
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
@@ -827,10 +862,27 @@ fn test_next_epoch_ext() {
             .total_uncles_count;
         assert_eq!(total_uncles_count, 150);
 
+        // last_uncles_count 150
+        // last_epoch_length 400
+        // epoch_duration_target 14400
+        // last_duration 7980
         let epoch = shared
             .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
             .unwrap();
-        // max[150 * 10 * 1000 / 200, 2 * 1000]
-        assert_eq!(epoch.difficulty(), &U256::from(2000u64));
+
+        // C_i+1,m = (o_ideal * (1 + o_i ) * L_ideal × C_i,m) / (o_i * (1 + o_ideal ) * L_i)
+        // ((150 + 400) * 14400 * 400) / ((20 + 1) * 150 * 7980) = 126
+        // lower bound trigger
+        assert_eq!(epoch.length(), 480, "epoch length {}", epoch.length());
+
+        // orphan_rate_estimation  399 / 1810
+        // (400 + 150) * 1000 / 7980  last_epoch_hash_rate 68
+        // 1801 * 68 * 14400 / (2200 * 480)
+        assert_eq!(
+            epoch.difficulty(),
+            &U256::from(1670u64),
+            "epoch difficulty {}",
+            epoch.difficulty()
+        );
     }
 }

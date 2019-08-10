@@ -12,7 +12,7 @@ nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = ""
+message = "ckb_dev"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"

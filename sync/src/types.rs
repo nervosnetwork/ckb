@@ -21,6 +21,7 @@ use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use ckb_verification::HeaderResolverWrapper;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
@@ -1191,6 +1192,22 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         self.peers()
             .set_last_common_header(peer, block.header().clone());
         ret
+    }
+
+    pub(crate) fn new_header_resolver<'a>(
+        &'a self,
+        header: &'a Header,
+        parent: Header,
+    ) -> HeaderResolverWrapper<'a> {
+        let epoch = self
+            .get_epoch_ext(parent.hash())
+            .map(|ext| ext)
+            .map(|last_epoch| {
+                self.next_epoch_ext(&last_epoch, &parent)
+                    .unwrap_or(last_epoch)
+            });
+
+        HeaderResolverWrapper::build(header, Some(parent), epoch)
     }
 }
 

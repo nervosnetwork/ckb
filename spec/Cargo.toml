@@ -1,6 +1,6 @@
 [package]
 name = "ckb-chain-spec"
-version = "0.17.0"
+version = "0.18.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -17,3 +17,4 @@ ckb-resource = { path = "../resource" }
 ckb-occupied-capacity = { path = "../util/occupied-capacity" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-dao-utils = { path = "../util/dao/utils" }
+ckb-rational = { path = "../util/rational" }

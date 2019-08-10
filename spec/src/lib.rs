@@ -9,10 +9,9 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
-use crate::consensus::{Consensus, GENESIS_EPOCH_LENGTH};
+use crate::consensus::Consensus;
 use ckb_core::{
     block::{Block, BlockBuilder},
-    extras::EpochExt,
     header::HeaderBuilder,
     script::Script as CoreScript,
     transaction::{CellInput, CellOutput, Transaction, TransactionBuilder},
@@ -169,27 +168,9 @@ impl ChainSpec {
         let genesis_block = self.genesis.build_block()?;
         self.verify_genesis_hash(&genesis_block)?;
 
-        let block_reward =
-            Capacity::shannons(self.params.epoch_reward.as_u64() / GENESIS_EPOCH_LENGTH);
-        let remainder_reward =
-            Capacity::shannons(self.params.epoch_reward.as_u64() % GENESIS_EPOCH_LENGTH);
-
-        let genesis_epoch_ext = EpochExt::new(
-            0,                        // number
-            block_reward,             // block_reward
-            remainder_reward,         // remainder_reward
-            H256::zero(),             // last_block_hash_in_previous_epoch
-            0,                        // start
-            GENESIS_EPOCH_LENGTH,     // length
-            genesis_block.header().difficulty().clone() // difficulty,
-        );
-
-        let consensus = Consensus::default()
+        let consensus = Consensus::new(genesis_block, self.params.epoch_reward)
             .set_id(self.name.clone())
-            .set_genesis_epoch_ext(genesis_epoch_ext)
-            .set_genesis_block(genesis_block)
             .set_cellbase_maturity(self.params.cellbase_maturity)
-            .set_epoch_reward(self.params.epoch_reward)
             .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
             .set_pow(self.pow.clone());
@@ -297,12 +278,9 @@ pub mod test {
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
-        let res = match name {
-            "ckb_dev" => Resource::bundled("specs/dev.toml".to_string()),
-            "ckb_testnet" => Resource::bundled("specs/testnet.toml".to_string()),
-            _ => panic!("Unknown spec name {}", name),
-        };
-
+        // remove "ckb_" prefix
+        let base_name = &name[4..];
+        let res = Resource::bundled(format!("specs/{}.toml", base_name));
         ChainSpec::load_from(&res).expect("load spec by name")
     }
 

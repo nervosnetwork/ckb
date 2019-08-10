@@ -1,20 +1,18 @@
-name = "ckb_testnet"
+name = "ckb_staging"
 
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1565416800175
-difficulty = "0x9292"
+timestamp = 1564207200792
+difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-# run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xfc934d139fc332bcddf5890d046e4558eb020538ccd8c81736328058987d112c"
 
 [genesis.seal]
 nonce = 0
 proof = [0]
 
 [genesis.genesis_cell]
-message = "rylai-v7 a277f3d7 test: fix clippy error in rational tests <ian 2019-08-09 20:47:12 +0800>"
+message = "ckb_staging"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"

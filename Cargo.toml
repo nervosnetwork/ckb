@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.17.0"
+version = "0.18.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -25,6 +25,7 @@ members = [
     "util/jsonrpc-types",
     "util/crypto",
     "util/instrument",
+    "util/rational",
     "util/build-info",
     "util/occupied-capacity",
     "util/stop-handler",

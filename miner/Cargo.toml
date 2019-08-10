@@ -1,6 +1,6 @@
 [package]
 name = "ckb-miner"
-version = "0.17.0"
+version = "0.18.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -33,6 +33,7 @@ ckb-verification = { path = "../verification" }
 indicatif = "0.11"
 console = "0.7.5"
 ckb-dao = { path = "../util/dao" }
+ckb-hash = { path = "../util/hash"}
 
 [dev-dependencies]
 proptest = "0.9"
@@ -41,3 +42,6 @@ ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
 ckb-pow = { path = "../pow" }
 ckb-dao-utils = { path = "../util/dao/utils" }
+
+[build-dependencies]
+cc = "1.0"
