@@ -147,6 +147,48 @@ impl TxEntry {
     pub fn as_sorted_key(&self) -> AncestorsScoreSortKey {
         AncestorsScoreSortKey::from(self)
     }
+
+    pub fn add_entry_weight(&mut self, entry: &TxEntry) {
+        self.ancestors_count = self.ancestors_count.saturating_add(1);
+        self.ancestors_size = self.ancestors_size.saturating_add(entry.size);
+        self.ancestors_cycles = self.ancestors_cycles.saturating_add(entry.cycles);
+        self.ancestors_fee = Capacity::shannons(
+            self.ancestors_fee
+                .as_u64()
+                .saturating_add(entry.fee.as_u64()),
+        );
+    }
+    pub fn sub_entry_weight(&mut self, entry: &TxEntry) {
+        self.ancestors_count = self.ancestors_count.saturating_sub(1);
+        self.ancestors_size = self.ancestors_size.saturating_sub(entry.size);
+        self.ancestors_cycles = self.ancestors_cycles.saturating_sub(entry.cycles);
+        self.ancestors_fee = Capacity::shannons(
+            self.ancestors_fee
+                .as_u64()
+                .saturating_sub(entry.fee.as_u64()),
+        );
+    }
+
+    pub fn add_ancestors_weight(&mut self, entry: &TxEntry) {
+        self.ancestors_count = self.ancestors_count.saturating_add(entry.ancestors_count);
+        self.ancestors_size = self.ancestors_size.saturating_add(entry.ancestors_size);
+        self.ancestors_cycles = self.ancestors_cycles.saturating_add(entry.ancestors_cycles);
+        self.ancestors_fee = Capacity::shannons(
+            self.ancestors_fee
+                .as_u64()
+                .saturating_add(entry.ancestors_fee.as_u64()),
+        );
+    }
+    pub fn sub_ancestors_weight(&mut self, entry: &TxEntry) {
+        self.ancestors_count = self.ancestors_count.saturating_sub(entry.ancestors_count);
+        self.ancestors_size = self.ancestors_size.saturating_sub(entry.ancestors_size);
+        self.ancestors_cycles = self.ancestors_cycles.saturating_sub(entry.ancestors_cycles);
+        self.ancestors_fee = Capacity::shannons(
+            self.ancestors_fee
+                .as_u64()
+                .saturating_sub(entry.ancestors_fee.as_u64()),
+        );
+    }
 }
 
 impl From<&TxEntry> for AncestorsScoreSortKey {
@@ -173,6 +215,18 @@ impl Hash for TxEntry {
 impl PartialEq for TxEntry {
     fn eq(&self, other: &TxEntry) -> bool {
         self.transaction == other.transaction
+    }
+}
+
+impl PartialOrd for TxEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TxEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_sorted_key().cmp(&other.as_sorted_key())
     }
 }
 
@@ -325,20 +379,8 @@ impl TxEntriesPool {
         parents: &HashSet<ProposalShortId>,
     ) {
         for id in parents {
-            let tx_entry = self.entries.get(&id).expect("pool consistent");
-            entry.ancestors_cycles = entry
-                .ancestors_cycles
-                .saturating_add(tx_entry.ancestors_cycles);
-            entry.ancestors_size = entry.ancestors_size.saturating_add(tx_entry.ancestors_size);
-            entry.ancestors_fee = Capacity::shannons(
-                entry
-                    .ancestors_fee
-                    .as_u64()
-                    .saturating_add(tx_entry.ancestors_fee.as_u64()),
-            );
-            entry.ancestors_count = entry
-                .ancestors_count
-                .saturating_add(tx_entry.ancestors_count);
+            let parent_entry = self.entries.get(&id).expect("pool consistent");
+            entry.add_ancestors_weight(&parent_entry);
         }
     }
 
@@ -436,17 +478,7 @@ impl TxEntriesPool {
                 }
                 if let Some(desc_entry) = self.entries.get_mut(&desc_id) {
                     // remove entry
-                    desc_entry.ancestors_count = desc_entry.ancestors_count.saturating_sub(1);
-                    desc_entry.ancestors_size =
-                        desc_entry.ancestors_size.saturating_sub(entry.size);
-                    desc_entry.ancestors_cycles =
-                        desc_entry.ancestors_cycles.saturating_sub(entry.cycles);
-                    desc_entry.ancestors_fee = Capacity::shannons(
-                        desc_entry
-                            .ancestors_fee
-                            .as_u64()
-                            .saturating_sub(entry.fee.as_u64()),
-                    );
+                    desc_entry.sub_entry_weight(&entry);
                 }
                 if let Some(key) = self
                     .entries

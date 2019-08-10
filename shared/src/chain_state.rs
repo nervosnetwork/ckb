@@ -849,20 +849,13 @@ impl ChainState {
                     // implies that ancestors are already in proposals
                     continue;
                 }
-                let mut ancestors = pool.get_ancestors(&id);
-                ancestors.insert(*id);
-                let mut ancestors = ancestors.into_iter().collect::<Vec<_>>();
-                ancestors.sort_unstable_by(|a_id, b_id| {
-                    let a_ancestors_count = pool
-                        .get(&a_id)
+                let mut ancestors = pool.get_ancestors(&id).into_iter().collect::<Vec<_>>();
+                ancestors.sort_unstable_by_key(|id| {
+                    pool.get(&id)
                         .map(|entry| entry.ancestors_count)
-                        .expect("exists");
-                    let b_ancestors_count = pool
-                        .get(&b_id)
-                        .map(|entry| entry.ancestors_count)
-                        .expect("exists");
-                    a_ancestors_count.cmp(&b_ancestors_count)
+                        .expect("exists")
                 });
+                ancestors.push(*id);
                 proposals.extend(
                     ancestors
                         .into_iter()

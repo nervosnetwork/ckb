@@ -446,13 +446,7 @@ impl BlockAssembler {
                             .map(ToOwned::to_owned)
                             .expect("pool consistent"),
                     };
-                    tx.ancestors_count -= 1;
-                    tx.ancestors_size -= ptx.size;
-                    tx.ancestors_cycles -= ptx.cycles;
-                    tx.ancestors_fee = tx
-                        .ancestors_fee
-                        .safe_sub(ptx.fee)
-                        .expect("safe sub ancestor fee");
+                    tx.sub_entry_weight(&ptx);
                     modified_entries.insert(tx);
                 }
             }
@@ -544,22 +538,12 @@ impl BlockAssembler {
                         |_| false,
                     );
                 });
-                // find tx with higher scores
-                let tx_entry = match (pool_tx.take(), modified_tx.take()) {
-                    (None, None) => {
+                // take tx with higher scores
+                let tx_entry = match cmp::max(&mut pool_tx, &mut modified_tx).take() {
+                    Some(entry) => entry,
+                    None => {
+                        // can't find any satisfied tx
                         break;
-                    }
-                    (Some(pool), None) => pool,
-                    (None, Some(modified)) => modified,
-                    (Some(pool), Some(modified)) => {
-                        // find better scored tx and put another tx back
-                        if pool.as_sorted_key() > modified.as_sorted_key() {
-                            modified_tx.replace(modified);
-                            pool
-                        } else {
-                            pool_tx.replace(pool);
-                            modified
-                        }
                     }
                 };
                 debug_assert!(!in_block_txs.contains(&tx_entry.transaction.proposal_short_id()));
@@ -603,17 +587,15 @@ impl BlockAssembler {
                 // sort acestors by ancestors_count,
                 // if A is an ancestor of B, B.ancestors_count must large than A
                 let mut ancestors = ancestors.into_iter().collect::<Vec<_>>();
-                ancestors.sort_unstable_by(|a, b| a.ancestors_count.cmp(&b.ancestors_count));
+                ancestors.sort_unstable_by_key(|entry| entry.ancestors_count);
                 // insert ancestors
                 for entry in ancestors {
-                    let entry_cycles = entry.cycles;
-                    let entry_size = entry.size;
                     let short_id = entry.transaction.proposal_short_id();
                     modified_entries.remove(&short_id);
                     let is_inserted = in_block_txs.insert(short_id);
-                    assert!(is_inserted, "package duplicate txs");
-                    cycles = cycles.saturating_add(entry_cycles);
-                    size = size.saturating_add(entry_size);
+                    debug_assert!(is_inserted, "package duplicate txs");
+                    cycles = cycles.saturating_add(entry.cycles);
+                    size = size.saturating_add(entry.size);
                     entries.push(entry);
                 }
             }

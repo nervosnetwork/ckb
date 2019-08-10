@@ -56,8 +56,7 @@ impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
     }
 
     pub(crate) fn insert_deps(&mut self, key: K, value: V) {
-        let e = self.deps.entry(key).or_insert_with(HashSet::default);
-        e.insert(value);
+        self.deps.entry(key).or_default().insert(value);
     }
 
     pub(crate) fn delete_value_in_deps(&mut self, key: &K, value: &V) {
