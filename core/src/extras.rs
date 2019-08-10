@@ -26,6 +26,20 @@ pub struct TransactionInfo {
 }
 
 impl TransactionInfo {
+    pub fn new(
+        block_number: BlockNumber,
+        block_epoch: EpochNumber,
+        block_hash: H256,
+        index: usize,
+    ) -> Self {
+        TransactionInfo {
+            block_number,
+            block_epoch,
+            block_hash,
+            index,
+        }
+    }
+
     pub fn store_key(&self) -> Vec<u8> {
         let mut key = Vec::with_capacity(36);
         key.extend_from_slice(self.block_hash.as_bytes());

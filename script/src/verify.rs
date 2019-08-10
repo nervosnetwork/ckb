@@ -85,8 +85,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                     tx_hash: tx_hash.to_owned(),
                     index: index as u32,
                 },
-                block_info: None,
-                cellbase: false,
+                transaction_info: None,
                 data_bytes: data.len() as u64,
                 mem_cell_data: Some(data.to_owned()),
             })
@@ -458,7 +457,8 @@ mod tests {
     #[cfg(not(all(unix, target_pointer_width = "64")))]
     use crate::Runner;
     use byteorder::{ByteOrder, LittleEndian};
-    use ckb_core::cell::{BlockInfo, CellMetaBuilder};
+    use ckb_core::cell::CellMetaBuilder;
+    use ckb_core::extras::TransactionInfo;
     use ckb_core::script::{Script, ScriptHashType};
     use ckb_core::transaction::{
         CellInput, CellOutput, CellOutputBuilder, OutPoint, TransactionBuilder,
@@ -532,7 +532,7 @@ mod tests {
 
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
@@ -540,7 +540,7 @@ mod tests {
                 always_success_cell.clone(),
                 always_success_cell_data.to_owned(),
             )
-            .block_info(BlockInfo::new(1, 0, H256::zero()))
+            .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
             .build(),
         );
 
@@ -582,7 +582,7 @@ mod tests {
             .build();
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, data)
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                 .build(),
         );
@@ -601,7 +601,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 
@@ -661,7 +661,7 @@ mod tests {
             .build();
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, data)
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .out_point(dep_out_point.cell.clone().unwrap())
                 .build(),
         );
@@ -680,7 +680,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 
@@ -729,7 +729,7 @@ mod tests {
         let type_hash: H256 = output.type_.as_ref().unwrap().hash();
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, data)
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                 .build(),
         );
@@ -748,7 +748,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 
@@ -794,7 +794,7 @@ mod tests {
         let type_hash: H256 = output.type_.as_ref().unwrap().hash();
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, data.clone())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                 .build(),
         );
@@ -810,7 +810,7 @@ mod tests {
             .build();
         let dep_cell2 = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output2, data)
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .out_point(dep_out_point2.cell.as_ref().unwrap().clone())
                 .build(),
         );
@@ -830,7 +830,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 
@@ -889,7 +889,7 @@ mod tests {
             .build();
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned(), data)
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                 .build(),
         );
@@ -908,7 +908,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 
@@ -953,7 +953,7 @@ mod tests {
             .build();
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned(), data)
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 
@@ -971,7 +971,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 
@@ -1023,7 +1023,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 
@@ -1067,7 +1067,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
@@ -1075,7 +1075,7 @@ mod tests {
                 always_success_cell.clone(),
                 always_success_cell_data.to_owned(),
             )
-            .block_info(BlockInfo::new(1, 0, H256::zero()))
+            .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
             .build(),
         );
 
@@ -1094,7 +1094,7 @@ mod tests {
                 .build();
             ResolvedOutPoint::cell_only(
                 CellMetaBuilder::from_cell_output(output.to_owned(), data)
-                    .block_info(BlockInfo::new(1, 0, H256::zero()))
+                    .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                     .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                     .build(),
             )
@@ -1147,7 +1147,7 @@ mod tests {
             .build();
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
         let always_success_cell = ResolvedOutPoint::cell_only(
@@ -1155,7 +1155,7 @@ mod tests {
                 always_success_cell.to_owned(),
                 always_success_cell_data.to_owned(),
             )
-            .block_info(BlockInfo::new(1, 0, H256::zero()))
+            .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
             .build(),
         );
 
@@ -1170,7 +1170,7 @@ mod tests {
                 .build();
             ResolvedOutPoint::cell_only(
                 CellMetaBuilder::from_cell_output(output, dep_cell_data)
-                    .block_info(BlockInfo::new(1, 0, H256::zero()))
+                    .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                     .build(),
             )
         };
@@ -1226,7 +1226,7 @@ mod tests {
             .build();
         let dep_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, data)
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .out_point(dep_out_point.cell.as_ref().unwrap().clone())
                 .build(),
         );
@@ -1245,7 +1245,7 @@ mod tests {
         );
         let dummy_cell = ResolvedOutPoint::cell_only(
             CellMetaBuilder::from_cell_output(output, Bytes::new())
-                .block_info(BlockInfo::new(1, 0, H256::zero()))
+                .transaction_info(TransactionInfo::new(1, 0, H256::zero(), 1))
                 .build(),
         );
 

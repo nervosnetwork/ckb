@@ -6,8 +6,8 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::cell::{BlockInfo, CellMeta, CellProvider, CellStatus, UnresolvableError};
-use ckb_core::extras::EpochExt;
+use ckb_core::cell::{CellMeta, CellProvider, CellStatus, UnresolvableError};
+use ckb_core::extras::{EpochExt, TransactionInfo};
 use ckb_core::header::Header;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::script::Script;
@@ -189,8 +189,7 @@ fn test_transaction_spend_in_same_block() {
                 tx_hash: tx2_hash.to_owned(),
                 index: 0
             },
-            block_info: Some(BlockInfo::new(parent_number4, 0, parent_hash4)),
-            cellbase: false,
+            transaction_info: Some(TransactionInfo::new(parent_number4, 0, parent_hash4, 2)),
             mem_cell_data: None,
         })
     );

@@ -1,4 +1,4 @@
-use ckb_core::cell::BlockInfo;
+use ckb_core::extras::TransactionInfo;
 use ckb_core::{BlockNumber, EpochNumber};
 use ckb_traits::BlockMedianTimeContext;
 use numext_fixed_hash::H256;
@@ -40,8 +40,17 @@ impl MockMedianTime {
         H256::from_slice(vec.as_slice()).unwrap()
     }
 
-    pub fn get_block_info(block_number: BlockNumber, epoch_number: EpochNumber) -> BlockInfo {
+    pub fn get_transaction_info(
+        block_number: BlockNumber,
+        epoch_number: EpochNumber,
+        index: usize,
+    ) -> TransactionInfo {
         let block_hash = Self::get_block_hash(block_number);
-        BlockInfo::new(block_number, epoch_number, block_hash)
+        TransactionInfo {
+            block_number,
+            block_epoch: epoch_number,
+            block_hash,
+            index,
+        }
     }
 }

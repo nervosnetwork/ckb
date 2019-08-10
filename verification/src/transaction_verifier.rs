@@ -224,10 +224,10 @@ impl<'a> MaturityVerifier<'a> {
             meta.is_cellbase()
                 && self.block_number
                     < meta
-                        .block_info
+                        .transaction_info
                         .as_ref()
                         .expect("cell meta should have block number when transaction verify")
-                        .number
+                        .block_number
                         + self.cellbase_maturity
         };
 
@@ -460,18 +460,18 @@ where
         cell_meta: &CellMeta,
     ) -> Result<(), TransactionError> {
         if since.is_relative() {
-            let cell = match cell_meta.block_info {
-                Some(ref block_info) => block_info,
+            let info = match cell_meta.transaction_info {
+                Some(ref transaction_info) => transaction_info,
                 None => return Err(TransactionError::Immature),
             };
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.block_number < cell.number + block_number {
+                    if self.block_number < info.block_number + block_number {
                         return Err(TransactionError::Immature);
                     }
                 }
                 Some(SinceMetric::EpochNumber(epoch_number)) => {
-                    if self.epoch_number < cell.epoch + epoch_number {
+                    if self.epoch_number < info.block_epoch + epoch_number {
                         return Err(TransactionError::Immature);
                     }
                 }
@@ -480,7 +480,7 @@ where
                     // parent of current block.
                     // pass_median_time(input_cell's block) starts with cell_block_number - 1,
                     // which is the parent of input_cell's block
-                    let cell_median_timestamp = self.parent_median_time(&cell.hash);
+                    let cell_median_timestamp = self.parent_median_time(&info.block_hash);
                     let current_median_time = self.block_median_time(self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
                         return Err(TransactionError::Immature);

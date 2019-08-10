@@ -1,7 +1,7 @@
 use crate::block::Block;
+use crate::extras::TransactionInfo;
 use crate::header::Header;
 use crate::transaction::{CellOutPoint, CellOutput, OutPoint, Transaction};
-use crate::{BlockNumber, EpochNumber};
 use crate::{Bytes, Capacity};
 use ckb_occupied_capacity::Result as CapacityResult;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -10,30 +10,12 @@ use serde_derive::{Deserialize, Serialize};
 use std::convert::{AsRef, TryInto};
 use std::fmt;
 
-#[derive(Clone, Debug, Eq, PartialEq, Default, Deserialize, Serialize)]
-pub struct BlockInfo {
-    pub number: BlockNumber,
-    pub epoch: EpochNumber,
-    pub hash: H256,
-}
-
-impl BlockInfo {
-    pub fn new(number: BlockNumber, epoch: EpochNumber, hash: H256) -> Self {
-        BlockInfo {
-            number,
-            epoch,
-            hash,
-        }
-    }
-}
-
 #[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct CellMeta {
     #[serde(skip)]
     pub cell_output: CellOutput,
     pub out_point: CellOutPoint,
-    pub block_info: Option<BlockInfo>,
-    pub cellbase: bool,
+    pub transaction_info: Option<TransactionInfo>,
     pub data_bytes: u64,
     /// In memory cell data
     /// A live cell either exists in memory or DB
@@ -46,8 +28,7 @@ pub struct CellMeta {
 pub struct CellMetaBuilder {
     cell_output: CellOutput,
     out_point: CellOutPoint,
-    block_info: Option<BlockInfo>,
-    cellbase: bool,
+    transaction_info: Option<TransactionInfo>,
     data_bytes: u64,
     mem_cell_data: Option<Bytes>,
 }
@@ -57,16 +38,14 @@ impl CellMetaBuilder {
         let CellMeta {
             cell_output,
             out_point,
-            block_info,
-            cellbase,
+            transaction_info,
             data_bytes,
             mem_cell_data,
         } = cell_meta;
         Self {
             cell_output,
             out_point,
-            block_info,
-            cellbase,
+            transaction_info,
             data_bytes,
             mem_cell_data,
         }
@@ -85,13 +64,8 @@ impl CellMetaBuilder {
         self
     }
 
-    pub fn block_info(mut self, block_info: BlockInfo) -> Self {
-        self.block_info = Some(block_info);
-        self
-    }
-
-    pub fn cellbase(mut self, cellbase: bool) -> Self {
-        self.cellbase = cellbase;
+    pub fn transaction_info(mut self, transaction_info: TransactionInfo) -> Self {
+        self.transaction_info = Some(transaction_info);
         self
     }
 
@@ -99,16 +73,14 @@ impl CellMetaBuilder {
         let Self {
             cell_output,
             out_point,
-            block_info,
-            cellbase,
+            transaction_info,
             data_bytes,
             mem_cell_data,
         } = self;
         CellMeta {
             cell_output,
             out_point,
-            block_info,
-            cellbase,
+            transaction_info,
             data_bytes,
             mem_cell_data,
         }
@@ -120,8 +92,7 @@ impl fmt::Debug for CellMeta {
         f.debug_struct("CellMeta")
             .field("cell_output", &self.cell_output)
             .field("out_point", &self.out_point)
-            .field("block_info", &self.block_info)
-            .field("cellbase", &self.cellbase)
+            .field("transaction_info", &self.transaction_info)
             .field("data_bytes", &self.data_bytes)
             .finish()
     }
@@ -129,7 +100,10 @@ impl fmt::Debug for CellMeta {
 
 impl CellMeta {
     pub fn is_cellbase(&self) -> bool {
-        self.cellbase
+        self.transaction_info
+            .as_ref()
+            .map(|info| info.index == 0)
+            .unwrap_or(false)
     }
 
     pub fn capacity(&self) -> Capacity {
@@ -378,12 +352,12 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         CellStatus::live_cell(CellMeta {
                             cell_output: output.to_owned(),
                             out_point: out_point.to_owned(),
-                            block_info: Some(BlockInfo {
-                                number: self.block.header().number(),
-                                epoch: self.block.header().epoch(),
-                                hash: self.block.header().hash().to_owned(),
+                            transaction_info: Some(TransactionInfo {
+                                block_number: self.block.header().number(),
+                                block_epoch: self.block.header().epoch(),
+                                block_hash: self.block.header().hash().to_owned(),
+                                index: *i,
                             }),
-                            cellbase: *i == 0,
                             data_bytes: data.len() as u64,
                             mem_cell_data: Some(data),
                         })
@@ -681,17 +655,17 @@ mod tests {
             type_: None,
         };
         CellMeta {
-            block_info: Some(BlockInfo {
-                number: 1,
-                epoch: 1,
-                hash: H256::zero(),
+            transaction_info: Some(TransactionInfo {
+                block_number: 1,
+                block_epoch: 1,
+                block_hash: H256::zero(),
+                index: 1,
             }),
             cell_output,
             out_point: CellOutPoint {
                 tx_hash: Default::default(),
                 index: 0,
             },
-            cellbase: false,
             data_bytes: data.len() as u64,
             mem_cell_data: Some(data),
         }
