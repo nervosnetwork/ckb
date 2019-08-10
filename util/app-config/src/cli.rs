@@ -14,6 +14,7 @@ pub const CMD_HASHES: &str = "hashes";
 pub const CMD_BLAKE256: &str = "blake256";
 pub const CMD_BLAKE160: &str = "blake160";
 pub const CMD_SECP256K1_LOCK: &str = "secp256k1-lock";
+pub const CMD_RESET_DATA: &str = "reset-data";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 pub const ARG_FORMAT: &str = "format";
@@ -34,6 +35,13 @@ pub const ARG_BA_DATA: &str = "ba-data";
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
 pub const ARG_FROM: &str = "from";
 pub const ARG_TO: &str = "to";
+pub const ARG_ALL: &str = "all";
+pub const ARG_DATABASE: &str = "database";
+pub const ARG_INDEXER: &str = "indexer";
+pub const ARG_NETWORK: &str = "network";
+pub const ARG_NETWORK_PEER_STORE: &str = "network-peer-store";
+pub const ARG_NETWORK_SECRET_KEY: &str = "network-secret-key";
+pub const ARG_LOGS: &str = "logs";
 
 const GROUP_BA: &str = "ba";
 
@@ -60,6 +68,7 @@ fn basic_app<'b>() -> App<'static, 'b> {
         .subcommand(init())
         .subcommand(prof())
         .subcommand(stats())
+        .subcommand(reset_data())
 }
 
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
@@ -79,6 +88,56 @@ fn run() -> App<'static, 'static> {
 
 fn miner() -> App<'static, 'static> {
     SubCommand::with_name(CMD_MINER).about("Runs ckb miner")
+}
+
+fn reset_data() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_RESET_DATA)
+        .about(
+            "Truncate the data directory\n\
+             Example:\n\
+             ckb reset-data --force --indexer",
+        )
+        .arg(
+            Arg::with_name(ARG_FORCE)
+                .short("f")
+                .long(ARG_FORCE)
+                .help("Delete data without interactive prompt"),
+        )
+        .arg(
+            Arg::with_name(ARG_ALL)
+                .long(ARG_ALL)
+                .help("Delete the whole data directory"),
+        )
+        .arg(
+            Arg::with_name(ARG_DATABASE)
+                .long(ARG_DATABASE)
+                .help("Delete both `data/db` and `data/indexer_db`"),
+        )
+        .arg(
+            Arg::with_name(ARG_INDEXER)
+                .long(ARG_INDEXER)
+                .help("Delete only `data/indexer_db`"),
+        )
+        .arg(
+            Arg::with_name(ARG_NETWORK)
+                .long(ARG_NETWORK)
+                .help("Delete both peer store and secret key"),
+        )
+        .arg(
+            Arg::with_name(ARG_NETWORK_PEER_STORE)
+                .long(ARG_NETWORK_PEER_STORE)
+                .help("Delete only `data/network/peer_store.db`"),
+        )
+        .arg(
+            Arg::with_name(ARG_NETWORK_SECRET_KEY)
+                .long(ARG_NETWORK_SECRET_KEY)
+                .help("Delete only `data/network/secret_key`"),
+        )
+        .arg(
+            Arg::with_name(ARG_LOGS)
+                .long(ARG_LOGS)
+                .help("Delete only `data/logs`"),
+        )
 }
 
 pub(crate) fn stats() -> App<'static, 'static> {
