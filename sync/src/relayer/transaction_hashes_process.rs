@@ -47,6 +47,10 @@ impl<'a> TransactionHashesProcess<'a> {
                 .retain(|tx_hash| !tx_pool.contains_tx(&ProposalShortId::from_tx_hash(&tx_hash)))
         }
 
+        if transit_hashes.is_empty() {
+            return Ok(());
+        }
+
         if let Some(peer_state) = self
             .relayer
             .shared()
@@ -57,14 +61,14 @@ impl<'a> TransactionHashesProcess<'a> {
         {
             let mut inflight_transactions = self.relayer.shared().inflight_transactions();
 
-            for tx_hash in transit_hashes {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "transaction({:#x}) from {} not known, get it from the peer",
-                    tx_hash,
-                    self.peer,
-                );
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "transaction({:#?}) from {} not known, get it from the peer",
+                &transit_hashes,
+                self.peer,
+            );
 
+            for tx_hash in transit_hashes {
                 let last_ask_timeout = inflight_transactions.get(&tx_hash).cloned();
 
                 if let Some(next_ask_timeout) =
