@@ -1,5 +1,6 @@
 use crate::cell_set::{CellSet, CellSetDiff, CellSetOpr, CellSetOverlay};
 use crate::error::SharedError;
+use crate::fee_estimator::Estimator;
 use crate::fee_rate::FeeRate;
 use crate::tx_pool::types::{DefectEntry, TxEntry};
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
@@ -41,6 +42,7 @@ pub struct ChainState {
     consensus: Arc<Consensus>,
     current_epoch_ext: EpochExt,
     script_config: ScriptConfig,
+    fee_estimator: RefCell<Estimator>,
 }
 
 impl ChainState {
@@ -99,6 +101,8 @@ impl ChainState {
             .get_block_ext(&tip_header.hash())
             .ok_or_else(|| SharedError::InvalidData("failed to get block_ext".to_owned()))?
             .total_difficulty;
+
+        let fee_estimator = RefCell::new(Estimator::new());
         Ok(ChainState {
             store: Arc::clone(store),
             tip_header,
@@ -109,6 +113,7 @@ impl ChainState {
             consensus,
             current_epoch_ext: epoch_ext,
             script_config,
+            fee_estimator,
         })
     }
 
@@ -531,15 +536,16 @@ impl ChainState {
         F: FnOnce(&mut TxPool, Cycle, Capacity, usize, Transaction) -> Result<(), PoolError>,
     {
         let short_id = tx.proposal_short_id();
-        let tx_hash = tx.hash();
+        let tx_hash = tx.hash().to_owned();
+        let mut tx_is_removed = false;
 
-        match tx_resolved_result {
+        let result = match tx_resolved_result {
             Ok((cycles, fee)) => {
                 send_to_pool(tx_pool, cycles, fee, size, tx)?;
                 Ok((cycles, fee))
             }
             Err(PoolError::InvalidTx(e)) => {
-                tx_pool.update_statics_for_remove_tx(size, cached.map(|c| c.0).unwrap_or(0));
+                tx_is_removed = true;
                 debug_target!(
                     crate::LOG_TARGET_TX_POOL,
                     "Failed to add tx to {} {:x}, verify failed, reason: {:?}",
@@ -557,10 +563,7 @@ impl ChainState {
                             .insert(short_id, DefectEntry::new(tx, 0, cached, size))
                             .is_some()
                         {
-                            tx_pool.update_statics_for_remove_tx(
-                                size,
-                                cached.map(|c| c.0).unwrap_or(0),
-                            );
+                            tx_is_removed = true;
                         }
                     }
                     UnresolvableError::Unknown(out_points) => {
@@ -568,10 +571,7 @@ impl ChainState {
                             .add_orphan(cached, size, tx, out_points.to_owned())
                             .is_some()
                         {
-                            tx_pool.update_statics_for_remove_tx(
-                                size,
-                                cached.map(|c| c.0).unwrap_or(0),
-                            );
+                            tx_is_removed = true;
                         }
                     }
                     // The remaining errors are Empty, UnspecifiedInputCell and
@@ -582,8 +582,7 @@ impl ChainState {
                     | UnresolvableError::UnspecifiedInputCell(_)
                     | UnresolvableError::InvalidHeader(_)
                     | UnresolvableError::OutOfOrder(_) => {
-                        tx_pool
-                            .update_statics_for_remove_tx(size, cached.map(|c| c.0).unwrap_or(0));
+                        tx_is_removed = true;
                     }
                 }
                 Err(PoolError::UnresolvableTransaction(err))
@@ -596,10 +595,15 @@ impl ChainState {
                     tx_hash,
                     err
                 );
-                tx_pool.update_statics_for_remove_tx(size, cached.map(|c| c.0).unwrap_or(0));
+                tx_is_removed = true;
                 Err(err)
             }
+        };
+        if tx_is_removed {
+            tx_pool.update_statics_for_remove_tx(size, cached.map(|c| c.0).unwrap_or(0));
+            self.fee_estimator.borrow_mut().drop_tx(&tx_hash);
         }
+        result
     }
 
     fn gap_tx(
@@ -702,7 +706,12 @@ impl ChainState {
             tx_result,
             |tx_pool, cycles, fee, size, tx| {
                 let entry = TxEntry::new(tx, cycles, fee, size);
+                let tx_hash = entry.transaction.hash().to_owned();
+                let fee_rate = entry.fee_rate();
                 if tx_pool.enqueue_tx(entry) {
+                    self.fee_estimator
+                        .borrow_mut()
+                        .track_tx(tx_hash, fee_rate, self.tip_number());
                     Ok(())
                 } else {
                     Err(PoolError::Duplicate)
@@ -773,8 +782,13 @@ impl ChainState {
             detached.extend(blk.transactions().iter().skip(1).cloned())
         }
 
-        for blk in attached_blocks {
-            attached.extend(blk.transactions().iter().skip(1).cloned())
+        {
+            let mut fee_estimator = self.fee_estimator.borrow_mut();
+            for blk in attached_blocks {
+                let txs_iter = blk.transactions().iter().skip(1);
+                attached.extend(txs_iter.clone().cloned());
+                fee_estimator.process_block(blk.header().number(), txs_iter.map(|tx| tx.hash()));
+            }
         }
 
         let retain: Vec<Transaction> = detached.difference(&attached).cloned().collect();
@@ -926,6 +940,10 @@ impl ChainState {
 
     pub fn mut_tx_pool(&mut self) -> &mut TxPool {
         self.tx_pool.get_mut()
+    }
+
+    pub fn fee_estimator(&self) -> Ref<Estimator> {
+        self.fee_estimator.borrow()
     }
 
     pub fn get_tx_from_pool_or_store(&self, proposal_id: &ProposalShortId) -> Option<Transaction> {

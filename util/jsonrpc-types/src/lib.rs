@@ -19,6 +19,9 @@ pub struct BlockNumber(#[serde(with = "string")] pub ckb_core::BlockNumber);
 pub struct Capacity(#[serde(with = "string")] pub ckb_core::Capacity);
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct FeeRate(#[serde(with = "string")] pub u64);
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Cycle(#[serde(with = "string")] pub ckb_core::Cycle);
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -45,7 +48,7 @@ pub use self::blockchain::{
 pub use self::bytes::JsonBytes;
 pub use self::cell::{CellOutputWithOutPoint, CellWithStatus};
 pub use self::chain_info::ChainInfo;
-pub use self::experiment::DryRunResult;
+pub use self::experiment::{DryRunResult, EstimateResult};
 pub use self::indexer::{CellTransaction, LiveCell, LockHashIndexState, TransactionPoint};
 pub use self::net::{BannedAddress, Node, NodeAddress};
 pub use self::pool::TxPoolInfo;

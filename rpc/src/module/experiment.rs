@@ -3,9 +3,12 @@ use ckb_core::cell::resolve_transaction;
 use ckb_core::script::Script as CoreScript;
 use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Script, Transaction};
+use ckb_jsonrpc_types::{
+    Capacity, Cycle, DryRunResult, EstimateResult, FeeRate, OutPoint, Script, Transaction, Unsigned,
+};
 use ckb_logger::error;
 use ckb_shared::chain_state::ChainState;
+use ckb_shared::fee_estimator::MAX_CONFIRM_BLOCKS;
 use ckb_shared::shared::Shared;
 use ckb_verification::ScriptVerifier;
 use jsonrpc_core::{Error, Result};
@@ -28,6 +31,10 @@ pub trait ExperimentRpc {
     #[rpc(name = "calculate_dao_maximum_withdraw")]
     fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256)
         -> Result<Capacity>;
+
+    // Estimate fee
+    #[rpc(name = "estimate_fee_rate")]
+    fn estimate_fee_rate(&self, confirm_blocks: Unsigned) -> Result<EstimateResult>;
 }
 
 pub(crate) struct ExperimentRpcImpl {
@@ -62,6 +69,30 @@ impl ExperimentRpc for ExperimentRpcImpl {
                 Err(Error::internal_error())
             }
         }
+    }
+
+    fn estimate_fee_rate(&self, confirm_blocks: Unsigned) -> Result<EstimateResult> {
+        let confirm_blocks = confirm_blocks.0 as usize;
+        if confirm_blocks == 0 || confirm_blocks > MAX_CONFIRM_BLOCKS {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                format!(
+                    "confirm_blocks should between 1 and {}, got {}",
+                    MAX_CONFIRM_BLOCKS, confirm_blocks
+                ),
+            ));
+        }
+        let chain_state = self.shared.lock_chain_state();
+        let fee_rate = chain_state.fee_estimator().estimate(confirm_blocks);
+        if fee_rate.as_u64() == 0 {
+            return Err(RPCError::custom(
+                RPCError::Invalid,
+                "samples is not enough, please try later".into(),
+            ));
+        }
+        Ok(EstimateResult {
+            fee_rate: FeeRate(fee_rate.as_u64()),
+        })
     }
 }
 
