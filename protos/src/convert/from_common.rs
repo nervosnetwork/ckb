@@ -8,8 +8,8 @@ use ckb_core::{
     header::{Header, HeaderBuilder},
     script::Script,
     transaction::{
-        CellInput, CellOutPoint, CellOutput, OutPoint, ProposalShortId, Transaction,
-        TransactionBuilder, Witness,
+        CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+        Witness,
     },
     transaction_meta::{TransactionMeta, TransactionMetaBuilder},
     uncle::UncleBlock,
@@ -199,12 +199,19 @@ impl<'a> protos::UncleBlock<'a> {
 
 impl<'a> protos::Transaction<'a> {
     pub fn build_unchecked(&self, hash: H256, witness_hash: H256) -> Result<Transaction> {
-        let deps = self
-            .deps()
+        let cell_deps = self
+            .cell_deps()
             .unwrap_some()?
             .iter()
             .map(TryInto::try_into)
-            .collect::<Result<Vec<OutPoint>>>()?;
+            .collect::<Result<Vec<CellDep>>>()?;
+        let header_deps = self
+            .header_deps()
+            .unwrap_some()?
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<H256>>>()?;
+
         let inputs = self
             .inputs()
             .unwrap_some()?
@@ -232,7 +239,8 @@ impl<'a> protos::Transaction<'a> {
             .collect::<Result<Vec<Witness>>>()?;
         let builder = TransactionBuilder::default()
             .version(self.version())
-            .deps(deps)
+            .cell_deps(cell_deps)
+            .header_deps(header_deps)
             .inputs(inputs)
             .outputs(outputs)
             .outputs_data(outputs_data)
@@ -242,21 +250,24 @@ impl<'a> protos::Transaction<'a> {
     }
 }
 
+impl<'a> TryFrom<protos::CellDep<'a>> for CellDep {
+    type Error = Error;
+    fn try_from(dep: protos::CellDep<'a>) -> Result<Self> {
+        if dep.is_dep_group() > 1 {
+            return Err(Error::Deserialize);
+        }
+        let tx_hash = dep.tx_hash().unwrap_some()?;
+        let out_point = OutPoint::new(tx_hash.try_into()?, dep.index());
+        let is_dep_group = dep.is_dep_group() == 1;
+        Ok(CellDep::new(out_point, is_dep_group))
+    }
+}
+
 impl<'a> TryFrom<protos::OutPoint<'a>> for OutPoint {
     type Error = Error;
     fn try_from(out_point: protos::OutPoint<'a>) -> Result<Self> {
-        let cell = if let Some(tx_hash) = out_point.tx_hash() {
-            let cell = CellOutPoint {
-                tx_hash: tx_hash.try_into()?,
-                index: out_point.index(),
-            };
-            Some(cell)
-        } else {
-            None
-        };
-        let block_hash = out_point.block_hash().map(TryInto::try_into).transpose()?;
-        let ret = OutPoint { block_hash, cell };
-        Ok(ret)
+        let tx_hash = out_point.tx_hash().unwrap_some()?;
+        Ok(OutPoint::new(tx_hash.try_into()?, out_point.index()))
     }
 }
 
@@ -300,22 +311,13 @@ impl<'a> TryFrom<protos::Script<'a>> for Script {
 impl<'a> TryFrom<protos::CellInput<'a>> for CellInput {
     type Error = Error;
     fn try_from(cell_input: protos::CellInput<'a>) -> Result<Self> {
-        let cell = if let Some(tx_hash) = cell_input.tx_hash() {
-            let cell = CellOutPoint {
-                tx_hash: tx_hash.try_into()?,
-                index: cell_input.index(),
-            };
-            Some(cell)
-        } else {
-            None
-        };
-        let block_hash = cell_input.block_hash().map(TryInto::try_into).transpose()?;
-        let previous_output = OutPoint { block_hash, cell };
-        let ret = CellInput {
-            previous_output,
+        let tx_hash = cell_input.tx_hash().unwrap_some()?;
+        let index = cell_input.index();
+        let out_point = OutPoint::new(tx_hash.try_into()?, index);
+        Ok(CellInput {
+            previous_output: out_point,
             since: cell_input.since(),
-        };
-        Ok(ret)
+        })
     }
 }
 

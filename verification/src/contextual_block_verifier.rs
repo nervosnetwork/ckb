@@ -2,12 +2,12 @@ use crate::error::{CellbaseError, CommitError, Error};
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use crate::{ContextualTransactionVerifier, TransactionVerifier};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::cell::{HeaderProvider, HeaderStatus, ResolvedTransaction};
+use ckb_core::cell::{HeaderChecker, ResolvedTransaction};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::reward::BlockReward;
 use ckb_core::script::Script;
-use ckb_core::transaction::{OutPoint, Transaction};
+use ckb_core::transaction::Transaction;
 use ckb_core::Cycle;
 use ckb_core::{block::Block, BlockNumber, Capacity, EpochNumber};
 use ckb_dao::DaoCalculator;
@@ -74,20 +74,9 @@ impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for VerifyContext<'a, CS> {
     }
 }
 
-impl<'a, CS: ChainStore<'a>> HeaderProvider for VerifyContext<'a, CS> {
-    fn header(&self, out_point: &OutPoint) -> HeaderStatus {
-        if let Some(block_hash) = &out_point.block_hash {
-            match self.store.get_block_number(&block_hash) {
-                Some(_) => HeaderStatus::live_header(
-                    self.store
-                        .get_block_header(&block_hash)
-                        .expect("header index checked"),
-                ),
-                None => HeaderStatus::Unknown,
-            }
-        } else {
-            HeaderStatus::Unspecified
-        }
+impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
+    fn is_valid(&self, block_hash: &H256) -> bool {
+        self.store.get_block_number(&block_hash).is_some()
     }
 }
 

@@ -5,7 +5,7 @@ use ckb_core::block::BlockBuilder;
 use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::transaction::{
-    CellInput, CellOutput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
+    CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
 };
 use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
@@ -37,7 +37,7 @@ pub(crate) fn create_always_success_tx() -> Transaction {
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+
 // invocations, let's stick to this way till this becomes a real problem
 pub(crate) fn create_always_success_out_point() -> OutPoint {
-    OutPoint::new_cell(create_always_success_tx().hash().to_owned(), 0)
+    OutPoint::new(create_always_success_tx().hash().to_owned(), 0)
 }
 
 pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Header) {
@@ -148,12 +148,12 @@ pub(crate) fn create_multi_outputs_transaction(
         .outputs(outputs)
         .outputs_data(outputs_data)
         .inputs(inputs)
-        .dep(always_success_out_point)
+        .cell_dep(CellDep::new_cell(always_success_out_point))
         .build()
 }
 
 pub(crate) fn create_transaction(parent: &H256, unique_data: u8) -> Transaction {
-    create_transaction_with_out_point(OutPoint::new_cell(parent.to_owned(), 0), unique_data)
+    create_transaction_with_out_point(OutPoint::new(parent.to_owned(), 0), unique_data)
 }
 
 pub(crate) fn create_transaction_with_out_point(
@@ -173,7 +173,7 @@ pub(crate) fn create_transaction_with_out_point(
         ))
         .output_data(data)
         .input(CellInput::new(out_point, 0))
-        .dep(always_success_out_point)
+        .cell_dep(CellDep::new_cell(always_success_out_point))
         .build()
 }
 

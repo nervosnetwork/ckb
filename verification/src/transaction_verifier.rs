@@ -1,7 +1,7 @@
 use crate::error::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_core::{
-    cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
+    cell::{CellMeta, ResolvedTransaction},
     transaction::{CellOutput, Transaction, TX_VERSION},
     BlockNumber, Capacity, Cycle, EpochNumber,
 };
@@ -235,14 +235,12 @@ impl<'a> MaturityVerifier<'a> {
             self.transaction
                 .resolved_inputs
                 .iter()
-                .filter_map(ResolvedOutPoint::cell)
                 .any(cellbase_immature)
         };
         let dep_immature_spend = || {
             self.transaction
-                .resolved_deps
+                .resolved_cell_deps
                 .iter()
-                .filter_map(ResolvedOutPoint::cell)
                 .any(cellbase_immature)
         };
 
@@ -265,9 +263,16 @@ impl<'a> DuplicateDepsVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
-        let mut seen = HashSet::with_capacity(self.transaction.deps().len());
+        let mut seen_cells = HashSet::with_capacity(self.transaction.cell_deps().len());
+        let mut seen_headers = HashSet::with_capacity(self.transaction.header_deps().len());
 
-        if transaction.deps().iter().all(|id| seen.insert(id)) {
+        if transaction
+            .cell_deps_iter()
+            .all(|dep| seen_cells.insert(dep))
+            && transaction
+                .header_deps_iter()
+                .all(|hash| seen_headers.insert(hash))
+        {
             Ok(())
         } else {
             Err(TransactionError::DuplicateDeps)
@@ -317,16 +322,12 @@ impl<'a> CapacityVerifier<'a> {
         self.resolved_transaction
             .resolved_inputs
             .iter()
-            .any(|input| {
-                input
-                    .cell()
-                    .map(|cell| {
-                        cell.cell_output
-                            .type_
-                            .as_ref()
-                            .map(|type_| type_.code_hash == CODE_HASH_DAO)
-                            .unwrap_or(false)
-                    })
+            .any(|cell_meta| {
+                cell_meta
+                    .cell_output
+                    .type_
+                    .as_ref()
+                    .map(|type_| type_.code_hash == CODE_HASH_DAO)
                     .unwrap_or(false)
             })
     }
@@ -495,16 +496,12 @@ where
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        for (resolved_out_point, input) in self
+        for (cell_meta, input) in self
             .rtx
             .resolved_inputs
             .iter()
             .zip(self.rtx.transaction.inputs())
         {
-            if resolved_out_point.cell().is_none() {
-                continue;
-            }
-            let cell_meta = resolved_out_point.cell().unwrap();
             // ignore empty since
             if input.since == 0 {
                 continue;

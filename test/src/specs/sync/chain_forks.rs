@@ -384,9 +384,7 @@ impl Spec for ChainFork7 {
         let block = node1.new_block(None, None, None);
         let transaction = node1.new_transaction_spend_tip_cellbase();
         let mut input = transaction.inputs()[0].clone();
-        if let Some(cell_out_point) = input.previous_output.cell.as_mut() {
-            cell_out_point.index = 999;
-        }
+        input.previous_output.index = 999;
         let invalid_transaction = TransactionBuilder::from_transaction(transaction)
             .inputs_clear()
             .input(input)

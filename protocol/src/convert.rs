@@ -1,4 +1,5 @@
 use crate::cast;
+use crate::error::Error;
 use crate::protocol_generated::ckb::protocol as ckb_protocol;
 use crate::FlatbuffersVectorIterator;
 use ckb_core;
@@ -181,10 +182,14 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
     type Error = FailureError;
 
     fn try_from(transaction: ckb_protocol::Transaction<'a>) -> Result<Self, Self::Error> {
-        let deps: Result<Vec<ckb_core::transaction::OutPoint>, FailureError> =
-            FlatbuffersVectorIterator::new(cast!(transaction.deps())?)
+        let cell_deps: Result<Vec<ckb_core::transaction::CellDep>, FailureError> =
+            FlatbuffersVectorIterator::new(cast!(transaction.cell_deps())?)
                 .map(TryInto::try_into)
                 .collect();
+        let header_deps: Result<Vec<H256>, FailureError> = cast!(transaction.header_deps())?
+            .iter()
+            .map(TryInto::try_into)
+            .collect();
 
         let inputs: Result<Vec<ckb_core::transaction::CellInput>, FailureError> =
             FlatbuffersVectorIterator::new(cast!(transaction.inputs())?)
@@ -209,7 +214,8 @@ impl<'a> TryFrom<ckb_protocol::Transaction<'a>> for ckb_core::transaction::Trans
 
         Ok(ckb_core::transaction::TransactionBuilder::default()
             .version(transaction.version())
-            .deps(deps?)
+            .cell_deps(cell_deps?)
+            .header_deps(header_deps?)
             .inputs(inputs?)
             .outputs(outputs?)
             .outputs_data(outputs_data)
@@ -230,22 +236,30 @@ impl<'a> TryFrom<ckb_protocol::Witness<'a>> for ckb_core::transaction::Witness {
     }
 }
 
+impl<'a> TryFrom<ckb_protocol::CellDep<'a>> for ckb_core::transaction::CellDep {
+    type Error = FailureError;
+
+    fn try_from(dep: ckb_protocol::CellDep<'a>) -> Result<Self, Self::Error> {
+        if dep.is_dep_group() > 1 {
+            return Err(Error::Malformed.into());
+        }
+        let raw_tx_hash = cast!(dep.tx_hash())?;
+        let index = dep.index();
+        let tx_hash = TryInto::try_into(raw_tx_hash)?;
+        let is_dep_group = dep.is_dep_group() == 1;
+        let out_point = ckb_core::transaction::OutPoint::new(tx_hash, index);
+        Ok(ckb_core::transaction::CellDep::new(out_point, is_dep_group))
+    }
+}
+
 impl<'a> TryFrom<ckb_protocol::OutPoint<'a>> for ckb_core::transaction::OutPoint {
     type Error = FailureError;
 
     fn try_from(out_point: ckb_protocol::OutPoint<'a>) -> Result<Self, Self::Error> {
-        let cell = match out_point.tx_hash() {
-            Some(tx_hash) => Some(ckb_core::transaction::CellOutPoint {
-                tx_hash: TryInto::try_into(tx_hash)?,
-                index: out_point.index(),
-            }),
-            _ => None,
-        };
-        let block_hash = match out_point.block_hash() {
-            Some(block_hash) => Some(TryInto::try_into(block_hash)?),
-            None => None,
-        };
-        Ok(ckb_core::transaction::OutPoint { block_hash, cell })
+        let raw_tx_hash = cast!(out_point.tx_hash())?;
+        let index = out_point.index();
+        let tx_hash = TryInto::try_into(raw_tx_hash)?;
+        Ok(ckb_core::transaction::OutPoint::new(tx_hash, index))
     }
 }
 
@@ -277,21 +291,13 @@ impl<'a> TryFrom<ckb_protocol::CellInput<'a>> for ckb_core::transaction::CellInp
     type Error = FailureError;
 
     fn try_from(cell_input: ckb_protocol::CellInput<'a>) -> Result<Self, Self::Error> {
-        let cell = match cell_input.tx_hash() {
-            Some(tx_hash) => Some(ckb_core::transaction::CellOutPoint {
-                tx_hash: TryInto::try_into(tx_hash)?,
-                index: cell_input.index(),
-            }),
-            _ => None,
-        };
-        let block_hash = match cell_input.block_hash() {
-            Some(block_hash) => Some(TryInto::try_into(block_hash)?),
-            None => None,
-        };
-        let previous_output = ckb_core::transaction::OutPoint { block_hash, cell };
+        let raw_tx_hash = cast!(cell_input.tx_hash())?;
+        let index = cell_input.index();
+        let tx_hash = TryInto::try_into(raw_tx_hash)?;
+        let out_point = ckb_core::transaction::OutPoint::new(tx_hash, index);
 
         Ok(ckb_core::transaction::CellInput {
-            previous_output,
+            previous_output: out_point,
             since: cell_input.since(),
         })
     }

@@ -5,7 +5,6 @@ use crate::{BlockNumber, Bytes, Version};
 use bincode::serialize;
 use ckb_hash::blake2b_256;
 use ckb_occupied_capacity::{Capacity, Result as CapacityResult};
-use ckb_util::LowerHexOption;
 use faster_hex::hex_string;
 use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
@@ -27,15 +26,15 @@ impl CellKey {
         CellKey(key)
     }
 
-    pub fn recover(&self) -> CellOutPoint {
+    pub fn recover(&self) -> OutPoint {
         Self::deconstruct(&self.0)
     }
 
-    pub fn deconstruct(bytes: &[u8]) -> CellOutPoint {
+    pub fn deconstruct(bytes: &[u8]) -> OutPoint {
         let tx_hash = H256::from_slice(&bytes[..32]).expect("should not be failed");
         let le_bytes: [u8; 4] = bytes[32..36].try_into().expect("should not be failed");
         let index = u32::from_le_bytes(le_bytes);
-        CellOutPoint { tx_hash, index }
+        OutPoint { tx_hash, index }
     }
 }
 
@@ -46,34 +45,49 @@ impl AsRef<[u8]> for CellKey {
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct CellOutPoint {
+pub struct OutPoint {
     // Hash of Transaction
     pub tx_hash: H256,
     // Index of output
     pub index: u32,
 }
 
-impl fmt::Debug for CellOutPoint {
+impl fmt::Debug for OutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("CellOutPoint")
+        f.debug_struct("OutPoint")
             .field("tx_hash", &format_args!("{:#x}", self.tx_hash))
             .field("index", &self.index)
             .finish()
     }
 }
 
-impl Default for CellOutPoint {
+impl Default for OutPoint {
     fn default() -> Self {
-        CellOutPoint {
+        OutPoint {
             tx_hash: H256::zero(),
-            index: u32::max_value(),
+            index: 0,
         }
     }
 }
 
-impl CellOutPoint {
+impl OutPoint {
+    pub fn new(tx_hash: H256, index: u32) -> OutPoint {
+        OutPoint { tx_hash, index }
+    }
+
+    pub fn null() -> OutPoint {
+        OutPoint {
+            tx_hash: H256::zero(),
+            index: u32::max_value(),
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.tx_hash.is_zero() && self.index == u32::max_value()
+    }
+
     pub fn destruct(self) -> (H256, u32) {
-        let CellOutPoint { tx_hash, index } = self;
+        let OutPoint { tx_hash, index } = self;
         (tx_hash, index)
     }
 
@@ -86,69 +100,42 @@ impl CellOutPoint {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct OutPoint {
-    pub cell: Option<CellOutPoint>,
-    pub block_hash: Option<H256>,
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct CellDep {
+    out_point: OutPoint,
+    is_dep_group: bool,
 }
 
-impl fmt::Debug for OutPoint {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("OutPoint")
-            .field("cell", &self.cell)
-            .field(
-                "block_hash",
-                &format_args!("{:#x}", LowerHexOption(self.block_hash.as_ref())),
-            )
-            .finish()
-    }
-}
-
-impl OutPoint {
-    pub fn new(block_hash: H256, tx_hash: H256, index: u32) -> Self {
-        OutPoint {
-            block_hash: Some(block_hash),
-            cell: Some(CellOutPoint { tx_hash, index }),
+impl CellDep {
+    pub fn new(out_point: OutPoint, is_dep_group: bool) -> CellDep {
+        CellDep {
+            out_point,
+            is_dep_group,
         }
     }
 
-    pub fn new_cell(tx_hash: H256, index: u32) -> Self {
-        OutPoint {
-            block_hash: None,
-            cell: Some(CellOutPoint { tx_hash, index }),
-        }
+    pub fn new_cell(out_point: OutPoint) -> CellDep {
+        Self::new(out_point, false)
     }
 
-    pub fn new_block_hash(block_hash: H256) -> Self {
-        OutPoint {
-            block_hash: Some(block_hash),
-            cell: None,
-        }
+    pub fn new_group(out_point: OutPoint) -> CellDep {
+        Self::new(out_point, true)
     }
 
-    pub fn null() -> Self {
-        OutPoint::default()
+    pub fn out_point(&self) -> &OutPoint {
+        &self.out_point
     }
 
-    pub fn is_null(&self) -> bool {
-        self.cell.is_none() && self.block_hash.is_none()
+    pub fn is_dep_group(&self) -> bool {
+        self.is_dep_group
     }
 
-    pub fn serialized_size(&self) -> usize {
-        self.cell
-            .as_ref()
-            .map(|_| CellOutPoint::serialized_size())
-            .unwrap_or(0)
-            + self
-                .block_hash
-                .as_ref()
-                .map(|_| H256::size_of())
-                .unwrap_or(0)
+    pub fn into_inner(self) -> OutPoint {
+        self.out_point
     }
 
-    pub fn destruct(self) -> (Option<H256>, Option<CellOutPoint>) {
-        let OutPoint { block_hash, cell } = self;
-        (block_hash, cell)
+    pub const fn serialized_size() -> usize {
+        OutPoint::serialized_size() + mem::size_of::<bool>()
     }
 }
 
@@ -181,8 +168,8 @@ impl CellInput {
         (previous_output, since)
     }
 
-    pub fn serialized_size(&self) -> usize {
-        self.previous_output.serialized_size() + mem::size_of::<u64>()
+    pub fn serialized_size() -> usize {
+        OutPoint::serialized_size() + mem::size_of::<u64>()
     }
 }
 
@@ -328,7 +315,8 @@ pub type Witness = Vec<Bytes>;
 #[derive(Clone, Serialize, Eq, Debug)]
 pub struct Transaction {
     version: Version,
-    deps: Vec<OutPoint>,
+    cell_deps: Vec<CellDep>,
+    header_deps: Vec<H256>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
     #[serde(skip)]
@@ -350,7 +338,8 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
         #[serde(field_identifier, rename_all = "snake_case")]
         enum Field {
             Version,
-            Deps,
+            CellDeps,
+            HeaderDeps,
             Inputs,
             Outputs,
             Witnesses,
@@ -372,21 +361,26 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                 let version = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
-                let deps = seq
+                let cell_deps = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
-                let inputs = seq
+                let header_deps = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
-                let outputs = seq
+                let inputs = seq
                     .next_element()?
                     .ok_or_else(|| serde::de::Error::invalid_length(3, &self))?;
+                let outputs = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
+                // NOTE: ignore outputs_data here
                 let witnesses = seq
                     .next_element()?
-                    .ok_or_else(|| serde::de::Error::invalid_length(5, &self))?;
+                    .ok_or_else(|| serde::de::Error::invalid_length(6, &self))?;
                 Ok(Self::Value::new(
                     version,
-                    deps,
+                    cell_deps,
+                    header_deps,
                     inputs,
                     outputs,
                     Default::default(),
@@ -399,7 +393,8 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                 V: serde::de::MapAccess<'de>,
             {
                 let mut version = None;
-                let mut deps = None;
+                let mut cell_deps = None;
+                let mut header_deps = None;
                 let mut inputs = None;
                 let mut outputs = None;
                 let mut witnesses = None;
@@ -411,11 +406,17 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                             }
                             version = Some(map.next_value()?);
                         }
-                        Field::Deps => {
-                            if deps.is_some() {
-                                return Err(serde::de::Error::duplicate_field("deps"));
+                        Field::CellDeps => {
+                            if cell_deps.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cell_deps"));
                             }
-                            deps = Some(map.next_value()?);
+                            cell_deps = Some(map.next_value()?);
+                        }
+                        Field::HeaderDeps => {
+                            if header_deps.is_some() {
+                                return Err(serde::de::Error::duplicate_field("header_deps"));
+                            }
+                            header_deps = Some(map.next_value()?);
                         }
                         Field::Inputs => {
                             if inputs.is_some() {
@@ -438,14 +439,18 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
                     }
                 }
                 let version = version.ok_or_else(|| serde::de::Error::missing_field("version"))?;
-                let deps = deps.ok_or_else(|| serde::de::Error::missing_field("deps"))?;
+                let cell_deps =
+                    cell_deps.ok_or_else(|| serde::de::Error::missing_field("cell_deps"))?;
+                let header_deps =
+                    header_deps.ok_or_else(|| serde::de::Error::missing_field("header_deps"))?;
                 let inputs = inputs.ok_or_else(|| serde::de::Error::missing_field("inputs"))?;
                 let outputs = outputs.ok_or_else(|| serde::de::Error::missing_field("outputs"))?;
                 let witnesses =
                     witnesses.ok_or_else(|| serde::de::Error::missing_field("witnesses"))?;
                 Ok(Self::Value::new(
                     version,
-                    deps,
+                    cell_deps,
+                    header_deps,
                     inputs,
                     outputs,
                     Default::default(),
@@ -454,7 +459,14 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
             }
         }
 
-        const FIELDS: &[&str] = &["version", "deps", "inputs", "outputs", "witnesses"];
+        const FIELDS: &[&str] = &[
+            "version",
+            "cell_deps",
+            "header_deps",
+            "inputs",
+            "outputs",
+            "witnesses",
+        ];
         deserializer.deserialize_struct("Transaction", FIELDS, InnerVisitor)
     }
 }
@@ -462,7 +474,8 @@ impl<'de> serde::de::Deserialize<'de> for Transaction {
 #[derive(Serialize)]
 struct RawTransaction<'a> {
     version: Version,
-    deps: &'a [OutPoint],
+    cell_deps: &'a [CellDep],
+    header_deps: &'a [H256],
     inputs: &'a [CellInput],
     outputs: &'a [CellOutput],
 }
@@ -482,7 +495,8 @@ impl PartialEq for Transaction {
 impl Transaction {
     pub(crate) fn new(
         version: Version,
-        deps: Vec<OutPoint>,
+        cell_deps: Vec<CellDep>,
+        header_deps: Vec<H256>,
         inputs: Vec<CellInput>,
         outputs: Vec<CellOutput>,
         outputs_data: Vec<Bytes>,
@@ -490,7 +504,8 @@ impl Transaction {
     ) -> Self {
         let raw = RawTransaction {
             version,
-            deps: &deps,
+            cell_deps: &cell_deps,
+            header_deps: &header_deps,
             inputs: &inputs,
             outputs: &outputs,
         };
@@ -498,7 +513,8 @@ impl Transaction {
             blake2b_256(serialize(&raw).expect("RawTransaction serialize should not fail")).into();
         let mut tx = Self {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -516,8 +532,12 @@ impl Transaction {
         self.version
     }
 
-    pub fn deps(&self) -> &[OutPoint] {
-        &self.deps
+    pub fn cell_deps(&self) -> &[CellDep] {
+        &self.cell_deps
+    }
+
+    pub fn header_deps(&self) -> &[H256] {
+        &self.header_deps
     }
 
     pub fn inputs(&self) -> &[CellInput] {
@@ -555,7 +575,7 @@ impl Transaction {
     pub fn output_pts(&self) -> Vec<OutPoint> {
         let h = self.hash();
         (0..self.outputs.len())
-            .map(|x| OutPoint::new_cell(h.clone(), x as u32))
+            .map(|x| OutPoint::new(h.clone(), x as u32))
             .collect()
     }
 
@@ -563,8 +583,12 @@ impl Transaction {
         self.inputs.iter().map(|x| &x.previous_output)
     }
 
-    pub fn deps_iter(&self) -> impl Iterator<Item = &OutPoint> {
-        self.deps.iter()
+    pub fn cell_deps_iter(&self) -> impl Iterator<Item = &CellDep> {
+        self.cell_deps.iter()
+    }
+
+    pub fn header_deps_iter(&self) -> impl Iterator<Item = &H256> {
+        self.header_deps.iter()
     }
 
     pub fn outputs_with_data_iter(&self) -> impl Iterator<Item = (&CellOutput, &Bytes)> {
@@ -600,17 +624,11 @@ impl Transaction {
 
     pub fn serialized_size(&self) -> usize {
         mem::size_of::<Version>()
-            + self
-                .deps
-                .iter()
-                .map(OutPoint::serialized_size)
-                .sum::<usize>()
+            + CellDep::serialized_size() * self.cell_deps.len()
             + 4
-            + self
-                .inputs
-                .iter()
-                .map(CellInput::serialized_size)
-                .sum::<usize>()
+            + H256::size_of() * self.header_deps.len()
+            + 4
+            + CellInput::serialized_size() * self.inputs.len()
             + 4
             + self
                 .outputs
@@ -631,7 +649,8 @@ impl Transaction {
 
 pub struct TransactionBuilder {
     version: Version,
-    deps: Vec<OutPoint>,
+    cell_deps: Vec<CellDep>,
+    header_deps: Vec<H256>,
     inputs: Vec<CellInput>,
     outputs: Vec<CellOutput>,
     outputs_data: Vec<Bytes>,
@@ -642,7 +661,8 @@ impl Default for TransactionBuilder {
     fn default() -> Self {
         Self {
             version: TX_VERSION,
-            deps: Default::default(),
+            cell_deps: Default::default(),
+            header_deps: Default::default(),
             inputs: Default::default(),
             outputs: Default::default(),
             outputs_data: Default::default(),
@@ -655,7 +675,8 @@ impl TransactionBuilder {
     pub fn from_transaction(transaction: Transaction) -> Self {
         let Transaction {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -664,7 +685,8 @@ impl TransactionBuilder {
         } = transaction;
         Self {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -677,22 +699,42 @@ impl TransactionBuilder {
         self
     }
 
-    pub fn dep(mut self, dep: OutPoint) -> Self {
-        self.deps.push(dep);
+    pub fn cell_dep(mut self, dep: CellDep) -> Self {
+        self.cell_deps.push(dep);
         self
     }
 
-    pub fn deps<I, T>(mut self, deps: I) -> Self
+    pub fn cell_deps<I, T>(mut self, deps: I) -> Self
     where
         I: IntoIterator<Item = T>,
-        T: Into<OutPoint>,
+        T: Into<CellDep>,
     {
-        self.deps.extend(deps.into_iter().map(Into::into));
+        self.cell_deps.extend(deps.into_iter().map(Into::into));
         self
     }
 
-    pub fn deps_clear(mut self) -> Self {
-        self.deps.clear();
+    pub fn cell_deps_clear(mut self) -> Self {
+        self.cell_deps.clear();
+        self
+    }
+
+    pub fn header_dep(mut self, block_hash: H256) -> Self {
+        self.header_deps.push(block_hash);
+        self
+    }
+
+    pub fn header_deps<I, T>(mut self, block_hashes: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<H256>,
+    {
+        self.header_deps
+            .extend(block_hashes.into_iter().map(Into::into));
+        self
+    }
+
+    pub fn header_deps_clear(mut self) -> Self {
+        self.header_deps.clear();
         self
     }
 
@@ -776,13 +818,22 @@ impl TransactionBuilder {
     pub fn build(self) -> Transaction {
         let Self {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
             witnesses,
         } = self;
-        Transaction::new(version, deps, inputs, outputs, outputs_data, witnesses)
+        Transaction::new(
+            version,
+            cell_deps,
+            header_deps,
+            inputs,
+            outputs,
+            outputs_data,
+            witnesses,
+        )
     }
 
     /// # Warning
@@ -792,7 +843,8 @@ impl TransactionBuilder {
     pub unsafe fn build_unchecked(self, hash: H256, witness_hash: H256) -> Transaction {
         let Self {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -800,7 +852,8 @@ impl TransactionBuilder {
         } = self;
         Transaction {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -894,17 +947,17 @@ mod test {
                 None,
             ))
             .output_data(data)
-            .input(CellInput::new(OutPoint::new_cell(H256::zero(), 0), 0))
+            .input(CellInput::new(OutPoint::new(H256::zero(), 0), 0))
             .witness(vec![Bytes::from(vec![7, 8, 9])])
             .build();
 
         assert_eq!(
             format!("{:x}", tx.hash()),
-            "03ee6001f7706408f2ede5d6c25d3a2fe42a025ef327b5a0805f7045060649f2"
+            "846078e6efcbdeb61f3aabc2d72963a5211820f0c1b159bfc744c6dc32fc84d0"
         );
         assert_eq!(
             format!("{:x}", tx.witness_hash()),
-            "bd59c098cdea5225c00bfd68e39f627719acb4dcfacd7233eb16a977e9869f36"
+            "a507f50d0e2bbe790932f33b2e77b2e051ef18d25da0e791f359b4066eb7dc94"
         );
     }
 

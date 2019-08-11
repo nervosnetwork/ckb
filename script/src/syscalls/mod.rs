@@ -85,7 +85,10 @@ impl InputField {
 enum SourceEntry {
     Input,
     Output,
-    Dep,
+    // Cell dep
+    CellDep,
+    // Header dep
+    HeaderDep,
 }
 
 impl From<SourceEntry> for u64 {
@@ -93,7 +96,8 @@ impl From<SourceEntry> for u64 {
         match s {
             SourceEntry::Input => 1,
             SourceEntry::Output => 2,
-            SourceEntry::Dep => 3,
+            SourceEntry::CellDep => 3,
+            SourceEntry::HeaderDep => 4,
         }
     }
 }
@@ -103,7 +107,8 @@ impl SourceEntry {
         match i {
             1 => Ok(SourceEntry::Input),
             2 => Ok(SourceEntry::Output),
-            3 => Ok(SourceEntry::Dep),
+            3 => Ok(SourceEntry::CellDep),
+            4 => Ok(SourceEntry::HeaderDep),
             _ => Err(Error::ParseError),
         }
     }
@@ -166,11 +171,13 @@ impl LoadDataType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DataLoader;
     use byteorder::{LittleEndian, WriteBytesExt};
-    use ckb_core::cell::{CellMeta, ResolvedOutPoint};
-    use ckb_core::header::HeaderBuilder;
+    use ckb_core::cell::CellMeta;
+    use ckb_core::extras::BlockExt;
+    use ckb_core::header::{Header, HeaderBuilder};
     use ckb_core::script::{Script, ScriptHashType};
-    use ckb_core::transaction::{CellOutPoint, CellOutput, CellOutputBuilder};
+    use ckb_core::transaction::{CellOutput, CellOutputBuilder, OutPoint};
     use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::RocksDB;
     use ckb_hash::blake2b_256;
@@ -185,6 +192,7 @@ mod tests {
     use flatbuffers::FlatBufferBuilder;
     use numext_fixed_hash::H256;
     use proptest::{collection::size_range, prelude::*};
+    use std::collections::HashMap;
 
     fn new_store() -> ChainDB {
         ChainDB::new(RocksDB::open_tmp(COLUMNS))
@@ -192,7 +200,7 @@ mod tests {
 
     fn build_cell_meta(output: CellOutput, data: Bytes) -> CellMeta {
         CellMeta {
-            out_point: CellOutPoint {
+            out_point: OutPoint {
                 tx_hash: Default::default(),
                 index: 0,
             },
@@ -201,10 +209,6 @@ mod tests {
             data_bytes: data.len() as u64,
             mem_cell_data: Some(data),
         }
-    }
-
-    fn build_resolved_outpoint(output: CellOutput, data: Bytes) -> ResolvedOutPoint {
-        ResolvedOutPoint::cell_only(build_cell_meta(output, data))
     }
 
     fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
@@ -232,7 +236,7 @@ mod tests {
             output_cell_data,
         );
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
-        let input_cell = build_resolved_outpoint(
+        let input_cell = build_cell_meta(
             CellOutputBuilder::from_data(&input_cell_data)
                 .capacity(capacity_bytes!(100))
                 .build(),
@@ -240,13 +244,13 @@ mod tests {
         );
         let outputs = vec![output];
         let resolved_inputs = vec![input_cell];
-        let resolved_deps = vec![];
+        let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_cell = LoadCell::new(
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -283,7 +287,7 @@ mod tests {
             output_cell_data,
         );
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
-        let input_cell = build_resolved_outpoint(
+        let input_cell = build_cell_meta(
             CellOutputBuilder::from_data(&input_cell_data)
                 .capacity(capacity_bytes!(100))
                 .build(),
@@ -291,20 +295,19 @@ mod tests {
         );
         let outputs = vec![output.clone()];
         let resolved_inputs = vec![input_cell.clone()];
-        let resolved_deps = vec![];
+        let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_cell = LoadCell::new(
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
 
         let mut builder = FlatBufferBuilder::new();
-        let fbs_offset =
-            FbsCellOutput::build(&mut builder, &input_cell.cell().unwrap().cell_output);
+        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell.cell_output);
         builder.finish(fbs_offset, None);
         let input_correct_data = builder.finished_data();
 
@@ -390,7 +393,7 @@ mod tests {
             output_cell_data,
         );
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
-        let input_cell = build_resolved_outpoint(
+        let input_cell = build_cell_meta(
             CellOutputBuilder::from_data(&input_cell_data)
                 .capacity(capacity_bytes!(100))
                 .build(),
@@ -398,20 +401,19 @@ mod tests {
         );
         let outputs = vec![output];
         let resolved_inputs = vec![input_cell.clone()];
-        let resolved_deps = vec![];
+        let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_cell = LoadCell::new(
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
 
         let mut builder = FlatBufferBuilder::new();
-        let fbs_offset =
-            FbsCellOutput::build(&mut builder, &input_cell.cell().unwrap().cell_output);
+        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell.cell_output);
         builder.finish(fbs_offset, None);
         let input_correct_data = builder.finished_data();
 
@@ -456,7 +458,7 @@ mod tests {
         );
 
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
-        let input_cell = build_resolved_outpoint(
+        let input_cell = build_cell_meta(
             CellOutputBuilder::from_data(&input_cell_data)
                 .capacity(capacity_bytes!(100))
                 .build(),
@@ -464,20 +466,19 @@ mod tests {
         );
         let outputs = vec![output];
         let resolved_inputs = vec![input_cell.clone()];
-        let resolved_deps = vec![];
+        let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_cell = LoadCell::new(
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
 
         let mut builder = FlatBufferBuilder::new();
-        let fbs_offset =
-            FbsCellOutput::build(&mut builder, &input_cell.cell().unwrap().cell_output);
+        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell.cell_output);
         builder.finish(fbs_offset, None);
         let input_correct_data = builder.finished_data();
 
@@ -518,19 +519,19 @@ mod tests {
         machine.set_register(A5, CellField::Capacity as u64); //field: 0 capacity
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = build_resolved_outpoint(
+        let input_cell = build_cell_meta(
             CellOutputBuilder::default().capacity(capacity).build(),
             Bytes::new(),
         );
         let outputs = vec![];
         let resolved_inputs = vec![input_cell.clone()];
-        let resolved_deps = vec![];
+        let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_cell = LoadCell::new(
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -580,13 +581,13 @@ mod tests {
         );
         let outputs = vec![output_cell];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![];
+        let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_cell = LoadCell::new(
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -612,18 +613,18 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Dep))); //source: 3 dep
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::CellDep))); //source: 3 dep
         machine.set_register(A5, CellField::DataHash as u64); //field: 2 data hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = build_resolved_outpoint(
+        let input_cell = build_cell_meta(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(1000))
                 .build(),
             Bytes::new(),
         );
         let dep_cell_data = Bytes::from(data);
-        let dep_cell = build_resolved_outpoint(
+        let dep_cell = build_cell_meta(
             CellOutputBuilder::from_data(&dep_cell_data)
                 .capacity(capacity_bytes!(1000))
                 .build(),
@@ -631,13 +632,13 @@ mod tests {
         );
         let outputs = vec![];
         let resolved_inputs = vec![input_cell.clone()];
-        let resolved_deps = vec![dep_cell];
+        let resolved_cell_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_cell = LoadCell::new(
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -682,7 +683,7 @@ mod tests {
         machine.set_register(A1, size_addr); // size_addr
         machine.set_register(A2, 0); // offset
         machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Dep))); //source: 3 dep
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::HeaderDep))); //source: 4 header
         machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
 
         let data_hash = blake2b_256(&data);
@@ -695,18 +696,41 @@ mod tests {
         builder.finish(fbs_offset, None);
         let header_correct_data = builder.finished_data();
 
-        let dep_cell = ResolvedOutPoint::header_only(header);
+        struct MockDataLoader {
+            headers: HashMap<H256, Header>,
+        }
+        impl DataLoader for MockDataLoader {
+            fn load_cell_data(&self, _cell: &CellMeta) -> Option<Bytes> {
+                None
+            }
+            fn get_block_ext(&self, _block_hash: &H256) -> Option<BlockExt> {
+                None
+            }
+            fn get_header(&self, block_hash: &H256) -> Option<Header> {
+                self.headers.get(block_hash).cloned()
+            }
+        }
+        let mut headers = HashMap::default();
+        headers.insert(header.hash().clone(), header.clone());
+        let data_loader = MockDataLoader { headers };
+        let header_deps = vec![header.hash().clone()];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![dep_cell];
+        let resolved_cell_deps = vec![];
         let group_inputs = vec![];
-        let mut load_cell = LoadHeader::new(&resolved_inputs, &resolved_deps, &group_inputs);
+        let mut load_header = LoadHeader::new(
+            &data_loader,
+            &header_deps,
+            &resolved_inputs,
+            &resolved_cell_deps,
+            &group_inputs,
+        );
 
         prop_assert!(machine
             .memory_mut()
             .store64(&size_addr, &(header_correct_data.len() as u64 + 20))
             .is_ok());
 
-        prop_assert!(load_cell.ecall(&mut machine).is_ok());
+        prop_assert!(load_header.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
         prop_assert_eq!(
@@ -835,7 +859,7 @@ mod tests {
         let h = script.hash();
         let hash = h.as_bytes();
 
-        let input_cell = build_resolved_outpoint(
+        let input_cell = build_cell_meta(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(1000))
                 .lock(script)
@@ -844,13 +868,13 @@ mod tests {
         );
         let outputs = vec![];
         let resolved_inputs = vec![input_cell.clone()];
-        let resolved_deps = vec![];
+        let resolved_cell_deps = vec![];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_cell = LoadCell::new(
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -996,12 +1020,12 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, load_data_type as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(data);
-        let dep_cell = build_resolved_outpoint(
+        let dep_cell = build_cell_meta(
             CellOutputBuilder::from_data(&dep_cell_data)
                 .capacity(capacity_bytes!(10000))
                 .build(),
@@ -1012,14 +1036,14 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![dep_cell];
+        let resolved_cell_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -1079,12 +1103,12 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, load_data_type as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(data);
-        let dep_cell = build_resolved_outpoint(
+        let dep_cell = build_cell_meta(
             CellOutputBuilder::from_data(&dep_cell_data)
                 .capacity(capacity_bytes!(10000))
                 .build(),
@@ -1095,14 +1119,14 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![dep_cell];
+        let resolved_cell_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -1142,11 +1166,11 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, LoadDataType::Code as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
         let dep_cell_data = Bytes::from(&data[..]);
-        let dep_cell = build_resolved_outpoint(
+        let dep_cell = build_cell_meta(
             CellOutputBuilder::from_data(&dep_cell_data)
                 .capacity(capacity_bytes!(10000))
                 .build(),
@@ -1157,14 +1181,14 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![dep_cell];
+        let resolved_cell_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -1190,12 +1214,12 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64 + 3); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, LoadDataType::Code as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(&data[..]);
-        let dep_cell = build_resolved_outpoint(
+        let dep_cell = build_cell_meta(
             CellOutputBuilder::from_data(&dep_cell_data)
                 .capacity(capacity_bytes!(10000))
                 .build(),
@@ -1206,14 +1230,14 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![dep_cell];
+        let resolved_cell_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );
@@ -1242,12 +1266,12 @@ mod tests {
         machine.set_register(A2, 0); // content offset
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
-        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::Dep))); //source
+        machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A6, LoadDataType::Code as u64); // memory type
         machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(&data[..]);
-        let dep_cell = build_resolved_outpoint(
+        let dep_cell = build_cell_meta(
             CellOutputBuilder::from_data(&dep_cell_data)
                 .capacity(capacity_bytes!(10000))
                 .build(),
@@ -1258,14 +1282,14 @@ mod tests {
         let data_loader = DataLoaderWrapper::new(&store);
         let outputs = vec![];
         let resolved_inputs = vec![];
-        let resolved_deps = vec![dep_cell];
+        let resolved_cell_deps = vec![dep_cell];
         let group_inputs = vec![];
         let group_outputs = vec![];
         let mut load_code = LoadCellData::new(
             &data_loader,
             &outputs,
             &resolved_inputs,
-            &resolved_deps,
+            &resolved_cell_deps,
             &group_inputs,
             &group_outputs,
         );

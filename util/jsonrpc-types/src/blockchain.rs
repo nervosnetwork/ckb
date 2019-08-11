@@ -6,7 +6,7 @@ use ckb_core::header::{Header as CoreHeader, HeaderBuilder, Seal as CoreSeal};
 use ckb_core::reward::BlockReward as CoreBlockReward;
 use ckb_core::script::{Script as CoreScript, ScriptHashType as CoreScriptHashType};
 use ckb_core::transaction::{
-    CellInput as CoreCellInput, CellOutPoint as CoreCellOutPoint, CellOutput as CoreCellOutput,
+    CellDep as CoreCellDep, CellInput as CoreCellInput, CellOutput as CoreCellOutput,
     OutPoint as CoreOutPoint, Transaction as CoreTransaction, TransactionBuilder,
     Witness as CoreWitness,
 };
@@ -118,53 +118,27 @@ impl From<CellOutput> for CoreCellOutput {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct CellOutPoint {
+pub struct OutPoint {
     pub tx_hash: H256,
     pub index: Unsigned,
 }
 
-impl From<CoreCellOutPoint> for CellOutPoint {
-    fn from(core: CoreCellOutPoint) -> CellOutPoint {
+impl From<CoreOutPoint> for OutPoint {
+    fn from(core: CoreOutPoint) -> OutPoint {
         let (tx_hash, index) = core.destruct();
-        CellOutPoint {
+        OutPoint {
             tx_hash,
             index: Unsigned(u64::from(index)),
         }
     }
 }
 
-impl From<CellOutPoint> for CoreCellOutPoint {
-    fn from(json: CellOutPoint) -> Self {
-        let CellOutPoint { tx_hash, index } = json;
-        CoreCellOutPoint {
-            tx_hash,
-            index: index.0 as u32,
-        }
-    }
-}
-
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct OutPoint {
-    pub cell: Option<CellOutPoint>,
-    pub block_hash: Option<H256>,
-}
-
-impl From<CoreOutPoint> for OutPoint {
-    fn from(core: CoreOutPoint) -> OutPoint {
-        let (block_hash, cell) = core.destruct();
-        OutPoint {
-            cell: cell.map(Into::into),
-            block_hash: block_hash.map(Into::into),
-        }
-    }
-}
-
 impl From<OutPoint> for CoreOutPoint {
     fn from(json: OutPoint) -> Self {
-        let OutPoint { cell, block_hash } = json;
+        let OutPoint { tx_hash, index } = json;
         CoreOutPoint {
-            cell: cell.map(Into::into),
-            block_hash,
+            tx_hash,
+            index: index.0 as u32,
         }
     }
 }
@@ -215,9 +189,32 @@ impl From<Witness> for CoreWitness {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub struct CellDep {
+    out_point: OutPoint,
+    is_dep_group: bool,
+}
+
+impl From<CoreCellDep> for CellDep {
+    fn from(core: CoreCellDep) -> Self {
+        let is_dep_group = core.is_dep_group();
+        CellDep {
+            out_point: core.into_inner().into(),
+            is_dep_group,
+        }
+    }
+}
+
+impl From<CellDep> for CoreCellDep {
+    fn from(json: CellDep) -> Self {
+        CoreCellDep::new(json.out_point.into(), json.is_dep_group)
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Transaction {
     pub version: Version,
-    pub deps: Vec<OutPoint>,
+    pub cell_deps: Vec<CellDep>,
+    pub header_deps: Vec<H256>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
     pub outputs_data: Vec<JsonBytes>,
@@ -235,7 +232,8 @@ impl<'a> From<&'a CoreTransaction> for Transaction {
     fn from(core: &CoreTransaction) -> Self {
         Self {
             version: Version(core.version()),
-            deps: core.deps().iter().cloned().map(Into::into).collect(),
+            cell_deps: core.cell_deps().iter().cloned().map(Into::into).collect(),
+            header_deps: core.header_deps().to_vec(),
             inputs: core.inputs().iter().cloned().map(Into::into).collect(),
             outputs: core.outputs().iter().cloned().map(Into::into).collect(),
             outputs_data: core
@@ -262,7 +260,8 @@ impl From<Transaction> for CoreTransaction {
     fn from(json: Transaction) -> Self {
         let Transaction {
             version,
-            deps,
+            cell_deps,
+            header_deps,
             inputs,
             outputs,
             outputs_data,
@@ -271,7 +270,8 @@ impl From<Transaction> for CoreTransaction {
 
         TransactionBuilder::default()
             .version(version.0)
-            .deps(deps)
+            .cell_deps(cell_deps)
+            .header_deps(header_deps)
             .inputs(inputs)
             .outputs(outputs)
             .outputs_data(outputs_data.into_iter().map(JsonBytes::into_bytes))
@@ -669,7 +669,7 @@ mod tests {
 
     fn mock_full_tx(data: Bytes, arg: Bytes) -> CoreTransaction {
         TransactionBuilder::default()
-            .deps(vec![CoreOutPoint::default()])
+            .cell_dep(CoreCellDep::new_cell(CoreOutPoint::default()))
             .inputs(vec![mock_cell_input()])
             .outputs(vec![mock_cell_output(data.clone(), arg.clone())])
             .outputs_data(vec![data])

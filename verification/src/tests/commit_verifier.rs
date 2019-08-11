@@ -6,7 +6,8 @@ use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::header::{Header, HeaderBuilder};
 use ckb_core::script::Script;
 use ckb_core::transaction::{
-    CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction, TransactionBuilder,
+    CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
+    TransactionBuilder,
 };
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
@@ -58,14 +59,15 @@ fn create_transaction(
         .type_(Some(always_success_script.to_owned()))
         .build();
     let inputs: Vec<CellInput> = (0..100)
-        .map(|index| CellInput::new(OutPoint::new_cell(parent.clone(), index), 0))
+        .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), 0))
         .collect();
+    let cell_dep = CellDep::new_cell(always_success_out_point.to_owned());
 
     TransactionBuilder::default()
         .inputs(inputs)
         .outputs(vec![output; 100])
         .outputs_data(vec![Bytes::new(); 100])
-        .dep(always_success_out_point.to_owned())
+        .cell_dep(cell_dep)
         .build()
 }
 
@@ -121,7 +123,7 @@ fn setup_env() -> (ChainController, Shared, H256, Script, OutPoint) {
         shared,
         tx_hash.to_owned(),
         always_success_script.clone(),
-        OutPoint::new_cell(tx_hash, 0),
+        OutPoint::new(tx_hash, 0),
     )
 }
 

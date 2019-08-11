@@ -1,4 +1,4 @@
-use ckb_core::transaction::{CellOutPoint, CellOutput};
+use ckb_core::transaction::{CellOutput, OutPoint};
 use ckb_core::BlockNumber;
 use ckb_jsonrpc_types::{
     BlockNumber as JsonBlockNumber, CellTransaction as JsonCellTransaction,
@@ -11,7 +11,7 @@ use std::convert::TryInto;
 pub struct LockHashIndex {
     pub lock_hash: H256,
     pub block_number: BlockNumber,
-    pub cell_out_point: CellOutPoint,
+    pub cell_out_point: OutPoint,
 }
 
 pub struct LiveCell {
@@ -51,7 +51,7 @@ impl LockHashIndex {
         LockHashIndex {
             lock_hash,
             block_number,
-            cell_out_point: CellOutPoint { tx_hash, index },
+            cell_out_point: OutPoint { tx_hash, index },
         }
     }
 
@@ -65,7 +65,7 @@ impl LockHashIndex {
         Self {
             lock_hash,
             block_number,
-            cell_out_point: CellOutPoint { tx_hash, index },
+            cell_out_point: OutPoint { tx_hash, index },
         }
     }
 

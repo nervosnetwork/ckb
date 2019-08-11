@@ -4,7 +4,7 @@ use crate::types::{
 };
 use bincode::{deserialize, serialize};
 use ckb_core::block::Block;
-use ckb_core::transaction::{CellOutPoint, CellOutput};
+use ckb_core::transaction::{CellOutput, OutPoint};
 use ckb_core::BlockNumber;
 use ckb_db::{db::RocksDB, Col, DBConfig, DBIterator, Direction, RocksDBTransaction};
 use ckb_logger::{debug, error, trace};
@@ -27,7 +27,7 @@ const COLUMNS: u32 = 4;
 /// | COLUMN_LOCK_HASH_INDEX_STATE    | H256          | LockHashIndexState       |
 /// | COLUMN_LOCK_HASH_LIVE_CELL      | LockHashIndex | CellOutput               |
 /// | COLUMN_LOCK_HASH_TRANSACTION    | LockHashIndex | Option<TransactionPoint> |
-/// | COLUMN_CELL_OUT_POINT_LOCK_HASH | CellOutPoint  | LockHashCellOutput       |
+/// | COLUMN_CELL_OUT_POINT_LOCK_HASH | OutPoint      | LockHashCellOutput       |
 /// +---------------------------------+---------------+--------------------------+
 
 const COLUMN_LOCK_HASH_INDEX_STATE: Col = "0";
@@ -391,20 +391,19 @@ impl DefaultIndexerStore {
 
             if !tx.is_cellbase() {
                 tx.inputs().iter().for_each(|input| {
-                    if let Some(cell_out_point) = input.previous_output.cell.clone() {
-                        if let Some(lock_hash_cell_output) =
-                            txn.get_lock_hash_cell_output(&cell_out_point)
-                        {
-                            if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                                if let Some(cell_output) = lock_hash_cell_output.cell_output {
-                                    let lock_hash_index = LockHashIndex::new(
-                                        lock_hash_cell_output.lock_hash.clone(),
-                                        lock_hash_cell_output.block_number,
-                                        cell_out_point.tx_hash.clone(),
-                                        cell_out_point.index,
-                                    );
-                                    txn.generate_live_cell(lock_hash_index, cell_output);
-                                }
+                    let cell_out_point = &input.previous_output;
+                    if let Some(lock_hash_cell_output) =
+                        txn.get_lock_hash_cell_output(cell_out_point)
+                    {
+                        if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
+                            if let Some(cell_output) = lock_hash_cell_output.cell_output {
+                                let lock_hash_index = LockHashIndex::new(
+                                    lock_hash_cell_output.lock_hash.clone(),
+                                    lock_hash_cell_output.block_number,
+                                    cell_out_point.tx_hash.clone(),
+                                    cell_out_point.index,
+                                );
+                                txn.generate_live_cell(lock_hash_index, cell_output);
                             }
                         }
                     }
@@ -426,24 +425,23 @@ impl DefaultIndexerStore {
             if !tx.is_cellbase() {
                 tx.inputs().iter().enumerate().for_each(|(index, input)| {
                     let index = index as u32;
-                    if let Some(cell_out_point) = input.previous_output.cell.clone() {
-                        if let Some(lock_hash_cell_output) =
-                            txn.get_lock_hash_cell_output(&cell_out_point)
-                        {
-                            if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
-                                let lock_hash_index = LockHashIndex::new(
-                                    lock_hash_cell_output.lock_hash,
-                                    lock_hash_cell_output.block_number,
-                                    cell_out_point.tx_hash,
-                                    cell_out_point.index,
-                                );
-                                let consumed_by = TransactionPoint {
-                                    block_number,
-                                    tx_hash: tx_hash.clone(),
-                                    index,
-                                };
-                                txn.consume_live_cell(lock_hash_index, consumed_by);
-                            }
+                    let cell_out_point = &input.previous_output;
+                    if let Some(lock_hash_cell_output) =
+                        txn.get_lock_hash_cell_output(cell_out_point)
+                    {
+                        if index_lock_hashes.contains(&lock_hash_cell_output.lock_hash) {
+                            let lock_hash_index = LockHashIndex::new(
+                                lock_hash_cell_output.lock_hash,
+                                lock_hash_cell_output.block_number,
+                                cell_out_point.tx_hash.clone(),
+                                cell_out_point.index,
+                            );
+                            let consumed_by = TransactionPoint {
+                                block_number,
+                                tx_hash: tx_hash.clone(),
+                                index,
+                            };
+                            txn.consume_live_cell(lock_hash_index, consumed_by);
                         }
                     }
                 });
@@ -543,7 +541,7 @@ impl IndexerStoreTransaction {
 
     fn insert_cell_out_point_lock_hash(
         &self,
-        cell_out_point: &CellOutPoint,
+        cell_out_point: &OutPoint,
         lock_hash_cell_output: &LockHashCellOutput,
     ) {
         self.txn
@@ -574,19 +572,16 @@ impl IndexerStoreTransaction {
             .expect("txn delete COLUMN_LOCK_HASH_TRANSACTION failed");
     }
 
-    fn delete_cell_out_point_lock_hash(&self, cell_out_point: &CellOutPoint) {
+    fn delete_cell_out_point_lock_hash(&self, cell_out_point: &OutPoint) {
         self.txn
             .delete(
                 COLUMN_CELL_OUT_POINT_LOCK_HASH,
-                &serialize(cell_out_point).expect("serialize CellOutPoint should be ok"),
+                &serialize(cell_out_point).expect("serialize OutPoint should be ok"),
             )
             .expect("txn delete COLUMN_CELL_OUT_POINT_LOCK_HASH failed");
     }
 
-    fn get_lock_hash_cell_output(
-        &self,
-        cell_out_point: &CellOutPoint,
-    ) -> Option<LockHashCellOutput> {
+    fn get_lock_hash_cell_output(&self, cell_out_point: &OutPoint) -> Option<LockHashCellOutput> {
         self.txn
             .get(
                 COLUMN_CELL_OUT_POINT_LOCK_HASH,
@@ -724,10 +719,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000))
@@ -738,10 +730,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000))
@@ -871,10 +860,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000))
@@ -885,10 +871,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000))
@@ -1027,10 +1010,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000))
@@ -1041,10 +1021,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000))
@@ -1131,10 +1108,7 @@ mod tests {
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(900))
@@ -1145,10 +1119,7 @@ mod tests {
             .build();
 
         let tx13 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(800))
@@ -1214,10 +1185,7 @@ mod tests {
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx11.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(900))
@@ -1228,10 +1196,7 @@ mod tests {
             .build();
 
         let tx21 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new_cell(tx12.hash().to_owned(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash().to_owned(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(800))

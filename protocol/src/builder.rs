@@ -1,10 +1,10 @@
 use crate::protocol_generated::ckb::protocol::{
     Alert as FbsAlert, AlertBuilder, AlertMessage, AlertMessageBuilder, Block as FbsBlock,
     BlockBuilder, BlockProposalBuilder, BlockTransactionsBuilder, Bytes as FbsBytes, BytesBuilder,
-    CellInput as FbsCellInput, CellInputBuilder, CellOutput as FbsCellOutput, CellOutputBuilder,
-    CompactBlock, CompactBlockBuilder, FilteredBlock, FilteredBlockBuilder,
-    GetBlockProposalBuilder, GetBlockTransactionsBuilder, GetBlocks as FbsGetBlocks,
-    GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
+    CellDep as FbsCellDep, CellDepBuilder, CellInput as FbsCellInput, CellInputBuilder,
+    CellOutput as FbsCellOutput, CellOutputBuilder, CompactBlock, CompactBlockBuilder,
+    FilteredBlock, FilteredBlockBuilder, GetBlockProposalBuilder, GetBlockTransactionsBuilder,
+    GetBlocks as FbsGetBlocks, GetBlocksBuilder, GetHeaders as FbsGetHeaders, GetHeadersBuilder,
     GetRelayTransactions as FbsGetRelayTransactions, GetRelayTransactionsBuilder,
     Header as FbsHeader, HeaderBuilder, Headers as FbsHeaders, HeadersBuilder, InIBDBuilder,
     IndexTransactionBuilder, MerkleProofBuilder, OutPoint as FbsOutPoint, OutPointBuilder,
@@ -21,7 +21,9 @@ use ckb_core::alert::Alert;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
 use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, ProposalShortId, Transaction};
+use ckb_core::transaction::{
+    CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Transaction,
+};
 use ckb_core::uncle::UncleBlock;
 use ckb_core::{Bytes as CoreBytes, Cycle};
 use ckb_merkle_tree::build_merkle_proof;
@@ -82,11 +84,16 @@ impl<'a> FbsTransaction<'a> {
         transaction: &Transaction,
     ) -> WIPOffset<FbsTransaction<'b>> {
         let vec = transaction
-            .deps()
-            .iter()
-            .map(|out_point| FbsOutPoint::build(fbb, out_point))
+            .cell_deps_iter()
+            .map(|cell_dep| FbsCellDep::build(fbb, cell_dep))
             .collect::<Vec<_>>();
-        let deps = fbb.create_vector(&vec);
+        let cell_deps = fbb.create_vector(&vec);
+
+        let vec = transaction
+            .header_deps_iter()
+            .map(Into::into)
+            .collect::<Vec<FbsH256>>();
+        let header_deps = fbb.create_vector(&vec);
 
         let vec = transaction
             .inputs()
@@ -118,11 +125,25 @@ impl<'a> FbsTransaction<'a> {
 
         let mut builder = TransactionBuilder::new(fbb);
         builder.add_version(transaction.version());
-        builder.add_deps(deps);
+        builder.add_cell_deps(cell_deps);
+        builder.add_header_deps(header_deps);
         builder.add_inputs(inputs);
         builder.add_outputs(outputs);
         builder.add_outputs_data(outputs_data);
         builder.add_witnesses(witnesses);
+        builder.finish()
+    }
+}
+
+impl<'a> FbsCellDep<'a> {
+    pub fn build<'b>(fbb: &mut FlatBufferBuilder<'b>, dep: &CellDep) -> WIPOffset<FbsCellDep<'b>> {
+        let mut builder = CellDepBuilder::new(fbb);
+        let out_point = dep.out_point();
+        let tx_hash = (&out_point.tx_hash).into();
+        let is_dep_group = if dep.is_dep_group() { 1 } else { 0 };
+        builder.add_tx_hash(&tx_hash);
+        builder.add_index(out_point.index);
+        builder.add_is_dep_group(is_dep_group);
         builder.finish()
     }
 }
@@ -132,20 +153,10 @@ impl<'a> FbsOutPoint<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         out_point: &OutPoint,
     ) -> WIPOffset<FbsOutPoint<'b>> {
-        let tx_hash = out_point.cell.clone().map(|tx| (&tx.tx_hash).into());
-        let tx_index = out_point.cell.as_ref().map(|tx| tx.index);
-        let block_hash = out_point.block_hash.clone().map(|hash| (&hash).into());
-
         let mut builder = OutPointBuilder::new(fbb);
-        if let Some(ref hash) = tx_hash {
-            builder.add_tx_hash(hash);
-        }
-        if let Some(index) = tx_index {
-            builder.add_index(index);
-        }
-        if let Some(ref hash) = block_hash {
-            builder.add_block_hash(hash);
-        }
+        let tx_hash = (&out_point.tx_hash).into();
+        builder.add_tx_hash(&tx_hash);
+        builder.add_index(out_point.index);
         builder.finish()
     }
 }
@@ -213,32 +224,10 @@ impl<'a> FbsCellInput<'a> {
         fbb: &mut FlatBufferBuilder<'b>,
         cell_input: &CellInput,
     ) -> WIPOffset<FbsCellInput<'b>> {
-        let tx_hash = cell_input
-            .previous_output
-            .cell
-            .clone()
-            .map(|cell| (&cell.tx_hash).into());
-        let tx_index = cell_input
-            .previous_output
-            .cell
-            .as_ref()
-            .map(|cell| cell.index);
-        let block_hash = cell_input
-            .previous_output
-            .block_hash
-            .clone()
-            .map(|hash| (&hash).into());
-
         let mut builder = CellInputBuilder::new(fbb);
-        if let Some(ref hash) = tx_hash {
-            builder.add_tx_hash(hash);
-        }
-        if let Some(index) = tx_index {
-            builder.add_index(index);
-        }
-        if let Some(ref hash) = block_hash {
-            builder.add_block_hash(hash);
-        }
+        let tx_hash = (&cell_input.previous_output.tx_hash).into();
+        builder.add_tx_hash(&tx_hash);
+        builder.add_index(cell_input.previous_output.index);
         builder.add_since(cell_input.since);
         builder.finish()
     }

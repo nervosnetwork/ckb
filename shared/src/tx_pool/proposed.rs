@@ -90,22 +90,19 @@ pub(crate) struct ProposedPool {
 }
 
 impl CellProvider for ProposedPool {
-    fn cell(&self, o: &OutPoint) -> CellStatus {
-        if o.cell.is_none() {
-            return CellStatus::Unspecified;
-        }
-        if let Some(x) = self.edges.get_inner(o) {
+    fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
+        if let Some(x) = self.edges.get_inner(out_point) {
             if x.is_some() {
                 CellStatus::Dead
             } else {
-                let (output, data) = self.get_output_with_data(o).expect("output");
+                let (output, data) = self.get_output_with_data(out_point).expect("output");
                 CellStatus::live_cell(
                     CellMetaBuilder::from_cell_output(output.to_owned(), data)
-                        .out_point(o.cell.as_ref().unwrap().to_owned())
+                        .out_point(out_point.clone())
                         .build(),
                 )
             }
-        } else if self.edges.get_outer(o).is_some() {
+        } else if self.edges.get_outer(out_point).is_some() {
             CellStatus::Dead
         } else {
             CellStatus::Unknown
@@ -130,15 +127,10 @@ impl ProposedPool {
         self.get(id).map(|x| &x.transaction)
     }
 
-    pub(crate) fn get_output_with_data(&self, o: &OutPoint) -> Option<(CellOutput, Bytes)> {
-        o.cell.as_ref().and_then(|cell_out_point| {
-            self.vertices
-                .get(&ProposalShortId::from_tx_hash(&cell_out_point.tx_hash))
-                .and_then(|x| {
-                    x.transaction
-                        .get_output_with_data(cell_out_point.index as usize)
-                })
-        })
+    pub(crate) fn get_output_with_data(&self, out_point: &OutPoint) -> Option<(CellOutput, Bytes)> {
+        self.vertices
+            .get(&ProposalShortId::from_tx_hash(&out_point.tx_hash))
+            .and_then(|x| x.transaction.get_output_with_data(out_point.index as usize))
     }
 
     pub(crate) fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
@@ -152,14 +144,15 @@ impl ProposedPool {
                 let tx = &entry.transaction;
                 let inputs = tx.input_pts_iter();
                 let outputs = tx.output_pts();
-                let deps = tx.deps_iter();
+                let cell_deps = tx.cell_deps_iter();
+                // TODO: handle header deps
                 for i in inputs {
                     if self.edges.inner.remove(i).is_none() {
                         self.edges.outer.remove(i);
                     }
                 }
 
-                for d in deps {
+                for d in cell_deps.map(|dep| dep.out_point()) {
                     self.edges.delete_value_in_deps(d, &id);
                 }
 
@@ -188,7 +181,8 @@ impl ProposedPool {
     pub(crate) fn add_tx(&mut self, cycles: Cycle, fee: Capacity, size: usize, tx: Transaction) {
         let inputs = tx.input_pts_iter();
         let outputs = tx.output_pts();
-        let deps = tx.deps_iter();
+        let cell_deps = tx.cell_deps_iter();
+        // TODO: handle header deps
 
         let id = tx.proposal_short_id();
 
@@ -207,7 +201,7 @@ impl ProposedPool {
             }
         }
 
-        for d in deps {
+        for d in cell_deps.map(|dep| dep.out_point()) {
             if self.edges.contains_key(d) {
                 count += 1;
             }
@@ -225,7 +219,8 @@ impl ProposedPool {
     pub(crate) fn remove_committed_tx(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
         let outputs = tx.output_pts();
         let inputs = tx.input_pts_iter();
-        let deps = tx.deps_iter();
+        let cell_deps = tx.cell_deps_iter();
+        // TODO: handle header deps
         let id = tx.proposal_short_id();
 
         let mut removed = Vec::new();
@@ -249,7 +244,7 @@ impl ProposedPool {
                 self.edges.remove_outer(i);
             }
 
-            for d in deps {
+            for d in cell_deps.map(|dep| dep.out_point()) {
                 self.edges.delete_value_in_deps(d, &id);
             }
         } else {
@@ -307,9 +302,9 @@ mod tests {
     fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
         TransactionBuilder::default()
             .inputs(
-                inputs.into_iter().map(|(txid, index)| {
-                    CellInput::new(OutPoint::new_cell(txid.to_owned(), index), 0)
-                }),
+                inputs
+                    .into_iter()
+                    .map(|(txid, index)| CellInput::new(OutPoint::new(txid.to_owned(), index), 0)),
             )
             .outputs((0..outputs_len).map(|i| {
                 CellOutputBuilder::default()

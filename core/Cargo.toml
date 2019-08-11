@@ -15,7 +15,6 @@ ckb-hash = {path = "../util/hash"}
 ckb-occupied-capacity = { path = "../util/occupied-capacity"}
 bit-vec = "0.5.1"
 crossbeam-channel = "0.3"
-ckb-util = { path = "../util" }
 fnv = "1.0.3"
 ckb-merkle-tree = {path = "../util/merkle-tree"}
 faster-hex = "0.3"

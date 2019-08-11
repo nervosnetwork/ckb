@@ -31,14 +31,16 @@ impl<'a> LoadInput<'a> {
                 self.inputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
             }
             Source::Transaction(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
-            Source::Transaction(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Transaction(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Transaction(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
                 .and_then(|actual_index| self.inputs.get(*actual_index).ok_or(INDEX_OUT_OF_BOUND)),
             Source::Group(SourceEntry::Output) => Err(INDEX_OUT_OF_BOUND),
-            Source::Group(SourceEntry::Dep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
+            Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
         }
     }
 

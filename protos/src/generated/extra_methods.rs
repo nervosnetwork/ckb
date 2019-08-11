@@ -40,6 +40,12 @@ impl<'a> super::Witness<'a> {
     }
 }
 
+impl<'a> super::CellDep<'a> {
+    pub fn from_slice(slice: &'a [u8]) -> Self {
+        flatbuffers::get_root::<Self>(&slice)
+    }
+}
+
 impl<'a> super::OutPoint<'a> {
     pub fn from_slice(slice: &'a [u8]) -> Self {
         flatbuffers::get_root::<Self>(&slice)
