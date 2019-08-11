@@ -329,10 +329,16 @@ fn deposit_dao_deps(node: &Node) -> (Vec<CellDep>, Vec<H256>) {
 }
 
 // deps = [cell-point-to-withdraw-header, always-success-cell, dao-cell]
-fn withdraw_dao_deps(node: &Node, withdraw_header_hash: H256) -> (Vec<CellDep>, Vec<H256>) {
+fn withdraw_dao_deps(
+    node: &Node,
+    withdraw_header_hash: H256,
+    withdraw_out_point: OutPoint,
+) -> (Vec<CellDep>, Vec<H256>) {
+    let mut cell_deps = vec![CellDep::new_cell(withdraw_out_point)];
     let (deposit_cell_deps, mut deposit_header_deps) = deposit_dao_deps(node);
+    cell_deps.extend(deposit_cell_deps);
     deposit_header_deps.push(withdraw_header_hash);
-    (deposit_cell_deps, deposit_header_deps)
+    (cell_deps, deposit_header_deps)
 }
 
 fn deposit_dao_script() -> Script {
@@ -394,7 +400,9 @@ fn deposit_dao_transaction(node: &Node) -> Transaction {
 // Construct a withdraw dao transaction, which consumes the tip-cellbase and a given deposited cell
 // as the inputs, generates the output with always-success-script as lock script, none type script
 fn withdraw_dao_transaction(node: &Node, out_point: OutPoint, block_hash: H256) -> Transaction {
-    let withdraw_header_hash: H256 = node.get_tip_block().header().hash().to_owned();
+    let tip_block = node.get_tip_block();
+    let withdraw_out_point = OutPoint::new(tip_block.transactions()[0].hash().clone(), 0);
+    let withdraw_header_hash: H256 = tip_block.header().hash().to_owned();
     let deposited_input = {
         let minimal_since = absolute_minimal_since(node);
         CellInput::new(out_point.clone(), minimal_since)
@@ -405,7 +413,8 @@ fn withdraw_dao_transaction(node: &Node, out_point: OutPoint, block_hash: H256) 
             .calculate_dao_maximum_withdraw(out_point.into(), withdraw_header_hash.clone());
         withdraw_dao_output(input_capacities)
     };
-    let (cell_deps, mut header_deps) = withdraw_dao_deps(node, withdraw_header_hash);
+    let (cell_deps, mut header_deps) =
+        withdraw_dao_deps(node, withdraw_header_hash, withdraw_out_point);
     header_deps.push(block_hash);
     TransactionBuilder::default()
         .cell_deps(cell_deps)
