@@ -1,6 +1,6 @@
 use crate::db::cf_handle;
 use crate::{
-    Col, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction, RocksDBTransactionSnapshot,
+    internal_error, Col, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use rocksdb::{ops::IterateCF, Direction as RdbDirection, IteratorMode};
 
@@ -36,7 +36,7 @@ impl DBIterator for RocksDB {
         self.inner
             .iterator_cf(cf, mode)
             .map(|iter| Box::new(iter) as Box<_>)
-            .map_err(Into::into)
+            .map_err(internal_error)
     }
 }
 

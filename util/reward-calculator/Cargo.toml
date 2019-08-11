@@ -12,6 +12,7 @@ failure = "0.1.5"
 ckb-dao = { path = "../dao" }
 ckb-logger = { path = "../logger" }
 ckb-chain-spec = {path = "../../spec"}
+ckb-error = { path = "../../error" }
 
 [dev-dependencies]
 ckb-chain-spec = { path = "../../spec" }

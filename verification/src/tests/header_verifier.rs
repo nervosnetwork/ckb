@@ -1,10 +1,13 @@
-use crate::error::{EpochError, Error, NumberError, PowError, TimestampError};
+use crate::{
+    BlockErrorKind, EpochError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME,
+};
 use crate::header_verifier::{
     EpochVerifier, HeaderResolver, NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier,
 };
 use crate::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
+use ckb_error::Error;
 use ckb_types::{
     constants::HEADER_VERSION,
     core::{EpochExt, HeaderBuilder, HeaderView},
@@ -28,7 +31,10 @@ pub fn test_version() {
         .build();
     let verifier = VersionVerifier::new(&header);
 
-    assert_eq!(verifier.verify().err(), Some(Error::Version));
+    assert_error_eq(
+        verifier.verify().err(),
+        Some(BlockErrorKind::MismatchedVersion.into()),
+    );
 }
 
 #[cfg(not(disable_faketime))]
@@ -63,12 +69,15 @@ fn test_timestamp_too_old() {
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
 
-    assert_eq!(
+    assert_error_eq(
         timestamp_verifier.verify().err(),
-        Some(Error::Timestamp(TimestampError::BlockTimeTooOld {
-            min,
-            found: timestamp,
-        }))
+        Some(
+            TimestampError::BlockTimeTooOld {
+                min,
+                actual: timestamp,
+            }
+            .into(),
+        ),
     );
 }
 
@@ -86,12 +95,15 @@ fn test_timestamp_too_new() {
         .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
-    assert_eq!(
+    assert_error_eq(
         timestamp_verifier.verify().err(),
-        Some(Error::Timestamp(TimestampError::BlockTimeTooNew {
-            max,
-            found: timestamp,
-        }))
+        Some(
+            TimestampError::BlockTimeTooNew {
+                max,
+                actual: timestamp,
+            }
+            .into(),
+        ),
     );
 }
 
@@ -101,12 +113,15 @@ fn test_number() {
     let header = HeaderBuilder::default().number(10u64.pack()).build();
 
     let verifier = NumberVerifier::new(&parent, &header);
-    assert_eq!(
+    assert_error_eq(
         verifier.verify().err(),
-        Some(Error::Number(NumberError {
-            expected: 11,
-            actual: 10,
-        }))
+        Some(
+            NumberError {
+                expected: 11,
+                actual: 10,
+            }
+            .into(),
+        ),
     );
 }
 
@@ -140,12 +155,15 @@ fn test_epoch_number() {
     let header = HeaderBuilder::default().epoch(2u64.pack()).build();
     let fake_header_resolver = FakeHeaderResolver::new(header, EpochExt::default());
 
-    assert_eq!(
+    assert_error_eq(
         EpochVerifier::verify(&fake_header_resolver).err(),
-        Some(Error::Epoch(EpochError::NumberMismatch {
-            expected: 0,
-            actual: 2,
-        }))
+        Some(
+            EpochError::UnmatchedNumber {
+                expected: 0,
+                actual: 2,
+            }
+            .into(),
+        ),
     )
 }
 
@@ -158,12 +176,15 @@ fn test_epoch_difficulty() {
     epoch.set_difficulty(U256::from(1u64));
     let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
-    assert_eq!(
+    assert_error_eq(
         EpochVerifier::verify(&fake_header_resolver).err(),
-        Some(Error::Epoch(EpochError::DifficultyMismatch {
-            expected: U256::from(1u64),
-            actual: U256::from(2u64),
-        }))
+        Some(
+            EpochError::UnmatchedDifficulty {
+                expected: U256::from(1u64),
+                actual: U256::from(2u64),
+            }
+            .into(),
+        ),
     );
 }
 
@@ -181,8 +202,5 @@ fn test_pow_verifier() {
     let fake_pow_engine: Arc<dyn PowEngine> = Arc::new(FakePowEngine);
     let verifier = PowVerifier::new(&header, &fake_pow_engine);
 
-    assert_eq!(
-        verifier.verify().err(),
-        Some(Error::Pow(PowError::InvalidNonce))
-    );
+    assert_error_eq(verifier.verify().err(), Some(PowError::InvalidNonce.into()));
 }

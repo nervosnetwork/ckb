@@ -5,7 +5,7 @@ use ckb_types::{
     core::{BlockReward, EpochExt, HeaderView},
     packed::{Byte32, Script},
 };
-use failure::Error as FailureError;
+use ckb_error::Error;
 
 pub trait ChainProvider: Sync + Send {
     type Store: ChainStore<'static>;
@@ -23,7 +23,7 @@ pub trait ChainProvider: Sync + Send {
     fn finalize_block_reward(
         &self,
         parent: &HeaderView,
-    ) -> Result<(Script, BlockReward), FailureError>;
+    ) -> Result<(Script, BlockReward), Error>;
 
     fn consensus(&self) -> &Consensus;
 }

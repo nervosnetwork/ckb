@@ -13,6 +13,7 @@ ckb-chain-spec = { path = "../../spec" }
 ckb-resource = { path = "../../resource" }
 ckb-store = { path = "../../store" }
 ckb-dao-utils = { path = "./utils" }
+ckb-error = { path = "../../error" }
 
 [dev-dependencies]
 ckb-db = { path = "../../db" }

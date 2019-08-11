@@ -2,7 +2,7 @@ use crate::utils::{
     assert_send_transaction_fail, since_from_absolute_block_number, since_from_absolute_timestamp,
     since_from_relative_block_number, since_from_relative_timestamp, MEDIAN_TIME_BLOCK_COUNT,
 };
-use crate::{assert_regex_match, Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::{Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
 use ckb_types::core::BlockNumber;
 use log::info;
@@ -39,8 +39,8 @@ impl ValidSince {
         DEFAULT_TX_PROPOSAL_WINDOW.0 + 2
     }
 
-    // (current, current+cellbase_maturity): Err(InvalidTx(CellbaseImmaturity))
-    // [current+cellbase_maturity, current+relative_number): Err(InvalidTx(Immature))
+    // (current, current+cellbase_maturity): Err(Transaction(ImmatureCellbase))
+    // [current+cellbase_maturity, current+relative_number): Err(Transaction(ImmatureTransaction))
     pub fn test_since_relative_block_number(&self, node: &Node) {
         node.generate_block();
         let relative: BlockNumber = self.cellbase_maturity() + 5;
@@ -50,15 +50,15 @@ impl ValidSince {
             node.new_transaction_with_since(cellbase.hash(), since)
         };
 
-        // Failed to send transaction since CellbaseImmaturity
+        // Failed to send transaction since ImmatureCellbase
         for _ in 1..self.cellbase_maturity() {
-            assert_send_transaction_fail(node, &transaction, "InvalidTx(CellbaseImmaturity)");
+            assert_send_transaction_fail(node, &transaction, "Transaction(ImmatureCellbase)");
             node.generate_block();
         }
 
         // Failed to send transaction since SinceImmaturity
         for _ in self.cellbase_maturity()..relative {
-            assert_send_transaction_fail(node, &transaction, "InvalidTx(Immature)");
+            assert_send_transaction_fail(node, &transaction, "Transaction(ImmatureTransaction)");
             node.generate_block();
         }
 
@@ -74,8 +74,8 @@ impl ValidSince {
         );
     }
 
-    // (current, current+cellbase_maturity): Err(InvalidTx(CellbaseImmaturity))
-    // [current+cellbase_maturity, absolute_number): Err(InvalidTx(Immature))
+    // (current, current+cellbase_maturity): Err(Transaction(ImmatureCellbase))
+    // [current+cellbase_maturity, absolute_number): Err(Transaction(ImmatureTransaction))
     pub fn test_since_absolute_block_number(&self, node: &Node) {
         node.generate_block();
         let absolute: BlockNumber =
@@ -86,16 +86,16 @@ impl ValidSince {
             node.new_transaction_with_since(cellbase.hash(), since)
         };
 
-        // Failed to send transaction since CellbaseImmaturity
+        // Failed to send transaction since ImmatureCellbase
         for _ in 1..self.cellbase_maturity() {
-            assert_send_transaction_fail(node, &transaction, "InvalidTx(CellbaseImmaturity)");
+            assert_send_transaction_fail(node, &transaction, "Transaction(ImmatureCellbase)");
             node.generate_block();
         }
 
         // Failed to send transaction since SinceImmaturity
         let tip_number = node.rpc_client().get_tip_block_number();
         for _ in tip_number + 1..absolute {
-            assert_send_transaction_fail(node, &transaction, "InvalidTx(Immature)");
+            assert_send_transaction_fail(node, &transaction, "Transaction(ImmatureTransaction)");
             node.generate_block();
         }
 
@@ -143,7 +143,7 @@ impl ValidSince {
         {
             let since = since_from_relative_timestamp(median_time_seconds + 1);
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
-            assert_send_transaction_fail(node, &transaction, "InvalidTx(Immature)");
+            assert_send_transaction_fail(node, &transaction, "Transaction(ImmatureTransaction)");
         }
         {
             let since = since_from_relative_timestamp(median_time_seconds - 1);
@@ -189,7 +189,7 @@ impl ValidSince {
         {
             let since = since_from_absolute_timestamp(median_time_seconds + 1);
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
-            assert_send_transaction_fail(node, &transaction, "InvalidTx(Immature)");
+            assert_send_transaction_fail(node, &transaction, "Transaction(ImmatureTransaction)");
         }
         {
             let since = since_from_absolute_timestamp(median_time_seconds - 1);
@@ -218,9 +218,8 @@ impl ValidSince {
         let tx = node.new_transaction_with_since(tip_block.transactions()[0].hash(), since);
 
         (0..relative_blocks - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
-            info!("Tx is immature in block N + {}", i);
-            let error = node.rpc_client().send_transaction(tx.clone().data().into());
-            assert_regex_match(&error.to_string(), r"InvalidTx\(Immature\)");
+            info!("Tx is ImmatureTransaction in block N + {}", i);
+            assert_send_transaction_fail(node, &tx, "Transaction(ImmatureTransaction)");
             node.generate_block();
         });
 
@@ -256,9 +255,8 @@ impl ValidSince {
         let tx = node.new_transaction_with_since(tip_block.transactions()[0].hash(), since);
 
         (tip_number..absolute_block - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
-            info!("Tx is immature in block {}", i);
-            let error = node.rpc_client().send_transaction(tx.clone().data().into());
-            assert_regex_match(&error.to_string(), r"InvalidTx\(Immature\)");
+            info!("Tx is ImmatureTransaction in block {}", i);
+            assert_send_transaction_fail(node, &tx, "Not mature cause of since condition");
             node.generate_block();
         });
 

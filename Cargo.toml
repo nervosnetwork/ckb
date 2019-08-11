@@ -58,6 +58,7 @@ members = [
     "util/app-config",
     "ckb-bin",
     "benches",
+    "error",
 ]
 
 [profile.release]

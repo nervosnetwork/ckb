@@ -17,3 +17,5 @@ ckb-dao-utils = { path = "../util/dao/utils" }
 ckb-rational = { path = "../util/rational" }
 ckb-crypto = { path = "../util/crypto"}
 ckb-hash = { path = "../util/hash"}
+failure = "0.1.5"
+ckb-error = { path = "../error" }

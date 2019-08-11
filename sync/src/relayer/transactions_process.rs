@@ -1,4 +1,5 @@
 use crate::relayer::Relayer;
+use ckb_error::{Error, ErrorKind};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{
@@ -6,6 +7,7 @@ use ckb_types::{
     packed::{self, Byte32, RelayTransaction},
     prelude::*,
 };
+use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use futures::{self, future::FutureResult, lazy};
 use std::collections::HashSet;
@@ -112,7 +114,7 @@ impl<'a> TransactionsProcess<'a> {
                                 break;
                             }
                             Err(err) => {
-                                if err.is_bad_tx() {
+                                if is_bad_tx(&err) {
                                     debug_target!(
                                         crate::LOG_TARGET_RELAY,
                                         "peer {} relay a invalid tx: {}, error: {:?}",
@@ -162,5 +164,15 @@ impl<'a> TransactionsProcess<'a> {
             ckb_logger::debug!("relayer send future task error: {:?}", err);
         }
         Ok(())
+    }
+}
+
+fn is_bad_tx(error: &Error) -> bool {
+    match error.kind() {
+        ErrorKind::Transaction => TryInto::<&TransactionError>::try_into(error)
+            .expect("error kind checked")
+            .is_bad_tx(),
+        ErrorKind::Script => true,
+        _ => false,
     }
 }

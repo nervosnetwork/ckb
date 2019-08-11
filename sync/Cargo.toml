@@ -25,6 +25,7 @@ lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8
 sentry = "0.16.0"
 futures = "0.1"
 arc-swap = "0.4"
+ckb-error = {path = "../error"}
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }

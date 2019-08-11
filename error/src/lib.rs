@@ -61,8 +61,4 @@ impl Error {
     pub fn downcast_ref<T: Fail>(&self) -> Option<&T> {
         self.cause().and_then(|cause| cause.downcast_ref::<T>())
     }
-
-    pub fn is_bad_tx(&self) -> bool {
-        unimplemented!()
-    }
 }

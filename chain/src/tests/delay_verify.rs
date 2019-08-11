@@ -3,8 +3,10 @@ use crate::tests::util::{
     create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
 };
 use ckb_shared::error::SharedError;
+use ckb_core::error::OutPointError;
 use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
+use ckb_error::assert_error_eq;
 use ckb_types::{
     core::{cell::UnresolvableError, BlockBuilder, BlockView},
     packed::OutPoint,
@@ -57,16 +59,12 @@ fn test_dead_cell_in_same_block() {
             .expect("process block ok");
     }
 
-    assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(tx1_hash, 0))),
-        chain_controller
-            .process_block(
-                Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
-                true
-            )
-            .unwrap_err()
-            .downcast()
-            .unwrap()
+    assert_error_eq(
+        Err(OutPointError::DeadCell(OutPoint::new(tx1_hash, 0)).into()),
+        chain_controller.process_block(
+            Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
+            true,
+        ),
     )
 }
 
@@ -114,16 +112,14 @@ fn test_dead_cell_in_different_block() {
             .expect("process block ok");
     }
 
-    assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(tx1_hash, 0))),
+    assert_error_eq(
+        Some(OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)).into()),
         chain_controller
             .process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
-                true
+                true,
             )
-            .unwrap_err()
-            .downcast()
-            .unwrap()
+            .err(),
     );
 }
 
@@ -172,18 +168,12 @@ fn test_invalid_out_point_index_in_same_block() {
             .expect("process block ok");
     }
 
-    assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
-            tx1_hash, 1,
-        )])),
-        chain_controller
-            .process_block(
-                Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
-                true
-            )
-            .unwrap_err()
-            .downcast()
-            .unwrap()
+    assert_error_eq(
+        Err(OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash, 1)]).into()),
+        chain_controller.process_block(
+            Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
+            true,
+        ),
     )
 }
 
@@ -233,18 +223,12 @@ fn test_invalid_out_point_index_in_different_blocks() {
             .expect("process block ok");
     }
 
-    assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
-            tx1_hash, 1,
-        )])),
-        chain_controller
-            .process_block(
-                Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
-                true
-            )
-            .unwrap_err()
-            .downcast()
-            .unwrap()
+    assert_error_eq(
+        Err(OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]).into()),
+        chain_controller.process_block(
+            Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
+            true,
+        ),
     );
 }
 

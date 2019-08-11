@@ -2,6 +2,7 @@
 
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
+use ckb_error::Error;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -32,20 +33,20 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
     /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
-    pub fn block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), FailureError> {
+    pub fn block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
         let consensus = self.consensus;
         let store = self.store;
 
         let block_number = parent.number() + 1;
         let target_number = consensus
             .finalize_target(block_number)
-            .ok_or_else(|| Error::Target(block_number))?;
+            .expect("block number checked before involving finalize_target");
 
         let target = self
             .store
             .get_block_hash(target_number)
             .and_then(|hash| self.store.get_block_header(&hash))
-            .ok_or_else(|| Error::Target(block_number))?;
+            .expect("block hash checked before involving get_ancestor");
 
         let target_lock = Script::from_witness(
             store
@@ -55,7 +56,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
                 .get(0)
                 .expect("target witness exist"),
         )
-        .ok_or_else(|| Error::Script(target.hash().to_owned()))?;
+        .expect("cellbase loaded from store should has non-empty witness");
 
         let txs_fees = self.txs_fees(&target)?;
         let proposal_reward = self.proposal_reward(parent, &target)?;
@@ -91,7 +92,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// Miner get (tx_fee - 40% of tx fee) for tx commitment.
     /// Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
-    pub fn txs_fees(&self, target: &HeaderView) -> Result<Capacity, FailureError> {
+    pub fn txs_fees(&self, target: &HeaderView) -> Result<Capacity, Error> {
         let consensus = self.consensus;
         let target_ext = self
             .store
@@ -128,7 +129,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         &self,
         parent: &HeaderView,
         target: &HeaderView,
-    ) -> Result<Capacity, FailureError> {
+    ) -> Result<Capacity, Error> {
         let mut target_proposals = self.get_proposal_ids_by_hash(&target.hash());
 
         let proposal_window = self.consensus.tx_proposal_window();
@@ -219,7 +220,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         Ok(reward)
     }
 
-    fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), FailureError> {
+    fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), Error> {
         let calculator = DaoCalculator::new(&self.consensus, self.store);
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;

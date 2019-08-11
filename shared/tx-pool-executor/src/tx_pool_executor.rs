@@ -1,5 +1,5 @@
+use ckb_error::Error;
 use ckb_shared::shared::Shared;
-use ckb_shared::tx_pool::PoolError;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
@@ -45,7 +45,7 @@ impl TxPoolExecutor {
         TxPoolExecutor { shared }
     }
 
-    pub fn verify_and_add_tx_to_pool(&self, tx: TransactionView) -> Result<Cycle, PoolError> {
+    pub fn verify_and_add_tx_to_pool(&self, tx: TransactionView) -> Result<Cycle, Error> {
         self.verify_and_add_txs_to_pool(vec![tx])
             .map(|cycles_vec| *cycles_vec.get(0).expect("tx verified cycles"))
     }
@@ -53,7 +53,7 @@ impl TxPoolExecutor {
     pub fn verify_and_add_txs_to_pool(
         &self,
         txs: Vec<TransactionView>,
-    ) -> Result<Vec<Cycle>, PoolError> {
+    ) -> Result<Vec<Cycle>, Error> {
         if txs.is_empty() {
             return Ok(Vec::new());
         }
@@ -63,7 +63,7 @@ impl TxPoolExecutor {
         let (
             resolved_txs,
             cached_txs,
-            unresolvable_txs,
+            mut unresolvable_txs,
             consensus,
             parent_number,
             epoch_number,
@@ -85,7 +85,7 @@ impl TxPoolExecutor {
                     match tx_pool.resolve_tx_from_pending_and_proposed(tx) {
                         Ok(resolved_tx) => resolved_txs.push((tx.hash(), resolved_tx)),
                         Err(err) => unresolvable_txs
-                            .push((tx.hash(), PoolError::UnresolvableTransaction(err))),
+                            .push((tx.hash(), err)),
                     }
                 }
             }
@@ -102,8 +102,8 @@ impl TxPoolExecutor {
 
         // immediately return if resolved_txs is empty
         if resolved_txs.is_empty() && cached_txs.is_empty() {
-            let (_tx, err) = unresolvable_txs.get(0).expect("unresolved tx exists");
-            return Err(err.to_owned());
+            let (_, err) = unresolvable_txs.remove(0);
+            return Err(err);
         }
 
         let max_block_cycles = consensus.max_block_cycles();
@@ -112,7 +112,7 @@ impl TxPoolExecutor {
             median_time_block_count: consensus.median_time_block_count() as u64,
         };
 
-        // parallet verify txs
+        // parallel verify txs
         let cycles_vec = resolved_txs
             .iter()
             .map(|(tx_hash, tx)| {
@@ -127,8 +127,7 @@ impl TxPoolExecutor {
                     snapshot,
                 )
                 .verify(max_block_cycles)
-                .map(|cycles| (tx, cycles))
-                .map_err(PoolError::InvalidTx);
+                .map(|cycles| (tx, cycles));
                 (tx_hash.to_owned(), verified_result)
             })
             .collect::<Vec<_>>();
@@ -160,7 +159,7 @@ impl TxPoolExecutor {
                 .into_iter()
                 .chain(cached_txs)
                 .chain(unresolvable_txs.into_iter().map(|(tx, err)| (tx, Err(err))))
-                .collect::<HashMap<Byte32, Result<Cycle, PoolError>>>();
+                .collect::<HashMap<Byte32, Result<Cycle, Error>>>();
             txs.iter()
                 .map(|tx| {
                     cycles_vec
@@ -168,7 +167,7 @@ impl TxPoolExecutor {
                         .expect("verified tx should exists")
                         .map(|cycles| (cycles, tx.to_owned()))
                 })
-                .collect::<Vec<Result<(Cycle, TransactionView), PoolError>>>()
+                .collect::<Vec<Result<(Cycle, TransactionView), Error>>>()
         };
         cycles_vec
             .into_iter()
@@ -185,6 +184,8 @@ mod tests {
     use super::*;
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
+    use ckb_core::error::OutPointError;
+    use ckb_error::assert_error_eq;
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
     use ckb_test_chain_utils::always_success_cell;
@@ -342,6 +343,9 @@ mod tests {
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
                 txs[10].inputs().get(0).unwrap().previous_output()
             )))
+        assert_error_eq(
+            result.err(),
+            Some(OutPointError::DeadCell(txs[10].inputs()[0].previous_output.to_owned()).into()),
         );
         // spent half available half conflict cells
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[6..=15].to_vec());
@@ -350,12 +354,18 @@ mod tests {
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
                 txs[10].inputs().get(0).unwrap().previous_output()
             )))
+        assert_error_eq(
+            result.err(),
+            Some(OutPointError::DeadCell(txs[10].inputs()[0].previous_output.to_owned()).into()),
         );
         // spent one duplicate cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[1].to_owned());
         assert_eq!(result.err(), Some(PoolError::Duplicate));
         // spent one conflict cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[13].to_owned());
+        assert_error_eq(
+            result.err(),
+            Some(OutPointError::DeadCell(txs[13].inputs()[0].previous_output.to_owned()).into()),
         assert_eq!(
             result,
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
@@ -401,20 +411,28 @@ mod tests {
         let tx_pool_executor = TxPoolExecutor::new(shared.clone());
 
         assert_eq!(
-            tx_pool_executor.verify_and_add_tx_to_pool(transactions[0].clone()),
-            Ok(12),
+            tx_pool_executor
+                .verify_and_add_tx_to_pool(transactions[0].clone())
+                .ok(),
+            Some(12),
         );
         assert_eq!(
-            tx_pool_executor.verify_and_add_tx_to_pool(transactions[1].clone()),
-            Ok(12),
+            tx_pool_executor
+                .verify_and_add_tx_to_pool(transactions[1].clone())
+                .ok(),
+            Some(12),
         );
         assert_eq!(
-            tx_pool_executor.verify_and_add_tx_to_pool(transactions[2].clone()),
-            Ok(12),
+            tx_pool_executor
+                .verify_and_add_tx_to_pool(transactions[2].clone())
+                .ok(),
+            Some(12),
         );
-        assert_eq!(
-            tx_pool_executor.verify_and_add_tx_to_pool(transactions[3].clone()),
-            Err(PoolError::InvalidTx(TransactionError::Immature)),
+        assert_error_eq(
+            tx_pool_executor
+                .verify_and_add_tx_to_pool(transactions[3].clone())
+                .err(),
+            Some(TransactionError::ImmatureTransaction.into()),
         );
     }
 }

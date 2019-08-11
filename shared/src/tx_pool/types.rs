@@ -41,43 +41,6 @@ impl Default for TxPoolConfig {
     }
 }
 
-// TODO document this enum more accurately
-/// Enum of errors
-#[derive(Debug, Clone, PartialEq, Fail)]
-pub enum PoolError {
-    /// Unresolvable CellStatus
-    UnresolvableTransaction(UnresolvableError),
-    /// An invalid pool entry caused by underlying tx validation error
-    InvalidTx(TransactionError),
-    /// Transaction pool reach limit, can't accept more transactions
-    LimitReached,
-    /// TimeOut
-    TimeOut,
-    /// BlockNumber is not right
-    InvalidBlockNumber,
-    /// Duplicate tx
-    Duplicate,
-    /// tx fee
-    TxFee,
-}
-
-impl PoolError {
-    /// Transaction error may be caused by different tip between peers if this method return false,
-    /// Otherwise we consider the Bad Tx is constructed intendedly.
-    pub fn is_bad_tx(&self) -> bool {
-        match self {
-            PoolError::InvalidTx(err) => err.is_bad_tx(),
-            _ => false,
-        }
-    }
-}
-
-impl fmt::Display for PoolError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self, f)
-    }
-}
-
 /// An defect entry (conflict or orphan) in the transaction pool.
 #[derive(Debug, Clone)]
 pub struct DefectEntry {

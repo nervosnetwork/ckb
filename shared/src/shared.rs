@@ -1,4 +1,3 @@
-use crate::error::SharedError;
 use crate::tx_pool::{TxPool, TxPoolConfig};
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
@@ -6,6 +5,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{DBConfig, RocksDB};
 use ckb_logger::info_target;
 use ckb_proposal_table::{ProposalTable, ProposalView};
+use ckb_error::Error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainDB;
@@ -40,7 +40,7 @@ impl Shared {
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
         script_config: ScriptConfig,
-    ) -> Result<(Self, ProposalTable), SharedError> {
+    ) -> Result<(Self, ProposalTable), Error> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
@@ -248,7 +248,7 @@ impl ChainProvider for Shared {
     fn finalize_block_reward(
         &self,
         parent: &HeaderView,
-    ) -> Result<(Script, BlockReward), FailureError> {
+    ) -> Result<(Script, BlockReward), Error> {
         RewardCalculator::new(self.consensus(), self.store()).block_reward(parent)
     }
 
@@ -308,7 +308,7 @@ impl SharedBuilder {
         self
     }
 
-    pub fn build(self) -> Result<(Shared, ProposalTable), SharedError> {
+    pub fn build(self) -> Result<(Shared, ProposalTable), Error> {
         if let Some(config) = self.store_config {
             config.apply()
         }

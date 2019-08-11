@@ -18,11 +18,14 @@ crossbeam-channel = "0.3"
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-traits = { path = "../traits" }
 failure = "0.1.5"
+serde_json = "1.0"
+serde_derive = "1.0"
 ckb-dao = { path = "../util/dao" }
 ckb-proposal-table = { path = "../util/proposal-table" }
 # DO NOT UPDATE "im", until clippy#4121 be solved
 # https://github.com/rust-lang/rust-clippy/issues/4121
 im = "~12.3"
+ckb-error = { path = "../error" }
 
 [dev-dependencies]
 env_logger = "0.6"

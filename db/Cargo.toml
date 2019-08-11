@@ -8,10 +8,10 @@ edition = "2018"
 [dependencies]
 serde = "1.0"
 serde_derive = "1.0"
-failure = "0.1.5"
 ckb-logger = { path = "../util/logger" }
 semver = "0.9"
 tempfile = "3.0"
+ckb-error = { path = "../error" }
 
 [dependencies.rocksdb]
 git = "https://github.com/nervosnetwork/rust-rocksdb"

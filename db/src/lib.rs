@@ -3,7 +3,7 @@
 //! This Library contains the `KeyValueDB` traits
 //! which provides key-value store interface
 
-use failure::Fail;
+use ckb_error::{Error, InternalError, InternalErrorKind};
 use std::result;
 
 pub mod config;
@@ -22,14 +22,6 @@ pub use rocksdb::{DBPinnableSlice, DBVector, Error as DBError};
 pub type Col = &'static str;
 pub type Result<T> = result::Result<T, Error>;
 
-#[derive(Clone, Debug, PartialEq, Eq, Fail)]
-pub enum Error {
-    #[fail(display = "DBError {}", _0)]
-    DBError(String),
-}
-
-impl From<DBError> for Error {
-    fn from(db_err: DBError) -> Self {
-        Error::DBError(db_err.into_string())
-    }
+fn internal_error<S: ToString>(cause: S) -> Error {
+    InternalError::new(InternalErrorKind::Database, cause.to_string()).into()
 }

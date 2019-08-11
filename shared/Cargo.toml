@@ -17,7 +17,6 @@ lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8
 faketime = "0.2"
 ckb-logger = { path = "../util/logger" }
 ckb-traits = { path = "../traits" }
-failure = "0.1.5"
 ckb-verification = { path = "../verification" }
 ckb-script = { path = "../script" }
 ckb-dao = { path = "../util/dao" }
@@ -27,6 +26,7 @@ ckb-proposal-table = { path = "../util/proposal-table" }
 # https://github.com/rust-lang/rust-clippy/issues/4121
 im = "~12.3"
 arc-swap = "0.4"
+ckb-error = { path = "../error" }
 
 [dev-dependencies]
 env_logger = "0.6"

@@ -1,4 +1,5 @@
-use crate::{assert_regex_match, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::utils::assert_send_transaction_fail;
+use crate::{Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
 use ckb_types::core::BlockNumber;
 use log::info;
@@ -22,8 +23,7 @@ impl Spec for CellbaseMaturity {
 
         (0..MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is not maturity in N + {} block", i);
-            let error = node.rpc_client().send_transaction(tx.clone().data().into());
-            assert_regex_match(&error.to_string(), r"InvalidTx\(CellbaseImmaturity\)");
+            assert_send_transaction_fail(node, &tx, "ImmatureCellbase");
             node.generate_block();
         });
 

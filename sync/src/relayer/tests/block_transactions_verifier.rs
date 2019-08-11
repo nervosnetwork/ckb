@@ -39,7 +39,10 @@ fn test_invalid() {
     assert_eq!(
         ret.err(),
         Some(Error::Misbehavior(
-            Misbehavior::InvalidBlockTransactionsLength { expect: 3, got: 2 }
+            Misbehavior::InvalidBlockTransactionsLength {
+                expected: 3,
+                got: 2
+            }
         ))
     );
 
@@ -49,7 +52,7 @@ fn test_invalid() {
         .map(|i| new_index_transaction(i).transaction().into_view())
         .collect();
 
-    let expect = new_index_transaction(3).transaction().proposal_short_id();
+    let expected = new_index_transaction(3).transaction().proposal_short_id();
     let got = new_index_transaction(4).transaction().proposal_short_id();
 
     let ret = BlockTransactionsVerifier::verify(&block, &indexes, &block_txs);
@@ -57,7 +60,7 @@ fn test_invalid() {
     assert_eq!(
         ret.err(),
         Some(Error::Misbehavior(Misbehavior::InvalidBlockTransactions {
-            expect,
+            expected,
             got
         }))
     );
