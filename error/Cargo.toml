@@ -1,0 +1,13 @@
+[package]
+name = "ckb-error"
+version = "0.19.0-pre"
+license = "MIT"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+failure = "0.1.5"
+ckb-occupied-capacity = { path = "../util/occupied-capacity" }
+enum-display-derive = "0.1.0"
