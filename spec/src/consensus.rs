@@ -415,14 +415,12 @@ impl Consensus {
         let last_epoch_hash_rate =
             last_difficulty * (last_epoch_length + last_uncles_count) / &last_epoch_duration;
 
-        let adjusted_last_epoch_hash_rate = self.bounding_hash_rate(
-            last_epoch_hash_rate,
-            last_epoch.previous_epoch_hash_rate().to_owned(),
-        );
-
-        debug_assert!(
-            adjusted_last_epoch_hash_rate > U256::zero(),
-            "adjusted_last_epoch_hash_rate should greater than one"
+        let adjusted_last_epoch_hash_rate = cmp::max(
+            self.bounding_hash_rate(
+                last_epoch_hash_rate,
+                last_epoch.previous_epoch_hash_rate().to_owned(),
+            ),
+            U256::one(),
         );
 
         // (2) Computing the Next Epoch’s Main Chain Block Number
