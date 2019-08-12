@@ -1,6 +1,6 @@
 use crate::relayer::compact_block::TransactionHashes;
 use crate::relayer::Relayer;
-use crate::{attempt, Status, StatusCode};
+use crate::{attempt, Status};
 use ckb_core::transaction::ProposalShortId;
 use ckb_logger::debug_target;
 use ckb_network::PeerIndex;

@@ -1,10 +1,10 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::MAX_HEADERS_LEN;
+use crate::{attempt, Status, StatusCode, MAX_HEADERS_LEN};
 use ckb_core::extras::EpochExt;
 use ckb_core::header::Header;
 use ckb_core::BlockNumber;
-use ckb_logger::{debug, log_enabled, warn, Level};
+use ckb_logger::{debug, log_enabled, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, FlatbuffersVectorIterator, Headers};
 use ckb_traits::BlockMedianTimeContext;
@@ -152,15 +152,16 @@ impl<'a> HeadersProcess<'a> {
         acceptor.accept()
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         debug!("HeadersProcess begin");
 
-        let headers = cast!(self.message.headers())?;
-
+        let headers = attempt!(cast!(self.message.headers()));
         if headers.len() > MAX_HEADERS_LEN {
-            self.synchronizer.shared().misbehavior(self.peer, 20);
-            warn!("HeadersProcess is_oversize");
-            return Ok(());
+            return StatusCode::MalformedProtocolMessage.with_context(format!(
+                "Headers is too large, max: {}, actual: {}",
+                MAX_HEADERS_LEN,
+                headers.len(),
+            ));
         }
 
         if headers.len() == 0 {
@@ -172,32 +173,25 @@ impl<'a> HeadersProcess<'a> {
                 .get_mut(&self.peer)
                 .expect("Peer must exists")
                 .headers_sync_timeout = None;
-            debug!("HeadersProcess is_empty (synchronized)");
-            return Ok(());
+            return StatusCode::Ignored.with_context("Headers is empty(synchronized)");
         }
 
         let headers = FlatbuffersVectorIterator::new(headers)
             .map(TryInto::try_into)
-            .collect::<Result<Vec<Header>, FailureError>>()?;
+            .collect::<Result<Vec<Header>, FailureError>>();
+        let headers = attempt!(headers);
 
         if !self.is_continuous(&headers) {
-            self.synchronizer.shared().misbehavior(self.peer, 20);
-            debug!("HeadersProcess is not continuous");
-            return Ok(());
+            return StatusCode::MalformedProtocolMessage
+                .with_context("Headers is discontinuous".to_owned());
         }
 
         let result = self.accept_first(&headers[0]);
         if !result.is_valid() {
-            if result.misbehavior > 0 {
-                self.synchronizer
-                    .shared()
-                    .misbehavior(self.peer, result.misbehavior);
-            }
-            debug!(
-                "HeadersProcess accept_first is_valid {:?} headers = {:?}",
-                result, headers[0]
-            );
-            return Ok(());
+            return StatusCode::InvalidHeader.with_context(format!(
+                "accept_first Headers {:?} error: {:?}",
+                headers[0], result.error,
+            ));
         }
 
         for window in headers.windows(2) {
@@ -210,15 +204,11 @@ impl<'a> HeadersProcess<'a> {
                 let acceptor =
                     HeaderAcceptor::new(&header, self.peer, &self.synchronizer, resolver, verifier);
                 let result = acceptor.accept();
-
                 if !result.is_valid() {
-                    if result.misbehavior > 0 {
-                        self.synchronizer
-                            .shared()
-                            .misbehavior(self.peer, result.misbehavior);
-                    }
-                    debug!("HeadersProcess accept is invalid {:?}", result);
-                    return Ok(());
+                    return StatusCode::InvalidHeader.with_context(format!(
+                        "accept Headers {:?} error: {:?}",
+                        header, result.error,
+                    ));
                 }
             }
         }
@@ -288,7 +278,7 @@ impl<'a> HeadersProcess<'a> {
             }
         }
 
-        Ok(())
+        Status::ok()
     }
 }
 

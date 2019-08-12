@@ -1,4 +1,6 @@
+use crate::{BAD_MESSAGE_BAN_TIME, SYNC_USELESS_BAN_TIME};
 use std::fmt::{self, Display, Formatter};
+use std::time::Duration;
 
 /// Similar to `?`, `attempt!` is used for propagating `Status`.
 ///
@@ -64,6 +66,8 @@ pub enum StatusCode {
     /// The node cannot process the arrived CompactBlock successfully for lack
     /// of parts of its transactions
     WaitingTransactions = 107,
+    /// The node ignore the arrived message because of IBD
+    InitialBlockDownload = 108,
 
     ///////////////////////////////////
     //      Malformed Error 4xx      //
@@ -87,6 +91,8 @@ pub enum StatusCode {
     InvalidBlock = 409,
     /// Invalid header
     InvalidHeader = 410,
+    /// The node hasn't common ancestor blocks with the GetHeaders
+    MissingCommonAncestor = 411,
 
     ///////////////////////////////////
     //      Server Error 5xx         //
@@ -96,8 +102,8 @@ pub enum StatusCode {
 }
 
 impl StatusCode {
-    pub fn with_context(self, context: String) -> Status {
-        Status::with_context(self, context)
+    pub fn with_context<S: ToString>(self, context: S) -> Status {
+        Status::with_context(self, context.to_string())
     }
 }
 
@@ -123,19 +129,15 @@ impl Status {
         }
     }
 
-    pub fn with_context(code: StatusCode, context: String) -> Self {
+    pub fn with_context<S: ToString>(code: StatusCode, context: S) -> Self {
         Self {
             code,
-            context: Some(context),
+            context: Some(context.to_string()),
         }
     }
 
     pub fn is_ok(&self) -> bool {
         self.code == StatusCode::OK
-    }
-
-    pub fn is_malformed(&self) -> bool {
-        400 <= self.code as u16 && (self.code as u16) < 500
     }
 
     pub fn unwrap_err(self) -> Self {
@@ -144,6 +146,26 @@ impl Status {
 
     pub fn unwrap(self) -> Self {
         self
+    }
+
+    pub fn should_ban(&self) -> Option<Duration> {
+        if (self.code as u16) < 400 || 500 <= (self.code as u16) {
+            return None;
+        }
+        match self.code {
+            StatusCode::MalformedProtocolMessage
+            | StatusCode::DuplicatedShortIds
+            | StatusCode::MissingPrefilledCellbase
+            | StatusCode::DuplicatedPrefilledTransactions
+            | StatusCode::OutOfOrderPrefilledTransactions
+            | StatusCode::OutOfIndexPrefilledTransactions
+            | StatusCode::UnmatchedBlockTransactionsLength
+            | StatusCode::UnmatchedBlockTransactions
+            | StatusCode::InvalidBlock
+            | StatusCode::InvalidHeader => Some(BAD_MESSAGE_BAN_TIME),
+            StatusCode::MissingCommonAncestor => Some(SYNC_USELESS_BAN_TIME),
+            _ => unreachable!(),
+        }
     }
 }
 

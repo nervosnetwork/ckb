@@ -1,5 +1,6 @@
 use crate::relayer::block_proposal_process::BlockProposalProcess;
 use crate::relayer::tests::helper::{build_chain, new_transaction, MockProtocalContext};
+use crate::StatusCode;
 use ckb_core::transaction::ProposalShortId;
 use ckb_protocol::{cast, get_root, BlockProposal, RelayMessage};
 use flatbuffers::FlatBufferBuilder;
@@ -35,7 +36,7 @@ fn test_no_unknown() {
         &relayer,
         Arc::<MockProtocalContext>::clone(&nc),
     );
-    assert!(process.execute().is_ok());
+    assert_eq!(process.execute().code, StatusCode::Ignored);
 }
 
 #[test]
@@ -61,7 +62,7 @@ fn test_no_asked() {
         &relayer,
         Arc::<MockProtocalContext>::clone(&nc),
     );
-    assert!(process.execute().is_ok());
+    assert_eq!(process.execute().code, StatusCode::Ignored);
 
     let known = relayer.shared.already_known_tx(transaction.hash());
     assert_eq!(known, false);

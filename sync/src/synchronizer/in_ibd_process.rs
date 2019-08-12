@@ -1,9 +1,8 @@
 use crate::synchronizer::Synchronizer;
-use crate::PROTECT_STOP_SYNC_TIME;
+use crate::{Status, PROTECT_STOP_SYNC_TIME};
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::InIBD;
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::sync::atomic::Ordering;
 
@@ -29,8 +28,8 @@ impl<'a> InIBDProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
-        info!("getheader with ibd peer {:?}", self.peer);
+    pub fn execute(self) -> Status {
+        info!("receive InIBD from {:?}", self.peer);
         if let Some(state) = self
             .synchronizer
             .shared
@@ -62,6 +61,6 @@ impl<'a> InIBDProcess<'a> {
                     .fetch_sub(1, Ordering::Release);
             }
         }
-        Ok(())
+        Status::ok()
     }
 }

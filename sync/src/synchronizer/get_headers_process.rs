@@ -1,7 +1,7 @@
 use crate::synchronizer::Synchronizer;
-use crate::{NetworkProtocol, MAX_LOCATOR_SIZE, SYNC_USELESS_BAN_TIME};
+use crate::{attempt, NetworkProtocol, Status, StatusCode, MAX_LOCATOR_SIZE};
 use ckb_core::header::Header;
-use ckb_logger::{debug, info, warn};
+use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetHeaders, SyncMessage};
 use failure::Error as FailureError;
@@ -31,31 +31,26 @@ impl<'a> GetHeadersProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
+    pub fn execute(self) -> Status {
         if self.synchronizer.shared.is_initial_block_download() {
-            info!(
-                "Ignoring getheaders from peer={} because node is in initial block download",
-                self.peer
-            );
             self.send_in_ibd();
-            return Ok(());
+            return StatusCode::InitialBlockDownload
+                .with_context("Ignore GetHeaders because node is in InitialBlockDownload");
         }
 
-        let locator = cast!(self.message.block_locator_hashes())?;
+        let locator = attempt!(cast!(self.message.block_locator_hashes()));
         let locator_size = locator.len();
         if locator_size > MAX_LOCATOR_SIZE {
-            warn!(
-                " getheaders locator size {} from peer={}",
-                locator_size, self.peer
-            );
-            cast!(None)?;
+            return StatusCode::MalformedProtocolMessage
+                .with_context(format!("GetHeaders locator hashes size {}", locator_size,));
         }
 
         let hash_stop = H256::zero(); // TODO PENDING self.message.hash_stop().into();
         let block_locator_hashes = locator
             .iter()
             .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, FailureError>>()?;
+            .collect::<Result<Vec<_>, FailureError>>();
+        let block_locator_hashes: Vec<H256> = attempt!(block_locator_hashes);
 
         if let Some(block_number) = self
             .synchronizer
@@ -87,13 +82,16 @@ impl<'a> GetHeadersProcess<'a> {
                 debug!("synchronizer send Headers error: {:?}", err);
             }
         } else {
-            for hash in &block_locator_hashes[..] {
-                warn!("unknown block headers from peer {} {:#x}", self.peer, hash);
-            }
-            // Got 'headers' message without known blocks
-            self.nc.ban_peer(self.peer, SYNC_USELESS_BAN_TIME);
+            let hashes = block_locator_hashes
+                .iter()
+                .map(|hash| format!(" {:#x}", hash))
+                .collect::<String>();
+            return StatusCode::MissingCommonAncestor.with_context(format!(
+                "GetHeaders has not common ancestor with us: {}",
+                hashes,
+            ));
         }
-        Ok(())
+        Status::ok()
     }
 
     fn send_in_ibd(&self) {

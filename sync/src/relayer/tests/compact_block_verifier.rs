@@ -82,7 +82,7 @@ fn test_intersected_short_ids() {
     block.short_ids = short_ids;
     assert_eq!(
         ShortIdsVerifier::verify(&block),
-        StatusCode::DuplicatedPrefilledTransactions.into(),
+        StatusCode::DuplicatedShortIds.into(),
     );
 }
 

@@ -23,7 +23,7 @@ use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
 use crate::types::SyncSharedState;
-use crate::{attempt, Status, StatusCode, BAD_MESSAGE_BAN_TIME};
+use crate::{attempt, Status, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
@@ -148,9 +148,9 @@ impl Relayer {
         message: RelayMessage,
     ) {
         let status = self.try_process(Arc::clone(&nc), peer, message);
-        if status.is_malformed() {
+        if let Some(ban_time) = status.should_ban() {
             error_target!(crate::LOG_TARGET_RELAY, "{} from {}", status, peer);
-            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+            nc.ban_peer(peer, ban_time);
         } else if !status.is_ok() {
             debug_target!(crate::LOG_TARGET_RELAY, "{} from {}", status, peer);
         }

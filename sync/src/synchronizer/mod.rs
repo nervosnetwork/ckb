@@ -16,14 +16,14 @@ use self::in_ibd_process::InIBDProcess;
 use crate::block_status::BlockStatus;
 use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState};
 use crate::{
-    BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
+    attempt, Status, BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
     MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE, PROTECT_STOP_SYNC_TIME,
 };
 use ckb_chain::chain::ChainController;
 use ckb_core::block::Block;
 use ckb_core::header::Header;
-use ckb_logger::{debug, info, trace};
+use ckb_logger::{debug, error, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
 use ckb_protocol::{cast, get_root, SyncMessage, SyncPayload};
 use failure::Error as FailureError;
@@ -65,41 +65,51 @@ impl Synchronizer {
         nc: &CKBProtocolContext,
         peer: PeerIndex,
         message: SyncMessage,
-    ) -> Result<(), FailureError> {
+    ) -> Status {
         match message.payload_type() {
-            SyncPayload::GetHeaders => {
-                GetHeadersProcess::new(&cast!(message.payload_as_get_headers())?, self, peer, nc)
-                    .execute()?;
-            }
-            SyncPayload::Headers => {
-                HeadersProcess::new(&cast!(message.payload_as_headers())?, self, peer, nc)
-                    .execute()?;
-            }
-            SyncPayload::GetBlocks => {
-                GetBlocksProcess::new(&cast!(message.payload_as_get_blocks())?, self, peer, nc)
-                    .execute()?;
-            }
+            SyncPayload::GetHeaders => GetHeadersProcess::new(
+                &attempt!(cast!(message.payload_as_get_headers())),
+                self,
+                peer,
+                nc,
+            )
+            .execute(),
+            SyncPayload::Headers => HeadersProcess::new(
+                &attempt!(cast!(message.payload_as_headers())),
+                self,
+                peer,
+                nc,
+            )
+            .execute(),
+            SyncPayload::GetBlocks => GetBlocksProcess::new(
+                &attempt!(cast!(message.payload_as_get_blocks())),
+                self,
+                peer,
+                nc,
+            )
+            .execute(),
             SyncPayload::Block => {
-                BlockProcess::new(&cast!(message.payload_as_block())?, self, peer, nc).execute()?;
+                BlockProcess::new(&attempt!(cast!(message.payload_as_block())), self, peer, nc)
+                    .execute()
             }
-            SyncPayload::InIBD => {
-                InIBDProcess::new(&cast!(message.payload_as_in_ibd())?, self, peer, nc)
-                    .execute()?;
-            }
-            SyncPayload::NONE => {
-                cast!(None)?;
-            }
-            _ => {
-                cast!(None)?;
-            }
+            SyncPayload::InIBD => InIBDProcess::new(
+                &attempt!(cast!(message.payload_as_in_ibd())),
+                self,
+                peer,
+                nc,
+            )
+            .execute(),
+            _ => Status::ignored(),
         }
-        Ok(())
     }
 
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
-        if let Err(err) = self.try_process(nc, peer, message) {
-            debug!("try_process error: {}", err);
-            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+        let status = self.try_process(nc, peer, message);
+        if let Some(ban_time) = status.should_ban() {
+            error!("{} from {}", status, peer);
+            nc.ban_peer(peer, ban_time);
+        } else if !status.is_ok() {
+            debug!("{} from {}", status, peer);
         }
     }
 
@@ -1035,7 +1045,7 @@ mod tests {
         synchronizer1.on_connected(&mock_nc, peer2);
         HeadersProcess::new(&fbs_headers, &synchronizer1, peer1, &mock_nc)
             .execute()
-            .expect("Process headers from peer1 failed");
+            .unwrap();
 
         let best_known_header = synchronizer1.peers().get_best_known_header(peer1);
 
