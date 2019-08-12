@@ -6,8 +6,8 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    resolve_transaction, CellProvider, CellStatus, HeaderChecker, OverlayCellProvider,
-    ResolvedTransaction, UnresolvableError,
+    parse_dep_group_data, resolve_transaction, CellProvider, CellStatus, HeaderChecker,
+    OverlayCellProvider, ResolvedTransaction, UnresolvableError,
 };
 use ckb_core::extras::EpochExt;
 use ckb_core::header::{BlockNumber, Header};
@@ -502,7 +502,18 @@ impl ChainState {
                             tx_pool.update_statics_for_remove_tx(size, cycles);
                             PoolError::TxFee
                         })?;
-                    tx_pool.add_proposed(cycles, fee, size, tx);
+                    // Resolved out points and dep group out point
+                    let related_out_points: Vec<OutPoint> = rtx
+                        .resolved_cell_deps
+                        .iter()
+                        .map(|cell_meta| cell_meta.out_point.clone())
+                        .chain({
+                            tx.cell_deps_iter()
+                                .filter(|dep| dep.is_dep_group())
+                                .map(|dep| dep.out_point().clone())
+                        })
+                        .collect();
+                    tx_pool.add_proposed(cycles, fee, size, tx, related_out_points);
                     Ok(cycles)
                 }
                 Err(e) => {
@@ -584,8 +595,29 @@ impl ChainState {
 
         let retain: Vec<Transaction> = detached.difference(&attached).cloned().collect();
 
+        let txs_iter = attached.iter().map(|tx| {
+            let related_out_points = tx.cell_deps_iter().fold(
+                Vec::with_capacity(tx.cell_deps().len()),
+                |mut out_points, dep| {
+                    let out_point = dep.out_point();
+                    if dep.is_dep_group() {
+                        // If we didn't delete it, we should always can load the cell meta
+                        let data = self
+                            .store
+                            .get_cell_data(&out_point.tx_hash, out_point.index)
+                            .expect("Cell data must exists when remove dep group");
+                        let sub_out_points = parse_dep_group_data(data)
+                            .expect("Parse dep group data fialed when remove dep group");
+                        out_points.extend(sub_out_points);
+                    }
+                    out_points.push(out_point.clone());
+                    out_points
+                },
+            );
+            (tx, related_out_points)
+        });
         tx_pool.remove_expired(detached_proposal_id);
-        tx_pool.remove_committed_txs_from_proposed(attached.iter());
+        tx_pool.remove_committed_txs_from_proposed(txs_iter);
 
         for tx in retain {
             let tx_hash = tx.hash().to_owned();

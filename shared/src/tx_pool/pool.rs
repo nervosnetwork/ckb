@@ -142,10 +142,12 @@ impl TxPool {
         fee: Capacity,
         size: usize,
         tx: Transaction,
+        related_out_points: Vec<OutPoint>,
     ) {
         trace_target!(crate::LOG_TARGET_TX_POOL, "add_proposed {:#x}", tx.hash());
         self.touch_last_txs_updated_at();
-        self.proposed.add_tx(cycles, fee, size, tx);
+        self.proposed
+            .add_tx(cycles, fee, size, tx, related_out_points);
     }
 
     pub(crate) fn touch_last_txs_updated_at(&mut self) {
@@ -237,12 +239,12 @@ impl TxPool {
 
     pub(crate) fn remove_committed_txs_from_proposed<'a>(
         &mut self,
-        txs: impl Iterator<Item = &'a Transaction>,
+        txs: impl Iterator<Item = (&'a Transaction, Vec<OutPoint>)>,
     ) {
-        for tx in txs {
+        for (tx, related_out_points) in txs {
             let hash = tx.hash();
             trace_target!(crate::LOG_TARGET_TX_POOL, "committed {:#x}", hash);
-            for entry in self.proposed.remove_committed_tx(tx) {
+            for entry in self.proposed.remove_committed_tx(tx, &related_out_points) {
                 self.update_statics_for_remove_tx(entry.size, entry.cycles);
             }
             self.committed_txs_hash_cache
