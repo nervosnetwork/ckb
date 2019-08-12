@@ -1,9 +1,9 @@
 use crate::relayer::{compact_block::GetBlockProposal, Relayer};
+use crate::{attempt, Status};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetBlockProposal as GetBlockProposalMessage, RelayMessage};
-use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -30,8 +30,9 @@ impl<'a> GetBlockProposalProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
-        let get_block_proposal: GetBlockProposal = (*self.message).try_into()?;
+    pub fn execute(self) -> Status {
+        let get_block_proposal: GetBlockProposal =
+            attempt!(TryInto::<GetBlockProposal>::try_into(*self.message));
         let proposals = get_block_proposal.proposals;
         let proposals_transactions: Vec<Option<Transaction>> = {
             let chain_state = self.relayer.shared.lock_chain_state();
@@ -74,6 +75,7 @@ impl<'a> GetBlockProposalProcess<'a> {
                 err
             );
         }
-        Ok(())
+
+        Status::ok()
     }
 }

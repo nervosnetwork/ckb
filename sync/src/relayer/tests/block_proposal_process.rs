@@ -1,10 +1,9 @@
+use crate::relayer::block_proposal_process::BlockProposalProcess;
+use crate::relayer::tests::helper::{build_chain, new_transaction, MockProtocalContext};
 use ckb_core::transaction::ProposalShortId;
 use ckb_protocol::{cast, get_root, BlockProposal, RelayMessage};
 use flatbuffers::FlatBufferBuilder;
 use std::sync::Arc;
-
-use crate::relayer::block_proposal_process::{BlockProposalProcess, Status};
-use crate::relayer::tests::helper::{build_chain, new_transaction, MockProtocalContext};
 
 #[test]
 fn test_no_unknown() {
@@ -36,8 +35,7 @@ fn test_no_unknown() {
         &relayer,
         Arc::<MockProtocalContext>::clone(&nc),
     );
-    let r = process.execute();
-    assert_eq!(r.ok(), Some(Status::NoUnknown));
+    assert!(process.execute().is_ok());
 }
 
 #[test]
@@ -63,8 +61,7 @@ fn test_no_asked() {
         &relayer,
         Arc::<MockProtocalContext>::clone(&nc),
     );
-    let r = process.execute();
-    assert_eq!(r.ok(), Some(Status::NoAsked));
+    assert!(process.execute().is_ok());
 
     let known = relayer.shared.already_known_tx(transaction.hash());
     assert_eq!(known, false);
@@ -101,8 +98,7 @@ fn test_ok() {
         &relayer,
         Arc::<MockProtocalContext>::clone(&nc),
     );
-    let r = process.execute();
-    assert_eq!(r.ok(), Some(Status::Ok));
+    assert!(process.execute().is_ok());
 
     let known = relayer.shared.already_known_tx(transaction.hash());
     assert_eq!(known, true);

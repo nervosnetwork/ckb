@@ -1,9 +1,9 @@
 use crate::relayer::compact_block::{RelayTransaction, RelayTransactions};
 use crate::relayer::Relayer;
+use crate::{attempt, Status};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::RelayTransactions as FbsRelayTransactions;
-use failure::Error as FailureError;
 use fnv::FnvHashSet;
 use futures::{self, future::FutureResult, lazy};
 use std::convert::TryInto;
@@ -34,12 +34,11 @@ impl<'a> TransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
-        let relay_txs: RelayTransactions = (*self.message).try_into()?;
-
+    pub fn execute(self) -> Status {
+        let relay_txs: RelayTransactions =
+            attempt!(TryInto::<RelayTransactions>::try_into(*self.message));
         let txs: Vec<RelayTransaction> = {
             let tx_filter = self.relayer.shared().tx_filter();
-
             relay_txs
                 .transactions
                 .into_iter()
@@ -48,7 +47,7 @@ impl<'a> TransactionsProcess<'a> {
         };
 
         if txs.is_empty() {
-            return Ok(());
+            return Status::ok();
         }
 
         // Insert tx_hash into `already_known`
@@ -162,6 +161,7 @@ impl<'a> TransactionsProcess<'a> {
         if let Err(err) = ret {
             ckb_logger::debug!("relayer send future task error: {:?}", err);
         }
-        Ok(())
+
+        Status::ok()
     }
 }

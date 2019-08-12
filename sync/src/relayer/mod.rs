@@ -4,7 +4,6 @@ mod block_transactions_verifier;
 pub mod compact_block;
 mod compact_block_process;
 mod compact_block_verifier;
-mod error;
 mod get_block_proposal_process;
 mod get_block_transactions_process;
 mod get_transactions_process;
@@ -17,7 +16,6 @@ use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
 use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
-pub use self::error::{Error, Misbehavior};
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
 use self::get_transactions_process::GetTransactionsProcess;
@@ -25,17 +23,15 @@ use self::transaction_hashes_process::TransactionHashesProcess;
 use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
 use crate::types::SyncSharedState;
-use crate::BAD_MESSAGE_BAN_TIME;
+use crate::{attempt, Status, StatusCode, BAD_MESSAGE_BAN_TIME};
 use ckb_chain::chain::ChainController;
 use ckb_core::block::{Block, BlockBuilder};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_core::uncle::UncleBlock;
-use ckb_logger::{debug_target, info_target, trace_target};
+use ckb_logger::{debug_target, error_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
-use ckb_protocol::error::Error as ProtocalError;
 use ckb_protocol::{cast, get_root, RelayMessage, RelayPayload};
 use ckb_tx_pool_executor::TxPoolExecutor;
-use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -85,79 +81,64 @@ impl Relayer {
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
         message: RelayMessage,
-    ) -> Result<(), FailureError> {
+    ) -> Status {
         match message.payload_type() {
-            RelayPayload::CompactBlock => {
-                CompactBlockProcess::new(
-                    &cast!(message.payload_as_compact_block())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
-            }
-            RelayPayload::RelayTransactions => {
-                TransactionsProcess::new(
-                    &cast!(message.payload_as_relay_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
-            }
-            RelayPayload::RelayTransactionHashes => {
-                TransactionHashesProcess::new(
-                    &cast!(message.payload_as_relay_transaction_hashes())?,
-                    self,
-                    peer,
-                )
-                .execute()?;
-            }
-            RelayPayload::GetRelayTransactions => {
-                GetTransactionsProcess::new(
-                    &cast!(message.payload_as_get_relay_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
-            }
-            RelayPayload::GetBlockTransactions => {
-                GetBlockTransactionsProcess::new(
-                    &cast!(message.payload_as_get_block_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
-            }
-            RelayPayload::BlockTransactions => {
-                BlockTransactionsProcess::new(
-                    &cast!(message.payload_as_block_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
-            }
-            RelayPayload::GetBlockProposal => {
-                GetBlockProposalProcess::new(
-                    &cast!(message.payload_as_get_block_proposal())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
-            }
-            RelayPayload::BlockProposal => {
-                BlockProposalProcess::new(&cast!(message.payload_as_block_proposal())?, self, nc)
-                    .execute()?;
-            }
-            RelayPayload::NONE => {
-                cast!(None)?;
-            }
+            RelayPayload::CompactBlock => CompactBlockProcess::new(
+                &attempt!(cast!(message.payload_as_compact_block())),
+                self,
+                nc,
+                peer,
+            )
+            .execute(),
+            RelayPayload::RelayTransactions => TransactionsProcess::new(
+                &attempt!(cast!(message.payload_as_relay_transactions())),
+                self,
+                nc,
+                peer,
+            )
+            .execute(),
+            RelayPayload::RelayTransactionHashes => TransactionHashesProcess::new(
+                &attempt!(cast!(message.payload_as_relay_transaction_hashes())),
+                self,
+                peer,
+            )
+            .execute(),
+            RelayPayload::GetRelayTransactions => GetTransactionsProcess::new(
+                &attempt!(cast!(message.payload_as_get_relay_transactions())),
+                self,
+                nc,
+                peer,
+            )
+            .execute(),
+            RelayPayload::GetBlockTransactions => GetBlockTransactionsProcess::new(
+                &attempt!(cast!(message.payload_as_get_block_transactions())),
+                self,
+                nc,
+                peer,
+            )
+            .execute(),
+            RelayPayload::BlockTransactions => BlockTransactionsProcess::new(
+                &attempt!(cast!(message.payload_as_block_transactions())),
+                self,
+                nc,
+                peer,
+            )
+            .execute(),
+            RelayPayload::GetBlockProposal => GetBlockProposalProcess::new(
+                &attempt!(cast!(message.payload_as_get_block_proposal())),
+                self,
+                nc,
+                peer,
+            )
+            .execute(),
+            RelayPayload::BlockProposal => BlockProposalProcess::new(
+                &attempt!(cast!(message.payload_as_block_proposal())),
+                self,
+                nc,
+            )
+            .execute(),
+            RelayPayload::NONE => Status::ignored(),
         }
-        Ok(())
     }
 
     fn process(
@@ -166,20 +147,12 @@ impl Relayer {
         peer: PeerIndex,
         message: RelayMessage,
     ) {
-        if let Err(err) = self.try_process(Arc::clone(&nc), peer, message) {
-            if let Some(&Error::Misbehavior(ref e)) = err.downcast_ref() {
-                debug_target!(crate::LOG_TARGET_RELAY, "try_process error {}", e);
-                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
-                return;
-            }
-            if let Some(&ProtocalError::Malformed) = err.downcast_ref() {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "try_process error {}",
-                    ProtocalError::Malformed
-                );
-                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
-            }
+        let status = self.try_process(Arc::clone(&nc), peer, message);
+        if status.is_malformed() {
+            error_target!(crate::LOG_TARGET_RELAY, "{} from {}", status, peer);
+            nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
+        } else if !status.is_ok() {
+            debug_target!(crate::LOG_TARGET_RELAY, "{} from {}", status, peer);
         }
     }
 

@@ -1,10 +1,10 @@
 use crate::relayer::compact_block::TransactionHashes;
 use crate::relayer::Relayer;
+use crate::{attempt, Status, StatusCode};
 use ckb_core::transaction::ProposalShortId;
 use ckb_logger::debug_target;
 use ckb_network::PeerIndex;
 use ckb_protocol::RelayTransactionHashes as FbsRelayTransactionHashes;
-use failure::Error as FailureError;
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
 
@@ -27,9 +27,9 @@ impl<'a> TransactionHashesProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
-        let transaction_hashes: TransactionHashes = (*self.message).try_into()?;
-
+    pub fn execute(self) -> Status {
+        let transaction_hashes: TransactionHashes =
+            attempt!(TryInto::<TransactionHashes>::try_into(*self.message));
         let mut transit_hashes: Vec<H256> = {
             let tx_filter = self.relayer.shared().tx_filter();
             transaction_hashes
@@ -48,7 +48,7 @@ impl<'a> TransactionHashesProcess<'a> {
         }
 
         if transit_hashes.is_empty() {
-            return Ok(());
+            return Status::ignored();
         }
 
         if let Some(peer_state) = self
@@ -79,6 +79,6 @@ impl<'a> TransactionHashesProcess<'a> {
             }
         }
 
-        Ok(())
+        Status::ok()
     }
 }

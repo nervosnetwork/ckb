@@ -1,9 +1,9 @@
 use crate::relayer::{compact_block::BlockProposal, Relayer};
+use crate::{attempt, Status, StatusCode};
 use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_logger::{debug_target, warn_target};
 use ckb_network::CKBProtocolContext;
 use ckb_protocol::BlockProposal as BlockProposalMessage;
-use failure::Error as FailureError;
 use futures::{self, future::FutureResult, lazy};
 use numext_fixed_hash::H256;
 use std::convert::TryInto;
@@ -13,13 +13,6 @@ pub struct BlockProposalProcess<'a> {
     message: &'a BlockProposalMessage<'a>,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum Status {
-    NoUnknown,
-    NoAsked,
-    Ok,
 }
 
 impl<'a> BlockProposalProcess<'a> {
@@ -35,10 +28,10 @@ impl<'a> BlockProposalProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<Status, FailureError> {
-        let block_proposal: BlockProposal = (*self.message).try_into()?;
+    pub fn execute(self) -> Status {
+        let block_proposal: BlockProposal =
+            attempt!(TryInto::<BlockProposal>::try_into(*self.message));
         let txs: Vec<Transaction> = block_proposal.transactions;
-
         let unknown_txs: Vec<(H256, Transaction)> = txs
             .into_iter()
             .filter_map(|tx| {
@@ -52,7 +45,7 @@ impl<'a> BlockProposalProcess<'a> {
             .collect();
 
         if unknown_txs.is_empty() {
-            return Ok(Status::NoUnknown);
+            return Status::ignored();
         }
 
         let proposals: Vec<ProposalShortId> = unknown_txs
@@ -69,7 +62,7 @@ impl<'a> BlockProposalProcess<'a> {
         }
 
         if asked_txs.is_empty() {
-            return Ok(Status::NoAsked);
+            return Status::ignored();
         }
 
         if let Err(err) = self.nc.future_task(
@@ -95,6 +88,6 @@ impl<'a> BlockProposalProcess<'a> {
                 err,
             );
         }
-        Ok(Status::Ok)
+        StatusCode::OK.into()
     }
 }

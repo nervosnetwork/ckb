@@ -1,6 +1,5 @@
 use crate::relayer::compact_block::CompactBlock;
-use crate::relayer::compact_block_process::{CompactBlockProcess, Status};
-use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
+use crate::relayer::compact_block_process::CompactBlockProcess;
 use ckb_core::block::BlockBuilder;
 use ckb_core::header::HeaderBuilder;
 use ckb_core::transaction::{CellOutputBuilder, TransactionBuilder};
@@ -13,8 +12,8 @@ use std::collections::HashSet;
 use crate::block_status::BlockStatus;
 use crate::relayer::tests::helper::{build_chain, new_header_builder, MockProtocalContext};
 use crate::types::InflightBlocks;
-use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
+use crate::{NetworkProtocol, StatusCode};
 use ckb_core::transaction::ProposalShortId;
 use faketime::unix_time_as_millis;
 use fnv::FnvHashMap;
@@ -61,11 +60,9 @@ fn test_in_block_status_map() {
             .shared
             .insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
     }
-
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Misbehavior(Misbehavior::BlockInvalid)
+        compact_block_process.execute(),
+        StatusCode::InvalidBlock.into(),
     );
 
     let compact_block_process = CompactBlockProcess::new(
@@ -81,11 +78,9 @@ fn test_in_block_status_map() {
             .shared
             .insert_block_status(block.header().hash().clone(), BlockStatus::BLOCK_STORED);
     }
-
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::AlreadyStored)
+        compact_block_process.execute(),
+        StatusCode::AlreadyStoredBlock.into(),
     );
 }
 
@@ -122,9 +117,10 @@ fn test_unknow_parent() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::UnknownParent));
+    assert_eq!(
+        compact_block_process.execute(),
+        StatusCode::WaitingParent.into()
+    );
 
     let chain_state = relayer.shared.lock_chain_state();
     let header = chain_state.tip_header();
@@ -180,9 +176,7 @@ fn test_accept_not_a_better_block() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::AcceptBlock));
+    assert!(compact_block_process.execute().is_ok());
 }
 
 #[test]
@@ -225,11 +219,9 @@ fn test_already_in_flight() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::AlreadyInFlight)
+        compact_block_process.execute(),
+        StatusCode::AlreadyInFlightBlock.into(),
     );
 }
 
@@ -281,10 +273,9 @@ fn test_already_pending() {
         peer_index,
     );
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::AlreadyPending)
+        compact_block_process.execute(),
+        StatusCode::AlreadyPendingBlock.into(),
     );
 }
 
@@ -325,10 +316,9 @@ fn test_header_invalid() {
         peer_index,
     );
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Misbehavior(Misbehavior::HeaderInvalid)
+        compact_block_process.execute(),
+        StatusCode::InvalidHeader.into(),
     );
     // Assert block_status_map update
     assert_eq!(
@@ -391,10 +381,9 @@ fn test_inflight_blocks_reach_limit() {
         peer_index,
     );
 
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Internal(Internal::InflightBlocksReachLimit)
+        compact_block_process.execute(),
+        StatusCode::TooManyInFlightBlocks.into(),
     );
 }
 
@@ -447,9 +436,10 @@ fn test_send_missing_indexes() {
     );
 
     assert!(!relayer.shared.inflight_proposals().contains(&proposal_id));
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::SendMissingIndexes));
+    assert_eq!(
+        compact_block_process.execute(),
+        StatusCode::WaitingTransactions.into()
+    );
 
     let fbb = &mut FlatBufferBuilder::new();
     let message = RelayMessage::build_get_block_transactions(fbb, &block.header().hash(), &[1u32]);
@@ -512,9 +502,7 @@ fn test_accept_block() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
-    assert_eq!(r.ok(), Some(Status::AcceptBlock));
+    assert!(compact_block_process.execute().is_ok());
 }
 
 #[test]
@@ -551,10 +539,8 @@ fn test_ignore_a_too_old_block() {
         Arc::<MockProtocalContext>::clone(&nc),
         peer_index,
     );
-
-    let r = compact_block_process.execute();
     assert_eq!(
-        r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::TooOldBlock)
+        compact_block_process.execute(),
+        StatusCode::TooOldBlock.into(),
     );
 }

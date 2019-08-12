@@ -184,6 +184,7 @@ impl<'a> TryFrom<ckb_protocol::RelayTransaction<'a>> for RelayTransaction {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RelayTransactions {
     pub transactions: Vec<RelayTransaction>,
 }

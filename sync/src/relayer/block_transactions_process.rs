@@ -1,5 +1,6 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::Relayer;
+use crate::{attempt, Status, StatusCode};
 use ckb_core::transaction::Transaction;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, BlockTransactions, FlatbuffersVectorIterator};
@@ -14,18 +15,6 @@ pub struct BlockTransactionsProcess<'a> {
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
-}
-
-pub enum Status {
-    // BlockTransactionsVerifier has checked it,
-    // so shoud not reach here unless the peer loses the transactions in tx_pool
-    Missing,
-    // The BlockTransaction message includes all the requested transactions.
-    // The peer recovers the whole block and accept it.
-    Accept,
-    // The peer may lose it's cache
-    // or other peer makes some mistakes
-    UnkownRequest,
 }
 
 impl<'a> BlockTransactionsProcess<'a> {
@@ -43,8 +32,10 @@ impl<'a> BlockTransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<Status, FailureError> {
-        let block_hash: H256 = cast!(self.message.block_hash())?.try_into()?;
+    pub fn execute(self) -> Status {
+        let block_hash = attempt!(TryInto::<H256>::try_into(attempt!(cast!(self
+            .message
+            .block_hash()))));
         if let Entry::Occupied(mut pending) = self
             .relayer
             .shared()
@@ -59,12 +50,17 @@ impl<'a> BlockTransactionsProcess<'a> {
                     self.peer
                 );
 
-                let transactions: Vec<Transaction> =
-                    FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
+                let result: Result<Vec<Transaction>, _> =
+                    FlatbuffersVectorIterator::new(attempt!(cast!(self.message.transactions())))
                         .map(TryInto::try_into)
-                        .collect::<Result<_, FailureError>>()?;
+                        .collect::<Result<_, FailureError>>();
+                let transactions = attempt!(result);
 
-                BlockTransactionsVerifier::verify(&compact_block, &indexes, &transactions)?;
+                attempt!(BlockTransactionsVerifier::verify(
+                    &compact_block,
+                    &indexes,
+                    &transactions
+                ));
 
                 let ret = self.relayer.reconstruct_block(compact_block, transactions);
 
@@ -74,12 +70,12 @@ impl<'a> BlockTransactionsProcess<'a> {
                     pending.remove();
                     self.relayer
                         .accept_block(self.nc.as_ref(), self.peer, block);
-                    return Ok(Status::Accept);
+                    return Status::ok();
                 }
-                return Ok(Status::Missing);
+                return StatusCode::WaitingTransactions.into();
             }
         }
 
-        Ok(Status::UnkownRequest)
+        Status::ok()
     }
 }

@@ -1,10 +1,10 @@
 use crate::relayer::compact_block::GetRelayTransactions;
 use crate::relayer::Relayer;
+use crate::{attempt, Status};
 use ckb_core::transaction::ProposalShortId;
 use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetRelayTransactions as FbsGetRelayTransactions, RelayMessage};
-use failure::Error as FailureError;
 use flatbuffers::FlatBufferBuilder;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -31,20 +31,20 @@ impl<'a> GetTransactionsProcess<'a> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
-        let get_relay_tx: GetRelayTransactions = (*self.message).try_into()?;
-
+    pub fn execute(self) -> Status {
+        let get_relay_txs: GetRelayTransactions =
+            attempt!(TryInto::<GetRelayTransactions>::try_into(*self.message));
         trace_target!(
             crate::LOG_TARGET_RELAY,
             "{} request transactions({:#?})",
             self.peer,
-            get_relay_tx.hashes
+            get_relay_txs.hashes
         );
 
         let transactions: Vec<_> = {
             let state = self.relayer.shared.lock_chain_state();
 
-            get_relay_tx
+            get_relay_txs
                 .hashes
                 .iter()
                 .filter_map(|tx_hash| {
@@ -83,6 +83,6 @@ impl<'a> GetTransactionsProcess<'a> {
                 );
             }
         }
-        Ok(())
+        Status::ok()
     }
 }

@@ -1,8 +1,7 @@
 use super::helper::new_index_transaction;
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
-use crate::relayer::error::{Error, Misbehavior};
-
 use crate::relayer::compact_block::CompactBlock;
+use crate::StatusCode;
 use ckb_core::transaction::IndexTransaction;
 
 // block_short_ids: vec![None, Some(1), None, Some(3), Some(4), None]
@@ -36,14 +35,9 @@ fn test_invalid() {
         .into_iter()
         .map(|i| new_index_transaction(i).transaction)
         .collect();
-
-    let ret = BlockTransactionsVerifier::verify(&block, &indexes, block_txs.as_slice());
-
     assert_eq!(
-        ret.err(),
-        Some(Error::Misbehavior(
-            Misbehavior::InvalidBlockTransactionsLength { expect: 3, got: 2 }
-        ))
+        BlockTransactionsVerifier::verify(&block, &indexes, block_txs.as_slice()),
+        StatusCode::UnmatchedBlockTransactionsLength.into(),
     );
 
     // Unordered txs
@@ -52,17 +46,9 @@ fn test_invalid() {
         .map(|i| new_index_transaction(i).transaction)
         .collect();
 
-    let expect = new_index_transaction(3).transaction.proposal_short_id();
-    let got = new_index_transaction(4).transaction.proposal_short_id();
-
-    let ret = BlockTransactionsVerifier::verify(&block, &indexes, &block_txs);
-
     assert_eq!(
-        ret.err(),
-        Some(Error::Misbehavior(Misbehavior::InvalidBlockTransactions {
-            expect,
-            got
-        }))
+        BlockTransactionsVerifier::verify(&block, &indexes, &block_txs),
+        StatusCode::UnmatchedBlockTransactions.into(),
     );
 }
 
@@ -77,6 +63,5 @@ fn test_ok() {
         .collect();
 
     let ret = BlockTransactionsVerifier::verify(&block, &indexes, &block_txs);
-
     assert!(ret.is_ok());
 }
