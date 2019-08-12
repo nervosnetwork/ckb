@@ -93,11 +93,14 @@ bench-test:
 ##@ Continuous Integration
 
 ci: ## Run recipes for CI.
-ci: fmt clippy test bench-test check-cargotoml check-dirty-rpc-doc security-audit
+ci: fmt clippy test bench-test check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit
 	git diff --exit-code Cargo.lock
 
 check-cargotoml:
 	./devtools/ci/check-cargotoml.sh
+
+check-whitespaces:
+	git -c core.whitespace=-blank-at-eof diff-index --check --cached $$(git rev-parse --verify master 2>/dev/null || echo "4b825dc642cb6eb9a060e54bf8d69288fbee4904") --
 
 check-dirty-rpc-doc: gen-rpc-doc
 	git diff --exit-code rpc/README.md rpc/json/rpc.json
@@ -138,5 +141,5 @@ help:  ## Display help message.
 .PHONY: build prod prod-test prod-docker docker docker-publish
 .PHONY: gen gen-clean clean-node-files check-cfbc-version
 .PHONY: fmt test clippy doc doc-deps gen-rpc-doc gen-hashes check stats check-dirty-rpc-doc cov
-.PHONY: ci security-audit
+.PHONY: ci security-audit check-cargotoml check-whitespaces
 .PHONY: integration integration-release setup-ckb-test
