@@ -307,7 +307,10 @@ impl ProposedPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
+    use ckb_core::cell::parse_dep_group_data;
+    use ckb_core::transaction::{
+        CellDep, CellInput, CellOutputBuilder, Transaction, TransactionBuilder,
+    };
     use ckb_core::{Bytes, Capacity};
     use numext_fixed_hash::{h256, H256};
 
@@ -327,12 +330,21 @@ mod tests {
             .build()
     }
 
-    fn get_related_dep_out_points(tx: &Transaction) -> Vec<OutPoint> {
+    fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
+        tx: &Transaction,
+        get_cell_data: F,
+    ) -> Vec<OutPoint> {
         tx.cell_deps_iter().fold(
             Vec::with_capacity(tx.cell_deps().len()),
             |mut out_points, dep| {
                 let out_point = dep.out_point();
-                // FIXME: handle dep group
+                if dep.is_dep_group() {
+                    let data = get_cell_data(out_point)
+                        .expect("Cell data must exists when resolve dep group");
+                    let sub_out_points = parse_dep_group_data(&data)
+                        .expect("Parse dep group data fialed when resolve dep group");
+                    out_points.extend(sub_out_points);
+                }
                 out_points.push(out_point.clone());
                 out_points
             },
@@ -358,14 +370,14 @@ mod tests {
             MOCK_FEE,
             MOCK_SIZE,
             tx1.clone(),
-            get_related_dep_out_points(&tx1),
+            get_related_dep_out_points(&tx1, |_| None),
         );
         pool.add_tx(
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             tx2.clone(),
-            get_related_dep_out_points(&tx2),
+            get_related_dep_out_points(&tx2, |_| None),
         );
 
         assert_eq!(pool.vertices.len(), 2);
@@ -375,7 +387,7 @@ mod tests {
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id2).unwrap().refs_count, 1);
 
-        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1));
+        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None));
         assert_eq!(pool.edges.inner_len(), 1);
         assert_eq!(pool.edges.outer_len(), 1);
 
@@ -397,14 +409,14 @@ mod tests {
             MOCK_FEE,
             MOCK_SIZE,
             tx1.clone(),
-            get_related_dep_out_points(&tx1),
+            get_related_dep_out_points(&tx1, |_| None),
         );
         pool.add_tx(
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             tx2.clone(),
-            get_related_dep_out_points(&tx2),
+            get_related_dep_out_points(&tx2, |_| None),
         );
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
@@ -427,7 +439,7 @@ mod tests {
         assert_eq!(2, mineable.len());
         assert!(mineable.contains(&tx1) && mineable.contains(&tx2));
 
-        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1));
+        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None));
 
         assert_eq!(pool.edges.inner_len(), 3);
         assert_eq!(pool.edges.outer_len(), 2);
@@ -458,35 +470,35 @@ mod tests {
             MOCK_FEE,
             MOCK_SIZE,
             tx1.clone(),
-            get_related_dep_out_points(&tx1),
+            get_related_dep_out_points(&tx1, |_| None),
         );
         pool.add_tx(
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             tx2.clone(),
-            get_related_dep_out_points(&tx2),
+            get_related_dep_out_points(&tx2, |_| None),
         );
         pool.add_tx(
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             tx3.clone(),
-            get_related_dep_out_points(&tx3),
+            get_related_dep_out_points(&tx3, |_| None),
         );
         pool.add_tx(
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             tx4.clone(),
-            get_related_dep_out_points(&tx4),
+            get_related_dep_out_points(&tx4, |_| None),
         );
         pool.add_tx(
             MOCK_CYCLES,
             MOCK_FEE,
             MOCK_SIZE,
             tx5.clone(),
-            get_related_dep_out_points(&tx5),
+            get_related_dep_out_points(&tx5, |_| None),
         );
 
         assert_eq!(pool.get(&id1).unwrap().refs_count, 0);
@@ -529,7 +541,7 @@ mod tests {
         assert!(mineable.contains(&tx3) && mineable.contains(&tx4));
         assert!(mineable.contains(&tx5));
 
-        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1));
+        pool.remove_committed_tx(&tx1, &get_related_dep_out_points(&tx1, |_| None));
 
         assert_eq!(pool.get(&id3).unwrap().refs_count, 0);
         assert_eq!(pool.get(&id5).unwrap().refs_count, 1);
@@ -556,5 +568,72 @@ mod tests {
 
         mineable = pool.get_txs(5).into_iter().map(|x| x.transaction).collect();
         assert_eq!(4, mineable.len());
+    }
+
+    #[test]
+    fn test_dep_group() {
+        let tx1 = build_tx(vec![(&h256!("0x1"), 0)], 1);
+        let tx1_out_point = OutPoint::new(tx1.hash().clone(), 0);
+
+        // Dep group cell
+        let tx2_data = tx1_out_point.to_group_data().into();
+        let tx2 = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(h256!("0x2"), 0), 0))
+            .output(
+                CellOutputBuilder::from_data(&tx2_data)
+                    .capacity(Capacity::bytes(1000).unwrap())
+                    .build(),
+            )
+            .output_data(tx2_data.clone())
+            .build();
+        let tx2_out_point = OutPoint::new(tx2.hash().clone(), 0);
+
+        // Transaction use dep group
+        let dep = CellDep::new_group(OutPoint::new(tx2.hash().clone(), 0));
+        let tx3 = TransactionBuilder::default()
+            .cell_dep(dep)
+            .input(CellInput::new(OutPoint::new(h256!("0x3"), 0), 0))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(Capacity::bytes(3).unwrap())
+                    .build(),
+            )
+            .output_data(Bytes::new())
+            .build();
+        let tx3_out_point = OutPoint::new(tx3.hash().clone(), 0);
+
+        let get_cell_data = |out_point: &OutPoint| -> Option<Bytes> {
+            if out_point == &tx2_out_point {
+                Some(tx2_data.clone())
+            } else {
+                None
+            }
+        };
+
+        let mut pool = ProposedPool::new();
+        for tx in &[&tx1, &tx2, &tx3] {
+            pool.add_tx(
+                MOCK_CYCLES,
+                MOCK_FEE,
+                MOCK_SIZE,
+                (*tx).clone(),
+                get_related_dep_out_points(*tx, &get_cell_data),
+            );
+        }
+
+        let get_deps_len = |pool: &ProposedPool, out_point: &OutPoint| -> usize {
+            pool.edges
+                .get_deps(out_point)
+                .map(|deps| deps.len())
+                .unwrap_or_default()
+        };
+        assert_eq!(get_deps_len(&pool, &tx1_out_point), 1);
+        assert_eq!(get_deps_len(&pool, &tx2_out_point), 1);
+        assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
+
+        pool.remove_committed_tx(&tx3, &get_related_dep_out_points(&tx3, &get_cell_data));
+        assert_eq!(get_deps_len(&pool, &tx1_out_point), 0);
+        assert_eq!(get_deps_len(&pool, &tx2_out_point), 0);
+        assert_eq!(get_deps_len(&pool, &tx3_out_point), 0);
     }
 }

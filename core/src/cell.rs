@@ -349,7 +349,7 @@ pub enum UnresolvableError {
     OutOfOrder(OutPoint),
 }
 
-pub fn parse_dep_group_data(data: Bytes) -> Result<Vec<OutPoint>, usize> {
+pub fn parse_dep_group_data(data: &[u8]) -> Result<Vec<OutPoint>, usize> {
     // tx hash (32 bytes) + output index (4 bytes)
     const OUT_POINT_LEN: usize = mem::size_of::<H256>() + mem::size_of::<u32>();
 
@@ -383,7 +383,7 @@ fn resolve_dep_group<
         None => return Ok(Vec::new()),
     };
 
-    let sub_out_points = parse_dep_group_data(data)
+    let sub_out_points = parse_dep_group_data(&data)
         .map_err(|_| UnresolvableError::InvalidDepGroup(out_point.clone()))?;
     let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
     for sub_out_point in sub_out_points {

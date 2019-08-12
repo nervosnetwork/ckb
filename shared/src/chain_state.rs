@@ -606,7 +606,7 @@ impl ChainState {
                             .store
                             .get_cell_data(&out_point.tx_hash, out_point.index)
                             .expect("Cell data must exists when remove dep group");
-                        let sub_out_points = parse_dep_group_data(data)
+                        let sub_out_points = parse_dep_group_data(&data)
                             .expect("Parse dep group data fialed when remove dep group");
                         out_points.extend(sub_out_points);
                     }
