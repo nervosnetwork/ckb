@@ -15,19 +15,20 @@ use std::time::Duration;
 /// use ckb_sync::{Status, StatusCode, attempt};
 ///
 /// fn unwrap_for_result() -> Status {
-///     let result = Ok(StatusCode::Ignored);
+///     let result: Result<Status, Error> = Ok(Status::ignored());
 ///     let code = attempt!(result); // !-> `let code = result.unwrap();`
 ///     code
 /// }
 ///
 /// fn return_early_for_result() -> Status {
-///     attempt!(Err(Error::Malformed)); // !-> `return Status::new(StatusCode::MalformedProtocolMessage);`
+///     let result: Result<Status, Error> = Err(Error::Malformed);
+///     attempt!(result); // !-> `return StatusCode::MalformedProtocolMessage.into();`
 ///     Status::ok()
 /// }
 ///
 /// fn return_early_for_status() -> Status {
-///     let status = StatusCode::MalformedProtocolMessage.into();
-///     attempt!(status); // !-> `return Status::new(StatusCode::MalformedProtocolMessage);`
+///     let status: Status = StatusCode::MalformedProtocolMessage.into();
+///     attempt!(status); // !-> `return StatusCode::MalformedProtocolMessage.into();`
 ///     Status::ok()
 /// }
 /// ```
@@ -93,12 +94,18 @@ pub enum StatusCode {
     InvalidHeader = 410,
     /// The node hasn't common ancestor blocks with the GetHeaders
     MissingCommonAncestor = 411,
+    /// The node hasn't found the blocks with the GetBlocks
+    MissingBlocks = 412,
+    /// The GetBlocks length limit is exceeded
+    TooLengthyGetBlocks = 413,
 
     ///////////////////////////////////
     //      Server Error 5xx         //
     ///////////////////////////////////
     /// In-flight blocks limit exceeded
     TooManyInFlightBlocks = 501,
+    /// Errors returned from network layer
+    Network = 502,
 }
 
 impl StatusCode {
@@ -115,16 +122,15 @@ pub struct Status {
 
 impl Status {
     pub fn ok() -> Self {
-        Self::new(StatusCode::OK)
+        Self {
+            code: StatusCode::OK,
+            context: None,
+        }
     }
 
     pub fn ignored() -> Self {
-        Self::new(StatusCode::Ignored)
-    }
-
-    pub fn new(code: StatusCode) -> Self {
         Self {
-            code,
+            code: StatusCode::Ignored,
             context: None,
         }
     }
@@ -163,7 +169,9 @@ impl Status {
             | StatusCode::UnmatchedBlockTransactions
             | StatusCode::InvalidBlock
             | StatusCode::InvalidHeader => Some(BAD_MESSAGE_BAN_TIME),
-            StatusCode::MissingCommonAncestor => Some(SYNC_USELESS_BAN_TIME),
+            StatusCode::MissingCommonAncestor | StatusCode::MissingBlocks => {
+                Some(SYNC_USELESS_BAN_TIME)
+            }
             _ => unreachable!(),
         }
     }

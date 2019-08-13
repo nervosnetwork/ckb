@@ -79,7 +79,7 @@ impl<'a> GetHeadersProcess<'a> {
                 .nc
                 .send_message_to(self.peer, fbb.finished_data().into())
             {
-                debug!("synchronizer send Headers error: {:?}", err);
+                return StatusCode::Network.with_context(format!("send Headers error: {:?}", err));
             }
         } else {
             let hashes = block_locator_hashes

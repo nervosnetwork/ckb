@@ -1,5 +1,5 @@
 use crate::relayer::Relayer;
-use crate::{attempt, Status};
+use crate::{attempt, Status, StatusCode};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlockTransactions, RelayMessage};
@@ -57,11 +57,8 @@ impl<'a> GetBlockTransactionsProcess<'a> {
                 .nc
                 .send_message_to(self.peer, fbb.finished_data().into())
             {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "relayer send BlockTransactions error: {:?}",
-                    err
-                );
+                return StatusCode::Network
+                    .with_context(format!("send BlockTransactions error: {:?}", err,));
             }
         }
 

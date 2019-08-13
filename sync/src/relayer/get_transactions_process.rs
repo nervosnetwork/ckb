@@ -1,6 +1,6 @@
 use crate::relayer::compact_block::GetRelayTransactions;
 use crate::relayer::Relayer;
-use crate::{attempt, Status};
+use crate::{attempt, Status, StatusCode};
 use ckb_core::transaction::ProposalShortId;
 use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
@@ -76,11 +76,8 @@ impl<'a> GetTransactionsProcess<'a> {
             fbb.finish(message, None);
             let data = fbb.finished_data().into();
             if let Err(err) = self.nc.send_message_to(self.peer, data) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "relayer send Transactions error: {:?}",
-                    err,
-                );
+                return StatusCode::Network
+                    .with_context(format!("send Transactions error: {:?}", err,));
             }
         }
         Status::ok()

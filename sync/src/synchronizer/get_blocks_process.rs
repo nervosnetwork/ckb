@@ -1,7 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::{attempt, Status, MAX_BLOCKS_IN_TRANSIT_PER_PEER};
-use ckb_logger::{debug, warn};
+use crate::{attempt, Status, StatusCode, MAX_BLOCKS_IN_TRANSIT_PER_PEER};
+use ckb_logger::debug;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{cast, GetBlocks, SyncMessage};
 use ckb_store::ChainStore;
@@ -75,23 +75,28 @@ impl<'a> GetBlocksProcess<'a> {
                     .nc
                     .send_message_to(self.peer, fbb.finished_data().into())
                 {
-                    debug!("synchronizer send Block error: {:?}", err);
-                    break;
+                    return StatusCode::Network
+                        .with_context(format!("send Block error: {:?}", err,));
                 }
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer
-
                 // We expect that `block_hashes` is sorted descending by height.
                 // So if we cannot find the current one from local, we cannot find
                 // the next either.
-                debug!("getblocks stopping since {:x} is not found", block_hash);
-                break;
+                return StatusCode::MissingBlocks.with_context(format!(
+                    "receive GetBlocks but cannot find the specific blocks in local store {:#x}",
+                    block_hash,
+                ));
             }
         }
 
         if n_limit < block_hashes.len() {
-            warn!("getblocks stopping at limit {}", n_limit);
+            return StatusCode::TooLengthyGetBlocks.with_context(format!(
+                "receive too lengthy GetBlocks, max: {}, actual: {}",
+                n_limit,
+                block_hashes.len(),
+            ));
         }
 
         Status::ok()

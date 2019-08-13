@@ -106,10 +106,10 @@ impl Synchronizer {
     fn process(&self, nc: &CKBProtocolContext, peer: PeerIndex, message: SyncMessage) {
         let status = self.try_process(nc, peer, message);
         if let Some(ban_time) = status.should_ban() {
-            error!("{} from {}", status, peer);
+            error!("{}, peer: {}", status, peer);
             nc.ban_peer(peer, ban_time);
         } else if !status.is_ok() {
-            debug!("{} from {}", status, peer);
+            debug!("{}, peer: {}", status, peer);
         }
     }
 

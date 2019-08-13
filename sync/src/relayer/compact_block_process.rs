@@ -207,7 +207,8 @@ impl<'a> CompactBlockProcess<'a> {
             .nc
             .send_message_to(self.peer, fbb.finished_data().into())
         {
-            ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
+            return StatusCode::Network
+                .with_context(format!("send GetBlockTransactions error: {:?}", err,));
         }
 
         StatusCode::WaitingTransactions.with_context(format!(

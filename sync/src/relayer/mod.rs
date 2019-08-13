@@ -149,10 +149,10 @@ impl Relayer {
     ) {
         let status = self.try_process(Arc::clone(&nc), peer, message);
         if let Some(ban_time) = status.should_ban() {
-            error_target!(crate::LOG_TARGET_RELAY, "{} from {}", status, peer);
+            error_target!(crate::LOG_TARGET_RELAY, "{}, peer: {}", status, peer);
             nc.ban_peer(peer, ban_time);
         } else if !status.is_ok() {
-            debug_target!(crate::LOG_TARGET_RELAY, "{} from {}", status, peer);
+            debug_target!(crate::LOG_TARGET_RELAY, "{}, peer: {}", status, peer);
         }
     }
 

@@ -1,7 +1,6 @@
 use crate::relayer::{compact_block::GetBlockProposal, Relayer};
-use crate::{attempt, Status};
+use crate::{attempt, Status, StatusCode};
 use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_protocol::{GetBlockProposal as GetBlockProposalMessage, RelayMessage};
 use flatbuffers::FlatBufferBuilder;
@@ -69,11 +68,8 @@ impl<'a> GetBlockProposalProcess<'a> {
             .nc
             .send_message_to(self.peer, fbb.finished_data().into())
         {
-            debug_target!(
-                crate::LOG_TARGET_RELAY,
-                "relayer send GetBlockProposal error: {:?}",
-                err
-            );
+            return StatusCode::Network
+                .with_context(format!("send GetBlockProposal error: {:?}", err));
         }
 
         Status::ok()
