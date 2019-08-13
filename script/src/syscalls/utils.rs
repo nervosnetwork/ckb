@@ -4,7 +4,7 @@ use ckb_vm::{
 };
 use std::cmp;
 
-pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result<(), VMError> {
+pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result<u64, VMError> {
     let addr = machine.registers()[A0].to_u64();
     let size_addr = machine.registers()[A1].clone();
     let offset = machine.registers()[A2].to_u64();
@@ -18,5 +18,5 @@ pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result
     machine
         .memory_mut()
         .store_bytes(addr, &data[offset as usize..(offset + real_size) as usize])?;
-    Ok(())
+    Ok(real_size)
 }

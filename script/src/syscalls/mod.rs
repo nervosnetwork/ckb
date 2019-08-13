@@ -36,7 +36,8 @@ pub const LOAD_INPUT_SYSCALL_NUMBER: u64 = 2073;
 pub const LOAD_WITNESS_SYSCALL_NUMBER: u64 = 2074;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
-pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2091;
+pub const LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER: u64 = 2091;
+pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
 pub const DEBUG_PRINT_SYSCALL_NUMBER: u64 = 2177;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
@@ -144,30 +145,6 @@ impl Source {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-enum LoadDataType {
-    Data = 0,
-    Code = 1,
-}
-
-impl LoadDataType {
-    pub fn parse_from_u64(i: u64) -> Result<LoadDataType, Error> {
-        match i {
-            0 => Ok(LoadDataType::Data),
-            1 => Ok(LoadDataType::Code),
-            _ => Err(Error::ParseError),
-        }
-    }
-
-    pub fn memory_flags(self) -> u8 {
-        use ckb_vm::memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE};
-        match self {
-            LoadDataType::Data => FLAG_WRITABLE,
-            LoadDataType::Code => FLAG_EXECUTABLE | FLAG_FREEZED,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,8 +162,8 @@ mod tests {
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
-        memory::{FLAG_EXECUTABLE, FLAG_FREEZED},
-        registers::{A0, A1, A2, A3, A4, A5, A6, A7},
+        memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
+        registers::{A0, A1, A2, A3, A4, A5, A7},
         CoreMachine, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
     use flatbuffers::FlatBufferBuilder;
@@ -1007,10 +984,7 @@ mod tests {
         }
     }
 
-    fn _test_load_cell_data(
-        load_data_type: LoadDataType,
-        data: &[u8],
-    ) -> Result<(), TestCaseError> {
+    fn _test_load_cell_data_as_code(data: &[u8]) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
         let addr = 4096;
         let addr_size = 4096;
@@ -1021,8 +995,7 @@ mod tests {
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
-        machine.set_register(A6, load_data_type as u64); // memory type
-        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(data);
         let dep_cell = build_cell_meta(
@@ -1053,11 +1026,72 @@ mod tests {
         prop_assert!(load_code.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
+        let flags = FLAG_EXECUTABLE | FLAG_FREEZED;
         prop_assert_eq!(
             machine
                 .memory_mut()
                 .fetch_flag(addr / RISCV_PAGESIZE as u64),
-            Ok(load_data_type.memory_flags())
+            Ok(flags)
+        );
+        for (i, addr) in (addr..addr + data.len() as u64).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(data[i])));
+        }
+        if (data.len() as u64) < addr_size {
+            for i in (data.len() as u64)..addr_size {
+                prop_assert_eq!(machine.memory_mut().load8(&(addr + i)), Ok(0));
+            }
+        }
+        Ok(())
+    }
+
+    fn _test_load_cell_data(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
+        let size_addr: u64 = 100;
+        let addr = 4096;
+        let addr_size = 4096;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A3, 0); //index
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
+        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+
+        prop_assert!(machine.memory_mut().store64(&size_addr, &addr_size).is_ok());
+
+        let dep_cell_data = Bytes::from(data);
+        let dep_cell = build_cell_meta(
+            CellOutputBuilder::from_data(&dep_cell_data)
+                .capacity(capacity_bytes!(10000))
+                .build(),
+            dep_cell_data,
+        );
+
+        let store = new_store();
+        let data_loader = DataLoaderWrapper::new(&store);
+        let outputs = vec![];
+        let resolved_inputs = vec![];
+        let resolved_deps = vec![dep_cell];
+        let group_inputs = vec![];
+        let group_outputs = vec![];
+        let mut load_code = LoadCellData::new(
+            &data_loader,
+            &outputs,
+            &resolved_inputs,
+            &resolved_deps,
+            &group_inputs,
+            &group_outputs,
+        );
+
+        prop_assert!(load_code.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        let flags = FLAG_WRITABLE;
+        prop_assert_eq!(
+            machine
+                .memory_mut()
+                .fetch_flag(addr / RISCV_PAGESIZE as u64),
+            Ok(flags)
         );
         for (i, addr) in (addr..addr + data.len() as u64).enumerate() {
             prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(data[i])));
@@ -1076,21 +1110,21 @@ mod tests {
         })]
         #[test]
         fn test_load_code(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
-            _test_load_cell_data(LoadDataType::Code, data)?;
+            _test_load_cell_data_as_code(data)?;
         }
 
         #[test]
         fn test_load_data(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
-            _test_load_cell_data(LoadDataType::Data, data)?;
+            _test_load_cell_data(data)?;
         }
     }
 
     fn _test_load_cell_data_on_freezed_memory(
-        load_data_type: LoadDataType,
+        as_code: bool,
         data: &[u8],
     ) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::default();
-        let addr = 4096;
+        let addr = 8192;
         let addr_size = 4096;
 
         prop_assert!(machine
@@ -1104,8 +1138,12 @@ mod tests {
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
-        machine.set_register(A6, load_data_type as u64); // memory type
-        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+        let syscall = if as_code {
+            LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER
+        } else {
+            LOAD_CELL_DATA_SYSCALL_NUMBER
+        };
+        machine.set_register(A7, syscall); // syscall number
 
         let dep_cell_data = Bytes::from(data);
         let dep_cell = build_cell_meta(
@@ -1145,12 +1183,12 @@ mod tests {
         })]
         #[test]
         fn test_load_code_on_freezed_memory(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
-            _test_load_cell_data_on_freezed_memory(LoadDataType::Code, data)?;
+            _test_load_cell_data_on_freezed_memory(true, data)?;
         }
 
         #[test]
         fn test_load_data_on_freezed_memory(ref data in any_with::<Vec<u8>>(size_range(4096).lift())) {
-            _test_load_cell_data_on_freezed_memory(LoadDataType::Data, data)?;
+            _test_load_cell_data_on_freezed_memory(false, data)?;
         }
     }
 
@@ -1167,8 +1205,7 @@ mod tests {
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
-        machine.set_register(A6, LoadDataType::Code as u64); // memory type
-        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
         let dep_cell_data = Bytes::from(&data[..]);
         let dep_cell = build_cell_meta(
             CellOutputBuilder::from_data(&dep_cell_data)
@@ -1215,8 +1252,7 @@ mod tests {
         machine.set_register(A3, data.len() as u64 + 3); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
-        machine.set_register(A6, LoadDataType::Code as u64); // memory type
-        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(&data[..]);
         let dep_cell = build_cell_meta(
@@ -1267,8 +1303,7 @@ mod tests {
         machine.set_register(A3, data.len() as u64); // content size
         machine.set_register(A4, 0); //index
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
-        machine.set_register(A6, LoadDataType::Code as u64); // memory type
-        machine.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER); // syscall number
+        machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(&data[..]);
         let dep_cell = build_cell_meta(
