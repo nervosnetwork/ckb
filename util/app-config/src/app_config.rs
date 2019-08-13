@@ -4,6 +4,7 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
+use path_clean::PathClean;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -189,10 +190,8 @@ fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> Result<PathBuf, 
 }
 
 fn mkdir(dir: PathBuf) -> Result<PathBuf, ExitCode> {
-    fs::create_dir_all(&dir)?;
-    // TODO: Use https://github.com/danreeves/path-clean to clean the
-    // path if needed. std::fs::canonicalize will bring windows compatibility
-    // problems
+    fs::create_dir_all(&dir.clean())?;
+    // std::fs::canonicalize will bring windows compatibility problems
     Ok(dir)
 }
 

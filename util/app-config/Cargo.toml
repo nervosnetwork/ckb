@@ -11,6 +11,7 @@ serde = "1.0"
 serde_derive = "1.0"
 serde_plain = "0.3.0"
 toml = "0.5"
+path-clean = "0.1.0"
 ckb-logger = { path = "../../util/logger" }
 sentry = "^0.15.4"
 ckb-chain-spec = {path = "../../spec"}
