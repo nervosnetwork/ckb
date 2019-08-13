@@ -534,6 +534,7 @@ fn test_chain_get_ancestor() {
 fn prepare_context_chain(
     consensus: Consensus,
     orphan_count: u64,
+    timestep: u64,
 ) -> (ChainController, Shared, Header, EpochExt) {
     let epoch = consensus.genesis_epoch_ext.clone();
     let (chain_controller, shared, genesis) = start_chain(Some(consensus.clone()));
@@ -565,7 +566,7 @@ fn prepare_context_chain(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
-                timestamp: parent.timestamp() + 20_000,
+                timestamp: parent.timestamp() + timestep,
                 difficulty: epoch.difficulty().clone(),
                 dao: dao,
             },
@@ -605,7 +606,7 @@ fn prepare_context_chain(
             from_header_builder: {
                 parent_hash: parent.hash().to_owned(),
                 number: parent.number() + 1,
-                timestamp: parent.timestamp() + 20_000,
+                timestamp: parent.timestamp() + timestep,
                 difficulty: epoch.difficulty().clone(),
                 dao: dao,
             },
@@ -649,7 +650,7 @@ fn test_epoch_hash_rate_dampening() {
         .genesis_epoch_ext
         .set_previous_epoch_hash_rate(U256::from(10u64));
     let (_chain_controller, shared, _genesis, _last_epoch) =
-        prepare_context_chain(consensus.clone(), 26);
+        prepare_context_chain(consensus.clone(), 26, 20_000);
 
     {
         let chain_state = shared.lock_chain_state();
@@ -684,7 +685,7 @@ fn test_epoch_hash_rate_dampening() {
         .genesis_epoch_ext
         .set_previous_epoch_hash_rate(U256::from(200u64));
     let (_chain_controller, shared, _genesis, _last_epoch) =
-        prepare_context_chain(consensus.clone(), 26);
+        prepare_context_chain(consensus.clone(), 26, 20_000);
 
     {
         let chain_state = shared.lock_chain_state();
@@ -715,6 +716,58 @@ fn test_epoch_hash_rate_dampening() {
 }
 
 #[test]
+fn test_orphan_rate_estimation_overflow() {
+    let cellbase = TransactionBuilder::default()
+        .witness(Script::default().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let dao = genesis_dao_data(&cellbase).unwrap();
+    let genesis_block = build_block! {
+        header_builder: header_builder!(difficulty: U256::from(1000u64),
+                                        dao: dao,),
+        transaction: cellbase,
+    };
+
+    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+    consensus.genesis_epoch_ext.set_length(400);
+
+    // last_difficulty 1000
+    // last_epoch_length 400
+    // epoch_duration_target 14400
+    // orphan_rate_target 1/20
+    // last_duration 798000
+    // last_uncles_count 150
+    let (_chain_controller, shared, _genesis, _last_epoch) =
+        prepare_context_chain(consensus.clone(), 151, 2_000_000);
+    {
+        let chain_state = shared.lock_chain_state();
+        let tip = chain_state.tip_header().clone();
+        let total_uncles_count = shared
+            .store()
+            .get_block_ext(&tip.hash())
+            .unwrap()
+            .total_uncles_count;
+        assert_eq!(total_uncles_count, 150);
+
+        let epoch = shared
+            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+            .unwrap();
+
+        assert_eq!(epoch.length(), 480, "epoch length {}", epoch.length());
+
+        // orphan_rate_estimation (22/399 - 1) overflow
+        // max((400 + 150) * 1000 / 798000, 1)  last_epoch_hash_rate 1
+        // 14400 * 20 / (21 * 480)
+        assert_eq!(
+            epoch.difficulty(),
+            &U256::from(28u64),
+            "epoch difficulty {}",
+            epoch.difficulty()
+        );
+    }
+}
+
+#[test]
 fn test_next_epoch_ext() {
     let cellbase = TransactionBuilder::default()
         .witness(Script::default().into_witness())
@@ -736,7 +789,7 @@ fn test_next_epoch_ext() {
     // orphan_rate_target 1/20
     // last_duration 7980
     let (_chain_controller, shared, _genesis, _last_epoch) =
-        prepare_context_chain(consensus.clone(), 26);
+        prepare_context_chain(consensus.clone(), 26, 20_000);
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
@@ -797,7 +850,7 @@ fn test_next_epoch_ext() {
     }
 
     let (_chain_controller, shared, _genesis, _last_epoch) =
-        prepare_context_chain(consensus.clone(), 11);
+        prepare_context_chain(consensus.clone(), 11, 20_000);
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
@@ -835,7 +888,7 @@ fn test_next_epoch_ext() {
     }
 
     let (_chain_controller, shared, _genesis, _last_epoch) =
-        prepare_context_chain(consensus.clone(), 151);
+        prepare_context_chain(consensus.clone(), 151, 20_000);
     {
         let chain_state = shared.lock_chain_state();
         let tip = chain_state.tip_header().clone();
