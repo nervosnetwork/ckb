@@ -61,3 +61,21 @@ pub struct InitArgs {
     pub block_assembler_hash_type: ScriptHashType,
     pub block_assembler_data: Option<String>,
 }
+
+pub struct ResetDataArgs {
+    pub force: bool,
+    pub all: bool,
+    pub database: bool,
+    pub indexer: bool,
+    pub network: bool,
+    pub network_peer_store: bool,
+    pub network_secret_key: bool,
+    pub logs: bool,
+    pub data_dir: PathBuf,
+    pub db_path: PathBuf,
+    pub indexer_db_path: PathBuf,
+    pub network_dir: PathBuf,
+    pub network_peer_store_path: PathBuf,
+    pub network_secret_key_path: PathBuf,
+    pub logs_dir: Option<PathBuf>,
+}

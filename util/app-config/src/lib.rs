@@ -5,7 +5,9 @@ mod exit_code;
 mod sentry_config;
 
 pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
-pub use args::{ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, RunArgs, StatsArgs};
+pub use args::{
+    ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, ResetDataArgs, RunArgs, StatsArgs,
+};
 pub use ckb_miner::BlockAssemblerConfig;
 pub use exit_code::ExitCode;
 
@@ -239,6 +241,48 @@ impl Setup {
             block_assembler_args,
             block_assembler_hash_type,
             block_assembler_data,
+        })
+    }
+
+    pub fn reset_data<'m>(self, matches: &ArgMatches<'m>) -> Result<ResetDataArgs, ExitCode> {
+        let config = self.config.into_ckb()?;
+        let data_dir = config.data_dir;
+        let db_path = config.db.path;
+        let indexer_db_path = config.indexer_db.path;
+        let network_config = config.network;
+        let network_dir = network_config.path.clone();
+        let network_peer_store_path = network_config.peer_store_path();
+        let network_secret_key_path = network_config.secret_key_path();
+        let logs_dir = config
+            .logger
+            .file
+            .and_then(|path| path.parent().map(|dir| dir.to_path_buf()));
+
+        let force = matches.is_present(cli::ARG_FORCE);
+        let all = matches.is_present(cli::ARG_ALL);
+        let database = matches.is_present(cli::ARG_DATABASE);
+        let indexer = matches.is_present(cli::ARG_INDEXER);
+        let network = matches.is_present(cli::ARG_NETWORK);
+        let network_peer_store = matches.is_present(cli::ARG_NETWORK_PEER_STORE);
+        let network_secret_key = matches.is_present(cli::ARG_NETWORK_SECRET_KEY);
+        let logs = matches.is_present(cli::ARG_LOGS);
+
+        Ok(ResetDataArgs {
+            force,
+            all,
+            database,
+            indexer,
+            network,
+            network_peer_store,
+            network_secret_key,
+            logs,
+            data_dir,
+            db_path,
+            indexer_db_path,
+            network_dir,
+            network_peer_store_path,
+            network_secret_key_path,
+            logs_dir,
         })
     }
 
