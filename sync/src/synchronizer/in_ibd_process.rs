@@ -39,6 +39,14 @@ impl<'a> InIBDProcess<'a> {
             .write()
             .get_mut(&self.peer)
         {
+            // Don't assume that the peer is sync_started.
+            // It is possible that a not-sync-started peer sends us `InIBD` messages:
+            //   - Malicious behavior
+            //   - Peer sends multiple `InIBD` messages
+            if !state.sync_started {
+                return Ok(());
+            }
+
             let now = unix_time_as_millis();
             // The node itself needs to ensure the validity of the outbound connection.
             //
