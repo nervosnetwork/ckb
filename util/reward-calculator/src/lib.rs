@@ -147,7 +147,9 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         let mut proposed: HashSet<ProposalShortId> = HashSet::default();
         let mut index = parent.to_owned();
 
-        let committed_idx_proc = |hash: &H256| -> HashSet<ProposalShortId> {
+        // NOTE: We have to ensure that `committed_idx_proc` and `txs_fees_proc` return in the
+        // same order, the order of transactions in block.
+        let committed_idx_proc = |hash: &H256| -> Vec<ProposalShortId> {
             store
                 .get_block_txs_hashes(hash)
                 .iter()
@@ -165,11 +167,10 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
         let committed_idx = committed_idx_proc(index.hash());
 
-        let has_committed = committed_idx
-            .intersection(&target_proposals)
+        let has_committed = target_proposals
+            .intersection(&committed_idx.iter().cloned().collect::<HashSet<_>>())
             .next()
             .is_some();
-
         if has_committed {
             for (id, tx_fee) in committed_idx
                 .into_iter()
@@ -200,11 +201,10 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
             let committed_idx = committed_idx_proc(index.hash());
 
-            let has_committed = committed_idx
-                .intersection(&target_proposals)
+            let has_committed = target_proposals
+                .intersection(&committed_idx.iter().cloned().collect::<HashSet<_>>())
                 .next()
                 .is_some();
-
             if has_committed {
                 for (id, tx_fee) in committed_idx
                     .into_iter()
