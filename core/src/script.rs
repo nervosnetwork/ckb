@@ -96,9 +96,9 @@ impl fmt::Debug for Script {
             .entries(self.args.iter().map(|arg| prefix_hex(arg)))
             .finish()?;
 
-        write!(f, ", code_hash: {:#x}", self.code_hash,)?;
+        write!(f, ", code_hash: {:#x}", self.code_hash)?;
 
-        write!(f, ", code_hash: {:?}", self.hash_type,)?;
+        write!(f, ", hash_type: {:?}", self.hash_type)?;
 
         write!(f, " }}")
     }
