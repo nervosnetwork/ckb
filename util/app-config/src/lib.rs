@@ -197,6 +197,7 @@ impl Setup {
         let root_dir = Self::root_dir_from_matches(matches)?;
         let list_chains =
             matches.is_present(cli::ARG_LIST_CHAINS) || matches.is_present("list-specs");
+        let interactive = matches.is_present(cli::ARG_INTERACTIVE);
         let force = matches.is_present(cli::ARG_FORCE);
         let chain = if matches.occurrences_of(cli::ARG_CHAIN) > 0 || !matches.is_present("spec") {
             matches.value_of(cli::ARG_CHAIN).unwrap().to_string()
@@ -225,6 +226,7 @@ impl Setup {
         let block_assembler_data = matches.value_of(cli::ARG_BA_DATA).map(str::to_string);
 
         Ok(InitArgs {
+            interactive,
             root_dir,
             chain,
             rpc_port,

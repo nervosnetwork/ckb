@@ -125,6 +125,10 @@ impl RocksDB {
             .unwrap_or_else(|err| panic!("{}", err))
     }
 
+    pub fn open_with_error(config: &DBConfig, columns: u32) -> Result<Self> {
+        Self::open_with_check(config, columns, VERSION_KEY, VERSION_VALUE)
+    }
+
     pub fn open_tmp(columns: u32) -> Self {
         let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
         let config = DBConfig {

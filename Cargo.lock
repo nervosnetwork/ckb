@@ -388,6 +388,7 @@ dependencies = [
  "ckb-chain-spec 0.19.0-pre",
  "ckb-core 0.19.0-pre",
  "ckb-crypto 0.19.0-pre",
+ "ckb-db 0.19.0-pre",
  "ckb-hash 0.19.0-pre",
  "ckb-instrument 0.19.0-pre",
  "ckb-logger 0.19.0-pre",

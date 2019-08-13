@@ -47,6 +47,7 @@ pub struct StatsArgs {
 }
 
 pub struct InitArgs {
+    pub interactive: bool,
     pub root_dir: PathBuf,
     pub chain: String,
     pub rpc_port: String,
