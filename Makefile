@@ -30,8 +30,8 @@ integration-windows:
 	cd test && cargo run -- --bin target/debug/ckb ${CKB_TEST_ARGS}
 
 integration-release: setup-ckb-test
-	cargo build --release
-	cd test && cargo run --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
+	RUSTFLAGS="-C lto=off" cargo build --release
+	cd test && RUSTFLAGS="-C lto=off" cargo run --release -- --bin ../target/release/ckb ${CKB_TEST_ARGS}
 
 ##@ Document
 doc: ## Build the documentation for the local package.
@@ -53,13 +53,13 @@ check: setup-ckb-test ## Runs all of the compiler's checks.
 	cd test && cargo check ${VERBOSE} --all --all-targets --all-features
 
 build: ## Build binary with release profile.
-	cargo build ${VERBOSE} --release
+	RUSTFLAGS="-C lto=off" cargo build ${VERBOSE} --release
 
 prod: ## Build binary for production release.
-	RUSTFLAGS="--cfg disable_faketime" cargo build ${VERBOSE} --release
+	RUSTFLAGS="--cfg disable_faketime -C codegen-units=1" cargo build ${VERBOSE} --release
 
 prod-docker:
-	RUSTFLAGS="--cfg disable_faketime --cfg docker" cargo build --verbose --release
+	RUSTFLAGS="--cfg disable_faketime -C codegen-units=1 --cfg docker" cargo build --verbose --release
 
 prod-test:
 	RUSTFLAGS="--cfg disable_faketime" RUSTDOCFLAGS="--cfg disable_faketime" cargo test ${VERBOSE} --all -- --nocapture
@@ -89,6 +89,9 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 
 bench-test:
 	cd benches && cargo bench --features ci -- --test
+
+bench:
+	cd benches && RUSTFLAGS="-C lto=off" cargo bench
 
 ##@ Continuous Integration
 
