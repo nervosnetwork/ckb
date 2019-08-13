@@ -26,3 +26,4 @@ impl_std_cmp_eq_and_hash!(CellInput);
 impl_std_cmp_eq_and_hash!(CellOutput);
 impl_std_cmp_eq_and_hash!(Alert);
 impl_std_cmp_eq_and_hash!(UncleBlock);
+impl_std_cmp_eq_and_hash!(Block);

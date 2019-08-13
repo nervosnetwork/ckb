@@ -683,64 +683,66 @@ impl From<core::BlockReward> for BlockReward {
     }
 }
 
-/* TODO apply-serialization fix tests
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::script::ScriptHashType;
-    use ckb_core::transaction::ProposalShortId as packed::ProposalShortId;
-    use ckb_core::{Bytes, Capacity};
+    use ckb_types::{bytes::Bytes, core::TransactionBuilder};
     use proptest::{collection::size_range, prelude::*};
 
     fn mock_script(arg: Bytes) -> packed::Script {
-        packed::Script::new(vec![arg], H256::default(), ScriptHashType::Data)
-    }
-
-    fn mock_cell_output(data: Bytes, arg: Bytes) -> packed::CellOutput {
-        packed::CellOutput::new(
-            Capacity::zero(),
-            CoreCellOutput::calculate_data_hash(&data),
-            packed::Script::default(),
-            Some(mock_script(arg)),
-        )
-    }
-
-    fn mock_cell_input() -> packed::CellInput {
-        packed::CellInput::new(CoreOutPoint::default(), 0)
-    }
-
-    fn mock_full_tx(data: Bytes, arg: Bytes) -> packed::Transaction {
-        TransactionBuilder::default()
-            .cell_dep(CoreCellDep::new_cell(CoreOutPoint::default()))
-            .inputs(vec![mock_cell_input()])
-            .outputs(vec![mock_cell_output(data, arg.clone())])
-            .outputs(vec![mock_cell_output(data.clone(), arg.clone())])
-            .outputs_data(vec![data])
-            .witness(vec![arg])
+        packed::ScriptBuilder::default()
+            .code_hash(H256::zero().pack())
+            .args(vec![arg].pack())
+            .hash_type(core::ScriptHashType::Data.pack())
             .build()
     }
 
-    fn mock_uncle() -> packed::UncleBlock {
-        packed::UncleBlock::new(
-            HeaderBuilder::default().build(),
-            vec![CoreProposalShortId::default()],
-        )
+    fn mock_cell_output(data: Bytes, arg: Bytes) -> packed::CellOutput {
+        packed::CellOutputBuilder::default()
+            .capacity(core::Capacity::zero().pack())
+            .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
+            .lock(packed::Script::default())
+            .type_(Some(mock_script(arg)).pack())
+            .build()
     }
 
-    fn mock_full_block(data: Bytes, arg: Bytes) -> packed::Block {
-        BlockBuilder::default()
+    fn mock_cell_input() -> packed::CellInput {
+        packed::CellInput::new(packed::OutPoint::default(), 0)
+    }
+
+    fn mock_full_tx(data: Bytes, arg: Bytes) -> core::TransactionView {
+        TransactionBuilder::default()
+            .cell_dep(packed::CellDep::new(packed::OutPoint::default(), false))
+            .inputs(vec![mock_cell_input()])
+            .outputs(vec![mock_cell_output(data.clone(), arg.clone())])
+            .outputs(vec![mock_cell_output(data.clone(), arg.clone())])
+            .outputs_data(vec![data.pack()])
+            .witness(vec![arg.pack()].pack())
+            .build()
+    }
+
+    fn mock_uncle() -> core::UncleBlockView {
+        core::BlockBuilder::default()
+            .proposals(vec![packed::ProposalShortId::default()].pack())
+            .build()
+            .as_uncle()
+    }
+
+    fn mock_full_block(data: Bytes, arg: Bytes) -> core::BlockView {
+        core::BlockBuilder::default()
             .transactions(vec![mock_full_tx(data, arg)])
             .uncles(vec![mock_uncle()])
-            .proposals(vec![CoreProposalShortId::default()])
+            .proposals(vec![packed::ProposalShortId::default()])
             .build()
     }
 
     fn _test_block_convert(data: Bytes, arg: Bytes) -> Result<(), TestCaseError> {
         let block = mock_full_block(data, arg);
-        let json_block: Block = (&block).into();
+        let json_block: BlockView = block.clone().into();
         let encoded = serde_json::to_string(&json_block).unwrap();
-        let decode: Block = serde_json::from_str(&encoded).unwrap();
-        let decode_block: packed::Block = decode.into();
+        let decode: BlockView = serde_json::from_str(&encoded).unwrap();
+        let decode_block: core::BlockView = decode.into();
+        prop_assert_eq!(decode_block.data(), block.data());
         prop_assert_eq!(decode_block, block);
         Ok(())
     }
@@ -755,4 +757,3 @@ mod tests {
         }
     }
 }
-*/
