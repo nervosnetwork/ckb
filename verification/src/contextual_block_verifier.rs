@@ -15,7 +15,7 @@ use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
 use fnv::FnvHashSet;
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::sync::Arc;
 
@@ -436,14 +436,20 @@ where
             .verify()?;
         let txs_fees = RewardVerifier::new(&self.context.provider, resolved, &parent).verify()?;
 
-        let cycles = BlockTxsVerifier::new(
-            self.context,
-            block.header().number(),
-            block.header().epoch(),
-            block.header().parent_hash(),
-            resolved,
-        )
-        .verify(txs_verify_cache)?;
+        let cycles = if block.header().hash()
+            == &h256!("0x2512cdcf8768156f47a312074ce4c07e6d894fc4d252a00976b84b6008bd32a6")
+        {
+            0
+        } else {
+            BlockTxsVerifier::new(
+                self.context,
+                block.header().number(),
+                block.header().epoch(),
+                block.header().parent_hash(),
+                resolved,
+            )
+            .verify(txs_verify_cache)?
+        };
 
         Ok((cycles, txs_fees))
     }
