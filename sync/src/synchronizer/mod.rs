@@ -481,41 +481,38 @@ impl CKBProtocolHandler for Synchronizer {
     }
 }
 
-/* TODO apply-serialization fix tests
 #[cfg(test)]
 mod tests {
     use self::block_process::BlockProcess;
     use self::headers_process::HeadersProcess;
     use super::*;
-    use crate::{types::PeerState, SyncSharedState, MAX_TIP_AGE};
+    use crate::{types::HeaderView, types::PeerState, SyncSharedState, MAX_TIP_AGE};
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_core::block::BlockBuilder;
-    use ckb_core::cell::resolve_transaction;
-    use ckb_core::extras::EpochExt;
-    use ckb_core::header::BlockNumber;
-    use ckb_core::header::{Header, HeaderBuilder};
-    use ckb_core::script::Script;
-    use ckb_core::transaction::{CellInput, CellOutputBuilder, Transaction, TransactionBuilder};
-    use ckb_core::Bytes;
     use ckb_dao::DaoCalculator;
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
         TargetSession,
     };
     use ckb_notify::{NotifyController, NotifyService};
-    use ckb_protocol::{Block as FbsBlock, Headers as FbsHeaders};
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
     use ckb_store::ChainStore;
     use ckb_traits::chain_provider::ChainProvider;
+    use ckb_types::{
+        bytes::Bytes,
+        core::{
+            cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt,
+            HeaderBuilder, HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
+        },
+        packed::{CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder},
+        U256,
+    };
     use ckb_util::Mutex;
     #[cfg(not(disable_faketime))]
     use faketime;
-    use flatbuffers::{get_root, FlatBufferBuilder};
-    use fnv::{FnvHashMap, FnvHashSet};
     use futures::future::Future;
-    use numext_fixed_uint::U256;
+    use std::collections::{HashMap, HashSet};
     use std::ops::Deref;
     use std::time::Duration;
 
@@ -539,14 +536,18 @@ mod tests {
 
     fn create_cellbase(
         shared: &Shared,
-        parent_header: &Header,
+        parent_header: &CoreHeaderView,
         number: BlockNumber,
-    ) -> Transaction {
+    ) -> TransactionView {
         let (_, reward) = shared.finalize_block_reward(parent_header).unwrap();
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
-            .output(CellOutputBuilder::default().capacity(reward.total).build())
-            .output_data(Bytes::new())
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(reward.total.pack())
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
             .witness(Script::default().into_witness())
             .build()
     }
@@ -556,35 +557,34 @@ mod tests {
         Synchronizer::new(chain_controller, shared)
     }
 
-    fn gen_block(shared: &Shared, parent_header: &Header, epoch: &EpochExt, nonce: u64) -> Block {
+    fn gen_block(
+        shared: &Shared,
+        parent_header: &CoreHeaderView,
+        epoch: &EpochExt,
+        nonce: u64,
+    ) -> BlockView {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(shared, parent_header, number);
         let dao = {
             let chain_state = shared.lock_chain_state();
-            let resolved_cellbase = resolve_transaction(
-                &cellbase,
-                &mut Default::default(),
-                &*chain_state,
-                &*chain_state,
-            )
-            .unwrap();
+            let resolved_cellbase =
+                resolve_transaction(&cellbase, &mut HashSet::new(), &*chain_state, &*chain_state)
+                    .unwrap();
             DaoCalculator::new(shared.consensus(), shared.store())
                 .dao_field(&[resolved_cellbase], parent_header)
                 .unwrap()
         };
-        let header_builder = HeaderBuilder::default()
-            .parent_hash(parent_header.hash().to_owned())
-            .timestamp(now)
-            .epoch(epoch.number())
-            .number(number)
-            .difficulty(epoch.difficulty().clone())
-            .nonce(nonce)
-            .dao(dao);
 
         BlockBuilder::default()
             .transaction(cellbase)
-            .header_builder(header_builder)
+            .parent_hash(parent_header.hash().to_owned())
+            .timestamp(now.pack())
+            .epoch(epoch.number().pack())
+            .number(number.pack())
+            .difficulty(epoch.difficulty().pack())
+            .nonce(nonce.pack())
+            .dao(dao.pack())
             .build()
     }
 
@@ -598,7 +598,7 @@ mod tests {
             .store()
             .get_block_header(&shared.store().get_block_hash(number - 1).unwrap())
             .unwrap();
-        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
+        let parent_epoch = shared.store().get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
@@ -635,7 +635,7 @@ mod tests {
             expect.push(shared.store().get_block_hash(*i).unwrap());
         }
         //genesis_hash must be the last one
-        expect.push(shared.genesis_hash().to_owned());
+        expect.push(shared.genesis_hash().pack());
 
         assert_eq!(expect, locator);
     }
@@ -665,7 +665,7 @@ mod tests {
 
         let latest_common = synchronizer2
             .shared
-            .locate_latest_common_block(&H256::zero(), &locator1[..]);
+            .locate_latest_common_block(&H256::zero().pack(), &locator1[..]);
 
         assert_eq!(latest_common, Some(0));
 
@@ -680,7 +680,7 @@ mod tests {
 
         let latest_common3 = synchronizer3
             .shared
-            .locate_latest_common_block(&H256::zero(), &locator1[..]);
+            .locate_latest_common_block(&H256::zero().pack(), &locator1[..]);
         assert_eq!(latest_common3, Some(192));
     }
 
@@ -691,10 +691,10 @@ mod tests {
         let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
         let block_number = 200;
 
-        let mut blocks: Vec<Block> = Vec::new();
+        let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = consensus.genesis_block().header().to_owned();
         for i in 1..block_number {
-            let parent_epoch = shared1.get_block_epoch(&parent.hash()).unwrap();
+            let parent_epoch = shared1.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
@@ -713,7 +713,7 @@ mod tests {
         parent = blocks[150].header().to_owned();
         let fork = parent.number();
         for i in 1..=block_number {
-            let parent_epoch = shared2.get_block_epoch(&parent.hash()).unwrap();
+            let parent_epoch = shared2.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared2
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
@@ -733,7 +733,7 @@ mod tests {
 
         let latest_common = synchronizer2
             .shared
-            .locate_latest_common_block(&H256::zero(), &locator1[..])
+            .locate_latest_common_block(&H256::zero().pack(), &locator1[..])
             .unwrap();
 
         assert_eq!(
@@ -795,13 +795,13 @@ mod tests {
         let block_number = 2000;
         let peer: PeerIndex = 0.into();
 
-        let mut blocks: Vec<Block> = Vec::new();
+        let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = shared1
             .store()
             .get_block_header(&shared1.store().get_block_hash(0).unwrap())
             .unwrap();
         for i in 1..block_number {
-            let parent_epoch = shared1.get_block_epoch(&parent.hash()).unwrap();
+            let parent_epoch = shared1.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
@@ -822,7 +822,7 @@ mod tests {
                 .expect("Insert new block failed");
         });
         assert_eq!(
-            chain1_last_block.header(),
+            &chain1_last_block.header(),
             shared2.lock_chain_state().tip_header()
         );
     }
@@ -833,13 +833,13 @@ mod tests {
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
         let block_number = 200;
 
-        let mut blocks: Vec<Block> = Vec::new();
+        let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = shared
             .store()
             .get_block_header(&shared.store().get_block_hash(0).unwrap())
             .unwrap();
         for i in 1..=block_number {
-            let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
+            let parent_epoch = shared.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
@@ -854,22 +854,24 @@ mod tests {
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
-        let headers = synchronizer.shared.get_locator_response(180, &H256::zero());
+        let headers = synchronizer
+            .shared
+            .get_locator_response(180, &H256::zero().pack());
 
-        assert_eq!(headers.first().unwrap(), blocks[180].header());
-        assert_eq!(headers.last().unwrap(), blocks[199].header());
+        assert_eq!(headers.first().unwrap(), &blocks[180].header());
+        assert_eq!(headers.last().unwrap(), &blocks[199].header());
 
         for window in headers.windows(2) {
             if let [parent, header] = &window {
-                assert_eq!(header.parent_hash(), parent.hash());
+                assert_eq!(header.data().raw().parent_hash(), parent.hash());
             }
         }
     }
 
     #[derive(Clone)]
     struct DummyNetworkContext {
-        pub peers: FnvHashMap<PeerIndex, Peer>,
-        pub disconnected: Arc<Mutex<FnvHashSet<PeerIndex>>>,
+        pub peers: HashMap<PeerIndex, Peer>,
+        pub disconnected: Arc<Mutex<HashSet<PeerIndex>>>,
     }
 
     fn mock_peer_info() -> Peer {
@@ -974,13 +976,13 @@ mod tests {
     }
 
     fn mock_network_context(peer_num: usize) -> DummyNetworkContext {
-        let mut peers = FnvHashMap::default();
+        let mut peers = HashMap::default();
         for peer in 0..peer_num {
             peers.insert(peer.into(), mock_peer_info());
         }
         DummyNetworkContext {
             peers,
-            disconnected: Arc::new(Mutex::new(FnvHashSet::default())),
+            disconnected: Arc::new(Mutex::new(HashSet::default())),
         }
     }
 
@@ -1013,33 +1015,32 @@ mod tests {
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
         let latest_common = synchronizer2
             .shared
-            .locate_latest_common_block(&H256::zero(), &locator1[..]);
+            .locate_latest_common_block(&H256::zero().pack(), &locator1[..]);
         assert_eq!(latest_common, Some(192));
 
         let headers = synchronizer2
             .shared
-            .get_locator_response(192, &H256::zero());
+            .get_locator_response(192, &H256::zero().pack());
 
         assert_eq!(
             headers.first().unwrap().hash(),
-            &shared2.store().get_block_hash(193).unwrap()
+            shared2.store().get_block_hash(193).unwrap()
         );
         assert_eq!(
             headers.last().unwrap().hash(),
-            &shared2.store().get_block_hash(200).unwrap()
+            shared2.store().get_block_hash(200).unwrap()
         );
 
-        let fbb = &mut FlatBufferBuilder::new();
-        let fbs_headers = FbsHeaders::build(fbb, &headers);
-        fbb.finish(fbs_headers, None);
-        let fbs_headers = get_root::<FbsHeaders>(fbb.finished_data());
+        let sendheaders = SendHeadersBuilder::default()
+            .headers(headers.iter().map(|h| h.data()).pack())
+            .build();
 
         let mock_nc = mock_network_context(4);
         let peer1: PeerIndex = 1.into();
         let peer2: PeerIndex = 2.into();
         synchronizer1.on_connected(&mock_nc, peer1);
         synchronizer1.on_connected(&mock_nc, peer2);
-        HeadersProcess::new(&fbs_headers, &synchronizer1, peer1, &mock_nc)
+        HeadersProcess::new(sendheaders.as_reader(), &synchronizer1, peer1, &mock_nc)
             .execute()
             .expect("Process headers from peer1 failed");
 
@@ -1064,18 +1065,14 @@ mod tests {
         }
 
         for block in &fetched_blocks {
-            let fbb = &mut FlatBufferBuilder::new();
-            let fbs_block = FbsBlock::build(fbb, block);
-            fbb.finish(fbs_block, None);
-            let fbs_block = get_root::<FbsBlock>(fbb.finished_data());
-
-            BlockProcess::new(&fbs_block, &synchronizer1, peer1, &mock_nc)
+            let block = SendBlockBuilder::default().block(block.data()).build();
+            BlockProcess::new(block.as_reader(), &synchronizer1, peer1, &mock_nc)
                 .execute()
                 .unwrap();
         }
 
         assert_eq!(
-            synchronizer1
+            &synchronizer1
                 .peers()
                 .get_last_common_header(peer1)
                 .unwrap()
@@ -1129,7 +1126,7 @@ mod tests {
         let disconnected = network_context.disconnected.lock();
         assert_eq!(
             disconnected.deref(),
-            &FnvHashSet::from_iter(vec![0, 1, 2].into_iter().map(Into::into))
+            &HashSet::from_iter(vec![0, 1, 2].into_iter().map(Into::into))
         )
     }
 
@@ -1141,11 +1138,8 @@ mod tests {
         faketime::enable(&faketime_file);
 
         let consensus = Consensus::default();
-        let header = HeaderBuilder::default()
-            .difficulty(U256::from(2u64))
-            .build();
         let block = BlockBuilder::default()
-            .header(header)
+            .difficulty(U256::from(2u64).pack())
             .transaction(consensus.genesis_block().transactions()[0].clone())
             .build();
         let consensus = consensus.set_genesis_block(block);
@@ -1335,9 +1329,8 @@ mod tests {
             let disconnected = network_context.disconnected.lock();
             assert_eq!(
                 disconnected.deref(),
-                &FnvHashSet::from_iter(vec![3, 4].into_iter().map(Into::into))
+                &HashSet::from_iter(vec![3, 4].into_iter().map(Into::into))
             )
         }
     }
 }
-*/

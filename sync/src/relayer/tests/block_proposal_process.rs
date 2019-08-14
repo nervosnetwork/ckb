@@ -1,10 +1,8 @@
-use ckb_core::transaction::ProposalShortId;
-use ckb_protocol::{cast, get_root, BlockProposal, RelayMessage};
-use flatbuffers::FlatBufferBuilder;
-use std::sync::Arc;
-
 use crate::relayer::block_proposal_process::{BlockProposalProcess, Status};
 use crate::relayer::tests::helper::{build_chain, new_transaction, MockProtocalContext};
+use ckb_types::packed::{self, ProposalShortId};
+use ckb_types::prelude::*;
+use std::sync::Arc;
 
 #[test]
 fn test_no_unknown() {
@@ -20,19 +18,15 @@ fn test_no_unknown() {
             .shared
             .mark_as_known_tx(transaction.hash().to_owned());
     }
-
-    let builder = &mut FlatBufferBuilder::new();
-    let b = RelayMessage::build_block_proposal(builder, transactions.as_ref());
-    builder.finish(b, None);
-
-    let message = get_root::<RelayMessage>(builder.finished_data()).unwrap();
-    let block_proposal: BlockProposal = cast!(message.payload_as_block_proposal()).unwrap();
+    let content = packed::BlockProposal::new_builder()
+        .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
+        .build();
 
     let mock_protocal_context = MockProtocalContext::default();
     let nc = Arc::new(mock_protocal_context);
 
     let process = BlockProposalProcess::new(
-        &block_proposal,
+        content.as_reader(),
         &relayer,
         Arc::<MockProtocalContext>::clone(&nc),
     );
@@ -48,25 +42,22 @@ fn test_no_asked() {
 
     let transactions = vec![transaction.clone()];
 
-    let builder = &mut FlatBufferBuilder::new();
-    let b = RelayMessage::build_block_proposal(builder, transactions.as_ref());
-    builder.finish(b, None);
-
-    let message = get_root::<RelayMessage>(builder.finished_data()).unwrap();
-    let block_proposal: BlockProposal = cast!(message.payload_as_block_proposal()).unwrap();
+    let content = packed::BlockProposal::new_builder()
+        .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
+        .build();
 
     let mock_protocal_context = MockProtocalContext::default();
     let nc = Arc::new(mock_protocal_context);
 
     let process = BlockProposalProcess::new(
-        &block_proposal,
+        content.as_reader(),
         &relayer,
         Arc::<MockProtocalContext>::clone(&nc),
     );
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoAsked));
 
-    let known = relayer.shared.already_known_tx(transaction.hash());
+    let known = relayer.shared.already_known_tx(&transaction.hash());
     assert_eq!(known, false);
 }
 
@@ -78,7 +69,7 @@ fn test_ok() {
     let transactions = vec![transaction.clone()];
     let proposals: Vec<ProposalShortId> = transactions
         .iter()
-        .map(|tx| ProposalShortId::from_tx_hash(tx.hash()))
+        .map(|tx| tx.proposal_short_id())
         .collect();
 
     // Before asked proposals
@@ -86,24 +77,21 @@ fn test_ok() {
         relayer.shared.insert_inflight_proposals(proposals);
     }
 
-    let builder = &mut FlatBufferBuilder::new();
-    let b = RelayMessage::build_block_proposal(builder, transactions.as_ref());
-    builder.finish(b, None);
-
-    let message = get_root::<RelayMessage>(builder.finished_data()).unwrap();
-    let block_proposal: BlockProposal = cast!(message.payload_as_block_proposal()).unwrap();
+    let content = packed::BlockProposal::new_builder()
+        .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
+        .build();
 
     let mock_protocal_context = MockProtocalContext::default();
     let nc = Arc::new(mock_protocal_context);
 
     let process = BlockProposalProcess::new(
-        &block_proposal,
+        content.as_reader(),
         &relayer,
         Arc::<MockProtocalContext>::clone(&nc),
     );
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::Ok));
 
-    let known = relayer.shared.already_known_tx(transaction.hash());
+    let known = relayer.shared.already_known_tx(&transaction.hash());
     assert_eq!(known, true);
 }

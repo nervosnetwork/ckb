@@ -73,11 +73,9 @@ impl ShortIdsVerifier {
         }
 
         // Check intersection of prefilled transactions and short ids
-        let is_intersect = prefilled_transactions.into_iter().any(|pt| {
-            short_ids_set.contains(&packed::ProposalShortId::from_tx_hash(
-                &pt.transaction().calc_tx_hash(),
-            ))
-        });
+        let is_intersect = prefilled_transactions
+            .into_iter()
+            .any(|pt| short_ids_set.contains(&pt.transaction().proposal_short_id()));
         if is_intersect {
             return Err(Error::Misbehavior(
                 Misbehavior::IntersectedPrefilledTransactions,

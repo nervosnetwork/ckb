@@ -149,7 +149,6 @@ impl StoreTransaction {
         for uncle_hash in block.uncle_hashes().into_iter() {
             self.insert_raw(COLUMN_UNCLES, &uncle_hash.as_slice(), &[])?;
         }
-        eprintln!("insert block-{}: {}", block.number(), block.hash());
         self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())
     }
 

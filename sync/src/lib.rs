@@ -9,9 +9,8 @@ mod relayer;
 mod synchronizer;
 mod types;
 
-// TODO apply-serialization fix tests
-//#[cfg(test)]
-//mod tests;
+#[cfg(test)]
+mod tests;
 
 pub use crate::net_time_checker::NetTimeProtocol;
 pub use crate::relayer::Relayer;
