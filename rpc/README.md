@@ -523,11 +523,11 @@ http://localhost:8114
 
 ### `get_live_cell`
 
-Returns the information about a cell by out_point. If <block_hash> is not specific, returns the cell if it is live. If <block_hash> is specified, return the live cell only if the corresponding block contain this cell
+Returns the information about a cell by out_point if it is live.
 
 #### Parameters
 
-    out_point - OutPoint object {{"tx_hash": <tx_hash>, "index": <index>}, "block_hash": <block_hash>}.
+    out_point - OutPoint object {{"tx_hash": <tx_hash>, "index": <index>}}.
 
 #### Examples
 
