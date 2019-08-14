@@ -15,6 +15,8 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 
 pub const TX_VERSION: Version = 0;
+// tx hash (32 bytes) + output index (4 bytes)
+pub const OUT_POINT_LEN: usize = 36;
 
 pub struct CellKey([u8; 36]);
 
@@ -97,6 +99,22 @@ impl OutPoint {
 
     pub fn cell_key(&self) -> CellKey {
         CellKey::calculate(&self.tx_hash, self.index)
+    }
+
+    /// Convert from dep group data
+    pub fn from_group_data(data: &[u8]) -> Result<OutPoint, usize> {
+        if data.len() != OUT_POINT_LEN {
+            Err(data.len())
+        } else {
+            Ok(CellKey::deconstruct(data))
+        }
+    }
+
+    /// Convert OutPoint to one dep group data item
+    pub fn to_group_data(&self) -> Vec<u8> {
+        CellKey::calculate(&self.tx_hash, self.index)
+            .as_ref()
+            .to_vec()
     }
 }
 
