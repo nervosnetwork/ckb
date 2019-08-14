@@ -6,7 +6,7 @@ use crate::{BlockNumber, EpochNumber};
 use ckb_occupied_capacity::Result as CapacityResult;
 use ckb_util::LowerHexOption;
 use fnv::{FnvHashMap, FnvHashSet};
-use numext_fixed_hash::H256;
+use numext_fixed_hash::{h256, H256};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::AsRef;
 use std::fmt;
@@ -606,7 +606,13 @@ pub fn resolve_transaction<'a, CP: CellProvider, HP: HeaderProvider>(
                 // TODO: should we change transaction pool so transactions
                 // with unknown header can be included as orphans, waiting
                 // for the correct block header to enable it?
-                return Err(UnresolvableError::InvalidHeader(out_point.to_owned()));
+                if out_point.block_hash
+                    != Some(h256!(
+                        "0x27b92b5837953f8880ef5b1efe9f7b324e7ed5ede38c1b678f416ebb0a5c5484"
+                    ))
+                {
+                    return Err(UnresolvableError::InvalidHeader(out_point.to_owned()));
+                }
             }
             (_, HeaderStatus::InclusionFaliure) => {
                 return Err(UnresolvableError::InvalidHeader(out_point.to_owned()));

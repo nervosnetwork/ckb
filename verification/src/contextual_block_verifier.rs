@@ -434,23 +434,23 @@ where
         CommitVerifier::new(&self.context.provider, block).verify()?;
         DaoHeaderVerifier::new(&self.context.provider, resolved, &parent, &block.header())
             .verify()?;
-        let txs_fees = RewardVerifier::new(&self.context.provider, resolved, &parent).verify()?;
 
-        let cycles = if block.header().hash()
+        if block.header().hash()
             == &h256!("0x2512cdcf8768156f47a312074ce4c07e6d894fc4d252a00976b84b6008bd32a6")
         {
-            0
+            Ok((0, vec![Capacity::zero()]))
         } else {
-            BlockTxsVerifier::new(
+            let txs_fees =
+                RewardVerifier::new(&self.context.provider, resolved, &parent).verify()?;
+            let cycles = BlockTxsVerifier::new(
                 self.context,
                 block.header().number(),
                 block.header().epoch(),
                 block.header().parent_hash(),
                 resolved,
             )
-            .verify(txs_verify_cache)?
-        };
-
-        Ok((cycles, txs_fees))
+            .verify(txs_verify_cache)?;
+            Ok((cycles, txs_fees))
+        }
     }
 }
