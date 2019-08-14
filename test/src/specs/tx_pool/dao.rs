@@ -350,7 +350,6 @@ fn deposit_dao_output(capacity: Capacity) -> (CellOutput, Bytes) {
     let data = Bytes::from(vec![1; 10]);
     let cell_output = CellOutput::new_builder()
         .capacity(capacity.pack())
-        .data_hash(CellOutput::calc_data_hash(&data).pack())
         .lock(always_success_script)
         .type_(Some(deposit_dao_script()).pack())
         .build();
@@ -363,7 +362,6 @@ fn withdraw_dao_output(capacity: Capacity) -> (CellOutput, Bytes) {
     let data = Bytes::from(vec![1; 10]);
     let cell_output = CellOutput::new_builder()
         .capacity(capacity.pack())
-        .data_hash(CellOutput::calc_data_hash(&data).pack())
         .lock(always_success_script)
         .build();
     (cell_output, data)

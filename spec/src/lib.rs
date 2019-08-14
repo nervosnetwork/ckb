@@ -262,24 +262,17 @@ impl Genesis {
         &self,
         cellbase_tx: &TransactionView,
     ) -> Result<TransactionView, Box<dyn Error>> {
-        fn find_out_point<F: FnMut(packed::CellOutput) -> bool>(
-            tx: &TransactionView,
-            func: F,
-        ) -> Option<packed::OutPoint> {
-            tx.outputs()
-                .into_iter()
-                .position(func)
-                .map(|index| packed::OutPoint::new(tx.hash().clone().unpack(), index as u32))
-        }
-
         fn find_out_point_by_data_hash(
             tx: &TransactionView,
             data_hash: &H256,
         ) -> Option<packed::OutPoint> {
-            find_out_point(tx, |output| {
-                let hash: H256 = output.data_hash().unpack();
-                &hash == data_hash
-            })
+            tx.outputs_data()
+                .into_iter()
+                .position(|data| {
+                    let hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data());
+                    &hash == data_hash
+                })
+                .map(|index| packed::OutPoint::new(tx.hash().clone().unpack(), index as u32))
         }
 
         fn build_dep_group_output(
@@ -288,7 +281,6 @@ impl Genesis {
         ) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
             let data = Bytes::from(out_points.pack().as_slice());
             let cell = packed::CellOutput::new_builder()
-                .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
                 .lock(lock)
                 .build_exact_capacity(Capacity::bytes(data.len())?)?;
             Ok((cell, data))
@@ -319,16 +311,20 @@ impl Genesis {
 
         let privkey = Privkey::from(SPECIAL_CELL_PRIVKEY.clone());
         let lock_arg = secp_lock_arg(&privkey);
-        let input_out_point = find_out_point(cellbase_tx, |output| {
-            output
-                .lock()
-                .args()
-                .get(0)
-                .map(|arg| arg.clone().unpack())
-                .as_ref()
-                == Some(&lock_arg)
-        })
-        .expect("Get special issued input failed");
+        let input_out_point = cellbase_tx
+            .outputs()
+            .into_iter()
+            .position(|output| {
+                output
+                    .lock()
+                    .args()
+                    .get(0)
+                    .map(|arg| arg.clone().unpack())
+                    .as_ref()
+                    == Some(&lock_arg)
+            })
+            .map(|index| packed::OutPoint::new(cellbase_tx.hash().clone().unpack(), index as u32))
+            .expect("Get special issued input failed");
         let input = packed::CellInput::new(input_out_point, 0);
 
         let cell_deps = vec![
@@ -366,7 +362,6 @@ impl GenesisCell {
     fn build_output(&self) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
         let data: Bytes = self.message.as_bytes().into();
         let cell = packed::CellOutput::new_builder()
-            .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
             .lock(self.lock.clone().into())
             .build_exact_capacity(Capacity::bytes(data.len())?)?;
         Ok((cell, data))
@@ -393,7 +388,6 @@ impl SystemCells {
         for res in &self.files {
             let data: Bytes = res.get()?.into_owned().into();
             let cell = packed::CellOutput::new_builder()
-                .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
                 .lock(self.lock.clone().into())
                 .build_exact_capacity(Capacity::bytes(data.len())?)?;
             outputs.push(cell);
@@ -460,16 +454,14 @@ pub mod test {
 
             assert_eq!(spec_hashes.cellbase, cellbase_hash);
 
-            for (index_minus_one, (output, cell)) in cellbase
+            for (index_minus_one, (_output, cell)) in cellbase
                 .outputs()
                 .into_iter()
                 .skip(1)
                 .zip(spec_hashes.system_cells.iter())
                 .enumerate()
             {
-                let code_hash: H256 = output.data_hash().unpack();
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
-                assert_eq!(cell.code_hash, code_hash, "{}", bundled_spec_err);
             }
         }
     }

@@ -448,11 +448,11 @@ impl BlockAssembler {
                 RewardCalculator::new(self.shared.consensus(), snapshot).block_reward(tip)?;
             let witness = lock.into_witness();
             let input = CellInput::new_cellbase_input(candidate_number);
-            let raw_output = CellOutput::new_builder()
+            let output = CellOutput::new_builder()
                 .capacity(block_reward.total.pack())
                 .lock(target_lock)
                 .build();
-            let (output, output_data) = self.custom_output(block_reward.total, raw_output)?;
+            let output_data = self.build_output_data(block_reward.total, &output)?;
 
             TransactionBuilder::default()
                 .input(input)
@@ -465,11 +465,11 @@ impl BlockAssembler {
         Ok(tx)
     }
 
-    fn custom_output(
+    fn build_output_data(
         &self,
         reward: Capacity,
-        output: CellOutput,
-    ) -> Result<(CellOutput, Bytes), FailureError> {
+        output: &CellOutput,
+    ) -> Result<Bytes, FailureError> {
         let mut data = self.config.data.clone().into_bytes();
         let occupied_capacity = output.occupied_capacity(Capacity::bytes(data.len())?)?;
 
@@ -486,14 +486,9 @@ impl BlockAssembler {
                 data.truncate(data_max_len);
             }
 
-            let output_new = output
-                .as_builder()
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
-                .build();
-
-            Ok((output_new, data))
+            Ok(data)
         } else {
-            Ok((output, data))
+            Ok(data)
         }
     }
 

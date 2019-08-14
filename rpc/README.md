@@ -105,7 +105,6 @@ http://localhost:8114
                 "outputs": [
                     {
                         "capacity": "70193197506",
-                        "data_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -198,7 +197,6 @@ http://localhost:8114
                 "outputs": [
                     {
                         "capacity": "70193197506",
-                        "data_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -555,7 +553,6 @@ http://localhost:8114
     "result": {
         "cell": {
             "capacity": "34400000000",
-            "data_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
             "lock": {
                 "args": [],
                 "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -695,7 +692,6 @@ http://localhost:8114
             "outputs": [
                 {
                     "capacity": "100000000000",
-                    "data_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -809,7 +805,6 @@ echo '{
             "outputs": [
                 {
                     "capacity": "100000000000",
-                    "data_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -881,7 +876,6 @@ echo '{
             "outputs": [
                 {
                     "capacity": "100000000000",
-                    "data_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -984,7 +978,6 @@ http://localhost:8114
         {
             "cell_output": {
                 "capacity": "125000000000",
-                "data_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -1001,7 +994,6 @@ http://localhost:8114
         {
             "cell_output": {
                 "capacity": "125000000000",
-                "data_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -1367,7 +1359,6 @@ echo '{
             "outputs": [
                 {
                     "capacity": "100000000000",
-                    "data_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",

@@ -27,12 +27,11 @@ lazy_static! {
 
         let cell = CellOutput::new_builder()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .build();
 
         let script = Script::new_builder()
             .hash_type(ScriptHashType::Data.pack())
-            .code_hash(cell.data_hash())
+            .code_hash(CellOutput::calc_data_hash(&data).pack())
             .build();
 
         (cell, data, script)

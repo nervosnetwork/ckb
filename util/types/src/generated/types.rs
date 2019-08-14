@@ -7535,11 +7535,10 @@ impl ::std::fmt::Display for CellOutput {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "capacity", self.capacity())?;
-        write!(f, ", {}: {}", "data_hash", self.data_hash())?;
         write!(f, ", {}: {}", "lock", self.lock())?;
         write!(f, ", {}: {}", "type_", self.type_())?;
         let (_, count, _) = Self::field_offsets(&self);
-        if count != 4 {
+        if count != 3 {
             write!(f, ", ..")?;
         }
         write!(f, " }}")
@@ -7549,11 +7548,10 @@ impl<'r> ::std::fmt::Display for CellOutputReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "capacity", self.capacity())?;
-        write!(f, ", {}: {}", "data_hash", self.data_hash())?;
         write!(f, ", {}: {}", "lock", self.lock())?;
         write!(f, ", {}: {}", "type_", self.type_())?;
         let (_, count, _) = Self::field_offsets(&self);
-        if count != 4 {
+        if count != 3 {
             write!(f, ", ..")?;
         }
         write!(f, " }}")
@@ -7562,17 +7560,15 @@ impl<'r> ::std::fmt::Display for CellOutputReader<'r> {
 #[derive(Debug, Default)]
 pub struct CellOutputBuilder {
     pub(crate) capacity: Uint64,
-    pub(crate) data_hash: Byte32,
     pub(crate) lock: Script,
     pub(crate) type_: ScriptOpt,
 }
 impl ::std::default::Default for CellOutput {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            113, 0, 0, 0, 20, 0, 0, 0, 28, 0, 0, 0, 60, 0, 0, 0, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 53, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+            77, 0, 0, 0, 16, 0, 0, 0, 24, 0, 0, 0, 77, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 53, 0, 0,
+            0, 16, 0, 0, 0, 48, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
         ];
         CellOutput::new_unchecked(v.into())
     }
@@ -7597,7 +7593,6 @@ impl molecule::prelude::Entity for CellOutput {
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
             .capacity(self.capacity())
-            .data_hash(self.data_hash())
             .lock(self.lock())
             .type_(self.type_())
     }
@@ -7607,7 +7602,7 @@ impl CellOutput {
     pub fn as_reader(&self) -> CellOutputReader<'_> {
         CellOutputReader::new_unchecked(self.as_slice())
     }
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 3;
     pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
         let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
         let bytes_len = u32::from_le(ptr[0]) as usize;
@@ -7621,25 +7616,19 @@ impl CellOutput {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn data_hash(&self) -> Byte32 {
+    pub fn lock(&self) -> Script {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn lock(&self) -> Script {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[2]) as usize;
-        let end = u32::from_le(offsets[2 + 1]) as usize;
         Script::new_unchecked(self.0.slice(start, end))
     }
     pub fn type_(&self) -> ScriptOpt {
         let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[3]) as usize;
-        if count == 4 {
+        let start = u32::from_le(offsets[2]) as usize;
+        if count == 3 {
             ScriptOpt::new_unchecked(self.0.slice_from(start))
         } else {
-            let end = u32::from_le(offsets[3 + 1]) as usize;
+            let end = u32::from_le(offsets[2 + 1]) as usize;
             ScriptOpt::new_unchecked(self.0.slice(start, end))
         }
     }
@@ -7668,16 +7657,16 @@ impl<'r> molecule::prelude::Reader<'r> for CellOutputReader<'r> {
             let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
             Err(err)?;
         }
-        if 4 == 0 && total_size == 4 {
+        if 3 == 0 && total_size == 4 {
             return Ok(());
         }
-        let expected = 4 + 4 * 4;
+        let expected = 4 + 4 * 3;
         if total_size < expected {
             let err =
                 VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
             Err(err)?;
         }
-        let mut offsets: Vec<usize> = ptr[1..=4]
+        let mut offsets: Vec<usize> = ptr[1..=3]
             .iter()
             .map(|x| u32::from_le(*x) as usize)
             .collect();
@@ -7692,15 +7681,14 @@ impl<'r> molecule::prelude::Reader<'r> for CellOutputReader<'r> {
             Err(err)?;
         }
         Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        Byte32Reader::verify(&slice[offsets[1]..offsets[2]])?;
-        ScriptReader::verify(&slice[offsets[2]..offsets[3]])?;
-        ScriptOptReader::verify(&slice[offsets[3]..offsets[4]])?;
+        ScriptReader::verify(&slice[offsets[1]..offsets[2]])?;
+        ScriptOptReader::verify(&slice[offsets[2]..offsets[3]])?;
         Ok(())
     }
 }
 impl<'r> CellOutputReader<'r> {
     pub const NAME: &'r str = "CellOutputReader";
-    pub const FIELD_COUNT: usize = 4;
+    pub const FIELD_COUNT: usize = 3;
     pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
         let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
         let bytes_len = u32::from_le(ptr[0]) as usize;
@@ -7714,25 +7702,19 @@ impl<'r> CellOutputReader<'r> {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn data_hash(&self) -> Byte32Reader<'_> {
+    pub fn lock(&self) -> ScriptReader<'_> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn lock(&self) -> ScriptReader<'_> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[2]) as usize;
-        let end = u32::from_le(offsets[2 + 1]) as usize;
         ScriptReader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn type_(&self) -> ScriptOptReader<'_> {
         let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[3]) as usize;
-        if count == 4 {
+        let start = u32::from_le(offsets[2]) as usize;
+        if count == 3 {
             ScriptOptReader::new_unchecked(&self.as_slice()[start..])
         } else {
-            let end = u32::from_le(offsets[3 + 1]) as usize;
+            let end = u32::from_le(offsets[2 + 1]) as usize;
             ScriptOptReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
@@ -7740,26 +7722,20 @@ impl<'r> CellOutputReader<'r> {
 impl molecule::prelude::Builder for CellOutputBuilder {
     type Entity = CellOutput;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 4 * 4;
+        let len_header = 4 + 3 * 4;
         len_header
             + self.capacity.as_slice().len()
-            + self.data_hash.as_slice().len()
             + self.lock.as_slice().len()
             + self.type_.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
-        let mut offset = 4 + 4 * 4;
+        let mut offset = 4 + 3 * 4;
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
             offset += self.capacity.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.data_hash.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
@@ -7773,7 +7749,6 @@ impl molecule::prelude::Builder for CellOutputBuilder {
         }
         let _ = offset;
         writer.write_all(self.capacity.as_slice())?;
-        writer.write_all(self.data_hash.as_slice())?;
         writer.write_all(self.lock.as_slice())?;
         writer.write_all(self.type_.as_slice())?;
         Ok(())
@@ -7788,10 +7763,6 @@ impl CellOutputBuilder {
     pub const NAME: &'static str = "CellOutputBuilder";
     pub fn capacity(mut self, v: Uint64) -> Self {
         self.capacity = v;
-        self
-    }
-    pub fn data_hash(mut self, v: Byte32) -> Self {
-        self.data_hash = v;
         self
     }
     pub fn lock(mut self, v: Script) -> Self {
@@ -8392,8 +8363,9 @@ impl ::std::fmt::Display for RawTransaction {
         write!(f, ", {}: {}", "header_deps", self.header_deps())?;
         write!(f, ", {}: {}", "inputs", self.inputs())?;
         write!(f, ", {}: {}", "outputs", self.outputs())?;
+        write!(f, ", {}: {}", "outputs_data", self.outputs_data())?;
         let (_, count, _) = Self::field_offsets(&self);
-        if count != 5 {
+        if count != 6 {
             write!(f, ", ..")?;
         }
         write!(f, " }}")
@@ -8407,8 +8379,9 @@ impl<'r> ::std::fmt::Display for RawTransactionReader<'r> {
         write!(f, ", {}: {}", "header_deps", self.header_deps())?;
         write!(f, ", {}: {}", "inputs", self.inputs())?;
         write!(f, ", {}: {}", "outputs", self.outputs())?;
+        write!(f, ", {}: {}", "outputs_data", self.outputs_data())?;
         let (_, count, _) = Self::field_offsets(&self);
-        if count != 5 {
+        if count != 6 {
             write!(f, ", ..")?;
         }
         write!(f, " }}")
@@ -8421,12 +8394,13 @@ pub struct RawTransactionBuilder {
     pub(crate) header_deps: Byte32Vec,
     pub(crate) inputs: CellInputVec,
     pub(crate) outputs: CellOutputVec,
+    pub(crate) outputs_data: BytesVec,
 }
 impl ::std::default::Default for RawTransaction {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            44, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0,
-            0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
+            52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 48, 0, 0,
+            0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
         ];
         RawTransaction::new_unchecked(v.into())
     }
@@ -8455,6 +8429,7 @@ impl molecule::prelude::Entity for RawTransaction {
             .header_deps(self.header_deps())
             .inputs(self.inputs())
             .outputs(self.outputs())
+            .outputs_data(self.outputs_data())
     }
 }
 impl RawTransaction {
@@ -8462,7 +8437,7 @@ impl RawTransaction {
     pub fn as_reader(&self) -> RawTransactionReader<'_> {
         RawTransactionReader::new_unchecked(self.as_slice())
     }
-    pub const FIELD_COUNT: usize = 5;
+    pub const FIELD_COUNT: usize = 6;
     pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
         let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
         let bytes_len = u32::from_le(ptr[0]) as usize;
@@ -8495,13 +8470,19 @@ impl RawTransaction {
         CellInputVec::new_unchecked(self.0.slice(start, end))
     }
     pub fn outputs(&self) -> CellOutputVec {
-        let (_, count, offsets) = Self::field_offsets(self);
+        let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[4]) as usize;
-        if count == 5 {
-            CellOutputVec::new_unchecked(self.0.slice_from(start))
+        let end = u32::from_le(offsets[4 + 1]) as usize;
+        CellOutputVec::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn outputs_data(&self) -> BytesVec {
+        let (_, count, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[5]) as usize;
+        if count == 6 {
+            BytesVec::new_unchecked(self.0.slice_from(start))
         } else {
-            let end = u32::from_le(offsets[4 + 1]) as usize;
-            CellOutputVec::new_unchecked(self.0.slice(start, end))
+            let end = u32::from_le(offsets[5 + 1]) as usize;
+            BytesVec::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -8529,16 +8510,16 @@ impl<'r> molecule::prelude::Reader<'r> for RawTransactionReader<'r> {
             let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
             Err(err)?;
         }
-        if 5 == 0 && total_size == 4 {
+        if 6 == 0 && total_size == 4 {
             return Ok(());
         }
-        let expected = 4 + 4 * 5;
+        let expected = 4 + 4 * 6;
         if total_size < expected {
             let err =
                 VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
             Err(err)?;
         }
-        let mut offsets: Vec<usize> = ptr[1..=5]
+        let mut offsets: Vec<usize> = ptr[1..=6]
             .iter()
             .map(|x| u32::from_le(*x) as usize)
             .collect();
@@ -8557,12 +8538,13 @@ impl<'r> molecule::prelude::Reader<'r> for RawTransactionReader<'r> {
         Byte32VecReader::verify(&slice[offsets[2]..offsets[3]])?;
         CellInputVecReader::verify(&slice[offsets[3]..offsets[4]])?;
         CellOutputVecReader::verify(&slice[offsets[4]..offsets[5]])?;
+        BytesVecReader::verify(&slice[offsets[5]..offsets[6]])?;
         Ok(())
     }
 }
 impl<'r> RawTransactionReader<'r> {
     pub const NAME: &'r str = "RawTransactionReader";
-    pub const FIELD_COUNT: usize = 5;
+    pub const FIELD_COUNT: usize = 6;
     pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
         let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
         let bytes_len = u32::from_le(ptr[0]) as usize;
@@ -8595,31 +8577,38 @@ impl<'r> RawTransactionReader<'r> {
         CellInputVecReader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn outputs(&self) -> CellOutputVecReader<'_> {
-        let (_, count, offsets) = Self::field_offsets(self);
+        let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[4]) as usize;
-        if count == 5 {
-            CellOutputVecReader::new_unchecked(&self.as_slice()[start..])
+        let end = u32::from_le(offsets[4 + 1]) as usize;
+        CellOutputVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn outputs_data(&self) -> BytesVecReader<'_> {
+        let (_, count, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[5]) as usize;
+        if count == 6 {
+            BytesVecReader::new_unchecked(&self.as_slice()[start..])
         } else {
-            let end = u32::from_le(offsets[4 + 1]) as usize;
-            CellOutputVecReader::new_unchecked(&self.as_slice()[start..end])
+            let end = u32::from_le(offsets[5 + 1]) as usize;
+            BytesVecReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
 impl molecule::prelude::Builder for RawTransactionBuilder {
     type Entity = RawTransaction;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 5 * 4;
+        let len_header = 4 + 6 * 4;
         len_header
             + self.version.as_slice().len()
             + self.cell_deps.as_slice().len()
             + self.header_deps.as_slice().len()
             + self.inputs.as_slice().len()
             + self.outputs.as_slice().len()
+            + self.outputs_data.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
-        let mut offset = 4 + 5 * 4;
+        let mut offset = 4 + 6 * 4;
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
@@ -8645,12 +8634,18 @@ impl molecule::prelude::Builder for RawTransactionBuilder {
             writer.write_all(&tmp[..])?;
             offset += self.outputs.as_slice().len();
         }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.outputs_data.as_slice().len();
+        }
         let _ = offset;
         writer.write_all(self.version.as_slice())?;
         writer.write_all(self.cell_deps.as_slice())?;
         writer.write_all(self.header_deps.as_slice())?;
         writer.write_all(self.inputs.as_slice())?;
         writer.write_all(self.outputs.as_slice())?;
+        writer.write_all(self.outputs_data.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -8681,241 +8676,8 @@ impl RawTransactionBuilder {
         self.outputs = v;
         self
     }
-}
-#[derive(Clone)]
-pub struct SlimTransaction(molecule::bytes::Bytes);
-#[derive(Clone, Copy)]
-pub struct SlimTransactionReader<'r>(&'r [u8]);
-impl ::std::fmt::Debug for SlimTransaction {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl<'r> ::std::fmt::Debug for SlimTransactionReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl ::std::fmt::Display for SlimTransaction {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "raw", self.raw())?;
-        write!(f, ", {}: {}", "witnesses", self.witnesses())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
-        write!(f, " }}")
-    }
-}
-impl<'r> ::std::fmt::Display for SlimTransactionReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "raw", self.raw())?;
-        write!(f, ", {}: {}", "witnesses", self.witnesses())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
-        write!(f, " }}")
-    }
-}
-#[derive(Debug, Default)]
-pub struct SlimTransactionBuilder {
-    pub(crate) raw: RawTransaction,
-    pub(crate) witnesses: WitnessVec,
-}
-impl ::std::default::Default for SlimTransaction {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![
-            60, 0, 0, 0, 12, 0, 0, 0, 56, 0, 0, 0, 44, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0,
-            0, 36, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0,
-            0, 4, 0, 0, 0,
-        ];
-        SlimTransaction::new_unchecked(v.into())
-    }
-}
-impl molecule::prelude::Entity for SlimTransaction {
-    type Builder = SlimTransactionBuilder;
-    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        SlimTransaction(data)
-    }
-    fn as_bytes(&self) -> molecule::bytes::Bytes {
-        self.0.clone()
-    }
-    fn as_slice(&self) -> &[u8] {
-        &self.0[..]
-    }
-    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SlimTransactionReader::from_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn new_builder() -> Self::Builder {
-        ::std::default::Default::default()
-    }
-    fn as_builder(self) -> Self::Builder {
-        Self::new_builder()
-            .raw(self.raw())
-            .witnesses(self.witnesses())
-    }
-}
-impl SlimTransaction {
-    pub const NAME: &'static str = "SlimTransaction";
-    pub fn as_reader(&self) -> SlimTransactionReader<'_> {
-        SlimTransactionReader::new_unchecked(self.as_slice())
-    }
-    pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
-    pub fn raw(&self) -> RawTransaction {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        RawTransaction::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn witnesses(&self) -> WitnessVec {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            WitnessVec::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            WitnessVec::new_unchecked(self.0.slice(start, end))
-        }
-    }
-}
-impl<'r> molecule::prelude::Reader<'r> for SlimTransactionReader<'r> {
-    type Entity = SlimTransaction;
-    fn to_entity(&self) -> Self::Entity {
-        SlimTransaction::new_unchecked(self.as_slice().into())
-    }
-    fn new_unchecked(slice: &'r [u8]) -> Self {
-        SlimTransactionReader(slice)
-    }
-    fn as_slice(&self) -> &[u8] {
-        self.0
-    }
-    fn verify(slice: &[u8]) -> molecule::error::VerificationResult<()> {
-        use molecule::error::VerificationError;
-        let len = slice.len();
-        if len < 4 {
-            let err = VerificationError::HeaderIsBroken(Self::NAME.to_owned(), 4, len);
-            Err(err)?;
-        }
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
-            Err(err)?;
-        }
-        if 2 == 0 && total_size == 4 {
-            return Ok(());
-        }
-        let expected = 4 + 4 * 2;
-        if total_size < expected {
-            let err =
-                VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..=2]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        if offsets[0] != expected {
-            let err =
-                VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), expected, offsets[0]);
-            Err(err)?;
-        }
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        RawTransactionReader::verify(&slice[offsets[0]..offsets[1]])?;
-        WitnessVecReader::verify(&slice[offsets[1]..offsets[2]])?;
-        Ok(())
-    }
-}
-impl<'r> SlimTransactionReader<'r> {
-    pub const NAME: &'r str = "SlimTransactionReader";
-    pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
-    pub fn raw(&self) -> RawTransactionReader<'_> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        RawTransactionReader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn witnesses(&self) -> WitnessVecReader<'_> {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            WitnessVecReader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            WitnessVecReader::new_unchecked(&self.as_slice()[start..end])
-        }
-    }
-}
-impl molecule::prelude::Builder for SlimTransactionBuilder {
-    type Entity = SlimTransaction;
-    fn expected_length(&self) -> usize {
-        let len_header = 4 + 2 * 4;
-        len_header + self.raw.as_slice().len() + self.witnesses.as_slice().len()
-    }
-    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 2 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.raw.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.witnesses.as_slice().len();
-        }
-        let _ = offset;
-        writer.write_all(self.raw.as_slice())?;
-        writer.write_all(self.witnesses.as_slice())?;
-        Ok(())
-    }
-    fn build(&self) -> Self::Entity {
-        let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner).expect("write vector should be ok");
-        SlimTransaction::new_unchecked(inner.into())
-    }
-}
-impl SlimTransactionBuilder {
-    pub const NAME: &'static str = "SlimTransactionBuilder";
-    pub fn raw(mut self, v: RawTransaction) -> Self {
-        self.raw = v;
-        self
-    }
-    pub fn witnesses(mut self, v: WitnessVec) -> Self {
-        self.witnesses = v;
+    pub fn outputs_data(mut self, v: BytesVec) -> Self {
+        self.outputs_data = v;
         self
     }
 }
@@ -8946,8 +8708,8 @@ impl<'r> ::std::fmt::Debug for TransactionReader<'r> {
 impl ::std::fmt::Display for Transaction {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "slim", self.slim())?;
-        write!(f, ", {}: {}", "outputs_data", self.outputs_data())?;
+        write!(f, "{}: {}", "raw", self.raw())?;
+        write!(f, ", {}: {}", "witnesses", self.witnesses())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -8958,8 +8720,8 @@ impl ::std::fmt::Display for Transaction {
 impl<'r> ::std::fmt::Display for TransactionReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "slim", self.slim())?;
-        write!(f, ", {}: {}", "outputs_data", self.outputs_data())?;
+        write!(f, "{}: {}", "raw", self.raw())?;
+        write!(f, ", {}: {}", "witnesses", self.witnesses())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -8969,15 +8731,15 @@ impl<'r> ::std::fmt::Display for TransactionReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct TransactionBuilder {
-    pub(crate) slim: SlimTransaction,
-    pub(crate) outputs_data: BytesVec,
+    pub(crate) raw: RawTransaction,
+    pub(crate) witnesses: WitnessVec,
 }
 impl ::std::default::Default for Transaction {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            76, 0, 0, 0, 12, 0, 0, 0, 72, 0, 0, 0, 60, 0, 0, 0, 12, 0, 0, 0, 56, 0, 0, 0, 44, 0, 0,
-            0, 24, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 4, 0,
-            0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
+            68, 0, 0, 0, 12, 0, 0, 0, 64, 0, 0, 0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0,
+            0, 40, 0, 0, 0, 44, 0, 0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0,
+            0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
         ];
         Transaction::new_unchecked(v.into())
     }
@@ -9001,8 +8763,8 @@ impl molecule::prelude::Entity for Transaction {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .slim(self.slim())
-            .outputs_data(self.outputs_data())
+            .raw(self.raw())
+            .witnesses(self.witnesses())
     }
 }
 impl Transaction {
@@ -9018,20 +8780,20 @@ impl Transaction {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn slim(&self) -> SlimTransaction {
+    pub fn raw(&self) -> RawTransaction {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        SlimTransaction::new_unchecked(self.0.slice(start, end))
+        RawTransaction::new_unchecked(self.0.slice(start, end))
     }
-    pub fn outputs_data(&self) -> BytesVec {
+    pub fn witnesses(&self) -> WitnessVec {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            BytesVec::new_unchecked(self.0.slice_from(start))
+            WitnessVec::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            BytesVec::new_unchecked(self.0.slice(start, end))
+            WitnessVec::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -9082,8 +8844,8 @@ impl<'r> molecule::prelude::Reader<'r> for TransactionReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        SlimTransactionReader::verify(&slice[offsets[0]..offsets[1]])?;
-        BytesVecReader::verify(&slice[offsets[1]..offsets[2]])?;
+        RawTransactionReader::verify(&slice[offsets[0]..offsets[1]])?;
+        WitnessVecReader::verify(&slice[offsets[1]..offsets[2]])?;
         Ok(())
     }
 }
@@ -9097,20 +8859,20 @@ impl<'r> TransactionReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn slim(&self) -> SlimTransactionReader<'_> {
+    pub fn raw(&self) -> RawTransactionReader<'_> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        SlimTransactionReader::new_unchecked(&self.as_slice()[start..end])
+        RawTransactionReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn outputs_data(&self) -> BytesVecReader<'_> {
+    pub fn witnesses(&self) -> WitnessVecReader<'_> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            BytesVecReader::new_unchecked(&self.as_slice()[start..])
+            WitnessVecReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            BytesVecReader::new_unchecked(&self.as_slice()[start..end])
+            WitnessVecReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -9118,7 +8880,7 @@ impl molecule::prelude::Builder for TransactionBuilder {
     type Entity = Transaction;
     fn expected_length(&self) -> usize {
         let len_header = 4 + 2 * 4;
-        len_header + self.slim.as_slice().len() + self.outputs_data.as_slice().len()
+        len_header + self.raw.as_slice().len() + self.witnesses.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
@@ -9127,16 +8889,16 @@ impl molecule::prelude::Builder for TransactionBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.slim.as_slice().len();
+            offset += self.raw.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.outputs_data.as_slice().len();
+            offset += self.witnesses.as_slice().len();
         }
         let _ = offset;
-        writer.write_all(self.slim.as_slice())?;
-        writer.write_all(self.outputs_data.as_slice())?;
+        writer.write_all(self.raw.as_slice())?;
+        writer.write_all(self.witnesses.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -9147,12 +8909,12 @@ impl molecule::prelude::Builder for TransactionBuilder {
 }
 impl TransactionBuilder {
     pub const NAME: &'static str = "TransactionBuilder";
-    pub fn slim(mut self, v: SlimTransaction) -> Self {
-        self.slim = v;
+    pub fn raw(mut self, v: RawTransaction) -> Self {
+        self.raw = v;
         self
     }
-    pub fn outputs_data(mut self, v: BytesVec) -> Self {
-        self.outputs_data = v;
+    pub fn witnesses(mut self, v: WitnessVec) -> Self {
+        self.witnesses = v;
         self
     }
 }
@@ -11247,12 +11009,12 @@ pub struct TransactionViewBuilder {
 impl ::std::default::Default for TransactionView {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            156, 0, 0, 0, 16, 0, 0, 0, 92, 0, 0, 0, 124, 0, 0, 0, 76, 0, 0, 0, 12, 0, 0, 0, 72, 0,
-            0, 0, 60, 0, 0, 0, 12, 0, 0, 0, 56, 0, 0, 0, 44, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 32,
-            0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4,
-            0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            148, 0, 0, 0, 16, 0, 0, 0, 84, 0, 0, 0, 116, 0, 0, 0, 68, 0, 0, 0, 12, 0, 0, 0, 64, 0,
+            0, 0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 48,
+            0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
         ];
         TransactionView::new_unchecked(v.into())
     }
@@ -15154,10 +14916,10 @@ pub struct RelayTransactionBuilder {
 impl ::std::default::Default for RelayTransaction {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            96, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 76, 0, 0, 0, 12, 0, 0,
-            0, 72, 0, 0, 0, 60, 0, 0, 0, 12, 0, 0, 0, 56, 0, 0, 0, 44, 0, 0, 0, 24, 0, 0, 0, 28, 0,
-            0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0,
-            0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
+            88, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 0, 12, 0, 0,
+            0, 64, 0, 0, 0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0,
+            0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0,
+            0, 4, 0, 0, 0,
         ];
         RelayTransaction::new_unchecked(v.into())
     }
@@ -17247,10 +17009,10 @@ pub struct IndexTransactionBuilder {
 impl ::std::default::Default for IndexTransaction {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            92, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 76, 0, 0, 0, 12, 0, 0, 0, 72, 0, 0,
-            0, 60, 0, 0, 0, 12, 0, 0, 0, 56, 0, 0, 0, 44, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 32, 0,
-            0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0,
-            0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
+            84, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 0, 12, 0, 0, 0, 64, 0, 0,
+            0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 48, 0,
+            0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0,
+            0,
         ];
         IndexTransaction::new_unchecked(v.into())
     }

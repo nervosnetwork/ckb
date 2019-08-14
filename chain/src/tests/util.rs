@@ -17,7 +17,7 @@ use ckb_types::{
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
     },
-    packed::{self, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint},
+    packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
     U256,
 };
 use std::collections::HashSet;
@@ -135,10 +135,8 @@ pub(crate) fn create_multi_outputs_transaction(
         } else {
             output_capacity
         };
-        let data_hash = CellOutput::calc_data_hash(&data);
         CellOutputBuilder::default()
             .capacity(capacity.pack())
-            .data_hash(data_hash.pack())
             .lock(always_success_script.clone())
             .build()
     });
@@ -176,7 +174,6 @@ pub(crate) fn create_transaction_with_out_point(
         .output(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(100).pack())
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
                 .lock(always_success_script.clone())
                 .build(),
         )

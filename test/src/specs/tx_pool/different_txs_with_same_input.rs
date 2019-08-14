@@ -19,9 +19,9 @@ impl Spec for DifferentTxsWithSameInput {
         info!("Generate 2 txs with same input");
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0.clone());
-        // Set tx2 fee to a higher value
+        // Set tx2 fee to a higher value, tx1 capacity is 100, set tx2 capacity to 80 for +20 fee.
         let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).pack())
+            .capacity(capacity_bytes!(80).pack())
             .build();
 
         let tx2 = tx2_temp
@@ -38,8 +38,8 @@ impl Spec for DifferentTxsWithSameInput {
         node0.generate_block();
         node0.generate_block();
 
-        info!("RBF (Replace-By-Fees) is not implemented");
-        info!("Tx1 should be included in the next + 2 block");
+        info!("RBF (Replace-By-Fees) is not implemented, but transaction fee sorting is ready");
+        info!("tx2 should be included in the next + 2 block, and tx1 should be ignored");
         node0.generate_block();
         let tip_block = node0.get_tip_block();
         let commit_txs_hash: Vec<_> = tip_block
@@ -48,7 +48,7 @@ impl Spec for DifferentTxsWithSameInput {
             .map(TransactionView::hash)
             .collect();
 
-        assert!(commit_txs_hash.contains(&tx1.hash()));
-        assert!(!commit_txs_hash.contains(&tx2.hash()));
+        assert!(commit_txs_hash.contains(&tx2.hash()));
+        assert!(!commit_txs_hash.contains(&tx1.hash()));
     }
 }

@@ -43,7 +43,7 @@ lazy_static! {
     static ref CACHE_ENABLE: AtomicBool = AtomicBool::new(true);
     static ref HEADER_CACHE: Mutex<LruCache<Byte32, HeaderView>> =
         { Mutex::new(LruCache::new(4096)) };
-    static ref CELL_DATA_CACHE: Mutex<LruCache<(Byte32, u32), Bytes>> =
+    static ref CELL_DATA_CACHE: Mutex<LruCache<(Byte32, u32), (Bytes, Byte32)>> =
         { Mutex::new(LruCache::new(128)) };
     static ref BLOCK_PROPOSALS_CACHE: Mutex<LruCache<Byte32, ProposalShortIdVec>> =
         { Mutex::new(LruCache::new(30)) };

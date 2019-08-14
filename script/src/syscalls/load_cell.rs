@@ -7,7 +7,6 @@ use ckb_types::{
     core::{cell::CellMeta, Capacity},
     packed::CellOutput,
     prelude::*,
-    H256,
 };
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
@@ -106,6 +105,15 @@ impl<'a> LoadCell<'a> {
                 store_data(machine, &buffer)?;
                 (SUCCESS, buffer.len())
             }
+            CellField::DataHash => {
+                if let Some((_, data_hash)) = &cell.mem_cell_data {
+                    let bytes = data_hash.raw_data();
+                    store_data(machine, &bytes)?;
+                    (SUCCESS, bytes.len())
+                } else {
+                    (ITEM_MISSING, 0)
+                }
+            }
             CellField::OccupiedCapacity => {
                 let mut buffer = vec![];
                 buffer.write_u64::<LittleEndian>(
@@ -115,12 +123,6 @@ impl<'a> LoadCell<'a> {
                 )?;
                 store_data(machine, &buffer)?;
                 (SUCCESS, buffer.len())
-            }
-            CellField::DataHash => {
-                let hash: H256 = output.data_hash().unpack();
-                let bytes = hash.as_bytes();
-                store_data(machine, bytes)?;
-                (SUCCESS, bytes.len())
             }
             CellField::Lock => {
                 let lock = output.lock();

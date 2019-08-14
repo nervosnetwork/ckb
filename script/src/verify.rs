@@ -15,7 +15,7 @@ use ckb_types::{
         cell::{CellMeta, ResolvedTransaction},
         Cycle, ScriptHashType,
     },
-    packed::{Byte32, Byte32Vec, CellInputVec, OutPoint, Script, WitnessVec},
+    packed::{Byte32, Byte32Vec, CellInputVec, CellOutput, OutPoint, Script, WitnessVec},
     prelude::*,
     H256,
 };
@@ -90,12 +90,13 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                     .tx_hash(tx_hash.clone())
                     .index(index.pack())
                     .build();
+                let data_hash = CellOutput::calc_data_hash(&data).pack();
                 CellMeta {
                     cell_output,
                     out_point,
                     transaction_info: None,
                     data_bytes: data.len() as u64,
-                    mem_cell_data: Some(data),
+                    mem_cell_data: Some((data, data_hash)),
                 }
             })
             .collect();
@@ -103,8 +104,8 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         let mut binaries_by_data_hash: HashMap<Byte32, Bytes> = HashMap::default();
         let mut binaries_by_type_hash: HashMap<Byte32, (Bytes, bool)> = HashMap::default();
         for cell_meta in resolved_cell_deps {
-            let data = data_loader.load_cell_data(cell_meta).expect("cell data");
-            binaries_by_data_hash.insert(cell_meta.data_hash().pack(), data.to_owned());
+            let (data, data_hash) = data_loader.load_cell_data(cell_meta).expect("cell data");
+            binaries_by_data_hash.insert(data_hash, data.to_owned());
             if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
                 binaries_by_type_hash
                     .entry(t.calc_script_hash().pack())
@@ -489,8 +490,8 @@ mod tests {
         },
         h256,
         packed::{
-            CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script,
-            TransactionInfoBuilder, TransactionKeyBuilder,
+            CellDep, CellInput, CellOutputBuilder, OutPoint, Script, TransactionInfoBuilder,
+            TransactionKeyBuilder,
         },
         H256,
     };
@@ -593,7 +594,6 @@ mod tests {
             runner: Runner::default(),
         };
         let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader, &config);
-
         assert!(verifier.verify(100).is_ok());
     }
 
@@ -618,7 +618,6 @@ mod tests {
         let data = Bytes::from(buffer);
         let output = CellOutputBuilder::default()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(default_transaction_info())
@@ -701,7 +700,6 @@ mod tests {
             .build();
         let data = Bytes::from(buffer);
         let output = CellOutputBuilder::default()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
@@ -768,7 +766,6 @@ mod tests {
             .build();
         let data = Bytes::from(buffer);
         let output = CellOutputBuilder::default()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .type_(
                 Some(
@@ -842,7 +839,6 @@ mod tests {
             .out_point(dep_out_point.clone())
             .build();
         let output = CellOutputBuilder::default()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .type_(
                 Some(
@@ -865,7 +861,6 @@ mod tests {
             .out_point(dep_out_point2.clone())
             .build();
         let output2 = CellOutputBuilder::default()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .type_(
                 Some(
@@ -958,7 +953,6 @@ mod tests {
             .build();
         let data = Bytes::from(buffer);
         let output = CellOutputBuilder::default()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output.to_owned(), data)
@@ -1027,7 +1021,6 @@ mod tests {
             .build();
         let data = Bytes::from(buffer);
         let output = CellOutputBuilder::default()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output.to_owned(), data)
@@ -1183,7 +1176,6 @@ mod tests {
         let dep_cell = {
             let data = Bytes::from(buffer);
             let output = CellOutputBuilder::default()
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
                 .capacity(Capacity::bytes(data.len()).unwrap().pack())
                 .build();
             CellMetaBuilder::from_cell_output(output.to_owned(), data)
@@ -1264,7 +1256,6 @@ mod tests {
         let dep_cell = {
             let dep_cell_data = Bytes::from(buffer);
             let output = CellOutputBuilder::default()
-                .data_hash(CellOutput::calc_data_hash(&dep_cell_data).pack())
                 .capacity(Capacity::bytes(dep_cell_data.len()).unwrap().pack())
                 .build();
             CellMetaBuilder::from_cell_output(output, dep_cell_data)
@@ -1327,7 +1318,6 @@ mod tests {
             .build();
         let data = Bytes::from(buffer);
         let output = CellOutputBuilder::default()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)

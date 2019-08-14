@@ -51,7 +51,6 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
                 .input(CellInput::new(OutPoint::null(), 0))
                 .output(
                     CellOutput::new_builder()
-                        .data_hash(CellOutput::calc_data_hash(&data).pack())
                         .capacity(capacity_bytes!(50_000).pack())
                         .lock(always_success_script.clone())
                         .build(),
@@ -197,7 +196,6 @@ lazy_static! {
         let data: Bytes = raw_data[..].into();
 
         let cell = CellOutput::new_builder()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
         (cell, data)
@@ -209,12 +207,11 @@ lazy_static! {
         let data: Bytes = raw_data[..].into();
 
         let cell = CellOutput::new_builder()
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
 
         let script = Script::new_builder()
-            .code_hash(cell.data_hash())
+            .code_hash(CellOutput::calc_data_hash(&data).pack())
             .args(vec![Bytes::from(PUBKEY_HASH.as_bytes()).pack()].pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -254,7 +251,6 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
         .map(|i| {
             let data = Bytes::from(i.to_le_bytes().to_vec());
             let output = CellOutput::new_builder()
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
                 .capacity(capacity_bytes!(50_000).pack())
                 .lock(secp_script.clone())
                 .build();
@@ -387,7 +383,6 @@ fn create_transaction(parent_hash: &H256, lock: Script, dep: OutPoint) -> Transa
     TransactionBuilder::default()
         .output(
             CellOutput::new_builder()
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
                 .capacity(capacity_bytes!(50_000).pack())
                 .lock(lock.clone())
                 .build(),
@@ -407,7 +402,6 @@ fn create_2out_transaction(
 
     let cell_inputs = inputs.into_iter().map(|pts| CellInput::new(pts, 0));
     let cell_output = CellOutput::new_builder()
-        .data_hash(CellOutput::calc_data_hash(&data).pack())
         .capacity(capacity_bytes!(50_000).pack())
         .lock(lock.clone())
         .build();

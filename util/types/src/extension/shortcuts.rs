@@ -108,10 +108,10 @@ impl packed::Script {
 
 impl packed::Transaction {
     pub fn is_cellbase(&self) -> bool {
-        let raw_tx = self.slim().raw();
+        let raw_tx = self.raw();
         raw_tx.inputs().len() == 1
             && raw_tx.outputs().len() == 1
-            && self.slim().witnesses().len() == 1
+            && self.witnesses().len() == 1
             && raw_tx
                 .inputs()
                 .get(0)

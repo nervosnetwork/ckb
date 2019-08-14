@@ -98,7 +98,8 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
         let data = self
             .data_loader
             .load_cell_data(cell)
-            .ok_or(VMError::Unexpected)?;
+            .ok_or(VMError::Unexpected)?
+            .0;
         machine.memory_mut().init_pages(
             addr,
             memory_size,
@@ -128,7 +129,8 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
         let data = self
             .data_loader
             .load_cell_data(cell)
-            .ok_or(VMError::Unexpected)?;
+            .ok_or(VMError::Unexpected)?
+            .0;
 
         let wrote_size = store_data(machine, &data)?;
         machine.add_cycles(wrote_size * 10)?;
