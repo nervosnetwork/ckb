@@ -17,6 +17,7 @@ use ckb_jsonrpc_types::BlockTemplate;
 use ckb_types::packed::Block;
 use std::convert::From;
 
+#[derive(Clone)]
 pub struct Work {
     work_id: u64,
     block: Block,
