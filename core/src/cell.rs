@@ -1,6 +1,6 @@
 use crate::block::Block;
 use crate::extras::TransactionInfo;
-use crate::transaction::{CellOutput, OutPoint, Transaction};
+use crate::transaction::{CellOutput, OutPoint, Transaction, OUT_POINT_LEN};
 use crate::{Bytes, Capacity};
 use ckb_occupied_capacity::Result as CapacityResult;
 use fnv::{FnvHashMap, FnvHashSet};
@@ -9,7 +9,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fmt;
-use std::mem;
 
 #[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct CellMeta {
@@ -350,24 +349,16 @@ pub enum UnresolvableError {
 }
 
 pub fn parse_dep_group_data(data: &[u8]) -> Result<Vec<OutPoint>, usize> {
-    // tx hash (32 bytes) + output index (4 bytes)
-    const OUT_POINT_LEN: usize = mem::size_of::<H256>() + mem::size_of::<u32>();
-
     if data.is_empty() || data.len() % OUT_POINT_LEN != 0 {
         return Err(data.len());
     }
 
-    let dep_len = data.len() / OUT_POINT_LEN;
-    let mut out_points = Vec::with_capacity(dep_len);
-    for dep_idx in 0..dep_len {
-        let item_start = dep_idx * OUT_POINT_LEN;
-        let item_end = (dep_idx + 1) * OUT_POINT_LEN;
-        out_points.push(
-            OutPoint::from_group_data(&data[item_start..item_end])
-                .expect("parse group item data failed"),
-        );
-    }
-    Ok(out_points)
+    Ok(data
+        .chunks_exact(OUT_POINT_LEN)
+        .map(|item_data| {
+            OutPoint::from_group_data(item_data).expect("parse group item data failed")
+        })
+        .collect::<Vec<_>>())
 }
 
 fn resolve_dep_group<
