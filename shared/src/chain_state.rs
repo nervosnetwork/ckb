@@ -6,7 +6,7 @@ use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_core::block::Block;
 use ckb_core::cell::{
-    parse_dep_group_data, resolve_transaction, CellProvider, CellStatus, HeaderChecker,
+    get_related_dep_out_points, resolve_transaction, CellProvider, CellStatus, HeaderChecker,
     OverlayCellProvider, ResolvedTransaction, UnresolvableError,
 };
 use ckb_core::extras::EpochExt;
@@ -529,7 +529,7 @@ impl ChainState {
             },
             Err(err) => {
                 match &err {
-                    UnresolvableError::Dead(_) | UnresolvableError::InvalidDepGroup(_) => {
+                    UnresolvableError::Dead(_) => {
                         if tx_pool
                             .conflict
                             .insert(short_id, DefectEntry::new(tx, 0, cycles, size))
@@ -546,11 +546,13 @@ impl ChainState {
                             tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                         }
                     }
-                    // The remaining errors are  InvalidHeader.
+                    // The remaining errors are InvalidHeader/InvalidDepGroup.
                     // They all represent invalid transactions
                     // that should just be discarded.
                     // OutOfOrder should only appear in BlockCellProvider
-                    UnresolvableError::InvalidHeader(_) | UnresolvableError::OutOfOrder(_) => {
+                    UnresolvableError::InvalidDepGroup(_)
+                    | UnresolvableError::InvalidHeader(_)
+                    | UnresolvableError::OutOfOrder(_) => {
                         tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                     }
                 }
@@ -596,24 +598,12 @@ impl ChainState {
         let retain: Vec<Transaction> = detached.difference(&attached).cloned().collect();
 
         let txs_iter = attached.iter().map(|tx| {
-            let related_out_points = tx.cell_deps_iter().fold(
-                Vec::with_capacity(tx.cell_deps().len()),
-                |mut out_points, dep| {
-                    let out_point = dep.out_point();
-                    if dep.is_dep_group() {
-                        // If we didn't delete it, we should always can load the cell meta
-                        let data = self
-                            .store
-                            .get_cell_data(&out_point.tx_hash, out_point.index)
-                            .expect("Cell data must exists when remove dep group");
-                        let sub_out_points = parse_dep_group_data(&data)
-                            .expect("Parse dep group data fialed when remove dep group");
-                        out_points.extend(sub_out_points);
-                    }
-                    out_points.push(out_point.clone());
-                    out_points
-                },
-            );
+            let get_cell_data = |out_point: &OutPoint| {
+                self.store
+                    .get_cell_data(&out_point.tx_hash, out_point.index)
+            };
+            let related_out_points =
+                get_related_dep_out_points(tx, get_cell_data).expect("Get dep out points failed");
             (tx, related_out_points)
         });
         tx_pool.remove_expired(detached_proposal_id);

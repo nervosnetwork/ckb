@@ -348,6 +348,28 @@ pub enum UnresolvableError {
     OutOfOrder(OutPoint),
 }
 
+/// Gather all cell dep out points and resolved dep group out points
+pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
+    tx: &Transaction,
+    get_cell_data: F,
+) -> Result<Vec<OutPoint>, String> {
+    tx.cell_deps_iter().try_fold(
+        Vec::with_capacity(tx.cell_deps().len()),
+        |mut out_points, dep| {
+            let out_point = dep.out_point();
+            if dep.is_dep_group() {
+                let data = get_cell_data(out_point)
+                    .ok_or_else(|| String::from("Can not get cell data"))?;
+                let sub_out_points = parse_dep_group_data(&data)
+                    .map_err(|len| format!("Invalid data length {}", len))?;
+                out_points.extend(sub_out_points);
+            }
+            out_points.push(out_point.clone());
+            Ok(out_points)
+        },
+    )
+}
+
 pub fn parse_dep_group_data(data: &[u8]) -> Result<Vec<OutPoint>, usize> {
     if data.is_empty() || data.len() % OUT_POINT_LEN != 0 {
         return Err(data.len());
