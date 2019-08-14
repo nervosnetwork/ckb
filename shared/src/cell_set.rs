@@ -256,20 +256,18 @@ impl CellSet {
     }
 }
 
-/* TODO apply-serialization fix tests
 #[cfg(test)]
 mod tests {
-    use super::{CellSet, CellSetDiff, CellSetOpr};
-    use ckb_core::block::BlockBuilder;
-    use ckb_core::extras::EpochExt;
-    use ckb_core::header::HeaderBuilder;
-    use ckb_core::transaction::{
-        CellInput, CellOutputBuilder, OutPoint, TransactionBuilder, TransactionView,
-    };
-    use ckb_core::transaction_meta::TransactionMeta;
-    use ckb_core::{Bytes, Capacity};
+    use super::*;
     use ckb_test_chain_utils::MockStore;
-    use numext_fixed_hash::{h256, H256};
+    use ckb_types::{
+        core::{
+            BlockBuilder, Capacity, EpochExt, HeaderBuilder, TransactionBuilder, TransactionView,
+        },
+        h256,
+        packed::{CellInput, CellOutputBuilder},
+        H256,
+    };
 
     fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> TransactionView {
         TransactionBuilder::default()
@@ -280,10 +278,10 @@ mod tests {
             )
             .outputs((0..outputs_len).map(|i| {
                 CellOutputBuilder::default()
-                    .capacity(Capacity::bytes(i + 1).unwrap())
+                    .capacity(Capacity::bytes(i + 1).unwrap().pack())
                     .build()
             }))
-            .outputs_data((0..outputs_len).map(|_| Bytes::new()))
+            .outputs_data((0..outputs_len).map(|_| Default::default()))
             .build()
     }
 
@@ -307,16 +305,16 @@ mod tests {
         let store = MockStore::default();
 
         let tx1 = build_tx(vec![(&H256::zero(), 0)], 2);
-        let tx1_hash = tx1.hash();
+        let tx1_hash = tx1.hash().unpack();
 
         let txa = build_tx(vec![(&h256!("0x1"), 0)], 1);
-        let txa_hash = txa.hash();
+        let txa_hash = txa.hash().unpack();
 
-        let tx2 = build_tx(vec![(tx1_hash, 0), (txa_hash, 0)], 1);
-        let tx2_hash = tx2.hash();
+        let tx2 = build_tx(vec![(&tx1_hash, 0), (&txa_hash, 0)], 1);
+        let tx2_hash: H256 = tx2.hash().unpack();
 
         let block = BlockBuilder::default()
-            .header_builder(HeaderBuilder::default().number(1))
+            .header(HeaderBuilder::default().number(1.pack()).build())
             .transactions(vec![tx1.clone(), txa.clone(), tx2.clone()])
             .build();
         let header = block.header();
@@ -329,7 +327,7 @@ mod tests {
             tx1_hash.clone(),
             header.number(),
             header.epoch(),
-            header.hash().to_owned(),
+            header.hash().to_owned().unpack(),
             false,
             tx1.outputs().len(),
         );
@@ -337,16 +335,15 @@ mod tests {
         let tx1_meta = TransactionMeta::new(
             header.number(),
             header.epoch(),
-            header.hash().to_owned(),
+            header.hash().to_owned().unpack(),
             tx1.outputs().len(),
             false,
         );
 
         assert_eq!(meta, tx1_meta);
-        let cell = OutPoint {
-            tx_hash: tx1_hash.clone(),
-            index: 0,
-        };
+        let cell = OutPoint::new_builder()
+            .tx_hash(tx1_hash.clone().pack())
+            .build();
         // tx2 consumed tx1-outputs-0 in block-1
         let op = set.mark_dead(&cell);
 
@@ -359,24 +356,24 @@ mod tests {
             tx2_hash.clone(),
             header.number(),
             header.epoch(),
-            header.hash().to_owned(),
+            header.hash().to_owned().unpack(),
             false,
             tx2.outputs().len(),
         );
 
         let old_block = BlockBuilder::default()
-            .header_builder(HeaderBuilder::default().number(2))
+            .header(HeaderBuilder::default().number(2.pack()).build())
             .transaction(tx2.clone())
             .build();
 
-        let tx3 = build_tx(vec![(tx1_hash, 1)], 1);
-        let tx3_hash = tx3.hash();
+        let tx3 = build_tx(vec![(&tx1_hash, 1)], 1);
+        let tx3_hash = tx3.hash().unpack();
 
-        let tx4 = build_tx(vec![(tx3_hash, 0)], 1);
-        let tx4_hash = tx4.hash();
+        let tx4 = build_tx(vec![(&tx3_hash, 0)], 1);
+        let tx4_hash: H256 = tx4.hash().unpack();
 
         let new_block = BlockBuilder::default()
-            .header_builder(HeaderBuilder::default().number(2))
+            .header(HeaderBuilder::default().number(2.pack()).build())
             .transactions(vec![tx3.clone(), tx4.clone()])
             .build();
         let new_header = new_block.header();
@@ -390,46 +387,45 @@ mod tests {
         let mut tx1_meta = TransactionMeta::new(
             header.number(),
             header.epoch(),
-            header.hash().to_owned(),
+            header.hash().to_owned().unpack(),
             tx1.outputs().len(),
             false,
         );
         // new transaction(tx3) consumed tx1-outputs-1
         tx1_meta.set_dead(1);
 
-        assert_eq!(overlay.get(&tx1_hash), Some(&tx1_meta));
-        assert_eq!(overlay.get(&tx2_hash), None);
+        assert_eq!(overlay.get(&tx1_hash.pack()), Some(&tx1_meta));
+        assert_eq!(overlay.get(&tx2_hash.pack()), None);
 
         // new transaction(tx4) consumed tx3-outputs
         let mut tx3_meta = TransactionMeta::new(
             new_header.number(),
             new_header.epoch(),
-            new_header.hash().to_owned(),
+            new_header.hash().to_owned().unpack(),
             tx3.outputs().len(),
             false,
         );
         tx3_meta.set_dead(0);
 
-        assert_eq!(overlay.get(&tx3_hash), Some(&tx3_meta));
+        assert_eq!(overlay.get(&tx3_hash.pack()), Some(&tx3_meta));
 
         let tx4_meta = TransactionMeta::new(
             new_header.number(),
             new_header.epoch(),
-            new_header.hash().to_owned(),
+            new_header.hash().to_owned().unpack(),
             tx4.outputs().len(),
             false,
         );
 
-        assert_eq!(overlay.get(&tx4_hash), Some(&tx4_meta));
+        assert_eq!(overlay.get(&tx4_hash.pack()), Some(&tx4_meta));
 
         let txa_meta = TransactionMeta::new(
             header.number(),
             header.epoch(),
-            header.hash().to_owned(),
+            header.hash().to_owned().unpack(),
             txa.outputs().len(),
             false,
         );
-        assert_eq!(overlay.get(&txa_hash), Some(&txa_meta));
+        assert_eq!(overlay.get(&txa_hash.pack()), Some(&txa_meta));
     }
 }
-*/
