@@ -255,7 +255,7 @@
         ]
     },
     {
-        "description": "Returns the information about a cell by out_point. If <block_hash> is not specific, returns the cell if it is live. If <block_hash> is specified, return the live cell only if the corresponding block contain this cell",
+        "description": "Returns the information about a cell by out_point if it is live.",
         "method": "get_live_cell",
         "module": "chain",
         "params": [
@@ -279,7 +279,7 @@
         },
         "types": [
             {
-                "out_point": "OutPoint object {{\"tx_hash\": <tx_hash>, \"index\": <index>}, \"block_hash\": <block_hash>}."
+                "out_point": "OutPoint object {\"tx_hash\": <tx_hash>, \"index\": <index>}."
             }
         ]
     },
