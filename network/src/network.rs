@@ -220,20 +220,21 @@ impl NetworkState {
             .map(PublicKey::peer_id)
             .expect("Secio must enabled");
 
-        // NOTE: be careful, here easy cause a deadlock,
-        //    because peer_store's lock scope across peer_registry's lock scope
-        let mut peer_store = self.peer_store.lock();
-        let accept_peer_result = {
-            self.peer_registry.write().accept_peer(
+        let accept_peer_result = self.with_peer_registry_mut(|peer_registry| {
+            peer_registry.accept_peer(
                 peer_id.clone(),
                 session_context.address.clone(),
                 session_context.id,
                 session_context.ty,
-                peer_store.as_mut(),
+                self.peer_store.lock().as_mut(),
             )
-        };
+        });
+
         if accept_peer_result.is_ok() {
-            peer_store.update_status(&peer_id, Status::Connected);
+            self.peer_store
+                .lock()
+                .as_mut()
+                .update_status(&peer_id, Status::Connected);
         }
         accept_peer_result.map_err(Into::into)
     }
