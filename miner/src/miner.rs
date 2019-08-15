@@ -2,15 +2,17 @@ use crate::client::Client;
 use crate::config::WorkerConfig;
 use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
-use ckb_core::block::BlockBuilder;
-use ckb_core::header::Seal;
 use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
+use ckb_types::{
+    packed::{Header, Seal},
+    prelude::*,
+    H256,
+};
 use ckb_util::Mutex;
 use crossbeam_channel::{select, unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 use std::sync::Arc;
 use std::thread;
 
@@ -72,7 +74,7 @@ impl Miner {
             select! {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
-                        let pow_hash = work.block.header().pow_hash();
+                        let pow_hash = work.block.header().raw().calc_hash();
                         self.works.lock().insert(pow_hash.clone(), work);
                         self.notify_workers(WorkerMessage::NewWork(pow_hash));
                     },
@@ -94,33 +96,31 @@ impl Miner {
 
     fn check_seal(&mut self, pow_hash: H256, seal: Seal) {
         if let Some(work) = self.works.lock().get_refresh(&pow_hash) {
-            if self
-                .pow
-                .verify_proof_difficulty(&seal.proof(), &work.block.header().difficulty())
-            {
+            if self.pow.verify_proof_difficulty(
+                seal.proof().as_slice(),
+                &work.block.header().raw().difficulty().unpack(),
+            ) {
                 self.notify_workers(WorkerMessage::Stop);
-                let raw_header = work.block.header().raw().to_owned();
-                let block = BlockBuilder::from_block(work.block.clone())
-                    .header(raw_header.with_seal(seal))
-                    .build();
-
+                let raw_header = work.block.header().raw();
+                let header = Header::new_builder().raw(raw_header).seal(seal).build();
+                let block = work
+                    .block
+                    .clone()
+                    .as_builder()
+                    .header(header)
+                    .build()
+                    .into_view();
+                let block_hash: H256 = block.hash().unpack();
                 if self.stderr_is_tty {
-                    debug!(
-                        "Found! #{} {:#x}",
-                        block.header().number(),
-                        block.header().hash(),
-                    );
+                    debug!("Found! #{} {:#x}", block.number(), block_hash);
                 } else {
-                    info!(
-                        "Found! #{} {:#x}",
-                        block.header().number(),
-                        block.header().hash(),
-                    );
+                    info!("Found! #{} {:#x}", block.number(), block_hash);
                 }
 
                 // submit block and poll new work
                 {
-                    self.client.submit_block(&work.work_id.to_string(), &block);
+                    self.client
+                        .submit_block(&work.work_id.to_string(), &block.data());
                     self.client.try_update_block_template();
                     self.notify_workers(WorkerMessage::Start);
                 }
@@ -128,11 +128,8 @@ impl Miner {
                 // draw progress bar
                 {
                     self.seals_found += 1;
-                    self.pb.println(format!(
-                        "Found! #{} {:#x}",
-                        block.header().number(),
-                        block.header().hash()
-                    ));
+                    self.pb
+                        .println(format!("Found! #{} {:#x}", block.number(), block_hash));
                     self.pb
                         .set_message(&format!("Total seals found: {:>3}", self.seals_found));
                     self.pb.inc(1);

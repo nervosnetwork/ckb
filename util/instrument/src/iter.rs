@@ -1,13 +1,12 @@
-use ckb_core::block::Block;
-use ckb_core::BlockNumber;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
+use ckb_types::{core::BlockNumber, core::BlockView};
 
 // An iterator over the entries of a `Chain`.
 pub struct ChainIterator {
     shared: Shared,
-    current: Option<Block>,
+    current: Option<BlockView>,
     tip: BlockNumber,
 }
 
@@ -31,7 +30,7 @@ impl ChainIterator {
 }
 
 impl Iterator for ChainIterator {
-    type Item = Block;
+    type Item = BlockView;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.current.take();

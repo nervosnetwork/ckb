@@ -3,12 +3,13 @@ use super::types::{DefectEntry, ProposedEntry, TxPoolConfig};
 use crate::tx_pool::orphan::OrphanPool;
 use crate::tx_pool::pending::PendingQueue;
 use crate::tx_pool::proposed::ProposedPool;
-use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_core::{Capacity, Cycle};
 use ckb_logger::{error_target, trace_target};
+use ckb_types::{
+    core::{Capacity, Cycle, TransactionView},
+    packed::{Byte32, OutPoint, ProposalShortId},
+};
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 
 #[derive(Debug, Clone)]
 pub struct TxPool {
@@ -24,7 +25,7 @@ pub struct TxPool {
     /// cache for conflict transaction
     pub(crate) conflict: LruCache<ProposalShortId, DefectEntry>,
     /// cache for committed transactions hash
-    pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, H256>,
+    pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
     /// last txs updated timestamp, used by getblocktemplate
     pub(crate) last_txs_updated_at: u64,
     // sum of all tx_pool tx's virtual sizes.
@@ -113,7 +114,7 @@ impl TxPool {
 
     // enqueue_tx inserts a new transaction into pending queue.
     // If did have this value present, false is returned.
-    pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, size: usize, tx: Transaction) -> bool {
+    pub fn enqueue_tx(&mut self, cycles: Option<Cycle>, size: usize, tx: TransactionView) -> bool {
         if self.gap.contains_key(&tx.proposal_short_id()) {
             return false;
         }
@@ -121,7 +122,7 @@ impl TxPool {
     }
 
     // add_gap inserts proposed but still uncommittable transaction.
-    pub fn add_gap(&mut self, cycles: Option<Cycle>, size: usize, tx: Transaction) -> bool {
+    pub fn add_gap(&mut self, cycles: Option<Cycle>, size: usize, tx: TransactionView) -> bool {
         self.gap.add_tx(cycles, size, tx).is_none()
     }
 
@@ -129,10 +130,10 @@ impl TxPool {
         &mut self,
         cycles: Option<Cycle>,
         size: usize,
-        tx: Transaction,
+        tx: TransactionView,
         unknowns: Vec<OutPoint>,
     ) -> Option<DefectEntry> {
-        trace_target!(crate::LOG_TARGET_TX_POOL, "add_orphan {:#x}", &tx.hash());
+        trace_target!(crate::LOG_TARGET_TX_POOL, "add_orphan {}", &tx.hash());
         self.orphan.add_tx(cycles, size, tx, unknowns.into_iter())
     }
 
@@ -141,10 +142,10 @@ impl TxPool {
         cycles: Cycle,
         fee: Capacity,
         size: usize,
-        tx: Transaction,
+        tx: TransactionView,
         related_out_points: Vec<OutPoint>,
     ) {
-        trace_target!(crate::LOG_TARGET_TX_POOL, "add_proposed {:#x}", tx.hash());
+        trace_target!(crate::LOG_TARGET_TX_POOL, "add_proposed {}", tx.hash());
         self.touch_last_txs_updated_at();
         self.proposed
             .add_tx(cycles, fee, size, tx, related_out_points);
@@ -173,7 +174,10 @@ impl TxPool {
             || self.conflict.contains_key(id)
     }
 
-    pub fn get_tx_with_cycles(&self, id: &ProposalShortId) -> Option<(Transaction, Option<Cycle>)> {
+    pub fn get_tx_with_cycles(
+        &self,
+        id: &ProposalShortId,
+    ) -> Option<(TransactionView, Option<Cycle>)> {
         self.pending
             .get(id)
             .cloned()
@@ -204,7 +208,7 @@ impl TxPool {
             })
     }
 
-    pub fn get_tx(&self, id: &ProposalShortId) -> Option<Transaction> {
+    pub fn get_tx(&self, id: &ProposalShortId) -> Option<TransactionView> {
         self.pending
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
@@ -214,7 +218,7 @@ impl TxPool {
             .cloned()
     }
 
-    pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<Transaction> {
+    pub fn get_tx_without_conflict(&self, id: &ProposalShortId) -> Option<TransactionView> {
         self.pending
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
@@ -223,11 +227,11 @@ impl TxPool {
             .cloned()
     }
 
-    pub fn get_tx_from_proposed(&self, id: &ProposalShortId) -> Option<Transaction> {
+    pub fn get_tx_from_proposed(&self, id: &ProposalShortId) -> Option<TransactionView> {
         self.proposed.get_tx(id).cloned()
     }
 
-    pub fn get_tx_from_proposed_and_others(&self, id: &ProposalShortId) -> Option<Transaction> {
+    pub fn get_tx_from_proposed_and_others(&self, id: &ProposalShortId) -> Option<TransactionView> {
         self.proposed
             .get_tx(id)
             .or_else(|| self.gap.get_tx(id))
@@ -239,11 +243,11 @@ impl TxPool {
 
     pub(crate) fn remove_committed_txs_from_proposed<'a>(
         &mut self,
-        txs: impl Iterator<Item = (&'a Transaction, Vec<OutPoint>)>,
+        txs: impl Iterator<Item = (&'a TransactionView, Vec<OutPoint>)>,
     ) {
         for (tx, related_out_points) in txs {
             let hash = tx.hash();
-            trace_target!(crate::LOG_TARGET_TX_POOL, "committed {:#x}", hash);
+            trace_target!(crate::LOG_TARGET_TX_POOL, "committed {}", hash);
             for entry in self.proposed.remove_committed_tx(tx, &related_out_points) {
                 self.update_statics_for_remove_tx(entry.size, entry.cycles);
             }

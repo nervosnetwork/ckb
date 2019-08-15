@@ -1,9 +1,12 @@
 use crate::{ScriptError, ScriptGroup};
 use byteorder::{ByteOrder, LittleEndian};
-use ckb_core::cell::ResolvedTransaction;
-use ckb_core::Cycle;
 use ckb_hash::new_blake2b;
-use numext_fixed_hash::{h256, H256};
+use ckb_types::{
+    core::{cell::ResolvedTransaction, Cycle},
+    h256,
+    prelude::*,
+    H256,
+};
 
 // "TYPE_ID" in hex
 pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
@@ -35,7 +38,8 @@ impl<'a> TypeIdSystemScript<'a> {
         // TYPE_ID script should only accept one argument,
         // which is the hash of all inputs when creating
         // the cell.
-        if self.script_group.script.args.len() != 1 || self.script_group.script.args[0].len() != 32
+        if self.script_group.script.args().len() != 1
+            || self.script_group.script.args().get(0).unwrap().len() != 32
         {
             return Err(ScriptError::ValidationFailure(ERROR_ARGS));
         }
@@ -60,15 +64,14 @@ impl<'a> TypeIdSystemScript<'a> {
                 .transaction
                 .inputs()
                 .get(0)
-                .as_ref()
-                .map(|input| input.previous_output.clone())
+                .map(|input| input.previous_output())
                 .ok_or(ScriptError::ValidationFailure(ERROR_ARGS))?;
             // TODO: we use this weird way of hashing data to avoid
             // dependency on flatbuffers for now. We should change
             // this when we have a better serialization solution.
-            blake2b.update(first_cell_input.tx_hash.as_bytes());
+            blake2b.update(Unpack::<H256>::unpack(&first_cell_input.tx_hash()).as_bytes());
             let mut buf = [0; 4];
-            LittleEndian::write_u32(&mut buf, first_cell_input.index);
+            LittleEndian::write_u32(&mut buf, first_cell_input.index().unpack());
             blake2b.update(&buf[..]);
             let first_output_index = self
                 .script_group
@@ -80,7 +83,7 @@ impl<'a> TypeIdSystemScript<'a> {
             blake2b.update(&buf[..]);
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
-            if ret[..] != self.script_group.script.args[0] {
+            if ret[..] != self.script_group.script.args().get(0).unwrap().raw_data()[..] {
                 return Err(ScriptError::ValidationFailure(ERROR_INVALID_INPUT_HASH));
             }
         }

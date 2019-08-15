@@ -2,14 +2,13 @@ mod cuckoo_simple;
 mod dummy;
 
 use crate::config::WorkerConfig;
-use ckb_core::header::Seal;
 use ckb_logger::error;
 use ckb_pow::{CuckooEngine, DummyPowEngine, PowEngine};
+use ckb_types::{packed::Seal, H256};
 use crossbeam_channel::{unbounded, Sender};
 use cuckoo_simple::CuckooSimple;
 use dummy::Dummy;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use numext_fixed_hash::H256;
 use rand::{random, Rng};
 use std::ops::Range;
 use std::sync::Arc;

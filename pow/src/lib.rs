@@ -1,9 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
-use ckb_core::difficulty::difficulty_to_target;
-use ckb_core::header::{BlockNumber, Header};
 use ckb_hash::blake2b_256;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
+use ckb_types::{
+    core::BlockNumber, packed::Header, prelude::*, utilities::difficulty_to_target, H256, U256,
+};
 use serde_derive::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt;
@@ -49,9 +48,19 @@ pub fn pow_message(pow_hash: &H256, nonce: u64) -> [u8; 40] {
 
 pub trait PowEngine: Send + Sync + AsAny {
     fn verify_header(&self, header: &Header) -> bool {
-        if self.verify_proof_difficulty(&header.proof(), &header.difficulty()) {
-            let message = pow_message(&header.pow_hash(), header.nonce());
-            self.verify(header.number(), &message, &header.proof())
+        if self.verify_proof_difficulty(
+            header.seal().proof().as_slice(),
+            &header.raw().difficulty().unpack(),
+        ) {
+            let message = pow_message(
+                &header.as_reader().calc_pow_hash(),
+                header.seal().nonce().unpack(),
+            );
+            self.verify(
+                header.raw().number().unpack(),
+                &message,
+                header.seal().proof().as_slice(),
+            )
         } else {
             false
         }

@@ -2,13 +2,13 @@ use crate::synchronizer::Synchronizer;
 use crate::PROTECT_STOP_SYNC_TIME;
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::InIBD;
+use ckb_types::packed;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::sync::atomic::Ordering;
 
 pub struct InIBDProcess<'a> {
-    _message: &'a InIBD<'a>,
+    _message: packed::InIBDReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
@@ -16,7 +16,7 @@ pub struct InIBDProcess<'a> {
 
 impl<'a> InIBDProcess<'a> {
     pub fn new(
-        _message: &'a InIBD,
+        _message: packed::InIBDReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,

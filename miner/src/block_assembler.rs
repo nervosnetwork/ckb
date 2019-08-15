@@ -1,17 +1,7 @@
 use crate::candidate_uncles::CandidateUncles;
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
-use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
-use ckb_core::extras::EpochExt;
-use ckb_core::header::Header;
-use ckb_core::script::Script;
-use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::{
-    CellInput, CellOutput, ProposalShortId, Transaction, TransactionBuilder,
-};
-use ckb_core::uncle::UncleBlock;
-use ckb_core::{BlockNumber, Bytes, Capacity, Cycle, Version};
-use ckb_dao::DaoCalculator;
+use ckb_dao::{DaoCalculator, DAO_SIZE};
 use ckb_jsonrpc_types::{
     BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
     EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
@@ -23,12 +13,25 @@ use ckb_shared::{shared::Shared, tx_pool::ProposedEntry};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
+use ckb_types::{
+    bytes::Bytes,
+    core::{
+        cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
+        service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
+        BlockNumber, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionBuilder,
+        TransactionView, Version,
+    },
+    packed::{
+        self, CellInput, CellOutput, OutPoint, ProposalShortId, Script, Transaction, UncleBlock,
+    },
+    prelude::*,
+    H256,
+};
 use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::HashSet;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
@@ -200,21 +203,19 @@ impl BlockAssembler {
     }
 
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
-        let UncleBlock { header, proposals } = uncle;
-
         UncleTemplate {
-            hash: header.hash().to_owned(),
+            hash: uncle.header().calc_hash(),
             required: false,
-            proposals: proposals.into_iter().map(Into::into).collect(),
-            header: (&header).into(),
+            proposals: uncle.proposals().into_iter().map(Into::into).collect(),
+            header: uncle.header().into(),
         }
     }
 
-    fn transform_cellbase(tx: &Transaction, cycles: Option<Cycle>) -> CellbaseTemplate {
+    fn transform_cellbase(tx: &TransactionView, cycles: Option<Cycle>) -> CellbaseTemplate {
         CellbaseTemplate {
-            hash: tx.hash().to_owned(),
+            hash: tx.hash().unpack(),
             cycles: cycles.map(JsonCycle),
-            data: tx.into(),
+            data: tx.data().into(),
         }
     }
 
@@ -224,30 +225,47 @@ impl BlockAssembler {
         depends: Option<Vec<u32>>,
     ) -> TransactionTemplate {
         TransactionTemplate {
-            hash: tx.transaction.hash().to_owned(),
+            hash: tx.transaction.hash().unpack(),
             required,
             cycles: Some(JsonCycle(tx.cycles)),
             depends: depends.map(|deps| deps.into_iter().map(|x| Unsigned(u64::from(x))).collect()),
-            data: (&tx.transaction).into(),
+            data: tx.transaction.data().into(),
         }
     }
 
     fn calculate_txs_size_limit(
         &self,
-        cellbase_size: usize,
         bytes_limit: u64,
+        cellbase: Transaction,
         uncles: &[UncleBlock],
         proposals: &HashSet<ProposalShortId>,
     ) -> Result<usize, FailureError> {
-        let occupied = Header::serialized_size(self.proof_size)
-            + uncles
-                .iter()
-                .map(|u| u.serialized_size(self.proof_size))
-                .sum::<usize>()
-            + proposals.len() * ProposalShortId::serialized_size()
-            + cellbase_size;
+        let empty_proof = vec![0u8; self.proof_size];
+        let empty_dao = vec![0u8; DAO_SIZE];
+        let raw_header = packed::RawHeader::new_builder()
+            .dao(empty_dao.pack())
+            .build();
+        let seal = packed::Seal::new_builder()
+            .proof(empty_proof.pack())
+            .build();
+        let header = packed::Header::new_builder()
+            .raw(raw_header)
+            .seal(seal)
+            .build();
+        let block = packed::Block::new_builder()
+            .header(header)
+            .transactions(vec![cellbase].pack())
+            .uncles(uncles.to_owned().pack())
+            .proposals(
+                proposals
+                    .iter()
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+                    .pack(),
+            )
+            .build();
+        let occupied = block.as_slice().len();
         let bytes_limit = bytes_limit as usize;
-
         bytes_limit
             .checked_sub(occupied)
             .ok_or_else(|| Error::InvalidParams(format!("bytes_limit {}", bytes_limit)).into())
@@ -273,7 +291,7 @@ impl BlockAssembler {
         let tip_header = store.get_tip_header().to_owned().expect("get tip header");
         let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
         if let Some(template_cache) = self.template_caches.get(&(
-            tip_header.hash().to_owned(),
+            tip_header.hash().unpack(),
             cycles_limit,
             bytes_limit,
             version,
@@ -295,7 +313,7 @@ impl BlockAssembler {
         // check cache again, return cache if we have no modify
         if let Some(template_cache) =
             self.template_caches
-                .get(&(tip_hash.to_owned(), cycles_limit, bytes_limit, version))
+                .get(&(tip_hash.unpack(), cycles_limit, bytes_limit, version))
         {
             let last_txs_updated_at = chain_state.get_last_txs_updated_at();
             // check our tx_pool wether is modified
@@ -315,23 +333,24 @@ impl BlockAssembler {
         let cellbase_lock_args = self
             .config
             .args
-            .iter()
-            .cloned()
-            .map(JsonBytes::into_bytes)
-            .collect();
+            .clone()
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<packed::Bytes>>();
 
-        let cellbase_lock = Script::new(
-            cellbase_lock_args,
-            self.config.code_hash.clone(),
-            self.config.hash_type.clone(),
-        );
+        let hash_type: ScriptHashType = self.config.hash_type.clone().into();
+        let cellbase_lock = Script::new_builder()
+            .args(cellbase_lock_args.pack())
+            .code_hash(self.config.code_hash.pack())
+            .hash_type(hash_type.pack())
+            .build();
 
-        let (cellbase, cellbase_size) = self.build_cellbase(&tip_header, cellbase_lock)?;
+        let cellbase = self.build_cellbase(&tip_header, cellbase_lock)?;
 
         let last_txs_updated_at = chain_state.get_last_txs_updated_at();
         let proposals = chain_state.get_proposals(proposals_limit as usize);
         let txs_size_limit =
-            self.calculate_txs_size_limit(cellbase_size, bytes_limit, &uncles, &proposals)?;
+            self.calculate_txs_size_limit(bytes_limit, cellbase.data(), &uncles, &proposals)?;
 
         let (entries, size, cycles) = chain_state.get_proposed_txs(txs_size_limit, cycles_limit);
         if !entries.is_empty() {
@@ -346,11 +365,11 @@ impl BlockAssembler {
         }
 
         // Generate DAO fields here
-        let mut txs = vec![cellbase.to_owned()];
+        let mut txs = vec![cellbase.clone()];
         for entry in &entries {
-            txs.push(entry.transaction.to_owned());
+            txs.push(entry.transaction.clone());
         }
-        let mut seen_inputs = HashSet::default();
+        let mut seen_inputs: HashSet<OutPoint> = HashSet::default();
         let transactions_provider = TransactionsProvider::new(&txs);
         let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, &*chain_state);
 
@@ -385,7 +404,7 @@ impl BlockAssembler {
             current_time: JsonTimestamp(current_time),
             number: JsonBlockNumber(candidate_number),
             epoch: JsonEpochNumber(current_epoch.number()),
-            parent_hash: tip_hash.to_owned(),
+            parent_hash: tip_hash.unpack(),
             cycles_limit: JsonCycle(cycles_limit),
             bytes_limit: Unsigned(bytes_limit),
             uncles_count_limit: Unsigned(uncles_count_limit.into()),
@@ -401,7 +420,7 @@ impl BlockAssembler {
         };
 
         self.template_caches.insert(
-            (tip_hash.to_owned(), cycles_limit, bytes_limit, version),
+            (tip_hash.unpack(), cycles_limit, bytes_limit, version),
             TemplateCache {
                 time: current_time,
                 uncles_updated_at: last_uncles_updated_at,
@@ -419,34 +438,36 @@ impl BlockAssembler {
     /// miner should collect the block reward for finalize target H(max(0, c - w_far - 1))
     fn build_cellbase(
         &self,
-        tip: &Header,
+        tip: &HeaderView,
         lock: Script,
-    ) -> Result<(Transaction, usize), FailureError> {
+    ) -> Result<TransactionView, FailureError> {
         let candidate_number = tip.number() + 1;
 
         let tx = {
             let (target_lock, block_reward) = self.shared.finalize_block_reward(tip)?;
             let witness = lock.into_witness();
             let input = CellInput::new_cellbase_input(candidate_number);
-            let raw_output = CellOutput::new(block_reward.total, H256::zero(), target_lock, None);
+            let raw_output = CellOutput::new_builder()
+                .capacity(block_reward.total.pack())
+                .lock(target_lock)
+                .build();
             let (output, output_data) = self.custom_output(block_reward.total, raw_output)?;
 
             TransactionBuilder::default()
                 .input(input)
                 .output(output)
-                .output_data(output_data)
+                .output_data(output_data.pack())
                 .witness(witness)
                 .build()
         };
-        let serialized_size = tx.serialized_size();
 
-        Ok((tx, serialized_size))
+        Ok(tx)
     }
 
     fn custom_output(
         &self,
         reward: Capacity,
-        mut output: CellOutput,
+        output: CellOutput,
     ) -> Result<(CellOutput, Bytes), FailureError> {
         let mut data = self.config.data.clone().into_bytes();
         let occupied_capacity = output.occupied_capacity(Capacity::bytes(data.len())?)?;
@@ -464,10 +485,15 @@ impl BlockAssembler {
                 data.truncate(data_max_len);
             }
 
-            output.data_hash = CellOutput::calculate_data_hash(&data);
-        }
+            let output_new = output
+                .as_builder()
+                .data_hash(CellOutput::calc_data_hash(&data).pack())
+                .build();
 
-        Ok((output, data))
+            Ok((output_new, data))
+        } else {
+            Ok((output, data))
+        }
     }
 
     // A block B1 is considered to be the uncle of another block B2 if all of the following conditions are met:
@@ -491,21 +517,22 @@ impl BlockAssembler {
             if uncles.len() == max_uncles_num {
                 break;
             }
-            let hash = uncle.hash();
-            let parent_hash = uncle.header().parent_hash();
-            if uncle.header().difficulty() != current_epoch_ext.difficulty()
-                || uncle.header().epoch() != epoch_number
-                || store.get_block_number(hash).is_some()
-                || store.is_uncle(hash)
-                || !(uncles.iter().any(|u| u.header().hash() == parent_hash)
-                    || store.get_block_number(parent_hash).is_some()
-                    || store.is_uncle(parent_hash))
-                || uncle.header().number() >= candidate_number
+            let uncle = uncle.as_ref().clone().into_view();
+            let parent_hash = uncle.data().header().raw().parent_hash();
+            if &uncle.difficulty() != current_epoch_ext.difficulty()
+                || uncle.epoch() != epoch_number
+                || store.get_block_number(&uncle.hash()).is_some()
+                || store.is_uncle(&uncle.hash())
+                || !(uncles
+                    .iter()
+                    .any(|u| u.header().calc_hash().pack() == parent_hash)
+                    || store.get_block_number(&parent_hash).is_some()
+                    || store.is_uncle(&parent_hash))
+                || uncle.number() >= candidate_number
             {
-                removed.push(Arc::clone(uncle));
+                removed.push(Arc::new(uncle.data()));
             } else {
-                let uncle_ref: &UncleBlock = &uncle;
-                uncles.push(uncle_ref.to_owned());
+                uncles.push(uncle.data());
             }
         }
 
@@ -523,24 +550,23 @@ mod tests {
     use ckb_chain::chain::ChainController;
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_core::block::Block;
-    use ckb_core::block::BlockBuilder;
-    use ckb_core::extras::EpochExt;
-    use ckb_core::header::{Header, HeaderBuilder};
-    use ckb_core::script::ScriptHashType;
-    use ckb_core::transaction::{
-        CellInput, CellOutputBuilder, ProposalShortId, Transaction, TransactionBuilder,
-    };
-    use ckb_core::{BlockNumber, Bytes};
     use ckb_dao_utils::genesis_dao_data;
+    use ckb_jsonrpc_types::ScriptHashType;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
     use ckb_shared::shared::SharedBuilder;
     use ckb_store::ChainStore;
     use ckb_traits::ChainProvider;
+    use ckb_types::{
+        core::{
+            BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder, HeaderView,
+            TransactionBuilder, TransactionView,
+        },
+        packed::{Block, CellInput, CellOutput},
+        H256,
+    };
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
-    use numext_fixed_hash::H256;
     use std::sync::Arc;
 
     fn start_chain(
@@ -579,11 +605,11 @@ mod tests {
             .get_block_template(None, None, None, &mut candidate_uncles)
             .unwrap();
 
-        let block: BlockBuilder = block_template.into();
-        let block = block.build();
+        let block: Block = block_template.into();
+        let block = block.as_advanced_builder().build();
+        let header = block.header();
 
-        let resolver =
-            HeaderResolverWrapper::new(block.header(), shared.store(), shared.consensus());
+        let resolver = HeaderResolverWrapper::new(&header, shared.store(), shared.consensus());
         let header_verify_result = {
             let chain_state = shared.lock_chain_state();
             let header_verifier = HeaderVerifier::new(&*chain_state, Pow::Dummy.engine());
@@ -595,7 +621,7 @@ mod tests {
         assert!(block_verify.verify(&block).is_ok());
     }
 
-    fn gen_block(parent_header: &Header, nonce: u64, epoch: &EpochExt) -> Block {
+    fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockView {
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(number, epoch);
         // This just make sure we can generate a valid block template,
@@ -603,33 +629,31 @@ mod tests {
         // tests
         let dao = genesis_dao_data(&cellbase).unwrap();
         let header = HeaderBuilder::default()
-            .parent_hash(parent_header.hash().to_owned())
-            .timestamp(parent_header.timestamp() + 10)
-            .number(number)
-            .epoch(epoch.number())
-            .difficulty(epoch.difficulty().clone())
-            .nonce(nonce)
-            .dao(dao)
+            .parent_hash(parent_header.hash())
+            .timestamp((parent_header.timestamp() + 10).pack())
+            .number(number.pack())
+            .epoch(epoch.number().pack())
+            .difficulty(epoch.difficulty().clone().pack())
+            .nonce(nonce.pack())
+            .dao(dao.pack())
             .build();
 
-        unsafe {
-            BlockBuilder::default()
-                .header(header)
-                .transaction(cellbase)
-                .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-                .build_unchecked()
-        }
+        BlockBuilder::default()
+            .header(header)
+            .transaction(cellbase)
+            .proposal([1; 10].pack())
+            .build_unchecked()
     }
 
-    fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> Transaction {
+    fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> TransactionView {
         TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
             .output(
-                CellOutputBuilder::default()
-                    .capacity(epoch.block_reward(number).unwrap())
+                CellOutput::new_builder()
+                    .capacity(epoch.block_reward(number).unwrap().pack())
                     .build(),
             )
-            .output_data(Bytes::new())
+            .output_data(Default::default())
             .build()
     }
 
@@ -657,7 +681,9 @@ mod tests {
 
         let block0_0 = gen_block(&genesis, 11, &epoch);
         let block0_1 = gen_block(&genesis, 10, &epoch);
-        let (block0_0, block0_1) = if block0_0.header().hash() < block0_1.header().hash() {
+        let hash0_0: H256 = block0_0.hash().unpack();
+        let hash0_1: H256 = block0_1.hash().unpack();
+        let (block0_0, block0_1) = if hash0_0 < hash0_1 {
             (block0_1, block0_0)
         } else {
             (block0_0, block0_1)
@@ -665,10 +691,10 @@ mod tests {
 
         let last_epoch = epoch.clone();
         let epoch = shared
-            .next_epoch_ext(&last_epoch, block0_1.header())
+            .next_epoch_ext(&last_epoch, &block0_1.header())
             .unwrap_or(last_epoch);
 
-        let block1_1 = gen_block(block0_1.header(), 10, &epoch);
+        let block1_1 = gen_block(&block0_1.header(), 10, &epoch);
 
         chain_controller
             .process_block(Arc::new(block0_1.clone()), false)
@@ -685,14 +711,14 @@ mod tests {
         let block_template = block_assembler_controller
             .get_block_template(None, None, None)
             .unwrap();
-        assert_eq!(&block_template.uncles[0].hash, block0_0.header().hash());
+        assert_eq!(block_template.uncles[0].hash, block0_0.hash().unpack());
 
         let last_epoch = epoch.clone();
         let epoch = shared
-            .next_epoch_ext(&last_epoch, block1_1.header())
+            .next_epoch_ext(&last_epoch, &block1_1.header())
             .unwrap_or(last_epoch);
 
-        let block2_1 = gen_block(block1_1.header(), 10, &epoch);
+        let block2_1 = gen_block(&block1_1.header(), 10, &epoch);
         chain_controller
             .process_block(Arc::new(block2_1.clone()), false)
             .unwrap();
@@ -701,14 +727,14 @@ mod tests {
             .get_block_template(None, None, None)
             .unwrap();
         // block number 4, epoch 0, uncles should retained
-        assert_eq!(&block_template.uncles[0].hash, block0_0.header().hash());
+        assert_eq!(block_template.uncles[0].hash, block0_0.hash().unpack());
 
         let last_epoch = epoch.clone();
         let epoch = shared
-            .next_epoch_ext(&last_epoch, block2_1.header())
+            .next_epoch_ext(&last_epoch, &block2_1.header())
             .unwrap_or(last_epoch);
 
-        let block3_1 = gen_block(block2_1.header(), 10, &epoch);
+        let block3_1 = gen_block(&block2_1.header(), 10, &epoch);
         chain_controller
             .process_block(Arc::new(block3_1.clone()), false)
             .unwrap();

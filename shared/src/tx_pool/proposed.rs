@@ -1,19 +1,25 @@
 use crate::tx_pool::types::ProposedEntry;
-use ckb_core::cell::{CellMetaBuilder, CellProvider, CellStatus};
-use ckb_core::transaction::{CellOutput, OutPoint, ProposalShortId, Transaction};
-use ckb_core::{Bytes, Capacity, Cycle};
+use ckb_types::{
+    bytes::Bytes,
+    core::{
+        cell::{CellMetaBuilder, CellProvider, CellStatus},
+        Capacity, Cycle, TransactionView,
+    },
+    packed::{CellOutput, OutPoint, ProposalShortId},
+    prelude::*,
+};
 use ckb_util::{FnvHashMap, FnvHashSet, LinkedFnvHashMap};
 use std::collections::VecDeque;
 use std::hash::Hash;
 
 #[derive(Default, Debug, Clone)]
-pub(crate) struct Edges<K: Hash + Eq, V: Copy + Eq + Hash> {
+pub(crate) struct Edges<K: Hash + Eq, V: Eq + Hash> {
     pub(crate) inner: FnvHashMap<K, Option<V>>,
     pub(crate) outer: FnvHashMap<K, Option<V>>,
     pub(crate) deps: FnvHashMap<K, FnvHashSet<V>>,
 }
 
-impl<K: Hash + Eq, V: Copy + Eq + Hash> Edges<K, V> {
+impl<K: Hash + Eq, V: Eq + Hash> Edges<K, V> {
     #[cfg(test)]
     pub(crate) fn inner_len(&self) -> usize {
         self.inner.len()
@@ -123,14 +129,16 @@ impl ProposedPool {
         self.vertices.get(id)
     }
 
-    pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&Transaction> {
+    pub(crate) fn get_tx(&self, id: &ProposalShortId) -> Option<&TransactionView> {
         self.get(id).map(|x| &x.transaction)
     }
 
     pub(crate) fn get_output_with_data(&self, out_point: &OutPoint) -> Option<(CellOutput, Bytes)> {
         self.vertices
-            .get(&ProposalShortId::from_tx_hash(&out_point.tx_hash))
-            .and_then(|x| x.transaction.get_output_with_data(out_point.index as usize))
+            .get(&ProposalShortId::from_tx_hash(
+                &out_point.tx_hash().unpack(),
+            ))
+            .and_then(|x| x.transaction.output_with_data(out_point.index().unpack()))
     }
 
     pub(crate) fn remove_vertex(&mut self, id: &ProposalShortId) -> Vec<ProposedEntry> {
@@ -148,13 +156,13 @@ impl ProposedPool {
                     // TODO: handle header deps
 
                     for i in inputs {
-                        if self.edges.inner.remove(i).is_none() {
-                            self.edges.outer.remove(i);
+                        if self.edges.inner.remove(&i).is_none() {
+                            self.edges.outer.remove(&i);
                         }
                     }
 
                     for d in &entry.related_out_points {
-                        self.edges.delete_value_in_deps(d, &id);
+                        self.edges.delete_value_in_deps(&d, &id);
                     }
 
                     for o in outputs {
@@ -184,7 +192,7 @@ impl ProposedPool {
         cycles: Cycle,
         fee: Capacity,
         size: usize,
-        tx: Transaction,
+        tx: TransactionView,
         related_out_points: Vec<OutPoint>,
     ) {
         let inputs = tx.input_pts_iter();
@@ -197,22 +205,22 @@ impl ProposedPool {
 
         for i in inputs {
             let mut flag = true;
-            if let Some(x) = self.edges.get_inner_mut(i) {
-                *x = Some(id);
+            if let Some(x) = self.edges.get_inner_mut(&i) {
+                *x = Some(id.clone());
                 count += 1;
                 flag = false;
             }
 
             if flag {
-                self.edges.insert_outer(i.to_owned(), id);
+                self.edges.insert_outer(i.to_owned(), id.clone());
             }
         }
 
         for d in &related_out_points {
-            if self.edges.contains_key(d) {
+            if self.edges.contains_key(&d) {
                 count += 1;
             }
-            self.edges.insert_deps(d.to_owned(), id);
+            self.edges.insert_deps(d.to_owned(), id.clone());
         }
 
         for o in outputs {
@@ -227,7 +235,7 @@ impl ProposedPool {
 
     pub(crate) fn remove_committed_tx(
         &mut self,
-        tx: &Transaction,
+        tx: &TransactionView,
         related_out_points: &[OutPoint],
     ) -> Vec<ProposedEntry> {
         let outputs = tx.output_pts();
@@ -253,11 +261,11 @@ impl ProposedPool {
             }
 
             for i in inputs {
-                self.edges.remove_outer(i);
+                self.edges.remove_outer(&i);
             }
 
             for d in related_out_points {
-                self.edges.delete_value_in_deps(d, &id);
+                self.edges.delete_value_in_deps(&d, &id);
             }
         } else {
             removed.append(&mut self.resolve_conflict(tx));
@@ -265,12 +273,12 @@ impl ProposedPool {
         removed
     }
 
-    pub(crate) fn resolve_conflict(&mut self, tx: &Transaction) -> Vec<ProposedEntry> {
+    pub(crate) fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<ProposedEntry> {
         let inputs = tx.input_pts_iter();
         let mut removed = Vec::new();
 
         for i in inputs {
-            if let Some(id) = self.edges.remove_outer(i) {
+            if let Some(id) = self.edges.remove_outer(&i) {
                 removed.append(&mut self.remove(&id));
             }
 
@@ -307,14 +315,15 @@ impl ProposedPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_core::cell::get_related_dep_out_points;
-    use ckb_core::transaction::{
-        CellDep, CellInput, CellOutputBuilder, Transaction, TransactionBuilder,
+    use ckb_types::{
+        bytes::Bytes,
+        core::{cell::get_related_dep_out_points, Capacity, TransactionBuilder, TransactionView},
+        h256,
+        packed::{CellDep, CellInput, CellOutput},
+        H256,
     };
-    use ckb_core::{Bytes, Capacity};
-    use numext_fixed_hash::{h256, H256};
 
-    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> Transaction {
+    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> TransactionView {
         TransactionBuilder::default()
             .inputs(
                 inputs
@@ -322,11 +331,11 @@ mod tests {
                     .map(|(txid, index)| CellInput::new(OutPoint::new(txid.to_owned(), index), 0)),
             )
             .outputs((0..outputs_len).map(|i| {
-                CellOutputBuilder::default()
-                    .capacity(Capacity::bytes(i + 1).unwrap())
+                CellOutput::new_builder()
+                    .capacity(Capacity::bytes(i + 1).unwrap().pack())
                     .build()
             }))
-            .outputs_data((0..outputs_len).map(|_| Bytes::new()))
+            .outputs_data((0..outputs_len).map(|_| Bytes::new().pack()))
             .build()
     }
 
@@ -337,8 +346,8 @@ mod tests {
     #[test]
     fn test_add_entry() {
         let tx1 = build_tx(vec![(&H256::zero(), 1), (&H256::zero(), 2)], 1);
-        let tx1_hash = tx1.hash();
-        let tx2 = build_tx(vec![(tx1_hash, 0)], 1);
+        let tx1_hash: H256 = tx1.hash().unpack();
+        let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
 
         let mut pool = ProposedPool::new();
         let id1 = tx1.proposal_short_id();
@@ -429,14 +438,14 @@ mod tests {
     fn test_add_no_roots() {
         let tx1 = build_tx(vec![(&H256::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);
-        let tx1_hash = tx1.hash();
-        let tx2_hash = tx2.hash();
+        let tx1_hash: H256 = tx1.hash().unpack();
+        let tx2_hash: H256 = tx2.hash().unpack();
 
-        let tx3 = build_tx(vec![(tx1_hash, 0), (&H256::zero(), 2)], 2);
-        let tx4 = build_tx(vec![(tx1_hash, 1), (tx2_hash, 0)], 2);
+        let tx3 = build_tx(vec![(&tx1_hash, 0), (&H256::zero(), 2)], 2);
+        let tx4 = build_tx(vec![(&tx1_hash, 1), (&tx2_hash, 0)], 2);
 
-        let tx3_hash = tx3.hash();
-        let tx5 = build_tx(vec![(tx1_hash, 2), (tx3_hash, 0)], 2);
+        let tx3_hash: H256 = tx3.hash().unpack();
+        let tx5 = build_tx(vec![(&tx1_hash, 2), (&tx3_hash, 0)], 2);
 
         let id1 = tx1.proposal_short_id();
         let id3 = tx3.proposal_short_id();
@@ -486,8 +495,7 @@ mod tests {
         assert_eq!(pool.edges.inner_len(), 13);
         assert_eq!(pool.edges.outer_len(), 2);
 
-        let mut mineable: Vec<Transaction> =
-            pool.get_txs(0).into_iter().map(|x| x.transaction).collect();
+        let mut mineable: Vec<_> = pool.get_txs(0).into_iter().map(|x| x.transaction).collect();
         assert_eq!(0, mineable.len());
 
         mineable = pool.get_txs(1).into_iter().map(|x| x.transaction).collect();
@@ -552,34 +560,35 @@ mod tests {
     #[test]
     fn test_dep_group() {
         let tx1 = build_tx(vec![(&h256!("0x1"), 0)], 1);
-        let tx1_out_point = OutPoint::new(tx1.hash().clone(), 0);
+        let tx1_out_point = OutPoint::new(tx1.hash().unpack(), 0);
 
         // Dep group cell
-        let tx2_data = tx1_out_point.to_group_data().into();
+        let tx2_data = vec![tx1_out_point.clone()].pack().as_bytes();
         let tx2 = TransactionBuilder::default()
             .input(CellInput::new(OutPoint::new(h256!("0x2"), 0), 0))
             .output(
-                CellOutputBuilder::from_data(&tx2_data)
-                    .capacity(Capacity::bytes(1000).unwrap())
+                CellOutput::new_builder()
+                    .data_hash(CellOutput::calc_data_hash(&tx2_data).pack())
+                    .capacity(Capacity::bytes(1000).unwrap().pack())
                     .build(),
             )
-            .output_data(tx2_data.clone())
+            .output_data(tx2_data.pack())
             .build();
-        let tx2_out_point = OutPoint::new(tx2.hash().clone(), 0);
+        let tx2_out_point = OutPoint::new(tx2.hash().unpack(), 0);
 
         // Transaction use dep group
-        let dep = CellDep::new_group(OutPoint::new(tx2.hash().clone(), 0));
+        let dep = CellDep::new(OutPoint::new(tx2.hash().unpack(), 0), true);
         let tx3 = TransactionBuilder::default()
             .cell_dep(dep)
             .input(CellInput::new(OutPoint::new(h256!("0x3"), 0), 0))
             .output(
-                CellOutputBuilder::default()
-                    .capacity(Capacity::bytes(3).unwrap())
+                CellOutput::new_builder()
+                    .capacity(Capacity::bytes(3).unwrap().pack())
                     .build(),
             )
-            .output_data(Bytes::new())
+            .output_data(Bytes::new().pack())
             .build();
-        let tx3_out_point = OutPoint::new(tx3.hash().clone(), 0);
+        let tx3_out_point = OutPoint::new(tx3.hash().unpack(), 0);
 
         let get_cell_data = |out_point: &OutPoint| -> Option<Bytes> {
             if out_point == &tx2_out_point {

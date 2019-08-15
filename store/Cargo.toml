@@ -8,10 +8,8 @@ license = "MIT"
 [dependencies]
 serde = "1.0"
 serde_derive = "1.0"
-ckb-core = { path = "../core" }
+ckb-types = { path = "../util/types" }
 ckb-db = { path = "../db" }
-ckb-protos = { path = "../protos" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 ckb-chain-spec = { path = "../spec" }
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 ckb-script-data-loader = { path = "../script/data-loader" }

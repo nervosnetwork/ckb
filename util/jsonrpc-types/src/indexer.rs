@@ -1,5 +1,5 @@
 use crate::{BlockNumber, CellOutput, Unsigned};
-use numext_fixed_hash::H256;
+use ckb_types::H256;
 use serde_derive::{Deserialize, Serialize};
 
 // This is used as return value of get_live_cells_by_lock_hash RPC

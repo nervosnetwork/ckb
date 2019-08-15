@@ -1,4 +1,4 @@
-use ckb_core::transaction::ProposalShortId;
+use ckb_types::packed::ProposalShortId;
 use failure::Fail;
 
 #[derive(Debug, Fail, Eq, PartialEq)]

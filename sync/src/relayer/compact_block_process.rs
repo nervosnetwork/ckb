@@ -1,26 +1,24 @@
 use crate::block_status::BlockStatus;
-use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
 use crate::relayer::Relayer;
-use ckb_core::header::Header;
-use ckb_core::BlockNumber;
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_types::{
+    core::{self, BlockNumber},
+    packed,
+    prelude::*,
+};
 use ckb_verification::{HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
-use flatbuffers::FlatBufferBuilder;
 use fnv::FnvHashMap;
-use numext_fixed_hash::H256;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct CompactBlockProcess<'a> {
-    message: &'a FbsCompactBlock<'a>,
+    message: packed::CompactBlockReader<'a>,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -38,7 +36,7 @@ pub enum Status {
 
 impl<'a> CompactBlockProcess<'a> {
     pub fn new(
-        message: &'a FbsCompactBlock,
+        message: packed::CompactBlockReader<'a>,
         relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
@@ -52,8 +50,9 @@ impl<'a> CompactBlockProcess<'a> {
     }
 
     pub fn execute(self) -> Result<Status, FailureError> {
-        let compact_block: CompactBlock = (*self.message).try_into()?;
-        let block_hash = compact_block.header.hash().to_owned();
+        let compact_block = self.message.to_entity();
+        let header = compact_block.header().into_view();
+        let block_hash = header.hash();
 
         // Only accept blocks with a height greater than tip - N
         // where N is the current epoch length
@@ -65,7 +64,7 @@ impl<'a> CompactBlockProcess<'a> {
             (tip.number().saturating_sub(epoch_length), tip)
         };
 
-        if lowest_number > compact_block.header.number() {
+        if lowest_number > header.number() {
             return Err(Error::Ignored(Ignored::TooOldBlock).into());
         }
 
@@ -75,7 +74,7 @@ impl<'a> CompactBlockProcess<'a> {
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "receive a compact block with invalid status, {:#x}, peer: {}",
+                "receive a compact block with invalid status, {}, peer: {}",
                 block_hash,
                 self.peer
             );
@@ -85,11 +84,11 @@ impl<'a> CompactBlockProcess<'a> {
         let parent = self
             .relayer
             .shared
-            .get_header_view(compact_block.header.parent_hash());
+            .get_header_view(&header.data().raw().parent_hash());
         if parent.is_none() {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "UnknownParent: {:#x}, send_getheaders_to_peer({})",
+                "UnknownParent: {}, send_getheaders_to_peer({})",
                 block_hash,
                 self.peer
             );
@@ -110,7 +109,7 @@ impl<'a> CompactBlockProcess<'a> {
             if flight.peers.contains(&self.peer) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
-                    "discard already in-flight compact block {:x}",
+                    "discard already in-flight compact block {}",
                     block_hash,
                 );
                 return Err(Error::Ignored(Ignored::AlreadyInFlight).into());
@@ -129,7 +128,7 @@ impl<'a> CompactBlockProcess<'a> {
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
-                    "discard already pending compact block {:x}",
+                    "discard already pending compact block {}",
                     block_hash
                 );
                 return Err(Error::Ignored(Ignored::AlreadyPending).into());
@@ -138,7 +137,7 @@ impl<'a> CompactBlockProcess<'a> {
                     |block_hash| {
                         pending_compact_blocks
                             .get(&block_hash)
-                            .map(|(compact_block, _)| compact_block.header.to_owned())
+                            .map(|(compact_block, _)| compact_block.header().into_view())
                             .or_else(|| {
                                 self.relayer
                                     .shared
@@ -150,7 +149,7 @@ impl<'a> CompactBlockProcess<'a> {
                 let resolver = self
                     .relayer
                     .shared
-                    .new_header_resolver(&compact_block.header, parent.into_inner());
+                    .new_header_resolver(&header, parent.into_inner());
                 let header_verifier = HeaderVerifier::new(
                     CompactBlockMedianTimeView {
                         fn_get_pending_header: Box::new(fn_get_pending_header),
@@ -171,7 +170,7 @@ impl<'a> CompactBlockProcess<'a> {
                 let epoch = resolver.epoch().expect("epoch verified").clone();
                 self.relayer
                     .shared()
-                    .insert_valid_header(self.peer, &compact_block.header, epoch);
+                    .insert_valid_header(self.peer, &header, epoch);
             }
 
             // Reconstruct block
@@ -209,25 +208,24 @@ impl<'a> CompactBlockProcess<'a> {
             .relayer
             .shared()
             .write_inflight_blocks()
-            .insert(self.peer, block_hash.to_owned())
+            .insert(self.peer, block_hash.clone())
         {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "BlockInFlight reach limit or had requested, peer: {}, block: {:x}",
+                "BlockInFlight reach limit or had requested, peer: {}, block: {}",
                 self.peer,
                 block_hash,
             );
             return Err(Error::Internal(Internal::InflightBlocksReachLimit).into());
         }
 
-        let fbb = &mut FlatBufferBuilder::new();
-        let message =
-            RelayMessage::build_get_block_transactions(fbb, &block_hash, &missing_indexes);
-        fbb.finish(message, None);
-        if let Err(err) = self
-            .nc
-            .send_message_to(self.peer, fbb.finished_data().into())
-        {
+        let content = packed::GetBlockTransactions::new_builder()
+            .block_hash(block_hash)
+            .indexes(missing_indexes.pack())
+            .build();
+        let message = packed::RelayMessage::new_builder().set(content).build();
+        let data = message.as_slice().into();
+        if let Err(err) = self.nc.send_message_to(self.peer, data) {
             ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
         }
 
@@ -236,12 +234,12 @@ impl<'a> CompactBlockProcess<'a> {
 }
 
 struct CompactBlockMedianTimeView<'a> {
-    fn_get_pending_header: Box<Fn(H256) -> Option<Header> + 'a>,
+    fn_get_pending_header: Box<Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
     shared: &'a Shared,
 }
 
 impl<'a> CompactBlockMedianTimeView<'a> {
-    fn get_header(&self, hash: &H256) -> Option<Header> {
+    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
         (self.fn_get_pending_header)(hash.to_owned())
             .or_else(|| self.shared.store().get_block_header(hash))
     }
@@ -252,14 +250,17 @@ impl<'a> BlockMedianTimeContext for CompactBlockMedianTimeView<'a> {
         self.shared.consensus().median_time_block_count() as u64
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
+    fn timestamp_and_parent(
+        &self,
+        block_hash: &packed::Byte32,
+    ) -> (u64, BlockNumber, packed::Byte32) {
         let header = self
             .get_header(&block_hash)
             .expect("[CompactBlockMedianTimeView] blocks used for median time exist");
         (
             header.timestamp(),
             header.number(),
-            header.parent_hash().to_owned(),
+            header.data().raw().parent_hash(),
         )
     }
 }

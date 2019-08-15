@@ -1,12 +1,14 @@
-use ckb_core::{transaction::Transaction, BlockNumber, Cycle};
 use ckb_shared::shared::Shared;
 use ckb_shared::tx_pool::PoolError;
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_types::{
+    core::{BlockNumber, Cycle, TransactionView},
+    packed::Byte32,
+};
 use ckb_verification::TransactionVerifier;
-use fnv::FnvHashMap;
-use numext_fixed_hash::H256;
+use std::collections::HashMap;
 
 struct StoreBlockMedianTimeContext<'a, CS> {
     store: &'a CS,
@@ -18,7 +20,7 @@ impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for StoreBlockMedianTimeCont
         self.median_time_block_count
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
+    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
         let header = self
             .store
             .get_block_header(block_hash)
@@ -26,7 +28,7 @@ impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for StoreBlockMedianTimeCont
         (
             header.timestamp(),
             header.number(),
-            header.parent_hash().to_owned(),
+            header.data().raw().parent_hash(),
         )
     }
 }
@@ -42,14 +44,14 @@ impl TxPoolExecutor {
         TxPoolExecutor { shared }
     }
 
-    pub fn verify_and_add_tx_to_pool(&self, tx: Transaction) -> Result<Cycle, PoolError> {
+    pub fn verify_and_add_tx_to_pool(&self, tx: TransactionView) -> Result<Cycle, PoolError> {
         self.verify_and_add_txs_to_pool(vec![tx])
             .map(|cycles_vec| *cycles_vec.get(0).expect("tx verified cycles"))
     }
 
     pub fn verify_and_add_txs_to_pool(
         &self,
-        txs: Vec<Transaction>,
+        txs: Vec<TransactionView>,
     ) -> Result<Vec<Cycle>, PoolError> {
         if txs.is_empty() {
             return Ok(Vec::new());
@@ -69,21 +71,19 @@ impl TxPoolExecutor {
             let txs_verify_cache = self.shared.lock_txs_verify_cache();
             let consensus = chain_state.consensus();
             let parent_number = chain_state.tip_number();
-            let parent_hash = chain_state.tip_hash().to_owned();
+            let parent_hash = chain_state.tip_hash();
             let epoch_number = chain_state.current_epoch_ext().number();
             let mut resolved_txs = Vec::with_capacity(txs.len());
             let mut unresolvable_txs = Vec::with_capacity(txs.len());
             let mut cached_txs = Vec::with_capacity(txs.len());
             for tx in &txs {
-                if let Some(cycles) = txs_verify_cache.get(tx.hash()) {
-                    cached_txs.push((tx.hash().to_owned(), Ok(*cycles)));
+                if let Some(cycles) = txs_verify_cache.get(&tx.hash()) {
+                    cached_txs.push((tx.hash(), Ok(*cycles)));
                 } else {
                     match chain_state.resolve_tx_from_pending_and_proposed(tx) {
-                        Ok(resolved_tx) => resolved_txs.push((tx.hash().to_owned(), resolved_tx)),
-                        Err(err) => unresolvable_txs.push((
-                            tx.hash().to_owned(),
-                            PoolError::UnresolvableTransaction(err),
-                        )),
+                        Ok(resolved_tx) => resolved_txs.push((tx.hash(), resolved_tx)),
+                        Err(err) => unresolvable_txs
+                            .push((tx.hash(), PoolError::UnresolvableTransaction(err))),
                     }
                 }
             }
@@ -119,7 +119,7 @@ impl TxPoolExecutor {
                     &block_median_time_context,
                     parent_number + 1,
                     epoch_number,
-                    &parent_hash,
+                    parent_hash.clone(),
                     &consensus,
                     self.shared.script_config(),
                     self.shared.store(),
@@ -142,15 +142,14 @@ impl TxPoolExecutor {
                 .map(|(i, result)| {
                     let result = match result {
                         Ok((rtx, cycles)) => {
-                            let tx_hash = rtx.transaction.hash().to_owned();
-                            txs_verify_cache.insert(tx_hash, cycles);
+                            txs_verify_cache.insert(rtx.transaction.hash(), cycles);
                             Ok(cycles)
                         }
                         Err(err) => Err(err),
                     };
                     (i, result)
                 })
-                .collect::<Vec<(H256, Result<Cycle, _>)>>()
+                .collect::<Vec<(Byte32, Result<Cycle, _>)>>()
         };
 
         // join all txs
@@ -159,15 +158,15 @@ impl TxPoolExecutor {
                 .into_iter()
                 .chain(cached_txs)
                 .chain(unresolvable_txs.into_iter().map(|(tx, err)| (tx, Err(err))))
-                .collect::<FnvHashMap<H256, Result<Cycle, PoolError>>>();
+                .collect::<HashMap<Byte32, Result<Cycle, PoolError>>>();
             txs.iter()
                 .map(|tx| {
                     cycles_vec
-                        .remove(tx.hash())
+                        .remove(&tx.hash())
                         .expect("verified tx should exists")
                         .map(|cycles| (cycles, tx.to_owned()))
                 })
-                .collect::<Vec<Result<(Cycle, Transaction), PoolError>>>()
+                .collect::<Vec<Result<(Cycle, TransactionView), PoolError>>>()
         };
         cycles_vec
             .into_iter()
@@ -184,20 +183,21 @@ mod tests {
     use super::*;
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_core::block::BlockBuilder;
-    use ckb_core::cell::UnresolvableError;
-    use ckb_core::header::HeaderBuilder;
-    use ckb_core::transaction::{
-        CellDep, CellInput, CellOutputBuilder, OutPoint, TransactionBuilder,
-    };
-    use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
     use ckb_test_chain_utils::always_success_cell;
     use ckb_traits::ChainProvider;
+    use ckb_types::{
+        bytes::Bytes,
+        core::{
+            capacity_bytes, cell::UnresolvableError, BlockBuilder, Capacity, TransactionBuilder,
+        },
+        packed::{CellDep, CellInput, CellOutput, OutPoint},
+        prelude::*,
+        U256,
+    };
     use ckb_verification::TransactionError;
     use faketime::{self, unix_time_as_millis};
-    use numext_fixed_uint::U256;
     use std::sync::Arc;
 
     fn setup(height: u64) -> (Shared, OutPoint) {
@@ -207,16 +207,13 @@ mod tests {
             .witness(always_success_script.clone().into_witness())
             .input(CellInput::new(OutPoint::null(), 0))
             .output(always_success_cell.clone())
-            .output_data(always_success_cell_data.clone())
+            .output_data(always_success_cell_data.pack())
             .build();
-        let always_success_out_point = OutPoint::new(always_success_tx.hash().to_owned(), 0);
+        let always_success_out_point = OutPoint::new(always_success_tx.hash().unpack(), 0);
 
         let mut block = BlockBuilder::default()
-            .header_builder(
-                HeaderBuilder::default()
-                    .timestamp(unix_time_as_millis())
-                    .difficulty(U256::from(1000u64)),
-            )
+            .timestamp(unix_time_as_millis().pack())
+            .difficulty(U256::from(1000u64).pack())
             .transaction(always_success_tx)
             .build();
         let consensus = Consensus::default()
@@ -237,20 +234,20 @@ mod tests {
             let number = block.header().number() + 1;
             let timestamp = block.header().timestamp() + 1;
 
-            let last_epoch = shared.get_block_epoch(&block.header().hash()).unwrap();
+            let last_epoch = shared.get_block_epoch(&block.hash().unpack()).unwrap();
             let epoch = shared
-                .next_epoch_ext(&last_epoch, block.header())
+                .next_epoch_ext(&last_epoch, &block.header())
                 .unwrap_or(last_epoch);
 
             let outputs = (0..20)
                 .map(|_| {
-                    CellOutputBuilder::default()
-                        .capacity(capacity_bytes!(50))
-                        .lock(always_success_script.to_owned())
+                    CellOutput::new_builder()
+                        .capacity(capacity_bytes!(50).pack())
+                        .lock(always_success_script.clone())
                         .build()
                 })
                 .collect::<Vec<_>>();
-            let outputs_data = (0..20).map(|_| Bytes::new());
+            let outputs_data = (0..20).map(|_| Bytes::new().pack());
             let cellbase = TransactionBuilder::default()
                 .input(CellInput::new_cellbase_input(number))
                 .outputs(outputs)
@@ -260,31 +257,28 @@ mod tests {
             let txs = (10..20).map(|i| {
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new(cellbase.hash().to_owned(), i),
+                        OutPoint::new(cellbase.hash().unpack(), i),
                         0,
                     ))
                     .output(
-                        CellOutputBuilder::default()
-                            .capacity(capacity_bytes!(50))
-                            .lock(always_success_script.to_owned())
+                        CellOutput::new_builder()
+                            .capacity(capacity_bytes!(50).pack())
+                            .lock(always_success_script.clone())
                             .build(),
                     )
-                    .output_data(Bytes::new())
-                    .cell_dep(CellDep::new_cell(always_success_out_point.to_owned()))
+                    .output_data(Default::default())
+                    .cell_dep(CellDep::new(always_success_out_point.to_owned(), false))
                     .build()
             });
 
-            let header_builder = HeaderBuilder::default()
-                .parent_hash(block.header().hash().to_owned())
-                .number(number)
-                .epoch(epoch.number())
-                .timestamp(timestamp)
-                .difficulty(epoch.difficulty().clone());
-
             block = BlockBuilder::default()
+                .parent_hash(block.header().hash().to_owned())
+                .number(number.pack())
+                .epoch(epoch.number().pack())
+                .timestamp(timestamp.pack())
+                .difficulty(epoch.difficulty().pack())
                 .transaction(cellbase.clone())
                 .transactions(txs)
-                .header_builder(header_builder)
                 .build();
 
             chain_controller
@@ -302,7 +296,7 @@ mod tests {
             .store()
             .get_block(&shared.lock_chain_state().tip_hash())
             .unwrap();
-        let last_cellbase = last_block.transactions().first().unwrap();
+        let last_cellbase = last_block.transactions().first().cloned().unwrap();
 
         // building 10 txs and broadcast some
         let txs = (0..20u8)
@@ -310,16 +304,17 @@ mod tests {
                 let data = Bytes::from(vec![i]);
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new(last_cellbase.hash().to_owned(), u32::from(i)),
+                        OutPoint::new(last_cellbase.hash().unpack(), u32::from(i)),
                         0,
                     ))
                     .output(
-                        CellOutputBuilder::from_data(&data)
-                            .capacity(capacity_bytes!(50))
+                        CellOutput::new_builder()
+                            .data_hash(CellOutput::calc_data_hash(&data).pack())
+                            .capacity(capacity_bytes!(50).pack())
                             .build(),
                     )
-                    .output_data(data)
-                    .cell_dep(CellDep::new_cell(always_success_out_point.to_owned()))
+                    .output_data(data.pack())
+                    .cell_dep(CellDep::new(always_success_out_point.to_owned(), false))
                     .build()
             })
             .collect::<Vec<_>>();
@@ -336,7 +331,7 @@ mod tests {
         assert_eq!(
             result,
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
-                txs[10].inputs()[0].previous_output.to_owned()
+                txs[10].inputs().get(0).unwrap().previous_output()
             )))
         );
         // spent half available half conflict cells
@@ -344,7 +339,7 @@ mod tests {
         assert_eq!(
             result,
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
-                txs[10].inputs()[0].previous_output.to_owned()
+                txs[10].inputs().get(0).unwrap().previous_output()
             )))
         );
         // spent one cell
@@ -357,7 +352,7 @@ mod tests {
         assert_eq!(
             result,
             Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
-                txs[13].inputs()[0].previous_output.to_owned()
+                txs[13].inputs().get(0).unwrap().previous_output()
             )))
         );
     }
@@ -369,24 +364,24 @@ mod tests {
             .store()
             .get_block(&shared.lock_chain_state().tip_hash())
             .unwrap();
-        let last_cellbase = last_block.transactions().first().unwrap();
+        let last_cellbase = last_block.transactions().first().cloned().unwrap();
         let tip_number = shared.lock_chain_state().tip_number();
 
-        let transactions: Vec<Transaction> = (tip_number - 1..=tip_number + 2)
+        let transactions: Vec<TransactionView> = (tip_number - 1..=tip_number + 2)
             .map(|number| {
                 let since = number;
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new(last_cellbase.hash().to_owned(), 0),
+                        OutPoint::new(last_cellbase.hash().unpack(), 0),
                         since,
                     ))
                     .output(
-                        CellOutputBuilder::default()
-                            .capacity(capacity_bytes!(50))
+                        CellOutput::new_builder()
+                            .capacity(capacity_bytes!(50).pack())
                             .build(),
                     )
-                    .output_data(Bytes::new())
-                    .cell_dep(CellDep::new_cell(always_success_out_point.to_owned()))
+                    .output_data(Default::default())
+                    .cell_dep(CellDep::new(always_success_out_point.to_owned(), false))
                     .build()
             })
             .collect();

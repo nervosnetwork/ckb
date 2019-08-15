@@ -1,9 +1,8 @@
 use super::{Worker, WorkerMessage};
-use ckb_core::header::Seal;
 use ckb_logger::error;
+use ckb_types::{packed::Seal, prelude::*, H256};
 use crossbeam_channel::{Receiver, Sender};
 use indicatif::ProgressBar;
-use numext_fixed_hash::H256;
 use rand::{
     distributions::{self as dist, Distribution as _},
     thread_rng,
@@ -99,7 +98,7 @@ impl Dummy {
 
     fn solve(&self, pow_hash: &H256, nonce: u64) {
         thread::sleep(self.delay.duration());
-        let seal = Seal::new(nonce, Vec::new().into());
+        let seal = Seal::new_builder().nonce(nonce.pack()).build();
         if let Err(err) = self.seal_tx.send((pow_hash.clone(), seal)) {
             error!("seal_tx send error {:?}", err);
         }

@@ -38,7 +38,7 @@ resolve = "0.2.0"
 ckb-build-info = {path = "../util/build-info"}
 num_cpus = "1.10"
 snap = "0.2"
-ckb-protocol = { path = "../protocol" }
+ckb-types = { path = "../util/types" }
 ipnetwork = "0.14"
 
 [dev-dependencies]

@@ -1,6 +1,5 @@
 use super::PowEngine;
-use ckb_core::header::{BlockNumber, Header};
-use numext_fixed_uint::U256;
+use ckb_types::{core::BlockNumber, packed::Header, U256};
 
 pub struct DummyPowEngine;
 

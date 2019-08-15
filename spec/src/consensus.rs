@@ -1,15 +1,15 @@
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::extras::EpochExt;
-use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::script::Script;
-use ckb_core::transaction::{CellInput, TransactionBuilder};
-use ckb_core::{capacity_bytes, BlockNumber, Capacity, Cycle, Version};
 use ckb_dao_utils::genesis_dao_data;
-use ckb_occupied_capacity::Ratio;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::{u256, U256};
+use ckb_types::{
+    core::{
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
+        HeaderView, Ratio, TransactionBuilder, Version,
+    },
+    packed::{Byte32, CellInput, Script},
+    prelude::*,
+    u256, H256, U256,
+};
 use std::cmp;
 use std::sync::Arc;
 
@@ -54,11 +54,11 @@ pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
 /// Two protocol parameters w_close and w_far define the closest
-/// and farthest on-chain distance between a transaction’s proposal
+/// and farthest on-chain distance between a transaction's proposal
 /// and commitment.
 ///
 /// A non-cellbase transaction is committed at height h_c if all of the following conditions are met:
-/// 1) it is proposed at height h_p of the same chain, where w_close ≤ h_c − h_p ≤ w_far ;
+/// 1) it is proposed at height h_p of the same chain, where w_close <= h_c − h_p <= w_far ;
 /// 2) it is in the commitment zone of the main chain block with height h_c ;
 ///
 ///   ProposalWindow (2, 10)
@@ -88,7 +88,7 @@ impl ProposalWindow {
 #[derive(Clone, Debug)]
 pub struct Consensus {
     pub id: String,
-    pub genesis_block: Block,
+    pub genesis_block: BlockView,
     pub genesis_hash: H256,
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
@@ -118,16 +118,18 @@ pub struct Consensus {
 // genesis difficulty should not be zero
 impl Default for Consensus {
     fn default() -> Self {
+        let input = CellInput::new_cellbase_input(0);
+        let witness = Script::default().into_witness();
         let cellbase = TransactionBuilder::default()
-            .input(CellInput::new_cellbase_input(0))
-            .witness(Script::default().into_witness())
+            .input(input)
+            .witness(witness)
             .build();
         let dao = genesis_dao_data(&cellbase).unwrap();
-        let genesis_block = BlockBuilder::from_header_builder(
-            HeaderBuilder::default().difficulty(U256::one()).dao(dao),
-        )
-        .transaction(cellbase)
-        .build();
+        let genesis_block = BlockBuilder::default()
+            .difficulty(U256::one().pack())
+            .dao(dao.pack())
+            .transaction(cellbase)
+            .build();
 
         Consensus::new(genesis_block, DEFAULT_EPOCH_REWARD)
     }
@@ -135,9 +137,9 @@ impl Default for Consensus {
 
 #[allow(clippy::op_ref)]
 impl Consensus {
-    pub fn new(genesis_block: Block, epoch_reward: Capacity) -> Consensus {
+    pub fn new(genesis_block: BlockView, epoch_reward: Capacity) -> Consensus {
         debug_assert!(
-            genesis_block.header().difficulty() > &U256::zero(),
+            genesis_block.difficulty() > U256::zero(),
             "genesis difficulty should greater than zero"
         );
 
@@ -163,11 +165,11 @@ impl Consensus {
             H256::zero(),
             0, // start
             GENESIS_EPOCH_LENGTH, // length
-            genesis_header.difficulty().clone() // difficulty,
+            genesis_header.difficulty() // difficulty,
         );
 
         Consensus {
-            genesis_hash: genesis_header.hash().to_owned(),
+            genesis_hash: genesis_header.hash().unpack(),
             genesis_block,
             id: "main".to_owned(),
             max_uncles_num: MAX_UNCLE_NUM,
@@ -193,15 +195,22 @@ impl Consensus {
         self
     }
 
-    pub fn set_genesis_block(mut self, genesis_block: Block) -> Self {
+    pub fn set_genesis_block(mut self, genesis_block: BlockView) -> Self {
         debug_assert!(
-            !genesis_block.transactions().is_empty()
-                && !genesis_block.transactions()[0].witnesses().is_empty(),
+            !genesis_block.data().transactions().is_empty()
+                && !genesis_block
+                    .data()
+                    .transactions()
+                    .get(0)
+                    .unwrap()
+                    .slim()
+                    .witnesses()
+                    .is_empty(),
             "genesis block must contain the witness for cellbase"
         );
         self.genesis_epoch_ext
-            .set_difficulty(genesis_block.header().difficulty().clone());
-        self.genesis_hash = genesis_block.header().hash().to_owned();
+            .set_difficulty(genesis_block.difficulty());
+        self.genesis_hash = genesis_block.hash().unpack();
         self.genesis_block = genesis_block;
         self
     }
@@ -244,7 +253,7 @@ impl Consensus {
         self
     }
 
-    pub fn genesis_block(&self) -> &Block {
+    pub fn genesis_block(&self) -> &BlockView {
         &self.genesis_block
     }
 
@@ -273,8 +282,8 @@ impl Consensus {
         self.max_uncles_num
     }
 
-    pub fn min_difficulty(&self) -> &U256 {
-        self.genesis_block.header().difficulty()
+    pub fn min_difficulty(&self) -> U256 {
+        self.genesis_block.difficulty()
     }
 
     pub fn epoch_reward(&self) -> Capacity {
@@ -377,27 +386,28 @@ impl Consensus {
     pub fn next_epoch_ext<A, B>(
         &self,
         last_epoch: &EpochExt,
-        header: &Header,
+        header: &HeaderView,
         get_block_header: A,
         total_uncles_count: B,
     ) -> Option<EpochExt>
     where
-        A: Fn(&H256) -> Option<Header>,
-        B: Fn(&H256) -> Option<u64>,
+        A: Fn(&Byte32) -> Option<HeaderView>,
+        B: Fn(&Byte32) -> Option<u64>,
     {
         let last_epoch_length = last_epoch.length();
-        if header.number() != (last_epoch.start_number() + last_epoch_length - 1) {
+        let header_number = header.number();
+        if header_number != (last_epoch.start_number() + last_epoch_length - 1) {
             return None;
         }
 
         let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {
-            self.genesis_block().header().clone()
+            self.genesis_block().header()
         } else {
-            get_block_header(last_epoch.last_block_hash_in_previous_epoch())?
+            get_block_header(&last_epoch.last_block_hash_in_previous_epoch().pack())?
         };
 
         // (1) Computing the Adjusted Hash Rate Estimation
-        let last_difficulty = header.difficulty();
+        let last_difficulty = &header.difficulty();
         let last_hash = header.hash();
         let start_total_uncles_count =
             total_uncles_count(&last_block_header_in_previous_epoch.hash())
@@ -496,10 +506,10 @@ impl Consensus {
             block_reward,
             remainder_reward, // remainder_reward
             adjusted_last_epoch_hash_rate,
-            header.hash().to_owned(), // last_block_hash_in_previous_epoch
-            header.number() + 1,      // start
-            next_epoch_length,        // length
-            next_epoch_diff,          // difficulty,
+            header.hash().unpack(), // last_block_hash_in_previous_epoch
+            header_number + 1,      // start
+            next_epoch_length,      // length
+            next_epoch_diff,        // difficulty,
         );
 
         Some(epoch_ext)

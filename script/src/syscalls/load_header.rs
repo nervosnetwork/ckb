@@ -3,21 +3,22 @@ use crate::syscalls::{
     LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
 };
 use crate::DataLoader;
-use ckb_core::cell::CellMeta;
-use ckb_core::header::Header;
-use ckb_protocol::Header as FbsHeader;
+use ckb_types::{
+    core::{cell::CellMeta, HeaderView},
+    packed::Byte32Vec,
+    prelude::*,
+    H256,
+};
 use ckb_vm::{
     registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use flatbuffers::FlatBufferBuilder;
-use numext_fixed_hash::H256;
 
 #[derive(Debug)]
 pub struct LoadHeader<'a, DL> {
     data_loader: &'a DL,
     // This can only be used for liner search
-    header_deps: &'a [H256],
+    header_deps: Byte32Vec,
     resolved_inputs: &'a [CellMeta],
     resolved_cell_deps: &'a [CellMeta],
     group_inputs: &'a [usize],
@@ -26,7 +27,7 @@ pub struct LoadHeader<'a, DL> {
 impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
     pub fn new(
         data_loader: &'a DL,
-        header_deps: &'a [H256],
+        header_deps: Byte32Vec,
         resolved_inputs: &'a [CellMeta],
         resolved_cell_deps: &'a [CellMeta],
         group_inputs: &'a [usize],
@@ -40,20 +41,25 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
         }
     }
 
-    fn load_header(&self, cell_meta: &CellMeta) -> Option<Header> {
+    fn load_header(&self, cell_meta: &CellMeta) -> Option<HeaderView> {
         let block_hash = &cell_meta
             .transaction_info
             .as_ref()
             .expect("block_info of CellMeta should exists when load_header in syscall")
             .block_hash;
-        if self.header_deps.iter().any(|hash| hash == block_hash) {
-            self.data_loader.get_header(block_hash)
+        if self
+            .header_deps
+            .clone()
+            .into_iter()
+            .any(|hash| &Unpack::<H256>::unpack(&hash) == block_hash)
+        {
+            self.data_loader.get_header(&block_hash.pack())
         } else {
             None
         }
     }
 
-    fn fetch_header(&self, source: Source, index: usize) -> Result<Header, u8> {
+    fn fetch_header(&self, source: Source, index: usize) -> Result<HeaderView, u8> {
         match source {
             Source::Transaction(SourceEntry::Input) => self
                 .resolved_inputs
@@ -70,7 +76,9 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
                 .header_deps
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|block_hash| self.data_loader.get_header(block_hash).ok_or(ITEM_MISSING)),
+                .and_then(|block_hash| {
+                    self.data_loader.get_header(&block_hash).ok_or(ITEM_MISSING)
+                }),
             Source::Group(SourceEntry::Input) => self
                 .group_inputs
                 .get(index)
@@ -106,12 +114,8 @@ impl<'a, DL: DataLoader + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<
             machine.set_register(A0, Mac::REG::from_u8(header.unwrap_err()));
             return Ok(true);
         }
-        let header = header.unwrap();
-
-        let mut builder = FlatBufferBuilder::new();
-        let offset = FbsHeader::build(&mut builder, &header);
-        builder.finish(offset, None);
-        let data = builder.finished_data();
+        let header = header.unwrap().data();
+        let data = header.as_slice();
 
         store_data(machine, &data)?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));

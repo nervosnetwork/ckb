@@ -1,5 +1,5 @@
+use ckb_types::H256;
 use includedir_codegen::Compression;
-use numext_fixed_hash::H256;
 use std::env;
 use std::fs::File;
 use std::io::{BufWriter, Write};

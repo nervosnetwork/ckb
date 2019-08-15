@@ -1,16 +1,15 @@
 //! This mod implemented a ckb block reward calculator
 
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_core::reward::BlockReward;
-use ckb_core::script::Script;
-use ckb_core::transaction::ProposalShortId;
-use ckb_core::Capacity;
 use ckb_dao::DaoCalculator;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
+use ckb_types::{
+    core::{BlockNumber, BlockReward, Capacity, HeaderView},
+    packed::{Byte32, ProposalShortId, Script},
+    prelude::*,
+};
 use failure::{Error as FailureError, Fail};
-use numext_fixed_hash::H256;
 use std::cmp;
 use std::collections::HashSet;
 
@@ -18,8 +17,8 @@ use std::collections::HashSet;
 pub enum Error {
     #[fail(display = "Can't resolve finalize target: {}", _0)]
     Target(BlockNumber),
-    #[fail(display = "Can't parse Script from target witness: {:x}", _0)]
-    Script(H256),
+    #[fail(display = "Can't parse Script from target witness: {}", _0)]
+    Script(Byte32),
 }
 
 pub struct RewardCalculator<'a, CS> {
@@ -34,7 +33,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// `RewardCalculator` is used to calculate block finalize target's reward according to the parent header.
     /// block reward consists of four parts: base block reward, tx fee, proposal reward, and secondary block reward.
-    pub fn block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), FailureError> {
+    pub fn block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), FailureError> {
         let consensus = self.consensus;
         let store = self.store;
 
@@ -50,10 +49,12 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
             .ok_or_else(|| Error::Target(block_number))?;
 
         let target_lock = Script::from_witness(
-            &store
-                .get_cellbase(target.hash())
+            store
+                .get_cellbase(&target.hash())
                 .expect("target cellbase exist")
-                .witnesses()[0],
+                .witnesses()
+                .get(0)
+                .expect("target witness exist"),
         )
         .ok_or_else(|| Error::Script(target.hash().to_owned()))?;
 
@@ -67,7 +68,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
             .safe_add(secondary)?;
 
         debug!(
-            "[RewardCalculator] target {} {:x}\n
+            "[RewardCalculator] target {} {}\n
              txs_fees {:?}, proposal_reward {:?}, primary {:?}, secondary: {:?}, totol_reward {:?}",
             target_number,
             target.hash(),
@@ -91,11 +92,11 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     /// Miner get (tx_fee - 40% of tx fee) for tx commitment.
     /// Be careful of the rounding, tx_fee - 40% of tx fee is different from 60% of tx fee.
-    pub fn txs_fees(&self, target: &Header) -> Result<Capacity, FailureError> {
+    pub fn txs_fees(&self, target: &HeaderView) -> Result<Capacity, FailureError> {
         let consensus = self.consensus;
         let target_ext = self
             .store
-            .get_block_ext(target.hash())
+            .get_block_ext(&target.hash())
             .expect("block body stored");
 
         target_ext
@@ -126,10 +127,10 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
     pub fn proposal_reward(
         &self,
-        parent: &Header,
-        target: &Header,
+        parent: &HeaderView,
+        target: &HeaderView,
     ) -> Result<Capacity, FailureError> {
-        let mut target_proposals = self.get_proposal_ids_by_hash(target.hash());
+        let mut target_proposals = self.get_proposal_ids_by_hash(&target.hash());
 
         let proposal_window = self.consensus.tx_proposal_window();
         let proposer_ratio = self.consensus.proposer_reward_ratio();
@@ -149,23 +150,23 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
         // NOTE: We have to ensure that `committed_idx_proc` and `txs_fees_proc` return in the
         // same order, the order of transactions in block.
-        let committed_idx_proc = |hash: &H256| -> Vec<ProposalShortId> {
+        let committed_idx_proc = |hash: &Byte32| -> Vec<ProposalShortId> {
             store
                 .get_block_txs_hashes(hash)
-                .iter()
+                .into_iter()
                 .skip(1)
-                .map(ProposalShortId::from_tx_hash)
+                .map(|tx_hash| ProposalShortId::from_tx_hash(&tx_hash.unpack()))
                 .collect()
         };
 
-        let txs_fees_proc = |hash: &H256| -> Vec<Capacity> {
+        let txs_fees_proc = |hash: &Byte32| -> Vec<Capacity> {
             store
                 .get_block_ext(hash)
                 .expect("block ext stored")
                 .txs_fees
         };
 
-        let committed_idx = committed_idx_proc(index.hash());
+        let committed_idx = committed_idx_proc(&index.hash());
 
         let has_committed = target_proposals
             .intersection(&committed_idx.iter().cloned().collect::<HashSet<_>>())
@@ -174,7 +175,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         if has_committed {
             for (id, tx_fee) in committed_idx
                 .into_iter()
-                .zip(txs_fees_proc(index.hash()).iter())
+                .zip(txs_fees_proc(&index.hash()).iter())
             {
                 // target block is the earliest block with effective proposals for the parent block
                 if target_proposals.remove(&id) {
@@ -185,7 +186,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
         while index.number() > competing_commit_start {
             index = store
-                .get_block_header(index.parent_hash())
+                .get_block_header(&index.data().raw().parent_hash())
                 .expect("header stored");
 
             // Transaction can be proposed at height H(p): H(p) > H(0)
@@ -199,7 +200,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 
             proposed.extend(previous_ids);
 
-            let committed_idx = committed_idx_proc(index.hash());
+            let committed_idx = committed_idx_proc(&index.hash());
 
             let has_committed = target_proposals
                 .intersection(&committed_idx.iter().cloned().collect::<HashSet<_>>())
@@ -208,7 +209,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
             if has_committed {
                 for (id, tx_fee) in committed_idx
                     .into_iter()
-                    .zip(txs_fees_proc(index.hash()).iter())
+                    .zip(txs_fees_proc(&index.hash()).iter())
                 {
                     if target_proposals.remove(&id) && !proposed.contains(&id) {
                         reward = reward.safe_add(tx_fee.safe_mul_ratio(proposer_ratio)?)?;
@@ -219,7 +220,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         Ok(reward)
     }
 
-    fn base_block_reward(&self, target: &Header) -> Result<(Capacity, Capacity), FailureError> {
+    fn base_block_reward(&self, target: &HeaderView) -> Result<(Capacity, Capacity), FailureError> {
         let calculator = DaoCalculator::new(&self.consensus, self.store);
         let primary_block_reward = calculator.primary_block_reward(target)?;
         let secondary_block_reward = calculator.secondary_block_reward(target)?;
@@ -227,14 +228,14 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
         Ok((primary_block_reward, secondary_block_reward))
     }
 
-    fn get_proposal_ids_by_hash(&self, hash: &H256) -> HashSet<ProposalShortId> {
+    fn get_proposal_ids_by_hash(&self, hash: &Byte32) -> HashSet<ProposalShortId> {
         let mut ids_set = HashSet::default();
-        if let Some(ids) = self.store.get_block_proposal_txs_ids(&hash) {
+        if let Some(ids) = self.store.get_block_proposal_txs_ids(hash) {
             ids_set.extend(ids)
         }
-        if let Some(us) = self.store.get_block_uncles(&hash) {
-            for u in us {
-                ids_set.extend(u.proposals);
+        if let Some(us) = self.store.get_block_uncles(hash) {
+            for u in us.data().into_iter() {
+                ids_set.extend(u.proposals().into_iter());
             }
         }
         ids_set
@@ -245,14 +246,14 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 mod tests {
     use super::RewardCalculator;
     use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
-    use ckb_core::block::BlockBuilder;
-    use ckb_core::extras::BlockExt;
-    use ckb_core::header::HeaderBuilder;
-    use ckb_core::transaction::ProposalShortId;
-    use ckb_core::transaction::TransactionBuilder;
     use ckb_db::RocksDB;
     use ckb_occupied_capacity::AsCapacity;
     use ckb_store::{ChainDB, ChainStore, COLUMNS};
+    use ckb_types::{
+        core::{BlockBuilder, BlockExt, HeaderBuilder, TransactionBuilder},
+        packed::ProposalShortId,
+        prelude::*,
+    };
     use std::collections::HashSet;
     use std::iter::FromIterator;
 
@@ -265,23 +266,29 @@ mod tests {
         let proposal2 = ProposalShortId::new([2; 10]);
         let proposal3 = ProposalShortId::new([3; 10]);
 
-        let expected = HashSet::from_iter(vec![proposal1, proposal2, proposal3]);
+        let expected = HashSet::from_iter(vec![
+            proposal1.clone(),
+            proposal2.clone(),
+            proposal3.clone(),
+        ]);
 
         let uncle1 = BlockBuilder::default()
-            .proposal(proposal1)
-            .proposal(proposal2)
-            .build();
+            .proposal(proposal1.clone())
+            .proposal(proposal2.clone())
+            .build()
+            .as_uncle();
         let uncle2 = BlockBuilder::default()
-            .proposal(proposal2)
-            .proposal(proposal3)
-            .build();
+            .proposal(proposal2.clone())
+            .proposal(proposal3.clone())
+            .build()
+            .as_uncle();
 
         let block = BlockBuilder::default()
-            .proposal(proposal1)
+            .proposal(proposal1.clone())
             .uncles(vec![uncle1, uncle2])
             .build();
 
-        let hash = block.header().hash();
+        let hash = block.hash();
         let txn = store.begin_transaction();
         txn.insert_block(&block).unwrap();
         txn.commit().unwrap();
@@ -289,7 +296,7 @@ mod tests {
 
         let consensus = Consensus::default();
         let reward_calculator = RewardCalculator::new(&consensus, &store);
-        let ids = reward_calculator.get_proposal_ids_by_hash(block.header().hash());
+        let ids = reward_calculator.get_proposal_ids_by_hash(&block.hash());
 
         assert_eq!(ids, expected);
     }
@@ -310,20 +317,20 @@ mod tests {
             34u32.as_capacity(),
         ];
         let ext = BlockExt {
-            received_at: block.header().timestamp(),
-            total_difficulty: block.header().difficulty().to_owned(),
-            total_uncles_count: block.uncles().len() as u64,
+            received_at: block.timestamp(),
+            total_difficulty: block.difficulty().to_owned(),
+            total_uncles_count: block.data().uncles().len() as u64,
             verified: Some(true),
             txs_fees: ext_tx_fees,
         };
 
         let txn = store.begin_transaction();
         txn.insert_block(&block).unwrap();
-        txn.insert_block_ext(&block.header().hash(), &ext).unwrap();
+        txn.insert_block_ext(&block.hash(), &ext).unwrap();
         txn.commit().unwrap();
 
         let reward_calculator = RewardCalculator::new(&consensus, &store);
-        let txs_fees = reward_calculator.txs_fees(block.header()).unwrap();
+        let txs_fees = reward_calculator.txs_fees(&block.header()).unwrap();
 
         let expected: u32 = [100u32, 20u32, 33u32, 34u32]
             .iter()
@@ -359,12 +366,12 @@ mod tests {
 
         let consensus = Consensus::default().set_tx_proposal_window(ProposalWindow(2, 5));
 
-        let tx1 = TransactionBuilder::default().version(100).build();
-        let tx2 = TransactionBuilder::default().version(200).build();
-        let tx3 = TransactionBuilder::default().version(300).build();
-        let tx4 = TransactionBuilder::default().version(400).build();
-        let tx5 = TransactionBuilder::default().version(500).build();
-        let tx6 = TransactionBuilder::default().version(600).build();
+        let tx1 = TransactionBuilder::default().version(100u32.pack()).build();
+        let tx2 = TransactionBuilder::default().version(200u32.pack()).build();
+        let tx3 = TransactionBuilder::default().version(300u32.pack()).build();
+        let tx4 = TransactionBuilder::default().version(400u32.pack()).build();
+        let tx5 = TransactionBuilder::default().version(500u32.pack()).build();
+        let tx6 = TransactionBuilder::default().version(600u32.pack()).build();
 
         let p1 = tx1.proposal_short_id();
         let p2 = tx2.proposal_short_id();
@@ -374,51 +381,57 @@ mod tests {
         let p6 = tx6.proposal_short_id();
 
         let block_10 = BlockBuilder::default()
-            .header(HeaderBuilder::default().number(10).build())
-            .proposal(p1)
+            .header(HeaderBuilder::default().number(10u64.pack()).build())
+            .proposal(p1.clone())
             .build();
 
-        let uncle = BlockBuilder::default().proposal(p3).build();
+        let uncle = BlockBuilder::default()
+            .proposal(p3.clone())
+            .build()
+            .as_uncle();
         let block_11 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .number(11)
-                    .parent_hash(block_10.header().hash().to_owned())
+                    .number(11u64.pack())
+                    .parent_hash(block_10.hash())
                     .build(),
             )
-            .proposal(p2)
+            .proposal(p2.clone())
             .uncle(uncle)
             .build();
 
         let block_12 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .number(12)
-                    .parent_hash(block_11.header().hash().to_owned())
+                    .number(12u64.pack())
+                    .parent_hash(block_11.hash())
                     .build(),
             )
             .build();
 
-        let uncle = BlockBuilder::default().proposal(p6).build();
+        let uncle = BlockBuilder::default()
+            .proposal(p6.clone())
+            .build()
+            .as_uncle();
         let block_13 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .number(13)
-                    .parent_hash(block_12.header().hash().to_owned())
+                    .number(13u64.pack())
+                    .parent_hash(block_12.hash())
                     .build(),
             )
-            .proposals(vec![p1, p3, p4, p5])
+            .proposals(vec![p1.clone(), p3.clone(), p4.clone(), p5.clone()])
             .uncle(uncle)
             .build();
 
         let block_14 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .number(14)
-                    .parent_hash(block_13.header().hash().to_owned())
+                    .number(14u64.pack())
+                    .parent_hash(block_13.hash())
                     .build(),
             )
-            .proposal(p4)
+            .proposal(p4.clone())
             .transaction(TransactionBuilder::default().build())
             .transactions(vec![tx1, tx2, tx3])
             .build();
@@ -426,38 +439,38 @@ mod tests {
         let block_15 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .number(15)
-                    .parent_hash(block_14.header().hash().to_owned())
+                    .number(15u64.pack())
+                    .parent_hash(block_14.hash())
                     .build(),
             )
             .transaction(TransactionBuilder::default().build())
-            .transaction(tx4)
+            .transaction(tx4.clone())
             .build();
         let block_16 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .number(16)
-                    .parent_hash(block_15.header().hash().to_owned())
+                    .number(16u64.pack())
+                    .parent_hash(block_15.hash())
                     .build(),
             )
             .build();
         let block_17 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .number(17)
-                    .parent_hash(block_16.header().hash().to_owned())
+                    .number(17u64.pack())
+                    .parent_hash(block_16.hash())
                     .build(),
             )
             .build();
         let block_18 = BlockBuilder::default()
             .header(
                 HeaderBuilder::default()
-                    .number(18)
-                    .parent_hash(block_17.header().hash().to_owned())
+                    .number(18u64.pack())
+                    .parent_hash(block_17.hash())
                     .build(),
             )
             .transaction(TransactionBuilder::default().build())
-            .transactions(vec![tx5, tx6])
+            .transactions(vec![tx5.clone(), tx6.clone()])
             .build();
 
         let ext_tx_fees_14 = vec![
@@ -467,9 +480,9 @@ mod tests {
         ];
 
         let ext_14 = BlockExt {
-            received_at: block_14.header().timestamp(),
-            total_difficulty: block_14.header().difficulty().to_owned(),
-            total_uncles_count: block_14.uncles().len() as u64,
+            received_at: block_14.timestamp(),
+            total_difficulty: block_14.difficulty(),
+            total_uncles_count: block_14.data().uncles().len() as u64,
             verified: Some(true),
             txs_fees: ext_tx_fees_14,
         };
@@ -478,9 +491,9 @@ mod tests {
         let ext_tx_fees_15 = vec![300u32.as_capacity()];
 
         let ext_15 = BlockExt {
-            received_at: block_15.header().timestamp(),
-            total_difficulty: block_15.header().difficulty().to_owned(),
-            total_uncles_count: block_15.uncles().len() as u64,
+            received_at: block_15.timestamp(),
+            total_difficulty: block_15.difficulty(),
+            total_uncles_count: block_15.data().uncles().len() as u64,
             verified: Some(true),
             txs_fees: ext_tx_fees_15,
         };
@@ -489,9 +502,9 @@ mod tests {
         let ext_tx_fees_18 = vec![41u32.as_capacity(), 999u32.as_capacity()];
 
         let ext_18 = BlockExt {
-            received_at: block_18.header().timestamp(),
-            total_difficulty: block_18.header().difficulty().to_owned(),
-            total_uncles_count: block_18.uncles().len() as u64,
+            received_at: block_18.timestamp(),
+            total_difficulty: block_18.difficulty(),
+            total_uncles_count: block_18.data().uncles().len() as u64,
             verified: Some(true),
             txs_fees: ext_tx_fees_18,
         };
@@ -512,22 +525,16 @@ mod tests {
             txn.attach_block(&block).unwrap();
         }
 
-        txn.insert_block_ext(&block_14.header().hash(), &ext_14)
-            .unwrap();
-        txn.insert_block_ext(&block_15.header().hash(), &ext_15)
-            .unwrap();
-        txn.insert_block_ext(&block_18.header().hash(), &ext_18)
-            .unwrap();
+        txn.insert_block_ext(&block_14.hash(), &ext_14).unwrap();
+        txn.insert_block_ext(&block_15.hash(), &ext_15).unwrap();
+        txn.insert_block_ext(&block_18.hash(), &ext_18).unwrap();
         txn.commit().unwrap();
 
-        assert_eq!(
-            block_12.header().hash().to_owned(),
-            store.get_block_hash(12).unwrap()
-        );
+        assert_eq!(block_12.hash(), store.get_block_hash(12).unwrap());
 
         let reward_calculator = RewardCalculator::new(&consensus, &store);
         let proposal_reward = reward_calculator
-            .proposal_reward(block_18.header(), block_13.header())
+            .proposal_reward(&block_18.header(), &block_13.header())
             .unwrap();
 
         // target's earliest proposals: p4, p5, p6
@@ -535,5 +542,4 @@ mod tests {
 
         assert_eq!(proposal_reward, expected.as_capacity());
     }
-
 }

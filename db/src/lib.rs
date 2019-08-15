@@ -31,9 +31,3 @@ impl From<DBError> for Error {
         Error::DBError(db_err.into_string())
     }
 }
-
-impl From<ckb_protos::Error> for Error {
-    fn from(err: ckb_protos::Error) -> Self {
-        Error::DBError(err.to_string())
-    }
-}

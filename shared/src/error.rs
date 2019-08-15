@@ -1,5 +1,5 @@
-use ckb_core::cell::UnresolvableError;
 use ckb_db::Error as DBError;
+use ckb_types::core::cell::UnresolvableError;
 use failure::Fail;
 
 #[derive(Debug, PartialEq, Clone, Eq, Fail)]

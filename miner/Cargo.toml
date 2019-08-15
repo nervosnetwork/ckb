@@ -7,8 +7,7 @@ edition = "2018"
 
 [dependencies]
 ckb-logger = { path = "../util/logger" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ckb-core = { path = "../core" }
+ckb-types = { path = "../util/types" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-pow = { path = "../pow" }

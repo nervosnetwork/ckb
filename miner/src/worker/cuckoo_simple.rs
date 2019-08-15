@@ -1,12 +1,11 @@
 use super::{Worker, WorkerMessage};
 use byteorder::{ByteOrder, LittleEndian};
-use ckb_core::header::Seal;
 use ckb_hash::blake2b_256;
 use ckb_logger::{debug, error};
 use ckb_pow::{pow_message, Cuckoo};
+use ckb_types::{packed::Seal, prelude::*, H256};
 use crossbeam_channel::{Receiver, Sender};
 use indicatif::ProgressBar;
-use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -76,7 +75,10 @@ impl CuckooSimple {
             {
                 let mut proof_u8 = vec![0u8; len << 2];
                 LittleEndian::write_u32_into(&output, &mut proof_u8);
-                let seal = Seal::new(nonce, proof_u8.into());
+                let seal = Seal::new_builder()
+                    .nonce(nonce.pack())
+                    .proof(proof_u8.pack())
+                    .build();
                 debug!(
                     "send new found seal, pow_hash {:x}, seal {:?}",
                     pow_hash, seal
@@ -144,8 +146,8 @@ mod test {
         worker.solve(pow_hash, nonce);
         let engine = CuckooEngine { cuckoo };
         while let Ok((pow_hash, seal)) = seal_rx.try_recv() {
-            let (nonce, proof) = seal.destruct();
-            let message = pow_message(&pow_hash, nonce);
+            let proof: Vec<u8> = seal.proof().unpack();
+            let message = pow_message(&pow_hash, seal.nonce().unpack());
             prop_assert!(engine.verify(0, &message, &proof));
         }
 

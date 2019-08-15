@@ -10,7 +10,6 @@ clap = { version = "2" }
 toml = "0.5.0"
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-app-config = { path = "../util/app-config" }
-ckb-core = { path = "../core" }
 ckb-network = { path = "../network" }
 ckb-sync = { path = "../sync" }
 ckb-protocol = { path = "../protocol"}

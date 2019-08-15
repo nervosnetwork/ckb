@@ -1,0 +1,361 @@
+/* Basic Types */
+
+option BoolOpt (Bool);
+option Byte32Opt (Byte32);
+option BytesOpt (Bytes);
+
+array Bool [byte; 1];
+array Uint32 [byte; 4];
+array Uint64 [byte; 8];
+array BeUint32 [byte; 4];
+array BeUint64 [byte; 8];
+array Byte32 [byte; 32];
+
+vector Bytes <byte>;
+
+vector Uint32Vec <Uint32>;
+vector Uint64Vec <Uint64>;
+vector BytesVec <Bytes>;
+vector Byte32Vec <Byte32>;
+
+/* Common Types */
+
+option CellOutputOpt (CellOutput);
+option ScriptOpt (Script);
+
+array ProposalShortId [byte; 10];
+array ScriptHashType [byte; 1];
+
+vector HeaderVec <Header>;
+vector UncleBlockVec <UncleBlock>;
+vector TransactionVec <Transaction>;
+vector ProposalShortIdVec <ProposalShortId>;
+vector OutPointVec <OutPoint>;
+vector CellDepVec <CellDep>;
+vector CellInputVec <CellInput>;
+vector CellOutputVec <CellOutput>;
+vector WitnessVec <Witness>;
+
+table Script {
+    code_hash:      Byte32,
+    args:           BytesVec,
+    hash_type:      ScriptHashType,
+}
+
+table OutPoint {
+    tx_hash:        Byte32,
+    index:          Uint32,
+}
+
+table CellInput {
+    previous_output: OutPoint,
+    since:           Uint64,
+}
+
+table CellOutput {
+    capacity:       Uint64,
+    data_hash:      Byte32,
+    lock:           Script,
+    type_:          ScriptOpt,
+}
+
+table CellDep {
+    out_point:      OutPoint,
+    is_dep_group:   Bool,
+}
+
+vector Witness <Bytes>;
+
+table RawTransaction {
+    version:        Uint32,
+    cell_deps:      CellDepVec,
+    header_deps:    Byte32Vec,
+    inputs:         CellInputVec,
+    outputs:        CellOutputVec,
+}
+
+table SlimTransaction {
+    raw:            RawTransaction,
+    witnesses:      WitnessVec,
+}
+
+table Transaction {
+    slim:           SlimTransaction,
+    outputs_data:   BytesVec,
+}
+
+table RawHeader {
+    version:                Uint32,
+    parent_hash:            Byte32,
+    timestamp:              Uint64,
+    number:                 Uint64,
+    transactions_root:      Byte32,
+    witnesses_root:         Byte32,
+    proposals_hash:         Byte32,
+    difficulty:             Byte32,
+    uncles_hash:            Byte32,
+    uncles_count:           Uint32,
+    epoch:                  Uint64,
+    dao:                    Bytes,
+}
+
+table Seal {
+    nonce:                  Uint64,
+    proof:                  Bytes,
+}
+
+table Header {
+    raw:                    RawHeader,
+    seal:                   Seal,
+}
+
+table UncleBlock {
+    header:                 Header,
+    proposals:              ProposalShortIdVec,
+}
+
+table Block {
+    header:                 Header,
+    uncles:                 UncleBlockVec,
+    transactions:           TransactionVec,
+    proposals:              ProposalShortIdVec,
+}
+
+/* Types for Storage */
+
+table HeaderView {
+    data:               Header,
+    hash:               Byte32,
+}
+
+table UncleBlockVecView {
+    data:               UncleBlockVec,
+    hashes:             Byte32Vec,
+}
+
+table TransactionView {
+    data:               Transaction,
+    hash:               Byte32,
+    witness_hash:       Byte32,
+}
+
+table BlockExt {
+    received_at:        Uint64,
+    total_difficulty:   Byte32,
+    total_uncles_count: Uint64,
+    verified:           BoolOpt,
+    txs_fees:           Uint64Vec,
+}
+
+table EpochExt {
+    number:                             Uint64,
+    block_reward:                       Uint64,
+    remainder_reward:                   Uint64,
+    previous_epoch_hash_rate:           Byte32,
+    last_block_hash_in_previous_epoch:  Byte32,
+    start_number:                       Uint64,
+    length:                             Uint64,
+    difficulty:                         Byte32,
+}
+
+struct TransactionKey {
+    block_hash:     Byte32,
+    index:          BeUint32,
+}
+
+table TransactionInfo {
+    key:            TransactionKey,
+    block_number:   Uint64,
+    block_epoch:    Uint64,
+}
+
+table TransactionMeta {
+    block_number:   Uint64,
+    epoch_number:   Uint64,
+    block_hash:     Byte32,
+    len:            Uint32,
+    bits:           Bytes,
+    cellbase:       Bool,
+}
+
+struct CellMeta {
+    capacity:       Uint64,
+    data_hash:      Byte32,
+}
+
+/* Types for Indexer */
+
+table TransactionPoint {
+    block_number:   Uint64,
+    tx_hash:        Byte32,
+    index:          Uint32,
+}
+
+option TransactionPointOpt (TransactionPoint);
+
+table LockHashCellOutput {
+    block_number:   Uint64,
+    lock_hash:      Byte32,
+    cell_output:    CellOutputOpt,
+}
+
+struct LockHashIndex {
+    lock_hash:      Byte32,
+    block_number:   BeUint64,
+    tx_hash:        Byte32,
+    index:          BeUint32,
+}
+
+table LockHashIndexState {
+    block_number:   Uint64,
+    block_hash:     Byte32,
+}
+
+/* Types for Network/Relay */
+
+union RelayMessage {
+    CompactBlock,
+    RelayTransactions,
+    RelayTransactionHashes,
+    GetRelayTransactions,
+    GetBlockTransactions,
+    BlockTransactions,
+    GetBlockProposal,
+    BlockProposal,
+}
+
+table CompactBlock {
+    header:                     Header,
+    short_ids:                  ProposalShortIdVec,
+    prefilled_transactions:     IndexTransactionVec,
+    uncles:                     UncleBlockVec,
+    proposals:                  ProposalShortIdVec,
+}
+
+table RelayTransaction {
+    cycles:                     Uint64,
+    transaction:                Transaction,
+}
+vector RelayTransactionVec <RelayTransaction>;
+
+table RelayTransactions {
+    transactions:               RelayTransactionVec,
+}
+
+table RelayTransactionHashes {
+    tx_hashes:                  Byte32Vec,
+}
+
+table GetRelayTransactions {
+    tx_hashes:                  Byte32Vec,
+}
+
+table GetBlockTransactions {
+    block_hash:                 Byte32,
+    indexes:                    Uint32Vec,
+}
+
+table BlockTransactions {
+    block_hash:                 Byte32,
+    transactions:               TransactionVec,
+}
+
+table GetBlockProposal {
+    block_hash:                 Byte32,
+    proposals:                  ProposalShortIdVec,
+}
+
+table BlockProposal {
+    transactions:               TransactionVec,
+}
+
+table IndexTransaction {
+    index:                      Uint32,
+    transaction:                Transaction,
+}
+vector IndexTransactionVec <IndexTransaction>;
+
+/* Types for Network/Sync */
+
+union SyncMessage {
+    GetHeaders,
+    SendHeaders,
+    GetBlocks,
+    SendBlock,
+    SetFilter,
+    AddFilter,
+    ClearFilter,
+    FilteredBlock,
+    InIBD,
+}
+
+table GetHeaders {
+    hash_stop:              Byte32,
+    block_locator_hashes:   Byte32Vec,
+}
+
+table GetBlocks {
+    block_hashes:           Byte32Vec,
+}
+
+table SendHeaders {
+    headers:                HeaderVec,
+}
+
+table SendBlock {
+    block:                  Block,
+}
+
+table SetFilter {
+    hash_seed:              Uint32,
+    num_hashes:             byte,
+    filter:                 Bytes,
+}
+
+table AddFilter {
+    filter:                 Bytes,
+}
+
+table ClearFilter {
+}
+
+table FilteredBlock {
+    header:                 Header,
+    transactions:           TransactionVec,
+    proof:                  MerkleProof,
+}
+
+table MerkleProof {
+    indices:                Uint32Vec,
+    lemmas:                 Byte32Vec,
+}
+
+table InIBD {
+}
+
+/* Types for Network/Others */
+
+table Time {
+    timestamp:                  Uint64,
+}
+
+table RawAlert {
+    id:             Uint32,
+    cancel:         Uint32,
+    min_version:    BytesOpt,
+    max_version:    BytesOpt,
+    priority:       Uint32,
+    notice_until:   Uint64,
+    message:        Bytes,
+}
+
+table Alert {
+    raw:                        RawAlert,
+    signatures:                 BytesVec,
+}
+
+table Identify {
+    name:                       Bytes,          // Network Name
+    flag:                       Uint64,         // Flag
+    client_version:             Bytes,
+}

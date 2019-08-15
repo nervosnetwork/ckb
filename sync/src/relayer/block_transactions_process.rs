@@ -1,16 +1,13 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::Relayer;
-use ckb_core::transaction::Transaction;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{cast, BlockTransactions, FlatbuffersVectorIterator};
+use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
-use numext_fixed_hash::H256;
 use std::collections::hash_map::Entry;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct BlockTransactionsProcess<'a> {
-    message: &'a BlockTransactions<'a>,
+    message: packed::BlockTransactionsReader<'a>,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -30,7 +27,7 @@ pub enum Status {
 
 impl<'a> BlockTransactionsProcess<'a> {
     pub fn new(
-        message: &'a BlockTransactions,
+        message: packed::BlockTransactionsReader<'a>,
         relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
@@ -44,7 +41,7 @@ impl<'a> BlockTransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Result<Status, FailureError> {
-        let block_hash: H256 = cast!(self.message.block_hash())?.try_into()?;
+        let block_hash = self.message.block_hash().to_entity();
         if let Entry::Occupied(mut pending) = self
             .relayer
             .shared()
@@ -54,15 +51,18 @@ impl<'a> BlockTransactionsProcess<'a> {
             let (compact_block, peers_map) = pending.get_mut();
             if let Some(indexes) = peers_map.remove(&self.peer) {
                 ckb_logger::info!(
-                    "realyer receive BLOCKTXN of {:#x}, peer: {}",
+                    "realyer receive BLOCKTXN of {}, peer: {}",
                     block_hash,
                     self.peer
                 );
 
-                let transactions: Vec<Transaction> =
-                    FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
-                        .map(TryInto::try_into)
-                        .collect::<Result<_, FailureError>>()?;
+                let transactions: Vec<core::TransactionView> = self
+                    .message
+                    .transactions()
+                    .to_entity()
+                    .into_iter()
+                    .map(|tx| tx.into_view())
+                    .collect();
 
                 BlockTransactionsVerifier::verify(&compact_block, &indexes, &transactions)?;
 

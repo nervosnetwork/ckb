@@ -1,4 +1,4 @@
-use ckb_core::Bytes;
+use ckb_types::{bytes::Bytes, packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
@@ -35,6 +35,22 @@ impl JsonBytes {
 
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl From<packed::Bytes> for JsonBytes {
+    fn from(input: packed::Bytes) -> Self {
+        JsonBytes::from_bytes(input.as_bytes().slice_from(4))
+    }
+}
+
+impl From<JsonBytes> for packed::Bytes {
+    fn from(input: JsonBytes) -> Self {
+        let len = input.as_bytes().len();
+        let mut vec: Vec<u8> = Vec::with_capacity(4 + len);
+        vec.extend_from_slice(&(len as u32).to_le_bytes()[..]);
+        vec.extend_from_slice(input.as_bytes());
+        packed::Bytes::new_unchecked(Bytes::from(vec))
     }
 }
 

@@ -1,8 +1,6 @@
-use ckb_core::BlockNumber;
 use ckb_occupied_capacity::Error as CapacityError;
 use ckb_script::ScriptError;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
+use ckb_types::{core::BlockNumber, H256, U256};
 use std::error::Error as StdError;
 use std::fmt;
 

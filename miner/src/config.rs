@@ -1,7 +1,6 @@
 use crate::worker::{CuckooSimpleConfig, DummyConfig};
-use ckb_core::script::ScriptHashType;
-use ckb_jsonrpc_types::JsonBytes;
-use numext_fixed_hash::H256;
+use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
+use ckb_types::H256;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

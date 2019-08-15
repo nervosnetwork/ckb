@@ -2,28 +2,28 @@ use crate::chain_state::ChainState;
 use crate::error::SharedError;
 use crate::tx_pool::TxPoolConfig;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::Header;
-use ckb_core::reward::BlockReward;
-use ckb_core::script::Script;
-use ckb_core::Cycle;
 use ckb_db::{DBConfig, RocksDB};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
+use ckb_types::{
+    core::{BlockReward, Cycle, EpochExt, HeaderView},
+    packed::{Byte32, Script},
+    prelude::*,
+    H256,
+};
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use failure::Error as FailureError;
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Shared {
     store: Arc<ChainDB>,
     chain_state: Arc<Mutex<ChainState>>,
-    txs_verify_cache: Arc<Mutex<LruCache<H256, Cycle>>>,
+    txs_verify_cache: Arc<Mutex<LruCache<Byte32, Cycle>>>,
     consensus: Arc<Consensus>,
     script_config: ScriptConfig,
 }
@@ -60,7 +60,7 @@ impl Shared {
         lock_or_panic(&self.chain_state)
     }
 
-    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<Byte32, Cycle>> {
         lock_or_panic(&self.txs_verify_cache)
     }
 }
@@ -82,11 +82,11 @@ impl ChainProvider for Shared {
 
     fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt> {
         self.store()
-            .get_block_epoch_index(hash)
+            .get_block_epoch_index(&hash.pack())
             .and_then(|index| self.store().get_epoch_ext(&index))
     }
 
-    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
+    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt> {
         self.consensus.next_epoch_ext(
             last_epoch,
             header,
@@ -101,7 +101,7 @@ impl ChainProvider for Shared {
 
     fn finalize_block_reward(
         &self,
-        parent: &Header,
+        parent: &HeaderView,
     ) -> Result<(Script, BlockReward), FailureError> {
         RewardCalculator::new(self.consensus(), self.store()).block_reward(parent)
     }

@@ -6,5 +6,4 @@ edition = "2018"
 license = "MIT"
 
 [dependencies]
-numext-fixed-hash = { version = "0.1" }
-ckb-core = { path = "../../core" }
+ckb-types = { path = "../../util/types" }

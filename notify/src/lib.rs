@@ -1,9 +1,8 @@
 #![allow(clippy::needless_pass_by_value)]
 
-use ckb_core::service::Request;
-use ckb_core::uncle::UncleBlock;
 use ckb_logger::{debug, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_types::{core::service::Request, packed::UncleBlock};
 use crossbeam_channel::{select, Receiver, Sender};
 use fnv::FnvHashMap;
 use std::sync::Arc;

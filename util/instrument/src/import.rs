@@ -1,6 +1,7 @@
 use crate::format::Format;
 use ckb_chain::chain::ChainController;
-use ckb_core::block::Block;
+use ckb_jsonrpc_types::BlockView as JsonBlock;
+use ckb_types::core;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_json;
@@ -43,7 +44,8 @@ impl Import {
 
         for line in reader.lines() {
             let s = line?;
-            let block: Arc<Block> = Arc::new(serde_json::from_str(&s)?);
+            let block: JsonBlock = serde_json::from_str(&s)?;
+            let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
                 self.chain
                     .process_block(block, true)
@@ -66,7 +68,8 @@ impl Import {
         );
         for line in reader.lines() {
             let s = line?;
-            let block: Arc<Block> = Arc::new(serde_json::from_str(&s)?);
+            let block: JsonBlock = serde_json::from_str(&s)?;
+            let block: Arc<core::BlockView> = Arc::new(block.into());
             if !block.is_genesis() {
                 self.chain
                     .process_block(block, true)

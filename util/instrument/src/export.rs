@@ -1,5 +1,6 @@
 use crate::format::Format;
 use crate::iter::ChainIterator;
+use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_shared::shared::Shared;
 use ckb_traits::ChainProvider;
 #[cfg(feature = "progress_bar")]
@@ -57,7 +58,7 @@ impl Export {
         let mut writer = io::BufWriter::new(f);
 
         for block in self.iter() {
-            let block: Block = block.into();
+            let block: JsonBlock = block.into();
             let encoded = serde_json::to_vec(&block)?;
             writer.write_all(&encoded)?;
             writer.write_all(b"\n")?;
@@ -82,6 +83,7 @@ impl Export {
                 .progress_chars("##-"),
         );
         for block in blocks_iter {
+            let block: JsonBlock = block.into();
             let encoded = serde_json::to_vec(&block)?;
             writer.write_all(&encoded)?;
             writer.write_all(b"\n")?;

@@ -9,8 +9,8 @@ pub use self::template::{
 pub use std::io::{Error, Result};
 
 use self::template::Template;
+use ckb_types::H256;
 use includedir::Files;
-use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt;
