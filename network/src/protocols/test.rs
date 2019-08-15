@@ -90,7 +90,7 @@ impl Node {
     fn ban_all(&self) {
         for id in self.connected_sessions() {
             self.network_state
-                .ban_session(&self.control, id, Duration::from_secs(20));
+                .ban_session(&self.control, id, Duration::from_secs(20), "");
         }
     }
 }
@@ -276,8 +276,8 @@ fn wait_discovery(node: &Node) {
         node.network_state
             .peer_store
             .lock()
-            .peers_to_attempt(20)
-            .len()
+            .mut_addr_manager()
+            .count()
             >= 2
     }) {
         panic!("discovery can't find other node")
@@ -370,9 +370,9 @@ fn test_discovery_behavior() {
             .network_state
             .peer_store
             .lock()
-            .peers_to_attempt(20)
+            .get_addrs_to_attempt(2)
             .into_iter()
-            .map(|peer| peer.addr)
+            .map(|peer| peer.addr.clone())
             .find(|addr| {
                 match (
                     multiaddr_to_socketaddr(&addr),

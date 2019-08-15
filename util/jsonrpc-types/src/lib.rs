@@ -30,7 +30,7 @@ pub use self::chain_info::ChainInfo;
 pub use self::experiment::DryRunResult;
 pub use self::fixed_bytes::Byte32;
 pub use self::indexer::{CellTransaction, LiveCell, LockHashIndexState, TransactionPoint};
-pub use self::net::{BannedAddress, Node, NodeAddress};
+pub use self::net::{BannedAddr, Node, NodeAddress};
 pub use self::pool::TxPoolInfo;
 pub use self::proposal_short_id::ProposalShortId;
 pub use self::sync::PeerState;

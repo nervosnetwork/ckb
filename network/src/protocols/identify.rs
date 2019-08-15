@@ -104,7 +104,9 @@ impl Callback for IdentifyCallback {
         );
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                peer_store.add_discovered_addr(&peer_id, addr);
+                if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
+                    debug!("Failed to add addrs to peer_store {:?} {:?}", err, peer_id);
+                }
             }
         })
     }

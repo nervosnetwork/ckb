@@ -357,7 +357,7 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     }
     fn ban_peer(&self, peer_index: PeerIndex, duration: Duration) {
         self.network_state
-            .ban_session(&self.p2p_control, peer_index, duration);
+            .ban_session(&self.p2p_control, peer_index, duration, "");
     }
 
     fn protocol_id(&self) -> ProtocolId {

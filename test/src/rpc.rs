@@ -1,5 +1,5 @@
 use ckb_jsonrpc_types::{
-    Alert, BannedAddress, Block, BlockNumber, BlockTemplate, BlockView, Capacity,
+    Alert, BannedAddr, Block, BlockNumber, BlockTemplate, BlockView, Capacity,
     CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, DryRunResult, EpochNumber,
     EpochView, HeaderView, LiveCell, LockHashIndexState, Node, OutPoint, PeerState, Timestamp,
     Transaction, TransactionWithStatus, TxPoolInfo, Uint64, Version,
@@ -151,7 +151,7 @@ impl RpcClient {
             .expect("rpc call get_peers")
     }
 
-    pub fn get_banned_addresses(&self) -> Vec<BannedAddress> {
+    pub fn get_banned_addresses(&self) -> Vec<BannedAddr> {
         self.inner
             .lock()
             .get_banned_addresses()
@@ -370,7 +370,7 @@ jsonrpc_client!(pub struct Inner {
 
     pub fn local_node_info(&mut self) -> RpcRequest<Node>;
     pub fn get_peers(&mut self) -> RpcRequest<Vec<Node>>;
-    pub fn get_banned_addresses(&mut self) -> RpcRequest<Vec<BannedAddress>>;
+    pub fn get_banned_addresses(&mut self) -> RpcRequest<Vec<BannedAddr>>;
     pub fn set_ban(
         &mut self,
         address: String,

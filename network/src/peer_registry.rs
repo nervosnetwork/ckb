@@ -1,5 +1,8 @@
 use crate::peer_store::PeerStore;
-use crate::{errors::PeerError, Peer, PeerId, SessionType};
+use crate::{
+    errors::{Error, PeerError},
+    Peer, PeerId, SessionType,
+};
 use ckb_logger::debug;
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
@@ -65,12 +68,12 @@ impl PeerRegistry {
         session_id: SessionId,
         session_type: SessionType,
         peer_store: &mut PeerStore,
-    ) -> Result<Option<Peer>, PeerError> {
+    ) -> Result<Option<Peer>, Error> {
         if self.peers.contains_key(&session_id) {
-            return Err(PeerError::SessionExists(session_id));
+            return Err(PeerError::SessionExists(session_id).into());
         }
         if self.get_key_by_peer_id(&peer_id).is_some() {
-            return Err(PeerError::PeerIdExists(peer_id));
+            return Err(PeerError::PeerIdExists(peer_id).into());
         }
 
         let is_whitelist = self.whitelist_peers.contains(&peer_id);
@@ -78,10 +81,10 @@ impl PeerRegistry {
 
         if !is_whitelist {
             if self.whitelist_only {
-                return Err(PeerError::NonReserved);
+                return Err(PeerError::NonReserved.into());
             }
-            if peer_store.is_banned(&remote_addr) {
-                return Err(PeerError::Banned);
+            if peer_store.is_addr_banned(&remote_addr) {
+                return Err(PeerError::Banned.into());
             }
 
             let connection_status = self.connection_status();
@@ -91,21 +94,20 @@ impl PeerRegistry {
                     if let Some(evicted_session) = self.try_evict_inbound_peer(peer_store) {
                         evicted_peer = self.remove_peer(evicted_session);
                     } else {
-                        return Err(PeerError::ReachMaxInboundLimit);
+                        return Err(PeerError::ReachMaxInboundLimit.into());
                     }
                 }
             } else if connection_status.non_whitelist_outbound >= self.max_outbound {
-                return Err(PeerError::ReachMaxOutboundLimit);
+                return Err(PeerError::ReachMaxOutboundLimit.into());
             }
         }
-        peer_store.add_connected_peer(&peer_id, remote_addr.clone(), session_type);
+        peer_store.add_connected_peer(peer_id.clone(), remote_addr.clone(), session_type)?;
         let peer = Peer::new(session_id, session_type, peer_id, remote_addr, is_whitelist);
         self.peers.insert(session_id, peer);
         Ok(evicted_peer)
     }
 
-    // When have inbound connection, we try evict a inbound peer
-    // TODO: revisit this after find out what's bitcoin way
+    // try to evict a inbound peer
     fn try_evict_inbound_peer(&self, _peer_store: &PeerStore) -> Option<SessionId> {
         let mut candidate_peers = {
             self.peers

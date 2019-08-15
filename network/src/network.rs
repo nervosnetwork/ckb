@@ -1,10 +1,6 @@
-use crate::errors::Error;
+use crate::errors::{AddrError, Error};
 use crate::peer_registry::{ConnectionStatus, PeerRegistry};
-use crate::peer_store::{
-    sqlite::SqlitePeerStore,
-    types::{BannedAddress, PeerAddr},
-    PeerStore, Status,
-};
+use crate::peer_store::{types::BannedAddr, PeerStore};
 use crate::protocols::{
     disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryProtocol, DiscoveryService},
@@ -59,13 +55,10 @@ pub(crate) const IDENTIFY_PROTOCOL_ID: usize = 2;
 pub(crate) const FEELER_PROTOCOL_ID: usize = 3;
 pub(crate) const DISCONNECT_MESSAGE_PROTOCOL_ID: usize = 4;
 
-const ADDR_LIMIT: u32 = 3;
 const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
 const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
 // After 5 minutes we consider this dial hang
 const DIAL_HANG_TIMEOUT: Duration = Duration::from_secs(300);
-
-type MultiaddrList = Vec<(Multiaddr, u8)>;
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -75,7 +68,7 @@ pub struct SessionInfo {
 
 pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
-    pub(crate) peer_store: Mutex<Box<dyn PeerStore>>,
+    pub(crate) peer_store: Mutex<PeerStore>,
     /// Node listened addresses
     pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
@@ -103,14 +96,14 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
-        let peer_store: Mutex<Box<dyn PeerStore>> = {
-            let mut peer_store =
-                SqlitePeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
+        let peer_store: Mutex<PeerStore> = {
+            let mut peer_store = PeerStore::default();
+            // PeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
             let bootnodes = config.bootnodes()?;
             for (peer_id, addr) in bootnodes {
                 peer_store.add_bootnode(peer_id, addr);
             }
-            Mutex::new(Box::new(peer_store))
+            Mutex::new(peer_store)
         };
 
         let whitelist_peers = config
@@ -162,12 +155,17 @@ impl NetworkState {
         behaviour: Behaviour,
     ) {
         trace!("report {:?} because {:?}", peer_id, behaviour);
-        if self
-            .peer_store
-            .lock()
-            .report(peer_id, behaviour)
-            .is_banned()
-        {
+        let report_result = match self.peer_store.lock().report(peer_id, behaviour) {
+            Ok(result) => result,
+            Err(err) => {
+                error!(
+                    "Report failed peer_id: {:?} behaviour: {:?} error: {:?}",
+                    peer_id, behaviour, err
+                );
+                return;
+            }
+        };
+        if report_result.is_banned() {
             info!("peer {:?} banned", peer_id);
             if let Some(session_id) = self.peer_registry.read().get_key_by_peer_id(peer_id) {
                 if let Err(err) = disconnect_with_message(p2p_control, session_id, "banned") {
@@ -182,11 +180,12 @@ impl NetworkState {
         p2p_control: &ServiceControl,
         session_id: SessionId,
         duration: Duration,
+        reason: &str,
     ) {
         if let Some(peer_id) =
             self.with_peer_registry(|reg| reg.get_peer(session_id).map(|peer| peer.peer_id.clone()))
         {
-            self.ban_peer(p2p_control, &peer_id, duration);
+            self.ban_peer(p2p_control, &peer_id, duration, reason);
         } else {
             debug!("Ban session({}) failed: not in peer registry", session_id);
         }
@@ -197,11 +196,18 @@ impl NetworkState {
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
         duration: Duration,
+        reason: &str,
     ) {
         info!("ban peer {:?} with {:?}", peer_id, duration);
         let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer_opt {
-            self.peer_store.lock().ban_addr(&peer.address, duration);
+            if let Err(err) = self.peer_store.lock().ban_addr(
+                &peer.address,
+                duration.as_millis() as u64,
+                reason.into(),
+            ) {
+                debug!("Failed to ban peer {:?} {:?}", err, peer);
+            }
             let message = format!("Ban for {} seconds", duration.as_secs());
             if let Err(err) =
                 disconnect_with_message(p2p_control, peer.session_id, message.as_str())
@@ -234,12 +240,9 @@ impl NetworkState {
                 session_context.address.clone(),
                 session_context.id,
                 session_context.ty,
-                peer_store.as_mut(),
+                &mut peer_store,
             )
         };
-        if accept_peer_result.is_ok() {
-            peer_store.update_status(&peer_id, Status::Connected);
-        }
         accept_peer_result.map_err(Into::into)
     }
 
@@ -260,19 +263,11 @@ impl NetworkState {
     }
 
     // For restrict lock in inner scope
-    pub(crate) fn with_peer_store<F, T>(&self, callback: F) -> T
-    where
-        F: FnOnce(&PeerStore) -> T,
-    {
-        callback(self.peer_store.lock().as_ref())
-    }
-
-    // For restrict lock in inner scope
     pub(crate) fn with_peer_store_mut<F, T>(&self, callback: F) -> T
     where
         F: FnOnce(&mut PeerStore) -> T,
     {
-        callback(self.peer_store.lock().as_mut())
+        callback(&mut self.peer_store.lock())
     }
 
     pub fn local_peer_id(&self) -> &PeerId {
@@ -424,7 +419,7 @@ impl NetworkState {
         }
 
         let peer_id_hash = Multihash::from_bytes(peer_id.as_bytes().to_vec())
-            .map_err(|err| Error::Addr(format!("peer_id is not valid: {}", err)))?;
+            .map_err(|_err| AddrError::InvalidPeerId)?;
         addr.push(multiaddr::Protocol::P2p(peer_id_hash));
         debug!("dialing {} with {:?}", addr, target);
         p2p_control.dial(addr.clone(), target)?;
@@ -707,7 +702,7 @@ impl ServiceHandle for EventHandler {
                         session_context.id, session_context.address,
                     );
                     self.network_state.with_peer_store_mut(|peer_store| {
-                        peer_store.update_status(&peer_id, Status::Disconnected);
+                        peer_store.remove_disconnected_peer(&peer_id);
                     })
                 }
             }
@@ -961,8 +956,8 @@ impl NetworkService {
                 .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }
 
-        let bootnodes = self.network_state.with_peer_store(|peer_store| {
-            peer_store.bootnodes(max((config.max_outbound_peers >> 1) as u32, 1))
+        let bootnodes = self.network_state.with_peer_store_mut(|peer_store| {
+            peer_store.bootnodes(max((config.max_outbound_peers >> 1) as usize, 1))
         });
         // dial half bootnodes
         for (peer_id, addr) in bootnodes {
@@ -1082,45 +1077,37 @@ impl NetworkController {
         }
     }
 
-    pub fn get_banned_addresses(&self) -> Vec<BannedAddress> {
-        self.network_state.peer_store.lock().get_banned_addresses()
-    }
-
-    pub fn insert_ban(&self, address: IpNetwork, ban_until: u64, ban_reason: &str) {
+    pub fn get_banned_addrs(&self) -> Vec<BannedAddr> {
         self.network_state
             .peer_store
             .lock()
-            .insert_ban(address, ban_until, ban_reason)
+            .ban_list()
+            .get_banned_addrs()
     }
 
-    pub fn delete_ban(&self, address: &IpNetwork) {
-        self.network_state.peer_store.lock().delete_ban(address);
+    pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: &str) -> Result<(), Error> {
+        self.network_state
+            .peer_store
+            .lock()
+            .ban_network(address, ban_until, ban_reason.into())
     }
 
-    pub fn connected_peers(&self) -> Vec<(PeerId, Peer, MultiaddrList)> {
+    pub fn unban(&self, address: &IpNetwork) {
+        self.network_state
+            .peer_store
+            .lock()
+            .mut_ban_list()
+            .unban_network(address);
+    }
+
+    pub fn connected_peers(&self) -> Vec<(PeerId, Peer)> {
         let peers = self
             .network_state
             .with_peer_registry(|reg| reg.peers().values().cloned().collect::<Vec<_>>());
-        self.network_state.with_peer_store(|peer_store| {
-            peers
-                .into_iter()
-                .map(|peer| {
-                    // FIXME how to return address score?
-                    (
-                        peer.peer_id.clone(),
-                        peer.clone(),
-                        peer_store
-                            .peer_addrs(&peer.peer_id, ADDR_LIMIT)
-                            .into_iter()
-                            .map(|paddr| {
-                                let PeerAddr { addr, .. } = paddr;
-                                (addr, 1)
-                            })
-                            .collect(),
-                    )
-                })
-                .collect()
-        })
+        peers
+            .into_iter()
+            .map(|peer| (peer.peer_id.clone(), peer.clone()))
+            .collect()
     }
 
     fn try_broadcast(

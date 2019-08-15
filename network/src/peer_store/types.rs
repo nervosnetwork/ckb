@@ -1,15 +1,23 @@
-use crate::peer_store::{
-    PeerId, Score, SessionType, Status, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES, ADDR_TIMEOUT_MS,
+use crate::{
+    errors::{AddrError, Error},
+    peer_store::{
+        PeerId, Score, SessionType, ADDR_MAX_FAILURES, ADDR_MAX_RETRIES, ADDR_TIMEOUT_MS,
+    },
 };
 use ipnetwork::IpNetwork;
 use p2p::multiaddr::{Multiaddr, Protocol};
+use std::net::IpAddr;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct IpPort {
+    pub ip: IpAddr,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
     pub connected_addr: Multiaddr,
-    pub score: Score,
-    pub status: Status,
     pub session_type: SessionType,
     pub ban_time_ms: u64,
     pub last_connected_at_ms: u64,
@@ -19,15 +27,12 @@ impl PeerInfo {
     pub fn new(
         peer_id: PeerId,
         connected_addr: Multiaddr,
-        score: Score,
         session_type: SessionType,
         last_connected_at_ms: u64,
     ) -> Self {
         PeerInfo {
             peer_id,
             connected_addr,
-            score,
-            status: Status::Unknown,
             session_type,
             last_connected_at_ms,
             ban_time_ms: 0,
@@ -35,24 +40,44 @@ impl PeerInfo {
     }
 }
 
-#[derive(Debug)]
-pub struct PeerAddr {
+#[derive(Debug, Clone)]
+pub struct AddrInfo {
     pub peer_id: PeerId,
+    pub ip_port: IpPort,
     pub addr: Multiaddr,
+    pub score: Score,
     pub last_connected_at_ms: u64,
     pub last_tried_at_ms: u64,
     pub attempts_count: u32,
+    pub random_id_pos: usize,
 }
 
-impl PeerAddr {
-    pub fn new(peer_id: PeerId, addr: Multiaddr, last_connected_at_ms: u64) -> Self {
-        PeerAddr {
+impl AddrInfo {
+    pub fn new(
+        peer_id: PeerId,
+        ip_port: IpPort,
+        addr: Multiaddr,
+        last_connected_at_ms: u64,
+        score: Score,
+    ) -> Self {
+        AddrInfo {
             peer_id,
+            ip_port,
             addr,
+            score,
             last_connected_at_ms,
             last_tried_at_ms: 0,
             attempts_count: 0,
+            random_id_pos: 0,
         }
+    }
+
+    pub fn ip_port(&self) -> IpPort {
+        self.ip_port
+    }
+
+    pub fn had_connected(&self, expires_ms: u64) -> bool {
+        self.last_connected_at_ms > expires_ms
     }
 
     pub fn tried_in_last_minute(&self, now_ms: u64) -> bool {
@@ -89,8 +114,8 @@ impl PeerAddr {
     }
 }
 
-#[derive(Debug)]
-pub struct BannedAddress {
+#[derive(Debug, Clone)]
+pub struct BannedAddr {
     pub address: IpNetwork,
     pub ban_until: u64,
     pub ban_reason: String,
@@ -106,4 +131,36 @@ pub fn multiaddr_to_ip_network(multiaddr: &Multiaddr) -> Option<IpNetwork> {
         }
     }
     None
+}
+
+pub fn ip_to_network(ip: IpAddr) -> IpNetwork {
+    match ip {
+        IpAddr::V4(ipv4) => IpNetwork::V4(ipv4.into()),
+        IpAddr::V6(ipv6) => IpNetwork::V6(ipv6.into()),
+    }
+}
+
+pub trait MultiaddrExt {
+    /// extract IP from multiaddr,
+    /// return None if multiaddr contains no IP phase
+    fn extract_ip_addr(&self) -> Result<IpPort, Error>;
+}
+
+impl MultiaddrExt for Multiaddr {
+    fn extract_ip_addr(&self) -> Result<IpPort, Error> {
+        let mut ip = None;
+        let mut port = None;
+        for component in self {
+            match component {
+                Protocol::Ip4(ipv4) => ip = Some(IpAddr::V4(ipv4)),
+                Protocol::Ip6(ipv6) => ip = Some(IpAddr::V6(ipv6)),
+                Protocol::Tcp(tcp_port) => port = Some(tcp_port),
+                _ => (),
+            }
+        }
+        Ok(IpPort {
+            ip: ip.ok_or(AddrError::MissingIP)?,
+            port: port.ok_or(AddrError::MissingPort)?,
+        })
+    }
 }

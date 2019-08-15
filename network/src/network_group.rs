@@ -1,4 +1,5 @@
-use p2p::multiaddr::{Multiaddr, Protocol};
+use crate::peer_store::types::MultiaddrExt;
+use p2p::multiaddr::Multiaddr;
 use std::net::IpAddr;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -13,26 +14,9 @@ pub trait NetworkGroup {
     fn network_group(&self) -> Group;
 }
 
-pub trait MultiaddrExt {
-    fn extract_ip_addr(&self) -> Option<IpAddr>;
-}
-
-impl MultiaddrExt for Multiaddr {
-    fn extract_ip_addr(&self) -> Option<IpAddr> {
-        for addr_component in self {
-            match addr_component {
-                Protocol::Ip4(ipv4) => return Some(IpAddr::V4(ipv4)),
-                Protocol::Ip6(ipv6) => return Some(IpAddr::V6(ipv6)),
-                _ => (),
-            }
-        }
-        None
-    }
-}
-
 impl NetworkGroup for Multiaddr {
     fn network_group(&self) -> Group {
-        if let Some(ip_addr) = self.extract_ip_addr() {
+        if let Ok(ip_addr) = self.extract_ip_addr().map(|ip_port| ip_port.ip) {
             if ip_addr.is_loopback() {
                 return Group::LocalNetwork;
             }

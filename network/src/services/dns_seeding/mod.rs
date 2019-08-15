@@ -29,13 +29,14 @@ pub(crate) struct DnsSeedingService {
 
 impl DnsSeedingService {
     pub(crate) fn new(network_state: Arc<NetworkState>, seeds: Vec<String>) -> DnsSeedingService {
-        let wait_until =
-            if network_state.with_peer_store(|peer_store| peer_store.random_peers(1).is_empty()) {
-                info!("No peer in peer store, start seeding...");
-                Instant::now()
-            } else {
-                Instant::now() + Duration::from_secs(11)
-            };
+        let wait_until = if network_state
+            .with_peer_store_mut(|peer_store| peer_store.get_random_addrs(1).is_empty())
+        {
+            info!("No peer in peer store, start seeding...");
+            Instant::now()
+        } else {
+            Instant::now() + Duration::from_secs(11)
+        };
         let check_interval = Interval::new_interval(Duration::from_secs(1));
         DnsSeedingService {
             network_state,
@@ -111,7 +112,12 @@ impl DnsSeedingService {
                 match addr.pop() {
                     Some(Protocol::P2p(key)) => {
                         if let Ok(peer_id) = PeerId::from_bytes(key.into_bytes()) {
-                            peer_store.add_discovered_addr(&peer_id, addr);
+                            if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
+                                debug!(
+                                    "failed to add addrs to peer_store: {:?}, {:?}",
+                                    err, peer_id
+                                );
+                            }
                         }
                     }
                     _ => {

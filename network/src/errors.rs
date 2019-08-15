@@ -1,8 +1,10 @@
-use crate::{peer_store::sqlite::DBError, ProtocolId};
+use crate::ProtocolId;
 use p2p::{error::Error as P2PError, secio::PeerId, SessionId};
 use std::fmt;
 use std::fmt::Display;
 use std::io::Error as IoError;
+
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
@@ -11,10 +13,16 @@ pub enum Error {
     Protocol(ProtocolError),
     Io(IoError),
     P2P(P2PError),
-    DB(DBError),
-    Addr(String),
+    Addr(AddrError),
     Dial(String),
+    PeerStore(PeerStoreError),
     Shutdown,
+}
+
+#[derive(Debug)]
+pub enum PeerStoreError {
+    /// indicate the peer store is full
+    EvictionFailed,
 }
 
 #[derive(Debug)]
@@ -39,6 +47,19 @@ pub enum ProtocolError {
     NotFound(ProtocolId),
     DisallowRegisterTimer,
     Duplicate(ProtocolId),
+}
+
+#[derive(Debug)]
+pub enum AddrError {
+    InvalidPeerId,
+    MissingIP,
+    MissingPort,
+}
+
+impl From<PeerStoreError> for Error {
+    fn from(err: PeerStoreError) -> Error {
+        Error::PeerStore(err)
+    }
 }
 
 impl From<PeerError> for Error {
@@ -71,9 +92,9 @@ impl From<P2PError> for Error {
     }
 }
 
-impl From<DBError> for Error {
-    fn from(err: DBError) -> Error {
-        Error::DB(err)
+impl From<AddrError> for Error {
+    fn from(err: AddrError) -> Error {
+        Error::Addr(err)
     }
 }
 
