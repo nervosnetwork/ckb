@@ -1251,30 +1251,35 @@ impl SyncSharedState {
     }
 }
 
-/* TODO apply-serialization fix tests
 #[cfg(test)]
 mod tests {
-    use super::*;
 
-    use ckb_core::header::HeaderBuilder;
+    use super::HeaderView;
+    use ckb_types::{
+        core::{BlockNumber, HeaderBuilder},
+        packed::Byte32,
+        prelude::*,
+        U256,
+    };
     use rand::{thread_rng, Rng};
+    use std::collections::{BTreeMap, HashMap};
 
     const SKIPLIST_LENGTH: u64 = 10_000;
 
     #[test]
     fn test_get_ancestor_use_skip_list() {
-        let mut header_map: HashMap<H256, HeaderView> = HashMap::default();
-        let mut hashes: BTreeMap<BlockNumber, H256> = BTreeMap::default();
+        let mut header_map: HashMap<Byte32, HeaderView> = HashMap::default();
+        let mut hashes: BTreeMap<BlockNumber, Byte32> = BTreeMap::default();
 
         let mut parent_hash = None;
         for number in 0..SKIPLIST_LENGTH {
-            let mut header_builder = HeaderBuilder::default().number(number);
+            let mut header_builder = HeaderBuilder::default().number(number.pack());
             if let Some(parent_hash) = parent_hash.take() {
                 header_builder = header_builder.parent_hash(parent_hash);
             }
             let header = header_builder.build();
-            hashes.insert(number, header.hash().clone());
-            parent_hash = Some(header.hash().clone());
+            hashes.insert(number, header.hash());
+            parent_hash = Some(header.hash());
 
             let mut view = HeaderView::new(header, U256::zero(), 0);
             view.build_skip(|hash| header_map.get(hash).cloned());
@@ -1287,7 +1292,10 @@ mod tests {
                     .get(hash)
                     .and_then(|view| header_map.get(view.skip_hash.as_ref().unwrap()))
                     .unwrap();
-                assert_eq!(Some(skip_view.hash()), hashes.get(&skip_view.number()));
+                assert_eq!(
+                    Some(skip_view.hash()).as_ref(),
+                    hashes.get(&skip_view.number())
+                );
                 assert!(skip_view.number() < *number);
             } else {
                 assert!(header_map[hash].skip_hash.is_none());
@@ -1330,4 +1338,3 @@ mod tests {
         }
     }
 }
-*/

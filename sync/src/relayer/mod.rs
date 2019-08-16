@@ -7,7 +7,6 @@ mod error;
 mod get_block_proposal_process;
 mod get_block_transactions_process;
 mod get_transactions_process;
-// TODO apply-serialization fix tests
 #[cfg(test)]
 mod tests;
 mod transaction_hashes_process;
