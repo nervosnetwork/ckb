@@ -432,6 +432,42 @@ impl Spec for ChainFork7 {
     }
 }
 
+pub struct LongForks;
+
+impl Spec for LongForks {
+    crate::name!("long_forks");
+
+    crate::setup!(num_nodes: 3, connect_all: false);
+
+    // Case: Two nodes has different long forks should be able to convergence
+    // based on sync mechanism
+    fn run(&self, net: Net) {
+        const PER_FETCH_BLOCK_LIMIT: usize = 128;
+
+        net.exit_ibd_mode();
+        let test_node = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        let node2 = &net.nodes[2];
+
+        // test_node == node1 == chain1, height = 139 = PER_FETCH_BLOCK_LIMIT + 10 + 1
+        node1.generate_blocks(PER_FETCH_BLOCK_LIMIT + 10);
+        test_node.connect(node1);
+        test_node.waiting_for_sync(node1, PER_FETCH_BLOCK_LIMIT as u64 + 10 + 1);
+        test_node.disconnect(node1);
+
+        // test_node == node2 == chain2, height = 149 = PER_FETCH_BLOCK_LIMIT + 20 + 1
+        node2.generate_blocks(PER_FETCH_BLOCK_LIMIT + 20);
+        test_node.connect(node2);
+        test_node.waiting_for_sync(node2, PER_FETCH_BLOCK_LIMIT as u64 + 20 + 1);
+        test_node.disconnect(node2);
+
+        // test_node == node1 == chain1, height = 169 = PER_FETCH_BLOCK_LIMIT + 10 + 30 + 1
+        node1.generate_blocks(30);
+        test_node.connect(node1);
+        test_node.waiting_for_sync(node1, PER_FETCH_BLOCK_LIMIT as u64 + 10 + 30 + 1);
+    }
+}
+
 fn modify_block_transaction<F>(
     block: BlockView,
     transaction_index: usize,
