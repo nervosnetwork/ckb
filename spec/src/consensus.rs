@@ -2,6 +2,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_types::{
+    constants::BLOCK_VERSION,
     core::{
         capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
         HeaderView, Ratio, TransactionBuilder, Version,
@@ -47,7 +48,6 @@ pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * 200 * 8;
 pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
-pub(crate) const BLOCK_VERSION: u32 = 0;
 pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]

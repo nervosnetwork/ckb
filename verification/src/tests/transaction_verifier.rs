@@ -8,11 +8,12 @@ use ckb_test_chain_utils::MockMedianTime;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
     bytes::Bytes,
+    constants::TX_VERSION,
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
         BlockNumber, Capacity, ScriptHashType, TransactionBuilder, TransactionInfo,
-        TransactionView, Version, TX_VERSION,
+        TransactionView, Version,
     },
     h256,
     packed::{CellDep, CellInput, CellOutput, OutPoint, Script},

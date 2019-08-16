@@ -72,8 +72,6 @@ pub(crate) fn gen_block(
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
 
-    println!("parent_header.difficulty() {}", parent_header.difficulty());
-
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash().to_owned())
         .timestamp((parent_header.timestamp() + 20_000).pack())

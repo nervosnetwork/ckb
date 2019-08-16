@@ -24,12 +24,3 @@ pub type BlockNumber = u64;
 pub type EpochNumber = u64;
 pub type Cycle = u64;
 pub type Version = u32;
-
-/*
- * All Constants
- */
-
-pub const TX_VERSION: Version = 0;
-pub const HEADER_VERSION: Version = 0;
-pub const BLOCK_VERSION: Version = 0;
-pub const DEFAULT_ACCUMULATED_RATE: u64 = 10_000_000_000_000_000;

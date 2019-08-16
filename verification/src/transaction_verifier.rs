@@ -5,9 +5,10 @@ use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
+    constants::TX_VERSION,
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        BlockNumber, Capacity, Cycle, EpochNumber, TransactionView, TX_VERSION,
+        BlockNumber, Capacity, Cycle, EpochNumber, TransactionView,
     },
     packed::{Byte32, CellOutput},
     prelude::*,

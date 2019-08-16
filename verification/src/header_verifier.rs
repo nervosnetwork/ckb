@@ -3,7 +3,10 @@ use crate::error::{EpochError, Error, NumberError, PowError, TimestampError};
 use crate::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
-use ckb_types::core::{EpochExt, HeaderView, HEADER_VERSION};
+use ckb_types::{
+    constants::HEADER_VERSION,
+    core::{EpochExt, HeaderView},
+};
 use faketime::unix_time_as_millis;
 use std::marker::PhantomData;
 use std::sync::Arc;

@@ -15,6 +15,10 @@ use crate::{
 
 /*
  * Definitions
+ *
+ * ### Warning
+ *
+ * Please DO NOT implement `Default`, use builders to construct views.
  */
 
 #[derive(Debug, Clone)]
@@ -52,7 +56,7 @@ pub struct BlockView {
 }
 
 /*
- * Display
+ * Implement std traits.
  */
 
 impl ::std::fmt::Display for TransactionView {

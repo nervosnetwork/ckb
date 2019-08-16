@@ -6,7 +6,8 @@ use crate::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
 use ckb_types::{
-    core::{BlockNumber, EpochExt, HeaderBuilder, HeaderView, HEADER_VERSION},
+    constants::HEADER_VERSION,
+    core::{BlockNumber, EpochExt, HeaderBuilder, HeaderView},
     packed::Header,
     prelude::*,
     U256,

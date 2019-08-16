@@ -2,13 +2,13 @@
 
 use ckb_merkle_tree::merkle_root;
 
-use crate::{core, packed, prelude::*, H256, U256};
+use crate::{constants, core, packed, prelude::*, H256, U256};
 
 /*
  * Definitions
  */
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TransactionBuilder {
     pub(crate) version: packed::Uint32,
     pub(crate) cell_deps: Vec<packed::CellDep>,
@@ -19,7 +19,7 @@ pub struct TransactionBuilder {
     pub(crate) outputs_data: Vec<packed::Bytes>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct HeaderBuilder {
     // RawHeader
     pub(crate) version: packed::Uint32,
@@ -46,6 +46,45 @@ pub struct BlockBuilder {
     pub(crate) uncles: Vec<core::UncleBlockView>,
     pub(crate) transactions: Vec<core::TransactionView>,
     pub(crate) proposals: Vec<packed::ProposalShortId>,
+}
+
+/*
+ * Implement std traits.
+ */
+
+impl ::std::default::Default for TransactionBuilder {
+    fn default() -> Self {
+        Self {
+            version: constants::TX_VERSION.pack(),
+            cell_deps: Default::default(),
+            header_deps: Default::default(),
+            inputs: Default::default(),
+            outputs: Default::default(),
+            witnesses: Default::default(),
+            outputs_data: Default::default(),
+        }
+    }
+}
+
+impl ::std::default::Default for HeaderBuilder {
+    fn default() -> Self {
+        Self {
+            version: constants::HEADER_VERSION.pack(),
+            parent_hash: Default::default(),
+            timestamp: Default::default(),
+            number: Default::default(),
+            transactions_root: Default::default(),
+            witnesses_root: Default::default(),
+            proposals_hash: Default::default(),
+            difficulty: U256::one().pack(),
+            uncles_hash: Default::default(),
+            uncles_count: Default::default(),
+            epoch: Default::default(),
+            dao: Default::default(),
+            nonce: Default::default(),
+            proof: Default::default(),
+        }
+    }
 }
 
 /*
