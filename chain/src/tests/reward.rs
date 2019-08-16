@@ -3,57 +3,61 @@ use crate::tests::util::{
     start_chain, MockStore,
 };
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::script::{Script, ScriptHashType};
-use ckb_core::transaction::{
-    CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
-    TransactionBuilder,
-};
-use ckb_core::uncle::UncleBlock;
-use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
+use ckb_types::prelude::*;
+use ckb_types::{
+    bytes::Bytes,
+    core::{
+        capacity_bytes, BlockBuilder, BlockView, Capacity, HeaderView, ScriptHashType,
+        TransactionBuilder, TransactionView, UncleBlockView,
+    },
+    packed::{
+        self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
+        ScriptBuilder,
+    },
+    U256,
+};
 use std::sync::Arc;
 
 const TX_FEE: Capacity = capacity_bytes!(10);
 
 pub(crate) fn create_cellbase(
-    parent: &Header,
+    parent: &HeaderView,
     miner_lock: Script,
     reward_lock: Script,
     reward: Option<Capacity>,
     store: &MockStore,
     consensus: &Consensus,
-) -> Transaction {
+) -> TransactionView {
     let number = parent.number() + 1;
     let capacity = calculate_reward(store, consensus, parent);
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(number))
         .output(
             CellOutputBuilder::default()
-                .capacity(reward.unwrap_or(capacity))
+                .capacity(reward.unwrap_or(capacity).pack())
                 .lock(reward_lock)
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .witness(miner_lock.into_witness())
         .build()
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_block(
-    parent_header: &Header,
-    transactions: Vec<Transaction>,
+    parent_header: &HeaderView,
+    transactions: Vec<TransactionView>,
     proposals: Vec<ProposalShortId>,
-    uncles: Vec<UncleBlock>,
+    uncles: Vec<UncleBlockView>,
     miner_lock: Script,
     reward_lock: Script,
     reward: Option<Capacity>,
     consensus: &Consensus,
     store: &MockStore,
-) -> Block {
+) -> BlockView {
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(
         parent_header,
@@ -68,18 +72,17 @@ pub(crate) fn gen_block(
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
 
-    let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash().to_owned())
-        .timestamp(parent_header.timestamp() + 20_000)
-        .number(number)
-        .difficulty(parent_header.difficulty().clone())
-        .dao(dao);
+    println!("parent_header.difficulty() {}", parent_header.difficulty());
 
     let block = BlockBuilder::default()
+        .parent_hash(parent_header.hash().to_owned())
+        .timestamp((parent_header.timestamp() + 20_000).pack())
+        .number(number.pack())
+        .difficulty(parent_header.difficulty().pack())
+        .dao(dao.pack())
         .transactions(txs)
         .uncles(uncles)
         .proposals(proposals)
-        .header_builder(header_builder)
         .build();
 
     store.insert_block(&block, consensus.genesis_epoch_ext());
@@ -87,23 +90,30 @@ pub(crate) fn gen_block(
     block
 }
 
-pub(crate) fn create_transaction(parent: &Transaction, index: u32) -> Transaction {
+pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let always_success_out_point = create_always_success_out_point();
+
+    let input_cap: Capacity = parent
+        .outputs()
+        .get(0)
+        .expect("get output index 0")
+        .capacity()
+        .unpack();
 
     TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(parent.outputs()[0].capacity.safe_sub(TX_FEE).unwrap())
+                .capacity(input_cap.safe_sub(TX_FEE).unwrap().pack())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .input(CellInput::new(
-            OutPoint::new(parent.hash().to_owned(), index),
+            OutPoint::new(parent.hash().unpack(), index),
             0,
         ))
-        .cell_dep(CellDep::new_cell(always_success_out_point))
+        .cell_dep(CellDep::new(always_success_out_point, false))
         .build()
 }
 
@@ -114,20 +124,20 @@ fn finalize_reward() {
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity_bytes!(5_000))
+                .capacity(capacity_bytes!(5_000).pack())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .build();
 
     let dao = genesis_dao_data(&tx).unwrap();
-    let header_builder = HeaderBuilder::default().dao(dao);
 
     let genesis_block = BlockBuilder::default()
         .transaction(create_always_success_tx())
         .transaction(tx.clone())
-        .header_builder(header_builder)
+        .difficulty(U256::one().pack())
+        .dao(dao.pack())
         .build();
 
     let consensus = Consensus::default()
@@ -145,20 +155,22 @@ fn finalize_reward() {
         txs.push(tx_parent.clone());
     }
 
-    let ids: Vec<_> = txs.iter().map(Transaction::proposal_short_id).collect();
-
+    let ids: Vec<_> = txs.iter().map(TransactionView::proposal_short_id).collect();
     let mut blocks = Vec::with_capacity(24);
-    let bob = Script {
-        args: vec![Bytes::from(b"b0b".to_vec())],
-        code_hash: always_success_script.code_hash.clone(),
-        hash_type: ScriptHashType::Data,
-    };
+    let bob_args: Vec<packed::Bytes> = vec![Bytes::from(b"b0b".to_vec()).pack()];
 
-    let alice = Script {
-        args: vec![Bytes::from(b"a11ce".to_vec())],
-        code_hash: always_success_script.code_hash.clone(),
-        hash_type: ScriptHashType::Data,
-    };
+    let bob = ScriptBuilder::default()
+        .args(bob_args.into_iter().pack())
+        .code_hash(always_success_script.code_hash())
+        .hash_type(ScriptHashType::Data.pack())
+        .build();
+
+    let alice_args: Vec<packed::Bytes> = vec![Bytes::from(b"a11ce".to_vec()).pack()];
+    let alice = ScriptBuilder::default()
+        .args(alice_args.into_iter().pack())
+        .code_hash(always_success_script.code_hash())
+        .hash_type(ScriptHashType::Data.pack())
+        .build();
 
     for i in 1..23 {
         let proposals = if i == 12 {
@@ -203,7 +215,7 @@ fn finalize_reward() {
         blocks.push(block);
     }
 
-    let (target, reward) = shared.finalize_block_reward(blocks[21].header()).unwrap();
+    let (target, reward) = shared.finalize_block_reward(&blocks[21].header()).unwrap();
     assert_eq!(target, bob);
 
     // bob proposed 8 txs in 12, committed in 22
@@ -236,7 +248,7 @@ fn finalize_reward() {
         .process_block(Arc::new(block.clone()), true)
         .expect("process block ok");
 
-    let (target, reward) = shared.finalize_block_reward(block.header()).unwrap();
+    let (target, reward) = shared.finalize_block_reward(&block.header()).unwrap();
     assert_eq!(target, alice);
 
     // alice proposed 16 txs in block 13, committed in 22, 23

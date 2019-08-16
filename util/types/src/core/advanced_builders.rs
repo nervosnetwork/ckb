@@ -2,7 +2,7 @@
 
 use ckb_merkle_tree::merkle_root;
 
-use crate::{core, packed, prelude::*, H256};
+use crate::{core, packed, prelude::*, H256, U256};
 
 /*
  * Definitions
@@ -196,6 +196,10 @@ impl HeaderBuilder {
             nonce,
             proof,
         } = self;
+        debug_assert!(
+            Unpack::<U256>::unpack(&difficulty) > U256::zero(),
+            "[HeaderBuilder] difficulty should greater than zero"
+        );
         let raw = packed::RawHeader::new_builder()
             .version(version)
             .parent_hash(parent_hash)

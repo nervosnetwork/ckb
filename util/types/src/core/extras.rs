@@ -32,6 +32,20 @@ impl TransactionInfo {
             .index(self.index.pack())
             .build()
     }
+
+    pub fn new(
+        block_number: BlockNumber,
+        block_epoch: EpochNumber,
+        block_hash: H256,
+        index: usize,
+    ) -> Self {
+        TransactionInfo {
+            block_number,
+            block_epoch,
+            block_hash,
+            index,
+        }
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Default)]

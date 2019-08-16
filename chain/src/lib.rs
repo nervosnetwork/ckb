@@ -9,6 +9,5 @@
 
 pub mod chain;
 
-// TODO apply-serialization fix tests
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;

@@ -1,14 +1,15 @@
 use crate::chain::{ChainService, ForkChanges};
 use crate::tests::util::{MockChain, MockStore};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::Block;
-use ckb_core::extras::BlockExt;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
+use ckb_types::{
+    core::{BlockExt, BlockView},
+    U256,
+};
 use faketime::unix_time_as_millis;
-use numext_fixed_uint::U256;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::sync::Arc;
@@ -72,8 +73,10 @@ fn test_find_fork_case1() {
 
     chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.blocks().clone().into_iter());
-    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.blocks().clone().into_iter());
+    let detached_blocks: HashSet<BlockView> =
+        HashSet::from_iter(fork1.blocks().clone().into_iter());
+    let attached_blocks: HashSet<BlockView> =
+        HashSet::from_iter(fork2.blocks().clone().into_iter());
     assert_eq!(
         detached_blocks,
         HashSet::from_iter(fork.detached_blocks.iter().cloned())
@@ -143,8 +146,10 @@ fn test_find_fork_case2() {
 
     chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.blocks()[1..].iter().cloned());
-    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.blocks().clone().into_iter());
+    let detached_blocks: HashSet<BlockView> =
+        HashSet::from_iter(fork1.blocks()[1..].iter().cloned());
+    let attached_blocks: HashSet<BlockView> =
+        HashSet::from_iter(fork2.blocks().clone().into_iter());
     assert_eq!(
         detached_blocks,
         HashSet::from_iter(fork.detached_blocks.iter().cloned())
@@ -214,8 +219,10 @@ fn test_find_fork_case3() {
 
     chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.blocks().clone().into_iter());
-    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.blocks().clone().into_iter());
+    let detached_blocks: HashSet<BlockView> =
+        HashSet::from_iter(fork1.blocks().clone().into_iter());
+    let attached_blocks: HashSet<BlockView> =
+        HashSet::from_iter(fork2.blocks().clone().into_iter());
     assert_eq!(
         detached_blocks,
         HashSet::from_iter(fork.detached_blocks.iter().cloned())
@@ -286,8 +293,10 @@ fn test_find_fork_case4() {
 
     chain_service.find_fork(&mut fork, tip_number, fork2.tip(), ext);
 
-    let detached_blocks: HashSet<Block> = HashSet::from_iter(fork1.blocks().clone().into_iter());
-    let attached_blocks: HashSet<Block> = HashSet::from_iter(fork2.blocks().clone().into_iter());
+    let detached_blocks: HashSet<BlockView> =
+        HashSet::from_iter(fork1.blocks().clone().into_iter());
+    let attached_blocks: HashSet<BlockView> =
+        HashSet::from_iter(fork2.blocks().clone().into_iter());
     assert_eq!(
         detached_blocks,
         HashSet::from_iter(fork.detached_blocks.iter().cloned())
