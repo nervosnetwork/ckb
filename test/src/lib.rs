@@ -4,7 +4,7 @@ mod rpc;
 pub mod specs;
 mod utils;
 
-use ckb_core::BlockNumber;
+use ckb_types::core::BlockNumber;
 use regex::Regex;
 
 pub use net::Net;

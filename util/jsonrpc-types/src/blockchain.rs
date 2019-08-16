@@ -444,6 +444,13 @@ impl From<core::HeaderView> for HeaderView {
     }
 }
 
+impl From<HeaderView> for core::HeaderView {
+    fn from(input: HeaderView) -> Self {
+        let header: packed::Header = input.inner.into();
+        header.into_view()
+    }
+}
+
 impl From<Header> for packed::Header {
     fn from(json: Header) -> Self {
         let Header {

@@ -1,6 +1,8 @@
 use crate::{Net, Spec};
-use ckb_core::transaction::{Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, Capacity};
+use ckb_types::{
+    core::{capacity_bytes, Capacity, TransactionView},
+    prelude::*,
+};
 use log::info;
 
 pub struct DifferentTxsWithSameInput;
@@ -17,14 +19,25 @@ impl Spec for DifferentTxsWithSameInput {
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0.clone());
         // Set tx2 fee to a higher value
-        let mut output = tx2_temp.outputs()[0].clone();
-        output.capacity = capacity_bytes!(40_000);
-        let tx2 = TransactionBuilder::from_transaction(tx2_temp)
-            .outputs_clear()
-            .output(output)
+        let output = tx2_temp
+            .outputs()
+            .as_reader()
+            .get(0)
+            .unwrap()
+            .to_entity()
+            .as_builder()
+            .capacity(capacity_bytes!(40_000).pack())
             .build();
-        node0.rpc_client().send_transaction((&tx1).into());
-        node0.rpc_client().send_transaction((&tx1).into());
+        let tx2 = tx2_temp
+            .as_advanced_builder()
+            .set_outputs(vec![output])
+            .build();
+        node0
+            .rpc_client()
+            .send_transaction(tx1.clone().data().into());
+        node0
+            .rpc_client()
+            .send_transaction(tx1.clone().data().into());
 
         node0.generate_block();
         node0.generate_block();
@@ -36,7 +49,7 @@ impl Spec for DifferentTxsWithSameInput {
         let commit_txs_hash: Vec<_> = tip_block
             .transactions()
             .iter()
-            .map(Transaction::hash)
+            .map(TransactionView::hash)
             .collect();
 
         assert!(commit_txs_hash.contains(&tx1.hash()));

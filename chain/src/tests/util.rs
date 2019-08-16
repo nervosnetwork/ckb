@@ -167,7 +167,7 @@ pub(crate) fn create_transaction_with_out_point(
     TransactionBuilder::default()
         .output(CellOutput::new(
             capacity_bytes!(100),
-            CellOutput::calculate_data_hash(&data),
+            CellOutput::calc_data_hash(&data),
             always_success_script.clone(),
             None,
         ))

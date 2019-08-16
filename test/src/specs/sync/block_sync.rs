@@ -1,10 +1,14 @@
 use crate::utils::{build_block, build_header, new_block_with_template, wait_until};
 use crate::{Net, Node, Spec, TestProtocol};
-use ckb_core::block::Block;
 use ckb_jsonrpc_types::{ChainInfo, Timestamp};
 use ckb_network::PeerIndex;
-use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
+use ckb_types::{
+    core::BlockView,
+    packed::{self, SyncMessage},
+    prelude::*,
+    H256,
+};
 use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::Duration;
@@ -131,12 +135,12 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let (_, _, data) = net
             .receive_timeout(Duration::new(10, 0))
             .expect("Expect SyncMessage");
-        let message = get_root::<SyncMessage>(&data).unwrap();
+        let message = SyncMessage::from_slice(&data).unwrap();
         assert_eq!(
-            message.payload_type(),
-            SyncPayload::GetBlocks,
+            message.to_enum().item_name(),
+            packed::GetBlocks::NAME,
             "Node should send back GetBlocks message for the block {:x}",
-            block.header().hash(),
+            Unpack::<H256>::unpack(&block.header().hash()),
         );
 
         // Sync duplicated header again, `node` should discard the duplicated one.
@@ -165,18 +169,18 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let (_, _, data) = net
             .receive_timeout(Duration::new(10, 0))
             .expect("Expect SyncMessage");
-        let message = get_root::<SyncMessage>(&data).unwrap();
+        let message = SyncMessage::from_slice(&data).unwrap();
         assert_eq!(
-            message.payload_type(),
-            SyncPayload::GetBlocks,
+            message.to_enum().item_name(),
+            packed::GetBlocks::NAME,
             "Node should send back GetBlocks message for the block {:x}",
-            block.header().hash(),
+            Unpack::<H256>::unpack(&block.header().hash()),
         );
 
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(&net, peer_id, &block);
         let hash = block.header().hash().clone();
-        wait_until(10, || rpc_client.get_tip_header().hash == hash);
+        wait_until(10, || rpc_client.get_tip_header().hash == hash.unpack());
     }
 }
 
@@ -203,10 +207,10 @@ impl Spec for BlockSyncOrphanBlocks {
         let tip_number = rpc_client.get_tip_block_number();
 
         // Generate some blocks from node1
-        let mut blocks: Vec<Block> = (1..=5)
+        let mut blocks: Vec<BlockView> = (1..=5)
             .map(|_| {
                 let block = node1.new_block(None, None, None);
-                node1.submit_block(&block);
+                node1.submit_block(&block.data());
                 block
             })
             .collect();
@@ -244,14 +248,14 @@ fn build_forks(node: &Node, offsets: &[u64]) {
     }
 }
 
-fn sync_header(net: &Net, peer_id: PeerIndex, block: &Block) {
+fn sync_header(net: &Net, peer_id: PeerIndex, block: &BlockView) {
     net.send(
         NetworkProtocol::SYNC.into(),
         peer_id,
-        build_header(block.header()),
+        build_header(&block.header()),
     );
 }
 
-fn sync_block(net: &Net, peer_id: PeerIndex, block: &Block) {
+fn sync_block(net: &Net, peer_id: PeerIndex, block: &BlockView) {
     net.send(NetworkProtocol::SYNC.into(), peer_id, build_block(block));
 }
