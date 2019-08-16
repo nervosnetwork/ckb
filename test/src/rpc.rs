@@ -1,17 +1,17 @@
-use ckb_core::{
-    BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
-    Version as CoreVersion,
-};
 use ckb_jsonrpc_types::{
     Alert, BannedAddress, Block, BlockNumber, BlockTemplate, BlockView, Capacity,
     CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, DryRunResult, EpochNumber,
     EpochView, HeaderView, LiveCell, LockHashIndexState, Node, OutPoint, PeerState, Timestamp,
     Transaction, TransactionWithStatus, TxPoolInfo, Unsigned, Version,
 };
+use ckb_types::core::{
+    BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
+    Version as CoreVersion,
+};
+use ckb_types::H256;
 use ckb_util::Mutex;
 use jsonrpc_client_core::{expand_params, jsonrpc_client, Result as JsonRpcResult};
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
-use numext_fixed_hash::H256;
 
 pub struct RpcClient {
     inner: Mutex<Inner<HttpHandle>>,

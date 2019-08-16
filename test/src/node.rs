@@ -3,14 +3,16 @@ use crate::utils::wait_until;
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::script::{Script, ScriptHashType};
-use ckb_core::transaction::{
-    CellDep, CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
-};
-use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_jsonrpc_types::JsonBytes;
-use numext_fixed_hash::H256;
+use ckb_types::{
+    core::{
+        self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, ScriptHashType,
+        TransactionView,
+    },
+    packed::{Block, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
+    prelude::*,
+    H256,
+};
 use std::convert::Into;
 use std::fs;
 use std::io::Error;
@@ -218,13 +220,13 @@ impl Node {
 
     pub fn submit_block(&self, block: &Block) -> H256 {
         self.rpc_client()
-            .submit_block("".to_owned(), block.into())
+            .submit_block("".to_owned(), block.clone().into())
             .expect("submit_block result none")
     }
 
-    pub fn process_block_without_verify(&self, block: &Block) -> H256 {
+    pub fn process_block_without_verify(&self, block: &BlockView) -> H256 {
         self.rpc_client()
-            .process_block_without_verify(block.into())
+            .process_block_without_verify(block.data().into())
             .expect("process_block_without_verify result none")
     }
 
@@ -234,7 +236,7 @@ impl Node {
 
     // generate a new block and submit it through rpc.
     pub fn generate_block(&self) -> H256 {
-        self.submit_block(&self.new_block(None, None, None))
+        self.submit_block(&self.new_block(None, None, None).data())
     }
 
     // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
@@ -243,17 +245,18 @@ impl Node {
     }
 
     // generate a transaction which spend tip block's cellbase
-    pub fn new_transaction_spend_tip_cellbase(&self) -> Transaction {
+    pub fn new_transaction_spend_tip_cellbase(&self) -> TransactionView {
         let block = self.get_tip_block();
         let cellbase = &block.transactions()[0];
-        self.new_transaction(cellbase.hash().to_owned())
+        self.new_transaction(cellbase.hash().to_owned().unpack())
     }
 
-    pub fn submit_transaction(&self, transaction: &Transaction) -> H256 {
-        self.rpc_client().send_transaction(transaction.into())
+    pub fn submit_transaction(&self, transaction: &TransactionView) -> H256 {
+        self.rpc_client()
+            .send_transaction(transaction.data().into())
     }
 
-    pub fn get_tip_block(&self) -> Block {
+    pub fn get_tip_block(&self) -> BlockView {
         let rpc_client = self.rpc_client();
         let tip_number = rpc_client.get_tip_block_number();
         rpc_client
@@ -266,7 +269,7 @@ impl Node {
         self.rpc_client().get_tip_block_number()
     }
 
-    pub fn get_block_by_number(&self, number: BlockNumber) -> Block {
+    pub fn get_block_by_number(&self, number: BlockNumber) -> BlockView {
         self.rpc_client()
             .get_block_by_number(number)
             .expect("block exists")
@@ -278,7 +281,7 @@ impl Node {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<u32>,
-    ) -> Block {
+    ) -> BlockView {
         self.new_block_builder(bytes_limit, proposals_limit, max_version)
             .build()
     }
@@ -293,30 +296,29 @@ impl Node {
             self.rpc_client()
                 .get_block_template(bytes_limit, proposals_limit, max_version);
 
-        template.into()
+        Block::from(template).as_advanced_builder()
     }
 
-    pub fn new_transaction(&self, hash: H256) -> Transaction {
+    pub fn new_transaction(&self, hash: H256) -> TransactionView {
         self.new_transaction_with_since(hash, 0)
     }
 
-    pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> Transaction {
+    pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> TransactionView {
         let always_success_out_point = OutPoint::new(self.genesis_cellbase_hash.clone(), 1);
-        let always_success_script = Script::new(
-            vec![],
-            self.always_success_code_hash.clone(),
-            ScriptHashType::Data,
-        );
+        let always_success_script = Script::new_builder()
+            .code_hash(self.always_success_code_hash.clone().pack())
+            .hash_type(ScriptHashType::Data.pack())
+            .build();
 
-        TransactionBuilder::default()
-            .cell_dep(CellDep::new_cell(always_success_out_point))
+        core::TransactionBuilder::default()
+            .cell_dep(CellDep::new(always_success_out_point, false))
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(100))
+                    .capacity(capacity_bytes!(100).pack())
                     .lock(always_success_script)
                     .build(),
             )
-            .output_data(Bytes::new())
+            .output_data(Default::default())
             .input(CellInput::new(OutPoint::new(hash, 0), since))
             .build()
     }
@@ -341,10 +343,16 @@ impl Node {
 
         let consensus = spec.build_consensus().expect("build consensus");
         self.genesis_cellbase_hash
-            .clone_from(consensus.genesis_block().transactions()[0].hash());
-        self.always_success_code_hash = consensus.genesis_block().transactions()[0].outputs()[1]
+            .clone_from(&consensus.genesis_block().transactions()[0].hash().unpack());
+        self.always_success_code_hash = consensus.genesis_block().transactions()[0]
+            .outputs()
+            .as_reader()
+            .get(1)
+            .unwrap()
+            .to_entity()
             .data_hash()
-            .to_owned();
+            .to_owned()
+            .unpack();
 
         self.consensus = Some(consensus);
 
@@ -367,7 +375,7 @@ impl Node {
             code_hash: self.always_success_code_hash.clone(),
             args: Default::default(),
             data: JsonBytes::default(),
-            hash_type: ScriptHashType::Data,
+            hash_type: ScriptHashType::Data.into(),
         });
 
         if ::std::env::var("CI").is_ok() {

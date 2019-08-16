@@ -1,10 +1,12 @@
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::transaction::{Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, Capacity};
+use ckb_types::{
+    core::{capacity_bytes, BlockView, Capacity, TransactionView},
+    h256,
+    prelude::*,
+    H256,
+};
 use log::info;
-use numext_fixed_hash::{h256, H256};
 
 pub struct ChainFork1;
 
@@ -135,11 +137,20 @@ impl Spec for ChainFork3 {
         info!("Generate 1 block (F) with invalid reward cellbase on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = modify_block_transaction(block, 0, |transaction| {
-            let mut output = transaction.outputs()[0].clone();
-            output.capacity = output.capacity.safe_add(capacity_bytes!(1)).unwrap();
-            TransactionBuilder::from_transaction(transaction)
-                .outputs_clear()
-                .output(output)
+            let old_output = transaction
+                .outputs()
+                .as_reader()
+                .get(0)
+                .unwrap()
+                .to_entity();
+            let old_capacity: Capacity = old_output.capacity().unpack();
+            let new_output = old_output
+                .as_builder()
+                .capacity(old_capacity.safe_add(capacity_bytes!(1)).unwrap().pack())
+                .build();
+            transaction
+                .as_advanced_builder()
+                .set_outputs(vec![new_output])
                 .build()
         });
         node1.process_block_without_verify(&invalid_block);
@@ -197,11 +208,18 @@ impl Spec for ChainFork4 {
         info!("Generate 1 block (F) with capacity overflow cellbase on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = modify_block_transaction(block, 0, |transaction| {
-            let mut output = transaction.outputs()[0].clone();
-            output.capacity = capacity_bytes!(1);
-            TransactionBuilder::from_transaction(transaction)
-                .outputs_clear()
-                .output(output)
+            let output = transaction
+                .outputs()
+                .as_reader()
+                .get(0)
+                .unwrap()
+                .to_entity()
+                .as_builder()
+                .capacity(capacity_bytes!(1).pack())
+                .build();
+            transaction
+                .as_advanced_builder()
+                .set_outputs(vec![output])
                 .build()
         });
         node1.process_block_without_verify(&invalid_block);
@@ -260,16 +278,16 @@ impl Spec for ChainFork5 {
         info!("Generate 1 blocks (D) on node1");
         node1.generate_blocks(1);
         info!("Generate 1 blocks (E) with transaction on node1");
-        let block = BlockBuilder::from_block(node1.new_block(None, None, None))
+        let block = node1
+            .new_block(None, None, None)
+            .as_advanced_builder()
             .transaction(transaction.clone())
             .build();
-        node1.submit_block(&block);
+        node1.submit_block(&block.data());
         assert_eq!(4, node1.rpc_client().get_tip_block_number());
         info!("Generate 1 blocks (F) with spent transaction on node1");
         let block = node1.new_block(None, None, None);
-        let invalid_block = BlockBuilder::from_block(block)
-            .transaction(transaction)
-            .build();
+        let invalid_block = block.as_advanced_builder().transaction(transaction).build();
         node1.process_block_without_verify(&invalid_block);
         assert_eq!(5, node1.rpc_client().get_tip_block_number());
 
@@ -325,7 +343,8 @@ impl Spec for ChainFork6 {
         info!("Generate 1 block (F) with spending non-existent transaction on node1");
         let block = node1.new_block(None, None, None);
         let invalid_transaction = node1.new_transaction(h256!("0x1"));
-        let invalid_block = BlockBuilder::from_block(block)
+        let invalid_block = block
+            .as_advanced_builder()
             .transaction(invalid_transaction)
             .build();
         node1.process_block_without_verify(&invalid_block);
@@ -383,13 +402,19 @@ impl Spec for ChainFork7 {
         info!("Generate 1 block (F) with spending invalid index transaction on node1");
         let block = node1.new_block(None, None, None);
         let transaction = node1.new_transaction_spend_tip_cellbase();
-        let mut input = transaction.inputs()[0].clone();
-        input.previous_output.index = 999;
-        let invalid_transaction = TransactionBuilder::from_transaction(transaction)
-            .inputs_clear()
-            .input(input)
+        let input = transaction.inputs().as_reader().get(0).unwrap().to_entity();
+        let previous_output = input
+            .previous_output()
+            .as_builder()
+            .index(999u32.pack())
             .build();
-        let invalid_block = BlockBuilder::from_block(block)
+        let input = input.as_builder().previous_output(previous_output).build();
+        let invalid_transaction = transaction
+            .as_advanced_builder()
+            .set_inputs(vec![input])
+            .build();
+        let invalid_block = block
+            .as_advanced_builder()
             .transaction(invalid_transaction)
             .build();
         node1.process_block_without_verify(&invalid_block);
@@ -408,26 +433,17 @@ impl Spec for ChainFork7 {
 }
 
 fn modify_block_transaction<F>(
-    block: Block,
+    block: BlockView,
     transaction_index: usize,
     modify_transaction: F,
-) -> Block
+) -> BlockView
 where
-    F: FnOnce(Transaction) -> Transaction,
+    F: FnOnce(TransactionView) -> TransactionView,
 {
-    let (header, uncles, mut transactions, proposals) = (
-        block.header().clone(),
-        block.uncles().to_vec(),
-        block.transactions().to_vec(),
-        block.proposals().to_vec(),
-    );
-
+    let mut transactions = block.transactions();
     transactions[transaction_index] = modify_transaction(transactions[transaction_index].clone());
-
-    BlockBuilder::default()
-        .header(header)
-        .uncles(uncles)
+    block
+        .as_advanced_builder()
         .transactions(transactions)
-        .proposals(proposals)
         .build()
 }
