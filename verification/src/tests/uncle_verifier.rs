@@ -17,6 +17,7 @@ use ckb_types::{
     H256, U256,
 };
 use faketime;
+use rand::random;
 use std::sync::Arc;
 
 fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockView {
@@ -79,12 +80,12 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
         .unwrap();
 
     let mut parent = genesis.clone();
-    for i in 1..number {
+    for _ in 1..number {
         let parent_epoch = shared.get_block_epoch(&parent.hash().unpack()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
-        let new_block = gen_block(&parent, i, &epoch);
+        let new_block = gen_block(&parent, random(), &epoch);
         chain_controller
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
@@ -101,7 +102,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
         let new_block = if i > 10 {
-            gen_block(&parent, i + 1000, &epoch)
+            gen_block(&parent, random(), &epoch)
         } else {
             chain1[(i - 1) as usize].clone()
         };
