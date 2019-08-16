@@ -518,6 +518,7 @@ dependencies = [
  "ckb-store 0.19.0-pre",
  "ckb-traits 0.19.0-pre",
  "ckb-types 0.19.0-pre",
+ "numext-fixed-uint 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
