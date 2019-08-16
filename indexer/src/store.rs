@@ -102,7 +102,9 @@ impl IndexerStore for DefaultIndexerStore {
             .map(|(key, value)| {
                 let cell_output = CellOutput::from_slice(&value)
                     .expect("verify CellOutput in storage should be ok");
-                let lock_hash_index = LockHashIndex::from_slice(&key);
+                let lock_hash_index = LockHashIndex::from_packed(
+                    packed::LockHashIndexReader::from_slice(&key).unwrap(),
+                );
                 LiveCell {
                     created_by: lock_hash_index.into(),
                     cell_output,
@@ -118,7 +120,6 @@ impl IndexerStore for DefaultIndexerStore {
         take_num: usize,
         reverse_order: bool,
     ) -> Vec<CellTransaction> {
-        println!("get_transactions: {:x}", lock_hash);
         let mut from_key = lock_hash.to_vec();
         let iter = if reverse_order {
             from_key.extend_from_slice(&BlockNumber::max_value().to_be_bytes());
@@ -137,7 +138,9 @@ impl IndexerStore for DefaultIndexerStore {
                     .expect("verify TransactionPointOpt in storage should be ok")
                     .to_opt()
                     .map(TransactionPoint::from_packed);
-                let lock_hash_index = LockHashIndex::from_slice(&key);
+                let lock_hash_index = LockHashIndex::from_packed(
+                    packed::LockHashIndexReader::from_slice(&key).unwrap(),
+                );
                 CellTransaction {
                     created_by: lock_hash_index.into(),
                     consumed_by,
@@ -204,7 +207,9 @@ impl IndexerStore for DefaultIndexerStore {
 
             iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
                 .for_each(|(key, _)| {
-                    let lock_hash_index = LockHashIndex::from_slice(&key);
+                    let lock_hash_index = LockHashIndex::from_packed(
+                        packed::LockHashIndexReader::from_slice(&key).unwrap(),
+                    );
                     txn.delete_lock_hash_live_cell(&lock_hash_index);
                     txn.delete_cell_out_point_lock_hash(&lock_hash_index.out_point);
                 });
@@ -220,7 +225,9 @@ impl IndexerStore for DefaultIndexerStore {
 
             iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
                 .for_each(|(key, _)| {
-                    let lock_hash_index = LockHashIndex::from_slice(&key);
+                    let lock_hash_index = LockHashIndex::from_packed(
+                        packed::LockHashIndexReader::from_slice(&key).unwrap(),
+                    );
                     txn.delete_lock_hash_transaction(&lock_hash_index);
                 });
 
@@ -495,7 +502,10 @@ impl IndexerStoreTransaction {
     fn consume_live_cell(&self, lock_hash_index: LockHashIndex, consumed_by: TransactionPoint) {
         if let Some(lock_hash_cell_output) = self
             .txn
-            .get(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
+            .get(
+                COLUMN_LOCK_HASH_LIVE_CELL,
+                lock_hash_index.pack().as_slice(),
+            )
             .expect("indexer db read should be ok")
             .map(|value| {
                 CellOutput::from_slice(&value).expect("verify CellOutput in storage should be ok")
@@ -534,7 +544,7 @@ impl IndexerStoreTransaction {
         self.txn
             .put(
                 COLUMN_LOCK_HASH_LIVE_CELL,
-                &lock_hash_index.to_vec(),
+                lock_hash_index.pack().as_slice(),
                 cell_output.as_slice(),
             )
             .expect("txn insert COLUMN_LOCK_HASH_LIVE_CELL failed");
@@ -545,10 +555,6 @@ impl IndexerStoreTransaction {
         lock_hash_index: &LockHashIndex,
         consumed_by: &Option<TransactionPoint>,
     ) {
-        println!(
-            "insert_lock_hash_transaction: {:x}",
-            lock_hash_index.lock_hash
-        );
         let value = {
             packed::TransactionPointOpt::new_builder()
                 .set(consumed_by.as_ref().map(|i| i.pack()))
@@ -557,7 +563,7 @@ impl IndexerStoreTransaction {
         self.txn
             .put(
                 COLUMN_LOCK_HASH_TRANSACTION,
-                &lock_hash_index.to_vec(),
+                lock_hash_index.pack().as_slice(),
                 value.as_slice(),
             )
             .expect("txn insert COLUMN_LOCK_HASH_TRANSACTION failed");
@@ -585,13 +591,19 @@ impl IndexerStoreTransaction {
 
     fn delete_lock_hash_live_cell(&self, lock_hash_index: &LockHashIndex) {
         self.txn
-            .delete(COLUMN_LOCK_HASH_LIVE_CELL, &lock_hash_index.to_vec())
+            .delete(
+                COLUMN_LOCK_HASH_LIVE_CELL,
+                lock_hash_index.pack().as_slice(),
+            )
             .expect("txn delete COLUMN_LOCK_HASH_LIVE_CELL failed");
     }
 
     fn delete_lock_hash_transaction(&self, lock_hash_index: &LockHashIndex) {
         self.txn
-            .delete(COLUMN_LOCK_HASH_TRANSACTION, &lock_hash_index.to_vec())
+            .delete(
+                COLUMN_LOCK_HASH_TRANSACTION,
+                lock_hash_index.pack().as_slice(),
+            )
             .expect("txn delete COLUMN_LOCK_HASH_TRANSACTION failed");
     }
 
@@ -636,8 +648,8 @@ mod tests {
             TransactionBuilder,
         },
         packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
+        H256, U256,
     };
-    use numext_fixed_uint::U256;
     use std::sync::Arc;
     use tempfile;
 
@@ -680,8 +692,8 @@ mod tests {
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let script2 = Script::default();
-        store.insert_lock_hash(&script1.calc_hash(), None);
-        store.insert_lock_hash(&script2.calc_hash(), None);
+        store.insert_lock_hash(&script1.calc_script_hash(), None);
+        store.insert_lock_hash(&script2.calc_script_hash(), None);
 
         let tx11 = TransactionBuilder::default()
             .output(
@@ -791,7 +803,7 @@ mod tests {
         chain.process_block(Arc::new(block2), false).unwrap();
         store.sync_index_states();
 
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cells.len());
         assert_eq!(
             capacity_bytes!(1000),
@@ -803,7 +815,7 @@ mod tests {
         );
 
         // test reverse order
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, true);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, true);
         assert_eq!(2, cells.len());
         assert_eq!(
             capacity_bytes!(3000),
@@ -814,7 +826,7 @@ mod tests {
             cells[1].cell_output.capacity().unpack()
         );
 
-        let cells = store.get_live_cells(&script2.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cells.len());
         assert_eq!(
             capacity_bytes!(2000),
@@ -827,14 +839,14 @@ mod tests {
 
         chain.process_block(Arc::new(block2_fork), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(1, cells.len());
         assert_eq!(
             capacity_bytes!(5000),
             cells[0].cell_output.capacity().unpack()
         );
 
-        let cells = store.get_live_cells(&script2.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(1, cells.len());
         assert_eq!(
             capacity_bytes!(6000),
@@ -842,10 +854,10 @@ mod tests {
         );
 
         // remove script1's lock hash should remove its indexed data also
-        store.remove_lock_hash(&script1.calc_hash());
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        store.remove_lock_hash(&script1.calc_script_hash());
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cells = store.get_live_cells(&script2.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(1, cells.len());
     }
 
@@ -857,8 +869,8 @@ mod tests {
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let script2 = Script::default();
-        store.insert_lock_hash(&script1.calc_hash(), None);
-        store.insert_lock_hash(&script2.calc_hash(), None);
+        store.insert_lock_hash(&script1.calc_script_hash(), None);
+        store.insert_lock_hash(&script2.calc_script_hash(), None);
 
         let tx11 = TransactionBuilder::default()
             .output(
@@ -968,7 +980,7 @@ mod tests {
         chain.process_block(Arc::new(block2), false).unwrap();
         store.sync_index_states();
 
-        let transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx11.hash()),
@@ -980,7 +992,7 @@ mod tests {
         );
 
         // test reverse order
-        let transactions = store.get_transactions(&script1.calc_hash(), 0, 100, true);
+        let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, true);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx21.hash()),
@@ -991,7 +1003,7 @@ mod tests {
             transactions[1].created_by.tx_hash
         );
 
-        let transactions = store.get_transactions(&script2.calc_hash(), 0, 100, false);
+        let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx12.hash()),
@@ -1004,7 +1016,7 @@ mod tests {
 
         chain.process_block(Arc::new(block2_fork), false).unwrap();
         store.sync_index_states();
-        let transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx11.hash()),
@@ -1022,7 +1034,7 @@ mod tests {
             transactions[1].created_by.tx_hash
         );
 
-        let transactions = store.get_transactions(&script2.calc_hash(), 0, 100, false);
+        let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx12.hash()),
@@ -1034,10 +1046,10 @@ mod tests {
         );
 
         // remove script1's lock hash should remove its indexed data also
-        store.remove_lock_hash(&script1.calc_hash());
-        let transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        store.remove_lock_hash(&script1.calc_script_hash());
+        let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, transactions.len());
-        let transactions = store.get_transactions(&script2.calc_hash(), 0, 100, false);
+        let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
     }
 
@@ -1049,8 +1061,8 @@ mod tests {
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let script2 = Script::default();
-        store.insert_lock_hash(&script1.calc_hash(), None);
-        store.insert_lock_hash(&script2.calc_hash(), None);
+        store.insert_lock_hash(&script1.calc_script_hash(), None);
+        store.insert_lock_hash(&script2.calc_script_hash(), None);
 
         let tx11 = TransactionBuilder::default()
             .output(
@@ -1171,8 +1183,8 @@ mod tests {
 
         store.sync_index_states();
 
-        println!("script1.lock_hash: {:x}", script1.calc_hash());
-        let transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        println!("script1.lock_hash: {:x}", script1.calc_script_hash());
+        let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx11.hash()),
@@ -1183,7 +1195,7 @@ mod tests {
             transactions[1].created_by.tx_hash
         );
 
-        let transactions = store.get_transactions(&script2.calc_hash(), 0, 100, false);
+        let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx12.hash()),
@@ -1198,7 +1210,7 @@ mod tests {
         chain.process_block(Arc::new(block3), false).unwrap();
 
         store.sync_index_states();
-        let transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx11.hash()),
@@ -1216,7 +1228,7 @@ mod tests {
             transactions[1].created_by.tx_hash
         );
 
-        let transactions = store.get_transactions(&script2.calc_hash(), 0, 100, false);
+        let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(
             Unpack::<H256>::unpack(&tx12.hash()),
@@ -1236,8 +1248,8 @@ mod tests {
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let script2 = Script::default();
-        store.insert_lock_hash(&script1.calc_hash(), None);
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        store.insert_lock_hash(&script1.calc_script_hash(), None);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
 
         let tx11 = TransactionBuilder::default()
@@ -1303,16 +1315,16 @@ mod tests {
 
         chain.process_block(Arc::new(block1), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cell_transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        let cell_transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cell_transactions.len());
 
         chain.process_block(Arc::new(block1_fork), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cell_transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        let cell_transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cell_transactions.len());
     }
 
@@ -1324,8 +1336,8 @@ mod tests {
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let script2 = Script::default();
-        store.insert_lock_hash(&script1.calc_hash(), None);
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        store.insert_lock_hash(&script1.calc_script_hash(), None);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
 
         let tx11 = TransactionBuilder::default()
@@ -1402,16 +1414,16 @@ mod tests {
         chain.process_block(Arc::new(block1), false).unwrap();
         chain.process_block(Arc::new(block2), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cell_transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        let cell_transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, cell_transactions.len());
 
         chain.process_block(Arc::new(block1_fork), false).unwrap();
         store.sync_index_states();
-        let cells = store.get_live_cells(&script1.calc_hash(), 0, 100, false);
+        let cells = store.get_live_cells(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cells.len());
-        let cell_transactions = store.get_transactions(&script1.calc_hash(), 0, 100, false);
+        let cell_transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(0, cell_transactions.len());
     }
 }

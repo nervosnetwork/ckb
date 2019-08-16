@@ -8,9 +8,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use std::convert::TryInto;
 
-#[derive(Debug)]
 pub struct LockHashIndex {
     pub lock_hash: H256,
     pub block_number: BlockNumber,
@@ -48,6 +46,18 @@ pub struct LockHashIndexState {
     pub block_hash: H256,
 }
 
+impl Pack<packed::LockHashIndex> for LockHashIndex {
+    fn pack(&self) -> packed::LockHashIndex {
+        let index: u32 = self.out_point.index().unpack();
+        packed::LockHashIndex::new_builder()
+            .lock_hash(self.lock_hash.pack())
+            .block_number(self.block_number.pack())
+            .tx_hash(self.out_point.tx_hash())
+            .index(index.pack())
+            .build()
+    }
+}
+
 impl Pack<packed::TransactionPoint> for TransactionPoint {
     fn pack(&self) -> packed::TransactionPoint {
         packed::TransactionPoint::new_builder()
@@ -77,6 +87,23 @@ impl Pack<packed::LockHashIndexState> for LockHashIndexState {
             .block_number(self.block_number.pack())
             .block_hash(self.block_hash.pack())
             .build()
+    }
+}
+
+impl LockHashIndex {
+    pub(crate) fn from_packed(input: packed::LockHashIndexReader<'_>) -> Self {
+        let lock_hash = input.lock_hash().unpack();
+        let block_number = input.block_number().unpack();
+        let index: u32 = input.index().unpack();
+        let out_point = OutPoint::new_builder()
+            .tx_hash(input.tx_hash().to_entity())
+            .index(index.pack())
+            .build();
+        LockHashIndex {
+            lock_hash,
+            block_number,
+            out_point,
+        }
     }
 }
 
@@ -128,37 +155,6 @@ impl LockHashIndex {
             block_number,
             out_point,
         }
-    }
-
-    // TODO: because we need prefix match, can be change to pack
-    pub fn from_slice(slice: &[u8]) -> Self {
-        debug_assert!(slice.len() == 76);
-        let lock_hash = H256::from_slice(&slice[0..32]).unwrap();
-        let block_number = BlockNumber::from_be_bytes(slice[32..40].try_into().unwrap());
-        let tx_hash = H256::from_slice(&slice[40..72]).unwrap();
-        let index = u32::from_be_bytes(slice[72..76].try_into().unwrap());
-
-        let out_point = OutPoint::new_builder()
-            .tx_hash(tx_hash.pack())
-            .index(index.pack())
-            .build();
-        Self {
-            lock_hash,
-            block_number,
-            out_point,
-        }
-    }
-
-    // TODO: because we need prefix match, can be change to pack
-    pub fn to_vec(&self) -> Vec<u8> {
-        let mut result = Vec::with_capacity(76);
-        let tx_hash: H256 = self.out_point.tx_hash().unpack();
-        let index: u32 = self.out_point.index().unpack();
-        result.extend_from_slice(self.lock_hash.as_bytes());
-        result.extend_from_slice(&self.block_number.to_be_bytes());
-        result.extend_from_slice(tx_hash.as_bytes());
-        result.extend_from_slice(&index.to_be_bytes());
-        result
     }
 }
 
