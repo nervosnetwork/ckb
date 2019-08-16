@@ -367,13 +367,15 @@ impl ChainState {
             Ok(rtx) => {
                 self.verify_rtx(&rtx, Some(cycles)).and_then(|cycles| {
                     let mut tx_pool = self.tx_pool.borrow_mut();
-                    if self.contains_proposal_id(&short_id) {
+                    let in_gap = self.contains_gap(&short_id);
+                    if self.contains_proposal_id(&short_id) || in_gap {
                         // if tx is proposed, we resolve from proposed, verify again
                         if let Err(e) = self.proposed_tx_and_descendants(
                             &mut tx_pool,
                             Some(cycles),
                             tx_size,
                             tx,
+                            in_gap,
                         ) {
                             debug_target!(
                                 crate::LOG_TARGET_TX_POOL,
@@ -413,8 +415,9 @@ impl ChainState {
         tx_pool: &TxPool,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
         let cell_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
+        let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &cell_provider);
         let mut seen_inputs = HashSet::default();
-        resolve_transaction(tx, &mut seen_inputs, &cell_provider, self)
+        resolve_transaction(tx, &mut seen_inputs, &gap_and_proposed_provider, self)
     }
 
     pub(crate) fn verify_rtx(
@@ -459,9 +462,11 @@ impl ChainState {
     pub(crate) fn try_proposed_orphan_by_ancestor(&self, tx_pool: &mut TxPool, tx: &Transaction) {
         let entries = tx_pool.orphan.remove_by_ancestor(tx);
         for entry in entries {
-            if self.contains_proposal_id(&tx.proposal_short_id()) {
+            let in_gap = self.contains_gap(&tx.proposal_short_id());
+            if self.contains_proposal_id(&tx.proposal_short_id()) || in_gap {
                 let tx_hash = entry.transaction.hash().to_owned();
-                let ret = self.proposed_tx(tx_pool, entry.cycles, entry.size, entry.transaction);
+                let ret =
+                    self.proposed_tx(tx_pool, entry.cycles, entry.size, entry.transaction, in_gap);
                 if ret.is_err() {
                     tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles.unwrap_or(0));
                     trace_target!(
@@ -483,6 +488,7 @@ impl ChainState {
         cycles: Option<Cycle>,
         size: usize,
         tx: Transaction,
+        in_gap: bool,
     ) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
@@ -513,7 +519,11 @@ impl ChainState {
                                 .map(|dep| dep.out_point().clone())
                         })
                         .collect();
-                    tx_pool.add_proposed(cycles, fee, size, tx, related_out_points);
+                    if in_gap {
+                        tx_pool.add_gap(Some(cycles), size, tx);
+                    } else {
+                        tx_pool.add_proposed(cycles, fee, size, tx, related_out_points);
+                    }
                     Ok(cycles)
                 }
                 Err(e) => {
@@ -567,8 +577,9 @@ impl ChainState {
         cycles: Option<Cycle>,
         size: usize,
         tx: Transaction,
+        in_gap: bool,
     ) -> Result<Cycle, PoolError> {
-        self.proposed_tx(tx_pool, cycles, size, tx.clone())
+        self.proposed_tx(tx_pool, cycles, size, tx.clone(), in_gap)
             .map(|cycles| {
                 self.try_proposed_orphan_by_ancestor(tx_pool, &tx);
                 cycles
@@ -615,9 +626,13 @@ impl ChainState {
             let tx_short_id = tx.proposal_short_id();
             let tx_size = tx.serialized_size();
             if self.contains_proposal_id(&tx_short_id) {
-                if let Ok(cycles) =
-                    self.proposed_tx_and_descendants(&mut tx_pool, cached_cycles, tx_size, tx)
-                {
+                if let Ok(cycles) = self.proposed_tx_and_descendants(
+                    &mut tx_pool,
+                    cached_cycles,
+                    tx_size,
+                    tx,
+                    false,
+                ) {
                     if cached_cycles.is_none() {
                         txs_verify_cache.insert(tx_hash, cycles);
                     }
@@ -672,7 +687,8 @@ impl ChainState {
 
         for (cycles, size, tx) in entries {
             let tx_hash = tx.hash().to_owned();
-            if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, cycles, size, tx) {
+            if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, cycles, size, tx, false)
+            {
                 debug_target!(
                     crate::LOG_TARGET_TX_POOL,
                     "Failed to add proposed tx {:x}, reason: {:?}",
