@@ -1,14 +1,14 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::HeaderView;
-use crate::{BLOCK_DOWNLOAD_WINDOW, MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
+use crate::{MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 use ckb_core::header::Header;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
 use numext_fixed_hash::H256;
 use numext_fixed_uint::U256;
-use std::cmp;
+use std::cmp::min;
 
 pub struct BlockFetcher<CS: ChainStore> {
     synchronizer: Synchronizer<CS>,
@@ -133,29 +133,29 @@ where
 
         debug_assert!(best_known_header.number() > fixed_last_common_header.number());
 
-        let window_end = fixed_last_common_header.number() + BLOCK_DOWNLOAD_WINDOW;
-        let max_height = cmp::min(window_end + 1, best_known_header.number());
         let mut index_height = fixed_last_common_header.number();
         // Read up to 128, get_ancestor may be as expensive
         // as iterating over ~100 entries anyway.
-        let max_height = cmp::min(max_height, index_height + PER_FETCH_BLOCK_LIMIT as u64);
         let mut fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
 
         {
             let mut inflight = self.synchronizer.shared().write_inflight_blocks();
-            let count = MAX_BLOCKS_IN_TRANSIT_PER_PEER
-                .saturating_sub(inflight.peer_inflight_count(self.peer));
-            let max_height_header = self
-                .synchronizer
-                .shared
-                .get_ancestor(&best_known_header.hash(), max_height)?;
+            let count = min(
+                MAX_BLOCKS_IN_TRANSIT_PER_PEER
+                    .saturating_sub(inflight.peer_inflight_count(self.peer)),
+                PER_FETCH_BLOCK_LIMIT,
+            );
 
-            while index_height < max_height && fetch.len() < count {
+            while fetch.len() < count {
                 index_height += 1;
+                if index_height > best_known_header.number() {
+                    break;
+                }
+
                 let to_fetch = self
                     .synchronizer
                     .shared
-                    .get_ancestor(max_height_header.hash(), index_height)?;
+                    .get_ancestor(best_known_header.hash(), index_height)?;
                 let to_fetch_hash = to_fetch.hash();
                 if self
                     .synchronizer

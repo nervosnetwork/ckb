@@ -26,7 +26,6 @@ pub const MAX_UNCONNECTING_HEADERS: usize = 10;
 pub const MAX_BLOCKS_IN_TRANSIT_PER_PEER: usize = 16;
 pub const MAX_TIP_AGE: u64 = 24 * 60 * 60 * 1000;
 pub const STALE_RELAY_AGE_LIMIT: u64 = 30 * 24 * 60 * 60 * 1000;
-pub const BLOCK_DOWNLOAD_WINDOW: u64 = 1024;
 pub const PER_FETCH_BLOCK_LIMIT: usize = 128;
 
 pub(crate) const LOG_TARGET_RELAY: &str = "ckb-relay";
