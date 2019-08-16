@@ -5,13 +5,6 @@ use crate::module::{
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::cell::resolve_transaction;
-use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::transaction::{
-    CellDep, CellInput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
-};
-use ckb_core::{alert::AlertBuilder, capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_db::DBConfig;
@@ -25,17 +18,25 @@ use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_types::{
+    core::{
+        capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity, HeaderView,
+        TransactionBuilder, TransactionView,
+    },
+    packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
+    prelude::*,
+    H256, U256,
+};
 use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::ServerBuilder;
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use reqwest;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{from_reader, json, to_string, to_string_pretty, Map, Value};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -67,14 +68,12 @@ pub struct JsonResponse {
 fn always_success_consensus() -> Consensus {
     let always_success_tx = always_success_transaction();
     let dao = genesis_dao_data(&always_success_tx).unwrap();
-    let genesis = BlockBuilder::from_header_builder(
-        HeaderBuilder::default()
-            .timestamp(GENESIS_TIMESTAMP)
-            .difficulty(U256::from(GENESIS_DIFFICULTY))
-            .dao(dao),
-    )
-    .transaction(always_success_tx)
-    .build();
+    let genesis = BlockBuilder::default()
+        .timestamp(GENESIS_TIMESTAMP.pack())
+        .difficulty(U256::from(GENESIS_DIFFICULTY).pack())
+        .dao(dao.pack())
+        .transaction(always_success_tx)
+        .build();
     Consensus::default()
         .set_genesis_block(genesis)
         .set_epoch_reward(Capacity::shannons(EPOCH_REWARD))
@@ -84,22 +83,22 @@ fn always_success_consensus() -> Consensus {
 // Construct `Transaction` with an always-success cell
 //
 // The 1st transaction in genesis block, which contains a always_success_cell as the 1st output
-fn always_success_transaction() -> Transaction {
+fn always_success_transaction() -> TransactionView {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data.to_owned())
+        .output_data(always_success_cell_data.to_owned().pack())
         .witness(always_success_script.clone().into_witness())
         .build()
 }
 
 // Construct the next block based the given `parent`
-fn next_block(shared: &Shared, parent: &Header) -> Block {
+fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let epoch = {
         let last_epoch = shared
-            .get_block_epoch(parent.hash())
+            .get_block_epoch(&parent.hash().unpack())
             .expect("current epoch exists");
         shared
             .next_epoch_ext(&last_epoch, parent)
@@ -111,34 +110,27 @@ fn next_block(shared: &Shared, parent: &Header) -> Block {
     // We store a cellbase for constructing a new transaction later
     if parent.number() == 0 {
         UNSPENT.with(|unspent| {
-            *unspent.borrow_mut() = cellbase.hash().to_owned();
+            *unspent.borrow_mut() = cellbase.hash().unpack();
         });
     }
 
     let dao = {
         let chain_state = shared.lock_chain_state();
-        let resolved_cellbase = resolve_transaction(
-            &cellbase,
-            &mut Default::default(),
-            &*chain_state,
-            &*chain_state,
-        )
-        .unwrap();
+        let resolved_cellbase =
+            resolve_transaction(&cellbase, &mut HashSet::new(), &*chain_state, &*chain_state)
+                .unwrap();
         DaoCalculator::new(shared.consensus(), shared.store())
             .dao_field(&[resolved_cellbase], parent)
             .unwrap()
     };
     BlockBuilder::default()
         .transaction(cellbase)
-        .header_builder(
-            HeaderBuilder::default()
-                .parent_hash(parent.hash().to_owned())
-                .number(parent.number() + 1)
-                .epoch(epoch.number())
-                .timestamp(parent.timestamp() + 1)
-                .difficulty(epoch.difficulty().clone())
-                .dao(dao),
-        )
+        .parent_hash(parent.hash().to_owned())
+        .number((parent.number() + 1).pack())
+        .epoch(epoch.number().pack())
+        .timestamp((parent.timestamp() + 1).pack())
+        .difficulty(epoch.difficulty().pack())
+        .dao(dao.pack())
         .build()
 }
 
@@ -156,7 +148,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
     for _ in 0..height {
-        let block = next_block(&shared, parent.header());
+        let block = next_block(&shared, &parent.header());
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("processing new block should be ok");
@@ -196,7 +188,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         };
         let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
         let (_, _, always_success_script) = always_success_cell();
-        indexer_store.insert_lock_hash(&always_success_script.hash(), Some(0));
+        indexer_store.insert_lock_hash(&always_success_script.calc_script_hash(), Some(0));
         // use hardcoded TXN_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
         (0..=height / 100).for_each(|_| indexer_store.sync_index_states());
         indexer_store
@@ -210,12 +202,16 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         let alert_notifier = alert_relayer.notifier();
         let alert = Arc::new(
             AlertBuilder::default()
-                .id(42)
-                .min_version(Some("0.0.1".into()))
-                .max_version(Some("1.0.0".into()))
-                .priority(1)
-                .notice_until(ALERT_UNTIL_TIMESTAMP * 1000)
-                .message("An example alert message!".into())
+                .raw(
+                    RawAlertBuilder::default()
+                        .id(42u32.pack())
+                        .min_version(Some("0.0.1".to_string()).pack())
+                        .max_version(Some("1.0.0".to_string()).pack())
+                        .priority(1u32.pack())
+                        .notice_until((ALERT_UNTIL_TIMESTAMP * 1000).pack())
+                        .message("An example alert message!".pack())
+                        .build(),
+                )
                 .build(),
         );
         alert_notifier.lock().add(alert);
@@ -273,27 +269,31 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
 
 fn load_cases_from_file() -> Vec<Value> {
     let mut file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    file_path.push("json/rpc.json");
+    file_path.push("json");
+    file_path.push("rpc.json");
     let file = File::open(file_path).expect("opening test data json");
     let content: Value = from_reader(file).expect("reading test data json");
     content.as_array().expect("load in array format").clone()
 }
 
 // Construct a transaction which use tip-cellbase as input cell
-fn construct_transaction() -> Transaction {
+fn construct_transaction() -> TransactionView {
     let previous_output = OutPoint::new(UNSPENT.with(|unspent| unspent.borrow().clone()), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
-        .capacity(capacity_bytes!(1000))
+        .capacity(capacity_bytes!(1000).pack())
         .lock(always_success_cell().2.clone())
         .build();
-    let out_point = OutPoint::new(always_success_transaction().hash().to_owned(), 0);
+    let cell_dep = CellDep::new(
+        OutPoint::new(always_success_transaction().hash().unpack(), 0),
+        false,
+    );
     TransactionBuilder::default()
         .input(input)
         .output(output)
-        .output_data(Bytes::new())
-        .cell_dep(CellDep::new_cell(out_point))
-        .header_dep(always_success_consensus().genesis_hash().clone())
+        .output_data(Default::default())
+        .cell_dep(cell_dep)
+        .header_dep(always_success_consensus().genesis_hash().pack())
         .build()
 }
 
@@ -332,18 +332,19 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         chain.tip_header().to_owned()
     };
     let tip_number = json!(tip.number().to_string());
-    let tip_hash = json!(format!("{:#x}", tip.hash()));
+    let tip_hash = json!(format!("{:#x}", Unpack::<H256>::unpack(&tip.hash())));
     let (_, _, always_success_script) = always_success_cell();
-    let always_success_script_hash = json!(format!("{:#x}", always_success_script.hash()));
+    let always_success_script_hash =
+        json!(format!("{:#x}", always_success_script.calc_script_hash()));
     let always_success_out_point = {
-        let out_point = OutPoint::new(always_success_transaction().hash().to_owned(), 0);
+        let out_point = OutPoint::new(always_success_transaction().hash().unpack(), 0);
         let json_out_point: ckb_jsonrpc_types::OutPoint = out_point.into();
         json!(json_out_point)
     };
     let (transaction, transaction_hash) = {
         let transaction = construct_transaction();
-        let transaction_hash = transaction.hash().to_owned();
-        let json_transaction: ckb_jsonrpc_types::Transaction = (&transaction).into();
+        let transaction_hash: H256 = transaction.hash().unpack();
+        let json_transaction: ckb_jsonrpc_types::Transaction = transaction.data().into();
         (
             json!(json_transaction),
             json!(format!("{:#x}", transaction_hash)),
@@ -381,10 +382,13 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         }
         "get_transaction" => vec![transaction_hash],
         "index_lock_hash" => vec![
-            json!(format!("{:#x}", always_success_script.hash())),
+            json!(format!("{:#x}", always_success_script.calc_script_hash())),
             json!("1024"),
         ],
-        "deindex_lock_hash" => vec![json!(format!("{:#x}", always_success_script.hash()))],
+        "deindex_lock_hash" => vec![json!(format!(
+            "{:#x}",
+            always_success_script.calc_script_hash()
+        ))],
         "_compute_code_hash" => vec![json!("0x123456")],
         "_compute_script_hash" => {
             let script = always_success_script.clone();
@@ -418,9 +422,17 @@ fn print_document(shared: &Shared, client: &reqwest::Client, uri: &str) {
         })
         .collect();
     println!("\n\n###################################");
-    println!("Generated RPC Documentation:");
-    println!("{}", to_string_pretty(&document).unwrap());
+    println!("Expected RPC Document is written into rpc/json/rpc.expect.json");
+    println!("Check full diff using following commands:");
+    println!("    devtools/doc/jsonfmt.py rpc/json/rpc.expect.json");
+    println!("    diff rpc/json/rpc.json rpc/json/rpc.expect.json");
     println!("###################################\n\n");
+
+    let mut out_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    out_path.push("json");
+    out_path.push("rpc.expect.json");
+    std::fs::write(out_path, to_string_pretty(&document).unwrap())
+        .expect("Write to rpc/json/rpc.expect.json");
 }
 
 #[test]

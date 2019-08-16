@@ -49,8 +49,9 @@ tags
 # tmp files
 *.pyc
 
-# code coverage report
+# generated files
 cobertura.xml
+/rpc/json/rpc.expect.json
 
 # proptest
 **/proptest-regressions

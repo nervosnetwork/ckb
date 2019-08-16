@@ -4,9 +4,8 @@ pub(crate) mod module;
 pub(crate) mod server;
 pub(crate) mod service_builder;
 
-// TODO apply-serialization fix tests
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;
 
 pub use crate::config::{Config, Module};
 pub use crate::server::RpcServer;
