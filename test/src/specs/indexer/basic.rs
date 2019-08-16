@@ -1,6 +1,5 @@
 use crate::utils::wait_until;
 use crate::{Net, Spec};
-use ckb_types::prelude::*;
 use log::info;
 
 pub struct IndexerBasic;
@@ -23,9 +22,7 @@ impl Spec for IndexerBasic {
             .as_reader()
             .get(0)
             .unwrap()
-            .to_entity()
-            .lock()
-            .calc_hash();
+            .calc_lock_hash();
         let rpc_client = node0.rpc_client();
 
         info!("Should return empty result before index the lock hash");

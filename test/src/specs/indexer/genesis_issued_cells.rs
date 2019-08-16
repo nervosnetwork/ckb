@@ -24,7 +24,7 @@ impl Spec for GenesisIssuedCells {
             .code_hash(h256!("0xa1").pack())
             .hash_type(ScriptHashType::Data.pack())
             .build()
-            .calc_hash();
+            .calc_script_hash();
         info!("{:x}", lock_hash);
         let rpc_client = node0.rpc_client();
 
