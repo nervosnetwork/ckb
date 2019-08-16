@@ -1,7 +1,7 @@
 use crate::config::SignatureConfig;
 use ckb_logger::{debug, trace};
 use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
-use ckb_types::{packed, prelude::*};
+use ckb_types::packed;
 use failure::Error;
 use fnv::FnvHashSet;
 
@@ -23,7 +23,7 @@ impl Verifier {
 
     pub fn verify_signatures(&self, alert: &packed::Alert) -> Result<(), Error> {
         trace!("verify alert {:?}", alert);
-        let message = Message::from_slice(alert.raw().calc_hash().as_bytes())?;
+        let message = Message::from_slice(alert.calc_alert_hash().as_bytes())?;
         let signatures: Vec<Signature> = alert
             .signatures()
             .into_iter()

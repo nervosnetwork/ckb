@@ -129,7 +129,7 @@ impl<'a> LoadCell<'a> {
                 (SUCCESS, data.len())
             }
             CellField::LockHash => {
-                let hash = output.lock().calc_hash();
+                let hash = output.calc_lock_hash();
                 let bytes = hash.as_bytes();
                 store_data(machine, &bytes)?;
                 (SUCCESS, bytes.len())
@@ -144,7 +144,7 @@ impl<'a> LoadCell<'a> {
             },
             CellField::TypeHash => match output.type_().to_opt() {
                 Some(type_) => {
-                    let hash = type_.calc_hash();
+                    let hash = type_.calc_script_hash();
                     let bytes = hash.as_bytes();
                     store_data(machine, &bytes)?;
                     (SUCCESS, bytes.len())

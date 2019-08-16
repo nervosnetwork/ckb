@@ -9,8 +9,8 @@ use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::ChainProvider;
 use ckb_types::{
     core::{
-        BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder, HeaderView,
-        TransactionBuilder, TransactionView, UncleBlockView,
+        BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView, TransactionBuilder,
+        TransactionView, UncleBlockView,
     },
     packed::{CellInput, ProposalShortId, Script, UncleBlockVec},
     prelude::*,
@@ -20,22 +20,18 @@ use faketime;
 use std::sync::Arc;
 
 fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockView {
-    let now = 1 + parent_header.timestamp();
+    let now = parent_header.timestamp() + 1;
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
-    let header = HeaderBuilder::default()
+    BlockBuilder::default()
+        .transaction(cellbase)
+        .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
         .parent_hash(parent_header.hash())
         .timestamp(now.pack())
         .epoch(epoch.number().pack())
         .number(number.pack())
         .difficulty(epoch.difficulty().pack())
         .nonce(nonce.pack())
-        .build();
-
-    BlockBuilder::default()
-        .transaction(cellbase)
-        .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-        .header(header)
         .build()
 }
 
@@ -117,8 +113,8 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     }
 
     // the second chain must have smaller hash
-    let hash1: H256 = chain1.last().unwrap().header().hash().unpack();
-    let hash2: H256 = chain1.last().unwrap().header().hash().unpack();
+    let hash1: H256 = chain1.last().unwrap().hash().unpack();
+    let hash2: H256 = chain2.last().unwrap().hash().unpack();
     if hash1 < hash2 {
         (shared, chain2, chain1)
     } else {
@@ -132,7 +128,7 @@ fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
 
 fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
     let parent_epoch = shared
-        .get_block_epoch(&chain[index].header().hash().unpack())
+        .get_block_epoch(&chain[index].hash().unpack())
         .unwrap();
     shared
         .next_epoch_ext(&parent_epoch, &chain[index].header())
@@ -178,7 +174,7 @@ fn test_invalid_uncle_hash_case1() {
         .cloned()
         .unwrap()
         .as_advanced_builder()
-        .header(HeaderBuilder::default().uncles_count(1u32.pack()).build())
+        .uncles_count(1u32.pack())
         .uncle(chain2.last().cloned().unwrap().as_uncle())
         .build_unchecked();
 
@@ -202,7 +198,7 @@ fn test_invalid_uncle_hash_case2() {
 
     // header has empty uncles, but the uncles hash is not matched
     let uncles: UncleBlockVec = vec![chain2.last().cloned().unwrap().data().as_uncle()].pack();
-    let uncles_hash = uncles.calc_hash();
+    let uncles_hash = uncles.calc_uncles_hash();
     let block = chain1
         .last()
         .cloned()
@@ -344,7 +340,7 @@ fn test_uncle_proposals_hash() {
     let uncle = chain1[16]
         .to_owned()
         .as_advanced_builder()
-        .parent_hash(chain2[15].header().hash())
+        .parent_hash(chain2[15].hash())
         .proposal([1; 10].pack())
         .build_unchecked()
         .as_uncle();
@@ -412,7 +408,7 @@ fn test_duplicated_uncles() {
     assert_eq!(
         verifier.verify(),
         Err(Error::Uncles(UnclesError::Duplicate(
-            block.uncles().get(1).unwrap().header().hash().unpack()
+            block.uncles().get(1).unwrap().hash().unpack()
         )))
     );
 }
@@ -503,7 +499,7 @@ fn test_descendant_limit() {
         let uncle1 = chain1[15]
             .clone()
             .as_advanced_builder()
-            .parent_hash(chain2[14].header().hash())
+            .parent_hash(chain2[14].hash())
             .build()
             .as_uncle();
         let uncle2 = chain1[16]
@@ -535,7 +531,7 @@ fn test_descendant_continuity() {
         let uncle = chain1[16]
             .clone()
             .as_advanced_builder()
-            .parent_hash(chain2[14].header().hash())
+            .parent_hash(chain2[14].hash())
             .build()
             .as_uncle();
         let block = chain2[18]
@@ -563,7 +559,7 @@ fn test_ok() {
         let uncle = chain1[16]
             .clone()
             .as_advanced_builder()
-            .parent_hash(chain2[15].header().hash())
+            .parent_hash(chain2[15].hash())
             .build()
             .as_uncle();
         let block = chain2[18]

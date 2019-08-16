@@ -406,7 +406,6 @@ fn create_2out_transaction(inputs: Vec<OutPoint>, lock: Script, dep: OutPoint) -
         .into();
 
     raw.as_advanced_builder()
-        .clear_caches()
         .witness(vec![witness.pack()].pack())
         .witness(vec![witness.pack()].pack())
         .build()

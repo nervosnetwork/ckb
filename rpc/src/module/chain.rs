@@ -198,7 +198,7 @@ impl ChainRpc for ChainRpcImpl {
                     chain_state.cell_set().get(&transaction.hash().unpack())
                 {
                     for (i, output) in transaction.outputs().into_iter().enumerate() {
-                        if output.lock().calc_hash() == lock_hash
+                        if output.calc_lock_hash() == lock_hash
                             && transaction_meta.is_dead(i) == Some(false)
                         {
                             let out_point = packed::OutPoint::new_builder()

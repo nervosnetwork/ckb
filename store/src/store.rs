@@ -198,8 +198,8 @@ pub trait ChainStore<'a>: Send + Sync {
 
     /// Get block header hash by block number
     fn get_block_hash(&'a self, number: BlockNumber) -> Option<packed::Byte32> {
-        let number_packed: packed::BeUint64 = number.pack();
-        self.get(COLUMN_INDEX, number_packed.as_slice()).map(|raw| {
+        let block_number: packed::Uint64 = number.pack();
+        self.get(COLUMN_INDEX, block_number.as_slice()).map(|raw| {
             packed::Byte32Reader::from_slice(&raw.as_ref()[..])
                 .should_be_ok()
                 .to_entity()
@@ -367,8 +367,8 @@ pub trait ChainStore<'a>: Send + Sync {
 
     // Get epoch index by epoch number
     fn get_epoch_index(&'a self, number: EpochNumber) -> Option<packed::Byte32> {
-        let number_packed: packed::BeUint64 = number.pack();
-        self.get(COLUMN_EPOCH, number_packed.as_slice()).map(|raw| {
+        let epoch_number: packed::Uint64 = number.pack();
+        self.get(COLUMN_EPOCH, epoch_number.as_slice()).map(|raw| {
             packed::Byte32Reader::from_slice(&raw.as_ref())
                 .should_be_ok()
                 .to_entity()

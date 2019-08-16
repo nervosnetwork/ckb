@@ -144,20 +144,13 @@ impl StoreTransaction {
                 .build();
             self.insert_raw(COLUMN_TRANSACTION_INFO, tx_hash.as_slice(), info.as_slice())?;
         }
-        let number_packed: packed::BeUint64 = block.number().pack();
-        self.insert_raw(
-            COLUMN_INDEX,
-            number_packed.as_slice(),
-            block_hash.as_slice(),
-        )?;
+        let block_number: packed::Uint64 = block.number().pack();
+        self.insert_raw(COLUMN_INDEX, block_number.as_slice(), block_hash.as_slice())?;
         for uncle_hash in block.uncle_hashes().into_iter() {
             self.insert_raw(COLUMN_UNCLES, &uncle_hash.as_slice(), &[])?;
         }
-        self.insert_raw(
-            COLUMN_INDEX,
-            block_hash.as_slice(),
-            number_packed.as_slice(),
-        )
+        eprintln!("insert block-{}: {}", block.number(), block.hash());
+        self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())
     }
 
     pub fn detach_block(&self, block: &BlockView) -> Result<(), Error> {
@@ -167,8 +160,8 @@ impl StoreTransaction {
         for uncle_hash in block.uncle_hashes().into_iter() {
             self.delete(COLUMN_UNCLES, uncle_hash.as_slice())?;
         }
-        let number_packed: packed::BeUint64 = block.number().pack();
-        self.delete(COLUMN_INDEX, number_packed.as_slice())?;
+        let block_number = block.data().header().raw().number();
+        self.delete(COLUMN_INDEX, block_number.as_slice())?;
         self.delete(COLUMN_INDEX, block.hash().as_slice())
     }
 
@@ -186,8 +179,8 @@ impl StoreTransaction {
 
     pub fn insert_epoch_ext(&self, hash: &packed::Byte32, epoch: &EpochExt) -> Result<(), Error> {
         self.insert_raw(COLUMN_EPOCH, hash.as_slice(), epoch.pack().as_slice())?;
-        let number_packed: packed::BeUint64 = epoch.number().pack();
-        self.insert_raw(COLUMN_EPOCH, number_packed.as_slice(), hash.as_slice())
+        let epoch_number: packed::Uint64 = epoch.number().pack();
+        self.insert_raw(COLUMN_EPOCH, epoch_number.as_slice(), hash.as_slice())
     }
 
     pub fn insert_current_epoch_ext(&self, epoch: &EpochExt) -> Result<(), Error> {

@@ -204,7 +204,7 @@ impl BlockAssembler {
 
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
         UncleTemplate {
-            hash: uncle.header().calc_hash(),
+            hash: uncle.calc_header_hash(),
             required: false,
             proposals: uncle.proposals().into_iter().map(Into::into).collect(),
             header: uncle.header().into(),
@@ -525,7 +525,7 @@ impl BlockAssembler {
                 || store.is_uncle(&uncle.hash())
                 || !(uncles
                     .iter()
-                    .any(|u| u.header().calc_hash().pack() == parent_hash)
+                    .any(|u| u.calc_header_hash().pack() == parent_hash)
                     || store.get_block_number(&parent_hash).is_some()
                     || store.is_uncle(&parent_hash))
                 || uncle.number() >= candidate_number

@@ -46,7 +46,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
 
     fn compute_script_hash(&self, script: Script) -> Result<H256> {
         let script: packed::Script = script.into();
-        Ok(script.calc_hash())
+        Ok(script.calc_script_hash())
     }
 
     fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {

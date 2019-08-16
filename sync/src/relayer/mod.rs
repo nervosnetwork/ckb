@@ -155,7 +155,7 @@ impl Relayer {
             .collect();
         if !to_ask_proposals.is_empty() {
             let content = packed::GetBlockProposal::new_builder()
-                .block_hash(block.header().as_reader().calc_hash().pack())
+                .block_hash(block.calc_header_hash().pack())
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
@@ -223,7 +223,7 @@ impl Relayer {
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "start block reconstruction, block hash: {:#x}, transactions len: {}",
-            compact_block.header().as_reader().calc_hash(),
+            compact_block.calc_header_hash(),
             transactions.len(),
         );
 
@@ -293,7 +293,7 @@ impl Relayer {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
                 "finish block reconstruction, block hash: {:#x}",
-                compact_block.header().as_reader().calc_hash(),
+                compact_block.calc_header_hash(),
             );
 
             Ok(block)
@@ -307,7 +307,7 @@ impl Relayer {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
                 "block reconstruction failed, block hash: {:#x}, missing: {}, total: {}",
-                compact_block.header().as_reader().calc_hash(),
+                compact_block.calc_header_hash(),
                 missing_indexes.len(),
                 compact_block.short_ids().len(),
             );

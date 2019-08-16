@@ -2,8 +2,8 @@ use crate::{packed, prelude::*};
 
 macro_rules! impl_serialized_size_for_reader {
     ($reader:ident) => {
-        impl<'r> SerializedSize for packed::$reader<'r> {
-            fn serialized_size(&self) -> usize {
+        impl<'r> packed::$reader<'r> {
+            pub fn serialized_size(&self) -> usize {
                 self.as_slice().len()
             }
         }
@@ -12,8 +12,8 @@ macro_rules! impl_serialized_size_for_reader {
 
 macro_rules! impl_serialized_size_for_entity {
     ($entity:ident) => {
-        impl SerializedSize for packed::$entity {
-            fn serialized_size(&self) -> usize {
+        impl packed::$entity {
+            pub fn serialized_size(&self) -> usize {
                 self.as_reader().serialized_size()
             }
         }
@@ -29,9 +29,10 @@ macro_rules! impl_serialized_size_for_both {
 
 impl_serialized_size_for_both!(Block, BlockReader);
 
-impl<'r> SerializedSize for packed::TransactionReader<'r> {
-    fn serialized_size(&self) -> usize {
-        self.as_slice().len() + 4 // the offset in TransactionVec header is u32
+impl<'r> packed::TransactionReader<'r> {
+    pub fn serialized_size(&self) -> usize {
+        // the offset in TransactionVec header is u32
+        self.as_slice().len() + 4
     }
 }
 impl_serialized_size_for_entity!(Transaction);

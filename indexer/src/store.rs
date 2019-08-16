@@ -397,7 +397,7 @@ impl DefaultIndexerStore {
                 .enumerate()
                 .for_each(|(index, output)| {
                     let index = index as u32;
-                    let lock_hash = output.lock().calc_hash();
+                    let lock_hash = output.calc_lock_hash();
                     if index_lock_hashes.contains(&lock_hash) {
                         let lock_hash_index =
                             LockHashIndex::new(lock_hash, block_number, tx_hash.unpack(), index);
@@ -471,7 +471,7 @@ impl DefaultIndexerStore {
                 .enumerate()
                 .for_each(|(index, output)| {
                     let index = index as u32;
-                    let lock_hash = output.lock().calc_hash();
+                    let lock_hash = output.calc_lock_hash();
                     if index_lock_hashes.contains(&lock_hash) {
                         let lock_hash_index =
                             LockHashIndex::new(lock_hash, block_number, tx_hash.unpack(), index);

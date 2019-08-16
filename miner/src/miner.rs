@@ -74,7 +74,7 @@ impl Miner {
             select! {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
-                        let pow_hash = work.block.header().raw().calc_hash();
+                        let pow_hash = work.block.header().calc_pow_hash();
                         self.works.lock().insert(pow_hash.clone(), work);
                         self.notify_workers(WorkerMessage::NewWork(pow_hash));
                     },

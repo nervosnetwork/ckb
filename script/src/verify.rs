@@ -106,7 +106,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             binaries_by_data_hash.insert(cell_meta.data_hash().pack(), data.to_owned());
             if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
                 binaries_by_type_hash
-                    .entry(t.calc_hash().pack())
+                    .entry(t.calc_script_hash().pack())
                     .and_modify(|e| e.1 = true)
                     .or_insert((data.to_owned(), false));
             }
@@ -119,12 +119,12 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             // each input has correct script setup.
             let output = &cell_meta.cell_output;
             let lock_group_entry = lock_groups
-                .entry(output.lock().calc_hash().pack())
+                .entry(output.calc_lock_hash().pack())
                 .or_insert_with(|| ScriptGroup::new(&output.lock()));
             lock_group_entry.input_indices.push(i);
             if let Some(t) = &output.type_().to_opt() {
                 let type_group_entry = type_groups
-                    .entry(t.calc_hash().pack())
+                    .entry(t.calc_script_hash().pack())
                     .or_insert_with(|| ScriptGroup::new(&t));
                 type_group_entry.input_indices.push(i);
             }
@@ -132,7 +132,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         for (i, output) in rtx.transaction.outputs().into_iter().enumerate() {
             if let Some(t) = &output.type_().to_opt() {
                 let type_group_entry = type_groups
-                    .entry(t.calc_hash().pack())
+                    .entry(t.calc_script_hash().pack())
                     .or_insert_with(|| ScriptGroup::new(&t));
                 type_group_entry.output_indices.push(i);
             }
@@ -286,7 +286,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             let cycle = result.map_err(|e| {
                 info!(
                     "Error validating script group {:x} of transaction {}: {:?}",
-                    group.script.calc_hash(),
+                    group.script.calc_script_hash(),
                     self.hash(),
                     e
                 );
@@ -310,7 +310,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         script_group: &ScriptGroup,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        let current_script_hash = script_group.script.calc_hash();
+        let current_script_hash = script_group.script.calc_script_hash();
         let prefix = format!("script group: {:x}", current_script_hash);
         let debug_printer = |message: &str| {
             if let Some(ref printer) = self.debug_printer {

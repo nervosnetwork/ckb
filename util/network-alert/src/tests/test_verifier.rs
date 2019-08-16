@@ -18,7 +18,7 @@ fn test_veirifer() {
     };
     let verifier = Verifier::new(config);
     let raw_alert = packed::RawAlert::new_builder().id(1u32.pack()).build();
-    let hash = raw_alert.calc_hash();
+    let hash = raw_alert.calc_alert_hash();
     let signatures = keypairs
         .iter()
         .map(|(privkey, _)| privkey.sign_recoverable(&hash))

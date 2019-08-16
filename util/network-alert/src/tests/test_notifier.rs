@@ -44,8 +44,8 @@ fn test_received_alerts() {
     notifier.add(dup_alert1);
     assert_eq!(notifier.received_alerts().len(), 1);
     assert_eq!(
-        notifier.received_alerts()[0].raw().calc_hash(),
-        alert1.raw().calc_hash()
+        notifier.received_alerts()[0].calc_alert_hash(),
+        alert1.calc_alert_hash()
     );
 }
 
@@ -62,8 +62,8 @@ fn test_cancel_alert() {
     assert_eq!(notifier.received_alerts().len(), 1);
     assert_eq!(notifier.noticed_alerts().len(), 1);
     assert_eq!(
-        notifier.received_alerts()[0].raw().calc_hash(),
-        cancel_alert1.raw().calc_hash()
+        notifier.received_alerts()[0].calc_alert_hash(),
+        cancel_alert1.calc_alert_hash()
     );
 }
 

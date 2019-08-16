@@ -17,9 +17,6 @@ pub struct TransactionBuilder {
     pub(crate) outputs: Vec<packed::CellOutput>,
     pub(crate) witnesses: Vec<packed::Witness>,
     pub(crate) outputs_data: Vec<packed::Bytes>,
-    // Hashes
-    pub(crate) hash: Option<packed::Byte32>,
-    pub(crate) witness_hash: Option<packed::Byte32>,
 }
 
 #[derive(Debug, Default)]
@@ -40,8 +37,6 @@ pub struct HeaderBuilder {
     // Seal
     pub(crate) nonce: packed::Uint64,
     pub(crate) proof: packed::Bytes,
-    // Hash
-    pub(crate) hash: Option<packed::Byte32>,
 }
 
 #[derive(Debug, Default)]
@@ -133,22 +128,6 @@ impl TransactionBuilder {
         set_outputs_data
     );
 
-    pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
-        self.hash = Some(hash);
-        self
-    }
-
-    pub fn fake_witness_hash(mut self, witness_hash: packed::Byte32) -> Self {
-        self.witness_hash = Some(witness_hash);
-        self
-    }
-
-    pub fn clear_caches(mut self) -> Self {
-        self.hash = None;
-        self.witness_hash = None;
-        self
-    }
-
     pub fn build(self) -> core::TransactionView {
         let Self {
             version,
@@ -158,8 +137,6 @@ impl TransactionBuilder {
             outputs,
             witnesses,
             outputs_data,
-            hash,
-            witness_hash,
         } = self;
         let raw = packed::RawTransaction::new_builder()
             .version(version)
@@ -176,16 +153,8 @@ impl TransactionBuilder {
             .slim(slim)
             .outputs_data(outputs_data.pack())
             .build();
-        let hash = if let Some(hash) = hash {
-            hash
-        } else {
-            tx.calc_tx_hash().pack()
-        };
-        let witness_hash = if let Some(witness_hash) = witness_hash {
-            witness_hash
-        } else {
-            tx.calc_witness_hash().pack()
-        };
+        let hash = tx.calc_tx_hash().pack();
+        let witness_hash = tx.calc_witness_hash().pack();
         core::TransactionView {
             data: tx,
             hash,
@@ -210,16 +179,6 @@ impl HeaderBuilder {
     def_setter_simple!(nonce, Uint64);
     def_setter_simple!(proof, Bytes);
 
-    pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
-        self.hash = Some(hash);
-        self
-    }
-
-    pub fn clear_caches(mut self) -> Self {
-        self.hash = None;
-        self
-    }
-
     pub fn build(self) -> core::HeaderView {
         let Self {
             version,
@@ -236,7 +195,6 @@ impl HeaderBuilder {
             dao,
             nonce,
             proof,
-            hash,
         } = self;
         let raw = packed::RawHeader::new_builder()
             .version(version)
@@ -257,11 +215,7 @@ impl HeaderBuilder {
             .proof(proof)
             .build();
         let header = packed::Header::new_builder().raw(raw).seal(seal).build();
-        let hash = if let Some(hash) = hash {
-            hash
-        } else {
-            header.calc_hash().pack()
-        };
+        let hash = header.calc_header_hash().pack();
         core::HeaderView { data: header, hash }
     }
 }
@@ -296,16 +250,6 @@ impl BlockBuilder {
         proposals,
         set_proposals
     );
-
-    pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
-        self.header.hash = Some(hash);
-        self
-    }
-
-    pub fn clear_caches(mut self) -> Self {
-        self.header = self.header.clear_caches();
-        self
-    }
 
     pub fn header(mut self, header: core::HeaderView) -> Self {
         self.header = header.as_advanced_builder();
@@ -375,8 +319,8 @@ impl BlockBuilder {
                 .collect::<Vec<H256>>();
             let transactions_root = merkle_root(&tx_hashes[..]);
             let witnesses_root = merkle_root(&tx_witness_hashes[..]);
-            let proposals_hash = proposals.calc_hash();
-            let uncles_hash = uncles.calc_hash();
+            let proposals_hash = proposals.calc_proposals_hash();
+            let uncles_hash = uncles.calc_uncles_hash();
             let uncles_count = uncles.len() as u32;
             header
                 .transactions_root(transactions_root.pack())
@@ -472,16 +416,13 @@ impl packed::Block {
 
 impl core::TransactionView {
     pub fn as_advanced_builder(&self) -> TransactionBuilder {
-        self.data()
-            .as_advanced_builder()
-            .fake_hash(self.hash())
-            .fake_witness_hash(self.witness_hash())
+        self.data().as_advanced_builder()
     }
 }
 
 impl core::HeaderView {
     pub fn as_advanced_builder(&self) -> HeaderBuilder {
-        self.data().as_advanced_builder().fake_hash(self.hash())
+        self.data().as_advanced_builder()
     }
 }
 
@@ -497,7 +438,6 @@ impl core::BlockView {
         let _ = hash;
         BlockBuilder::default()
             .header(self.header())
-            .clear_caches()
             .uncles(
                 data.uncles()
                     .into_iter()

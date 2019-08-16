@@ -52,6 +52,61 @@ pub struct BlockView {
 }
 
 /*
+ * Display
+ */
+
+impl ::std::fmt::Display for TransactionView {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "TransactionView {{ data: {}, hash: {}, witness_hash: {} }}",
+            self.data, self.hash, self.witness_hash
+        )
+    }
+}
+
+impl ::std::fmt::Display for HeaderView {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "HeaderView {{ data: {}, hash: {} }}",
+            self.data, self.hash
+        )
+    }
+}
+
+impl ::std::fmt::Display for UncleBlockView {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "UncleBlockView {{ data: {}, hash: {} }}",
+            self.data, self.hash
+        )
+    }
+}
+
+impl ::std::fmt::Display for UncleBlockVecView {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "UncleBlockVecView {{ data: {}, hashes: {} }}",
+            self.data, self.hashes
+        )
+    }
+}
+
+impl ::std::fmt::Display for BlockView {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "BlockView {{ data: {}, hash: {}, uncle_hashes: {},\
+             tx_hashes: {:?}, tx_witness_hashes: {:?} }}",
+            self.data, self.hash, self.uncle_hashes, self.tx_hashes, self.tx_witness_hashes
+        )
+    }
+}
+
+/*
  * Define getters
  */
 
@@ -150,6 +205,16 @@ impl TransactionView {
         self.data().slim().raw().header_deps().into_iter()
     }
 
+    pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
+        self.hash = hash;
+        self
+    }
+
+    pub fn fake_witness_hash(mut self, witness_hash: packed::Byte32) -> Self {
+        self.witness_hash = witness_hash;
+        self
+    }
+
     pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
         self.data().slim().raw().outputs().total_capacity()
     }
@@ -211,6 +276,11 @@ impl HeaderView {
     pub fn is_genesis(&self) -> bool {
         self.number() == 0
     }
+
+    pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
+        self.hash = hash;
+        self
+    }
 }
 
 macro_rules! define_uncle_unpacked_inner_getter {
@@ -254,6 +324,11 @@ impl UncleBlockView {
             data: self.data.header(),
             hash: self.hash(),
         }
+    }
+
+    pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
+        self.hash = hash;
+        self
     }
 
     pub fn calc_proposals_hash(&self) -> H256 {
@@ -419,6 +494,11 @@ impl BlockView {
             .and_then(|tx| tx.slim().raw().outputs().get(index))
     }
 
+    pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
+        self.hash = hash;
+        self
+    }
+
     pub fn is_genesis(&self) -> bool {
         self.number() == 0
     }
@@ -527,7 +607,7 @@ impl packed::Transaction {
 
 impl packed::Header {
     pub fn into_view(self) -> HeaderView {
-        let hash = self.calc_hash().pack();
+        let hash = self.calc_header_hash().pack();
         HeaderView { data: self, hash }
     }
 }
@@ -541,14 +621,14 @@ impl packed::UncleBlock {
 
 impl packed::Block {
     pub fn into_view_without_reset_header(self) -> BlockView {
-        let tx_hashes = self.as_reader().calc_tx_hashes();
-        let tx_witness_hashes = self.as_reader().calc_tx_witness_hashes();
+        let tx_hashes = self.calc_tx_hashes();
+        let tx_witness_hashes = self.calc_tx_witness_hashes();
         Self::block_into_view_internal(self, &tx_hashes[..], &tx_witness_hashes[..])
     }
 
     pub fn into_view(self) -> BlockView {
-        let tx_hashes = self.as_reader().calc_tx_hashes();
-        let tx_witness_hashes = self.as_reader().calc_tx_witness_hashes();
+        let tx_hashes = self.calc_tx_hashes();
+        let tx_witness_hashes = self.calc_tx_witness_hashes();
         let block = self.reset_header_with_hashes(&tx_hashes[..], &tx_witness_hashes[..]);
         Self::block_into_view_internal(block, &tx_hashes[..], &tx_witness_hashes[..])
     }
