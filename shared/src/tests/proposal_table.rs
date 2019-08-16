@@ -1,9 +1,12 @@
 use crate::chain_state::ChainState;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
-use ckb_core::transaction::ProposalShortId;
-use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_db::RocksDB;
 use ckb_store::{ChainDB, ChainStore, COLUMNS};
+use ckb_types::{
+    core::{BlockBuilder, HeaderBuilder},
+    packed::ProposalShortId,
+    prelude::*,
+};
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -16,7 +19,7 @@ fn insert_block_proposals(store: &ChainDB, proposals: Vec<ProposalShortId>) {
     for proposal in proposals {
         let header = HeaderBuilder::default()
             .parent_hash(parent_hash.clone())
-            .number(parent_number + 1)
+            .number((parent_number + 1).pack())
             .build();
         parent_hash = header.hash().to_owned();
         parent_number += 1;
@@ -58,8 +61,8 @@ fn proposal_table_init() {
     let mut proposal_table = BTreeMap::new();
 
     for i in 0..5 {
-        let id = ProposalShortId::from_slice(&[i; 10]).unwrap();
-        proposal_ids.push(id);
+        let id: ProposalShortId = [i; 10].pack();
+        proposal_ids.push(id.clone());
         let mut set = HashSet::default();
         set.insert(id);
         proposal_table.insert(u64::from(i + 1), set);
