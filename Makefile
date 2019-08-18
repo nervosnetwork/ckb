@@ -1,6 +1,7 @@
 .DEFAULT_GOAL:=help
 SHELL = /bin/sh
 MOLC    := moleculec
+MOLC_VERSION := 0.2.3
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
 
@@ -111,7 +112,7 @@ gen-clean: # Clean Protocol Failes
 	rm -f ${GEN_FILES}
 
 check-moleculec-version:
-	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = 0.2.2
+	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = ${MOLC_VERSION}
 
 ${GEN_FILES}: check-moleculec-version
 	${MOLC} \

@@ -1,3 +1,5 @@
+// Generate by Molecule 0.2.3
+
 use molecule::faster_hex::hex_string;
 use molecule::prelude::{Entity as _, Reader as _};
 #[derive(Clone)]
