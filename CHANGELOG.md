@@ -1,3 +1,15 @@
+# [v0.18.2](https://github.com/nervosnetwork/ckb/compare/v0.18.0...v0.18.2) (2019-08-17)
+
+### Bug Fixes
+
+* #1407: Calculate transaction fees in order (@keroro520)
+* #1411: Header provider index check (@zhangsoledad)
+* #1412: Hardcode allow 34827 (@keroro520)
+
+    This is a workaround for #1411 to keep the current testnet main chain valid. It will not go into future versions.
+
+* #1420: Failed to sync for long forks (@keroro520)
+
 # [v0.18.0](https://github.com/nervosnetwork/ckb/compare/v0.17.0...v0.18.0) (2019-08-10)
 
 ### Features
