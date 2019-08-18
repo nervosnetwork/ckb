@@ -764,7 +764,11 @@ impl<CS: ChainStore> CellProvider for ChainState<CS> {
 impl<CS: ChainStore> HeaderProvider for ChainState<CS> {
     fn header(&self, out_point: &OutPoint) -> HeaderStatus {
         if let Some(block_hash) = &out_point.block_hash {
-            match self.store.get_block_header(&block_hash) {
+            match self
+                .store
+                .get_block_number(&block_hash)
+                .and_then(|_| self.store.get_block_header(&block_hash))
+            {
                 Some(header) => {
                     if let Some(cell_out_point) = &out_point.cell {
                         self.store

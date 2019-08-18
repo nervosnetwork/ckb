@@ -196,6 +196,7 @@ fn build_specs() -> SpecMap {
     specs.insert("chain_fork_5", Box::new(ChainFork5));
     specs.insert("chain_fork_6", Box::new(ChainFork6));
     specs.insert("chain_fork_7", Box::new(ChainFork7));
+    specs.insert("long_forks", Box::new(LongForks));
     specs.insert("mining_basic", Box::new(MiningBasic));
     specs.insert("mining_bootstrap_cellbase", Box::new(BootstrapCellbase));
     specs.insert("mining_template_size_limit", Box::new(TemplateSizeLimit));
