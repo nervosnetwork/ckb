@@ -102,13 +102,11 @@ pub struct BlockAssembler {
     work_id: AtomicUsize,
     last_uncles_updated_at: AtomicU64,
     template_caches: LruCache<(H256, Cycle, u64, Version), TemplateCache>,
-    proof_size: usize,
 }
 
 impl BlockAssembler {
     pub fn new(shared: Shared, config: BlockAssemblerConfig) -> Self {
         Self {
-            proof_size: shared.consensus().pow_engine().proof_size(),
             shared,
             config,
             work_id: AtomicUsize::new(0),
@@ -244,18 +242,11 @@ impl BlockAssembler {
         uncles: &[UncleBlock],
         proposals: &HashSet<ProposalShortId>,
     ) -> Result<usize, FailureError> {
-        let empty_proof = vec![0u8; self.proof_size];
         let empty_dao = vec![0u8; DAO_SIZE];
         let raw_header = packed::RawHeader::new_builder()
             .dao(empty_dao.pack())
             .build();
-        let seal = packed::Seal::new_builder()
-            .proof(empty_proof.pack())
-            .build();
-        let header = packed::Header::new_builder()
-            .raw(raw_header)
-            .seal(seal)
-            .build();
+        let header = packed::Header::new_builder().raw(raw_header).build();
         let block = packed::Block::new_builder()
             .header(header)
             .transactions(vec![cellbase].pack())

@@ -76,10 +76,6 @@ http://localhost:8114
             "number": "1024",
             "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "seal": {
-                "nonce": "0",
-                "proof": "0x"
-            },
             "timestamp": "1557311767",
             "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
             "uncles_count": "0",
@@ -168,10 +164,6 @@ http://localhost:8114
             "number": "1024",
             "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "seal": {
-                "nonce": "0",
-                "proof": "0x"
-            },
             "timestamp": "1557311767",
             "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
             "uncles_count": "0",
@@ -458,10 +450,6 @@ http://localhost:8114
         "number": "1024",
         "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "seal": {
-            "nonce": "0",
-            "proof": "0x"
-        },
         "timestamp": "1557311767",
         "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
         "uncles_count": "0",
@@ -505,10 +493,6 @@ http://localhost:8114
         "number": "1024",
         "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "seal": {
-            "nonce": "0",
-            "proof": "0x"
-        },
         "timestamp": "1557311767",
         "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
         "uncles_count": "0",
@@ -623,10 +607,6 @@ http://localhost:8114
         "number": "1024",
         "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "seal": {
-            "nonce": "0",
-            "proof": "0x"
-        },
         "timestamp": "1557311767",
         "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
         "uncles_count": "0",

@@ -39,20 +39,11 @@ The chain spec in `specs/dev.toml` can switch between different PoW engines.
 
 CKB now supports following PoW Engines.
 
-### Cuckoo
+### Eaglesong
 
 ```
 [pow]
-func = "Cuckoo"
-
-[pow.params]
-# the 2-log of the graph size, which is the size in bits of the node
-# identifiers
-edge_bits = 15
-
-# length of the cycle to be found, must be an even number, a minimum of 12 is
-# recommended
-cycle_length = 12
+func = "Eaglesong"
 ```
 
 ### Dummy

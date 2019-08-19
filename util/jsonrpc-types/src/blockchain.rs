@@ -353,31 +353,6 @@ impl TxStatus {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-pub struct Seal {
-    pub nonce: Unsigned,
-    pub proof: JsonBytes,
-}
-
-impl From<packed::Seal> for Seal {
-    fn from(input: packed::Seal) -> Seal {
-        Seal {
-            nonce: Unsigned(input.nonce().unpack()),
-            proof: input.proof().into(),
-        }
-    }
-}
-
-impl From<Seal> for packed::Seal {
-    fn from(json: Seal) -> Self {
-        let Seal { nonce, proof } = json;
-        packed::Seal::new_builder()
-            .nonce(nonce.0.pack())
-            .proof(proof.into())
-            .build()
-    }
-}
-
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct Header {
     pub version: Version,
     pub parent_hash: H256,
@@ -391,7 +366,7 @@ pub struct Header {
     pub uncles_hash: H256,
     pub uncles_count: Unsigned,
     pub dao: JsonBytes,
-    pub seal: Seal,
+    pub nonce: Unsigned,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -418,7 +393,7 @@ impl From<packed::Header> for Header {
             uncles_hash: raw.uncles_hash().unpack(),
             uncles_count: Unsigned(u64::from(uncles_count)),
             dao: raw.dao().into(),
-            seal: input.seal().into(),
+            nonce: Unsigned(input.nonce().unpack()),
         }
     }
 }
@@ -453,8 +428,8 @@ impl From<Header> for packed::Header {
             difficulty,
             uncles_hash,
             uncles_count,
-            seal,
             dao,
+            nonce,
         } = json;
         let raw = packed::RawHeader::new_builder()
             .version(version.0.pack())
@@ -472,7 +447,7 @@ impl From<Header> for packed::Header {
             .build();
         packed::Header::new_builder()
             .raw(raw)
-            .seal(seal.into())
+            .nonce(nonce.0.pack())
             .build()
     }
 }

@@ -1,27 +1,27 @@
-mod cuckoo_simple;
 mod dummy;
+mod eaglesong_simple;
 
 use crate::config::WorkerConfig;
 use ckb_logger::error;
-use ckb_pow::{CuckooEngine, DummyPowEngine, PowEngine};
-use ckb_types::{packed::Seal, H256};
+use ckb_pow::{DummyPowEngine, EaglesongPowEngine, PowEngine};
+use ckb_types::H256;
 use crossbeam_channel::{unbounded, Sender};
-use cuckoo_simple::CuckooSimple;
 use dummy::Dummy;
+use eaglesong_simple::EaglesongSimple;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rand::{random, Rng};
 use std::ops::Range;
 use std::sync::Arc;
 use std::thread;
 
-pub use cuckoo_simple::CuckooSimpleConfig;
 pub use dummy::DummyConfig;
+pub use eaglesong_simple::EaglesongSimpleConfig;
 
 #[derive(Clone)]
 pub enum WorkerMessage {
     Stop,
     Start,
-    NewWork(H256),
+    NewWork { pow_hash: H256, target: H256 },
 }
 
 pub struct WorkerController {
@@ -64,7 +64,7 @@ const PROGRESS_BAR_TEMPLATE: &str = "{prefix:.bold.dim} {spinner:.green} [{elaps
 pub fn start_worker(
     pow: Arc<dyn PowEngine>,
     config: &WorkerConfig,
-    seal_tx: Sender<(H256, Seal)>,
+    nonce_tx: Sender<(H256, u64)>,
     mp: &MultiProgress,
 ) -> WorkerController {
     match config {
@@ -76,7 +76,7 @@ pub fn start_worker(
                 pb.set_prefix(&worker_name);
 
                 let (worker_tx, worker_rx) = unbounded();
-                let mut worker = Dummy::new(config, seal_tx, worker_rx);
+                let mut worker = Dummy::new(config, nonce_tx, worker_rx);
 
                 thread::Builder::new()
                     .name(worker_name.to_string())
@@ -90,11 +90,11 @@ pub fn start_worker(
                 panic!("incompatible pow engine and worker type");
             }
         }
-        WorkerConfig::CuckooSimple(config) => {
-            if let Some(cuckoo_engine) = pow.as_any().downcast_ref::<CuckooEngine>() {
+        WorkerConfig::EaglesongSimple(config) => {
+            if let Some(_eaglesong_engine) = pow.as_any().downcast_ref::<EaglesongPowEngine>() {
                 let worker_txs = (0..config.threads)
                     .map(|i| {
-                        let worker_name = format!("CuckooSimple-Worker-{}", i);
+                        let worker_name = format!("EaglesongSimple-Worker-{}", i);
                         let nonce_range = partition_nonce(i as u64, config.threads as u64);
                         // `100` is the len of progress bar, we can use any dummy value here,
                         // since we only show the spinner in console.
@@ -103,15 +103,15 @@ pub fn start_worker(
                         pb.set_prefix(&worker_name);
 
                         let (worker_tx, worker_rx) = unbounded();
-                        let (cuckoo, seal_tx) = (cuckoo_engine.cuckoo.clone(), seal_tx.clone());
+                        let nonce_tx = nonce_tx.clone();
                         thread::Builder::new()
                             .name(worker_name)
                             .spawn(move || {
-                                let mut worker = CuckooSimple::new(cuckoo, seal_tx, worker_rx);
+                                let mut worker = EaglesongSimple::new(nonce_tx, worker_rx);
                                 let rng = nonce_generator(nonce_range);
                                 worker.run(rng, pb);
                             })
-                            .expect("Start `CuckooSimple` worker thread failed");
+                            .expect("Start `EaglesongSimple` worker thread failed");
                         worker_tx
                     })
                     .collect();

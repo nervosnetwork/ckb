@@ -6,10 +6,7 @@ parent_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 timestamp = 1564207200792
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-
-[genesis.seal]
 nonce = 0
-proof = [0]
 
 [genesis.genesis_cell]
 message = "ckb_staging"
@@ -64,13 +61,4 @@ max_block_cycles = 10_000_000_000
 cellbase_maturity = 10
 
 [pow]
-func = "Cuckoo"
-
-[pow.params]
-# the 2-log of the graph size, which is the size in bits of the node
-# identifiers
-edge_bits = 15
-
-# length of the cycle to be found, must be an even number, a minimum of 12 is
-# recommended
-cycle_length = 12
+func = "Eaglesong"

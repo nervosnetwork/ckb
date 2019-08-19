@@ -48,7 +48,7 @@ poll_interval = 1000 # {{
 # }}
 
 [[miner.workers]]
-worker_type = "CuckooSimple" # {{
+worker_type = "EaglesongSimple" # {{
 # dev => worker_type = "Dummy"
 # }}
 threads     = 1 # {{

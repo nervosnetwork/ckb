@@ -1,4 +1,4 @@
-use crate::worker::{CuckooSimpleConfig, DummyConfig};
+use crate::worker::{DummyConfig, EaglesongSimpleConfig};
 use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
 use ckb_types::H256;
 use serde_derive::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ pub struct ClientConfig {
 #[serde(tag = "worker_type")]
 pub enum WorkerConfig {
     Dummy(DummyConfig),
-    CuckooSimple(CuckooSimpleConfig),
+    EaglesongSimple(EaglesongSimpleConfig),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -15,14 +15,17 @@
             "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
             "difficulty": "0x7a1200",
             "epoch": "1",
+<<<<<<< HEAD
             "hash": "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6",
             "number": "1024",
             "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
+=======
+            "hash": "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a",
+            "nonce": "0",
+            "number": "1024",
+            "parent_hash": "0xa19723d3ee88c58af45d01880497290b91c9c25c34a209d2f43654f00e087724",
+>>>>>>> feat: use eaglesong as new pow
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "seal": {
-                "nonce": "0",
-                "proof": "0x"
-            },
             "timestamp": "1557311767",
             "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
             "uncles_count": "0",
@@ -69,7 +72,11 @@
         "params": [
             "1024"
         ],
+<<<<<<< HEAD
         "result": "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6",
+=======
+        "result": "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a",
+>>>>>>> feat: use eaglesong as new pow
         "types": [
             {
                 "block_number": "Number of a block"
@@ -81,21 +88,28 @@
         "method": "get_block",
         "module": "chain",
         "params": [
+<<<<<<< HEAD
             "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6"
+=======
+            "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a"
+>>>>>>> feat: use eaglesong as new pow
         ],
         "result": {
             "header": {
                 "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
                 "difficulty": "0x7a1200",
                 "epoch": "1",
+<<<<<<< HEAD
                 "hash": "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6",
                 "number": "1024",
                 "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
+=======
+                "hash": "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a",
+                "nonce": "0",
+                "number": "1024",
+                "parent_hash": "0xa19723d3ee88c58af45d01880497290b91c9c25c34a209d2f43654f00e087724",
+>>>>>>> feat: use eaglesong as new pow
                 "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "seal": {
-                    "nonce": "0",
-                    "proof": "0x"
-                },
                 "timestamp": "1557311767",
                 "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
                 "uncles_count": "0",
@@ -155,20 +169,27 @@
         "method": "get_header",
         "module": "chain",
         "params": [
+<<<<<<< HEAD
             "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6"
+=======
+            "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a"
+>>>>>>> feat: use eaglesong as new pow
         ],
         "result": {
             "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
             "difficulty": "0x7a1200",
             "epoch": "1",
+<<<<<<< HEAD
             "hash": "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6",
             "number": "1024",
             "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
+=======
+            "hash": "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a",
+            "nonce": "0",
+            "number": "1024",
+            "parent_hash": "0xa19723d3ee88c58af45d01880497290b91c9c25c34a209d2f43654f00e087724",
+>>>>>>> feat: use eaglesong as new pow
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "seal": {
-                "nonce": "0",
-                "proof": "0x"
-            },
             "timestamp": "1557311767",
             "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
             "uncles_count": "0",
@@ -188,14 +209,17 @@
             "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
             "difficulty": "0x7a1200",
             "epoch": "1",
+<<<<<<< HEAD
             "hash": "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6",
             "number": "1024",
             "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
+=======
+            "hash": "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a",
+            "nonce": "0",
+            "number": "1024",
+            "parent_hash": "0xa19723d3ee88c58af45d01880497290b91c9c25c34a209d2f43654f00e087724",
+>>>>>>> feat: use eaglesong as new pow
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "seal": {
-                "nonce": "0",
-                "proof": "0x"
-            },
             "timestamp": "1557311767",
             "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
             "uncles_count": "0",
@@ -215,7 +239,11 @@
         ],
         "result": [
             {
+<<<<<<< HEAD
                 "block_hash": "0xf9e6ce588d7427c080410839d2a9fb525a537a380a3f4099d07f8046ed482862",
+=======
+                "block_hash": "0x29d7a7a13fa823cea9a8537931e68e92d9b6b87aafe06e45474bfb17cffd09ca",
+>>>>>>> feat: use eaglesong as new pow
                 "capacity": "125000000000",
                 "lock": {
                     "args": [],
@@ -228,7 +256,11 @@
                 }
             },
             {
+<<<<<<< HEAD
                 "block_hash": "0x8b92b79f1ab824fa63855482e6e7fc2f361a2e01d89ba1d355947f8192fdae99",
+=======
+                "block_hash": "0x39bd3a6fac425717509c1ddaed0a989a887a712365e51cfe209f2b84177b4e20",
+>>>>>>> feat: use eaglesong as new pow
                 "capacity": "125000000000",
                 "lock": {
                     "args": [],
@@ -435,7 +467,11 @@
                     }
                 ],
                 "header_deps": [
+<<<<<<< HEAD
                     "0x83fefed5da7a3008e61c2e2d7809f07fc3beb66c5b226567d4f39fc062aa4d3d"
+=======
+                    "0x0f2a734c55d3feef6db114045e1389ffc4176fe58e02d24bc04b6442211f46a9"
+>>>>>>> feat: use eaglesong as new pow
                 ],
                 "inputs": [
                     {
@@ -484,7 +520,11 @@
                     }
                 ],
                 "header_deps": [
+<<<<<<< HEAD
                     "0x83fefed5da7a3008e61c2e2d7809f07fc3beb66c5b226567d4f39fc062aa4d3d"
+=======
+                    "0x0f2a734c55d3feef6db114045e1389ffc4176fe58e02d24bc04b6442211f46a9"
+>>>>>>> feat: use eaglesong as new pow
                 ],
                 "inputs": [
                     {
@@ -513,7 +553,11 @@
                 "witnesses": []
             }
         ],
+<<<<<<< HEAD
         "result": "0xc04334858620b70b60daa7e36c8daabb782af75e4aba7fa96e4f6f6ad2b000b3",
+=======
+        "result": "0x5f389f9413626c62a84a54c5231bbc13e67dfd3b67e0ca19ae85078f80be6e02",
+>>>>>>> feat: use eaglesong as new pow
         "types": [
             {
                 "transaction": "The transaction object"
@@ -554,7 +598,11 @@
                     }
                 ],
                 "header_deps": [
+<<<<<<< HEAD
                     "0x83fefed5da7a3008e61c2e2d7809f07fc3beb66c5b226567d4f39fc062aa4d3d"
+=======
+                    "0x0f2a734c55d3feef6db114045e1389ffc4176fe58e02d24bc04b6442211f46a9"
+>>>>>>> feat: use eaglesong as new pow
                 ],
                 "inputs": [
                     {
@@ -583,7 +631,11 @@
                 "witnesses": []
             }
         ],
+<<<<<<< HEAD
         "result": "0xc04334858620b70b60daa7e36c8daabb782af75e4aba7fa96e4f6f6ad2b000b3",
+=======
+        "result": "0x5f389f9413626c62a84a54c5231bbc13e67dfd3b67e0ca19ae85078f80be6e02",
+>>>>>>> feat: use eaglesong as new pow
         "types": [
             {
                 "transaction": "The transaction object"
@@ -613,7 +665,11 @@
         "method": "get_transaction",
         "module": "chain",
         "params": [
+<<<<<<< HEAD
             "0xc04334858620b70b60daa7e36c8daabb782af75e4aba7fa96e4f6f6ad2b000b3"
+=======
+            "0x5f389f9413626c62a84a54c5231bbc13e67dfd3b67e0ca19ae85078f80be6e02"
+>>>>>>> feat: use eaglesong as new pow
         ],
         "result": {
             "transaction": {
@@ -626,9 +682,15 @@
                         }
                     }
                 ],
+<<<<<<< HEAD
                 "hash": "0xc04334858620b70b60daa7e36c8daabb782af75e4aba7fa96e4f6f6ad2b000b3",
                 "header_deps": [
                     "0x83fefed5da7a3008e61c2e2d7809f07fc3beb66c5b226567d4f39fc062aa4d3d"
+=======
+                "hash": "0x5f389f9413626c62a84a54c5231bbc13e67dfd3b67e0ca19ae85078f80be6e02",
+                "header_deps": [
+                    "0x0f2a734c55d3feef6db114045e1389ffc4176fe58e02d24bc04b6442211f46a9"
+>>>>>>> feat: use eaglesong as new pow
                 ],
                 "inputs": [
                     {
@@ -672,7 +734,11 @@
         "method": "get_cellbase_output_capacity_details",
         "module": "chain",
         "params": [
+<<<<<<< HEAD
             "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6"
+=======
+            "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a"
+>>>>>>> feat: use eaglesong as new pow
         ],
         "result": {
             "primary": "69444444445",
@@ -713,14 +779,17 @@
                 "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
                 "difficulty": "0x7a1200",
                 "epoch": "1",
+<<<<<<< HEAD
                 "hash": "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6",
                 "number": "1024",
                 "parent_hash": "0x93ec406a731b96a35ebf9a3bc665f4df16cfb826aff26b293355f91daa665dd8",
+=======
+                "hash": "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a",
+                "nonce": "0",
+                "number": "1024",
+                "parent_hash": "0xa19723d3ee88c58af45d01880497290b91c9c25c34a209d2f43654f00e087724",
+>>>>>>> feat: use eaglesong as new pow
                 "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "seal": {
-                    "nonce": "0",
-                    "proof": "0x"
-                },
                 "timestamp": "1557311767",
                 "transactions_root": "0x2d6ebb50df4545fca4465db5cf90f68f5d4ef32e2b633204c13401fa5bffc3a4",
                 "uncles_count": "0",
@@ -784,7 +853,11 @@
             "1024"
         ],
         "result": {
+<<<<<<< HEAD
             "block_hash": "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6",
+=======
+            "block_hash": "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a",
+>>>>>>> feat: use eaglesong as new pow
             "block_number": "1024",
             "lock_hash": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
         },
@@ -804,7 +877,11 @@
         "params": [],
         "result": [
             {
+<<<<<<< HEAD
                 "block_hash": "0x95b4a10f07c2dd836e30ee906f891be9839b08ed44c169d7cee78d7565ccabb6",
+=======
+                "block_hash": "0xf4cba0b0c7591e51b0ab9da4f56c2d3d89e421eeb5ec6eedae33e03f8185055a",
+>>>>>>> feat: use eaglesong as new pow
                 "block_number": "1024",
                 "lock_hash": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
             }

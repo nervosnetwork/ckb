@@ -257,7 +257,6 @@ pub fn test_cellbase_with_fee() {
 #[test]
 pub fn test_max_block_bytes_verifier_skip_genesis() {
     let block = BlockBuilder::default().build();
-
     {
         let verifier = BlockBytesVerifier::new(block.serialized_size() as u64);
         assert_eq!(verifier.verify(&block), Ok(()));

@@ -172,10 +172,10 @@ impl<'a> PowVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.pow.verify_header(&self.header.data()) {
+        if self.pow.verify(&self.header.data()) {
             Ok(())
         } else {
-            Err(Error::Pow(PowError::InvalidProof))
+            Err(Error::Pow(PowError::InvalidNonce))
         }
     }
 }

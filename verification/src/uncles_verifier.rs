@@ -139,9 +139,9 @@ where
                 .provider
                 .consensus()
                 .pow_engine()
-                .verify_header(&uncle.data().header())
+                .verify(&uncle.data().header())
             {
-                return Err(Error::Uncles(UnclesError::InvalidProof));
+                return Err(Error::Uncles(UnclesError::InvalidNonce));
             }
 
             included.insert(uncle.hash(), uncle.number());
