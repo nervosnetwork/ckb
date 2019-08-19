@@ -107,14 +107,12 @@ check-dirty-rpc-doc: gen-rpc-doc
 
 ##@ Generates Files
 GEN_FILES := util/types/src/generated/types.rs
-gen: gen-clean ${GEN_FILES} # Generate Protocol Files
-gen-clean: # Clean Protocol Failes
-	rm -f ${GEN_FILES}
+gen: ${GEN_FILES} # Generate Protocol Files
 
 check-moleculec-version:
 	test "$$(${MOLC} --version | awk '{ print $$2 }' | tr -d ' ')" = ${MOLC_VERSION}
 
-${GEN_FILES}: check-moleculec-version
+util/types/src/generated/types.rs: check-moleculec-version util/types/schemas/ckb.mol
 	${MOLC} \
 		--language rust \
 		--schema-file util/types/schemas/ckb.mol \
@@ -135,7 +133,7 @@ help:  ## Display help message.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 .PHONY: build prod prod-test prod-docker docker docker-publish
-.PHONY: gen gen-clean clean-node-files check-cfbc-version
+.PHONY: gen clean-node-files check-cfbc-version
 .PHONY: fmt test clippy doc doc-deps gen-rpc-doc gen-hashes check stats check-dirty-rpc-doc cov
 .PHONY: ci security-audit check-cargotoml check-whitespaces
 .PHONY: integration integration-release setup-ckb-test
