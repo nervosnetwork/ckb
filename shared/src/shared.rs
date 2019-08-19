@@ -81,9 +81,7 @@ impl ChainProvider for Shared {
     }
 
     fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt> {
-        self.store()
-            .get_block_epoch_index(hash)
-            .and_then(|index| self.store().get_epoch_ext(&index))
+        self.store.get_block_epoch(hash)
     }
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
