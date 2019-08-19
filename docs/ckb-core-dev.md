@@ -70,3 +70,11 @@ worker_type = "Dummy"
 delay_type  = "Constant"
 value       = 5000
 ```
+
+## Development Tools
+
+### Schema Compiler and  Code Generator For Serialization
+
+```
+cargo install moleculec
+```
