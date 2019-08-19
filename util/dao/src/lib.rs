@@ -12,7 +12,7 @@ use ckb_types::{
 };
 use failure::Error as FailureError;
 use std::cmp::max;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub use ckb_dao_utils::DAO_SIZE;
 
@@ -184,17 +184,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
     }
 
     pub fn transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, FailureError> {
-        let header_deps: HashSet<_> = rtx.transaction.header_deps_iter().collect();
-        let resolved_cell_deps: HashMap<&OutPoint, &H256> = rtx
-            .resolved_cell_deps
-            .iter()
-            .filter_map(|cell_meta| {
-                cell_meta
-                    .transaction_info
-                    .as_ref()
-                    .map(|info| (&cell_meta.out_point, &info.block_hash))
-            })
-            .collect();
+        let header_deps: HashSet<Byte32> = rtx.transaction.header_deps_iter().collect();
         rtx.resolved_inputs
             .iter()
             .enumerate()
@@ -226,19 +216,18 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                                     Ok(LittleEndian::read_u64(&witness_data.raw_data()[0..8]))
                                 }
                             })
-                            .and_then(|dep_index| {
+                            .and_then(|header_dep_index| {
                                 rtx.transaction
-                                    .cell_deps()
-                                    .get(dep_index as usize)
-                                    .and_then(|dep| resolved_cell_deps.get(&dep.out_point()))
-                                    .filter(|hash| header_deps.contains(&hash.pack()))
+                                    .header_deps()
+                                    .get(header_dep_index as usize)
+                                    .and_then(|hash| header_deps.get(&hash))
                                     .ok_or(Error::InvalidOutPoint)
                             })?;
                         self.calculate_maximum_withdraw(
                             &output,
                             Capacity::bytes(cell_meta.data_bytes as usize)?,
                             &deposit_header_hash.pack(),
-                            &withdraw_header_hash.pack(),
+                            &withdraw_header_hash,
                         )
                     } else {
                         Ok(output.capacity().unpack())

@@ -13,7 +13,8 @@ use ckb_types::{
 const SYSTEM_CELL_ALWAYS_SUCCESS_INDEX: u32 = 1;
 const SYSTEM_CELL_DAO_INDEX: u32 = 3;
 const WITHDRAW_WINDOW_LEFT: u64 = 10;
-const WITHDRAW_HEADER_INDEX: u64 = 0;
+// The second witness
+const WITHDRAW_HEADER_INDEX: u64 = 1;
 
 pub struct DepositDAO;
 
@@ -231,9 +232,8 @@ impl Spec for WithdrawDAOWithInvalidWitness {
 
         // Withdraw DAO with witness has bad format. Return DAO script ERROR_ENCODING.
         {
-            let withdraw_header_index: Bytes = 0u64.to_le_bytes().to_vec().into();
             let witness: packed::Witness =
-                vec![Default::default(), withdraw_header_index.pack()].pack();
+                vec![Bytes::new().pack(), Bytes::from(vec![0]).pack()].pack();
             let transaction =
                 withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
                     .as_advanced_builder()
@@ -314,35 +314,27 @@ fn deposit_dao_deps(node: &Node) -> (Vec<CellDep>, Vec<H256>) {
 
     // Reference to AlwaysSuccess lock_script, to unlock the cellbase
     let always_dep = CellDep::new(
-        OutPoint::new(
-            genesis_tx.hash().to_owned().unpack(),
-            SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
-        ),
+        OutPoint::new(genesis_tx.hash().unpack(), SYSTEM_CELL_ALWAYS_SUCCESS_INDEX),
         false,
     );
     // Reference to DAO type_script
     let dao_dep = CellDep::new(
-        OutPoint::new(genesis_tx.hash().to_owned().unpack(), SYSTEM_CELL_DAO_INDEX),
+        OutPoint::new(genesis_tx.hash().unpack(), SYSTEM_CELL_DAO_INDEX),
         false,
     );
 
     (
         vec![always_dep, dao_dep],
-        vec![genesis_block.header().hash().to_owned().unpack()],
+        vec![genesis_block.hash().unpack()],
     )
 }
 
-// deps = [cell-point-to-withdraw-header, always-success-cell, dao-cell]
-fn withdraw_dao_deps(
-    node: &Node,
-    withdraw_header_hash: H256,
-    withdraw_out_point: OutPoint,
-) -> (Vec<CellDep>, Vec<H256>) {
-    let mut cell_deps = vec![CellDep::new(withdraw_out_point, false)];
-    let (deposit_cell_deps, mut deposit_header_deps) = deposit_dao_deps(node);
-    cell_deps.extend(deposit_cell_deps);
-    deposit_header_deps.push(withdraw_header_hash);
-    (cell_deps, deposit_header_deps)
+// cell deps = [always-success-cell, dao-cell]
+// header deps = [genesis-header-hash, withdraw-header-hash]
+fn withdraw_dao_deps(node: &Node, withdraw_header_hash: H256) -> (Vec<CellDep>, Vec<H256>) {
+    let (cell_deps, mut header_deps) = deposit_dao_deps(node);
+    header_deps.push(withdraw_header_hash);
+    (cell_deps, header_deps)
 }
 
 fn deposit_dao_script() -> Script {
@@ -377,15 +369,6 @@ fn withdraw_dao_output(capacity: Capacity) -> (CellOutput, Bytes) {
     (cell_output, data)
 }
 
-// Put the withdraw_header_index into the 1st witness
-fn withdraw_dao_witness() -> packed::Witness {
-    vec![
-        Default::default(),
-        Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec()).pack(),
-    ]
-    .pack()
-}
-
 fn absolute_minimal_since(node: &Node) -> BlockNumber {
     node.get_tip_block_number() + WITHDRAW_WINDOW_LEFT
 }
@@ -409,9 +392,7 @@ fn deposit_dao_transaction(node: &Node) -> TransactionView {
 // Construct a withdraw dao transaction, which consumes the tip-cellbase and a given deposited cell
 // as the inputs, generates the output with always-success-script as lock script, none type script
 fn withdraw_dao_transaction(node: &Node, out_point: OutPoint, block_hash: H256) -> TransactionView {
-    let tip_block = node.get_tip_block();
-    let withdraw_out_point = OutPoint::new(tip_block.transactions()[0].hash().clone().unpack(), 0);
-    let withdraw_header_hash: H256 = tip_block.header().hash().to_owned().unpack();
+    let withdraw_header_hash: H256 = node.get_tip_block().hash().unpack();
     let deposited_input = {
         let minimal_since = absolute_minimal_since(node);
         CellInput::new(out_point.clone(), minimal_since)
@@ -422,15 +403,20 @@ fn withdraw_dao_transaction(node: &Node, out_point: OutPoint, block_hash: H256) 
             .calculate_dao_maximum_withdraw(out_point.into(), withdraw_header_hash.clone());
         withdraw_dao_output(input_capacities)
     };
-    let (cell_deps, mut header_deps) =
-        withdraw_dao_deps(node, withdraw_header_hash, withdraw_out_point);
+    let (cell_deps, mut header_deps) = withdraw_dao_deps(node, withdraw_header_hash);
     header_deps.push(block_hash);
+    // Put the withdraw_header_index into the 2nd witness
+    let withdraw_dao_witness = vec![
+        Bytes::new().pack(),
+        Bytes::from(WITHDRAW_HEADER_INDEX.to_le_bytes().to_vec()).pack(),
+    ]
+    .pack();
     TransactionBuilder::default()
         .cell_deps(cell_deps)
         .header_deps(header_deps.into_iter().map(|hash| hash.pack()).pack())
         .input(deposited_input)
         .output(output)
         .output_data(output_data.pack())
-        .witness(withdraw_dao_witness())
+        .witness(withdraw_dao_witness)
         .build()
 }
