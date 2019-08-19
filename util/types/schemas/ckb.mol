@@ -38,8 +38,8 @@ vector WitnessVec <Witness>;
 
 table Script {
     code_hash:      Byte32,
-    args:           BytesVec,
     hash_type:      ScriptHashType,
+    args:           BytesVec,
 }
 
 table OutPoint {

@@ -6796,8 +6796,8 @@ impl ::std::fmt::Display for Script {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "code_hash", self.code_hash())?;
-        write!(f, ", {}: {}", "args", self.args())?;
         write!(f, ", {}: {}", "hash_type", self.hash_type())?;
+        write!(f, ", {}: {}", "args", self.args())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
             write!(f, ", ..")?;
@@ -6809,8 +6809,8 @@ impl<'r> ::std::fmt::Display for ScriptReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "code_hash", self.code_hash())?;
-        write!(f, ", {}: {}", "args", self.args())?;
         write!(f, ", {}: {}", "hash_type", self.hash_type())?;
+        write!(f, ", {}: {}", "args", self.args())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
             write!(f, ", ..")?;
@@ -6821,14 +6821,14 @@ impl<'r> ::std::fmt::Display for ScriptReader<'r> {
 #[derive(Debug, Default)]
 pub struct ScriptBuilder {
     pub(crate) code_hash: Byte32,
-    pub(crate) args: BytesVec,
     pub(crate) hash_type: ScriptHashType,
+    pub(crate) args: BytesVec,
 }
 impl ::std::default::Default for Script {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            53, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0,
+            53, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
         ];
         Script::new_unchecked(v.into())
     }
@@ -6853,8 +6853,8 @@ impl molecule::prelude::Entity for Script {
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
             .code_hash(self.code_hash())
-            .args(self.args())
             .hash_type(self.hash_type())
+            .args(self.args())
     }
 }
 impl Script {
@@ -6876,20 +6876,20 @@ impl Script {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn args(&self) -> BytesVec {
+    pub fn hash_type(&self) -> ScriptHashType {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        BytesVec::new_unchecked(self.0.slice(start, end))
+        ScriptHashType::new_unchecked(self.0.slice(start, end))
     }
-    pub fn hash_type(&self) -> ScriptHashType {
+    pub fn args(&self) -> BytesVec {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         if count == 3 {
-            ScriptHashType::new_unchecked(self.0.slice_from(start))
+            BytesVec::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[2 + 1]) as usize;
-            ScriptHashType::new_unchecked(self.0.slice(start, end))
+            BytesVec::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -6941,8 +6941,8 @@ impl<'r> molecule::prelude::Reader<'r> for ScriptReader<'r> {
             Err(err)?;
         }
         Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        BytesVecReader::verify(&slice[offsets[1]..offsets[2]])?;
-        ScriptHashTypeReader::verify(&slice[offsets[2]..offsets[3]])?;
+        ScriptHashTypeReader::verify(&slice[offsets[1]..offsets[2]])?;
+        BytesVecReader::verify(&slice[offsets[2]..offsets[3]])?;
         Ok(())
     }
 }
@@ -6962,20 +6962,20 @@ impl<'r> ScriptReader<'r> {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn args(&self) -> BytesVecReader<'_> {
+    pub fn hash_type(&self) -> ScriptHashTypeReader<'_> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        BytesVecReader::new_unchecked(&self.as_slice()[start..end])
+        ScriptHashTypeReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn hash_type(&self) -> ScriptHashTypeReader<'_> {
+    pub fn args(&self) -> BytesVecReader<'_> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         if count == 3 {
-            ScriptHashTypeReader::new_unchecked(&self.as_slice()[start..])
+            BytesVecReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[2 + 1]) as usize;
-            ScriptHashTypeReader::new_unchecked(&self.as_slice()[start..end])
+            BytesVecReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -6985,8 +6985,8 @@ impl molecule::prelude::Builder for ScriptBuilder {
         let len_header = 4 + 3 * 4;
         len_header
             + self.code_hash.as_slice().len()
-            + self.args.as_slice().len()
             + self.hash_type.as_slice().len()
+            + self.args.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
@@ -7000,17 +7000,17 @@ impl molecule::prelude::Builder for ScriptBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.args.as_slice().len();
+            offset += self.hash_type.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.hash_type.as_slice().len();
+            offset += self.args.as_slice().len();
         }
         let _ = offset;
         writer.write_all(self.code_hash.as_slice())?;
-        writer.write_all(self.args.as_slice())?;
         writer.write_all(self.hash_type.as_slice())?;
+        writer.write_all(self.args.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -7025,12 +7025,12 @@ impl ScriptBuilder {
         self.code_hash = v;
         self
     }
-    pub fn args(mut self, v: BytesVec) -> Self {
-        self.args = v;
-        self
-    }
     pub fn hash_type(mut self, v: ScriptHashType) -> Self {
         self.hash_type = v;
+        self
+    }
+    pub fn args(mut self, v: BytesVec) -> Self {
+        self.args = v;
         self
     }
 }
@@ -7571,8 +7571,8 @@ impl ::std::default::Default for CellOutput {
         let v: Vec<u8> = vec![
             113, 0, 0, 0, 20, 0, 0, 0, 28, 0, 0, 0, 60, 0, 0, 0, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 53, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0,
+            0, 0, 0, 0, 53, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
         ];
         CellOutput::new_unchecked(v.into())
     }
