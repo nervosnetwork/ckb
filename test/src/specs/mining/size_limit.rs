@@ -1,4 +1,5 @@
 use crate::{Net, Spec};
+use ckb_types::prelude::Unpack;
 use log::info;
 
 pub struct TemplateSizeLimit;
@@ -14,11 +15,19 @@ impl Spec for TemplateSizeLimit {
 
         info!("Generate 6 txs");
         let mut txs_hash = Vec::new();
-        let mut hash = node.generate_transaction();
+        let block = node.get_tip_block();
+        let cellbase = &block.transactions()[0];
+        let capacity = cellbase.outputs().get(0).unwrap().capacity().unpack();
+        let tx = node.new_transaction_with_since_capacity(
+            cellbase.hash().to_owned().unpack(),
+            0,
+            capacity,
+        );
+        let mut hash = node.rpc_client().send_transaction(tx.data().into());
         txs_hash.push(hash.clone());
 
         (0..5).for_each(|_| {
-            let tx = node.new_transaction(hash.clone());
+            let tx = node.new_transaction_with_since_capacity(hash.clone(), 0, capacity);
             hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });

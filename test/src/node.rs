@@ -304,6 +304,15 @@ impl Node {
     }
 
     pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> TransactionView {
+        self.new_transaction_with_since_capacity(hash, since, capacity_bytes!(100))
+    }
+
+    pub fn new_transaction_with_since_capacity(
+        &self,
+        hash: H256,
+        since: u64,
+        capacity: Capacity,
+    ) -> TransactionView {
         let always_success_out_point = OutPoint::new(self.genesis_cellbase_hash.clone(), 1);
         let always_success_script = Script::new_builder()
             .code_hash(self.always_success_code_hash.clone().pack())
@@ -314,7 +323,7 @@ impl Node {
             .cell_dep(CellDep::new(always_success_out_point, false))
             .output(
                 CellOutputBuilder::default()
-                    .capacity(capacity_bytes!(100).pack())
+                    .capacity(capacity.pack())
                     .lock(always_success_script)
                     .build(),
             )

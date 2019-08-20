@@ -582,6 +582,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![always_success_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -647,6 +648,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -730,6 +732,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -806,6 +809,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -902,6 +906,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell, dep_cell2],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -984,6 +989,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1051,6 +1057,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1108,6 +1115,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1194,6 +1202,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell, always_success_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1273,6 +1282,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell, always_success_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1343,6 +1353,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
+            resolved_dep_groups: vec![],
         };
         let config = ScriptConfig {
             runner: Runner::default(),
@@ -1404,6 +1415,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1466,6 +1478,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1544,6 +1557,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1605,6 +1619,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1681,6 +1696,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1763,6 +1779,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
@@ -1834,6 +1851,7 @@ mod tests {
             transaction: &transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
+            resolved_dep_groups: vec![],
         };
 
         let store = new_store();
