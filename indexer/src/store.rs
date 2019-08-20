@@ -1183,7 +1183,6 @@ mod tests {
 
         store.sync_index_states();
 
-        println!("script1.lock_hash: {:x}", script1.calc_script_hash());
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
         assert_eq!(

@@ -68,7 +68,7 @@ impl MiningBasic {
         if block_hash1 < block_hash2 {
             std::mem::swap(&mut block1, &mut block2);
         }
-
+        let block_hash1: H256 = block1.header().hash().unpack();
         let rpc_client = node.rpc_client();
         assert_eq!(block_hash1, node.submit_block(&block1.data()));
         assert_eq!(block_hash1, rpc_client.get_tip_header().hash);

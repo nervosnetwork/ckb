@@ -411,7 +411,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         script_group: &ScriptGroup,
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
-        let current_script_hash = script_group.script.hash();
+        let current_script_hash = script_group.script.calc_script_hash();
         let prefix = format!("script group: {:x}", current_script_hash);
         let debug_printer = |message: &str| {
             if let Some(ref printer) = self.debug_printer {
@@ -422,7 +422,13 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         };
         let current_script_hash_bytes = current_script_hash.as_bytes();
         let mut args = vec!["verify".into()];
-        args.extend_from_slice(&script_group.script.args);
+        args.extend(
+            script_group
+                .script
+                .args()
+                .into_iter()
+                .map(|arg| arg.raw_data()),
+        );
         let core_machine =
             DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
                 max_cycles,
