@@ -188,6 +188,7 @@ fn all_specs() -> SpecMap {
         Box::new(ChainFork5),
         Box::new(ChainFork6),
         Box::new(ChainFork7),
+        Box::new(LongForks),
         Box::new(DepositDAO),
         Box::new(WithdrawDAO),
         Box::new(WithdrawAndDepositDAOWithinSameTx),
