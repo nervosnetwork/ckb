@@ -1,4 +1,4 @@
-use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
+use ckb_types::{packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
@@ -15,15 +15,15 @@ impl ProposalShortId {
     }
 }
 
-impl From<CoreProposalShortId> for ProposalShortId {
-    fn from(core: CoreProposalShortId) -> ProposalShortId {
-        ProposalShortId::new(core.into_inner())
+impl From<packed::ProposalShortId> for ProposalShortId {
+    fn from(core: packed::ProposalShortId) -> ProposalShortId {
+        ProposalShortId::new(core.unpack())
     }
 }
 
-impl From<ProposalShortId> for CoreProposalShortId {
+impl From<ProposalShortId> for packed::ProposalShortId {
     fn from(json: ProposalShortId) -> Self {
-        CoreProposalShortId::new(json.into_inner())
+        json.into_inner().pack()
     }
 }
 

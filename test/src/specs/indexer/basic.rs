@@ -17,7 +17,12 @@ impl Spec for IndexerBasic {
         node0.generate_block();
 
         let tip_block = node0.get_tip_block();
-        let lock_hash = tip_block.transactions()[0].outputs()[0].lock.hash();
+        let lock_hash = tip_block.transactions()[0]
+            .outputs()
+            .as_reader()
+            .get(0)
+            .unwrap()
+            .calc_lock_hash();
         let rpc_client = node0.rpc_client();
 
         info!("Should return empty result before index the lock hash");
@@ -46,7 +51,7 @@ impl Spec for IndexerBasic {
 
         (0..5).for_each(|_| {
             let tx = node0.new_transaction(hash.clone());
-            hash = rpc_client.send_transaction((&tx).into());
+            hash = rpc_client.send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 

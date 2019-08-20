@@ -1,11 +1,3 @@
-use ckb_core::block::Block;
-use ckb_core::cell::{
-    resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction,
-};
-use ckb_core::extras::BlockExt;
-use ckb_core::service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE};
-use ckb_core::transaction::ProposalShortId;
-use ckb_core::{BlockNumber, Cycle};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_notify::NotifyController;
 use ckb_shared::cell_set::CellSetDiff;
@@ -15,20 +7,27 @@ use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreTransaction};
 use ckb_traits::ChainProvider;
+use ckb_types::{
+    core::{
+        cell::{resolve_transaction, BlockCellProvider, OverlayCellProvider, ResolvedTransaction},
+        service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
+        BlockExt, BlockNumber, BlockView, Cycle,
+    },
+    packed::{Byte32, OutPoint, ProposalShortId},
+    prelude::*,
+    H256, U256,
+};
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
-use serde_derive::Serialize;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::{cmp, thread};
 
-type ProcessBlockRequest = Request<(Arc<Block>, bool), Result<bool, FailureError>>;
+type ProcessBlockRequest = Request<(Arc<BlockView>, bool), Result<bool, FailureError>>;
 
 #[derive(Clone)]
 pub struct ChainController {
@@ -45,7 +44,7 @@ impl Drop for ChainController {
 impl ChainController {
     pub fn process_block(
         &self,
-        block: Arc<Block>,
+        block: Arc<BlockView>,
         need_verify: bool,
     ) -> Result<bool, FailureError> {
         Request::call(&self.process_block_sender, (block, need_verify))
@@ -57,12 +56,12 @@ struct ChainReceivers {
     process_block_receiver: Receiver<ProcessBlockRequest>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default)]
 pub struct ForkChanges {
     // blocks attached to index after forks
-    pub(crate) attached_blocks: VecDeque<Block>,
+    pub(crate) attached_blocks: VecDeque<BlockView>,
     // blocks detached from index after forks
-    pub(crate) detached_blocks: VecDeque<Block>,
+    pub(crate) detached_blocks: VecDeque<BlockView>,
     // proposal_id detached to index after forks
     pub(crate) detached_proposal_id: HashSet<ProposalShortId>,
     // to be updated exts
@@ -70,11 +69,11 @@ pub struct ForkChanges {
 }
 
 impl ForkChanges {
-    pub fn attached_blocks(&self) -> &VecDeque<Block> {
+    pub fn attached_blocks(&self) -> &VecDeque<BlockView> {
         &self.attached_blocks
     }
 
-    pub fn detached_blocks(&self) -> &VecDeque<Block> {
+    pub fn detached_blocks(&self) -> &VecDeque<BlockView> {
         &self.detached_blocks
     }
 
@@ -107,12 +106,12 @@ impl ForkChanges {
 
 pub(crate) struct GlobalIndex {
     pub(crate) number: BlockNumber,
-    pub(crate) hash: H256,
+    pub(crate) hash: Byte32,
     pub(crate) unseen: bool,
 }
 
 impl GlobalIndex {
-    pub(crate) fn new(number: BlockNumber, hash: H256, unseen: bool) -> GlobalIndex {
+    pub(crate) fn new(number: BlockNumber, hash: Byte32, unseen: bool) -> GlobalIndex {
         GlobalIndex {
             number,
             hash,
@@ -120,7 +119,7 @@ impl GlobalIndex {
         }
     }
 
-    pub(crate) fn forward(&mut self, hash: H256) {
+    pub(crate) fn forward(&mut self, hash: Byte32) {
         self.number -= 1;
         self.hash = hash;
     }
@@ -183,13 +182,13 @@ impl ChainService {
     // but invoker should guarantee block header be verified
     pub(crate) fn process_block(
         &mut self,
-        block: Arc<Block>,
+        block: Arc<BlockView>,
         need_verify: bool,
     ) -> Result<bool, FailureError> {
-        debug!("begin processing block: {:x}", block.header().hash());
+        debug!("begin processing block: {}", block.header().hash());
         if block.header().number() < 1 {
             warn!(
-                "receive 0 number block: {}-{:x}",
+                "receive 0 number block: {}-{}",
                 block.header().number(),
                 block.header().hash()
             );
@@ -200,7 +199,7 @@ impl ChainService {
         })
     }
 
-    fn non_contextual_verify(&self, block: &Block) -> Result<(), FailureError> {
+    fn non_contextual_verify(&self, block: &BlockView) -> Result<(), FailureError> {
         let block_verifier = BlockVerifier::new(self.shared.clone());
         block_verifier.verify(&block).map_err(|e| {
             debug!("[process_block] verification error {:?}", e);
@@ -208,9 +207,9 @@ impl ChainService {
         })
     }
 
-    fn insert_block(&self, block: Arc<Block>, need_verify: bool) -> Result<bool, FailureError> {
+    fn insert_block(&self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, FailureError> {
         // insert_block are assumed be executed in single thread
-        if self.shared.store().block_exists(block.header().hash()) {
+        if self.shared.store().block_exists(&block.header().hash()) {
             return Ok(false);
         }
         // non-contextual verify
@@ -226,13 +225,13 @@ impl ChainService {
         let parent_ext = self
             .shared
             .store()
-            .get_block_ext(&block.header().parent_hash())
+            .get_block_ext(&block.data().header().raw().parent_hash())
             .expect("parent already store");
 
         let parent_header = self
             .shared
             .store()
-            .get_block_header(&block.header().parent_hash())
+            .get_block_header(&block.data().header().raw().parent_hash())
             .expect("parent already store");
 
         let cannon_total_difficulty =
@@ -269,24 +268,25 @@ impl ChainService {
         let ext = BlockExt {
             received_at: unix_time_as_millis(),
             total_difficulty: cannon_total_difficulty.clone(),
-            total_uncles_count: parent_ext.total_uncles_count + block.uncles().len() as u64,
+            total_uncles_count: parent_ext.total_uncles_count + block.data().uncles().len() as u64,
             verified: None,
             txs_fees: vec![],
         };
 
         db_txn.insert_block_epoch_index(
             &block.header().hash(),
-            epoch.last_block_hash_in_previous_epoch(),
+            &epoch.last_block_hash_in_previous_epoch().pack(),
         )?;
-        db_txn.insert_epoch_ext(epoch.last_block_hash_in_previous_epoch(), &epoch)?;
+        db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch().pack(), &epoch)?;
 
+        let block_hash: H256 = block.hash().unpack();
+        let tip_hash: H256 = chain_state.tip_hash().unpack();
         let new_best_block = (cannon_total_difficulty > current_total_difficulty)
-            || ((current_total_difficulty == cannon_total_difficulty)
-                && (block.header().hash() < chain_state.tip_hash()));
+            || ((current_total_difficulty == cannon_total_difficulty) && (block_hash < tip_hash));
 
         if new_best_block {
             debug!(
-                "new best block found: {} => {:#x}, difficulty diff = {:#x}",
+                "new best block found: {} => {}, difficulty diff = {:#x}",
                 block.header().number(),
                 block.header().hash(),
                 &cannon_total_difficulty - &current_total_difficulty
@@ -318,7 +318,7 @@ impl ChainService {
         if new_best_block {
             let tip_header = block.header().to_owned();
             info!(
-                "block: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
+                "block: {}, hash: {}, total_diff: {:#x}, txs: {}",
                 tip_header.number(),
                 tip_header.hash(),
                 total_difficulty,
@@ -340,21 +340,22 @@ impl ChainService {
             );
             for detached_block in fork.detached_blocks() {
                 self.notify
-                    .notify_new_uncle(Arc::new(detached_block.into()));
+                    .notify_new_uncle(Arc::new(detached_block.data().as_uncle()));
             }
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(&chain_state, 10);
             }
         } else {
             info!(
-                "uncle: {}, hash: {:#x}, total_diff: {:#x}, txs: {}",
+                "uncle: {}, hash: {}, total_diff: {:#x}, txs: {}",
                 block.header().number(),
                 block.header().hash(),
                 cannon_total_difficulty,
                 block.transactions().len()
             );
-            let block_ref: &Block = &block;
-            self.notify.notify_new_uncle(Arc::new(block_ref.into()));
+            let block_ref: &BlockView = &block;
+            self.notify
+                .notify_new_uncle(Arc::new(block_ref.data().as_uncle()));
         }
 
         Ok(true)
@@ -420,7 +421,7 @@ impl ChainService {
                     .store()
                     .get_block(&index.hash)
                     .expect("block data stored before alignment_fork");
-                index.forward(new_block.header().parent_hash().to_owned());
+                index.forward(new_block.data().header().raw().parent_hash());
                 fork.attached_blocks.push_front(new_block);
             }
         }
@@ -464,7 +465,7 @@ impl ChainService {
                 .store()
                 .get_block(&index.hash)
                 .expect("attached block stored before find_fork_until_latest_common");
-            index.forward(attached_block.header().parent_hash().to_owned());
+            index.forward(attached_block.data().header().raw().parent_hash());
             fork.attached_blocks.push_front(attached_block);
         }
     }
@@ -473,7 +474,7 @@ impl ChainService {
         &self,
         fork: &mut ForkChanges,
         current_tip_number: BlockNumber,
-        new_tip_block: &Block,
+        new_tip_block: &BlockView,
         new_tip_ext: BlockExt,
     ) {
         let new_tip_number = new_tip_block.header().number();
@@ -485,7 +486,7 @@ impl ChainService {
 
         let mut index = GlobalIndex::new(
             new_tip_number - 1,
-            new_tip_block.header().parent_hash().to_owned(),
+            new_tip_block.data().header().raw().parent_hash(),
             true,
         );
 
@@ -505,7 +506,7 @@ impl ChainService {
         txn: &StoreTransaction,
         fork: &mut ForkChanges,
         chain_state: &mut ChainState,
-        txs_verify_cache: &mut LruCache<H256, Cycle>,
+        txs_verify_cache: &mut LruCache<Byte32, Cycle>,
         need_verify: bool,
     ) -> Result<CellSetDiff, FailureError> {
         let verified_len = fork.verified_len();
@@ -535,7 +536,7 @@ impl ChainService {
             if need_verify {
                 if found_error.is_none() {
                     let contextual_block_verifier = ContextualBlockVerifier::new(&verify_context);
-                    let mut seen_inputs = HashSet::default();
+                    let mut seen_inputs: HashSet<OutPoint> = HashSet::default();
                     let cell_set_overlay = chain_state.new_cell_set_overlay(&cell_set_diff, txn);
                     let block_cp = match BlockCellProvider::new(b) {
                         Ok(block_cp) => block_cp,
@@ -566,14 +567,12 @@ impl ChainService {
                                     txn.attach_block(b)?;
                                     *verified = Some(true);
                                     l_txs_fees.extend(txs_fees);
-                                    let proof_size =
-                                        self.shared.consensus().pow_engine().proof_size();
                                     if b.transactions().len() > 1 {
                                         info!(
-                                            "[block_verifier] block number: {}, hash: {:#x}, size:{}/{}, cycles: {}/{}",
+                                            "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
                                             b.header().number(),
                                             b.header().hash(),
-                                            b.serialized_size(proof_size),
+                                            b.serialized_size(),
                                             self.shared.consensus().max_block_bytes(),
                                             cycles,
                                             self.shared.consensus().max_block_cycles()
@@ -581,10 +580,10 @@ impl ChainService {
                                     }
                                 }
                                 Err(err) => {
-                                    error!("block verify error, block number: {}, hash: {:#x}, error: {:?}", b.header().number(),
+                                    error!("block verify error, block number: {}, hash: {}, error: {:?}", b.header().number(),
                                             b.header().hash(), err);
                                     if log_enabled!(ckb_logger::Level::Trace) {
-                                        trace!("block {}", serde_json::to_string(b).unwrap());
+                                        trace!("block {}", b.data());
                                     }
                                     found_error = Some(SharedError::InvalidBlock(err.to_string()));
                                     *verified = Some(false);
@@ -635,7 +634,7 @@ impl ChainService {
                 .unwrap_or_else(|| {
                     panic!(format!("invaild block number({}), tip={}", number, tip))
                 });
-            debug!("   {} => {:x}", number, hash);
+            debug!("   {} => {}", number, hash);
         }
 
         debug!("}}");

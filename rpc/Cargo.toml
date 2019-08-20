@@ -6,9 +6,7 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ckb-core = { path = "../core" }
+ckb-types = { path = "../util/types" }
 ckb-network = { path = "../network" }
 ckb-indexer = { path = "../indexer" }
 ckb-shared = { path = "../shared" }
@@ -18,7 +16,6 @@ ckb-db = { path = "../db" }
 ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
 ckb-miner = { path = "../miner" }
-ckb-protocol = { path = "../protocol" }
 ckb-logger = { path = "../util/logger"}
 ckb-network-alert = { path = "../util/network-alert" }
 jsonrpc-core = "10.1"
@@ -28,7 +25,6 @@ jsonrpc-server-utils = "10.1"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-flatbuffers = "0.6.0"
 num_cpus = "1.10"
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-verification = { path = "../verification" }

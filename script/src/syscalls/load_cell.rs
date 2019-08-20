@@ -3,14 +3,16 @@ use crate::syscalls::{
     LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER, SUCCESS,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
-use ckb_core::cell::CellMeta;
-use ckb_core::transaction::CellOutput;
-use ckb_protocol::{CellOutput as FbsCellOutput, Script as FbsScript};
+use ckb_types::{
+    core::{cell::CellMeta, Capacity},
+    packed::CellOutput,
+    prelude::*,
+    H256,
+};
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use flatbuffers::FlatBufferBuilder;
 
 pub struct LoadCell<'a> {
     outputs: &'a [CellMeta],
@@ -82,12 +84,9 @@ impl<'a> LoadCell<'a> {
         // Also, while this is debatable, I suggest we charge full cycles for
         // subsequent calls even if we have cache implemented here.
         // TODO: find a way to cache this without consuming too much memory
-        let mut builder = FlatBufferBuilder::new();
-        let offset = FbsCellOutput::build(&mut builder, &output);
-        builder.finish(offset, None);
-        let data = builder.finished_data();
+        let data = output.as_slice();
 
-        store_data(machine, &data)?;
+        store_data(machine, data)?;
         Ok((SUCCESS, data.len()))
     }
 
@@ -101,8 +100,9 @@ impl<'a> LoadCell<'a> {
 
         let result = match field {
             CellField::Capacity => {
+                let capacity: Capacity = output.capacity().unpack();
                 let mut buffer = vec![];
-                buffer.write_u64::<LittleEndian>(output.capacity.as_u64())?;
+                buffer.write_u64::<LittleEndian>(capacity.as_u64())?;
                 store_data(machine, &buffer)?;
                 (SUCCESS, buffer.len())
             }
@@ -117,39 +117,34 @@ impl<'a> LoadCell<'a> {
                 (SUCCESS, buffer.len())
             }
             CellField::DataHash => {
-                let hash = output.data_hash();
+                let hash: H256 = output.data_hash().unpack();
                 let bytes = hash.as_bytes();
-                store_data(machine, &bytes)?;
+                store_data(machine, bytes)?;
                 (SUCCESS, bytes.len())
             }
             CellField::Lock => {
-                let mut builder = FlatBufferBuilder::new();
-                let offset = FbsScript::build(&mut builder, &output.lock);
-                builder.finish(offset, None);
-                let data = builder.finished_data();
+                let lock = output.lock();
+                let data = lock.as_slice();
                 store_data(machine, data)?;
                 (SUCCESS, data.len())
             }
             CellField::LockHash => {
-                let hash = output.lock.hash();
+                let hash = output.calc_lock_hash();
                 let bytes = hash.as_bytes();
                 store_data(machine, &bytes)?;
                 (SUCCESS, bytes.len())
             }
-            CellField::Type => match output.type_ {
-                Some(ref type_) => {
-                    let mut builder = FlatBufferBuilder::new();
-                    let offset = FbsScript::build(&mut builder, &type_);
-                    builder.finish(offset, None);
-                    let data = builder.finished_data();
+            CellField::Type => match output.type_().to_opt() {
+                Some(type_) => {
+                    let data = type_.as_slice();
                     store_data(machine, data)?;
                     (SUCCESS, data.len())
                 }
                 None => (ITEM_MISSING, 0),
             },
-            CellField::TypeHash => match output.type_ {
-                Some(ref type_) => {
-                    let hash = type_.hash();
+            CellField::TypeHash => match output.type_().to_opt() {
+                Some(type_) => {
+                    let hash = type_.calc_script_hash();
                     let bytes = hash.as_bytes();
                     store_data(machine, &bytes)?;
                     (SUCCESS, bytes.len())

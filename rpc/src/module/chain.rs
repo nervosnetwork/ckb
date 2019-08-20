@@ -1,16 +1,14 @@
 use crate::error::RPCError;
-use ckb_core::cell::CellProvider;
-use ckb_core::transaction::ProposalShortId;
 use ckb_jsonrpc_types::{
-    BlockNumber, BlockRewardView, BlockView, Capacity, CellOutputWithOutPoint, CellWithStatus,
-    EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus, Unsigned,
+    BlockNumber, BlockReward, BlockView, Capacity, CellOutputWithOutPoint, CellWithStatus,
+    EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus,
 };
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
+use ckb_types::{core::cell::CellProvider, packed, prelude::*, H256};
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use numext_fixed_hash::H256;
 
 pub const PAGE_SIZE: u64 = 100;
 
@@ -58,7 +56,7 @@ pub trait ChainRpc {
     fn get_epoch_by_number(&self, number: EpochNumber) -> Result<Option<EpochView>>;
 
     #[rpc(name = "get_cellbase_output_capacity_details")]
-    fn get_cellbase_output_capacity_details(&self, _hash: H256) -> Result<Option<BlockRewardView>>;
+    fn get_cellbase_output_capacity_details(&self, _hash: H256) -> Result<Option<BlockReward>>;
 }
 
 pub(crate) struct ChainRpcImpl {
@@ -67,12 +65,7 @@ pub(crate) struct ChainRpcImpl {
 
 impl ChainRpc for ChainRpcImpl {
     fn get_block(&self, hash: H256) -> Result<Option<BlockView>> {
-        Ok(self
-            .shared
-            .store()
-            .get_block(&hash)
-            .as_ref()
-            .map(Into::into))
+        Ok(self.shared.store().get_block(&hash.pack()).map(Into::into))
     }
 
     fn get_block_by_number(&self, number: BlockNumber) -> Result<Option<BlockView>> {
@@ -80,21 +73,14 @@ impl ChainRpc for ChainRpcImpl {
             .shared
             .store()
             .get_block_hash(number.0)
-            .and_then(|hash| {
-                self.shared
-                    .store()
-                    .get_block(&hash)
-                    .as_ref()
-                    .map(Into::into)
-            }))
+            .and_then(|hash| self.shared.store().get_block(&hash).map(Into::into)))
     }
 
     fn get_header(&self, hash: H256) -> Result<Option<HeaderView>> {
         Ok(self
             .shared
             .store()
-            .get_block_header(&hash)
-            .as_ref()
+            .get_block_header(&hash.pack())
             .map(Into::into))
     }
 
@@ -103,17 +89,11 @@ impl ChainRpc for ChainRpcImpl {
             .shared
             .store()
             .get_block_hash(number.0)
-            .and_then(|hash| {
-                self.shared
-                    .store()
-                    .get_block_header(&hash)
-                    .as_ref()
-                    .map(Into::into)
-            }))
+            .and_then(|hash| self.shared.store().get_block_header(&hash).map(Into::into)))
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithStatus>> {
-        let id = ProposalShortId::from_tx_hash(&hash);
+        let id = packed::ProposalShortId::from_tx_hash(&hash);
 
         let tx = {
             let chan_state = self.shared.lock_chain_state();
@@ -132,13 +112,19 @@ impl ChainRpc for ChainRpcImpl {
         Ok(tx.or_else(|| {
             self.shared
                 .store()
-                .get_transaction(&hash)
-                .map(|(tx, block_hash)| TransactionWithStatus::with_committed(tx, block_hash))
+                .get_transaction(&hash.pack())
+                .map(|(tx, block_hash)| {
+                    TransactionWithStatus::with_committed(tx, block_hash.unpack())
+                })
         }))
     }
 
     fn get_block_hash(&self, number: BlockNumber) -> Result<Option<H256>> {
-        Ok(self.shared.store().get_block_hash(number.0))
+        Ok(self
+            .shared
+            .store()
+            .get_block_hash(number.0)
+            .map(|h| h.unpack()))
     }
 
     fn get_tip_header(&self) -> Result<HeaderView> {
@@ -146,7 +132,6 @@ impl ChainRpc for ChainRpcImpl {
             .shared
             .store()
             .get_tip_header()
-            .as_ref()
             .map(Into::into)
             .expect("tip header exists"))
     }
@@ -156,7 +141,7 @@ impl ChainRpc for ChainRpcImpl {
             .shared
             .store()
             .get_current_epoch_ext()
-            .map(|ext| EpochView::from_ext(&ext))
+            .map(|ext| EpochView::from_ext(ext.pack()))
             .expect("current_epoch exists"))
     }
 
@@ -169,7 +154,7 @@ impl ChainRpc for ChainRpcImpl {
                 self.shared
                     .store()
                     .get_epoch_ext(&hash)
-                    .map(|ext| EpochView::from_ext(&ext))
+                    .map(|ext| EpochView::from_ext(ext.pack()))
             }))
     }
 
@@ -209,19 +194,22 @@ impl ChainRpc for ChainRpcImpl {
                 .get_block(&block_hash)
                 .ok_or_else(Error::internal_error)?;
             for transaction in block.transactions() {
-                if let Some(transaction_meta) = chain_state.cell_set().get(&transaction.hash()) {
-                    for (i, output) in transaction.outputs().iter().enumerate() {
-                        if output.lock.hash() == lock_hash
+                if let Some(transaction_meta) =
+                    chain_state.cell_set().get(&transaction.hash().unpack())
+                {
+                    for (i, output) in transaction.outputs().into_iter().enumerate() {
+                        if output.calc_lock_hash() == lock_hash
                             && transaction_meta.is_dead(i) == Some(false)
                         {
+                            let out_point = packed::OutPoint::new_builder()
+                                .tx_hash(transaction.hash())
+                                .index(i.pack())
+                                .build();
                             result.push(CellOutputWithOutPoint {
-                                out_point: OutPoint {
-                                    tx_hash: transaction.hash().to_owned(),
-                                    index: Unsigned(i as u64),
-                                },
-                                block_hash: block_hash.to_owned(),
-                                capacity: Capacity(output.capacity),
-                                lock: output.lock.clone().into(),
+                                out_point: out_point.into(),
+                                block_hash: block_hash.unpack(),
+                                capacity: Capacity(output.capacity().unpack()),
+                                lock: output.lock().clone().into(),
                             });
                         }
                     }
@@ -243,15 +231,15 @@ impl ChainRpc for ChainRpcImpl {
         self.get_tip_header().map(|h| h.inner.number)
     }
 
-    fn get_cellbase_output_capacity_details(&self, hash: H256) -> Result<Option<BlockRewardView>> {
+    fn get_cellbase_output_capacity_details(&self, hash: H256) -> Result<Option<BlockReward>> {
         Ok(self
             .shared
             .store()
-            .get_block_header(&hash)
+            .get_block_header(&hash.pack())
             .and_then(|header| {
                 self.shared
                     .store()
-                    .get_block_header(header.parent_hash())
+                    .get_block_header(&header.data().raw().parent_hash())
                     .and_then(|parent| {
                         self.shared
                             .finalize_block_reward(&parent)

@@ -3,15 +3,13 @@ use crate::synchronizer::Synchronizer;
 use crate::MAX_BLOCKS_IN_TRANSIT_PER_PEER;
 use ckb_logger::{debug, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{cast, GetBlocks, SyncMessage};
 use ckb_store::ChainStore;
+use ckb_types::{packed, prelude::*};
 use failure::Error as FailureError;
-use flatbuffers::FlatBufferBuilder;
 use std::cmp::min;
-use std::convert::TryInto;
 
 pub struct GetBlocksProcess<'a> {
-    message: &'a GetBlocks<'a>,
+    message: packed::GetBlocksReader<'a>,
     synchronizer: &'a Synchronizer,
     nc: &'a CKBProtocolContext,
     peer: PeerIndex,
@@ -19,7 +17,7 @@ pub struct GetBlocksProcess<'a> {
 
 impl<'a> GetBlocksProcess<'a> {
     pub fn new(
-        message: &'a GetBlocks,
+        message: packed::GetBlocksReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
@@ -33,13 +31,13 @@ impl<'a> GetBlocksProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let block_hashes = cast!(self.message.block_hashes())?;
+        let block_hashes = self.message.block_hashes();
         let store = self.synchronizer.shared.store();
 
         let n_limit = min(MAX_BLOCKS_IN_TRANSIT_PER_PEER as usize, block_hashes.len());
-        for fbs_h256 in block_hashes.iter().take(n_limit) {
-            let block_hash = fbs_h256.try_into()?;
-            debug!("get_blocks {:x} from peer {:?}", block_hash, self.peer);
+        for block_hash in block_hashes.iter().take(n_limit) {
+            debug!("get_blocks {} from peer {:?}", block_hash, self.peer);
+            let block_hash = block_hash.to_entity();
 
             if !self
                 .synchronizer
@@ -47,7 +45,7 @@ impl<'a> GetBlocksProcess<'a> {
                 .contains_block_status(&block_hash, BlockStatus::BLOCK_VALID)
             {
                 debug!(
-                    "ignoring get_block {:x} request from peer={} for unverified",
+                    "ignoring get_block {} request from peer={} for unverified",
                     block_hash, self.peer
                 );
                 continue;
@@ -63,18 +61,15 @@ impl<'a> GetBlocksProcess<'a> {
 
             if let Some(block) = store.get_block(&block_hash) {
                 debug!(
-                    "respond_block {} {:x} to peer {:?}",
-                    block.header().number(),
-                    block.header().hash(),
+                    "respond_block {} {} to peer {:?}",
+                    block.number(),
+                    block.hash(),
                     self.peer,
                 );
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = SyncMessage::build_block(fbb, &block);
-                fbb.finish(message, None);
-                if let Err(err) = self
-                    .nc
-                    .send_message_to(self.peer, fbb.finished_data().into())
-                {
+                let content = packed::SendBlock::new_builder().block(block.data()).build();
+                let message = packed::SyncMessage::new_builder().set(content).build();
+                let data = message.as_slice().into();
+                if let Err(err) = self.nc.send_message_to(self.peer, data) {
                     debug!("synchronizer send Block error: {:?}", err);
                     break;
                 }
@@ -85,7 +80,7 @@ impl<'a> GetBlocksProcess<'a> {
                 // We expect that `block_hashes` is sorted descending by height.
                 // So if we cannot find the current one from local, we cannot find
                 // the next either.
-                debug!("getblocks stopping since {:x} is not found", block_hash);
+                debug!("getblocks stopping since {} is not found", block_hash);
                 break;
             }
         }

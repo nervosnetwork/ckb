@@ -1,8 +1,8 @@
 use crate::config::SignatureConfig;
 use crate::verifier::Verifier;
-use ckb_core::alert::AlertBuilder;
 use ckb_crypto::secp::Generator;
 use ckb_jsonrpc_types::JsonBytes;
+use ckb_types::{packed, prelude::*};
 
 #[test]
 fn test_veirifer() {
@@ -17,16 +17,22 @@ fn test_veirifer() {
             .collect(),
     };
     let verifier = Verifier::new(config);
-    let mut alert = AlertBuilder::default().id(1).build();
-    let hash = alert.hash();
+    let raw_alert = packed::RawAlert::new_builder().id(1u32.pack()).build();
+    let hash = raw_alert.calc_alert_hash();
     let signatures = keypairs
         .iter()
         .map(|(privkey, _)| privkey.sign_recoverable(&hash))
         .collect::<Result<Vec<_>, _>>()
-        .expect("sign alert");
-    alert.signatures = signatures
-        .into_iter()
-        .map(|s| s.serialize().into())
-        .collect();
+        .expect("sign alert")
+        .iter()
+        .map(|sig| sig.serialize().pack())
+        .fold(packed::BytesVec::new_builder(), |builder, item| {
+            builder.push(item)
+        })
+        .build();
+    let alert = packed::Alert::new_builder()
+        .raw(raw_alert)
+        .signatures(signatures)
+        .build();
     assert!(verifier.verify_signatures(&alert).is_ok());
 }

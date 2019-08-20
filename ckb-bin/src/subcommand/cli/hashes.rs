@@ -1,8 +1,8 @@
 use ckb_app_config::{cli, CKBAppConfig, ExitCode};
 use ckb_chain_spec::ChainSpec;
 use ckb_resource::{Resource, AVAILABLE_SPECS};
+use ckb_types::{prelude::*, H256};
 use clap::ArgMatches;
-use numext_fixed_hash::H256;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
@@ -50,10 +50,10 @@ impl TryFrom<ChainSpec> for SpecHashes {
             .system_cells
             .files
             .iter()
-            .zip(cellbase.outputs().iter().skip(1))
+            .zip(cellbase.outputs().into_iter().skip(1))
             .enumerate()
             .map(|(index_minus_one, (resource, output))| {
-                let code_hash = output.data_hash().to_owned();
+                let code_hash: H256 = output.data_hash().unpack();
                 SystemCell {
                     path: resource.to_string(),
                     index: index_minus_one + 1,
@@ -64,7 +64,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
 
         Ok(SpecHashes {
             genesis: consensus.genesis_hash().to_owned(),
-            cellbase: cellbase.hash().to_owned(),
+            cellbase: cellbase.hash().unpack(),
             system_cells: cells_hashes,
         })
     }

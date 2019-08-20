@@ -1,14 +1,15 @@
 use crate::utils::wait_until;
 use crate::{Net, Spec};
-use bytes::Bytes;
 use ckb_chain_spec::{ChainSpec, IssuedCell};
-use ckb_core::{
-    capacity_bytes,
-    script::{Script, ScriptHashType},
-    Capacity,
+use ckb_types::{
+    bytes::Bytes,
+    core::{capacity_bytes, Capacity, ScriptHashType},
+    h256,
+    packed::Script,
+    prelude::*,
+    H256,
 };
 use log::info;
-use numext_fixed_hash::{h256, H256};
 
 pub struct GenesisIssuedCells;
 
@@ -18,12 +19,12 @@ impl Spec for GenesisIssuedCells {
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
 
-        let lock_hash = Script {
-            args: vec![Bytes::from(vec![1]), Bytes::from(vec![2])],
-            code_hash: h256!("0xa1"),
-            hash_type: ScriptHashType::Data,
-        }
-        .hash();
+        let lock_hash = Script::new_builder()
+            .args(vec![Bytes::from(vec![1]).pack(), Bytes::from(vec![2]).pack()].pack())
+            .code_hash(h256!("0xa1").pack())
+            .hash_type(ScriptHashType::Data.pack())
+            .build()
+            .calc_script_hash();
         info!("{:x}", lock_hash);
         let rpc_client = node0.rpc_client();
 
@@ -44,12 +45,12 @@ impl Spec for GenesisIssuedCells {
         Box::new(|spec_config| {
             spec_config.genesis.issued_cells = vec![IssuedCell {
                 capacity: capacity_bytes!(5_000),
-                lock: Script {
-                    args: vec![Bytes::from(vec![1]), Bytes::from(vec![2])],
-                    code_hash: h256!("0xa1"),
-                    hash_type: ScriptHashType::Data,
-                }
-                .into(),
+                lock: Script::new_builder()
+                    .args(vec![Bytes::from(vec![1]).pack(), Bytes::from(vec![2]).pack()].pack())
+                    .code_hash(h256!("0xa1").pack())
+                    .hash_type(ScriptHashType::Data.pack())
+                    .build()
+                    .into(),
             }];
         })
     }

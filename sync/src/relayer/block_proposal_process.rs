@@ -1,16 +1,13 @@
-use crate::relayer::{compact_block::BlockProposal, Relayer};
-use ckb_core::transaction::{ProposalShortId, Transaction};
+use crate::relayer::Relayer;
 use ckb_logger::{debug_target, warn_target};
 use ckb_network::CKBProtocolContext;
-use ckb_protocol::BlockProposal as BlockProposalMessage;
+use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use futures::{self, future::FutureResult, lazy};
-use numext_fixed_hash::H256;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct BlockProposalProcess<'a> {
-    message: &'a BlockProposalMessage<'a>,
+    message: packed::BlockProposalReader<'a>,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
 }
@@ -24,7 +21,7 @@ pub enum Status {
 
 impl<'a> BlockProposalProcess<'a> {
     pub fn new(
-        message: &'a BlockProposalMessage,
+        message: packed::BlockProposalReader<'a>,
         relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
     ) -> Self {
@@ -36,35 +33,28 @@ impl<'a> BlockProposalProcess<'a> {
     }
 
     pub fn execute(self) -> Result<Status, FailureError> {
-        let block_proposal: BlockProposal = (*self.message).try_into()?;
-        let txs: Vec<Transaction> = block_proposal.transactions;
-
-        let unknown_txs: Vec<(H256, Transaction)> = txs
-            .into_iter()
-            .filter_map(|tx| {
-                let tx_hash = tx.hash();
-                if self.relayer.shared().already_known_tx(&tx_hash) {
-                    None
-                } else {
-                    Some((tx_hash.to_owned(), tx))
-                }
-            })
+        let unknown_txs: Vec<core::TransactionView> = self
+            .message
+            .transactions()
+            .iter()
+            .map(|x| x.to_entity().into_view())
+            .filter(|tx| !self.relayer.shared().already_known_tx(&tx.hash()))
             .collect();
 
         if unknown_txs.is_empty() {
             return Ok(Status::NoUnknown);
         }
 
-        let proposals: Vec<ProposalShortId> = unknown_txs
+        let proposals: Vec<packed::ProposalShortId> = unknown_txs
             .iter()
-            .map(|(tx_hash, _)| ProposalShortId::from_tx_hash(tx_hash))
+            .map(|tx| packed::ProposalShortId::from_tx_hash(&tx.hash().unpack()))
             .collect();
         let removes = self.relayer.shared().remove_inflight_proposals(&proposals);
         let mut asked_txs = Vec::new();
-        for (previously_in, (tx_hash, transaction)) in removes.into_iter().zip(unknown_txs) {
+        for (previously_in, tx) in removes.into_iter().zip(unknown_txs) {
             if previously_in {
-                self.relayer.shared().mark_as_known_tx(tx_hash);
-                asked_txs.push(transaction);
+                self.relayer.shared().mark_as_known_tx(tx.hash());
+                asked_txs.push(tx);
             }
         }
 

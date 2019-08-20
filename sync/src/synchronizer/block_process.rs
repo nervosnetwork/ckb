@@ -2,15 +2,13 @@ use crate::{
     synchronizer::{BlockStatus, Synchronizer},
     BAD_MESSAGE_BAN_TIME,
 };
-use ckb_core::block::Block;
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::Block as PBlock;
+use ckb_types::{packed, prelude::*};
 use failure::Error as FailureError;
-use std::convert::TryInto;
 
 pub struct BlockProcess<'a> {
-    message: &'a PBlock<'a>,
+    message: packed::SendBlockReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
@@ -18,7 +16,7 @@ pub struct BlockProcess<'a> {
 
 impl<'a> BlockProcess<'a> {
     pub fn new(
-        message: &'a PBlock,
+        message: packed::SendBlockReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
@@ -32,18 +30,17 @@ impl<'a> BlockProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let block: Block = (*self.message).try_into()?;
-        let block_hash = block.header().hash().to_owned();
+        let block = self.message.block().to_entity().into_view();
         debug!(
-            "BlockProcess received block {} {:x}",
-            block.header().number(),
-            block_hash
+            "BlockProcess received block {} {}",
+            block.number(),
+            block.hash(),
         );
 
         if self.synchronizer.shared().new_block_received(&block)
             && self
                 .synchronizer
-                .process_new_block(self.peer, block)
+                .process_new_block(self.peer, block.clone())
                 .is_err()
         {
             info!(
@@ -53,7 +50,7 @@ impl<'a> BlockProcess<'a> {
             );
             self.synchronizer
                 .shared()
-                .insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
+                .insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
             self.nc.ban_peer(self.peer, BAD_MESSAGE_BAN_TIME);
         }
 

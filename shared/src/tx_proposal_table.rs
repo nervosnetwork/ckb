@@ -1,7 +1,6 @@
 use ckb_chain_spec::consensus::ProposalWindow;
-use ckb_core::header::BlockNumber;
-use ckb_core::transaction::ProposalShortId;
 use ckb_logger::trace_target;
+use ckb_types::{core::BlockNumber, packed::ProposalShortId};
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound;
 
@@ -108,7 +107,7 @@ mod tests {
         let window = ProposalWindow(2, 10);
         let mut table = TxProposalTable::new(window);
         let mut ids = HashSet::default();
-        ids.insert(id);
+        ids.insert(id.clone());
         table.insert(1, ids.clone());
         assert!(!table.contains(&id));
 

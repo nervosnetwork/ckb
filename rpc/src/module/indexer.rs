@@ -1,8 +1,8 @@
 use ckb_indexer::IndexerStore;
 use ckb_jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Unsigned};
+use ckb_types::H256;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use numext_fixed_hash::H256;
 
 #[rpc]
 pub trait IndexerRpc {

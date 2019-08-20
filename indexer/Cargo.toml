@@ -6,17 +6,13 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-ckb-core = { path = "../core" }
+ckb-types = { path = "../util/types" }
 ckb-db = { path = "../db" }
 ckb-notify = { path = "../notify" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-traits = { path = "../traits" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-bincode = "1.1"
-serde = "1.0"
-serde_derive = "1.0"
 ckb-logger = { path = "../util/logger" }
 
 [dev-dependencies]
@@ -24,4 +20,3 @@ tempfile = "3.0"
 ckb-chain =  { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 ckb-resource = { path = "../resource" }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }

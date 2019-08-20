@@ -2,14 +2,14 @@ use crate::tests::util::{
     create_cellbase, create_multi_outputs_transaction, create_transaction,
     create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
 };
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::cell::UnresolvableError;
-use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::OutPoint;
 use ckb_shared::error::SharedError;
-use ckb_test_chain_utils::build_block;
 use ckb_traits::ChainProvider;
-use numext_fixed_uint::U256;
+use ckb_types::prelude::*;
+use ckb_types::{
+    core::{cell::UnresolvableError, BlockBuilder, BlockView},
+    packed::OutPoint,
+    U256,
+};
 use std::sync::Arc;
 
 #[test]
@@ -31,7 +31,7 @@ fn test_dead_cell_in_same_block() {
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
-    let tx1 = create_transaction(last_cell_base.hash(), 1);
+    let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     let tx3 = create_transaction(&tx1_hash, 3);
@@ -58,7 +58,10 @@ fn test_dead_cell_in_same_block() {
     }
 
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(tx1_hash, 0))),
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(
+            tx1_hash.unpack(),
+            0
+        ))),
         chain_controller
             .process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
@@ -116,7 +119,7 @@ fn test_dead_cell_in_different_block() {
 
     assert_eq!(
         SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(
-            tx1_hash.to_owned(),
+            tx1_hash.unpack(),
             0
         ))),
         chain_controller
@@ -149,11 +152,11 @@ fn test_invalid_out_point_index_in_same_block() {
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
-    let tx1 = create_transaction(last_cell_base.hash(), 1);
+    let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.unpack(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
 
     chain2.gen_block_with_proposal_txs(txs.clone(), &mock_store);
@@ -177,7 +180,8 @@ fn test_invalid_out_point_index_in_same_block() {
 
     assert_eq!(
         SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
-            tx1_hash, 1,
+            tx1_hash.unpack(),
+            1,
         )])),
         chain_controller
             .process_block(
@@ -209,11 +213,11 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     let last_cell_base = &chain2.blocks().last().unwrap().transactions()[0];
-    let tx1 = create_transaction(last_cell_base.hash(), 1);
+    let tx1 = create_transaction(&last_cell_base.hash(), 1);
     let tx1_hash = tx1.hash();
-    let tx2 = create_transaction(tx1_hash, 2);
+    let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
+    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.unpack(), 1), 3);
 
     chain2.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     chain2.gen_empty_block(20000u64, &mock_store);
@@ -238,7 +242,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     assert_eq!(
         SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
-            tx1_hash.to_owned(),
+            tx1_hash.unpack(),
             1,
         )])),
         chain_controller
@@ -259,8 +263,8 @@ fn test_full_dead_transaction() {
     let switch_fork_number = 10;
     let proposal_number = 3;
 
-    let mut chain1: Vec<Block> = Vec::new();
-    let mut chain2: Vec<Block> = Vec::new();
+    let mut chain1: Vec<BlockView> = Vec::new();
+    let mut chain2: Vec<BlockView> = Vec::new();
 
     let mock_store = MockStore::new(&parent, shared.store());
 
@@ -274,15 +278,15 @@ fn test_full_dead_transaction() {
     );
 
     let difficulty = parent.difficulty().to_owned();
-    let block = build_block!(
-        from_header_builder: {
-            parent_hash: parent.hash().to_owned(),
-            number: parent.number() + 1,
-            difficulty: difficulty + U256::from(100u64),
-            dao: dao,
-        },
-        transaction: cellbase_tx,
-    );
+
+    let block = BlockBuilder::default()
+        .parent_hash(parent.hash().to_owned())
+        .number((parent.number() + 1).pack())
+        .difficulty((difficulty + U256::from(100u64)).pack())
+        .dao(dao.pack())
+        .transaction(cellbase_tx)
+        .build();
+
     chain1.push(block.clone());
     chain2.push(block.clone());
     mock_store.insert_block(&block, shared.consensus().genesis_epoch_ext());
@@ -301,16 +305,14 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(100u64),
-                    dao: dao,
-                },
-                transactions: transactions,
-                proposals: vec![tx1.proposal_short_id()],
-            )
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(100u64)).pack())
+                .dao(dao.pack())
+                .transactions(transactions)
+                .proposals(vec![tx1.proposal_short_id()])
+                .build()
         } else if i == proposal_number + 2 {
             let transactions = vec![
                 create_cellbase(&mock_store, shared.consensus(), &parent),
@@ -323,15 +325,13 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(100u64),
-                    dao: dao,
-                },
-                transactions: transactions,
-            )
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(100u64)).pack())
+                .dao(dao.pack())
+                .transactions(transactions)
+                .build()
         } else {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
@@ -341,15 +341,13 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(100u64),
-                    dao: dao,
-                },
-                transactions: transactions,
-            )
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(100u64)).pack())
+                .dao(dao.pack())
+                .transactions(transactions)
+                .build()
         };
         chain1.push(new_block.clone());
         chain2.push(new_block.clone());
@@ -371,16 +369,14 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(100u64),
-                    dao: dao,
-                },
-                proposals: vec![tx2.proposal_short_id(), tx3.proposal_short_id()],
-                transactions: transactions,
-            )
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(100u64)).pack())
+                .dao(dao.pack())
+                .transactions(transactions)
+                .proposals(vec![tx2.proposal_short_id(), tx3.proposal_short_id()])
+                .build()
         } else if i == final_number - 1 {
             let transactions = vec![
                 create_cellbase(&mock_store, shared.consensus(), &parent),
@@ -394,15 +390,13 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(100u64),
-                    dao: dao,
-                },
-                transactions: transactions,
-            )
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(100u64)).pack())
+                .dao(dao.pack())
+                .transactions(transactions)
+                .build()
         } else {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
@@ -412,15 +406,14 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(100u64),
-                    dao: dao,
-                },
-                transactions: transactions,
-            )
+
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(100u64)).pack())
+                .dao(dao.pack())
+                .transactions(transactions)
+                .build()
         };
         chain1.push(new_block.clone());
         mock_store.insert_block(&new_block, shared.consensus().genesis_epoch_ext());
@@ -439,16 +432,14 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(101u64),
-                    dao: dao,
-                },
-                transactions: transactions,
-                proposals: vec![tx2.proposal_short_id(), tx3.proposal_short_id()],
-            )
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(101u64)).pack())
+                .dao(dao.pack())
+                .proposals(vec![tx2.proposal_short_id(), tx3.proposal_short_id()])
+                .transactions(transactions)
+                .build()
         } else if i == final_number - 1 {
             let transactions = vec![
                 create_cellbase(&mock_store, shared.consensus(), &parent),
@@ -462,15 +453,13 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(101u64),
-                    dao: dao,
-                },
-                transactions: transactions,
-            )
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(101u64)).pack())
+                .dao(dao.pack())
+                .transactions(transactions)
+                .build()
         } else {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
@@ -480,15 +469,14 @@ fn test_full_dead_transaction() {
                 &mock_store,
                 false,
             );
-            build_block!(
-                from_header_builder: {
-                    parent_hash: parent.hash().to_owned(),
-                    number: parent.number() + 1,
-                    difficulty: difficulty + U256::from(101u64),
-                    dao: dao,
-                },
-                transactions: transactions,
-            )
+
+            BlockBuilder::default()
+                .parent_hash(parent.hash().to_owned())
+                .number((parent.number() + 1).pack())
+                .difficulty((difficulty + U256::from(101u64)).pack())
+                .dao(dao.pack())
+                .transactions(transactions)
+                .build()
         };
         chain2.push(new_block.clone());
         mock_store.insert_block(&new_block, shared.consensus().genesis_epoch_ext());

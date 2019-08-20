@@ -10,19 +10,19 @@
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::Consensus;
-use ckb_core::{
-    block::{Block, BlockBuilder},
-    header::HeaderBuilder,
-    script::Script as CoreScript,
-    transaction::{CellInput, CellOutput, Transaction, TransactionBuilder},
-    BlockNumber, Bytes, Capacity, Cycle,
-};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::Resource;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
+use ckb_types::{
+    bytes::Bytes,
+    core::{
+        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, TransactionBuilder, TransactionView,
+    },
+    packed,
+    prelude::*,
+    H256, U256,
+};
 use serde_derive::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
@@ -151,14 +151,11 @@ impl ChainSpec {
         self.pow.engine()
     }
 
-    fn verify_genesis_hash(&self, genesis: &Block) -> Result<(), Box<dyn Error>> {
+    fn verify_genesis_hash(&self, genesis: &BlockView) -> Result<(), Box<dyn Error>> {
         if let Some(ref expect) = self.genesis.hash {
-            let actual = genesis.header().hash();
-            if actual != expect {
-                return Err(SpecLoadError::genesis_mismatch(
-                    expect.clone(),
-                    actual.clone(),
-                ));
+            let actual: H256 = genesis.hash().unpack();
+            if &actual != expect {
+                return Err(SpecLoadError::genesis_mismatch(expect.clone(), actual));
             }
         }
         Ok(())
@@ -180,28 +177,28 @@ impl ChainSpec {
 }
 
 impl Genesis {
-    fn build_block(&self) -> Result<Block, Box<dyn Error>> {
+    fn build_block(&self) -> Result<BlockView, Box<dyn Error>> {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         let dao = genesis_dao_data(&cellbase_transaction)?;
 
-        let header_builder = HeaderBuilder::default()
-            .version(self.version)
-            .parent_hash(self.parent_hash.clone())
-            .timestamp(self.timestamp)
-            .difficulty(self.difficulty.clone())
-            .nonce(self.seal.nonce)
-            .proof(self.seal.proof.clone())
-            .uncles_hash(self.uncles_hash.clone())
-            .dao(dao);
-
-        Ok(BlockBuilder::from_header_builder(header_builder)
+        let block = BlockBuilder::default()
+            .version(self.version.pack())
+            .parent_hash(self.parent_hash.pack())
+            .timestamp(self.timestamp.pack())
+            .difficulty(self.difficulty.pack())
+            .uncles_hash(self.uncles_hash.pack())
+            .dao(dao.pack())
+            .nonce(self.seal.nonce.pack())
+            .proof(self.seal.proof.pack())
             .transaction(cellbase_transaction)
-            .build())
+            .build();
+        Ok(block)
     }
 
-    fn build_cellbase_transaction(&self) -> Result<Transaction, Box<dyn Error>> {
-        let mut outputs =
-            Vec::<CellOutput>::with_capacity(1 + self.system_cells.len() + self.issued_cells.len());
+    fn build_cellbase_transaction(&self) -> Result<TransactionView, Box<dyn Error>> {
+        let mut outputs = Vec::<packed::CellOutput>::with_capacity(
+            1 + self.system_cells.len() + self.issued_cells.len(),
+        );
         let mut outputs_data = Vec::with_capacity(outputs.capacity());
 
         // Layout of genesis cellbase:
@@ -217,32 +214,41 @@ impl Genesis {
         outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
         outputs_data.extend(self.issued_cells.iter().map(|_| Bytes::new()));
 
-        Ok(TransactionBuilder::default()
+        let script: packed::Script = self.bootstrap_lock.clone().into();
+
+        let tx = TransactionBuilder::default()
+            .input(packed::CellInput::new_cellbase_input(0))
             .outputs(outputs)
-            .outputs_data(outputs_data)
-            .input(CellInput::new_cellbase_input(0))
-            .witness(CoreScript::from(self.bootstrap_lock.clone()).into_witness())
-            .build())
+            .witness(script.into_witness())
+            .outputs_data(
+                outputs_data
+                    .iter()
+                    .map(|d| d.pack())
+                    .collect::<Vec<packed::Bytes>>(),
+            )
+            .build();
+        Ok(tx)
     }
 }
 
 impl GenesisCell {
-    fn build_output(&self) -> Result<(CellOutput, Bytes), Box<dyn Error>> {
-        let mut cell = CellOutput::default();
+    fn build_output(&self) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
         let data: Bytes = self.message.as_bytes().into();
-        cell.data_hash = CellOutput::calculate_data_hash(&data);
-        cell.lock = self.lock.clone().into();
-        cell.capacity = cell.occupied_capacity(Capacity::bytes(data.len())?)?;
+        let cell = packed::CellOutput::new_builder()
+            .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
+            .lock(self.lock.clone().into())
+            .reset_capacity(Capacity::bytes(data.len())?)?
+            .build();
         Ok((cell, data))
     }
 }
 
 impl IssuedCell {
-    fn build_output(&self) -> CellOutput {
-        let mut cell = CellOutput::default();
-        cell.lock = self.lock.clone().into();
-        cell.capacity = self.capacity;
-        cell
+    fn build_output(&self) -> packed::CellOutput {
+        packed::CellOutput::new_builder()
+            .lock(self.lock.clone().into())
+            .capacity(self.capacity.pack())
+            .build()
     }
 }
 
@@ -251,15 +257,16 @@ impl SystemCells {
         self.files.len()
     }
 
-    fn build_outputs(&self) -> Result<(Vec<CellOutput>, Vec<Bytes>), Box<dyn Error>> {
+    fn build_outputs(&self) -> Result<(Vec<packed::CellOutput>, Vec<Bytes>), Box<dyn Error>> {
         let mut outputs = Vec::with_capacity(self.files.len());
         let mut outputs_data = Vec::with_capacity(self.files.len());
         for res in &self.files {
             let data: Bytes = res.get()?.into_owned().into();
-            let mut cell = CellOutput::default();
-            cell.data_hash = CellOutput::calculate_data_hash(&data);
-            cell.lock = self.lock.clone().into();
-            cell.capacity = cell.occupied_capacity(Capacity::bytes(data.len())?)?;
+            let cell = packed::CellOutput::new_builder()
+                .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
+                .lock(self.lock.clone().into())
+                .reset_capacity(Capacity::bytes(data.len())?)?
+                .build();
             outputs.push(cell);
             outputs_data.push(data);
         }
@@ -319,20 +326,21 @@ pub mod test {
             assert!(consensus.is_ok(), "{}", consensus.unwrap_err());
             let consensus = consensus.unwrap();
             let block = consensus.genesis_block();
-            let cellbase = &block.transactions()[0];
+            let cellbase = block.transaction(0).unwrap();
+            let cellbase_hash: H256 = cellbase.hash().unpack();
 
-            assert_eq!(&spec_hashes.cellbase, cellbase.hash());
+            assert_eq!(spec_hashes.cellbase, cellbase_hash);
 
             for (index_minus_one, (output, cell)) in cellbase
                 .outputs()
-                .iter()
+                .into_iter()
                 .skip(1)
                 .zip(spec_hashes.system_cells.iter())
                 .enumerate()
             {
-                let code_hash = output.data_hash();
+                let code_hash: H256 = output.data_hash().unpack();
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
-                assert_eq!(&cell.code_hash, code_hash, "{}", bundled_spec_err);
+                assert_eq!(cell.code_hash, code_hash, "{}", bundled_spec_err);
             }
         }
     }

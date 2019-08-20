@@ -9,16 +9,15 @@ pub use db::ChainDB;
 pub use store::ChainStore;
 pub use transaction::StoreTransaction;
 
-use ckb_core::extras::BlockExt;
-use ckb_core::header::Header;
-use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_core::uncle::UncleBlock;
-use ckb_core::Bytes;
 use ckb_db::Col;
+use ckb_types::{
+    bytes::Bytes,
+    core::{BlockExt, HeaderView, TransactionView, UncleBlockVecView},
+    packed::{Byte32, ProposalShortIdVec},
+};
 use ckb_util::Mutex;
 use lazy_static::lazy_static;
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const COLUMNS: u32 = 12;
@@ -40,17 +39,19 @@ const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
 
 lazy_static! {
     static ref CACHE_ENABLE: AtomicBool = AtomicBool::new(true);
-    static ref HEADER_CACHE: Mutex<LruCache<H256, Header>> = { Mutex::new(LruCache::new(4096)) };
-    static ref CELL_DATA_CACHE: Mutex<LruCache<(H256, u32), Bytes>> =
+    static ref HEADER_CACHE: Mutex<LruCache<Byte32, HeaderView>> =
+        { Mutex::new(LruCache::new(4096)) };
+    static ref CELL_DATA_CACHE: Mutex<LruCache<(Byte32, u32), Bytes>> =
         { Mutex::new(LruCache::new(128)) };
-    static ref BLOCK_PROPOSALS_CACHE: Mutex<LruCache<H256, Vec<ProposalShortId>>> =
+    static ref BLOCK_PROPOSALS_CACHE: Mutex<LruCache<Byte32, ProposalShortIdVec>> =
         { Mutex::new(LruCache::new(30)) };
-    static ref BLOCK_TX_HASHES_CACHE: Mutex<LruCache<H256, Vec<H256>>> =
+    static ref BLOCK_TX_HASHES_CACHE: Mutex<LruCache<Byte32, Vec<Byte32>>> =
         { Mutex::new(LruCache::new(20)) };
-    static ref BLOCK_EXT_CACHE: Mutex<LruCache<H256, BlockExt>> = { Mutex::new(LruCache::new(20)) };
-    static ref BLOCK_UNCLES_CACHE: Mutex<LruCache<H256, Vec<UncleBlock>>> =
+    static ref BLOCK_EXT_CACHE: Mutex<LruCache<Byte32, BlockExt>> =
+        { Mutex::new(LruCache::new(20)) };
+    static ref BLOCK_UNCLES_CACHE: Mutex<LruCache<Byte32, UncleBlockVecView>> =
         { Mutex::new(LruCache::new(10)) };
-    static ref CELLBASE_CACHE: Mutex<LruCache<H256, Transaction>> =
+    static ref CELLBASE_CACHE: Mutex<LruCache<Byte32, TransactionView>> =
         { Mutex::new(LruCache::new(20)) };
 }
 

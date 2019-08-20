@@ -1,22 +1,21 @@
-use crate::relayer::compact_block::TransactionHashes;
 use crate::relayer::Relayer;
-use ckb_core::transaction::ProposalShortId;
 use ckb_logger::debug_target;
 use ckb_network::PeerIndex;
-use ckb_protocol::RelayTransactionHashes as FbsRelayTransactionHashes;
+use ckb_types::{
+    packed::{self, Byte32},
+    prelude::*,
+};
 use failure::Error as FailureError;
-use numext_fixed_hash::H256;
-use std::convert::TryInto;
 
 pub struct TransactionHashesProcess<'a> {
-    message: &'a FbsRelayTransactionHashes<'a>,
+    message: packed::RelayTransactionHashesReader<'a>,
     relayer: &'a Relayer,
     peer: PeerIndex,
 }
 
 impl<'a> TransactionHashesProcess<'a> {
     pub fn new(
-        message: &'a FbsRelayTransactionHashes,
+        message: packed::RelayTransactionHashesReader<'a>,
         relayer: &'a Relayer,
         peer: PeerIndex,
     ) -> Self {
@@ -28,13 +27,12 @@ impl<'a> TransactionHashesProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let transaction_hashes: TransactionHashes = (*self.message).try_into()?;
-
-        let mut transit_hashes: Vec<H256> = {
+        let mut transit_hashes: Vec<Byte32> = {
             let tx_filter = self.relayer.shared().tx_filter();
-            transaction_hashes
-                .hashes
-                .into_iter()
+            self.message
+                .tx_hashes()
+                .iter()
+                .map(|x| x.to_entity())
                 .filter(|tx_hash| !tx_filter.contains(&tx_hash))
                 .collect()
         };
@@ -43,8 +41,9 @@ impl<'a> TransactionHashesProcess<'a> {
             let state = self.relayer.shared.lock_chain_state();
             let tx_pool = state.tx_pool();
 
-            transit_hashes
-                .retain(|tx_hash| !tx_pool.contains_tx(&ProposalShortId::from_tx_hash(&tx_hash)))
+            transit_hashes.retain(|tx_hash| {
+                !tx_pool.contains_tx(&packed::ProposalShortId::from_tx_hash(&tx_hash.unpack()))
+            })
         }
 
         if transit_hashes.is_empty() {
@@ -63,7 +62,7 @@ impl<'a> TransactionHashesProcess<'a> {
 
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "transaction({:#?}) from {} not known, get it from the peer",
+                "transaction({:?}) from {} not known, get it from the peer",
                 &transit_hashes,
                 self.peer,
             );

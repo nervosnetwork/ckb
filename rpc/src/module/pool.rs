@@ -1,16 +1,13 @@
 use crate::error::RPCError;
-use ckb_core::transaction::Transaction as CoreTransaction;
 use ckb_jsonrpc_types::{Timestamp, Transaction, TxPoolInfo, Unsigned};
 use ckb_logger::error;
 use ckb_network::NetworkController;
-use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
 use ckb_sync::NetworkProtocol;
 use ckb_tx_pool_executor::TxPoolExecutor;
-use flatbuffers::FlatBufferBuilder;
+use ckb_types::{core, packed, prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 #[rpc]
@@ -43,25 +40,29 @@ impl PoolRpcImpl {
 
 impl PoolRpc for PoolRpcImpl {
     fn send_transaction(&self, tx: Transaction) -> Result<H256> {
-        let tx: CoreTransaction = tx.into();
+        let tx: packed::Transaction = tx.into();
+        let tx: core::TransactionView = tx.into_view();
 
         let result = self.tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
 
         match result {
             Ok(cycles) => {
-                let fbb = &mut FlatBufferBuilder::new();
-                let hash = tx.hash().to_owned();
-                let relay_tx = (tx, cycles);
-                let message = RelayMessage::build_transactions(fbb, &[relay_tx]);
-                fbb.finish(message, None);
-                let data = fbb.finished_data().into();
+                let relay_tx = packed::RelayTransaction::new_builder()
+                    .cycles(cycles.pack())
+                    .transaction(tx.data())
+                    .build();
+                let relay_txs = packed::RelayTransactions::new_builder()
+                    .transactions(vec![relay_tx].pack())
+                    .build();
+                let message = packed::RelayMessage::new_builder().set(relay_txs).build();
+                let data = message.as_slice().into();
                 if let Err(err) = self
                     .network_controller
                     .broadcast(NetworkProtocol::RELAY.into(), data)
                 {
                     error!("Broadcast transaction failed: {:?}", err);
                 }
-                Ok(hash)
+                Ok(tx.hash().unpack())
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
         }

@@ -1,7 +1,7 @@
-use bytes::Bytes;
 use ckb_network::{
     Behaviour, CKBProtocolContext, CKBProtocolHandler, Peer, PeerIndex, ProtocolId, TargetSession,
 };
+use ckb_types::bytes::Bytes;
 use ckb_util::RwLock;
 use futures::future::Future;
 use std::collections::HashMap;

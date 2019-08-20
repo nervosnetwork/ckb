@@ -6,7 +6,7 @@ use crate::{
     },
     DataLoader,
 };
-use ckb_core::cell::CellMeta;
+use ckb_types::core::cell::CellMeta;
 use ckb_vm::{
     memory::{Memory, FLAG_EXECUTABLE, FLAG_FREEZED},
     registers::{A0, A1, A2, A3, A4, A5, A7},

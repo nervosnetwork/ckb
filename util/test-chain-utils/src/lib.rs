@@ -1,5 +1,3 @@
-#[macro_use]
-mod macros;
 mod chain;
 mod median_time;
 mod mock_store;

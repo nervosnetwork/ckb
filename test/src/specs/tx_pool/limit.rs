@@ -21,7 +21,7 @@ impl Spec for SizeLimit {
         (0..4).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
             info!("tx.size: {}", tx.serialized_size());
-            hash = node.rpc_client().send_transaction((&tx).into());
+            hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
@@ -30,13 +30,13 @@ impl Spec for SizeLimit {
 
         let error = node
             .rpc_client()
-            .send_transaction_result((&tx).into())
+            .send_transaction_result(tx.data().into())
             .unwrap_err();
         assert_regex_match(&error.to_string(), r"LimitReached");
 
-        // 186 * 5
+        // 342 * 5
         // 12 * 5
-        node.assert_tx_pool_statics(930, 60);
+        node.assert_tx_pool_statics(1710, 60);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
@@ -46,7 +46,7 @@ impl Spec for SizeLimit {
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         Box::new(|config| {
-            config.tx_pool.max_mem_size = 930;
+            config.tx_pool.max_mem_size = 1710;
             config.tx_pool.max_cycles = 200_000_000_000;
         })
     }
@@ -71,7 +71,7 @@ impl Spec for CyclesLimit {
         (0..4).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
             info!("tx.size: {}", tx.serialized_size());
-            hash = node.rpc_client().send_transaction((&tx).into());
+            hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
@@ -80,13 +80,13 @@ impl Spec for CyclesLimit {
 
         let error = node
             .rpc_client()
-            .send_transaction_result((&tx).into())
+            .send_transaction_result(tx.data().into())
             .unwrap_err();
         assert_regex_match(&error.to_string(), r"LimitReached");
 
-        // 186 * 5
+        // 342 * 5
         // 12 * 5
-        node.assert_tx_pool_statics(930, 60);
+        node.assert_tx_pool_statics(1710, 60);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });

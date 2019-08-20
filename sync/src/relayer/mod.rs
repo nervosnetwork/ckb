@@ -1,7 +1,6 @@
 mod block_proposal_process;
 mod block_transactions_process;
 mod block_transactions_verifier;
-pub mod compact_block;
 mod compact_block_process;
 mod compact_block_verifier;
 mod error;
@@ -15,7 +14,6 @@ mod transactions_process;
 
 use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
-use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
 pub use self::error::{Error, Misbehavior};
 use self::get_block_proposal_process::GetBlockProposalProcess;
@@ -27,19 +25,17 @@ use crate::block_status::BlockStatus;
 use crate::types::SyncSharedState;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_core::uncle::UncleBlock;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
-use ckb_protocol::error::Error as ProtocalError;
-use ckb_protocol::{cast, get_root, RelayMessage, RelayPayload};
 use ckb_tx_pool_executor::TxPoolExecutor;
+use ckb_types::{
+    core,
+    packed::{self, Byte32, ProposalShortId},
+    prelude::*,
+};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use flatbuffers::FlatBufferBuilder;
 use fnv::{FnvHashMap, FnvHashSet};
-use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -80,105 +76,52 @@ impl Relayer {
         &self.shared
     }
 
-    fn try_process(
+    fn try_process<'r>(
         &self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
-        message: RelayMessage,
+        message: packed::RelayMessageUnionReader<'r>,
     ) -> Result<(), FailureError> {
-        match message.payload_type() {
-            RelayPayload::CompactBlock => {
-                CompactBlockProcess::new(
-                    &cast!(message.payload_as_compact_block())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+        match message {
+            packed::RelayMessageUnionReader::CompactBlock(reader) => {
+                CompactBlockProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::RelayTransactions => {
-                TransactionsProcess::new(
-                    &cast!(message.payload_as_relay_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::RelayTransactions(reader) => {
+                TransactionsProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::RelayTransactionHashes => {
-                TransactionHashesProcess::new(
-                    &cast!(message.payload_as_relay_transaction_hashes())?,
-                    self,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::RelayTransactionHashes(reader) => {
+                TransactionHashesProcess::new(reader, self, peer).execute()?;
             }
-            RelayPayload::GetRelayTransactions => {
-                GetTransactionsProcess::new(
-                    &cast!(message.payload_as_get_relay_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::GetRelayTransactions(reader) => {
+                GetTransactionsProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::GetBlockTransactions => {
-                GetBlockTransactionsProcess::new(
-                    &cast!(message.payload_as_get_block_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::GetBlockTransactions(reader) => {
+                GetBlockTransactionsProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::BlockTransactions => {
-                BlockTransactionsProcess::new(
-                    &cast!(message.payload_as_block_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::BlockTransactions(reader) => {
+                BlockTransactionsProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::GetBlockProposal => {
-                GetBlockProposalProcess::new(
-                    &cast!(message.payload_as_get_block_proposal())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::GetBlockProposal(reader) => {
+                GetBlockProposalProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::BlockProposal => {
-                BlockProposalProcess::new(&cast!(message.payload_as_block_proposal())?, self, nc)
-                    .execute()?;
-            }
-            RelayPayload::NONE => {
-                cast!(None)?;
+            packed::RelayMessageUnionReader::BlockProposal(reader) => {
+                BlockProposalProcess::new(reader, self, nc).execute()?;
             }
         }
         Ok(())
     }
 
-    fn process(
+    fn process<'r>(
         &self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
-        message: RelayMessage,
+        message: packed::RelayMessageUnionReader<'r>,
     ) {
         if let Err(err) = self.try_process(Arc::clone(&nc), peer, message) {
             if let Some(&Error::Misbehavior(ref e)) = err.downcast_ref() {
                 debug_target!(crate::LOG_TARGET_RELAY, "try_process error {}", e);
                 nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
                 return;
-            }
-            if let Some(&ProtocalError::Malformed) = err.downcast_ref() {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "try_process error {}",
-                    ProtocalError::Malformed
-                );
-                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
             }
         }
     }
@@ -187,18 +130,19 @@ impl Relayer {
         &self,
         nc: &CKBProtocolContext,
         peer: PeerIndex,
-        block: &CompactBlock,
+        block: &packed::CompactBlock,
     ) {
-        let proposals = block
-            .proposals
-            .iter()
-            .chain(block.uncles.iter().flat_map(UncleBlock::proposals));
+        let proposals = block.proposals().into_iter().chain(
+            block
+                .uncles()
+                .into_iter()
+                .flat_map(|u| u.proposals().into_iter()),
+        );
         let fresh_proposals: Vec<ProposalShortId> = {
             let chain_state = self.shared.lock_chain_state();
             let tx_pool = chain_state.tx_pool();
             proposals
                 .filter(|id| !tx_pool.contains_proposal_id(id))
-                .cloned()
                 .collect()
         };
         let to_ask_proposals: Vec<ProposalShortId> = self
@@ -209,12 +153,14 @@ impl Relayer {
             .filter_map(|(firstly_in, id)| if firstly_in { Some(id) } else { None })
             .collect();
         if !to_ask_proposals.is_empty() {
-            let fbb = &mut FlatBufferBuilder::new();
-            let message =
-                RelayMessage::build_get_block_proposal(fbb, block.header.hash(), &to_ask_proposals);
-            fbb.finish(message, None);
+            let content = packed::GetBlockProposal::new_builder()
+                .block_hash(block.calc_header_hash().pack())
+                .proposals(to_ask_proposals.clone().pack())
+                .build();
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
 
-            if let Err(err) = nc.send_message_to(peer, fbb.finished_data().into()) {
+            if let Err(err) = nc.send_message_to(peer, data) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send GetBlockProposal error {:?}",
@@ -225,10 +171,10 @@ impl Relayer {
         }
     }
 
-    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: Block) {
+    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: core::BlockView) {
         if self
             .shared()
-            .contains_block_status(block.header().hash(), BlockStatus::BLOCK_STORED)
+            .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
         {
             return;
         }
@@ -241,16 +187,15 @@ impl Relayer {
         {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "[block_relay] relayer accept_block {:x} {}",
+                "[block_relay] relayer accept_block {} {}",
                 boxed.header().hash(),
                 unix_time_as_millis()
             );
-            let block_hash = boxed.header().hash();
+            let block_hash = boxed.hash();
             self.shared.remove_header_view(&block_hash);
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = RelayMessage::build_compact_block(fbb, &boxed, &HashSet::new());
-            fbb.finish(message, None);
-            let data = fbb.finished_data().into();
+            let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
+            let message = packed::RelayMessage::new_builder().set(cb).build();
+            let data = message.as_slice().into();
 
             let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
@@ -271,19 +216,20 @@ impl Relayer {
 
     pub fn reconstruct_block(
         &self,
-        compact_block: &CompactBlock,
-        transactions: Vec<Transaction>,
-    ) -> Result<Block, Vec<usize>> {
+        compact_block: &packed::CompactBlock,
+        transactions: Vec<core::TransactionView>,
+    ) -> Result<core::BlockView, Vec<usize>> {
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "start block reconstruction, block hash: {:#x}, transactions len: {}",
-            compact_block.header.hash(),
+            compact_block.calc_header_hash(),
             transactions.len(),
         );
 
-        let mut short_ids_set: HashSet<&ProposalShortId> = compact_block.short_ids.iter().collect();
+        let mut short_ids_set: HashSet<ProposalShortId> =
+            compact_block.short_ids().into_iter().collect();
 
-        let mut txs_map: FnvHashMap<ProposalShortId, Transaction> = transactions
+        let mut txs_map: FnvHashMap<ProposalShortId, core::TransactionView> = transactions
             .into_iter()
             .filter_map(|tx| {
                 let short_id = tx.proposal_short_id();
@@ -299,28 +245,34 @@ impl Relayer {
             let chain_state = self.shared().lock_chain_state();
             short_ids_set.into_iter().for_each(|short_id| {
                 if let Some(tx) = chain_state.get_tx_from_pool_or_store(&short_id) {
-                    txs_map.insert(*short_id, tx);
+                    txs_map.insert(short_id, tx);
                 }
             })
         }
 
-        let txs_len = compact_block.prefilled_transactions.len() + compact_block.short_ids.len();
-        let mut block_transactions: Vec<Option<Transaction>> = Vec::with_capacity(txs_len);
+        let txs_len =
+            compact_block.prefilled_transactions().len() + compact_block.short_ids().len();
+        let mut block_transactions: Vec<Option<core::TransactionView>> =
+            Vec::with_capacity(txs_len);
 
-        let short_ids_iter = &mut compact_block.short_ids.iter();
+        let short_ids_iter = &mut compact_block.short_ids().into_iter();
         // fill transactions gap
-        compact_block.prefilled_transactions.iter().for_each(|pt| {
-            let gap = pt.index - block_transactions.len();
-            if gap > 0 {
-                short_ids_iter
-                    .take(gap)
-                    .for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
-            }
-            block_transactions.push(Some(pt.transaction.clone()));
-        });
+        compact_block
+            .prefilled_transactions()
+            .into_iter()
+            .for_each(|pt| {
+                let index: usize = pt.index().unpack();
+                let gap = index - block_transactions.len();
+                if gap > 0 {
+                    short_ids_iter
+                        .take(gap)
+                        .for_each(|short_id| block_transactions.push(txs_map.remove(&short_id)));
+                }
+                block_transactions.push(Some(pt.transaction().into_view()));
+            });
 
         // append remain transactions
-        short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
+        short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(&short_id)));
 
         let missing = block_transactions.iter().any(Option::is_none);
 
@@ -329,17 +281,18 @@ impl Relayer {
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
                 .expect("missing checked, should not fail");
-            let block = BlockBuilder::default()
-                .header(compact_block.header.clone())
-                .uncles(compact_block.uncles.clone())
-                .transactions(txs)
-                .proposals(compact_block.proposals.clone())
-                .build();
+            let block = packed::Block::new_builder()
+                .header(compact_block.header())
+                .uncles(compact_block.uncles())
+                .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                .proposals(compact_block.proposals())
+                .build()
+                .into_view();
 
             debug_target!(
                 crate::LOG_TARGET_RELAY,
                 "finish block reconstruction, block hash: {:#x}",
-                compact_block.header.hash(),
+                compact_block.calc_header_hash(),
             );
 
             Ok(block)
@@ -353,9 +306,9 @@ impl Relayer {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
                 "block reconstruction failed, block hash: {:#x}, missing: {}, total: {}",
-                compact_block.header.hash(),
+                compact_block.calc_header_hash(),
                 missing_indexes.len(),
-                compact_block.short_ids.len(),
+                compact_block.short_ids().len(),
             );
 
             Err(missing_indexes)
@@ -379,11 +332,12 @@ impl Relayer {
         }
 
         for (peer_index, txs) in peer_txs {
-            let fbb = &mut FlatBufferBuilder::new();
-            let message =
-                RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
-            fbb.finish(message, None);
-            if let Err(err) = nc.send_message_to(peer_index, fbb.finished_data().into()) {
+            let content = packed::BlockProposal::new_builder()
+                .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                .build();
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
+            if let Err(err) = nc.send_message_to(peer_index, data) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send BlockProposal error: {:?}",
@@ -415,11 +369,11 @@ impl Relayer {
                     tx_hashes.len(),
                     peer,
                 );
-
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_get_transactions(fbb, &tx_hashes);
-                fbb.finish(message, None);
-                let data = fbb.finished_data().into();
+                let content = packed::GetRelayTransactions::new_builder()
+                    .tx_hashes(tx_hashes.pack())
+                    .build();
+                let message = packed::RelayMessage::new_builder().set(content).build();
+                let data = message.as_slice().into();
                 if let Err(err) = nc.send_message_to(*peer, data) {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,
@@ -433,7 +387,7 @@ impl Relayer {
 
     // Send bulk of tx hashes to selected peers
     pub fn send_bulk_of_tx_hashes(&self, nc: &CKBProtocolContext) {
-        let mut selected: FnvHashMap<PeerIndex, FnvHashSet<H256>> = FnvHashMap::default();
+        let mut selected: FnvHashMap<PeerIndex, FnvHashSet<Byte32>> = FnvHashMap::default();
         {
             let peer_tx_hashes = self.shared.take_tx_hashes();
             let mut known_txs = self.shared.known_txs();
@@ -457,11 +411,11 @@ impl Relayer {
         };
 
         for (peer, hashes) in selected {
-            let fbb = &mut FlatBufferBuilder::new();
-            let vec: Vec<H256> = hashes.into_iter().collect();
-            let message = RelayMessage::build_transaction_hashes(fbb, &vec);
-            fbb.finish(message, None);
-            let data = fbb.finished_data().into();
+            let content = packed::RelayTransactionHashes::new_builder()
+                .tx_hashes(hashes.pack())
+                .build();
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
             if let Err(err) = nc.filter_broadcast(TargetSession::Single(peer), data) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
@@ -494,8 +448,8 @@ impl CKBProtocolHandler for Relayer {
             return;
         }
 
-        let msg = match get_root::<RelayMessage>(&data) {
-            Ok(msg) => msg,
+        let msg = match packed::RelayMessage::from_slice(&data) {
+            Ok(msg) => msg.to_enum(),
             _ => {
                 info_target!(
                     crate::LOG_TARGET_RELAY,
@@ -509,16 +463,16 @@ impl CKBProtocolHandler for Relayer {
 
         debug_target!(
             crate::LOG_TARGET_RELAY,
-            "received msg {:?} from {}",
-            msg.payload_type(),
+            "received msg {} from {}",
+            msg.item_name(),
             peer_index
         );
         let start_time = Instant::now();
-        self.process(nc, peer_index, msg);
+        self.process(nc, peer_index, msg.as_reader());
         debug_target!(
             crate::LOG_TARGET_RELAY,
-            "process message={:?}, peer={}, cost={:?}",
-            msg.payload_type(),
+            "process message={}, peer={}, cost={:?}",
+            msg.item_name(),
             peer_index,
             start_time.elapsed(),
         );

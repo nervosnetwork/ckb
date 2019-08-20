@@ -4,26 +4,27 @@ use crate::tx_pool::types::{DefectEntry, ProposedEntry};
 use crate::tx_pool::{PoolError, TxPool, TxPoolConfig};
 use crate::tx_proposal_table::TxProposalTable;
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
-use ckb_core::block::Block;
-use ckb_core::cell::{
-    get_related_dep_out_points, resolve_transaction, CellProvider, CellStatus, HeaderChecker,
-    OverlayCellProvider, ResolvedTransaction, UnresolvableError,
-};
-use ckb_core::extras::EpochExt;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::{OutPoint, ProposalShortId, Transaction};
-use ckb_core::Cycle;
 use ckb_dao::DaoCalculator;
 use ckb_logger::{debug_target, error_target, info_target, trace_target};
 use ckb_script::ScriptConfig;
 use ckb_store::{ChainDB, ChainStore, StoreTransaction};
 use ckb_traits::BlockMedianTimeContext;
+use ckb_types::{
+    core::{
+        cell::{
+            get_related_dep_out_points, resolve_transaction, CellProvider, CellStatus,
+            HeaderChecker, OverlayCellProvider, ResolvedTransaction, UnresolvableError,
+        },
+        BlockNumber, BlockView, Cycle, EpochExt, HeaderView, TransactionView,
+    },
+    packed::{Byte32, OutPoint, ProposalShortId},
+    prelude::*,
+    H256, U256,
+};
 use ckb_util::LinkedFnvHashSet;
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use failure::Error as FailureError;
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 use std::cell::{Ref, RefCell};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -31,7 +32,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct ChainState {
     store: Arc<ChainDB>,
-    tip_header: Header,
+    tip_header: HeaderView,
     total_difficulty: U256,
     pub(crate) cell_set: CellSet,
     proposal_ids: TxProposalTable,
@@ -58,6 +59,7 @@ impl ChainState {
                 Some((tip_header, epoch)) => {
                     if let Some(genesis_hash) = store.get_block_hash(0) {
                         let expect_genesis_hash = consensus.genesis_hash();
+                        let genesis_hash: H256 = genesis_hash.unpack();
                         if &genesis_hash == expect_genesis_hash {
                             Ok((tip_header, epoch))
                         } else {
@@ -130,8 +132,8 @@ impl ChainState {
                 }
 
                 if let Some(us) = store.get_block_uncles(&hash) {
-                    for u in us {
-                        ids_set.extend(u.proposals);
+                    for u in us.data().into_iter() {
+                        ids_set.extend(u.proposals().into_iter());
                     }
                 }
                 proposal_ids.insert(bn, ids_set);
@@ -147,7 +149,7 @@ impl ChainState {
         info_target!(crate::LOG_TARGET_CHAIN, "Start: loading live cells ...");
         store.traverse_cell_set(|tx_hash, tx_meta| {
             count += 1;
-            cell_set.put(tx_hash, tx_meta);
+            cell_set.put(tx_hash.unpack(), tx_meta.unpack());
             if count % 10_000 == 0 {
                 info_target!(
                     crate::LOG_TARGET_CHAIN,
@@ -169,7 +171,7 @@ impl ChainState {
         self.tip_header.number()
     }
 
-    pub fn tip_hash(&self) -> &H256 {
+    pub fn tip_hash(&self) -> Byte32 {
         self.tip_header.hash()
     }
 
@@ -181,7 +183,7 @@ impl ChainState {
         &self.total_difficulty
     }
 
-    pub fn tip_header(&self) -> &Header {
+    pub fn tip_header(&self) -> &HeaderView {
         &self.tip_header
     }
 
@@ -205,12 +207,12 @@ impl ChainState {
         self.proposal_ids.contains_gap(id)
     }
 
-    pub fn insert_proposal_ids(&mut self, block: &Block) {
+    pub fn insert_proposal_ids(&mut self, block: &BlockView) {
         self.proposal_ids
             .insert(block.header().number(), block.union_proposal_ids());
     }
 
-    pub fn remove_proposal_ids(&mut self, block: &Block) {
+    pub fn remove_proposal_ids(&mut self, block: &BlockView) {
         self.proposal_ids.remove(block.header().number());
     }
 
@@ -245,15 +247,15 @@ impl ChainState {
             .filter(|out_point| !out_point.is_null())
             .filter_map(|out_point| {
                 // if old_input reference the old_output, skip.
-                if !old_outputs.contains(&out_point.tx_hash) {
+                if !old_outputs.contains(&out_point.tx_hash()) {
                     if let Some(tx_meta) = self.cell_set.try_mark_live(&out_point) {
-                        Some((out_point.tx_hash, tx_meta))
+                        Some((out_point.tx_hash(), tx_meta))
                     } else {
-                        let ret = self.store.get_transaction(&out_point.tx_hash);
+                        let ret = self.store.get_transaction(&out_point.tx_hash());
                         if ret.is_none() {
                             info_target!(
                                 crate::LOG_TARGET_CHAIN,
-                                "[update_tip] get_transaction out_point={:?}",
+                                "[update_tip] get_transaction out_point={}",
                                 out_point,
                             );
                         }
@@ -265,13 +267,13 @@ impl ChainState {
                         let cellbase = block.transactions()[0].hash() == tx.hash();
                         let tx_meta = self.cell_set.insert_cell(
                             &out_point,
-                            block.header().number(),
-                            block.header().epoch(),
-                            block.header().hash().to_owned(),
+                            block.number(),
+                            block.epoch(),
+                            block.hash().unpack(),
                             cellbase,
                             tx.outputs().len(),
                         );
-                        Some((out_point.tx_hash, tx_meta))
+                        Some((out_point.tx_hash(), tx_meta))
                     }
                 } else {
                     None
@@ -281,17 +283,17 @@ impl ChainState {
 
         let removed_old_outputs = old_outputs
             .into_iter()
-            .filter_map(|tx_hash| self.cell_set.remove(&tx_hash).map(|_| tx_hash))
+            .filter_map(|tx_hash| self.cell_set.remove(&tx_hash.unpack()).map(|_| tx_hash))
             .collect::<Vec<_>>();
 
         let inserted_new_outputs = new_outputs
             .into_iter()
             .map(|(tx_hash, (number, epoch, hash, cellbase, len))| {
                 let tx_meta = self.cell_set.insert_transaction(
-                    tx_hash.to_owned(),
+                    tx_hash.unpack(),
                     number,
                     epoch,
-                    hash,
+                    hash.unpack(),
                     cellbase,
                     len,
                 );
@@ -307,25 +309,25 @@ impl ChainState {
             .for_each(|out_point| {
                 if let Some(opr) = self.cell_set.mark_dead(&out_point) {
                     match opr {
-                        CellSetOpr::Delete => removed_new_inputs.push(out_point.tx_hash),
+                        CellSetOpr::Delete => removed_new_inputs.push(out_point.tx_hash()),
                         CellSetOpr::Update(tx_meta) => {
-                            updated_new_inputs.push((out_point.tx_hash, tx_meta))
+                            updated_new_inputs.push((out_point.tx_hash(), tx_meta))
                         }
                     }
                 }
             });
 
         for (tx_hash, tx_meta) in updated_old_inputs.iter() {
-            txn.update_cell_set(&tx_hash, &tx_meta)?;
+            txn.update_cell_set(&tx_hash, &tx_meta.pack())?;
         }
         for tx_hash in removed_old_outputs.iter() {
             txn.delete_cell_set(&tx_hash)?;
         }
         for (tx_hash, tx_meta) in inserted_new_outputs.iter() {
-            txn.update_cell_set(&tx_hash, &tx_meta)?;
+            txn.update_cell_set(&tx_hash, &tx_meta.pack())?;
         }
         for (tx_hash, tx_meta) in updated_new_inputs.iter() {
-            txn.update_cell_set(&tx_hash, &tx_meta)?;
+            txn.update_cell_set(&tx_hash, &tx_meta.pack())?;
         }
         for tx_hash in removed_new_inputs.iter() {
             txn.delete_cell_set(&tx_hash)?;
@@ -335,7 +337,7 @@ impl ChainState {
 
     pub fn update_tip(
         &mut self,
-        header: Header,
+        header: HeaderView,
         total_difficulty: U256,
     ) -> Result<(), FailureError> {
         self.tip_header = header;
@@ -346,7 +348,7 @@ impl ChainState {
     pub fn get_tx_with_cycles_from_pool(
         &self,
         short_id: &ProposalShortId,
-    ) -> Option<(Transaction, Option<Cycle>)> {
+    ) -> Option<(TransactionView, Option<Cycle>)> {
         self.tx_pool.borrow().get_tx_with_cycles(short_id)
     }
 
@@ -357,7 +359,7 @@ impl ChainState {
 
     // Add a verified tx into pool
     // this method will handle fork related verifications to make sure we are safe during a fork
-    pub fn add_tx_to_pool(&self, tx: Transaction, cycles: Cycle) -> Result<Cycle, PoolError> {
+    pub fn add_tx_to_pool(&self, tx: TransactionView, cycles: Cycle) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
         let tx_size = tx.serialized_size();
         if self.reach_tx_pool_limit(tx_size, cycles) {
@@ -396,24 +398,24 @@ impl ChainState {
 
     pub fn resolve_tx_from_pending_and_proposed<'b>(
         &self,
-        tx: &'b Transaction,
+        tx: &'b TransactionView,
     ) -> Result<ResolvedTransaction<'b>, UnresolvableError> {
         let tx_pool = self.tx_pool.borrow_mut();
         let proposed_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
         let gap_and_proposed_provider = OverlayCellProvider::new(&tx_pool.gap, &proposed_provider);
         let pending_and_proposed_provider =
             OverlayCellProvider::new(&tx_pool.pending, &gap_and_proposed_provider);
-        let mut seen_inputs = HashSet::default();
+        let mut seen_inputs: HashSet<OutPoint> = HashSet::default();
         resolve_transaction(tx, &mut seen_inputs, &pending_and_proposed_provider, self)
     }
 
     pub fn resolve_tx_from_proposed<'a>(
         &self,
-        tx: &'a Transaction,
+        tx: &'a TransactionView,
         tx_pool: &TxPool,
     ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
         let cell_provider = OverlayCellProvider::new(&tx_pool.proposed, self);
-        let mut seen_inputs = HashSet::default();
+        let mut seen_inputs: HashSet<OutPoint> = HashSet::default();
         resolve_transaction(tx, &mut seen_inputs, &cell_provider, self)
     }
 
@@ -456,7 +458,11 @@ impl ChainState {
     }
 
     // remove resolved tx from orphan pool
-    pub(crate) fn try_proposed_orphan_by_ancestor(&self, tx_pool: &mut TxPool, tx: &Transaction) {
+    pub(crate) fn try_proposed_orphan_by_ancestor(
+        &self,
+        tx_pool: &mut TxPool,
+        tx: &TransactionView,
+    ) {
         let entries = tx_pool.orphan.remove_by_ancestor(tx);
         for entry in entries {
             if self.contains_proposal_id(&tx.proposal_short_id()) {
@@ -466,7 +472,7 @@ impl ChainState {
                     tx_pool.update_statics_for_remove_tx(entry.size, entry.cycles.unwrap_or(0));
                     trace_target!(
                         crate::LOG_TARGET_TX_POOL,
-                        "proposed tx {:x} failed {:?}",
+                        "proposed tx {} failed {:?}",
                         tx_hash,
                         ret
                     );
@@ -482,7 +488,7 @@ impl ChainState {
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
         size: usize,
-        tx: Transaction,
+        tx: TransactionView,
     ) -> Result<Cycle, PoolError> {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
@@ -495,7 +501,7 @@ impl ChainState {
                         .map_err(|e| {
                             error_target!(
                                 crate::LOG_TARGET_TX_POOL,
-                                "Failed to generate tx fee for {:x}, reason: {:?}",
+                                "Failed to generate tx fee for {}, reason: {:?}",
                                 tx_hash,
                                 e
                             );
@@ -509,7 +515,7 @@ impl ChainState {
                         .map(|cell_meta| cell_meta.out_point.clone())
                         .chain({
                             tx.cell_deps_iter()
-                                .filter(|dep| dep.is_dep_group())
+                                .filter(|dep| dep.is_dep_group().unpack())
                                 .map(|dep| dep.out_point().clone())
                         })
                         .collect();
@@ -520,7 +526,7 @@ impl ChainState {
                     tx_pool.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                     debug_target!(
                         crate::LOG_TARGET_TX_POOL,
-                        "Failed to add proposed tx {:x}, reason: {:?}",
+                        "Failed to add proposed tx {}, reason: {:?}",
                         tx_hash,
                         e
                     );
@@ -566,7 +572,7 @@ impl ChainState {
         tx_pool: &mut TxPool,
         cycles: Option<Cycle>,
         size: usize,
-        tx: Transaction,
+        tx: TransactionView,
     ) -> Result<Cycle, PoolError> {
         self.proposed_tx(tx_pool, cycles, size, tx.clone())
             .map(|cycles| {
@@ -577,10 +583,10 @@ impl ChainState {
 
     pub fn update_tx_pool_for_reorg<'a>(
         &self,
-        detached_blocks: impl Iterator<Item = &'a Block>,
-        attached_blocks: impl Iterator<Item = &'a Block>,
+        detached_blocks: impl Iterator<Item = &'a BlockView>,
+        attached_blocks: impl Iterator<Item = &'a BlockView>,
         detached_proposal_id: impl Iterator<Item = &'a ProposalShortId>,
-        txs_verify_cache: &mut LruCache<H256, Cycle>,
+        txs_verify_cache: &mut LruCache<Byte32, Cycle>,
     ) {
         let mut tx_pool = self.tx_pool.borrow_mut();
 
@@ -595,12 +601,12 @@ impl ChainState {
             attached.extend(blk.transactions().iter().skip(1).cloned())
         }
 
-        let retain: Vec<Transaction> = detached.difference(&attached).cloned().collect();
+        let retain: Vec<TransactionView> = detached.difference(&attached).cloned().collect();
 
         let txs_iter = attached.iter().map(|tx| {
             let get_cell_data = |out_point: &OutPoint| {
                 self.store
-                    .get_cell_data(&out_point.tx_hash, out_point.index)
+                    .get_cell_data(&out_point.tx_hash(), out_point.index().unpack())
             };
             let related_out_points =
                 get_related_dep_out_points(tx, get_cell_data).expect("Get dep out points failed");
@@ -671,11 +677,11 @@ impl ChainState {
         }
 
         for (cycles, size, tx) in entries {
-            let tx_hash = tx.hash().to_owned();
+            let tx_hash = tx.hash();
             if let Err(e) = self.proposed_tx_and_descendants(&mut tx_pool, cycles, size, tx) {
                 debug_target!(
                     crate::LOG_TARGET_TX_POOL,
-                    "Failed to add proposed tx {:x}, reason: {:?}",
+                    "Failed to add proposed tx {}, reason: {:?}",
                     tx_hash,
                     e
                 );
@@ -685,7 +691,7 @@ impl ChainState {
         for (cycles, size, tx) in gaps {
             debug_target!(
                 crate::LOG_TARGET_TX_POOL,
-                "tx proposed, add to gap {:x}",
+                "tx proposed, add to gap {}",
                 tx.hash()
             );
             tx_pool.add_gap(cycles, size, tx);
@@ -736,7 +742,10 @@ impl ChainState {
         self.tx_pool.get_mut()
     }
 
-    pub fn get_tx_from_pool_or_store(&self, proposal_id: &ProposalShortId) -> Option<Transaction> {
+    pub fn get_tx_from_pool_or_store(
+        &self,
+        proposal_id: &ProposalShortId,
+    ) -> Option<TransactionView> {
         let tx_pool = self.tx_pool();
         tx_pool
             .get_tx_from_proposed_and_others(proposal_id)
@@ -771,17 +780,17 @@ pub struct ChainCellSetOverlay<'a, CS> {
 
 impl CellProvider for ChainState {
     fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
-        match self.cell_set.get(&out_point.tx_hash) {
-            Some(tx_meta) => match tx_meta.is_dead(out_point.index as usize) {
+        match self.cell_set.get(&out_point.tx_hash().unpack()) {
+            Some(tx_meta) => match tx_meta.is_dead(out_point.index().unpack()) {
                 Some(false) => {
                     let mut cell_meta = self
                         .store
-                        .get_cell_meta(&out_point.tx_hash, out_point.index)
+                        .get_cell_meta(&out_point.tx_hash(), out_point.index().unpack())
                         .expect("store should be consistent with cell_set");
                     if with_data {
                         cell_meta.mem_cell_data = self
                             .store
-                            .get_cell_data(&out_point.tx_hash, out_point.index);
+                            .get_cell_data(&out_point.tx_hash(), out_point.index().unpack());
                     }
                     CellStatus::live_cell(cell_meta)
                 }
@@ -794,24 +803,24 @@ impl CellProvider for ChainState {
 }
 
 impl HeaderChecker for ChainState {
-    fn is_valid(&self, block_hash: &H256) -> bool {
+    fn is_valid(&self, block_hash: &Byte32) -> bool {
         self.store.get_block_number(block_hash).is_some()
     }
 }
 
 impl<'a, CS: ChainStore<'a>> CellProvider for ChainCellSetOverlay<'a, CS> {
     fn cell(&self, out_point: &OutPoint, with_data: bool) -> CellStatus {
-        match self.overlay.get(&out_point.tx_hash) {
-            Some(tx_meta) => match tx_meta.is_dead(out_point.index as usize) {
+        match self.overlay.get(&out_point.tx_hash()) {
+            Some(tx_meta) => match tx_meta.is_dead(out_point.index().unpack()) {
                 Some(false) => {
                     let mut cell_meta = self
                         .store
-                        .get_cell_meta(&out_point.tx_hash, out_point.index)
+                        .get_cell_meta(&out_point.tx_hash(), out_point.index().unpack())
                         .expect("store should be consistent with cell_set");
                     if with_data {
                         cell_meta.mem_cell_data = self
                             .store
-                            .get_cell_data(&out_point.tx_hash, out_point.index);
+                            .get_cell_data(&out_point.tx_hash(), out_point.index().unpack());
                     }
                     CellStatus::live_cell(cell_meta)
                 }
@@ -828,15 +837,15 @@ impl BlockMedianTimeContext for &ChainState {
         self.consensus.median_time_block_count() as u64
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
+    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
         let header = self
             .store
-            .get_block_header(&block_hash)
+            .get_block_header(block_hash)
             .expect("[ChainState] blocks used for median time exist");
         (
             header.timestamp(),
             header.number(),
-            header.parent_hash().to_owned(),
+            header.data().raw().parent_hash(),
         )
     }
 }

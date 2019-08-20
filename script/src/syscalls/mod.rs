@@ -150,24 +150,22 @@ mod tests {
     use super::*;
     use crate::DataLoader;
     use byteorder::{LittleEndian, WriteBytesExt};
-    use ckb_core::cell::CellMeta;
-    use ckb_core::extras::BlockExt;
-    use ckb_core::header::{Header, HeaderBuilder};
-    use ckb_core::script::{Script, ScriptHashType};
-    use ckb_core::transaction::{CellOutput, CellOutputBuilder, OutPoint};
-    use ckb_core::{capacity_bytes, Bytes, Capacity};
     use ckb_db::RocksDB;
     use ckb_hash::blake2b_256;
-    use ckb_protocol::{CellOutput as FbsCellOutput, Header as FbsHeader, Witness as FbsWitness};
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
+    use ckb_types::{
+        bytes::Bytes,
+        core::{cell::CellMeta, BlockExt, Capacity, HeaderBuilder, HeaderView, ScriptHashType},
+        packed::{Byte32, CellOutput, OutPoint, Script, Witness},
+        prelude::*,
+        H256,
+    };
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
         memory::{FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE},
         registers::{A0, A1, A2, A3, A4, A5, A7},
         CoreMachine, Memory, SparseMemory, Syscalls, WXorXMemory, RISCV_PAGESIZE,
     };
-    use flatbuffers::FlatBufferBuilder;
-    use numext_fixed_hash::H256;
     use proptest::{collection::size_range, prelude::*};
     use std::collections::HashMap;
 
@@ -175,14 +173,16 @@ mod tests {
         ChainDB::new(RocksDB::open_tmp(COLUMNS))
     }
 
-    fn build_cell_meta(output: CellOutput, data: Bytes) -> CellMeta {
+    fn build_cell_meta(capacity_bytes: usize, data: Bytes) -> CellMeta {
+        let capacity = Capacity::bytes(capacity_bytes).expect("capacity bytes overflow");
+        let mut builder = CellOutput::new_builder().capacity(capacity.pack());
+        if !data.is_empty() {
+            builder = builder.data_hash(CellOutput::calc_data_hash(&data).pack())
+        }
         CellMeta {
-            out_point: OutPoint {
-                tx_hash: Default::default(),
-                index: 0,
-            },
+            out_point: OutPoint::default(),
             transaction_info: None,
-            cell_output: output,
+            cell_output: builder.build(),
             data_bytes: data.len() as u64,
             mem_cell_data: Some(data),
         }
@@ -206,19 +206,9 @@ mod tests {
             .is_ok());
 
         let output_cell_data = Bytes::from(data);
-        let output = build_cell_meta(
-            CellOutputBuilder::from_data(&output_cell_data)
-                .capacity(capacity_bytes!(100))
-                .build(),
-            output_cell_data,
-        );
+        let output = build_cell_meta(100, output_cell_data);
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
-        let input_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&input_cell_data)
-                .capacity(capacity_bytes!(100))
-                .build(),
-            input_cell_data,
-        );
+        let input_cell = build_cell_meta(100, input_cell_data);
         let outputs = vec![output];
         let resolved_inputs = vec![input_cell];
         let resolved_cell_deps = vec![];
@@ -257,19 +247,9 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
         let output_cell_data = Bytes::from(data);
-        let output = build_cell_meta(
-            CellOutputBuilder::from_data(&output_cell_data)
-                .capacity(capacity_bytes!(100))
-                .build(),
-            output_cell_data,
-        );
+        let output = build_cell_meta(100, output_cell_data);
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
-        let input_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&input_cell_data)
-                .capacity(capacity_bytes!(100))
-                .build(),
-            input_cell_data,
-        );
+        let input_cell = build_cell_meta(100, input_cell_data);
         let outputs = vec![output.clone()];
         let resolved_inputs = vec![input_cell.clone()];
         let resolved_cell_deps = vec![];
@@ -283,15 +263,8 @@ mod tests {
             &group_outputs,
         );
 
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell.cell_output);
-        builder.finish(fbs_offset, None);
-        let input_correct_data = builder.finished_data();
-
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsCellOutput::build(&mut builder, &output.cell_output);
-        builder.finish(fbs_offset, None);
-        let output_correct_data = builder.finished_data();
+        let input_correct_data = input_cell.cell_output.as_slice();
+        let output_correct_data = output.cell_output.as_slice();
 
         // test input
         prop_assert!(machine
@@ -363,19 +336,9 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
         let output_cell_data = Bytes::from(data);
-        let output = build_cell_meta(
-            CellOutputBuilder::from_data(&output_cell_data)
-                .capacity(capacity_bytes!(100))
-                .build(),
-            output_cell_data,
-        );
+        let output = build_cell_meta(100, output_cell_data);
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
-        let input_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&input_cell_data)
-                .capacity(capacity_bytes!(100))
-                .build(),
-            input_cell_data,
-        );
+        let input_cell = build_cell_meta(100, input_cell_data);
         let outputs = vec![output];
         let resolved_inputs = vec![input_cell.clone()];
         let resolved_cell_deps = vec![];
@@ -389,10 +352,7 @@ mod tests {
             &group_outputs,
         );
 
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell.cell_output);
-        builder.finish(fbs_offset, None);
-        let input_correct_data = builder.finished_data();
+        let input_correct_data = input_cell.cell_output.as_slice();
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &0).is_ok());
 
@@ -427,20 +387,10 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER); // syscall number
 
         let output_cell_data = Bytes::from(data);
-        let output = build_cell_meta(
-            CellOutputBuilder::from_data(&output_cell_data)
-                .capacity(capacity_bytes!(100))
-                .build(),
-            output_cell_data,
-        );
+        let output = build_cell_meta(100, output_cell_data);
 
         let input_cell_data: Bytes = data.iter().rev().cloned().collect();
-        let input_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&input_cell_data)
-                .capacity(capacity_bytes!(100))
-                .build(),
-            input_cell_data,
-        );
+        let input_cell = build_cell_meta(100, input_cell_data);
         let outputs = vec![output];
         let resolved_inputs = vec![input_cell.clone()];
         let resolved_cell_deps = vec![];
@@ -454,10 +404,7 @@ mod tests {
             &group_outputs,
         );
 
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsCellOutput::build(&mut builder, &input_cell.cell_output);
-        builder.finish(fbs_offset, None);
-        let input_correct_data = builder.finished_data();
+        let input_correct_data = input_cell.cell_output.as_slice();
 
         prop_assert!(machine
             .memory_mut()
@@ -496,10 +443,13 @@ mod tests {
         machine.set_register(A5, CellField::Capacity as u64); //field: 0 capacity
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = build_cell_meta(
-            CellOutputBuilder::default().capacity(capacity).build(),
-            Bytes::new(),
-        );
+        let input_cell = CellMeta {
+            out_point: OutPoint::default(),
+            transaction_info: None,
+            cell_output: CellOutput::new_builder().capacity(capacity.pack()).build(),
+            data_bytes: 0,
+            mem_cell_data: Some(Bytes::new()),
+        };
         let outputs = vec![];
         let resolved_inputs = vec![input_cell.clone()];
         let resolved_cell_deps = vec![];
@@ -550,12 +500,7 @@ mod tests {
         machine.set_register(A5, CellField::Type as u64); //field: 4 type
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let output_cell = build_cell_meta(
-            CellOutputBuilder::default()
-                .capacity(capacity_bytes!(100))
-                .build(),
-            Bytes::new(),
-        );
+        let output_cell = build_cell_meta(100, Bytes::new());
         let outputs = vec![output_cell];
         let resolved_inputs = vec![];
         let resolved_cell_deps = vec![];
@@ -594,19 +539,9 @@ mod tests {
         machine.set_register(A5, CellField::DataHash as u64); //field: 2 data hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let input_cell = build_cell_meta(
-            CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000))
-                .build(),
-            Bytes::new(),
-        );
+        let input_cell = build_cell_meta(1000, Bytes::new());
         let dep_cell_data = Bytes::from(data);
-        let dep_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&dep_cell_data)
-                .capacity(capacity_bytes!(1000))
-                .build(),
-            dep_cell_data,
-        );
+        let dep_cell = build_cell_meta(1000, dep_cell_data);
         let outputs = vec![];
         let resolved_inputs = vec![input_cell.clone()];
         let resolved_cell_deps = vec![dep_cell];
@@ -663,27 +598,25 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::HeaderDep))); //source: 4 header
         machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
 
-        let data_hash = blake2b_256(&data);
+        let data_hash: H256 = blake2b_256(&data).into();
         let header = HeaderBuilder::default()
-            .transactions_root(data_hash.into())
+            .transactions_root(data_hash.pack())
             .build();
 
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsHeader::build(&mut builder, &header);
-        builder.finish(fbs_offset, None);
-        let header_correct_data = builder.finished_data();
+        let header_correct_bytes = header.data();
+        let header_correct_data = header_correct_bytes.as_slice();
 
         struct MockDataLoader {
-            headers: HashMap<H256, Header>,
+            headers: HashMap<Byte32, HeaderView>,
         }
         impl DataLoader for MockDataLoader {
             fn load_cell_data(&self, _cell: &CellMeta) -> Option<Bytes> {
                 None
             }
-            fn get_block_ext(&self, _block_hash: &H256) -> Option<BlockExt> {
+            fn get_block_ext(&self, _block_hash: &Byte32) -> Option<BlockExt> {
                 None
             }
-            fn get_header(&self, block_hash: &H256) -> Option<Header> {
+            fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
                 self.headers.get(block_hash).cloned()
             }
         }
@@ -696,7 +629,7 @@ mod tests {
         let group_inputs = vec![];
         let mut load_header = LoadHeader::new(
             &data_loader,
-            &header_deps,
+            header_deps.pack(),
             &resolved_inputs,
             &resolved_cell_deps,
             &group_inputs,
@@ -741,24 +674,25 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A7, LOAD_TX_HASH_SYSCALL_NUMBER); // syscall number
 
-        let hash = blake2b_256(&data);
-        let mut load_tx_hash = LoadTxHash::new(&hash);
+        let hash: H256 = blake2b_256(&data).into();
+        let hash_len = 32u64;
+        let mut load_tx_hash = LoadTxHash::new(hash.pack());
 
         prop_assert!(machine
             .memory_mut()
-            .store64(&size_addr, &(hash.len() as u64 + 20))
+            .store64(&size_addr, &(hash_len + 20))
             .is_ok());
 
         prop_assert!(load_tx_hash.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
-        prop_assert_eq!(
-            machine.memory_mut().load64(&size_addr),
-            Ok(hash.len() as u64)
-        );
+        prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(hash_len));
 
-        for (i, addr) in (addr..addr + hash.len() as u64).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(hash[i])));
+        for (i, addr) in (addr..addr + hash_len as u64).enumerate() {
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(hash.as_bytes()[i]))
+            );
         }
         Ok(())
     }
@@ -780,8 +714,11 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A7, LOAD_SCRIPT_HASH_SYSCALL_NUMBER); // syscall number
 
-        let script = Script::new(vec![Bytes::from(data)], H256::zero(), ScriptHashType::Data);
-        let h = script.hash();
+        let script = Script::new_builder()
+            .args(vec![Bytes::from(data)].pack())
+            .hash_type(ScriptHashType::Data.pack())
+            .build();
+        let h = script.calc_script_hash();
         let hash = h.as_bytes();
         let mut load_script_hash = LoadScriptHash::new(hash);
 
@@ -832,17 +769,21 @@ mod tests {
         machine.set_register(A5, CellField::LockHash as u64); //field: 2 lock hash
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let script = Script::new(vec![Bytes::from(data)], H256::zero(), ScriptHashType::Data);
-        let h = script.hash();
+        let script = Script::new_builder()
+            .args(vec![Bytes::from(data)].pack())
+            .hash_type(ScriptHashType::Data.pack())
+            .build();
+        let h = script.calc_script_hash();
         let hash = h.as_bytes();
 
-        let input_cell = build_cell_meta(
-            CellOutputBuilder::default()
-                .capacity(capacity_bytes!(1000))
-                .lock(script)
-                .build(),
-            Bytes::new(),
-        );
+        let mut input_cell = build_cell_meta(1000, Bytes::new());
+        let output_with_lock = input_cell
+            .cell_output
+            .clone()
+            .as_builder()
+            .lock(script)
+            .build();
+        input_cell.cell_output = output_with_lock;
         let outputs = vec![];
         let resolved_inputs = vec![input_cell.clone()];
         let resolved_cell_deps = vec![];
@@ -891,16 +832,13 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-        let witness = vec![data.into()];
+        let witness: Witness = vec![Bytes::from(data).pack()].pack();
 
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsWitness::build(&mut builder, &witness);
-        builder.finish(fbs_offset, None);
-        let witness_correct_data = builder.finished_data();
+        let witness_correct_data = witness.as_slice();
 
-        let witnesses = vec![witness];
+        let witnesses = vec![witness.clone()];
         let group_inputs = vec![];
-        let mut load_witness = LoadWitness::new(&witnesses, &group_inputs);
+        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -943,17 +881,14 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Group(SourceEntry::Input))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-        let witness = vec![data.into()];
+        let witness: Witness = vec![Bytes::from(data).pack()].pack();
 
-        let mut builder = FlatBufferBuilder::new();
-        let fbs_offset = FbsWitness::build(&mut builder, &witness);
-        builder.finish(fbs_offset, None);
-        let witness_correct_data = builder.finished_data();
+        let witness_correct_data = witness.as_slice();
 
         let dummy_witness = vec![];
-        let witnesses = vec![dummy_witness, witness];
+        let witnesses = vec![dummy_witness.pack(), witness.clone()];
         let group_inputs = vec![1];
-        let mut load_witness = LoadWitness::new(&witnesses, &group_inputs);
+        let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs);
 
         prop_assert!(machine
             .memory_mut()
@@ -998,12 +933,7 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(data);
-        let dep_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&dep_cell_data)
-                .capacity(capacity_bytes!(10000))
-                .build(),
-            dep_cell_data,
-        );
+        let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -1060,12 +990,7 @@ mod tests {
         prop_assert!(machine.memory_mut().store64(&size_addr, &addr_size).is_ok());
 
         let dep_cell_data = Bytes::from(data);
-        let dep_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&dep_cell_data)
-                .capacity(capacity_bytes!(10000))
-                .build(),
-            dep_cell_data,
-        );
+        let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -1146,12 +1071,7 @@ mod tests {
         machine.set_register(A7, syscall); // syscall number
 
         let dep_cell_data = Bytes::from(data);
-        let dep_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&dep_cell_data)
-                .capacity(capacity_bytes!(10000))
-                .build(),
-            dep_cell_data,
-        );
+        let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -1207,12 +1127,7 @@ mod tests {
         machine.set_register(A5, u64::from(Source::Transaction(SourceEntry::CellDep))); //source
         machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
         let dep_cell_data = Bytes::from(&data[..]);
-        let dep_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&dep_cell_data)
-                .capacity(capacity_bytes!(10000))
-                .build(),
-            dep_cell_data,
-        );
+        let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -1255,12 +1170,7 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(&data[..]);
-        let dep_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&dep_cell_data)
-                .capacity(capacity_bytes!(10000))
-                .build(),
-            dep_cell_data,
-        );
+        let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);
@@ -1306,12 +1216,7 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER); // syscall number
 
         let dep_cell_data = Bytes::from(&data[..]);
-        let dep_cell = build_cell_meta(
-            CellOutputBuilder::from_data(&dep_cell_data)
-                .capacity(capacity_bytes!(10000))
-                .build(),
-            dep_cell_data,
-        );
+        let dep_cell = build_cell_meta(10000, dep_cell_data);
 
         let store = new_store();
         let data_loader = DataLoaderWrapper::new(&store);

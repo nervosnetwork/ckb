@@ -1,13 +1,11 @@
 use crate::error::RPCError;
-use ckb_core::alert::Alert as CoreAlert;
 use ckb_jsonrpc_types::Alert;
 use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
-use ckb_protocol::AlertMessage;
 use ckb_sync::NetworkProtocol;
+use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
-use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
@@ -41,14 +39,15 @@ impl AlertRpcImpl {
 
 impl AlertRpc for AlertRpcImpl {
     fn send_alert(&self, alert: Alert) -> Result<()> {
-        let alert: CoreAlert = alert.into();
+        let alert: packed::Alert = alert.into();
         let now_ms = faketime::unix_time_as_millis();
-        if alert.notice_until < now_ms {
+        let notice_until: u64 = alert.raw().notice_until().unpack();
+        if notice_until < now_ms {
             Err(RPCError::custom(
                 RPCError::Invalid,
                 format!(
                     "expired alert, notice_until: {} server: {}",
-                    alert.notice_until, now_ms
+                    notice_until, now_ms
                 ),
             ))?;
         }
@@ -57,13 +56,9 @@ impl AlertRpc for AlertRpcImpl {
 
         match result {
             Ok(()) => {
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = AlertMessage::build_alert(fbb, &alert);
-                fbb.finish(message, None);
-                let data = fbb.finished_data().into();
                 if let Err(err) = self
                     .network_controller
-                    .broadcast(NetworkProtocol::ALERT.into(), data)
+                    .broadcast(NetworkProtocol::ALERT.into(), alert.as_slice().into())
                 {
                     error!("Broadcast alert failed: {:?}", err);
                 }

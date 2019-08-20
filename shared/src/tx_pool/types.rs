@@ -1,10 +1,10 @@
 //! The primary module containing the implementations of the transaction pool
 //! and its top-level members.
 
-use ckb_core::cell::UnresolvableError;
-use ckb_core::transaction::{OutPoint, Transaction};
-use ckb_core::Capacity;
-use ckb_core::Cycle;
+use ckb_types::{
+    core::{cell::UnresolvableError, Capacity, Cycle, TransactionView},
+    packed::OutPoint,
+};
 use ckb_verification::TransactionError;
 use failure::Fail;
 use serde_derive::{Deserialize, Serialize};
@@ -79,7 +79,7 @@ impl fmt::Display for PoolError {
 #[derive(Debug, Clone)]
 pub struct DefectEntry {
     /// Transaction
-    pub transaction: Transaction,
+    pub transaction: TransactionView,
     /// refs count
     pub refs_count: usize,
     /// Cycles
@@ -91,7 +91,7 @@ pub struct DefectEntry {
 impl DefectEntry {
     /// Create new transaction pool entry
     pub fn new(
-        tx: Transaction,
+        tx: TransactionView,
         refs_count: usize,
         cycles: Option<Cycle>,
         size: usize,
@@ -109,7 +109,7 @@ impl DefectEntry {
 #[derive(Debug, Clone)]
 pub struct PendingEntry {
     /// Transaction
-    pub transaction: Transaction,
+    pub transaction: TransactionView,
     /// Cycles
     pub cycles: Option<Cycle>,
     /// tx size
@@ -118,7 +118,7 @@ pub struct PendingEntry {
 
 impl PendingEntry {
     /// Create new transaction pool entry
-    pub fn new(tx: Transaction, cycles: Option<Cycle>, size: usize) -> PendingEntry {
+    pub fn new(tx: TransactionView, cycles: Option<Cycle>, size: usize) -> PendingEntry {
         PendingEntry {
             transaction: tx,
             cycles,
@@ -131,7 +131,7 @@ impl PendingEntry {
 #[derive(Debug, Clone)]
 pub struct ProposedEntry {
     /// Transaction
-    pub transaction: Transaction,
+    pub transaction: TransactionView,
     /// Related out points (cell dep)
     pub related_out_points: Vec<OutPoint>,
     /// refs count
@@ -147,7 +147,7 @@ pub struct ProposedEntry {
 impl ProposedEntry {
     /// Create new transaction pool entry
     pub fn new(
-        tx: Transaction,
+        tx: TransactionView,
         related_out_points: Vec<OutPoint>,
         refs_count: usize,
         cycles: Cycle,

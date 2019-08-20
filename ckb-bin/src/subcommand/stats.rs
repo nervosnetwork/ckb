@@ -1,8 +1,8 @@
 use ckb_app_config::{ExitCode, StatsArgs};
-use ckb_core::BlockNumber;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_types::core::BlockNumber;
 
 pub fn stats(args: StatsArgs) -> Result<(), ExitCode> {
     let stats = Statics::build(args)?;

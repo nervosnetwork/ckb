@@ -1,10 +1,7 @@
 // use crate::peer_store::Behaviour;
 use crate::{network::FEELER_PROTOCOL_ID, NetworkState, PeerIdentifyInfo};
 use ckb_logger::{debug, trace};
-use ckb_protocol::{
-    flatbuffers::FlatBufferBuilder, get_root, Identify as FbsIdentify,
-    IdentifyBuilder as FbsIdentifyBuilder,
-};
+use ckb_types::{bytes::Bytes, packed, prelude::*};
 use p2p::{
     context::ProtocolContextMutRef,
     multiaddr::{Multiaddr, Protocol},
@@ -67,11 +64,11 @@ impl Callback for IdentifyCallback {
         match self.identify.verify(identify) {
             None => MisbehaveResult::Disconnect,
             Some((flags, client_version)) => {
-                let registry_client_version = |version: &str| {
+                let registry_client_version = |version: String| {
                     self.network_state.with_peer_registry_mut(|registry| {
                         if let Some(peer) = registry.get_peer_mut(context.session.id) {
                             peer.identify_info = Some(PeerIdentifyInfo {
-                                client_version: version.to_string(),
+                                client_version: version,
                             })
                         }
                     });
@@ -173,7 +170,7 @@ struct Identify {
     name: String,
     client_version: String,
     flags: Flags,
-    encode_data: Vec<u8>,
+    encode_data: Bytes,
 }
 
 impl Identify {
@@ -182,55 +179,40 @@ impl Identify {
             name,
             client_version,
             flags,
-            encode_data: Vec::default(),
+            encode_data: Bytes::default(),
         }
     }
 
     fn encode(&mut self) -> &[u8] {
         if self.encode_data.is_empty() {
-            let mut fbb = FlatBufferBuilder::new();
-            let name = fbb.create_string(&self.name);
-            let client_version = fbb.create_string(&self.client_version);
-
-            let mut builder = FbsIdentifyBuilder::new(&mut fbb);
-
-            builder.add_flag(self.flags.0);
-            builder.add_name(name);
-            builder.add_client_version(client_version);
-
-            let data = builder.finish();
-            fbb.finish(data, None);
-            self.encode_data = fbb.finished_data().to_vec();
+            self.encode_data = packed::Identify::new_builder()
+                .name(self.name.as_str().pack())
+                .flag(self.flags.0.pack())
+                .client_version(self.client_version.as_str().pack())
+                .build()
+                .as_bytes();
         }
 
         &self.encode_data
     }
 
-    fn verify<'a>(&self, data: &'a [u8]) -> Option<(Flags, &'a str)> {
-        let fbs_message = get_root::<FbsIdentify>(data).ok()?;
+    fn verify<'a>(&self, data: &'a [u8]) -> Option<(Flags, String)> {
+        let reader = packed::IdentifyReader::from_slice(data).ok()?;
 
-        match (
-            fbs_message.name(),
-            fbs_message.flag(),
-            fbs_message.client_version(),
-        ) {
-            (Some(raw_name), flag, Some(raw_client_version)) => {
-                if self.name != raw_name {
-                    debug!(
-                        "Not the same chain, self: {}, remote: {}",
-                        self.name, raw_name
-                    );
-                    return None;
-                }
-
-                if flag == 0 {
-                    return None;
-                }
-
-                Some((Flags::from(flag), raw_client_version))
-            }
-            _ => None,
+        let name = reader.name().as_utf8().ok()?.to_owned();
+        if self.name != name {
+            debug!("Not the same chain, self: {}, remote: {}", self.name, name);
+            return None;
         }
+
+        let flag: u64 = reader.flag().unpack();
+        if flag == 0 {
+            return None;
+        }
+
+        let raw_client_version = reader.client_version().as_utf8().ok()?.to_owned();
+
+        Some((Flags::from(flag), raw_client_version))
     }
 }
 

@@ -3,40 +3,35 @@ use crate::error::{Error, UnclesError};
 use crate::uncles_verifier::UnclesVerifier;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::extras::EpochExt;
-use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::script::Script;
-use ckb_core::transaction::{
-    CellInput, CellOutputBuilder, ProposalShortId, Transaction, TransactionBuilder,
-};
-use ckb_core::uncle::uncles_hash;
-use ckb_core::{BlockNumber, Bytes};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::ChainProvider;
+use ckb_types::{
+    core::{
+        BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView, TransactionBuilder,
+        TransactionView, UncleBlockView,
+    },
+    packed::{CellInput, ProposalShortId, Script, UncleBlockVec},
+    prelude::*,
+    H256, U256,
+};
 use faketime;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 use std::sync::Arc;
 
-fn gen_block(parent_header: &Header, nonce: u64, epoch: &EpochExt) -> Block {
-    let now = 1 + parent_header.timestamp();
+fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockView {
+    let now = parent_header.timestamp() + 1;
     let number = parent_header.number() + 1;
     let cellbase = create_cellbase(number);
-    let header_builder = HeaderBuilder::default()
-        .parent_hash(parent_header.hash().to_owned())
-        .timestamp(now)
-        .epoch(epoch.number())
-        .number(number)
-        .difficulty(epoch.difficulty().clone())
-        .nonce(nonce);
-
     BlockBuilder::default()
         .transaction(cellbase)
         .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-        .header_builder(header_builder)
+        .parent_hash(parent_header.hash())
+        .timestamp(now.pack())
+        .epoch(epoch.number().pack())
+        .number(number.pack())
+        .difficulty(epoch.difficulty().pack())
+        .nonce(nonce.pack())
         .build()
 }
 
@@ -53,16 +48,16 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     (chain_controller, shared)
 }
 
-fn create_cellbase(number: BlockNumber) -> Transaction {
+fn create_cellbase(number: BlockNumber) -> TransactionView {
     TransactionBuilder::default()
         .witness(Script::default().into_witness())
         .input(CellInput::new_cellbase_input(number))
-        .output(CellOutputBuilder::default().build())
-        .output_data(Bytes::new())
+        .output(Default::default())
+        .output_data(Default::default())
         .build()
 }
 
-fn prepare() -> (Shared, Vec<Block>, Vec<Block>) {
+fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
     faketime::enable(&faketime_file);
 
@@ -73,8 +68,8 @@ fn prepare() -> (Shared, Vec<Block>, Vec<Block>) {
     let (chain_controller, shared) = start_chain(Some(consensus));
 
     let number = 20;
-    let mut chain1: Vec<Block> = Vec::new();
-    let mut chain2: Vec<Block> = Vec::new();
+    let mut chain1: Vec<BlockView> = Vec::new();
+    let mut chain2: Vec<BlockView> = Vec::new();
 
     faketime::write_millis(&faketime_file, 10).expect("write millis");
 
@@ -85,7 +80,7 @@ fn prepare() -> (Shared, Vec<Block>, Vec<Block>) {
 
     let mut parent = genesis.clone();
     for i in 1..number {
-        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&parent.hash().unpack()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
@@ -94,14 +89,14 @@ fn prepare() -> (Shared, Vec<Block>, Vec<Block>) {
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain1.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        parent = new_block.header();
     }
 
     parent = genesis.clone();
 
     // if block_number < 11 { chain1 == chain2 } else { chain1 != chain2 }
     for i in 1..number {
-        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&parent.hash().unpack()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
@@ -114,11 +109,13 @@ fn prepare() -> (Shared, Vec<Block>, Vec<Block>) {
             .process_block(Arc::new(new_block.clone()), false)
             .expect("process block ok");
         chain2.push(new_block.clone());
-        parent = new_block.header().to_owned();
+        parent = new_block.header();
     }
 
     // the second chain must have smaller hash
-    if chain1.last().unwrap().header().hash() < chain2.last().unwrap().header().hash() {
+    let hash1: H256 = chain1.last().unwrap().hash().unpack();
+    let hash2: H256 = chain2.last().unwrap().hash().unpack();
+    if hash1 < hash2 {
         (shared, chain2, chain1)
     } else {
         (shared, chain1, chain2)
@@ -129,12 +126,12 @@ fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
     VerifyContext::new(shared.store(), shared.consensus(), shared.script_config())
 }
 
-fn epoch(shared: &Shared, chain: &[Block], index: usize) -> EpochExt {
+fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
     let parent_epoch = shared
-        .get_block_epoch(&chain[index].header().hash())
+        .get_block_epoch(&chain[index].hash().unpack())
         .unwrap();
     shared
-        .next_epoch_ext(&parent_epoch, chain[index].header())
+        .next_epoch_ext(&parent_epoch, &chain[index].header())
         .unwrap_or(parent_epoch)
 }
 
@@ -144,11 +141,13 @@ fn test_uncle_count() {
     let dummy_context = dummy_context(&shared);
 
     // header has 0 uncle, but body has 1 uncle
-    let block = unsafe {
-        BlockBuilder::from_block(chain1.last().cloned().unwrap())
-            .uncle(chain2.last().cloned().unwrap())
-            .build_unchecked()
-    };
+    let block = chain1
+        .last()
+        .cloned()
+        .unwrap()
+        .as_advanced_builder()
+        .uncle(chain2.last().cloned().unwrap().as_uncle())
+        .build_unchecked();
 
     let epoch = epoch(&shared, &chain1, chain1.len() - 2);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
@@ -170,12 +169,14 @@ fn test_invalid_uncle_hash_case1() {
 
     // header has uncle_count is 1 but uncles_hash is not H256::one()
     // body has 1 uncles
-    let block = unsafe {
-        BlockBuilder::from_block(chain1.last().cloned().unwrap())
-            .header(HeaderBuilder::default().uncles_count(1).build())
-            .uncle(chain2.last().cloned().unwrap())
-            .build_unchecked()
-    };
+    let block = chain1
+        .last()
+        .cloned()
+        .unwrap()
+        .as_advanced_builder()
+        .uncles_count(1u32.pack())
+        .uncle(chain2.last().cloned().unwrap().as_uncle())
+        .build_unchecked();
 
     let epoch = epoch(&shared, &chain1, chain1.len() - 2);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
@@ -185,7 +186,7 @@ fn test_invalid_uncle_hash_case1() {
         verifier.verify(),
         Err(Error::Uncles(UnclesError::InvalidHash {
             expected: H256::zero(),
-            actual: block.cal_uncles_hash()
+            actual: block.calc_uncles_hash()
         }))
     );
 }
@@ -196,17 +197,16 @@ fn test_invalid_uncle_hash_case2() {
     let dummy_context = dummy_context(&shared);
 
     // header has empty uncles, but the uncles hash is not matched
-    let uncles_hash = uncles_hash(&[chain2.last().cloned().unwrap().into()]);
-    let block = unsafe {
-        BlockBuilder::from_block(chain1.last().cloned().unwrap())
-            .header(
-                HeaderBuilder::from_header(chain1.last().cloned().unwrap().header().to_owned())
-                    .uncles_count(0)
-                    .uncles_hash(uncles_hash.clone())
-                    .build(),
-            )
-            .build_unchecked()
-    };
+    let uncles: UncleBlockVec = vec![chain2.last().cloned().unwrap().data().as_uncle()].pack();
+    let uncles_hash = uncles.calc_uncles_hash();
+    let block = chain1
+        .last()
+        .cloned()
+        .unwrap()
+        .as_advanced_builder()
+        .uncles_count(0u32.pack())
+        .uncles_hash(uncles_hash.clone().pack())
+        .build_unchecked();
 
     let epoch = epoch(&shared, &chain1, chain1.len() - 2);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
@@ -230,11 +230,10 @@ fn test_double_inclusion() {
     let block_number = 7;
     let uncle_number = 2;
 
-    let block = BlockBuilder::from_block(chain1[block_number].to_owned())
-        .uncle(chain1[uncle_number].to_owned())
-        .header_builder(HeaderBuilder::from_header(
-            chain1[block_number].header().to_owned(),
-        ))
+    let block = chain1[block_number]
+        .to_owned()
+        .as_advanced_builder()
+        .uncle(chain1[uncle_number].to_owned().as_uncle())
         .build();
 
     let epoch = epoch(&shared, &chain1, block_number - 1);
@@ -244,7 +243,7 @@ fn test_double_inclusion() {
     assert_eq!(
         verifier.verify(),
         Err(Error::Uncles(UnclesError::DoubleInclusion(
-            block.uncles()[0].header().hash().to_owned()
+            block.uncles().get(0).unwrap().hash().unpack()
         )))
     );
 }
@@ -257,15 +256,16 @@ fn test_invalid_difficulty() {
     let epoch = epoch(&shared, &chain2, 17);
     let invalid_difficulty = epoch.difficulty() + U256::one();
 
-    let uncle = BlockBuilder::from_block(chain1[16].clone())
-        .header_builder(
-            HeaderBuilder::from_header(chain1[16].header().to_owned())
-                .difficulty(invalid_difficulty),
-        )
-        .build();
-    let block = BlockBuilder::from_block(chain2[18].clone())
+    let uncle = chain1[16]
+        .clone()
+        .as_advanced_builder()
+        .difficulty(invalid_difficulty.pack())
+        .build()
+        .as_uncle();
+    let block = chain1[18]
+        .clone()
+        .as_advanced_builder()
         .uncle(uncle)
-        .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
         .build();
 
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
@@ -275,7 +275,6 @@ fn test_invalid_difficulty() {
         Err(Error::Uncles(UnclesError::InvalidDifficulty))
     );
 }
-
 // Uncle.epoch != block.epoch
 #[test]
 fn test_invalid_epoch() {
@@ -285,18 +284,16 @@ fn test_invalid_epoch() {
     let block_number = shared.consensus().genesis_epoch_ext().length() as usize + 2; // epoch = 1
     let uncle_number = shared.consensus().genesis_epoch_ext().length() as usize - 2; // epoch = 0
 
-    let uncle = BlockBuilder::from_block(chain2[uncle_number].clone())
-        .header_builder(
-            HeaderBuilder::from_header(chain2[uncle_number].header().to_owned())
-                .difficulty(chain1[block_number].header().difficulty().clone()),
-        )
-        .build();
-
-    let block = BlockBuilder::from_block(chain1[block_number].clone())
+    let uncle = chain2[uncle_number]
+        .clone()
+        .as_advanced_builder()
+        .difficulty(chain1[block_number].difficulty().pack())
+        .build()
+        .as_uncle();
+    let block = chain1[block_number]
+        .clone()
+        .as_advanced_builder()
         .uncle(uncle)
-        .header_builder(HeaderBuilder::from_header(
-            chain1[block_number].header().to_owned(),
-        ))
         .build();
 
     let epoch = epoch(&shared, &chain1, block_number - 1);
@@ -315,13 +312,13 @@ fn test_invalid_number() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
-    let uncle = BlockBuilder::from_block(chain1[18].clone())
-        .header_builder(HeaderBuilder::from_header(chain1[18].header().to_owned()))
-        .build();
+    let uncle = chain1[18].as_uncle();
 
-    let block = BlockBuilder::from_block(chain2[17].clone())
+    let block = chain2[17]
+        .clone()
+        .as_advanced_builder()
         .uncle(uncle)
-        .header_builder(HeaderBuilder::from_header(chain2[17].header().to_owned()))
+        .header(chain2[17].header())
         .build();
 
     let epoch = epoch(&shared, &chain2, 16);
@@ -340,18 +337,17 @@ fn test_uncle_proposals_hash() {
     let dummy_context = dummy_context(&shared);
     let block_number = 17;
 
-    let uncle = unsafe {
-        BlockBuilder::from_block(chain1[16].to_owned())
-            .header_builder(
-                HeaderBuilder::from_header(chain1[16].header().to_owned())
-                    .parent_hash(chain2[15].header().hash().to_owned()),
-            )
-            .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-            .build_unchecked()
-    };
-    let block = BlockBuilder::from_block(chain2[18].to_owned())
+    let uncle = chain1[16]
+        .to_owned()
+        .as_advanced_builder()
+        .parent_hash(chain2[15].hash())
+        .proposal([1; 10].pack())
+        .build_unchecked()
+        .as_uncle();
+    let block = chain2[18]
+        .to_owned()
+        .as_advanced_builder()
         .uncle(uncle)
-        .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
         .build();
 
     let epoch = epoch(&shared, &chain2, block_number);
@@ -370,13 +366,16 @@ fn test_uncle_duplicated_proposals() {
     let dummy_context = dummy_context(&shared);
 
     // All the blocks in chain2 had a proposal before: ProposalShortId::from_slice(&[1; 10]
-    let uncle = BlockBuilder::from_block(chain2[6].to_owned())
-        .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
-        .header_builder(HeaderBuilder::from_header(chain2[6].header().to_owned()))
-        .build();
-    let block = BlockBuilder::from_block(chain1[8].to_owned())
+    let uncle = chain2[6]
+        .to_owned()
+        .as_advanced_builder()
+        .proposal([1; 10].pack())
+        .build()
+        .as_uncle();
+    let block = chain1[8]
+        .to_owned()
+        .as_advanced_builder()
         .uncle(uncle)
-        .header_builder(HeaderBuilder::from_header(chain1[8].header().to_owned()))
         .build();
 
     let epoch = epoch(&shared, &chain2, 7);
@@ -394,14 +393,13 @@ fn test_duplicated_uncles() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
-    let uncle1 = BlockBuilder::from_block(chain1[10].to_owned())
-        .header_builder(HeaderBuilder::from_header(chain1[10].header().to_owned()))
-        .build();
+    let uncle1 = chain1[10].as_uncle();
     let duplicated_uncles = vec![uncle1.clone(), uncle1.clone()];
 
-    let block = BlockBuilder::from_block(chain2[12].to_owned())
+    let block = chain2[12]
+        .to_owned()
+        .as_advanced_builder()
         .uncles(duplicated_uncles)
-        .header_builder(HeaderBuilder::from_header(chain2[12].header().to_owned()))
         .build();
 
     let epoch = epoch(&shared, &chain2, 11);
@@ -410,7 +408,7 @@ fn test_duplicated_uncles() {
     assert_eq!(
         verifier.verify(),
         Err(Error::Uncles(UnclesError::Duplicate(
-            block.uncles()[1].header().hash().to_owned()
+            block.uncles().get(1).unwrap().hash().unpack()
         )))
     );
 }
@@ -422,16 +420,15 @@ fn test_uncle_over_count() {
     let dummy_context = dummy_context(&shared);
 
     let max_uncles_num = shared.consensus().max_uncles_num();
-    let mut uncles: Vec<Block> = Vec::new();
+    let mut uncles: Vec<UncleBlockView> = Vec::new();
     for _ in 0..=max_uncles_num {
-        let uncle = BlockBuilder::from_block(chain1[10].to_owned())
-            .header_builder(HeaderBuilder::from_header(chain1[10].header().to_owned()))
-            .build();
+        let uncle = chain1[10].clone().as_uncle();
         uncles.push(uncle);
     }
-    let block = BlockBuilder::from_block(chain2[12].to_owned())
+    let block = chain2[12]
+        .clone()
+        .as_advanced_builder()
         .uncles(uncles)
-        .header_builder(HeaderBuilder::from_header(chain2[12].header().to_owned()))
         .build();
     // uncle overcount
 
@@ -452,20 +449,19 @@ fn test_exceeded_maximum_proposals_limit() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
-    let uncle = BlockBuilder::from_block(chain2[6].clone())
+    let uncle = chain2[6]
+        .clone()
+        .as_advanced_builder()
         .proposals(vec![
             ProposalShortId::from_slice(&[1; 10]).unwrap(),
             ProposalShortId::from_slice(&[2; 10]).unwrap(),
             ProposalShortId::from_slice(&[3; 10]).unwrap(),
             ProposalShortId::from_slice(&[4; 10]).unwrap(),
         ])
-        .header_builder(HeaderBuilder::from_header(chain2[6].header().to_owned()))
-        .build();
+        .build()
+        .as_uncle();
 
-    let block = BlockBuilder::from_block(chain1[8].clone())
-        .uncle(uncle)
-        .header_builder(HeaderBuilder::from_header(chain1[8].header().to_owned()))
-        .build();
+    let block = chain1[8].clone().as_advanced_builder().uncle(uncle).build();
 
     let epoch = epoch(&shared, &chain1, 7);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
@@ -482,12 +478,11 @@ fn test_descendant_limit() {
     let dummy_context = dummy_context(&shared);
 
     {
-        let uncle = BlockBuilder::from_block(chain1[16].clone())
-            .header_builder(HeaderBuilder::from_header(chain1[16].header().to_owned()))
-            .build();
-        let block = BlockBuilder::from_block(chain2[18].clone())
+        let uncle = chain1[16].clone().as_uncle();
+        let block = chain2[18]
+            .clone()
+            .as_advanced_builder()
             .uncle(uncle)
-            .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
             .build();
 
         let epoch = epoch(&shared, &chain2, 17);
@@ -501,22 +496,23 @@ fn test_descendant_limit() {
 
     // embedded should be ok
     {
-        let uncle1 = BlockBuilder::from_block(chain1[15].clone())
-            .header_builder(
-                HeaderBuilder::from_header(chain1[15].header().to_owned())
-                    .parent_hash(chain2[14].header().hash().to_owned()),
-            )
-            .build();
-        let uncle2 = BlockBuilder::from_block(chain1[16].clone())
-            .header_builder(
-                HeaderBuilder::from_header(chain1[16].header().to_owned())
-                    .parent_hash(uncle1.header().hash().to_owned()),
-            )
-            .build();
-        let block = BlockBuilder::from_block(chain2[18].clone())
+        let uncle1 = chain1[15]
+            .clone()
+            .as_advanced_builder()
+            .parent_hash(chain2[14].hash())
+            .build()
+            .as_uncle();
+        let uncle2 = chain1[16]
+            .clone()
+            .as_advanced_builder()
+            .parent_hash(uncle1.hash())
+            .build()
+            .as_uncle();
+        let block = chain2[18]
+            .clone()
+            .as_advanced_builder()
             .uncle(uncle1)
             .uncle(uncle2)
-            .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
             .build();
 
         let epoch = epoch(&shared, &chain2, 17);
@@ -532,15 +528,16 @@ fn test_descendant_continuity() {
     let dummy_context = dummy_context(&shared);
 
     {
-        let uncle = BlockBuilder::from_block(chain1[16].clone())
-            .header_builder(
-                HeaderBuilder::from_header(chain1[16].header().to_owned())
-                    .parent_hash(chain2[14].header().hash().to_owned()),
-            )
-            .build();
-        let block = BlockBuilder::from_block(chain2[18].clone())
+        let uncle = chain1[16]
+            .clone()
+            .as_advanced_builder()
+            .parent_hash(chain2[14].hash())
+            .build()
+            .as_uncle();
+        let block = chain2[18]
+            .clone()
+            .as_advanced_builder()
             .uncle(uncle)
-            .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
             .build();
 
         let epoch = epoch(&shared, &chain2, 17);
@@ -559,15 +556,16 @@ fn test_ok() {
     let dummy_context = dummy_context(&shared);
 
     {
-        let uncle = BlockBuilder::from_block(chain1[16].clone())
-            .header_builder(
-                HeaderBuilder::from_header(chain1[16].header().to_owned())
-                    .parent_hash(chain2[15].header().hash().to_owned()),
-            )
-            .build();
-        let block = BlockBuilder::from_block(chain2[18].clone())
+        let uncle = chain1[16]
+            .clone()
+            .as_advanced_builder()
+            .parent_hash(chain2[15].hash())
+            .build()
+            .as_uncle();
+        let block = chain2[18]
+            .clone()
+            .as_advanced_builder()
             .uncle(uncle)
-            .header_builder(HeaderBuilder::from_header(chain2[18].header().to_owned()))
             .build();
 
         let epoch = epoch(&shared, &chain2, 17);
@@ -577,12 +575,11 @@ fn test_ok() {
     }
 
     {
-        let uncle = BlockBuilder::from_block(chain1[10].clone())
-            .header_builder(HeaderBuilder::from_header(chain1[10].header().to_owned()))
-            .build();
-        let block = BlockBuilder::from_block(chain2[12].clone())
+        let uncle = chain1[10].clone().as_uncle();
+        let block = chain2[12]
+            .clone()
+            .as_advanced_builder()
             .uncle(uncle)
-            .header_builder(HeaderBuilder::from_header(chain2[12].header().to_owned()))
             .build();
 
         let epoch = epoch(&shared, &chain1, 11);

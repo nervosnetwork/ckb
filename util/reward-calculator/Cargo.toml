@@ -6,9 +6,8 @@ authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-ckb-core = { path = "../../core" }
+ckb-types = { path = "../types" }
 ckb-store = { path = "../../store" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 failure = "0.1.5"
 ckb-dao = { path = "../dao" }
 ckb-logger = { path = "../logger" }

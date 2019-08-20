@@ -1,14 +1,5 @@
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
-use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::script::{Script, ScriptHashType};
-use ckb_core::transaction::{
-    CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, ProposalShortId, Transaction,
-    TransactionBuilder,
-};
-use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -18,9 +9,20 @@ use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_types::{
+    bytes::Bytes,
+    core::{
+        capacity_bytes,
+        cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
+        BlockBuilder, BlockView, Capacity, HeaderView, ScriptHashType, TransactionBuilder,
+        TransactionView,
+    },
+    h160, h256,
+    packed::{CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script},
+    prelude::*,
+    H160, H256, U256,
+};
 use lazy_static::lazy_static;
-use numext_fixed_hash::{h160, h256, H160, H256};
-use numext_fixed_uint::U256;
 use rand::random;
 use std::collections::HashSet;
 
@@ -37,28 +39,28 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
     let (_, _, always_success_script) = always_success_cell();
     let tx = create_always_success_tx();
     let dao = genesis_dao_data(&tx).unwrap();
-    let header_builder = HeaderBuilder::default()
-        .dao(dao)
-        .difficulty(U256::from(1000u64));
 
     // create genesis block with N txs
-    let transactions: Vec<Transaction> = (0..txs_size)
+    let transactions: Vec<TransactionView> = (0..txs_size)
         .map(|i| {
             let data = Bytes::from(i.to_le_bytes().to_vec());
             TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::null(), 0))
                 .output(
-                    CellOutputBuilder::from_data(&data)
-                        .capacity(capacity_bytes!(50_000))
+                    CellOutput::new_builder()
+                        .data_hash(CellOutput::calc_data_hash(&data).pack())
+                        .capacity(capacity_bytes!(50_000).pack())
                         .lock(always_success_script.clone())
                         .build(),
                 )
-                .output_data(data)
+                .output_data(data.pack())
                 .build()
         })
         .collect();
 
-    let genesis_block = BlockBuilder::from_header_builder(header_builder)
+    let genesis_block = BlockBuilder::default()
+        .dao(dao.pack())
+        .difficulty(U256::from(1000u64).pack())
         .transaction(tx)
         .transactions(transactions)
         .build();
@@ -84,52 +86,52 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
     chains
 }
 
-pub fn create_always_success_tx() -> Transaction {
+pub fn create_always_success_tx() -> TransactionView {
     let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data.clone())
+        .output_data(always_success_cell_data.pack())
         .build()
 }
 
-pub fn create_always_success_cellbase(shared: &Shared, parent: &Header) -> Transaction {
+pub fn create_always_success_cellbase(shared: &Shared, parent: &HeaderView) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let capacity = calculate_reward(shared, parent);
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
         .output(
-            CellOutputBuilder::default()
-                .capacity(capacity)
+            CellOutput::new_builder()
+                .capacity(capacity.pack())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .witness(always_success_script.clone().into_witness())
         .build()
 }
 
 pub fn gen_always_success_block(
-    blocks: &mut Vec<Block>,
-    p_block: &Block,
+    blocks: &mut Vec<BlockView>,
+    p_block: &BlockView,
     shared: &Shared,
-) -> Block {
+) -> BlockView {
     let tx = create_always_success_tx();
-    let always_success_out_point = OutPoint::new(tx.hash().to_owned(), 0);
+    let always_success_out_point = OutPoint::new(tx.hash().unpack(), 0);
     let (_, _, always_success_script) = always_success_cell();
     let (number, timestamp, difficulty) = (
         p_block.header().number() + 1,
         p_block.header().timestamp() + 10000,
         p_block.header().difficulty() + U256::from(1u64),
     );
-    let cellbase = create_always_success_cellbase(shared, p_block.header());
+    let cellbase = create_always_success_cellbase(shared, &p_block.header());
 
     // spent n-2 block's tx and proposal n-1 block's tx
-    let transactions: Vec<Transaction> = if blocks.len() > 1 {
+    let transactions: Vec<TransactionView> = if blocks.len() > 1 {
         let pp_block = shared
             .store()
-            .get_block(p_block.header().parent_hash())
+            .get_block(&p_block.data().header().raw().parent_hash())
             .expect("gen_block get pp_block");
         pp_block
             .transactions()
@@ -137,7 +139,7 @@ pub fn gen_always_success_block(
             .skip(1)
             .map(|tx| {
                 create_transaction(
-                    tx.hash(),
+                    &tx.hash().unpack(),
                     always_success_script.clone(),
                     always_success_out_point.clone(),
                 )
@@ -153,7 +155,7 @@ pub fn gen_always_success_block(
         .skip(1)
         .map(|tx| {
             create_transaction(
-                tx.hash(),
+                &tx.hash().unpack(),
                 always_success_script.clone(),
                 always_success_out_point.clone(),
             )
@@ -163,21 +165,18 @@ pub fn gen_always_success_block(
 
     let mut txs_to_resolve = vec![cellbase.clone()];
     txs_to_resolve.extend_from_slice(&transactions);
-    let dao = dao_data(shared, p_block.header(), &txs_to_resolve);
+    let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
 
     let block = BlockBuilder::default()
         .transaction(cellbase)
         .transactions(transactions)
         .proposals(proposals)
-        .header_builder(
-            HeaderBuilder::default()
-                .parent_hash(p_block.header().hash().to_owned())
-                .number(number)
-                .timestamp(timestamp)
-                .difficulty(difficulty)
-                .nonce(random())
-                .dao(dao),
-        )
+        .parent_hash(p_block.hash())
+        .number(number.pack())
+        .timestamp(timestamp.pack())
+        .difficulty(difficulty.pack())
+        .nonce(random::<u64>().pack())
+        .dao(dao.pack())
         .build();
 
     blocks.push(block.clone());
@@ -194,18 +193,16 @@ lazy_static! {
             .expect("load secp256k1_blake160_sighash_all");
         let data: Bytes = raw_data[..].into();
 
-        let cell = CellOutput::new(
-            Capacity::bytes(data.len()).unwrap(),
-            CellOutput::calculate_data_hash(&data),
-            Script::default(),
-            None,
-        );
+        let cell = CellOutput::new_builder()
+            .data_hash(CellOutput::calc_data_hash(&data).pack())
+            .capacity(Capacity::bytes(data.len()).unwrap().pack())
+            .build();
 
-        let script = Script::new(
-            vec![Bytes::from(PUBKEY_HASH.as_bytes())],
-            cell.data_hash().to_owned(),
-            ScriptHashType::Data,
-        );
+        let script = Script::new_builder()
+            .code_hash(cell.data_hash())
+            .args(vec![Bytes::from(PUBKEY_HASH.as_bytes()).pack()].pack())
+            .hash_type(ScriptHashType::Data.pack())
+            .build();
 
         (cell, data, script)
     };
@@ -215,13 +212,13 @@ pub fn secp_cell() -> &'static (CellOutput, Bytes, Script) {
     &SECP_CELL
 }
 
-pub fn create_secp_tx() -> Transaction {
+pub fn create_secp_tx() -> TransactionView {
     let (ref cell, ref cell_data, ref script) = secp_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(cell.clone())
-        .output_data(cell_data.clone())
+        .output_data(cell_data.pack())
         .build()
 }
 
@@ -229,29 +226,29 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
     let (_, _, secp_script) = secp_cell();
     let tx = create_secp_tx();
     let dao = genesis_dao_data(&tx).unwrap();
-    let header_builder = HeaderBuilder::default()
-        .dao(dao)
-        .difficulty(U256::from(1000u64));
 
     // create genesis block with N txs
-    let transactions: Vec<Transaction> = (0..txs_size)
+    let transactions: Vec<TransactionView> = (0..txs_size)
         .map(|i| {
             let data = Bytes::from(i.to_le_bytes().to_vec());
-            let output = CellOutputBuilder::from_data(&data)
-                .capacity(capacity_bytes!(50_000))
+            let output = CellOutput::new_builder()
+                .data_hash(CellOutput::calc_data_hash(&data).pack())
+                .capacity(capacity_bytes!(50_000).pack())
                 .lock(secp_script.clone())
                 .build();
             TransactionBuilder::default()
                 .input(CellInput::new(OutPoint::null(), 0))
                 .output(output.clone())
                 .output(output)
-                .output_data(data.clone())
-                .output_data(data)
+                .output_data(data.pack())
+                .output_data(data.pack())
                 .build()
         })
         .collect();
 
-    let genesis_block = BlockBuilder::from_header_builder(header_builder)
+    let genesis_block = BlockBuilder::default()
+        .difficulty(U256::from(1000u64).pack())
+        .dao(dao.pack())
         .transaction(tx)
         .transactions(transactions)
         .build();
@@ -277,38 +274,42 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
     chains
 }
 
-pub fn create_secp_cellbase(shared: &Shared, parent: &Header) -> Transaction {
+pub fn create_secp_cellbase(shared: &Shared, parent: &HeaderView) -> TransactionView {
     let (_, _, secp_script) = secp_cell();
     let capacity = calculate_reward(shared, parent);
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
         .output(
-            CellOutputBuilder::default()
-                .capacity(capacity)
+            CellOutput::new_builder()
+                .capacity(capacity.pack())
                 .lock(secp_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .witness(secp_script.clone().into_witness())
         .build()
 }
 
-pub fn gen_secp_block(blocks: &mut Vec<Block>, p_block: &Block, shared: &Shared) -> Block {
+pub fn gen_secp_block(
+    blocks: &mut Vec<BlockView>,
+    p_block: &BlockView,
+    shared: &Shared,
+) -> BlockView {
     let tx = create_secp_tx();
-    let secp_out_point = OutPoint::new(tx.hash().to_owned(), 0);
+    let secp_out_point = OutPoint::new(tx.hash().unpack(), 0);
     let (_, _, secp_script) = secp_cell();
     let (number, timestamp, difficulty) = (
         p_block.header().number() + 1,
         p_block.header().timestamp() + 10000,
         p_block.header().difficulty() + U256::from(1u64),
     );
-    let cellbase = create_secp_cellbase(shared, p_block.header());
+    let cellbase = create_secp_cellbase(shared, &p_block.header());
 
     // spent n-2 block's tx and proposal n-1 block's tx
-    let transactions: Vec<Transaction> = if blocks.len() > 1 {
+    let transactions: Vec<TransactionView> = if blocks.len() > 1 {
         let pp_block = shared
             .store()
-            .get_block(p_block.header().parent_hash())
+            .get_block(&p_block.data().header().raw().parent_hash())
             .expect("gen_block get pp_block");
         pp_block
             .transactions()
@@ -338,67 +339,64 @@ pub fn gen_secp_block(blocks: &mut Vec<Block>, p_block: &Block, shared: &Shared)
 
     let mut txs_to_resolve = vec![cellbase.clone()];
     txs_to_resolve.extend_from_slice(&transactions);
-    let dao = dao_data(shared, p_block.header(), &txs_to_resolve);
+    let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
 
     let block = BlockBuilder::default()
         .transaction(cellbase)
         .transactions(transactions)
         .proposals(proposals)
-        .header_builder(
-            HeaderBuilder::default()
-                .parent_hash(p_block.header().hash().to_owned())
-                .number(number)
-                .timestamp(timestamp)
-                .difficulty(difficulty)
-                .nonce(random())
-                .dao(dao),
-        )
+        .parent_hash(p_block.hash())
+        .number(number.pack())
+        .timestamp(timestamp.pack())
+        .difficulty(difficulty.pack())
+        .nonce(random::<u64>().pack())
+        .dao(dao.pack())
         .build();
 
     blocks.push(block.clone());
     block
 }
 
-fn create_transaction(parent_hash: &H256, lock: Script, dep: OutPoint) -> Transaction {
+fn create_transaction(parent_hash: &H256, lock: Script, dep: OutPoint) -> TransactionView {
     let data: Bytes = (0..255).collect();
     TransactionBuilder::default()
-        .output(CellOutput::new(
-            capacity_bytes!(50_000),
-            CellOutput::calculate_data_hash(&data),
-            lock.clone(),
-            None,
-        ))
-        .output_data(data)
+        .output(
+            CellOutput::new_builder()
+                .data_hash(CellOutput::calc_data_hash(&data).pack())
+                .capacity(capacity_bytes!(50_000).pack())
+                .lock(lock.clone())
+                .build(),
+        )
+        .output_data(data.pack())
         .input(CellInput::new(OutPoint::new(parent_hash.to_owned(), 0), 0))
-        .cell_dep(CellDep::new_cell(dep))
+        .cell_dep(CellDep::new(dep, false))
         .build()
 }
 
-fn create_2out_transaction(inputs: Vec<OutPoint>, lock: Script, dep: OutPoint) -> Transaction {
+fn create_2out_transaction(inputs: Vec<OutPoint>, lock: Script, dep: OutPoint) -> TransactionView {
     let data: Bytes = (0..255).collect();
 
     let cell_inputs = inputs.into_iter().map(|pts| CellInput::new(pts, 0));
-    let cell_output = CellOutput::new(
-        capacity_bytes!(50_000),
-        CellOutput::calculate_data_hash(&data),
-        lock.clone(),
-        None,
-    );
+    let cell_output = CellOutput::new_builder()
+        .data_hash(CellOutput::calc_data_hash(&data).pack())
+        .capacity(capacity_bytes!(50_000).pack())
+        .lock(lock.clone())
+        .build();
 
     let raw = TransactionBuilder::default()
         .output(cell_output.clone())
         .output(cell_output)
-        .output_data(data.clone())
-        .output_data(data)
+        .output_data(data.pack())
+        .output_data(data.pack())
         .inputs(cell_inputs)
-        .cell_dep(CellDep::new_cell(dep))
+        .cell_dep(CellDep::new(dep, false))
         .build();
 
     let privkey: Privkey = PRIVKEY.into();
 
     let mut blake2b = ckb_hash::new_blake2b();
     let mut message = [0u8; 32];
-    blake2b.update(&raw.hash()[..]);
+    blake2b.update(&raw.hash().raw_data()[..]);
     blake2b.finalize(&mut message);
     let message = H256::from(message);
     let witness: Bytes = privkey
@@ -407,14 +405,14 @@ fn create_2out_transaction(inputs: Vec<OutPoint>, lock: Script, dep: OutPoint) -
         .serialize()
         .into();
 
-    TransactionBuilder::from_transaction(raw)
-        .witness(vec![witness.clone()])
-        .witness(vec![witness])
+    raw.as_advanced_builder()
+        .witness(vec![witness.pack()].pack())
+        .witness(vec![witness.pack()].pack())
         .build()
 }
 
-pub fn dao_data(shared: &Shared, parent: &Header, txs: &[Transaction]) -> Bytes {
-    let mut seen_inputs = HashSet::default();
+pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -> Bytes {
+    let mut seen_inputs = HashSet::new();
     // In case of resolving errors, we just output a dummp DAO field,
     // since those should be the cases where we are testing invalid
     // blocks
@@ -438,12 +436,12 @@ pub fn dao_data(shared: &Shared, parent: &Header, txs: &[Transaction]) -> Bytes 
         .expect("calculator dao_field")
 }
 
-pub(crate) fn calculate_reward(shared: &Shared, parent: &Header) -> Capacity {
+pub(crate) fn calculate_reward(shared: &Shared, parent: &HeaderView) -> Capacity {
     let number = parent.number() + 1;
     let target_number = shared.consensus().finalize_target(number).unwrap();
     let target = shared
         .store()
-        .get_ancestor(parent.hash(), target_number)
+        .get_ancestor(&parent.hash(), target_number)
         .expect("calculate_reward get_ancestor");
     let calculator = DaoCalculator::new(shared.consensus(), shared.store());
     calculator

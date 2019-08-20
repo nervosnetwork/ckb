@@ -2,15 +2,13 @@ use crate::block_status::BlockStatus;
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncSharedState;
 use ckb_chain::chain::ChainService;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::TransactionBuilder;
-use ckb_core::Capacity;
 use ckb_network::PeerIndex;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
+use ckb_types::core::{BlockBuilder, BlockView, Capacity, TransactionBuilder};
+use ckb_types::prelude::*;
 use std::sync::Arc;
 
 #[test]
@@ -73,19 +71,22 @@ fn test_insert_parent_unknown_block() {
 
     let block = shared1
         .store()
-        .get_block(shared1.tip_header().hash())
+        .get_block(&shared1.tip_header().hash())
         .unwrap();
     let parent = {
         let parent = shared1
             .store()
-            .get_block(block.header().parent_hash())
+            .get_block(&block.header().parent_hash().pack())
             .unwrap();
         Arc::new(parent)
     };
     let invalid_orphan = {
-        let invalid_orphan = BlockBuilder::from_block(block.clone())
-            .header_builder(HeaderBuilder::from_header(block.header().clone()).number(1000))
+        let invalid_orphan = block
+            .as_advanced_builder()
+            .header(block.header().clone())
+            .number(1000.pack())
             .build();
+
         Arc::new(invalid_orphan)
     };
     let valid_orphan = Arc::new(block);
@@ -106,11 +107,11 @@ fn test_insert_parent_unknown_block() {
         false,
     );
     assert_eq!(
-        shared.get_block_status(valid_hash),
+        shared.get_block_status(&valid_hash),
         BlockStatus::BLOCK_RECEIVED
     );
     assert_eq!(
-        shared.get_block_status(invalid_hash),
+        shared.get_block_status(&invalid_hash),
         BlockStatus::BLOCK_RECEIVED
     );
 
@@ -122,15 +123,15 @@ fn test_insert_parent_unknown_block() {
         true,
     );
     assert_eq!(
-        shared.get_block_status(valid_hash),
+        shared.get_block_status(&valid_hash),
         BlockStatus::BLOCK_VALID
     );
     assert_eq!(
-        shared.get_block_status(invalid_hash),
+        shared.get_block_status(&invalid_hash),
         BlockStatus::BLOCK_INVALID
     );
     assert_eq!(
-        shared.get_block_status(parent_hash),
+        shared.get_block_status(&parent_hash),
         BlockStatus::BLOCK_VALID
     );
 }
@@ -138,7 +139,7 @@ fn test_insert_parent_unknown_block() {
 #[test]
 fn test_switch_invalid_fork() {
     let (shared, chain) = build_chain(4);
-    let make_invalid_block = |shared, parent_hash| -> Block {
+    let make_invalid_block = |shared, parent_hash| -> BlockView {
         let header = inherit_block(shared, &parent_hash).build().header().clone();
         let cellbase = inherit_block(shared, &parent_hash).build().transactions()[0].clone();
         let invalid_transaction = TransactionBuilder::default().build();
@@ -168,7 +169,7 @@ fn test_switch_invalid_fork() {
     }
     for block in invalid_fork.iter() {
         assert_eq!(
-            shared.get_block_status(block.header().hash()),
+            shared.get_block_status(&block.header().hash()),
             BlockStatus::BLOCK_STORED,
         );
     }
@@ -195,19 +196,20 @@ fn test_switch_invalid_fork() {
     //        );
     //    }
     for block in invalid_fork.iter() {
-        assert!(!shared.contains_block_status(block.header().hash(), BlockStatus::BLOCK_VALID));
+        assert!(!shared.contains_block_status(&block.header().hash(), BlockStatus::BLOCK_VALID));
     }
 }
 
 #[test]
 fn test_switch_valid_fork() {
     let (shared, chain) = build_chain(4);
-    let make_valid_block = |shared, parent_hash| -> Block {
+    let make_valid_block = |shared, parent_hash| -> BlockView {
         let header = inherit_block(shared, &parent_hash).build().header().clone();
         let timestamp = header.timestamp() + 3;
         let cellbase = inherit_block(shared, &parent_hash).build().transactions()[0].clone();
         BlockBuilder::default()
-            .header_builder(HeaderBuilder::from_header(header).timestamp(timestamp))
+            .header(header)
+            .timestamp(timestamp.pack())
             .transaction(cellbase)
             .build()
     };
@@ -230,7 +232,7 @@ fn test_switch_valid_fork() {
     }
     for block in valid_fork.iter() {
         assert_eq!(
-            shared.get_block_status(block.header().hash()),
+            shared.get_block_status(&block.header().hash()),
             BlockStatus::BLOCK_STORED,
         );
     }
@@ -250,7 +252,7 @@ fn test_switch_valid_fork() {
     }
     for block in valid_fork.iter() {
         assert_eq!(
-            shared.get_block_status(block.header().hash()),
+            shared.get_block_status(&block.header().hash()),
             BlockStatus::BLOCK_VALID,
         );
     }

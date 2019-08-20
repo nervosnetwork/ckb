@@ -3,12 +3,16 @@ use crate::header_verifier::{
     EpochVerifier, HeaderResolver, NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier,
 };
 use crate::ALLOWED_FUTURE_BLOCKTIME;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::{BlockNumber, Header, HeaderBuilder, HEADER_VERSION};
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
+use ckb_types::{
+    constants::HEADER_VERSION,
+    core::{BlockNumber, EpochExt, HeaderBuilder, HeaderView},
+    packed::Header,
+    prelude::*,
+    U256,
+};
 use faketime::unix_time_as_millis;
-use numext_fixed_uint::U256;
 use std::sync::Arc;
 
 fn mock_median_time_context() -> MockMedianTime {
@@ -19,7 +23,9 @@ fn mock_median_time_context() -> MockMedianTime {
 
 #[test]
 pub fn test_version() {
-    let header = HeaderBuilder::default().version(HEADER_VERSION + 1).build();
+    let header = HeaderBuilder::default()
+        .version((HEADER_VERSION + 1).pack())
+        .build();
     let verifier = VersionVerifier::new(&header);
 
     assert_eq!(verifier.verify().err(), Some(Error::Version));
@@ -34,8 +40,8 @@ fn test_timestamp() {
 
     let timestamp = unix_time_as_millis() + 1;
     let header = HeaderBuilder::default()
-        .number(10)
-        .timestamp(timestamp)
+        .number(10u64.pack())
+        .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
 
@@ -52,8 +58,8 @@ fn test_timestamp_too_old() {
     let min = unix_time_as_millis();
     let timestamp = unix_time_as_millis() - 1;
     let header = HeaderBuilder::default()
-        .number(10)
-        .timestamp(timestamp)
+        .number(10u64.pack())
+        .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
 
@@ -76,8 +82,8 @@ fn test_timestamp_too_new() {
     let max = unix_time_as_millis() + ALLOWED_FUTURE_BLOCKTIME;
     let timestamp = max + 1;
     let header = HeaderBuilder::default()
-        .number(10)
-        .timestamp(timestamp)
+        .number(10u64.pack())
+        .timestamp(timestamp.pack())
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
     assert_eq!(
@@ -91,8 +97,8 @@ fn test_timestamp_too_new() {
 
 #[test]
 fn test_number() {
-    let parent = HeaderBuilder::default().number(10).build();
-    let header = HeaderBuilder::default().number(10).build();
+    let parent = HeaderBuilder::default().number(10u64.pack()).build();
+    let header = HeaderBuilder::default().number(10u64.pack()).build();
 
     let verifier = NumberVerifier::new(&parent, &header);
     assert_eq!(
@@ -105,22 +111,22 @@ fn test_number() {
 }
 
 struct FakeHeaderResolver {
-    header: Header,
+    header: HeaderView,
     epoch: EpochExt,
 }
 
 impl FakeHeaderResolver {
-    fn new(header: Header, epoch: EpochExt) -> Self {
+    fn new(header: HeaderView, epoch: EpochExt) -> Self {
         Self { header, epoch }
     }
 }
 
 impl HeaderResolver for FakeHeaderResolver {
-    fn header(&self) -> &Header {
+    fn header(&self) -> &HeaderView {
         &self.header
     }
 
-    fn parent(&self) -> Option<&Header> {
+    fn parent(&self) -> Option<&HeaderView> {
         unimplemented!();
     }
 
@@ -131,7 +137,7 @@ impl HeaderResolver for FakeHeaderResolver {
 
 #[test]
 fn test_epoch_number() {
-    let header = HeaderBuilder::default().epoch(2).build();
+    let header = HeaderBuilder::default().epoch(2u64.pack()).build();
     let fake_header_resolver = FakeHeaderResolver::new(header, EpochExt::default());
 
     assert_eq!(
@@ -146,7 +152,7 @@ fn test_epoch_number() {
 #[test]
 fn test_epoch_difficulty() {
     let header = HeaderBuilder::default()
-        .difficulty(U256::from(2u64))
+        .difficulty(U256::from(2u64).pack())
         .build();
     let mut epoch = EpochExt::default();
     epoch.set_difficulty(U256::from(1u64));

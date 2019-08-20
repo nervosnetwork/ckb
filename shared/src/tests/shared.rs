@@ -1,7 +1,10 @@
 use crate::shared::{Shared, SharedBuilder};
-use ckb_core::{block::BlockBuilder, header::HeaderBuilder};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_types::{
+    core::{BlockBuilder, HeaderBuilder},
+    prelude::*,
+};
 
 fn new_shared() -> Shared {
     SharedBuilder::default().build().unwrap()
@@ -14,9 +17,9 @@ fn insert_block_timestamps(store: &ChainDB, timestamps: &[u64]) {
     let mut parent_number = tip_header.number();
     for timestamp in timestamps {
         let header = HeaderBuilder::default()
-            .timestamp(*timestamp)
+            .timestamp(timestamp.pack())
             .parent_hash(parent_hash.clone())
-            .number(parent_number + 1)
+            .number((parent_number + 1).pack())
             .build();
         parent_hash = header.hash().to_owned();
         parent_number += 1;

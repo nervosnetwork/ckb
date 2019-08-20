@@ -2,12 +2,7 @@ use crate::{
     bytes::JsonBytes, BlockNumber, Cycle, EpochNumber, Header, ProposalShortId, Timestamp,
     Transaction, Unsigned, Version,
 };
-use ckb_core::block::BlockBuilder;
-use ckb_core::header::HeaderBuilder;
-use ckb_core::transaction::Transaction as CoreTransaction;
-use ckb_core::uncle::UncleBlock as CoreUncleBlock;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
+use ckb_types::{packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::From;
 
@@ -30,8 +25,8 @@ pub struct BlockTemplate {
     pub dao: JsonBytes,
 }
 
-impl From<BlockTemplate> for BlockBuilder {
-    fn from(block_template: BlockTemplate) -> BlockBuilder {
+impl From<BlockTemplate> for packed::Block {
+    fn from(block_template: BlockTemplate) -> packed::Block {
         let BlockTemplate {
             version,
             difficulty,
@@ -46,21 +41,39 @@ impl From<BlockTemplate> for BlockBuilder {
             dao,
             ..
         } = block_template;
-
-        let header_builder = HeaderBuilder::default()
-            .version(version.0)
-            .number(number.0)
-            .epoch(epoch.0)
-            .difficulty(difficulty)
-            .timestamp(current_time.0)
-            .parent_hash(parent_hash)
-            .dao(dao.into_bytes());
-
-        BlockBuilder::from_header_builder(header_builder)
-            .uncles(uncles)
-            .transaction(cellbase)
-            .transactions(transactions)
-            .proposals(proposals)
+        let raw = packed::RawHeader::new_builder()
+            .version(version.0.pack())
+            .difficulty(difficulty.pack())
+            .parent_hash(parent_hash.pack())
+            .timestamp(current_time.0.pack())
+            .number(number.0.pack())
+            .epoch(epoch.0.pack())
+            .dao(dao.into())
+            .build();
+        let header = packed::Header::new_builder().raw(raw).build();
+        let txs = packed::TransactionVec::new_builder()
+            .push(cellbase.into())
+            .extend(transactions.into_iter().map(|tx| tx.into()))
+            .build();
+        packed::Block::new_builder()
+            .header(header)
+            .uncles(
+                uncles
+                    .into_iter()
+                    .map(|u| u.into())
+                    .collect::<Vec<packed::UncleBlock>>()
+                    .pack(),
+            )
+            .transactions(txs)
+            .proposals(
+                proposals
+                    .into_iter()
+                    .map(|p| p.into())
+                    .collect::<Vec<packed::ProposalShortId>>()
+                    .pack(),
+            )
+            .build()
+            .reset_header()
     }
 }
 
@@ -72,20 +85,15 @@ pub struct UncleTemplate {
     pub header: Header, // temporary
 }
 
-impl From<UncleTemplate> for CoreUncleBlock {
+impl From<UncleTemplate> for packed::UncleBlock {
     fn from(template: UncleTemplate) -> Self {
         let UncleTemplate {
             proposals, header, ..
         } = template;
-
-        CoreUncleBlock {
-            header: header.into(),
-            proposals: proposals
-                .iter()
-                .cloned()
-                .map(Into::into)
-                .collect::<Vec<_>>(),
-        }
+        packed::UncleBlock::new_builder()
+            .header(header.into())
+            .proposals(proposals.into_iter().map(Into::into).pack())
+            .build()
     }
 }
 
@@ -96,7 +104,7 @@ pub struct CellbaseTemplate {
     pub data: Transaction, // temporary
 }
 
-impl From<CellbaseTemplate> for CoreTransaction {
+impl From<CellbaseTemplate> for packed::Transaction {
     fn from(template: CellbaseTemplate) -> Self {
         let CellbaseTemplate { data, .. } = template;
         data.into()
@@ -112,7 +120,7 @@ pub struct TransactionTemplate {
     pub data: Transaction, // temporary
 }
 
-impl From<TransactionTemplate> for CoreTransaction {
+impl From<TransactionTemplate> for packed::Transaction {
     fn from(template: TransactionTemplate) -> Self {
         let TransactionTemplate { data, .. } = template;
         data.into()

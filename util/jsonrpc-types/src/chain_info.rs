@@ -1,5 +1,5 @@
 use crate::{AlertMessage, EpochNumber, Timestamp};
-use numext_fixed_uint::U256;
+use ckb_types::U256;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]

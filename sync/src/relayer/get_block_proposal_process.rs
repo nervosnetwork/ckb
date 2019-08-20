@@ -1,15 +1,12 @@
-use crate::relayer::{compact_block::GetBlockProposal, Relayer};
-use ckb_core::transaction::{ProposalShortId, Transaction};
+use crate::relayer::Relayer;
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{GetBlockProposal as GetBlockProposalMessage, RelayMessage};
+use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
-use flatbuffers::FlatBufferBuilder;
-use std::convert::TryInto;
 use std::sync::Arc;
 
 pub struct GetBlockProposalProcess<'a> {
-    message: &'a GetBlockProposalMessage<'a>,
+    message: packed::GetBlockProposalReader<'a>,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
@@ -17,7 +14,7 @@ pub struct GetBlockProposalProcess<'a> {
 
 impl<'a> GetBlockProposalProcess<'a> {
     pub fn new(
-        message: &'a GetBlockProposalMessage,
+        message: packed::GetBlockProposalReader<'a>,
         relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
@@ -31,16 +28,16 @@ impl<'a> GetBlockProposalProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let get_block_proposal: GetBlockProposal = (*self.message).try_into()?;
-        let proposals = get_block_proposal.proposals;
-        let proposals_transactions: Vec<Option<Transaction>> = {
+        let proposals: Vec<packed::ProposalShortId> =
+            self.message.proposals().to_entity().into_iter().collect();
+        let proposals_transactions: Vec<Option<core::TransactionView>> = {
             let chain_state = self.relayer.shared.lock_chain_state();
             proposals
                 .iter()
                 .map(|short_id| chain_state.get_tx_from_pool_or_store(short_id))
                 .collect()
         };
-        let fresh_proposals: Vec<ProposalShortId> = proposals
+        let fresh_proposals: Vec<packed::ProposalShortId> = proposals
             .into_iter()
             .enumerate()
             .filter_map(|(index, short_id)| {
@@ -51,23 +48,22 @@ impl<'a> GetBlockProposalProcess<'a> {
                 }
             })
             .collect();
-        let transactions: Vec<Transaction> = proposals_transactions
+        let transactions: Vec<packed::Transaction> = proposals_transactions
             .into_iter()
-            .filter_map(|pt| pt)
+            .filter_map(|pt| pt.map(|x| x.data()))
             .collect();
 
         self.relayer
             .shared()
             .insert_get_block_proposals(self.peer, fresh_proposals);
 
-        let fbb = &mut FlatBufferBuilder::new();
-        let message = RelayMessage::build_block_proposal(fbb, &transactions);
-        fbb.finish(message, None);
+        let content = packed::BlockProposal::new_builder()
+            .transactions(transactions.pack())
+            .build();
+        let message = packed::RelayMessage::new_builder().set(content).build();
+        let data = message.as_slice().into();
 
-        if let Err(err) = self
-            .nc
-            .send_message_to(self.peer, fbb.finished_data().into())
-        {
+        if let Err(err) = self.nc.send_message_to(self.peer, data) {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
                 "relayer send GetBlockProposal error: {:?}",

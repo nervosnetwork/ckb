@@ -9,12 +9,9 @@ edition = "2018"
 serde = "1.0"
 serde_derive = "1.0"
 toml = "0.5"
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ckb-core = { path = "../core" }
+ckb-types = { path = "../util/types" }
 ckb-pow = { path = "../pow" }
 ckb-resource = { path = "../resource" }
-ckb-occupied-capacity = { path = "../util/occupied-capacity" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-dao-utils = { path = "../util/dao/utils" }
 ckb-rational = { path = "../util/rational" }

@@ -29,7 +29,7 @@ impl StatsRpc for StatsRpcImpl {
         let (tip_header, median_time) = {
             let chain_state = self.shared.lock_chain_state();
             let tip_header = chain_state.tip_header().clone();
-            let median_time = (&*chain_state).block_median_time(tip_header.hash());
+            let median_time = (&*chain_state).block_median_time(&tip_header.hash());
             (tip_header, median_time)
         };
         let epoch = tip_header.epoch();
@@ -42,7 +42,7 @@ impl StatsRpc for StatsRpcImpl {
             notifier
                 .noticed_alerts()
                 .iter()
-                .map(|alert| AlertMessage::from(alert.as_ref()))
+                .map(|alert| AlertMessage::from(alert.as_ref().to_owned()))
                 .collect()
         };
 

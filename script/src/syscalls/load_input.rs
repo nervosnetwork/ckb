@@ -3,29 +3,30 @@ use crate::syscalls::{
     LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER, LOAD_INPUT_SYSCALL_NUMBER, SUCCESS,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
-use ckb_core::transaction::CellInput;
-use ckb_protocol::{CellInput as FbsCellInput, OutPoint as FbsOutPoint};
+use ckb_types::{
+    packed::{CellInput, CellInputVec},
+    prelude::*,
+};
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
-use flatbuffers::FlatBufferBuilder;
 
 #[derive(Debug)]
 pub struct LoadInput<'a> {
-    inputs: &'a [CellInput],
+    inputs: CellInputVec,
     group_inputs: &'a [usize],
 }
 
 impl<'a> LoadInput<'a> {
-    pub fn new(inputs: &'a [CellInput], group_inputs: &'a [usize]) -> LoadInput<'a> {
+    pub fn new(inputs: CellInputVec, group_inputs: &'a [usize]) -> LoadInput<'a> {
         LoadInput {
             inputs,
             group_inputs,
         }
     }
 
-    fn fetch_input(&self, source: Source, index: usize) -> Result<&CellInput, u8> {
+    fn fetch_input(&self, source: Source, index: usize) -> Result<CellInput, u8> {
         match source {
             Source::Transaction(SourceEntry::Input) => {
                 self.inputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
@@ -54,12 +55,9 @@ impl<'a> LoadInput<'a> {
         // serialized input size. IF there's a chance we can get partial read
         // working directly from storage to VM memory, we can revise the cycle
         // costs here.
-        let mut builder = FlatBufferBuilder::new();
-        let offset = FbsCellInput::build(&mut builder, &input);
-        builder.finish(offset, None);
-        let data = builder.finished_data();
 
-        store_data(machine, &data)?;
+        let data = input.as_slice();
+        store_data(machine, data)?;
         Ok(data.len())
     }
 
@@ -72,16 +70,14 @@ impl<'a> LoadInput<'a> {
 
         let result = match field {
             InputField::OutPoint => {
-                let mut builder = FlatBufferBuilder::new();
-                let offset = FbsOutPoint::build(&mut builder, &input.previous_output);
-                builder.finish(offset, None);
-                let data = builder.finished_data();
+                let previous_output = input.previous_output();
+                let data = previous_output.as_slice();
                 store_data(machine, data)?;
                 data.len()
             }
             InputField::Since => {
                 let mut buffer = vec![];
-                buffer.write_u64::<LittleEndian>(input.since)?;
+                buffer.write_u64::<LittleEndian>(input.since().unpack())?;
                 store_data(machine, &buffer)?;
                 buffer.len()
             }

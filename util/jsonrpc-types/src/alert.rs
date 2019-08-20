@@ -1,5 +1,5 @@
 use crate::{bytes::JsonBytes, string, Timestamp};
-use ckb_core::alert::{Alert as CoreAlert, AlertBuilder};
+use ckb_types::{packed, prelude::*};
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
@@ -28,7 +28,7 @@ pub struct AlertMessage {
     pub message: String,
 }
 
-impl From<Alert> for CoreAlert {
+impl From<Alert> for packed::Alert {
     fn from(json: Alert) -> Self {
         let Alert {
             id,
@@ -40,64 +40,54 @@ impl From<Alert> for CoreAlert {
             message,
             signatures,
         } = json;
-
-        AlertBuilder::default()
-            .id(id.0)
-            .cancel(cancel.0)
-            .min_version(min_version)
-            .max_version(max_version)
-            .priority(priority.0)
-            .notice_until(notice_until.0)
-            .message(message)
-            .signatures(
-                signatures
-                    .into_iter()
-                    .map(JsonBytes::into_bytes)
-                    .collect::<Vec<_>>(),
-            )
+        let raw = packed::RawAlert::new_builder()
+            .id(id.0.pack())
+            .cancel(cancel.0.pack())
+            .min_version(min_version.pack())
+            .max_version(max_version.pack())
+            .priority(priority.0.pack())
+            .notice_until(notice_until.0.pack())
+            .message(message.pack())
+            .build();
+        packed::Alert::new_builder()
+            .raw(raw)
+            .signatures(signatures.into_iter().map(Into::into).pack())
             .build()
     }
 }
 
-impl From<CoreAlert> for Alert {
-    fn from(core: CoreAlert) -> Self {
-        let CoreAlert {
-            id,
-            cancel,
-            min_version,
-            max_version,
-            priority,
-            notice_until,
-            message,
-            signatures,
-        } = core;
+impl From<packed::Alert> for Alert {
+    fn from(input: packed::Alert) -> Self {
+        let raw = input.raw();
         Alert {
-            id: AlertId(id),
-            cancel: AlertId(cancel),
-            min_version,
-            max_version,
-            priority: AlertPriority(priority),
-            notice_until: Timestamp(notice_until),
-            message,
-            signatures: signatures.into_iter().map(JsonBytes::from_bytes).collect(),
+            id: AlertId(raw.id().unpack()),
+            cancel: AlertId(raw.cancel().unpack()),
+            min_version: raw
+                .as_reader()
+                .min_version()
+                .to_opt()
+                .map(|b| unsafe { b.as_utf8_unchecked() }.to_owned()),
+            max_version: raw
+                .as_reader()
+                .max_version()
+                .to_opt()
+                .map(|b| unsafe { b.as_utf8_unchecked() }.to_owned()),
+            priority: AlertPriority(raw.priority().unpack()),
+            notice_until: Timestamp(raw.notice_until().unpack()),
+            message: unsafe { raw.as_reader().message().as_utf8_unchecked() }.to_owned(),
+            signatures: input.signatures().into_iter().map(Into::into).collect(),
         }
     }
 }
 
-impl From<&CoreAlert> for AlertMessage {
-    fn from(core: &CoreAlert) -> Self {
-        let CoreAlert {
-            id,
-            priority,
-            notice_until,
-            message,
-            ..
-        } = core;
+impl From<packed::Alert> for AlertMessage {
+    fn from(input: packed::Alert) -> Self {
+        let raw = input.raw();
         AlertMessage {
-            id: AlertId(*id),
-            priority: AlertPriority(*priority),
-            notice_until: Timestamp(*notice_until),
-            message: message.to_owned(),
+            id: AlertId(raw.id().unpack()),
+            priority: AlertPriority(raw.priority().unpack()),
+            notice_until: Timestamp(raw.notice_until().unpack()),
+            message: unsafe { raw.as_reader().message().as_utf8_unchecked() }.to_owned(),
         }
     }
 }

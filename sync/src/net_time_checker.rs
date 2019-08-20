@@ -1,9 +1,8 @@
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_logger::{debug, info, warn};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
-use ckb_protocol::{get_root, TimeMessage};
+use ckb_types::{packed, prelude::*};
 use ckb_util::RwLock;
-use flatbuffers::FlatBufferBuilder;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -115,10 +114,8 @@ impl CKBProtocolHandler for NetTimeProtocol {
         // send local time to inbound peers
         if let Some(true) = nc.get_peer(peer_index).map(|peer| peer.is_inbound()) {
             let now = faketime::unix_time_as_millis();
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = TimeMessage::build_time(fbb, now);
-            fbb.finish(message, None);
-            if let Err(err) = nc.send_message_to(peer_index, fbb.finished_data().into()) {
+            let time = packed::Time::new_builder().timestamp(now.pack()).build();
+            if let Err(err) = nc.send_message_to(peer_index, time.as_slice().into()) {
                 debug!("net_time_checker send message error: {:?}", err);
             }
         }
@@ -137,10 +134,9 @@ impl CKBProtocolHandler for NetTimeProtocol {
             );
         }
 
-        let timestamp = match get_root::<TimeMessage>(&data)
+        let timestamp: u64 = match packed::TimeReader::from_slice(&data)
+            .map(|time| time.timestamp().unpack())
             .ok()
-            .and_then(|m| m.payload())
-            .map(|p| p.timestamp())
         {
             Some(timestamp) => timestamp,
             None => {

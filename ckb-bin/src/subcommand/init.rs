@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use crate::helper::prompt;
 use ckb_app_config::{ExitCode, InitArgs};
-use ckb_core::script::ScriptHashType;
 use ckb_db::{db::RocksDB, DBConfig, Error};
+use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME,
     CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,

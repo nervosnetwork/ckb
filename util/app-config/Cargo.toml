@@ -14,7 +14,7 @@ toml = "0.5"
 ckb-logger = { path = "../../util/logger" }
 sentry = "^0.15.4"
 ckb-chain-spec = {path = "../../spec"}
-ckb-core = {path = "../../core"}
+ckb-jsonrpc-types = {path = "../jsonrpc-types"}
 ckb-network = { path = "../../network"}
 ckb-rpc = { path = "../../rpc"}
 ckb-miner = { path = "../../miner" }

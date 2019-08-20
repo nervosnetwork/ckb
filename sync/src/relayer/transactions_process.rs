@@ -1,19 +1,21 @@
-use crate::relayer::compact_block::{RelayTransaction, RelayTransactions};
 use crate::relayer::Relayer;
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::RelayTransactions as FbsRelayTransactions;
+use ckb_types::{
+    core::Cycle,
+    packed::{self, Byte32, RelayTransaction},
+    prelude::*,
+};
 use failure::Error as FailureError;
 use fnv::FnvHashSet;
 use futures::{self, future::FutureResult, lazy};
-use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
 
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
 
 pub struct TransactionsProcess<'a> {
-    message: &'a FbsRelayTransactions<'a>,
+    message: packed::RelayTransactionsReader<'a>,
     relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext + Sync>,
     peer: PeerIndex,
@@ -21,7 +23,7 @@ pub struct TransactionsProcess<'a> {
 
 impl<'a> TransactionsProcess<'a> {
     pub fn new(
-        message: &'a FbsRelayTransactions,
+        message: packed::RelayTransactionsReader<'a>,
         relayer: &'a Relayer,
         nc: Arc<CKBProtocolContext + Sync>,
         peer: PeerIndex,
@@ -35,15 +37,16 @@ impl<'a> TransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let relay_txs: RelayTransactions = (*self.message).try_into()?;
+        let relay_txs = self.message.transactions();
 
-        let txs: Vec<RelayTransaction> = {
+        let txs: Vec<(Byte32, RelayTransaction)> = {
             let tx_filter = self.relayer.shared().tx_filter();
 
             relay_txs
-                .transactions
-                .into_iter()
-                .filter(|relay_tx| !tx_filter.contains(relay_tx.transaction.hash()))
+                .iter()
+                .map(|tx| (tx.transaction().calc_tx_hash().pack(), tx))
+                .filter(|(hash, _)| !tx_filter.contains(&hash))
+                .map(|(hash, tx)| (hash, tx.to_entity()))
                 .collect()
         };
 
@@ -54,11 +57,9 @@ impl<'a> TransactionsProcess<'a> {
         // Insert tx_hash into `already_known`
         // Remove tx_hash from `inflight_transactions`
         {
-            self.relayer.shared.mark_as_known_txs(
-                txs.iter()
-                    .map(|tx| tx.transaction.hash().to_owned())
-                    .collect(),
-            );
+            self.relayer
+                .shared
+                .mark_as_known_txs(txs.iter().map(|(hash, _)| hash.clone()).collect());
         }
 
         // Remove tx_hash from `tx_ask_for_set`
@@ -71,8 +72,8 @@ impl<'a> TransactionsProcess<'a> {
                 .write()
                 .get_mut(&self.peer)
             {
-                for tx in txs.iter() {
-                    peer_state.remove_ask_for_tx(tx.transaction.hash());
+                for (hash, _) in txs.iter() {
+                    peer_state.remove_ask_for_tx(hash);
                 }
             }
         }
@@ -87,10 +88,10 @@ impl<'a> TransactionsProcess<'a> {
                 Box::new(lazy(move || -> FutureResult<(), ()> {
                     let tx_pool_executor = Arc::clone(&tx_pool_executor);
 
-                    for relay_tx in txs.into_iter() {
-                        let relay_cycles = relay_tx.cycles;
-                        let tx = relay_tx.transaction;
-                        let tx_hash = tx.hash().to_owned();
+                    for (_,relay_tx) in txs.into_iter() {
+                        let relay_cycles: Cycle = relay_tx.cycles().unpack();
+                        let tx = relay_tx.transaction().into_view();
+                        let tx_hash = tx.hash();
                         let tx_result = tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
                         // disconnect peer if cycles mismatch
                         match tx_result {
@@ -116,7 +117,7 @@ impl<'a> TransactionsProcess<'a> {
                                 if err.is_bad_tx() {
                                     debug_target!(
                                         crate::LOG_TARGET_RELAY,
-                                        "peer {} relay a invalid tx: {:x}, error: {:?}",
+                                        "peer {} relay a invalid tx: {}, error: {:?}",
                                         peer_index,
                                         tx_hash,
                                         err
@@ -145,7 +146,7 @@ impl<'a> TransactionsProcess<'a> {
                                 } else {
                                     debug_target!(
                                         crate::LOG_TARGET_RELAY,
-                                        "peer {} relay a conflict or missing input tx: {:x}, error: {:?}",
+                                        "peer {} relay a conflict or missing input tx: {}, error: {:?}",
                                         peer_index,
                                         tx_hash,
                                         err

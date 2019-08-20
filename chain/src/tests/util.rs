@@ -1,52 +1,53 @@
 use crate::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::Block;
-use ckb_core::block::BlockBuilder;
-use ckb_core::cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider};
-use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::transaction::{
-    CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Transaction, TransactionBuilder,
-};
-use ckb_core::{capacity_bytes, Bytes, Capacity};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
-use ckb_test_chain_utils::{always_success_cell, build_block};
-use ckb_traits::chain_provider::ChainProvider;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
-use std::collections::HashSet;
-
+use ckb_test_chain_utils::always_success_cell;
 pub use ckb_test_chain_utils::MockStore;
+use ckb_traits::chain_provider::ChainProvider;
+use ckb_types::prelude::*;
+use ckb_types::{
+    bytes::Bytes,
+    core::{
+        capacity_bytes,
+        cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
+        BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
+    },
+    packed::{self, Byte32, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint},
+    U256,
+};
+use std::collections::HashSet;
 
 const MIN_CAP: Capacity = capacity_bytes!(60);
 
-pub(crate) fn create_always_success_tx() -> Transaction {
+pub(crate) fn create_always_success_tx() -> TransactionView {
     let (ref always_success_cell, ref always_success_cell_data, ref script) = always_success_cell();
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .output(always_success_cell.clone())
-        .output_data(always_success_cell_data.clone())
+        .output_data(always_success_cell_data.pack())
         .build()
 }
 
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+
 // invocations, let's stick to this way till this becomes a real problem
 pub(crate) fn create_always_success_out_point() -> OutPoint {
-    OutPoint::new(create_always_success_tx().hash().to_owned(), 0)
+    OutPoint::new(create_always_success_tx().hash().unpack(), 0)
 }
 
-pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, Header) {
+pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, HeaderView) {
     let builder = SharedBuilder::default();
     let consensus = consensus.unwrap_or_else(|| {
         let tx = create_always_success_tx();
         let dao = genesis_dao_data(&tx).unwrap();
-        let header_builder = HeaderBuilder::default().dao(dao);
-        let genesis_block = BlockBuilder::from_header_builder(header_builder)
+        let genesis_block = BlockBuilder::default()
+            .dao(dao.pack())
+            .difficulty(U256::one().pack())
             .transaction(tx)
             .build();
         Consensus::default()
@@ -69,11 +70,11 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
 pub(crate) fn calculate_reward(
     store: &MockStore,
     consensus: &Consensus,
-    parent: &Header,
+    parent: &HeaderView,
 ) -> Capacity {
     let number = parent.number() + 1;
     let target_number = consensus.finalize_target(number).unwrap();
-    let target = store.0.get_ancestor(parent.hash(), target_number).unwrap();
+    let target = store.0.get_ancestor(&parent.hash(), target_number).unwrap();
     let calculator = DaoCalculator::new(consensus, store.store());
     calculator
         .primary_block_reward(&target)
@@ -85,37 +86,40 @@ pub(crate) fn calculate_reward(
 pub(crate) fn create_cellbase(
     store: &MockStore,
     consensus: &Consensus,
-    parent: &Header,
-) -> Transaction {
+    parent: &HeaderView,
+) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let capacity = calculate_reward(store, consensus, parent);
     TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(parent.number() + 1))
         .output(
             CellOutputBuilder::default()
-                .capacity(capacity)
+                .capacity(capacity.pack())
                 .lock(always_success_script.clone())
                 .build(),
         )
-        .output_data(Bytes::new())
+        .output_data(Bytes::new().pack())
         .witness(always_success_script.clone().into_witness())
         .build()
 }
 
 // more flexible mock function for make non-full-dead-cell test case
 pub(crate) fn create_multi_outputs_transaction(
-    parent: &Transaction,
+    parent: &TransactionView,
     indices: Vec<usize>,
     output_len: usize,
     data: Vec<u8>,
-) -> Transaction {
+) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let always_success_out_point = create_always_success_out_point();
 
     let parent_outputs = parent.outputs();
     let total_capacity = indices
         .iter()
-        .map(|i| parent_outputs[*i].capacity)
+        .map(|i| {
+            let capacity: Capacity = parent_outputs.get(*i).unwrap().capacity().unpack();
+            capacity
+        })
         .try_fold(Capacity::zero(), Capacity::safe_add)
         .unwrap();
 
@@ -131,13 +135,17 @@ pub(crate) fn create_multi_outputs_transaction(
         } else {
             output_capacity
         };
-        CellOutputBuilder::from_data(&data)
-            .capacity(capacity)
+        let data_hash = CellOutput::calc_data_hash(&data);
+        CellOutputBuilder::default()
+            .capacity(capacity.pack())
+            .data_hash(data_hash.pack())
             .lock(always_success_script.clone())
             .build()
     });
 
-    let outputs_data = (0..output_len).map(|_| data.clone());
+    let outputs_data = (0..output_len)
+        .map(|_| data.pack())
+        .collect::<Vec<packed::Bytes>>();
 
     let parent_pts = parent.output_pts();
     let inputs = indices
@@ -148,44 +156,45 @@ pub(crate) fn create_multi_outputs_transaction(
         .outputs(outputs)
         .outputs_data(outputs_data)
         .inputs(inputs)
-        .cell_dep(CellDep::new_cell(always_success_out_point))
+        .cell_dep(CellDep::new(always_success_out_point, false))
         .build()
 }
 
-pub(crate) fn create_transaction(parent: &H256, unique_data: u8) -> Transaction {
-    create_transaction_with_out_point(OutPoint::new(parent.to_owned(), 0), unique_data)
+pub(crate) fn create_transaction(parent: &Byte32, unique_data: u8) -> TransactionView {
+    create_transaction_with_out_point(OutPoint::new(parent.unpack(), 0), unique_data)
 }
 
 pub(crate) fn create_transaction_with_out_point(
     out_point: OutPoint,
     unique_data: u8,
-) -> Transaction {
+) -> TransactionView {
     let (_, _, always_success_script) = always_success_cell();
     let always_success_out_point = create_always_success_out_point();
 
     let data = Bytes::from(vec![unique_data]);
     TransactionBuilder::default()
-        .output(CellOutput::new(
-            capacity_bytes!(100),
-            CellOutput::calculate_data_hash(&data),
-            always_success_script.clone(),
-            None,
-        ))
-        .output_data(data)
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100).pack())
+                .data_hash(CellOutput::calc_data_hash(&data).pack())
+                .lock(always_success_script.clone())
+                .build(),
+        )
+        .output_data(data.pack())
         .input(CellInput::new(out_point, 0))
-        .cell_dep(CellDep::new_cell(always_success_out_point))
+        .cell_dep(CellDep::new(always_success_out_point, false))
         .build()
 }
 
 #[derive(Clone)]
 pub struct MockChain<'a> {
-    blocks: Vec<Block>,
-    parent: Header,
+    blocks: Vec<BlockView>,
+    parent: HeaderView,
     consensus: &'a Consensus,
 }
 
 impl<'a> MockChain<'a> {
-    pub fn new(parent: Header, consensus: &'a Consensus) -> Self {
+    pub fn new(parent: HeaderView, consensus: &'a Consensus) -> Self {
         Self {
             blocks: vec![],
             parent,
@@ -193,27 +202,20 @@ impl<'a> MockChain<'a> {
         }
     }
 
-    pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<Transaction>, store: &MockStore) {
+    pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<TransactionView>, store: &MockStore) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(
-            &self.consensus,
-            &parent,
-            &[cellbase.to_owned()],
-            store,
-            false,
-        );
-        let new_block = build_block!(
-            from_header_builder: {
-                parent_hash: parent.hash().to_owned(),
-                number: parent.number() + 1,
-                difficulty: difficulty + U256::from(100u64),
-                dao: dao,
-            },
-            transaction: cellbase,
-            proposals: txs.iter().map(Transaction::proposal_short_id),
-        );
+        let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash().to_owned())
+            .number((parent.number() + 1).pack())
+            .difficulty((difficulty + U256::from(100u64)).pack())
+            .dao(dao.pack())
+            .transaction(cellbase)
+            .proposals(txs.iter().map(TransactionView::proposal_short_id))
+            .build();
+
         store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
@@ -221,22 +223,16 @@ impl<'a> MockChain<'a> {
     pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64, store: &MockStore) {
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(
-            &self.consensus,
-            &parent,
-            &[cellbase.to_owned()],
-            store,
-            false,
-        );
-        let new_block = build_block!(
-            from_header_builder: {
-                parent_hash: parent.hash().to_owned(),
-                number: parent.number() + 1,
-                difficulty: U256::from(difficulty),
-                dao: dao,
-            },
-            transaction: cellbase,
-        );
+        let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
+
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash().to_owned())
+            .number((parent.number() + 1).pack())
+            .difficulty(U256::from(difficulty).pack())
+            .dao(dao.pack())
+            .transaction(cellbase)
+            .build();
+
         store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
@@ -245,36 +241,30 @@ impl<'a> MockChain<'a> {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let dao = dao_data(
-            &self.consensus,
-            &parent,
-            &[cellbase.to_owned()],
-            store,
-            false,
-        );
-        let new_block = build_block!(
-            from_header_builder: {
-                parent_hash: parent.hash().to_owned(),
-                number: parent.number() + 1,
-                difficulty: difficulty + U256::from(diff),
-                dao: dao,
-            },
-            transaction: cellbase,
-        );
+        let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
+
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash().to_owned())
+            .number((parent.number() + 1).pack())
+            .difficulty((difficulty + U256::from(diff)).pack())
+            .dao(dao.pack())
+            .transaction(cellbase)
+            .build();
+
         store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
 
     pub fn gen_block_with_commit_txs(
         &mut self,
-        txs: Vec<Transaction>,
+        txs: Vec<TransactionView>,
         store: &MockStore,
         ignore_resolve_error: bool,
     ) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
         let cellbase = create_cellbase(store, self.consensus, &parent);
-        let mut txs_to_resolve = vec![cellbase.to_owned()];
+        let mut txs_to_resolve = vec![cellbase.clone()];
         txs_to_resolve.extend_from_slice(&txs);
         let dao = dao_data(
             &self.consensus,
@@ -283,25 +273,27 @@ impl<'a> MockChain<'a> {
             store,
             ignore_resolve_error,
         );
-        let new_block = build_block!(
-            from_header_builder: {
-                parent_hash: parent.hash().to_owned(),
-                number: parent.number() + 1,
-                difficulty: difficulty + U256::from(100u64),
-                dao: dao,
-            },
-            transaction: cellbase,
-            transactions: txs,
-        );
+
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash().to_owned())
+            .number((parent.number() + 1).pack())
+            .difficulty((difficulty + U256::from(100u64)).pack())
+            .dao(dao.pack())
+            .transaction(cellbase)
+            .transactions(txs)
+            .build();
+
         store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
         self.blocks.push(new_block);
     }
 
-    pub fn tip_header(&self) -> &Header {
-        self.blocks.last().map_or(&self.parent, |b| b.header())
+    pub fn tip_header(&self) -> HeaderView {
+        self.blocks
+            .last()
+            .map_or(self.parent.clone(), |b| b.header())
     }
 
-    pub fn tip(&self) -> &Block {
+    pub fn tip(&self) -> &BlockView {
         self.blocks.last().expect("should have tip")
     }
 
@@ -309,7 +301,7 @@ impl<'a> MockChain<'a> {
         self.tip_header().difficulty().to_owned()
     }
 
-    pub fn blocks(&self) -> &Vec<Block> {
+    pub fn blocks(&self) -> &Vec<BlockView> {
         &self.blocks
     }
 
@@ -322,12 +314,12 @@ impl<'a> MockChain<'a> {
 
 pub fn dao_data(
     consensus: &Consensus,
-    parent: &Header,
-    txs: &[Transaction],
+    parent: &HeaderView,
+    txs: &[TransactionView],
     store: &MockStore,
     ignore_resolve_error: bool,
 ) -> Bytes {
-    let mut seen_inputs = HashSet::default();
+    let mut seen_inputs = HashSet::new();
     // In case of resolving errors, we just output a dummp DAO field,
     // since those should be the cases where we are testing invalid
     // blocks

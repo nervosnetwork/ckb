@@ -6,10 +6,8 @@ edition = "2018"
 license = "MIT"
 
 [dependencies]
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 byteorder = "1.3.1"
-ckb-core = { path = "../core" }
+ckb-types = { path = "../util/types" }
 ckb-hash = { path = "../util/hash"}
 serde = "1.0"
 serde_derive = "1.0"

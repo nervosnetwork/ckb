@@ -3,6 +3,7 @@ pub(crate) mod error;
 pub(crate) mod module;
 pub(crate) mod server;
 pub(crate) mod service_builder;
+
 #[cfg(test)]
 mod test;
 

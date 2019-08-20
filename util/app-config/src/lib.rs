@@ -13,8 +13,8 @@ pub use exit_code::ExitCode;
 
 use ckb_build_info::Version;
 use ckb_chain_spec::{consensus::Consensus, ChainSpec};
-use ckb_core::script::ScriptHashType;
 use ckb_instrument::Format;
+use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::{info_target, LoggerInitGuard};
 use clap::{value_t, ArgMatches, ErrorKind};
 use std::path::PathBuf;

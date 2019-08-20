@@ -19,7 +19,7 @@ impl Spec for TemplateSizeLimit {
 
         (0..5).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
-            hash = node.rpc_client().send_transaction((&tx).into());
+            hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
@@ -27,10 +27,10 @@ impl Spec for TemplateSizeLimit {
         let _ = node.generate_block(); // skip
 
         let new_block = node.new_block(None, None, None);
-        assert_eq!(new_block.serialized_size(0), 1542);
+        assert_eq!(new_block.serialized_size(), 2758);
         assert_eq!(new_block.transactions().len(), 7);
 
         let new_block = node.new_block(Some(1000), None, None);
-        assert_eq!(new_block.transactions().len(), 4);
+        assert_eq!(new_block.transactions().len(), 1);
     }
 }

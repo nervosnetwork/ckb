@@ -1,19 +1,16 @@
 use ckb_chain::chain::ChainController;
-use ckb_core::block::Block as CoreBlock;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
 use ckb_logger::{debug, error};
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
-use ckb_protocol::RelayMessage;
 use ckb_shared::shared::Shared;
 use ckb_sync::NetworkProtocol;
 use ckb_traits::ChainProvider;
+use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use faketime::unix_time_as_millis;
-use flatbuffers::FlatBufferBuilder;
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
-use numext_fixed_hash::H256;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -73,12 +70,11 @@ impl MinerRpc for MinerRpcImpl {
         sentry::configure_scope(|scope| scope.set_extra("work_id", work_id.clone().into()));
 
         debug!("[{}] submit block", work_id);
-        let block: Arc<CoreBlock> = Arc::new(data.into());
-        let resolver = HeaderResolverWrapper::new(
-            block.header(),
-            self.shared.store(),
-            self.shared.consensus(),
-        );
+        let block: packed::Block = data.into();
+        let block: Arc<core::BlockView> = Arc::new(block.into_view());
+        let header = block.header();
+        let resolver =
+            HeaderResolverWrapper::new(&header, self.shared.store(), self.shared.consensus());
         let header_verify_ret = {
             let chain_state = self.shared.lock_chain_state();
             let header_verifier = HeaderVerifier::new(
@@ -91,24 +87,23 @@ impl MinerRpc for MinerRpcImpl {
             let ret = self.chain.process_block(Arc::clone(&block), true);
             if ret.is_ok() {
                 debug!(
-                    "[block_relay] announce new block {} {:x} {}",
+                    "[block_relay] announce new block {} {} {}",
                     block.header().number(),
                     block.header().hash(),
                     unix_time_as_millis()
                 );
                 // announce new block
 
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
-                fbb.finish(message, None);
-                let data = fbb.finished_data().into();
+                let content = packed::CompactBlock::build_from_block(&block, &HashSet::new());
+                let message = packed::RelayMessage::new_builder().set(content).build();
+                let data = message.as_slice().into();
                 if let Err(err) = self
                     .network_controller
                     .quick_broadcast(NetworkProtocol::RELAY.into(), data)
                 {
                     error!("Broadcast block failed: {:?}", err);
                 }
-                Ok(Some(block.header().hash().to_owned()))
+                Ok(Some(block.header().hash().unpack()))
             } else {
                 error!("[{}] submit_block process_block {:?}", work_id, ret);
                 use sentry::{capture_message, with_scope, Level};
