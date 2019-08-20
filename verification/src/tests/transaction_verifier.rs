@@ -84,6 +84,7 @@ pub fn test_capacity_outofbound() {
             Bytes::new(),
         )
         .build()],
+        resolved_dep_groups: vec![],
     };
     let verifier = CapacityVerifier::new(&rtx);
 
@@ -119,6 +120,7 @@ pub fn test_skip_dao_capacity_check() {
         transaction: &transaction,
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![],
+        resolved_dep_groups: vec![],
     };
     let verifier = CapacityVerifier::new(&rtx);
 
@@ -141,6 +143,7 @@ pub fn test_inputs_cellbase_maturity() {
                 .transaction_info(MockMedianTime::get_transaction_info(30, 0, 0))
                 .build(),
         ],
+        resolved_dep_groups: vec![],
     };
 
     let tip_number = 70;
@@ -177,6 +180,7 @@ pub fn test_deps_cellbase_maturity() {
                 .build(),
         ],
         resolved_inputs: Vec::new(),
+        resolved_dep_groups: vec![],
     };
 
     let tip_number = 70;
@@ -229,6 +233,7 @@ pub fn test_capacity_invalid() {
             )
             .build(),
         ],
+        resolved_dep_groups: vec![],
     };
     let verifier = CapacityVerifier::new(&rtx);
 
@@ -323,6 +328,7 @@ fn create_resolve_tx_with_transaction_info(
         )
         .transaction_info(transaction_info)
         .build()],
+        resolved_dep_groups: vec![],
     }
 }
 

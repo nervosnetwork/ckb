@@ -80,7 +80,8 @@ impl TxPoolExecutor {
                 if let Some(cycles) = txs_verify_cache.get(&tx.hash()) {
                     cached_txs.push((tx.hash(), Ok(*cycles)));
                 } else {
-                    match chain_state.resolve_tx_from_pending_and_proposed(tx) {
+                    let tx_pool = chain_state.tx_pool();
+                    match chain_state.resolve_tx_from_pending_and_proposed(tx, &tx_pool) {
                         Ok(resolved_tx) => resolved_txs.push((tx.hash(), resolved_tx)),
                         Err(err) => unresolvable_txs
                             .push((tx.hash(), PoolError::UnresolvableTransaction(err))),

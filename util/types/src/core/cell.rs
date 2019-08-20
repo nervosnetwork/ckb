@@ -161,6 +161,7 @@ pub struct ResolvedTransaction<'a> {
     pub transaction: &'a TransactionView,
     pub resolved_cell_deps: Vec<CellMeta>,
     pub resolved_inputs: Vec<CellMeta>,
+    pub resolved_dep_groups: Vec<CellMeta>,
 }
 
 pub trait CellProvider {
@@ -388,13 +389,15 @@ fn resolve_dep_group<
 >(
     out_point: &OutPoint,
     mut cell_resolver: F,
-) -> Result<Vec<CellMeta>, UnresolvableError> {
-    let data = match cell_resolver(out_point, true)? {
-        Some(cell_meta) => cell_meta
-            .mem_cell_data
-            .expect("Load cell meta must with data"),
-        None => return Ok(Vec::new()),
+) -> Result<Option<(CellMeta, Vec<CellMeta>)>, UnresolvableError> {
+    let dep_group_cell = match cell_resolver(out_point, true)? {
+        Some(cell_meta) => cell_meta,
+        None => return Ok(None),
     };
+    let data = dep_group_cell
+        .mem_cell_data
+        .clone()
+        .expect("Load cell meta must with data");
 
     let sub_out_points = parse_dep_group_data(&data)
         .map_err(|_| UnresolvableError::InvalidDepGroup(out_point.clone()))?;
@@ -404,7 +407,7 @@ fn resolve_dep_group<
             resolved_deps.push(*sub_cell_meta);
         }
     }
-    Ok(resolved_deps)
+    Ok(Some((*dep_group_cell, resolved_deps)))
 }
 
 pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
@@ -413,10 +416,16 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     cell_provider: &CP,
     header_checker: &HC,
 ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
-    let (mut unknown_out_points, mut resolved_inputs, mut resolved_cell_deps) = (
+    let (
+        mut unknown_out_points,
+        mut resolved_inputs,
+        mut resolved_cell_deps,
+        mut resolved_dep_groups,
+    ) = (
         Vec::new(),
         Vec::with_capacity(transaction.inputs().len()),
         Vec::with_capacity(transaction.cell_deps().len()),
+        Vec::new(),
     );
     let mut current_inputs: HashSet<OutPoint> = HashSet::default();
 
@@ -452,7 +461,12 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
 
     for cell_dep in transaction.cell_deps_iter() {
         if Unpack::<bool>::unpack(&cell_dep.is_dep_group()) {
-            resolved_cell_deps.extend(resolve_dep_group(&cell_dep.out_point(), &mut resolve_cell)?);
+            if let Some((dep_group, cell_deps)) =
+                resolve_dep_group(&cell_dep.out_point(), &mut resolve_cell)?
+            {
+                resolved_dep_groups.push(dep_group);
+                resolved_cell_deps.extend(cell_deps);
+            }
         } else if let Some(cell_meta) = resolve_cell(&cell_dep.out_point(), false)? {
             resolved_cell_deps.push(*cell_meta);
         }
@@ -472,6 +486,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
             transaction,
             resolved_inputs,
             resolved_cell_deps,
+            resolved_dep_groups,
         })
     }
 }
@@ -491,6 +506,15 @@ impl<'a> ResolvedTransaction<'a> {
 
     pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
         self.transaction.outputs_capacity()
+    }
+
+    pub fn get_related_dep_out_points(&self) -> Vec<OutPoint> {
+        self.resolved_cell_deps
+            .iter()
+            .map(|d| &d.out_point)
+            .chain(self.resolved_dep_groups.iter().map(|d| &d.out_point))
+            .cloned()
+            .collect()
     }
 }
 
