@@ -609,7 +609,7 @@ impl ChainState {
             .and_then(|rtx| {
                 self.verify_rtx(&rtx, cycles).and_then(|cycles| {
                     let fee = self.calculate_transaction_fee(&rtx);
-                    let related_dep_out_points = rtx.get_related_dep_out_points();
+                    let related_dep_out_points = rtx.related_dep_out_points();
                     fee.map(|fee| (cycles, fee, related_dep_out_points))
                 })
             });
@@ -644,7 +644,7 @@ impl ChainState {
             .and_then(|rtx| {
                 self.verify_rtx(&rtx, cycles).and_then(|cycles| {
                     let fee = self.calculate_transaction_fee(&rtx);
-                    let related_dep_out_points = rtx.get_related_dep_out_points();
+                    let related_dep_out_points = rtx.related_dep_out_points();
                     fee.map(|fee| (cycles, fee, related_dep_out_points))
                 })
             });
@@ -675,7 +675,7 @@ impl ChainState {
             .and_then(|rtx| {
                 self.verify_rtx(&rtx, cycles).and_then(|cycles| {
                     let fee = self.calculate_transaction_fee(&rtx);
-                    let related_dep_out_points = rtx.get_related_dep_out_points();
+                    let related_dep_out_points = rtx.related_dep_out_points();
                     fee.map(|fee| (cycles, fee, related_dep_out_points))
                 })
             });
