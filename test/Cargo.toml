@@ -12,7 +12,9 @@ ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-app-config = { path = "../util/app-config" }
 ckb-network = { path = "../network" }
 ckb-sync = { path = "../sync" }
+ckb-miner = { path = "../miner" }
 ckb-types = { path = "../util/types" }
+ckb-hash = { path = "../util/hash" }
 ckb-util = { path = "../util" }
 ckb-chain-spec = { path = "../spec" }
 ckb-rpc= { path = "../rpc" }
