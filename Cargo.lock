@@ -436,7 +436,9 @@ dependencies = [
 name = "ckb-chain-spec"
 version = "0.19.0-pre"
 dependencies = [
+ "ckb-crypto 0.19.0-pre",
  "ckb-dao-utils 0.19.0-pre",
+ "ckb-hash 0.19.0-pre",
  "ckb-jsonrpc-types 0.19.0-pre",
  "ckb-pow 0.19.0-pre",
  "ckb-rational 0.19.0-pre",

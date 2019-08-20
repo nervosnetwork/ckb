@@ -11,7 +11,7 @@ use ckb_types::{
 };
 
 const SYSTEM_CELL_ALWAYS_SUCCESS_INDEX: u32 = 1;
-const SYSTEM_CELL_DAO_INDEX: u32 = 3;
+const SYSTEM_CELL_DAO_INDEX: u32 = 5;
 const WITHDRAW_WINDOW_LEFT: u64 = 10;
 // The second witness
 const WITHDRAW_HEADER_INDEX: u64 = 1;

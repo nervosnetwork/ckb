@@ -37,7 +37,10 @@ impl packed::CellOutput {
 }
 
 impl packed::CellOutputBuilder {
-    pub fn reset_capacity(self, data_capacity: Capacity) -> CapacityResult<Self> {
+    pub fn build_exact_capacity(
+        self,
+        data_capacity: Capacity,
+    ) -> CapacityResult<packed::CellOutput> {
         Capacity::bytes(8)
             .and_then(|x| x.safe_add(data_capacity))
             .and_then(|x| self.lock.occupied_capacity().and_then(|y| y.safe_add(x)))
@@ -49,7 +52,7 @@ impl packed::CellOutputBuilder {
                     .transpose()
                     .and_then(|y| y.unwrap_or_else(Capacity::zero).safe_add(x))
             })
-            .map(|x| self.capacity(x.pack()))
+            .map(|x| self.capacity(x.pack()).build())
     }
 }
 

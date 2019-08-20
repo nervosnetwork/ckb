@@ -10,16 +10,22 @@
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::Consensus;
+use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_hash::blake2b_256;
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
-use ckb_resource::Resource;
+use ckb_resource::{
+    Resource, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+    CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, ScriptHashType,
+        TransactionBuilder, TransactionView,
     },
-    packed,
+    h256, packed,
     prelude::*,
     H256, U256,
 };
@@ -29,6 +35,11 @@ use std::fmt;
 use std::sync::Arc;
 
 pub mod consensus;
+
+// Just a random secp256k1 secret key for dep group input cell's lock
+const SPECIAL_CELL_PRIVKEY: H256 =
+    h256!("0xd0c5c1e2d5af8b6ced3c0800937f996c1fa38c29186cade0cd8b5a73c97aaca3");
+const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
@@ -180,6 +191,7 @@ impl Genesis {
     fn build_block(&self) -> Result<BlockView, Box<dyn Error>> {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         let dao = genesis_dao_data(&cellbase_transaction)?;
+        let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
 
         let block = BlockBuilder::default()
             .version(self.version.pack())
@@ -191,6 +203,7 @@ impl Genesis {
             .nonce(self.seal.nonce.pack())
             .proof(self.seal.proof.pack())
             .transaction(cellbase_transaction)
+            .transaction(dep_group_transaction)
             .build();
         Ok(block)
     }
@@ -204,13 +217,28 @@ impl Genesis {
         // Layout of genesis cellbase:
         // - genesis cell, which contains a message and can never be spent.
         // - system cells, which stores the built-in code blocks.
+        // - special issued cell, for dep group cell in next transaction
         // - issued cells
         let (output, data) = self.genesis_cell.build_output()?;
         outputs.push(output);
         outputs_data.push(data);
+
         let (system_cells_outputs, system_cells_data) = self.system_cells.build_outputs()?;
         outputs.extend(system_cells_outputs);
         outputs_data.extend(system_cells_data);
+
+        let special_issued_lock = packed::Script::new_builder()
+            .args(vec![secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone()))].pack())
+            .code_hash(CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.clone().pack())
+            .hash_type(ScriptHashType::Data.pack())
+            .build();
+        let special_issued_cell = packed::CellOutput::new_builder()
+            .capacity(SPECIAL_CELL_CAPACITY.pack())
+            .lock(special_issued_lock)
+            .build();
+        outputs.push(special_issued_cell);
+        outputs_data.push(Bytes::new());
+
         outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
         outputs_data.extend(self.issued_cells.iter().map(|_| Bytes::new()));
 
@@ -229,6 +257,109 @@ impl Genesis {
             .build();
         Ok(tx)
     }
+
+    fn build_dep_group_transaction(
+        &self,
+        cellbase_tx: &TransactionView,
+    ) -> Result<TransactionView, Box<dyn Error>> {
+        fn find_out_point<F: FnMut(packed::CellOutput) -> bool>(
+            tx: &TransactionView,
+            func: F,
+        ) -> Option<packed::OutPoint> {
+            tx.outputs()
+                .into_iter()
+                .position(func)
+                .map(|index| packed::OutPoint::new(tx.hash().clone().unpack(), index as u32))
+        }
+
+        fn find_out_point_by_data_hash(
+            tx: &TransactionView,
+            data_hash: &H256,
+        ) -> Option<packed::OutPoint> {
+            find_out_point(tx, |output| {
+                let hash: H256 = output.data_hash().unpack();
+                &hash == data_hash
+            })
+        }
+
+        fn build_dep_group_output(
+            out_points: Vec<packed::OutPoint>,
+            lock: packed::Script,
+        ) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
+            let data = Bytes::from(out_points.pack().as_slice());
+            let cell = packed::CellOutput::new_builder()
+                .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
+                .lock(lock)
+                .build_exact_capacity(Capacity::bytes(data.len())?)?;
+            Ok((cell, data))
+        }
+
+        let secp_data_out_point =
+            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_DATA)
+                .expect("Get secp data out point failed");
+        let secp_blake160_out_point =
+            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL)
+                .expect("Get secp blake160 out point failed");
+        let secp_ripemd160_out_point = find_out_point_by_data_hash(
+            cellbase_tx,
+            &CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+        )
+        .expect("Get secp ripemd160 out point failed");
+
+        let (cell_blake160, data_blake160) = build_dep_group_output(
+            vec![secp_data_out_point.clone(), secp_blake160_out_point.clone()],
+            self.system_cells.lock.clone().into(),
+        )?;
+        let (cell_ripemd160, data_ripemd160) = build_dep_group_output(
+            vec![secp_data_out_point.clone(), secp_ripemd160_out_point],
+            self.system_cells.lock.clone().into(),
+        )?;
+        let outputs = vec![cell_blake160, cell_ripemd160];
+        let outputs_data = vec![data_blake160.pack(), data_ripemd160.pack()];
+
+        let privkey = Privkey::from(SPECIAL_CELL_PRIVKEY.clone());
+        let lock_arg = secp_lock_arg(&privkey);
+        let input_out_point = find_out_point(cellbase_tx, |output| {
+            output
+                .lock()
+                .args()
+                .get(0)
+                .map(|arg| arg.clone().unpack())
+                .as_ref()
+                == Some(&lock_arg)
+        })
+        .expect("Get special issued input failed");
+        let input = packed::CellInput::new(input_out_point, 0);
+
+        let cell_deps = vec![
+            packed::CellDep::new(secp_data_out_point.clone(), false),
+            packed::CellDep::new(secp_blake160_out_point.clone(), false),
+        ];
+        let tx = TransactionBuilder::default()
+            .cell_deps(cell_deps.clone())
+            .input(input.clone())
+            .outputs(outputs.clone())
+            .outputs_data(outputs_data.clone())
+            .build();
+
+        let tx_hash: H256 = tx.hash().unpack();
+        let message = H256::from(blake2b_256(&tx_hash));
+        let sig = privkey.sign_recoverable(&message).expect("sign");
+        let witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+
+        Ok(TransactionBuilder::default()
+            .cell_deps(cell_deps)
+            .input(input)
+            .outputs(outputs)
+            .outputs_data(outputs_data)
+            .witness(witness)
+            .build())
+    }
+}
+
+fn secp_lock_arg(privkey: &Privkey) -> Bytes {
+    let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
+    Bytes::from(&blake2b_256(&pubkey_data)[0..20])
 }
 
 impl GenesisCell {
@@ -237,8 +368,7 @@ impl GenesisCell {
         let cell = packed::CellOutput::new_builder()
             .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
             .lock(self.lock.clone().into())
-            .reset_capacity(Capacity::bytes(data.len())?)?
-            .build();
+            .build_exact_capacity(Capacity::bytes(data.len())?)?;
         Ok((cell, data))
     }
 }
@@ -265,8 +395,7 @@ impl SystemCells {
             let cell = packed::CellOutput::new_builder()
                 .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
                 .lock(self.lock.clone().into())
-                .reset_capacity(Capacity::bytes(data.len())?)?
-                .build();
+                .build_exact_capacity(Capacity::bytes(data.len())?)?;
             outputs.push(cell);
             outputs_data.push(data);
         }
