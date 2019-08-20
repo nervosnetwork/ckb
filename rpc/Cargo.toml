@@ -31,7 +31,7 @@ ckb-verification = { path = "../verification" }
 ckb-traits = { path = "../traits" }
 ckb-util = { path = "../util" }
 faketime = "0.2.0"
-sentry = "^0.15.4"
+sentry = "^0.16.0"
 ckb-dao = { path = "../util/dao" }
 
 [dev-dependencies]

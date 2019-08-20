@@ -12,7 +12,7 @@ serde_derive = "1.0"
 serde_plain = "0.3.0"
 toml = "0.5"
 ckb-logger = { path = "../../util/logger" }
-sentry = "^0.15.4"
+sentry = "^0.16.0"
 ckb-chain-spec = {path = "../../spec"}
 ckb-jsonrpc-types = {path = "../jsonrpc-types"}
 ckb-network = { path = "../../network"}
