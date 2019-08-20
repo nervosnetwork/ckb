@@ -89,7 +89,7 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 
 bench-test:
 	echo "Fix the secp256k1 bench test and reenable it"
-	# cd benches && cargo bench --features ci -- --test
+	cd benches && cargo bench --features ci -- --test
 
 ##@ Continuous Integration
 
