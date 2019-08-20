@@ -1,4 +1,5 @@
 mod block_proposal_process;
+mod block_transactions_process;
 mod block_transactions_verifier;
 mod compact_block;
 mod compact_block_process;

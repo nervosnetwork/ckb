@@ -1,9 +1,12 @@
 use super::helper::{build_chain, new_transaction};
+use crate::relayer::ReconstructionError;
 use ckb_types::prelude::*;
 use ckb_types::{
     core::TransactionView,
-    packed::{CompactBlockBuilder, IndexTransaction, IndexTransactionBuilder},
+    packed,
+    packed::{BlockBuilder, CompactBlockBuilder},
 };
+use std::collections::HashSet;
 
 #[test]
 fn test_reconstruct_block() {
@@ -20,7 +23,7 @@ fn test_reconstruct_block() {
         let compact = compact_block_builder.short_ids(short_ids.pack()).build();
         assert_eq!(
             relayer.reconstruct_block(&compact, transactions),
-            Err(vec![0]),
+            Err(ReconstructionError::MissingIndexes(vec![0])),
         );
     }
 
@@ -39,35 +42,30 @@ fn test_reconstruct_block() {
         let compact = compact_block_builder.short_ids(short_ids.pack()).build();
         assert_eq!(
             relayer.reconstruct_block(&compact, transactions),
-            Err(missing),
+            Err(ReconstructionError::MissingIndexes(missing)),
         );
     }
 
     // Case: short transactions lie on pool but not proposed, can be used to reconstruct block also
     {
-        let compact_block_builder = CompactBlockBuilder::default();
         let (short_transactions, prefilled) = {
             let short_transactions: Vec<TransactionView> =
                 prepare.iter().step_by(2).cloned().collect();
-            let prefilled: Vec<IndexTransaction> = prepare
+            let prefilled: HashSet<usize> = prepare
                 .iter()
                 .enumerate()
                 .skip(1)
                 .step_by(2)
-                .map(|(i, tx)| {
-                    IndexTransactionBuilder::default()
-                        .index(i.pack())
-                        .transaction(tx.data())
-                        .build()
-                })
+                .map(|(i, _)| i)
                 .collect();
             (short_transactions, prefilled)
         };
-        let short_ids = short_transactions.iter().map(|tx| tx.proposal_short_id());
-        let compact = compact_block_builder
-            .short_ids(short_ids.pack())
-            .prefilled_transactions(prefilled.into_iter().pack())
+
+        let block = BlockBuilder::default()
+            .transactions(prepare.into_iter().map(|v| v.data()).pack())
             .build();
+
+        let compact = packed::CompactBlock::build_from_block(&block.into_view(), &prefilled);
 
         // Should reconstruct block successfully with pool txs
         let (pool_transactions, short_transactions) = short_transactions.split_at(2);

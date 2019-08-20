@@ -1,7 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
-use crate::relayer::Relayer;
+use crate::relayer::{ReconstructionError, Relayer};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::shared::Shared;
@@ -14,9 +14,17 @@ use ckb_types::{
 };
 use ckb_verification::{HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
-use fnv::FnvHashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
+// Keeping in mind that short_ids are expected to occasionally collide.
+// On receiving compact-block message,
+// while the reconstructed the block has a different transactions_root,
+// 1. if all the transactions are prefilled,
+// the node should ban the peer but not mark the block invalid
+// because of the block hash may be wrong.
+// 2. otherwise, there may be short_id collision in transaction pool,
+// the node retreat to request all the short_ids from the peer.
 pub struct CompactBlockProcess<'a> {
     message: packed::CompactBlockReader<'a>,
     relayer: &'a Relayer,
@@ -32,6 +40,8 @@ pub enum Status {
     UnknownParent,
     // Send missing_indexes by get_block_transactions
     SendMissingIndexes,
+    // Collision and Send missing_indexes by get_block_transactions
+    CollisionAndSendMissingIndexes,
 }
 
 impl<'a> CompactBlockProcess<'a> {
@@ -118,6 +128,7 @@ impl<'a> CompactBlockProcess<'a> {
 
         // The new arrived has greater difficulty than local best known chain
         let missing_indexes: Vec<u32>;
+        let mut collision = false;
         {
             // Verify compact block
             let mut pending_compact_blocks = self.relayer.shared().pending_compact_blocks();
@@ -190,18 +201,29 @@ impl<'a> CompactBlockProcess<'a> {
                         .accept_block(self.nc.as_ref(), self.peer, block);
                     return Ok(Status::AcceptBlock);
                 }
-                Err(missing) => {
-                    missing_indexes = missing.into_iter().map(|i| i as u32).collect::<Vec<_>>();
-
-                    assert!(!missing_indexes.is_empty());
-
-                    pending_compact_blocks
-                        .entry(block_hash.clone())
-                        .or_insert_with(|| (compact_block, FnvHashMap::default()))
-                        .1
-                        .insert(self.peer, missing_indexes.clone());
+                Err(ReconstructionError::InvalidTransactionRoot) => {
+                    return Err(Error::Misbehavior(Misbehavior::InvalidTransactionRoot).into());
+                }
+                Err(ReconstructionError::MissingIndexes(missing)) => {
+                    missing_indexes = missing.into_iter().map(|i| i as u32).collect();
+                }
+                Err(ReconstructionError::Collision) => {
+                    missing_indexes = compact_block
+                        .short_id_indexes()
+                        .into_iter()
+                        .map(|i| i as u32)
+                        .collect();
+                    collision = true;
                 }
             }
+
+            assert!(!missing_indexes.is_empty());
+
+            pending_compact_blocks
+                .entry(block_hash.clone())
+                .or_insert_with(|| (compact_block, HashMap::default()))
+                .1
+                .insert(self.peer, missing_indexes.clone());
         }
 
         if !self
@@ -229,7 +251,11 @@ impl<'a> CompactBlockProcess<'a> {
             ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
         }
 
-        Ok(Status::SendMissingIndexes)
+        if collision {
+            Ok(Status::CollisionAndSendMissingIndexes)
+        } else {
+            Ok(Status::SendMissingIndexes)
+        }
     }
 }
 

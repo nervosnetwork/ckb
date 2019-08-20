@@ -14,8 +14,8 @@ use ckb_types::{
     H256,
 };
 use faketime::unix_time_as_millis;
-use fnv::FnvHashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::sync::Arc;
@@ -244,7 +244,7 @@ fn test_already_pending() {
             compact_block.header().into_view().hash().clone(),
             (
                 compact_block.clone(),
-                FnvHashMap::from_iter(vec![(1.into(), vec![0])]),
+                HashMap::from_iter(vec![(1.into(), vec![0])]),
             ),
         );
     }
@@ -517,4 +517,116 @@ fn test_ignore_a_too_old_block() {
         r.unwrap_err().downcast::<Error>().unwrap(),
         Error::Ignored(Ignored::TooOldBlock)
     );
+}
+
+#[test]
+fn test_invalid_transaction_root() {
+    let (relayer, _) = build_chain(5);
+    let parent = {
+        let chain_state = relayer.shared.lock_chain_state();
+        chain_state.tip_header().clone()
+    };
+
+    let header = new_header_builder(relayer.shared.shared(), &parent).build();
+
+    let block = BlockBuilder::default()
+        .header(header)
+        .transaction(TransactionBuilder::default().build())
+        .build_unchecked();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+
+    let mock_protocal_context = MockProtocalContext::default();
+    let nc = Arc::new(mock_protocal_context);
+    let peer_index: PeerIndex = 100.into();
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocalContext>::clone(&nc),
+        peer_index,
+    );
+
+    let r = compact_block_process.execute();
+    assert_eq!(
+        r.unwrap_err().downcast::<Error>().unwrap(),
+        Error::Misbehavior(Misbehavior::InvalidTransactionRoot)
+    );
+}
+
+// Generate a transaction T, and add that transaction
+// to the proposed pool, as usual.
+// Generate a block, which includes the transaction.
+// Change the merkle root to other value.
+// Send the block as compact block, which does not prefill T.
+// The test should work because from the peer's perspective,
+// it cannot tell the differences between a collision and
+// a real unmatched merkle root.
+#[test]
+fn test_collision() {
+    let (relayer, _) = build_chain(5);
+
+    let missing_tx = TransactionBuilder::default()
+        .output(
+            CellOutputBuilder::default()
+                .capacity(Capacity::bytes(1).unwrap().pack())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .build();
+
+    let parent = {
+        let chain_state = relayer.shared.lock_chain_state();
+        chain_state
+            .add_tx_to_pool(missing_tx.clone(), 100u16.into())
+            .unwrap();
+        chain_state.tip_header().clone()
+    };
+
+    let header = new_header_builder(relayer.shared.shared(), &parent).build();
+
+    let proposal_id = ProposalShortId::new([1u8; 10]);
+
+    let block = BlockBuilder::default()
+        .header(header)
+        .transaction(TransactionBuilder::default().build())
+        .transaction(missing_tx)
+        .proposal(proposal_id.clone())
+        .build_unchecked();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block = CompactBlock::build_from_block(&block, &prefilled_transactions_indexes);
+
+    let mock_protocal_context = MockProtocalContext::default();
+    let nc = Arc::new(mock_protocal_context);
+    let peer_index: PeerIndex = 100.into();
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocalContext>::clone(&nc),
+        peer_index,
+    );
+
+    assert!(!relayer.shared.inflight_proposals().contains(&proposal_id));
+
+    let r = compact_block_process.execute();
+    assert_eq!(r.ok(), Some(Status::CollisionAndSendMissingIndexes));
+
+    let content = packed::GetBlockTransactions::new_builder()
+        .block_hash(block.header().hash())
+        .indexes([1u32].pack())
+        .build();
+    let message = packed::RelayMessage::new_builder().set(content).build();
+    let data = message.as_slice().into();
+
+    // send missing indexes messages
+    assert!(nc
+        .as_ref()
+        .sent_messages_to
+        .borrow()
+        .contains(&(peer_index, data)));
 }
