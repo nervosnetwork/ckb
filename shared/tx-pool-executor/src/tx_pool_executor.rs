@@ -343,11 +343,9 @@ mod tests {
                 txs[10].inputs().get(0).unwrap().previous_output()
             )))
         );
-        // spent one cell
-        let result = tx_pool_executor
-            .verify_and_add_tx_to_pool(txs[1].to_owned())
-            .expect("verify relay tx");
-        assert_eq!(result, 12);
+        // spent one duplicate cell
+        let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[1].to_owned());
+        assert_eq!(result.err(), Some(PoolError::Duplicate));
         // spent one conflict cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[13].to_owned());
         assert_eq!(

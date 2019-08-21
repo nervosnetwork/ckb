@@ -390,13 +390,14 @@ impl ChainState {
                             return Err(e);
                         }
                         tx_pool.update_statics_for_add_tx(tx_size, cycles);
-                    } else if self
-                        .pending_tx(&mut tx_pool, Some(cycles), tx_size, tx)
-                        .is_ok()
-                    {
-                        tx_pool.update_statics_for_add_tx(tx_size, cycles);
+                        return Ok(cycles);
                     }
-                    Ok(cycles)
+                    if let Err(e) = self.pending_tx(&mut tx_pool, Some(cycles), tx_size, tx) {
+                        return Err(e);
+                    } else {
+                        tx_pool.update_statics_for_add_tx(tx_size, cycles);
+                        return Ok(cycles);
+                    }
                 })
             }
             Err(err) => Err(PoolError::UnresolvableTransaction(err)),
