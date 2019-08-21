@@ -51,9 +51,7 @@ impl TxProposalTable {
     pub fn finalize(&mut self, number: BlockNumber) -> HashSet<ProposalShortId> {
         let proposal_start = number.saturating_sub(self.proposal_window.farthest()) + 1;
         let proposal_end = number.saturating_sub(self.proposal_window.closest()) + 1;
-
-        let mut left = self.table.split_off(&proposal_start);
-        ::std::mem::swap(&mut self.table, &mut left);
+        self.table = self.table.split_off(&proposal_start);
 
         trace_target!(
             crate::LOG_TARGET_CHAIN,
