@@ -2,13 +2,9 @@ use crate::{ScriptError, ScriptGroup};
 use ckb_hash::new_blake2b;
 use ckb_types::{
     core::{cell::ResolvedTransaction, Cycle},
-    h256,
     prelude::*,
-    H256,
 };
 
-// "TYPE_ID" in hex
-pub const TYPE_ID_CODE_HASH: H256 = h256!("0x545950455f4944");
 // NOTE: we give this special TYPE_ID script a large cycle on purpose. This way
 // we can ensure that the special built-in TYPE_ID script here only exists for
 // safety, not for saving cycles. In fact if you want to optimize for the cycle
