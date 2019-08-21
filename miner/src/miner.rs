@@ -9,7 +9,6 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use ckb_util::Mutex;
 use crossbeam_channel::{select, unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lru_cache::LruCache;
@@ -21,7 +20,7 @@ const WORK_CACHE_SIZE: usize = 32;
 pub struct Miner {
     pub pow: Arc<dyn PowEngine>,
     pub client: Client,
-    pub works: Mutex<LruCache<H256, Work>>,
+    pub works: LruCache<H256, Work>,
     pub worker_controllers: Vec<WorkerController>,
     pub work_rx: Receiver<Work>,
     pub seal_rx: Receiver<(H256, Seal)>,
@@ -55,7 +54,7 @@ impl Miner {
         });
 
         Miner {
-            works: Mutex::new(LruCache::new(WORK_CACHE_SIZE)),
+            works: LruCache::new(WORK_CACHE_SIZE),
             seals_found: 0,
             pow,
             client,
@@ -75,7 +74,7 @@ impl Miner {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
                         let pow_hash = work.block.header().calc_pow_hash();
-                        self.works.lock().insert(pow_hash.clone(), work);
+                        self.works.insert(pow_hash.clone(), work);
                         self.notify_workers(WorkerMessage::NewWork(pow_hash));
                     },
                     _ => {
@@ -95,7 +94,7 @@ impl Miner {
     }
 
     fn check_seal(&mut self, pow_hash: H256, seal: Seal) {
-        if let Some(work) = self.works.lock().get_refresh(&pow_hash) {
+        if let Some(work) = self.works.get_refresh(&pow_hash).cloned() {
             if self.pow.verify_proof_difficulty(
                 seal.proof().as_slice(),
                 &work.block.header().raw().difficulty().unpack(),

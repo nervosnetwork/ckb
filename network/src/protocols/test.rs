@@ -272,7 +272,7 @@ fn wait_connect_state(node: &Node, expect_num: usize) {
 
 #[allow(clippy::block_in_if_condition_stmt)]
 fn wait_discovery(node: &Node) {
-    if !wait_until(10, || {
+    if !wait_until(100, || {
         node.network_state
             .peer_store
             .lock()

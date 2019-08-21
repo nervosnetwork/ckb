@@ -11,7 +11,6 @@ ckb-types = { path = "../util/types" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-pow = { path = "../pow" }
-ckb-util = { path = "../util" }
 ckb-notify = { path = "../notify" }
 faketime = "0.2.0"
 rand = "0.6"
