@@ -225,15 +225,18 @@ impl<'a> MaturityVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let cellbase_immature = |meta: &CellMeta| -> bool {
-            let cell_block_number = meta
-                .transaction_info
-                .as_ref()
-                .expect("cell meta should have block number when transaction verify")
-                .block_number;
-            // Ignore genesis cellbase maturity check
-            cell_block_number > 0
-                && meta.is_cellbase()
-                && self.block_number < cell_block_number + self.cellbase_maturity
+            if meta.is_cellbase() {
+                let cell_block_number = meta
+                    .transaction_info
+                    .as_ref()
+                    .expect("cell meta should have block number when transaction verify")
+                    .block_number;
+                // Ignore genesis cellbase maturity check
+                cell_block_number > 0
+                    && self.block_number < cell_block_number + self.cellbase_maturity
+            } else {
+                false
+            }
         };
 
         let input_immature_spend = || {
