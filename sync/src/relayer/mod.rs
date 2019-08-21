@@ -46,6 +46,13 @@ pub const TX_HASHES_TOKEN: u64 = 2;
 
 pub const MAX_RELAY_PEERS: usize = 128;
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum ReconstructionError {
+    MissingIndexes(Vec<usize>),
+    InvalidTransactionRoot,
+    Collision,
+}
+
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncSharedState>,
@@ -214,16 +221,25 @@ impl Relayer {
         }
     }
 
+    // nodes should attempt to reconstruct the full block by taking the prefilledtxn transactions
+    // from the original CompactBlock message and placing them in the marked positions,
+    // then for each short transaction ID from the original compact_block message, in order,
+    // find the corresponding transaction either from the BlockTransactions message or
+    // from other sources and place it in the first available position in the block
+    // then once the block has been reconstructed, it shall be processed as normal,
+    // keeping in mind that short_ids are expected to occasionally collide,
+    // and that nodes must not be penalized for such collisions, wherever they appear.
     pub fn reconstruct_block(
         &self,
         compact_block: &packed::CompactBlock,
         transactions: Vec<core::TransactionView>,
-    ) -> Result<core::BlockView, Vec<usize>> {
+    ) -> Result<core::BlockView, ReconstructionError> {
+        let block_txs_len = transactions.len();
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "start block reconstruction, block hash: {:#x}, transactions len: {}",
             compact_block.calc_header_hash(),
-            transactions.len(),
+            block_txs_len,
         );
 
         let mut short_ids_set: HashSet<ProposalShortId> =
@@ -250,8 +266,7 @@ impl Relayer {
             })
         }
 
-        let txs_len =
-            compact_block.prefilled_transactions().len() + compact_block.short_ids().len();
+        let txs_len = compact_block.txs_len();
         let mut block_transactions: Vec<Option<core::TransactionView>> =
             Vec::with_capacity(txs_len);
 
@@ -295,6 +310,18 @@ impl Relayer {
                 compact_block.calc_header_hash(),
             );
 
+            if compact_block.header().raw().transactions_root()
+                != block.header().transactions_root().pack()
+            {
+                if compact_block.short_ids().is_empty()
+                    || compact_block.short_ids().len() == block_txs_len
+                {
+                    return Err(ReconstructionError::InvalidTransactionRoot);
+                } else {
+                    return Err(ReconstructionError::Collision);
+                }
+            }
+
             Ok(block)
         } else {
             let missing_indexes: Vec<usize> = block_transactions
@@ -311,7 +338,7 @@ impl Relayer {
                 compact_block.short_ids().len(),
             );
 
-            Err(missing_indexes)
+            Err(ReconstructionError::MissingIndexes(missing_indexes))
         }
     }
 

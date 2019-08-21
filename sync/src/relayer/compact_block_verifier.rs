@@ -2,6 +2,9 @@ use crate::relayer::error::{Error, Misbehavior};
 use ckb_types::{packed, prelude::*};
 use std::collections::HashSet;
 
+// we assume that all the short_ids and prefilled transactions
+// should NOT collide with each other,
+// because in the tx-pool, the node should use short_id as the key.
 pub struct CompactBlockVerifier {}
 
 impl CompactBlockVerifier {

@@ -204,7 +204,7 @@ impl packed::CompactBlock {
     }
 
     pub fn block_short_ids(&self) -> Vec<Option<packed::ProposalShortId>> {
-        let txs_len = self.prefilled_transactions().len() + self.short_ids().len();
+        let txs_len = self.txs_len();
         let mut block_short_ids: Vec<Option<packed::ProposalShortId>> = Vec::with_capacity(txs_len);
         let prefilled_indexes = self
             .prefilled_transactions()
@@ -222,5 +222,23 @@ impl packed::CompactBlock {
             }
         }
         block_short_ids
+    }
+
+    pub fn txs_len(&self) -> usize {
+        self.prefilled_transactions().len() + self.short_ids().len()
+    }
+
+    pub fn prefilled_indexes_iter(&self) -> impl Iterator<Item = usize> {
+        self.prefilled_transactions()
+            .into_iter()
+            .map(|i| i.index().unpack())
+    }
+
+    pub fn short_id_indexes(&self) -> Vec<usize> {
+        let prefilled_indexes: HashSet<usize> = self.prefilled_indexes_iter().collect();
+
+        (0..self.txs_len())
+            .filter(|index| !prefilled_indexes.contains(&index))
+            .collect()
     }
 }

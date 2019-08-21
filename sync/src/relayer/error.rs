@@ -29,6 +29,8 @@ pub enum Misbehavior {
     OverflowPrefilledTransactions,
     #[fail(display = "CompactBlockError::IntersectedPrefilledTransactions")]
     IntersectedPrefilledTransactions,
+    #[fail(display = "CompactBlockError::InvalidTransactionRoot")]
+    InvalidTransactionRoot,
     #[fail(
         display = "block transactions' length is invalid, expect {}, but got {}",
         expect, got
