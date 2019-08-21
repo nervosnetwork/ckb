@@ -101,7 +101,7 @@ impl CellMeta {
     pub fn is_cellbase(&self) -> bool {
         self.transaction_info
             .as_ref()
-            .map(|info| info.index == 0)
+            .map(TransactionInfo::is_cellbase)
             .unwrap_or(false)
     }
 
@@ -508,7 +508,7 @@ impl<'a> ResolvedTransaction<'a> {
         self.transaction.outputs_capacity()
     }
 
-    pub fn get_related_dep_out_points(&self) -> Vec<OutPoint> {
+    pub fn related_dep_out_points(&self) -> Vec<OutPoint> {
         self.resolved_cell_deps
             .iter()
             .map(|d| &d.out_point)

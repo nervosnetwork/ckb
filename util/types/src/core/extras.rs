@@ -46,6 +46,10 @@ impl TransactionInfo {
             index,
         }
     }
+
+    pub fn is_cellbase(&self) -> bool {
+        self.index == 0
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Default)]

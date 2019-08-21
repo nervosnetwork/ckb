@@ -138,24 +138,47 @@ pub fn test_inputs_cellbase_maturity() {
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_cell_deps: Vec::new(),
+        resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                 .transaction_info(MockMedianTime::get_transaction_info(30, 0, 0))
                 .build(),
         ],
-        resolved_dep_groups: vec![],
     };
 
     let tip_number = 70;
     let cellbase_maturity = 100;
-    let verifier = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
+    let verifier1 = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
 
     assert_eq!(
-        verifier.verify().err(),
+        verifier1.verify().err(),
         Some(TransactionError::CellbaseImmaturity)
     );
 
     let tip_number = 130;
+    let verifier2 = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
+    assert!(verifier2.verify().is_ok());
+}
+
+#[test]
+fn test_ignore_genesis_cellbase_maturity() {
+    let transaction = TransactionBuilder::default().build();
+    let output = CellOutput::new_builder()
+        .capacity(capacity_bytes!(50).pack())
+        .build();
+    // Transaction use genesis cellbase
+    let rtx = ResolvedTransaction {
+        transaction: &transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_dep_groups: Vec::new(),
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
+                .transaction_info(MockMedianTime::get_transaction_info(0, 0, 0))
+                .build(),
+        ],
+    };
+    let tip_number = 70;
+    let cellbase_maturity = 100;
     let verifier = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
     assert!(verifier.verify().is_ok());
 }
