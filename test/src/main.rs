@@ -223,6 +223,7 @@ fn all_specs() -> SpecMap {
         Box::new(InvalidLocatorSize),
         Box::new(SizeLimit),
         Box::new(CyclesLimit),
+        Box::new(SendSecpTxUseDepGroup::default()),
         Box::new(AlertPropagation::default()),
         Box::new(IndexerBasic),
         Box::new(GenesisIssuedCells),

@@ -7,7 +7,7 @@ timestamp = 1561788000134
 difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x0e316ae7ba21f1e6d02193da692fe2760eb6ee2ded81402e18320761ee242cb0"
+hash = "0x318824fa8407f2d9a1f58e203bda757e223540aff6e99185ed75373b63f373b2"
 
 [genesis.seal]
 nonce = 0
@@ -26,7 +26,9 @@ hash_type = "Data"
 [genesis.system_cells]
 files = [
   { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
-  { bundled = "specs/cells/dao" }
+  { bundled = "specs/cells/dao" },
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
 ]
 
 [genesis.system_cells.lock]

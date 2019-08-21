@@ -27,6 +27,7 @@ pub struct Node {
     rpc_client: RpcClient,
     node_id: Option<String>,
     genesis_cellbase_hash: H256,
+    dep_group_tx_hash: H256,
     always_success_code_hash: H256,
     guard: Option<ProcessGuard>,
     pub consensus: Option<Consensus>,
@@ -56,6 +57,7 @@ impl Node {
             node_id: None,
             guard: None,
             genesis_cellbase_hash: Default::default(),
+            dep_group_tx_hash: Default::default(),
             always_success_code_hash: Default::default(),
             consensus: None,
         }
@@ -67,6 +69,10 @@ impl Node {
 
     pub fn p2p_port(&self) -> u16 {
         self.p2p_port
+    }
+
+    pub fn dep_group_tx_hash(&self) -> &H256 {
+        &self.dep_group_tx_hash
     }
 
     pub fn start(
@@ -314,10 +320,7 @@ impl Node {
         capacity: Capacity,
     ) -> TransactionView {
         let always_success_out_point = OutPoint::new(self.genesis_cellbase_hash.clone(), 1);
-        let always_success_script = Script::new_builder()
-            .code_hash(self.always_success_code_hash.clone().pack())
-            .hash_type(ScriptHashType::Data.pack())
-            .build();
+        let always_success_script = self.always_success_script();
 
         core::TransactionBuilder::default()
             .cell_dep(CellDep::new(always_success_out_point, false))
@@ -329,6 +332,13 @@ impl Node {
             )
             .output_data(Default::default())
             .input(CellInput::new(OutPoint::new(hash, 0), since))
+            .build()
+    }
+
+    pub fn always_success_script(&self) -> Script {
+        Script::new_builder()
+            .code_hash(self.always_success_code_hash.clone().pack())
+            .hash_type(ScriptHashType::Data.pack())
             .build()
     }
 
@@ -353,6 +363,8 @@ impl Node {
         let consensus = spec.build_consensus().expect("build consensus");
         self.genesis_cellbase_hash
             .clone_from(&consensus.genesis_block().transactions()[0].hash().unpack());
+        self.dep_group_tx_hash
+            .clone_from(&consensus.genesis_block().transactions()[1].hash().unpack());
         self.always_success_code_hash = consensus.genesis_block().transactions()[0]
             .outputs()
             .as_reader()

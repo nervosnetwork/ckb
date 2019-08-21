@@ -187,6 +187,18 @@ const PRIVKEY: H256 = h256!("0xb2b3324cece882bca684eaf202667bb56ed8e8c2fd4b4dc71
 const PUBKEY_HASH: H160 = h160!("0x779e5930892a0a9bf2fedfe048f685466c7d0396");
 
 lazy_static! {
+    static ref SECP_DATA_CELL: (CellOutput, Bytes) = {
+        let raw_data = BUNDLED_CELL
+            .get("specs/cells/secp256k1_data")
+            .expect("load secp256k1_blake160_sighash_all");
+        let data: Bytes = raw_data[..].into();
+
+        let cell = CellOutput::new_builder()
+            .data_hash(CellOutput::calc_data_hash(&data).pack())
+            .capacity(Capacity::bytes(data.len()).unwrap().pack())
+            .build();
+        (cell, data)
+    };
     static ref SECP_CELL: (CellOutput, Bytes, Script) = {
         let raw_data = BUNDLED_CELL
             .get("specs/cells/secp256k1_blake160_sighash_all")
@@ -212,13 +224,20 @@ pub fn secp_cell() -> &'static (CellOutput, Bytes, Script) {
     &SECP_CELL
 }
 
+pub fn secp_data_cell() -> &'static (CellOutput, Bytes) {
+    &SECP_DATA_CELL
+}
+
 pub fn create_secp_tx() -> TransactionView {
-    let (ref cell, ref cell_data, ref script) = secp_cell();
+    let (ref secp_data_cell, ref secp_data_cell_data) = secp_data_cell();
+    let (ref secp_cell, ref secp_cell_data, ref script) = secp_cell();
+    let outputs = vec![secp_data_cell.clone(), secp_cell.clone()];
+    let outputs_data = vec![secp_data_cell_data.pack(), secp_cell_data.pack()];
     TransactionBuilder::default()
         .witness(script.clone().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
-        .output(cell.clone())
-        .output_data(cell_data.pack())
+        .outputs(outputs)
+        .outputs_data(outputs_data)
         .build()
 }
 
@@ -296,7 +315,10 @@ pub fn gen_secp_block(
     shared: &Shared,
 ) -> BlockView {
     let tx = create_secp_tx();
-    let secp_out_point = OutPoint::new(tx.hash().unpack(), 0);
+    let secp_cell_deps = vec![
+        CellDep::new(OutPoint::new(tx.hash().unpack(), 0), false),
+        CellDep::new(OutPoint::new(tx.hash().unpack(), 1), false),
+    ];
     let (_, _, secp_script) = secp_cell();
     let (number, timestamp, difficulty) = (
         p_block.header().number() + 1,
@@ -319,7 +341,7 @@ pub fn gen_secp_block(
                 create_2out_transaction(
                     tx.output_pts(),
                     secp_script.clone(),
-                    secp_out_point.clone(),
+                    secp_cell_deps.clone(),
                 )
             })
             .collect()
@@ -332,7 +354,7 @@ pub fn gen_secp_block(
         .iter()
         .skip(1)
         .map(|tx| {
-            create_2out_transaction(tx.output_pts(), secp_script.clone(), secp_out_point.clone())
+            create_2out_transaction(tx.output_pts(), secp_script.clone(), secp_cell_deps.clone())
                 .proposal_short_id()
         })
         .collect();
@@ -373,7 +395,11 @@ fn create_transaction(parent_hash: &H256, lock: Script, dep: OutPoint) -> Transa
         .build()
 }
 
-fn create_2out_transaction(inputs: Vec<OutPoint>, lock: Script, dep: OutPoint) -> TransactionView {
+fn create_2out_transaction(
+    inputs: Vec<OutPoint>,
+    lock: Script,
+    cell_deps: Vec<CellDep>,
+) -> TransactionView {
     let data: Bytes = (0..255).collect();
 
     let cell_inputs = inputs.into_iter().map(|pts| CellInput::new(pts, 0));
@@ -389,7 +415,7 @@ fn create_2out_transaction(inputs: Vec<OutPoint>, lock: Script, dep: OutPoint) -
         .output_data(data.pack())
         .output_data(data.pack())
         .inputs(cell_inputs)
-        .cell_dep(CellDep::new(dep, false))
+        .cell_deps(cell_deps)
         .build();
 
     let privkey: Privkey = PRIVKEY.into();

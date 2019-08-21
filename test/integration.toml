@@ -26,7 +26,9 @@ hash_type = "Data"
 files = [
   { file = "cells/always_success" },
   { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
-  { bundled = "specs/cells/dao" }
+  { bundled = "specs/cells/dao" },
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
 ]
 
 [genesis.system_cells.lock]
