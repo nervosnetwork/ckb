@@ -101,7 +101,7 @@ impl CellMeta {
     pub fn is_cellbase(&self) -> bool {
         self.transaction_info
             .as_ref()
-            .map(|info| info.index == 0)
+            .map(TransactionInfo::is_cellbase)
             .unwrap_or(false)
     }
 
