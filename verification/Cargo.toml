@@ -28,3 +28,4 @@ ckb-chain = { path = "../chain" }
 ckb-hash = {path = "../util/hash"}
 ckb-shared = { path = "../shared" }
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
+rand = "0.6"
