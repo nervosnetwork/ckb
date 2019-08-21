@@ -88,7 +88,6 @@ security-audit: ## Use cargo-audit to audit Cargo.lock for crates with security 
 	# expecting to see "Success No vulnerable packages found"
 
 bench-test:
-	echo "Fix the secp256k1 bench test and reenable it"
 	cd benches && cargo bench --features ci -- --test
 
 ##@ Continuous Integration
