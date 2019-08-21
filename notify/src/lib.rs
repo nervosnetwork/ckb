@@ -4,7 +4,7 @@ use ckb_logger::{debug, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{core::service::Request, packed::UncleBlock};
 use crossbeam_channel::{select, Receiver, Sender};
-use fnv::FnvHashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 
@@ -42,7 +42,7 @@ impl NotifyService {
             crossbeam_channel::bounded(REGISTER_CHANNEL_SIZE);
         let (new_uncle_sender, new_uncle_receiver) =
             crossbeam_channel::bounded::<MsgNewUncle>(NOTIFY_CHANNEL_SIZE);
-        let mut new_uncle_subscribers = FnvHashMap::default();
+        let mut new_uncle_subscribers = HashMap::default();
 
         let mut thread_builder = thread::Builder::new();
         if let Some(name) = thread_name {
@@ -72,7 +72,7 @@ impl NotifyService {
     }
 
     fn handle_register_new_uncle(
-        subscribers: &mut FnvHashMap<String, Sender<MsgNewUncle>>,
+        subscribers: &mut HashMap<String, Sender<MsgNewUncle>>,
         msg: Result<Request<(String, usize), Receiver<MsgNewUncle>>, crossbeam_channel::RecvError>,
     ) {
         match msg {
@@ -90,7 +90,7 @@ impl NotifyService {
     }
 
     fn handle_notify_new_uncle(
-        subscribers: &FnvHashMap<String, Sender<MsgNewUncle>>,
+        subscribers: &HashMap<String, Sender<MsgNewUncle>>,
         msg: Result<MsgNewUncle, crossbeam_channel::RecvError>,
     ) {
         match msg {

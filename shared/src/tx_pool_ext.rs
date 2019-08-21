@@ -15,7 +15,7 @@ use ckb_types::{
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
 };
-use ckb_util::LinkedFnvHashSet;
+use ckb_util::LinkedHashSet;
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use lru_cache::LruCache;
 use std::collections::HashSet;
@@ -416,8 +416,8 @@ impl TxPool {
         snapshot: Arc<Snapshot>,
     ) {
         self.snapshot = Arc::clone(&snapshot);
-        let mut detached = LinkedFnvHashSet::default();
-        let mut attached = LinkedFnvHashSet::default();
+        let mut detached = LinkedHashSet::default();
+        let mut attached = LinkedHashSet::default();
 
         for blk in detached_blocks {
             detached.extend(blk.transactions().iter().skip(1).cloned())

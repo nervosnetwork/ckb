@@ -3,16 +3,15 @@ use ckb_types::{
     core::{Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
-use ckb_util::FnvHashMap;
-use std::collections::hash_map;
 use std::collections::VecDeque;
+use std::collections::{hash_map, HashMap};
 use std::iter::ExactSizeIterator;
 
 ///not verified, may contain conflict transactions
 #[derive(Default, Debug, Clone)]
 pub(crate) struct OrphanPool {
-    pub(crate) vertices: FnvHashMap<ProposalShortId, DefectEntry>,
-    pub(crate) edges: FnvHashMap<OutPoint, Vec<ProposalShortId>>,
+    pub(crate) vertices: HashMap<ProposalShortId, DefectEntry>,
+    pub(crate) edges: HashMap<OutPoint, Vec<ProposalShortId>>,
 }
 
 impl OrphanPool {

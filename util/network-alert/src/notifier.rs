@@ -1,8 +1,8 @@
 use crate::config::NotifierConfig;
 use ckb_logger::{debug, error, info, warn};
 use ckb_types::{packed, prelude::*};
-use fnv::FnvHashMap;
 use lru_cache::LruCache;
+use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ pub struct Notifier {
     /// cancelled alerts
     cancel_filter: LruCache<u32, ()>,
     /// alerts we received
-    received_alerts: FnvHashMap<u32, Arc<packed::Alert>>,
+    received_alerts: HashMap<u32, Arc<packed::Alert>>,
     /// alerts that self node should notice
     noticed_alerts: Vec<Arc<packed::Alert>>,
     client_version: String,

@@ -3,11 +3,11 @@ use ckb_logger::{debug, trace};
 use ckb_multisig::secp256k1::{verify_m_of_n, Message, Pubkey, Signature};
 use ckb_types::packed;
 use failure::Error;
-use fnv::FnvHashSet;
+use std::collections::HashSet;
 
 pub struct Verifier {
     config: SignatureConfig,
-    pubkeys: FnvHashSet<Pubkey>,
+    pubkeys: HashSet<Pubkey>,
 }
 
 impl Verifier {
@@ -16,7 +16,7 @@ impl Verifier {
             .public_keys
             .iter()
             .map(|raw| Pubkey::from_slice(raw.as_bytes()))
-            .collect::<Result<FnvHashSet<Pubkey>, _>>()
+            .collect::<Result<HashSet<Pubkey>, _>>()
             .expect("builtin pubkeys");
         Verifier { config, pubkeys }
     }

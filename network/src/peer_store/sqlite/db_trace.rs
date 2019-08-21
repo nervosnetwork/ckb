@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 use ckb_util::Mutex;
-use fnv::FnvHashMap;
 use lazy_static::lazy_static;
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::time::Duration;
 
 lazy_static! {
-    pub static ref PROFILE_INFORMATION: Mutex<FnvHashMap<String, (Duration, u32)>> =
+    pub static ref PROFILE_INFORMATION: Mutex<HashMap<String, (Duration, u32)>> =
         Mutex::new(Default::default());
 }
 

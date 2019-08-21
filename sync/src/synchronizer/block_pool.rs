@@ -1,7 +1,6 @@
 use ckb_types::{core, packed};
 use ckb_util::RwLock;
-use fnv::FnvHashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 pub type ParentHash = packed::Byte32;
 
@@ -9,13 +8,13 @@ pub type ParentHash = packed::Byte32;
 // orphan_block_pool and block_status_map, but `LruCache` would prune old items implicitly.
 #[derive(Default)]
 pub struct OrphanBlockPool {
-    blocks: RwLock<FnvHashMap<ParentHash, FnvHashMap<packed::Byte32, core::BlockView>>>,
+    blocks: RwLock<HashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>>,
 }
 
 impl OrphanBlockPool {
     pub fn with_capacity(capacity: usize) -> Self {
         OrphanBlockPool {
-            blocks: RwLock::new(FnvHashMap::with_capacity_and_hasher(
+            blocks: RwLock::new(HashMap::with_capacity_and_hasher(
                 capacity,
                 Default::default(),
             )),
@@ -27,7 +26,7 @@ impl OrphanBlockPool {
         self.blocks
             .write()
             .entry(block.data().header().raw().parent_hash())
-            .or_insert_with(FnvHashMap::default)
+            .or_insert_with(HashMap::default)
             .insert(block.header().hash(), block);
     }
 

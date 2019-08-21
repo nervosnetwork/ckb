@@ -1,24 +1,24 @@
 use crate::peer_store::PeerStore;
 use crate::{errors::PeerError, Peer, PeerId, SessionType};
 use ckb_logger::debug;
-use fnv::{FnvHashMap, FnvHashSet};
 use p2p::{multiaddr::Multiaddr, SessionId};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 
 pub(crate) const EVICTION_PROTECT_PEERS: usize = 8;
 
 pub struct PeerRegistry {
-    peers: FnvHashMap<SessionId, Peer>,
+    peers: HashMap<SessionId, Peer>,
     // max inbound limitation
     max_inbound: u32,
     // max outbound limitation
     max_outbound: u32,
     // Only whitelist peers or allow all peers.
     whitelist_only: bool,
-    whitelist_peers: FnvHashSet<PeerId>,
-    feeler_peers: FnvHashSet<PeerId>,
+    whitelist_peers: HashSet<PeerId>,
+    feeler_peers: HashSet<PeerId>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -47,11 +47,11 @@ impl PeerRegistry {
         whitelist_only: bool,
         whitelist_peers: Vec<PeerId>,
     ) -> Self {
-        let whitelist_peers_set = FnvHashSet::from_iter(whitelist_peers);
+        let whitelist_peers_set = HashSet::from_iter(whitelist_peers);
         PeerRegistry {
-            peers: FnvHashMap::with_capacity_and_hasher(20, Default::default()),
+            peers: HashMap::with_capacity_and_hasher(20, Default::default()),
             whitelist_peers: whitelist_peers_set,
-            feeler_peers: FnvHashSet::default(),
+            feeler_peers: HashSet::default(),
             max_inbound,
             max_outbound,
             whitelist_only,
@@ -156,7 +156,7 @@ impl PeerRegistry {
         // Group peers by network group
         let evict_group = candidate_peers
             .into_iter()
-            .fold(FnvHashMap::default(), |mut groups, peer| {
+            .fold(HashMap::new(), |mut groups, peer| {
                 groups
                     .entry(peer.network_group())
                     .or_insert_with(Vec::new)
@@ -215,7 +215,7 @@ impl PeerRegistry {
             .and_then(|session_id| self.peers.remove(&session_id))
     }
 
-    pub fn peers(&self) -> &FnvHashMap<SessionId, Peer> {
+    pub fn peers(&self) -> &HashMap<SessionId, Peer> {
         &self.peers
     }
 

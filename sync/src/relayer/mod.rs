@@ -35,8 +35,7 @@ use ckb_types::{
 };
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::{FnvHashMap, FnvHashSet};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -235,7 +234,7 @@ impl Relayer {
         let mut short_ids_set: HashSet<ProposalShortId> =
             compact_block.short_ids().into_iter().collect();
 
-        let mut txs_map: FnvHashMap<ProposalShortId, core::TransactionView> = transactions
+        let mut txs_map: HashMap<ProposalShortId, core::TransactionView> = transactions
             .into_iter()
             .filter_map(|tx| {
                 let short_id = tx.proposal_short_id();
@@ -334,7 +333,7 @@ impl Relayer {
 
     fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
         let get_block_proposals = self.shared().clear_get_block_proposals();
-        let mut peer_txs = FnvHashMap::default();
+        let mut peer_txs = HashMap::new();
         {
             let tx_pool = self.shared.shared().try_lock_tx_pool();
             for (id, peer_indices) in get_block_proposals.into_iter() {
@@ -403,7 +402,7 @@ impl Relayer {
 
     // Send bulk of tx hashes to selected peers
     pub fn send_bulk_of_tx_hashes(&self, nc: &CKBProtocolContext) {
-        let mut selected: FnvHashMap<PeerIndex, FnvHashSet<Byte32>> = FnvHashMap::default();
+        let mut selected: HashMap<PeerIndex, HashSet<Byte32>> = HashMap::default();
         {
             let peer_tx_hashes = self.shared.take_tx_hashes();
             let mut known_txs = self.shared.known_txs();
@@ -419,7 +418,7 @@ impl Relayer {
                         })
                         .take(MAX_RELAY_PEERS)
                     {
-                        let hashes = selected.entry(peer).or_insert_with(FnvHashSet::default);
+                        let hashes = selected.entry(peer).or_insert_with(HashSet::default);
                         hashes.insert(tx_hash.clone());
                     }
                 }

@@ -7,8 +7,8 @@ use ckb_types::{
     prelude::*,
 };
 use failure::Error as FailureError;
-use fnv::FnvHashSet;
 use futures::{self, future::FutureResult, lazy};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -95,7 +95,7 @@ impl<'a> TransactionsProcess<'a> {
                         match tx_result {
                             Ok(cycles) if cycles == relay_cycles => {
                                 let mut cache = shared.tx_hashes();
-                                let entry = cache.entry(peer_index).or_insert_with(FnvHashSet::default);
+                                let entry = cache.entry(peer_index).or_insert_with(HashSet::default);
                                 entry.insert(tx_hash);
                             }
                             Ok(cycles) => {
