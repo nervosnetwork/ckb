@@ -1,6 +1,7 @@
 use crate::{Net, Spec};
 use ckb_types::{
     core::{capacity_bytes, Capacity, TransactionView},
+    packed::CellOutputBuilder,
     prelude::*,
 };
 use log::info;
@@ -19,15 +20,10 @@ impl Spec for DifferentTxsWithSameInput {
         let tx1 = node0.new_transaction(tx_hash_0.clone());
         let tx2_temp = node0.new_transaction(tx_hash_0.clone());
         // Set tx2 fee to a higher value
-        let output = tx2_temp
-            .outputs()
-            .as_reader()
-            .get(0)
-            .unwrap()
-            .to_entity()
-            .as_builder()
-            .capacity(capacity_bytes!(40_000).pack())
+        let output = CellOutputBuilder::default()
+            .capacity(capacity_bytes!(100).pack())
             .build();
+
         let tx2 = tx2_temp
             .as_advanced_builder()
             .set_outputs(vec![output])
@@ -37,7 +33,7 @@ impl Spec for DifferentTxsWithSameInput {
             .send_transaction(tx1.clone().data().into());
         node0
             .rpc_client()
-            .send_transaction(tx1.clone().data().into());
+            .send_transaction(tx2.clone().data().into());
 
         node0.generate_block();
         node0.generate_block();
