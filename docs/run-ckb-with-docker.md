@@ -50,7 +50,7 @@ docker cp ckb-testnet-node:/var/lib/ckb/ckb-miner.toml .
 ```
 
 Edit the config files as you like. If you want to run a miner, remember to
-replace `[block_assember]` section in `ckb.toml`.
+replace `[block_assembler]` section in `ckb.toml`.
 
 Copy back the edited config files back to container:
 
