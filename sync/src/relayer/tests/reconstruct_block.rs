@@ -8,6 +8,7 @@ use ckb_types::{
 };
 use std::collections::HashSet;
 
+// There are more test cases in block_transactions_process and compact_block_process.rs
 #[test]
 fn test_reconstruct_block() {
     let (relayer, always_success_out_point) = build_chain(5);

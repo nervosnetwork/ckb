@@ -6,11 +6,12 @@ use crate::types::InflightBlocks;
 use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
 use ckb_network::PeerIndex;
+use ckb_store::ChainStore;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, Capacity, HeaderBuilder, TransactionBuilder},
-    packed::{self, CellOutputBuilder, CompactBlock, ProposalShortId},
+    packed::{self, CellInput, CellOutputBuilder, CompactBlock, OutPoint, ProposalShortId},
     H256,
 };
 use faketime::unix_time_as_millis;
@@ -556,26 +557,44 @@ fn test_invalid_transaction_root() {
     );
 }
 
-// Generate a transaction T, and add that transaction
-// to the proposed pool, as usual.
-// Generate a block, which includes the transaction.
-// Change the merkle root to other value.
-// Send the block as compact block, which does not prefill T.
-// The test should work because from the peer's perspective,
-// it cannot tell the differences between a collision and
-// a real unmatched merkle root.
 #[test]
 fn test_collision() {
     let (relayer, _) = build_chain(5);
 
+    let last_block = relayer
+        .shared
+        .store()
+        .get_block(&relayer.shared.lock_chain_state().tip_hash())
+        .unwrap();
+    let last_cellbase = last_block.transactions().first().cloned().unwrap();
+
     let missing_tx = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1).unwrap().pack())
+                .capacity(Capacity::bytes(1000).unwrap().pack())
                 .build(),
         )
+        .input(CellInput::new(
+            OutPoint::new(last_cellbase.hash().unpack(), 0),
+            0,
+        ))
         .output_data(Bytes::new().pack())
         .build();
+
+    let fake_hash = missing_tx
+        .hash()
+        .clone()
+        .as_builder()
+        .nth31(0u8)
+        .nth30(0u8)
+        .nth29(0u8)
+        .nth28(0u8)
+        .build();
+    // Fake tx with the same ProposalShortId but different hash with missing_tx
+    let fake_tx = missing_tx.clone().fake_hash(fake_hash);
+
+    assert_eq!(missing_tx.proposal_short_id(), fake_tx.proposal_short_id());
+    assert_ne!(missing_tx.hash(), fake_tx.hash());
 
     let parent = {
         let chain_state = relayer.shared.lock_chain_state();
@@ -592,7 +611,7 @@ fn test_collision() {
     let block = BlockBuilder::default()
         .header(header)
         .transaction(TransactionBuilder::default().build())
-        .transaction(missing_tx)
+        .transaction(fake_tx)
         .proposal(proposal_id.clone())
         .build_unchecked();
 

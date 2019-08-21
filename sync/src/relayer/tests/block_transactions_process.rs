@@ -2,11 +2,15 @@ use crate::relayer::block_transactions_process::{BlockTransactionsProcess, Statu
 use crate::relayer::error::{Error, Misbehavior};
 use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
 use ckb_network::PeerIndex;
+use ckb_store::ChainStore;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, Capacity, TransactionBuilder},
-    packed::{self, BlockTransactions, CellOutputBuilder, CompactBlock, Header, IndexTransaction},
+    packed::{
+        self, BlockTransactions, CellInput, CellOutputBuilder, CompactBlock, Header,
+        IndexTransaction, OutPoint,
+    },
     H256,
 };
 use std::collections::HashMap;
@@ -190,29 +194,33 @@ fn test_invalid_transaction_root() {
     );
 }
 
-// Generate a transaction T, and add that transaction
-// to the proposed pool, as usual.
-// Generate a block, which includes the transaction.
-// Change the merkle root to other value.
-// Send the block as compact block, which does not prefill T.
-// The test should work because from the peer's perspective,
-// it cannot tell the differences between a collision and
-// a real unmatched merkle root.
 #[test]
 fn test_collision_and_send_missing_indexes() {
     let (relayer, _) = build_chain(5);
+
+    let last_block = relayer
+        .shared
+        .store()
+        .get_block(&relayer.shared.lock_chain_state().tip_hash())
+        .unwrap();
+    let last_cellbase = last_block.transactions().first().cloned().unwrap();
+
     let peer_index: PeerIndex = 100.into();
 
     let tx1 = TransactionBuilder::default().build();
     let tx2 = TransactionBuilder::default()
         .output(
             CellOutputBuilder::default()
-                .capacity(Capacity::bytes(1).unwrap().pack())
+                .capacity(Capacity::bytes(1000).unwrap().pack())
                 .build(),
         )
         .output_data(Bytes::new().pack())
         .build();
     let tx3 = TransactionBuilder::default()
+        .input(CellInput::new(
+            OutPoint::new(last_cellbase.hash().unpack(), 0),
+            0,
+        ))
         .output(
             CellOutputBuilder::default()
                 .capacity(Capacity::bytes(2).unwrap().pack())
@@ -221,8 +229,23 @@ fn test_collision_and_send_missing_indexes() {
         .output_data(Bytes::new().pack())
         .build();
 
+    let fake_hash = tx3
+        .hash()
+        .clone()
+        .as_builder()
+        .nth31(0u8)
+        .nth30(0u8)
+        .nth29(0u8)
+        .nth28(0u8)
+        .build();
+    // Fake tx with the same ProposalShortId but different hash with tx3
+    let fake_tx = tx3.clone().fake_hash(fake_hash);
+
+    assert_eq!(tx3.proposal_short_id(), fake_tx.proposal_short_id());
+    assert_ne!(tx3.hash(), fake_tx.hash());
+
     let block = BlockBuilder::default()
-        .transactions(vec![tx1.clone(), tx2.clone(), tx3.clone()])
+        .transactions(vec![tx1.clone(), tx2.clone(), fake_tx])
         .build_unchecked();
 
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
@@ -231,7 +254,7 @@ fn test_collision_and_send_missing_indexes() {
 
     {
         let chain_state = relayer.shared.lock_chain_state();
-        chain_state.add_tx_to_pool(tx3, 100u16.into()).unwrap();
+        chain_state.add_tx_to_pool(tx3, 10000u16.into()).unwrap();
     }
 
     {
