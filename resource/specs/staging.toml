@@ -23,10 +23,10 @@ hash_type = "Data"
 # the directory containing this config file.
 [genesis.system_cells]
 files = [
-  { bundled = "specs/cells/secp256k1_data" },
   { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+  { bundled = "specs/cells/dao" },
+  { bundled = "specs/cells/secp256k1_data" },
   { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
-  { bundled = "specs/cells/dao" }
 ]
 
 [genesis.system_cells.lock]
