@@ -1,5 +1,4 @@
 use crate::{ScriptError, ScriptGroup};
-use byteorder::{ByteOrder, LittleEndian};
 use ckb_hash::new_blake2b;
 use ckb_types::{
     core::{cell::ResolvedTransaction, Cycle},
@@ -58,31 +57,25 @@ impl<'a> TypeIdSystemScript<'a> {
         // 2. Cell index of the first CellInput's OutPoint
         // 3. Index of the first output cell in current script group.
         if self.script_group.input_indices.is_empty() {
-            let mut blake2b = new_blake2b();
             let first_cell_input = self
                 .rtx
                 .transaction
                 .inputs()
                 .get(0)
-                .map(|input| input.previous_output())
                 .ok_or(ScriptError::ValidationFailure(ERROR_ARGS))?;
-            // TODO: we use this weird way of hashing data to avoid
-            // dependency on flatbuffers for now. We should change
-            // this when we have a better serialization solution.
-            blake2b.update(Unpack::<H256>::unpack(&first_cell_input.tx_hash()).as_bytes());
-            let mut buf = [0; 4];
-            LittleEndian::write_u32(&mut buf, first_cell_input.index().unpack());
-            blake2b.update(&buf[..]);
-            let first_output_index = self
+            let first_output_index: u64 = self
                 .script_group
                 .output_indices
                 .get(0)
+                .map(|output_index| *output_index as u64)
                 .ok_or(ScriptError::ValidationFailure(ERROR_ARGS))?;
-            let mut buf = [0; 8];
-            LittleEndian::write_u64(&mut buf, *first_output_index as u64);
-            blake2b.update(&buf[..]);
+
+            let mut blake2b = new_blake2b();
+            blake2b.update(first_cell_input.as_slice());
+            blake2b.update(&first_output_index.to_le_bytes());
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
+
             if ret[..] != self.script_group.script.args().get(0).unwrap().raw_data()[..] {
                 return Err(ScriptError::ValidationFailure(ERROR_INVALID_INPUT_HASH));
             }
