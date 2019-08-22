@@ -113,7 +113,7 @@ impl Miner {
 
                 // submit block and poll new work
                 {
-                    self.client.submit_block(&work_id, &block.data());
+                    self.client.submit_block(&work_id, block.data());
                     self.client.try_update_block_template();
                     self.notify_workers(WorkerMessage::Start);
                 }
