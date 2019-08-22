@@ -13,8 +13,6 @@ use std::str::FromStr;
 #[derive(Clone)]
 pub struct Signature([u8; 65]);
 
-const HALF_N: H256 =
-    h256!("0x7fffffff_ffffffff_ffffffff_ffffffff_5d576e73_57a4501d_dfe92f46_681b20a0");
 const N: H256 = h256!("0xffffffff_ffffffff_ffffffff_fffffffe_baaedce6_af48a03b_bfd25e8c_d0364141");
 const ONE: H256 = h256!("0x1");
 

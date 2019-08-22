@@ -48,7 +48,6 @@ impl SqlitePeerStore {
         Ok(SqlitePeerStore::new(conn, PeerScoreConfig::default()))
     }
 
-    #[allow(dead_code)]
     pub fn temp() -> Result<Self, DBError> {
         Self::file("".into())
     }

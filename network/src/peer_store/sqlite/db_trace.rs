@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use ckb_util::Mutex;
 use lazy_static::lazy_static;
 use rusqlite::Connection;

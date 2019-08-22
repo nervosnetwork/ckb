@@ -164,9 +164,7 @@ pub enum SeedRecordError {
     InvalidSignature,
     VerifyFailed,
     SeedTimeout,
-
-    // Secret not match the public key
-    #[allow(dead_code)]
+    #[cfg(test)]
     KeyNotMatch,
 }
 
