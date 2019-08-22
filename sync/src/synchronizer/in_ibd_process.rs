@@ -1,11 +1,9 @@
 use crate::synchronizer::Synchronizer;
 use ckb_logger::{debug, info};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_types::packed;
 use failure::Error as FailureError;
 
 pub struct InIBDProcess<'a> {
-    _message: packed::InIBDReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
@@ -13,13 +11,11 @@ pub struct InIBDProcess<'a> {
 
 impl<'a> InIBDProcess<'a> {
     pub fn new(
-        _message: packed::InIBDReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {
         InIBDProcess {
-            _message,
             nc,
             synchronizer,
             peer,

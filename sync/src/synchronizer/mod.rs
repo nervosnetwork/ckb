@@ -76,8 +76,8 @@ impl Synchronizer {
             packed::SyncMessageUnionReader::SendBlock(reader) => {
                 BlockProcess::new(reader, self, peer, nc).execute()?;
             }
-            packed::SyncMessageUnionReader::InIBD(reader) => {
-                InIBDProcess::new(reader, self, peer, nc).execute()?;
+            packed::SyncMessageUnionReader::InIBD(_) => {
+                InIBDProcess::new(self, peer, nc).execute()?;
             }
             _ => Err(err_msg("Unexpected sync message"))?,
         }
