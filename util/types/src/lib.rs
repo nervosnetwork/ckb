@@ -18,3 +18,4 @@ pub mod constants;
 mod conversion;
 mod extension;
 pub mod utilities;
+pub mod virtual_occupied;
