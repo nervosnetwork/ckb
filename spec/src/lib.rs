@@ -12,15 +12,16 @@
 use crate::consensus::Consensus;
 use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_hash::blake2b_256;
+use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
-    Resource, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
     CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
 };
 use ckb_types::{
     bytes::Bytes,
+    constants::TYPE_ID_CODE_HASH,
     core::{
         capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, ScriptHashType,
         TransactionBuilder, TransactionView,
@@ -202,6 +203,7 @@ impl Genesis {
     }
 
     fn build_cellbase_transaction(&self) -> Result<TransactionView, Box<dyn Error>> {
+        let input = packed::CellInput::new_cellbase_input(0);
         let mut outputs = Vec::<packed::CellOutput>::with_capacity(
             1 + self.system_cells.len() + self.issued_cells.len(),
         );
@@ -216,7 +218,11 @@ impl Genesis {
         outputs.push(output);
         outputs_data.push(data);
 
-        let (system_cells_outputs, system_cells_data) = self.system_cells.build_outputs()?;
+        // The first output cell is genesis cell
+        let system_cells_output_index_start = 1;
+        let (system_cells_outputs, system_cells_data) = self
+            .system_cells
+            .build_outputs(&input, system_cells_output_index_start)?;
         outputs.extend(system_cells_outputs);
         outputs_data.extend(system_cells_data);
 
@@ -238,7 +244,7 @@ impl Genesis {
         let script: packed::Script = self.bootstrap_lock.clone().into();
 
         let tx = TransactionBuilder::default()
-            .input(packed::CellInput::new_cellbase_input(0))
+            .input(input)
             .outputs(outputs)
             .witness(script.into_witness())
             .outputs_data(
@@ -375,12 +381,43 @@ impl SystemCells {
         self.files.len()
     }
 
-    fn build_outputs(&self) -> Result<(Vec<packed::CellOutput>, Vec<Bytes>), Box<dyn Error>> {
+    fn build_outputs(
+        &self,
+        input: &packed::CellInput,
+        output_index_start: u64,
+    ) -> Result<(Vec<packed::CellOutput>, Vec<Bytes>), Box<dyn Error>> {
         let mut outputs = Vec::with_capacity(self.files.len());
         let mut outputs_data = Vec::with_capacity(self.files.len());
-        for res in &self.files {
+        for (offset, res) in self.files.iter().enumerate() {
             let data: Bytes = res.get()?.into_owned().into();
+            let data_hash = packed::CellOutput::calc_data_hash(&data).pack();
+
+            let type_script = if [
+                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
+                CODE_HASH_DAO,
+                CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+            ]
+            .iter()
+            .any(|hash| hash == &data_hash.unpack())
+            {
+                let output_index = output_index_start + offset as u64;
+                let mut blake2b = new_blake2b();
+                blake2b.update(input.as_slice());
+                blake2b.update(&output_index.to_le_bytes());
+                let mut ret = [0; 32];
+                blake2b.finalize(&mut ret);
+                let script_arg = Bytes::from(&ret[..]).pack();
+                let script = packed::Script::new_builder()
+                    .code_hash(TYPE_ID_CODE_HASH.pack())
+                    .hash_type(ScriptHashType::Type.pack())
+                    .args(vec![script_arg].pack())
+                    .build();
+                Some(script)
+            } else {
+                None
+            };
             let cell = packed::CellOutput::new_builder()
+                .type_(type_script.pack())
                 .lock(self.lock.clone().into())
                 .build_exact_capacity(Capacity::bytes(data.len())?)?;
             outputs.push(cell);
