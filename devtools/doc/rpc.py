@@ -103,7 +103,6 @@ def main():
     print("# CKB JSON-RPC Protocols")
     newline(2)
 
-    cases = sorted(cases, key = lambda x: x["module"] + x["method"])
     print_toc(cases)
 
     module = ""
