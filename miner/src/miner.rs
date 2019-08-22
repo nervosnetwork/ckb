@@ -99,16 +99,11 @@ impl Miner {
                 seal.proof().as_slice(),
                 &work.block.header().raw().difficulty().unpack(),
             ) {
+                let work_id = work.work_id.to_string();
                 self.notify_workers(WorkerMessage::Stop);
                 let raw_header = work.block.header().raw();
                 let header = Header::new_builder().raw(raw_header).seal(seal).build();
-                let block = work
-                    .block
-                    .clone()
-                    .as_builder()
-                    .header(header)
-                    .build()
-                    .into_view();
+                let block = work.block.as_builder().header(header).build().into_view();
                 let block_hash: H256 = block.hash().unpack();
                 if self.stderr_is_tty {
                     debug!("Found! #{} {:#x}", block.number(), block_hash);
@@ -118,8 +113,7 @@ impl Miner {
 
                 // submit block and poll new work
                 {
-                    self.client
-                        .submit_block(&work.work_id.to_string(), &block.data());
+                    self.client.submit_block(&work_id, &block.data());
                     self.client.try_update_block_template();
                     self.notify_workers(WorkerMessage::Start);
                 }
