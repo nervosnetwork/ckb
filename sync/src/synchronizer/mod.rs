@@ -985,7 +985,6 @@ mod tests {
 
     #[test]
     fn test_sync_process() {
-        let _ = env_logger::try_init();
         let consensus = Consensus::default();
         let notify = NotifyService::default().start::<&str>(None);
         let (chain_controller1, shared1, _) =
