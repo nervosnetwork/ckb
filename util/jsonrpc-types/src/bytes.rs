@@ -2,14 +2,8 @@ use ckb_types::{bytes::Bytes, packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct JsonBytes(Bytes);
-
-impl Default for JsonBytes {
-    fn default() -> Self {
-        JsonBytes(Bytes::default())
-    }
-}
 
 impl JsonBytes {
     pub fn from_bytes(bytes: Bytes) -> Self {
