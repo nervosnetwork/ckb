@@ -4,12 +4,13 @@ use crate::{
         Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash,
         LoadWitness,
     },
-    type_id::{TypeIdSystemScript, TYPE_ID_CODE_HASH},
+    type_id::TypeIdSystemScript,
     DataLoader, ScriptConfig, ScriptError,
 };
 use ckb_logger::{debug, info};
 use ckb_types::{
     bytes::Bytes,
+    constants::TYPE_ID_CODE_HASH,
     core::{
         cell::{CellMeta, ResolvedTransaction},
         Cycle, ScriptHashType,
@@ -1509,13 +1510,8 @@ mod tests {
 
         let input_hash = {
             let mut blake2b = new_blake2b();
-            blake2b.update(&input.previous_output().tx_hash().as_bytes());
-            let mut buf = [0; 4];
-            LittleEndian::write_u32(&mut buf, input.previous_output().index().unpack());
-            blake2b.update(&buf[..]);
-            let mut buf = [0; 8];
-            LittleEndian::write_u64(&mut buf, 0);
-            blake2b.update(&buf[..]);
+            blake2b.update(input.as_slice());
+            blake2b.update(&0u64.to_le_bytes());
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
             Bytes::from(&ret[..])
