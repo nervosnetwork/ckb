@@ -6,9 +6,7 @@ use ckb_types::{packed, prelude::*};
 
 #[test]
 fn test_veirifer() {
-    let keypairs: Vec<_> = (0..3)
-        .map(move |_| Generator::new().random_keypair())
-        .collect();
+    let keypairs: Vec<_> = (0..3).map(move |_| Generator::random_keypair()).collect();
     let config = SignatureConfig {
         signatures_threshold: 2,
         public_keys: keypairs

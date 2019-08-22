@@ -20,7 +20,7 @@ pub struct SendSecpTxUseDepGroup {
 
 impl Default for SendSecpTxUseDepGroup {
     fn default() -> Self {
-        let privkey = Generator::new().random_privkey();
+        let privkey = Generator::random_privkey();
         SendSecpTxUseDepGroup { privkey }
     }
 }
