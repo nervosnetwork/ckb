@@ -13,7 +13,7 @@ pub struct GetHeadersProcess<'a> {
     message: packed::GetHeadersReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
 }
 
 impl<'a> GetHeadersProcess<'a> {
@@ -21,7 +21,7 @@ impl<'a> GetHeadersProcess<'a> {
         message: packed::GetHeadersReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         GetHeadersProcess {
             message,

@@ -21,7 +21,7 @@ const DEFAULT_CHANNEL: usize = 128;
 #[derive(Default)]
 struct TestNode {
     pub peers: Vec<PeerIndex>,
-    pub protocols: HashMap<ProtocolId, Arc<RwLock<CKBProtocolHandler + Send + Sync>>>,
+    pub protocols: HashMap<ProtocolId, Arc<RwLock<dyn CKBProtocolHandler + Send + Sync>>>,
     pub msg_senders: HashMap<(ProtocolId, PeerIndex), SyncSender<Bytes>>,
     pub msg_receivers: HashMap<(ProtocolId, PeerIndex), Receiver<Bytes>>,
     pub timer_senders: HashMap<(ProtocolId, u64), SyncSender<()>>,
@@ -32,7 +32,7 @@ impl TestNode {
     pub fn add_protocol(
         &mut self,
         protocol: ProtocolId,
-        handler: &Arc<RwLock<CKBProtocolHandler + Send + Sync>>,
+        handler: &Arc<RwLock<dyn CKBProtocolHandler + Send + Sync>>,
         timers: &[u64],
     ) {
         self.protocols.insert(protocol, Arc::clone(handler));

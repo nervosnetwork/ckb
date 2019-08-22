@@ -5,11 +5,11 @@ use ckb_vm::{
 };
 
 pub struct Debugger<'a> {
-    printer: &'a Fn(&str),
+    printer: &'a dyn Fn(&str),
 }
 
 impl<'a> Debugger<'a> {
-    pub fn new(printer: &'a Fn(&str)) -> Debugger<'a> {
+    pub fn new(printer: &'a dyn Fn(&str)) -> Debugger<'a> {
         Debugger { printer }
     }
 }

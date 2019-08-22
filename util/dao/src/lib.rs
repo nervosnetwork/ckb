@@ -375,7 +375,7 @@ mod tests {
 
             txn.commit().unwrap();
 
-            return (store, parent.clone());
+            (store, parent.clone())
         } else {
             let parent_block = BlockBuilder::default().header(parent.clone()).build();
             txn.insert_block(&parent_block).unwrap();
@@ -383,7 +383,7 @@ mod tests {
 
             txn.commit().unwrap();
 
-            return (store, parent.clone());
+            (store, parent.clone())
         }
     }
 

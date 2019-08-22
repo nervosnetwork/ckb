@@ -8,7 +8,7 @@ pub struct InIBDProcess<'a> {
     _message: packed::InIBDReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
 }
 
 impl<'a> InIBDProcess<'a> {
@@ -16,7 +16,7 @@ impl<'a> InIBDProcess<'a> {
         _message: packed::InIBDReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         InIBDProcess {
             _message,

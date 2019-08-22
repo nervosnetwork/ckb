@@ -53,10 +53,10 @@ impl TxPool {
                     return Ok(cycles);
                 }
                 if let Err(e) = self.pending_tx(Some(cycles), tx_size, tx) {
-                    return Err(e);
+                    Err(e)
                 } else {
                     self.update_statics_for_add_tx(tx_size, cycles);
-                    return Ok(cycles);
+                    Ok(cycles)
                 }
             }),
             Err(err) => Err(PoolError::UnresolvableTransaction(err)),

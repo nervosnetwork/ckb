@@ -257,7 +257,7 @@ impl NetworkState {
     // For restrict lock in inner scope
     pub(crate) fn with_peer_store<F, T>(&self, callback: F) -> T
     where
-        F: FnOnce(&PeerStore) -> T,
+        F: FnOnce(&dyn PeerStore) -> T,
     {
         callback(self.peer_store.lock().as_ref())
     }
@@ -265,7 +265,7 @@ impl NetworkState {
     // For restrict lock in inner scope
     pub(crate) fn with_peer_store_mut<F, T>(&self, callback: F) -> T
     where
-        F: FnOnce(&mut PeerStore) -> T,
+        F: FnOnce(&mut dyn PeerStore) -> T,
     {
         callback(self.peer_store.lock().as_mut())
     }

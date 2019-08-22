@@ -28,7 +28,7 @@ pub trait ChainStore<'a>: Send + Sync {
         col: Col,
         from_key: &'i [u8],
         direction: Direction,
-    ) -> Box<Iterator<Item = DBIteratorItem> + 'i>;
+    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i>;
 
     /// Get block by block header hash
     fn get_block(&'a self, h: &packed::Byte32) -> Option<BlockView> {

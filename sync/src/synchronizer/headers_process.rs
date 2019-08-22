@@ -17,7 +17,7 @@ pub struct HeadersProcess<'a> {
     message: packed::SendHeadersReader<'a>,
     synchronizer: &'a Synchronizer,
     peer: PeerIndex,
-    nc: &'a CKBProtocolContext,
+    nc: &'a dyn CKBProtocolContext,
 }
 
 pub struct VerifierResolver<'a> {
@@ -108,7 +108,7 @@ impl<'a> HeadersProcess<'a> {
         message: packed::SendHeadersReader<'a>,
         synchronizer: &'a Synchronizer,
         peer: PeerIndex,
-        nc: &'a CKBProtocolContext,
+        nc: &'a dyn CKBProtocolContext,
     ) -> Self {
         HeadersProcess {
             message,

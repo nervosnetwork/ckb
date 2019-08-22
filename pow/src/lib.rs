@@ -77,11 +77,11 @@ pub trait PowEngine: Send + Sync + AsAny {
 }
 
 pub trait AsAny {
-    fn as_any(&self) -> &Any;
+    fn as_any(&self) -> &dyn Any;
 }
 
 impl<T: Any> AsAny for T {
-    fn as_any(&self) -> &Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }

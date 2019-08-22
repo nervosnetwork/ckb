@@ -125,7 +125,7 @@ impl Relayer {
 
     pub fn request_proposal_txs(
         &self,
-        nc: &CKBProtocolContext,
+        nc: &dyn CKBProtocolContext,
         peer: PeerIndex,
         block: &packed::CompactBlock,
     ) {
@@ -167,7 +167,12 @@ impl Relayer {
         }
     }
 
-    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: core::BlockView) {
+    pub fn accept_block(
+        &self,
+        nc: &dyn CKBProtocolContext,
+        peer: PeerIndex,
+        block: core::BlockView,
+    ) {
         if self
             .shared()
             .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
@@ -331,7 +336,7 @@ impl Relayer {
         }
     }
 
-    fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
+    fn prune_tx_proposal_request(&self, nc: &dyn CKBProtocolContext) {
         let get_block_proposals = self.shared().clear_get_block_proposals();
         let mut peer_txs = HashMap::new();
         {
@@ -363,7 +368,7 @@ impl Relayer {
     }
 
     // Ask for relay transaction by hash from all peers
-    pub fn ask_for_txs(&self, nc: &CKBProtocolContext) {
+    pub fn ask_for_txs(&self, nc: &dyn CKBProtocolContext) {
         for (peer, peer_state) in self.shared().peers().state.write().iter_mut() {
             let tx_hashes = peer_state
                 .pop_ask_for_txs()
@@ -401,7 +406,7 @@ impl Relayer {
     }
 
     // Send bulk of tx hashes to selected peers
-    pub fn send_bulk_of_tx_hashes(&self, nc: &CKBProtocolContext) {
+    pub fn send_bulk_of_tx_hashes(&self, nc: &dyn CKBProtocolContext) {
         let mut selected: HashMap<PeerIndex, HashSet<Byte32>> = HashMap::default();
         {
             let peer_tx_hashes = self.shared.take_tx_hashes();

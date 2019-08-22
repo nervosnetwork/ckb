@@ -34,7 +34,7 @@ impl<'a> ChainStore<'a> for StoreTransaction {
         col: Col,
         from_key: &'i [u8],
         direction: Direction,
-    ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
+    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
         self.inner
             .iter(col, from_key, direction)
             .expect("db operation should be ok")
@@ -53,7 +53,7 @@ impl<'a> ChainStore<'a> for RocksDBTransactionSnapshot<'a> {
         col: Col,
         from_key: &'i [u8],
         direction: Direction,
-    ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
+    ) -> Box<dyn Iterator<Item = DBIteratorItem> + 'i> {
         self.iter(col, from_key, direction)
             .expect("db operation should be ok")
     }

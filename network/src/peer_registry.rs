@@ -64,7 +64,7 @@ impl PeerRegistry {
         remote_addr: Multiaddr,
         session_id: SessionId,
         session_type: SessionType,
-        peer_store: &mut PeerStore,
+        peer_store: &mut dyn PeerStore,
     ) -> Result<Option<Peer>, PeerError> {
         if self.peers.contains_key(&session_id) {
             return Err(PeerError::SessionExists(session_id));
@@ -106,7 +106,7 @@ impl PeerRegistry {
 
     // When have inbound connection, we try evict a inbound peer
     // TODO: revisit this after find out what's bitcoin way
-    fn try_evict_inbound_peer(&self, _peer_store: &PeerStore) -> Option<SessionId> {
+    fn try_evict_inbound_peer(&self, _peer_store: &dyn PeerStore) -> Option<SessionId> {
         let mut candidate_peers = {
             self.peers
                 .values()

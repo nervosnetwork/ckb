@@ -117,7 +117,7 @@ impl SeedRecord {
                 pubkey,
             })
         } else {
-            return Err(SeedRecordError::InvalidSignature);
+            Err(SeedRecordError::InvalidSignature)
         }
     }
 

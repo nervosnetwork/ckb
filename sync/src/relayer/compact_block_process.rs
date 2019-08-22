@@ -258,7 +258,7 @@ impl<'a> CompactBlockProcess<'a> {
 }
 
 struct CompactBlockMedianTimeView<'a> {
-    fn_get_pending_header: Box<Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
+    fn_get_pending_header: Box<dyn Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
     snapshot: &'a Snapshot,
 }
 

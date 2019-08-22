@@ -30,7 +30,7 @@ impl Import {
         }
     }
 
-    pub fn execute(self) -> Result<(), Box<Error>> {
+    pub fn execute(self) -> Result<(), Box<dyn Error>> {
         match self.format {
             Format::Json => self.read_from_json(),
             _ => Ok(()),
@@ -38,7 +38,7 @@ impl Import {
     }
 
     #[cfg(not(feature = "progress_bar"))]
-    pub fn read_from_json(&self) -> Result<(), Box<Error>> {
+    pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
         let f = fs::File::open(&self.source)?;
         let reader = io::BufReader::new(f);
 
@@ -56,7 +56,7 @@ impl Import {
     }
 
     #[cfg(feature = "progress_bar")]
-    pub fn read_from_json(&self) -> Result<(), Box<Error>> {
+    pub fn read_from_json(&self) -> Result<(), Box<dyn Error>> {
         let metadata = fs::metadata(&self.source)?;
         let f = fs::File::open(&self.source)?;
         let reader = io::BufReader::new(f);

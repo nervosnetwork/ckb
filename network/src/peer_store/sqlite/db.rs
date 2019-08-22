@@ -138,7 +138,7 @@ impl PeerInfoDB {
         let mut stmt =
             conn.prepare("UPDATE peer_info SET status=:status WHERE peer_id=:peer_id")?;
         stmt.execute_named(&[
-            (":status", &status_to_u8(status) as &ToSql),
+            (":status", &status_to_u8(status) as &dyn ToSql),
             (":peer_id", &peer_id.as_bytes()),
         ])
         .map_err(Into::into)
@@ -304,7 +304,7 @@ pub fn get_peers_to_attempt(conn: &Connection, count: u32) -> DBResult<Vec<PeerI
         &[
             (
                 ":connected_status",
-                &status_to_u8(Status::Connected) as &ToSql,
+                &status_to_u8(Status::Connected) as &dyn ToSql,
             ),
             (":count", &count),
         ],
@@ -331,7 +331,7 @@ pub fn get_peers_to_feeler(
         &[
             (
                 ":connected_status",
-                &status_to_u8(Status::Connected) as &ToSql,
+                &status_to_u8(Status::Connected) as &dyn ToSql,
             ),
             (":time", &millis_to_secs(expired_at_ms)),
             (":count", &count),
