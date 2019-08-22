@@ -1,8 +1,8 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::OrphanBlockPool;
-use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
+use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
@@ -136,9 +136,10 @@ impl PeerState {
         self.headers_sync_timeout = Some(headers_sync_timeout);
     }
 
-    pub fn stop_sync(&mut self, not_sync_until: u64) {
+    pub fn suspend_sync(&mut self, suspend_time: u64) {
+        let now = unix_time_as_millis();
         self.sync_started = false;
-        self.chain_sync.not_sync_until = Some(not_sync_until);
+        self.chain_sync.not_sync_until = Some(now + suspend_time);
         self.headers_sync_timeout = None;
     }
 
@@ -1248,6 +1249,15 @@ impl SyncSharedState {
             });
 
         HeaderResolverWrapper::build(header, Some(parent), epoch)
+    }
+
+    pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
+        peer_state.suspend_sync(SUSPEND_SYNC_TIME);
+        assert_ne!(
+            self.n_sync_started().fetch_sub(1, Ordering::Release),
+            0,
+            "n_sync_started overflow when suspend_sync"
+        );
     }
 }
 

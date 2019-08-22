@@ -18,7 +18,7 @@ use crate::types::{HeaderView, PeerFlags, Peers, SyncSharedState};
 use crate::{
     BAD_MESSAGE_BAN_TIME, CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME,
     HEADERS_DOWNLOAD_TIMEOUT_BASE, HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER, MAX_HEADERS_LEN,
-    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE, PROTECT_STOP_SYNC_TIME,
+    MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT, POW_SPACE,
 };
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug, info, trace};
@@ -231,10 +231,7 @@ impl Synchronizer {
                     if state.chain_sync.sent_getheaders {
                         if state.peer_flags.is_protect || state.peer_flags.is_whitelist {
                             if state.sync_started {
-                                state.stop_sync(now + PROTECT_STOP_SYNC_TIME);
-                                self.shared()
-                                    .n_sync_started()
-                                    .fetch_sub(1, Ordering::Release);
+                                self.shared().suspend_sync(state);
                             }
                         } else {
                             eviction.push(*peer);
@@ -420,26 +417,31 @@ impl CKBProtocolHandler for Synchronizer {
     }
 
     fn disconnected(&mut self, _nc: Arc<CKBProtocolContext + Sync>, peer_index: PeerIndex) {
-        info!("SyncProtocol.disconnected peer={}", peer_index);
         if let Some(peer_state) = self.shared().disconnected(peer_index) {
-            // It shouldn't happen
-            // fetch_sub wraps around on overflow, we still check manually
-            // panic here to prevent some bug be hidden silently.
-            if peer_state.sync_started
-                && self
-                    .shared()
-                    .n_sync_started()
-                    .fetch_sub(1, Ordering::Release)
-                    == 0
-            {
-                panic!("Synchronizer n_sync overflow");
+            info!("SyncProtocol.disconnected peer={}", peer_index);
+
+            if peer_state.sync_started {
+                // It shouldn't happen
+                // fetch_sub wraps around on overflow, we still check manually
+                // panic here to prevent some bug be hidden silently.
+                assert_ne!(
+                    self.shared()
+                        .n_sync_started()
+                        .fetch_sub(1, Ordering::Release),
+                    0,
+                    "n_sync_started overflow when disconnects"
+                );
             }
 
             // Protection node disconnected
             if peer_state.peer_flags.is_protect {
-                self.shared()
-                    .n_protected_outbound_peers()
-                    .fetch_sub(1, Ordering::Release);
+                assert_ne!(
+                    self.shared()
+                        .n_protected_outbound_peers()
+                        .fetch_sub(1, Ordering::Release),
+                    0,
+                    "n_protected_outbound_peers overflow when disconnects"
+                );
             }
         }
     }
