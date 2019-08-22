@@ -54,10 +54,10 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
             .set_cellbase_maturity(0)
             .set_genesis_block(genesis_block)
     });
-    let shared = builder.consensus(consensus).build().unwrap();
+    let (shared, table) = builder.consensus(consensus).build().unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), notify);
+    let chain_service = ChainService::new(shared.clone(), table, notify);
     let chain_controller = chain_service.start::<&str>(None);
     let parent = shared
         .store()
@@ -323,7 +323,7 @@ pub fn dao_data(
     // In case of resolving errors, we just output a dummp DAO field,
     // since those should be the cases where we are testing invalid
     // blocks
-    let transactions_provider = TransactionsProvider::new(txs);
+    let transactions_provider = TransactionsProvider::new(txs.iter());
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, store);
     let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
         let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, store);

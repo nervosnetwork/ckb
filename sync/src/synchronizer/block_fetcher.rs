@@ -18,10 +18,10 @@ pub struct BlockFetcher {
 impl BlockFetcher {
     pub fn new(synchronizer: Synchronizer, peer: PeerIndex) -> Self {
         let (tip_header, total_difficulty) = {
-            let chain_state = synchronizer.shared.lock_chain_state();
+            let snapshot = synchronizer.shared.snapshot();
             (
-                chain_state.tip_header().to_owned(),
-                chain_state.total_difficulty().to_owned(),
+                snapshot.tip_header().to_owned(),
+                snapshot.total_difficulty().to_owned(),
             )
         };
         BlockFetcher {

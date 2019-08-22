@@ -63,8 +63,8 @@ pub(crate) fn new_transaction(
     always_success_out_point: &OutPoint,
 ) -> TransactionView {
     let previous_output = {
-        let chain_state = relayer.shared.shared().lock_chain_state();
-        let tip_hash = chain_state.tip_hash();
+        let snapshot = relayer.shared.shared().snapshot();
+        let tip_hash = snapshot.tip_header().hash();
         let block = relayer
             .shared
             .shared()
@@ -99,7 +99,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         .build();
     let always_success_out_point = OutPoint::new(always_success_tx.hash().unpack(), 0);
 
-    let shared = {
+    let (shared, table) = {
         let genesis = BlockBuilder::default()
             .timestamp(unix_time_as_millis().pack())
             .difficulty(U256::from(1000u64).pack())
@@ -115,7 +115,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
     };
     let chain_controller = {
         let notify_controller = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), notify_controller);
+        let chain_service = ChainService::new(shared.clone(), table, notify_controller);
         chain_service.start::<&str>(None)
     };
 

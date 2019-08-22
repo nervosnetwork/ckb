@@ -8,9 +8,9 @@ edition = "2018"
 [dependencies]
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
+ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-store = { path = "../store" }
 ckb-types = {path = "../util/types"}
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-network = { path = "../network" }
 ckb-logger = {path = "../util/logger"}
 fnv = "1.0"
@@ -25,6 +25,7 @@ bytes = "0.4.12"
 lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
 sentry = "^0.16.0"
 futures = "0.1"
+arc-swap = "0.4"
 
 [dev-dependencies]
 ckb-notify = { path = "../notify" }

@@ -80,10 +80,10 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
     }
-    let shared = builder.build().unwrap();
+    let (shared, table) = builder.build().unwrap();
 
     let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), notify);
+    let chain_service = ChainService::new(shared.clone(), table, notify);
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }

@@ -16,7 +16,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
-use fnv::FnvHashSet;
+use std::collections::HashSet;
 use std::time::Duration;
 
 pub struct CompactBlockEmptyParentUnknown;
@@ -363,7 +363,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .new_block_builder(None, None, None)
             .transaction(new_tx)
             .build();
-        let mut seen_inputs = FnvHashSet::default();
+        let mut seen_inputs = HashSet::new();
         let transactions = parent.transactions();
         let rtxs: Vec<ResolvedTransaction> = transactions
             .iter()
@@ -410,11 +410,11 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .witness(fakebase.witnesses().as_reader().get(0).unwrap().to_entity())
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))
             .build();
-
-        let mut seen_inputs = FnvHashSet::default();
-        let rtxs = vec![
-            resolve_transaction(&cellbase, &mut seen_inputs, &mock_store, &mock_store).unwrap(),
-        ];
+        let rtxs =
+            vec![
+                resolve_transaction(&cellbase, &mut HashSet::new(), &mock_store, &mock_store)
+                    .unwrap(),
+            ];
         let dao = DaoCalculator::new(&consensus, mock_store.store())
             .dao_field(&rtxs, &parent.header())
             .unwrap();

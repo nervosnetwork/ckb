@@ -1,17 +1,20 @@
 //! Top-level Pool type, methods, and tests
 use super::types::{DefectEntry, TxEntry, TxPoolConfig};
+use crate::snapshot::Snapshot;
 use crate::tx_pool::orphan::OrphanPool;
 use crate::tx_pool::pending::PendingQueue;
 use crate::tx_pool::proposed::ProposedPool;
 use ckb_logger::{error_target, trace_target};
+use ckb_script::ScriptConfig;
 use ckb_types::{
     core::{Capacity, Cycle, TransactionView},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
+use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TxPool {
     pub(crate) config: TxPoolConfig,
     /// The short id that has not been proposed
@@ -32,10 +35,18 @@ pub struct TxPool {
     pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
     pub(crate) total_tx_cycles: Cycle,
+
+    pub snapshot: Arc<Snapshot>,
+
+    pub script_config: ScriptConfig,
 }
 
 impl TxPool {
-    pub fn new(config: TxPoolConfig) -> TxPool {
+    pub fn new(
+        config: TxPoolConfig,
+        snapshot: Arc<Snapshot>,
+        script_config: ScriptConfig,
+    ) -> TxPool {
         let conflict_cache_size = config.max_conflict_cache_size;
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
         let last_txs_updated_at = 0u64;
@@ -51,7 +62,13 @@ impl TxPool {
             last_txs_updated_at,
             total_tx_size: 0,
             total_tx_cycles: 0,
+            snapshot,
+            script_config,
         }
+    }
+
+    pub fn snapshot(&self) -> &Snapshot {
+        &self.snapshot
     }
 
     pub fn pending_size(&self) -> u32 {
@@ -156,6 +173,10 @@ impl TxPool {
 
     pub(crate) fn touch_last_txs_updated_at(&mut self) {
         self.last_txs_updated_at = unix_time_as_millis();
+    }
+
+    pub fn get_last_txs_updated_at(&self) -> u64 {
+        self.last_txs_updated_at
     }
 
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {

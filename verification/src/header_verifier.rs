@@ -19,14 +19,14 @@ pub trait HeaderResolver {
     fn epoch(&self) -> Option<&EpochExt>;
 }
 
-pub struct HeaderVerifier<T, M> {
+pub struct HeaderVerifier<'a, T, M> {
     pub pow: Arc<dyn PowEngine>,
-    block_median_time_context: M,
+    block_median_time_context: &'a M,
     _phantom: PhantomData<T>,
 }
 
-impl<T, M: BlockMedianTimeContext> HeaderVerifier<T, M> {
-    pub fn new(block_median_time_context: M, pow: Arc<dyn PowEngine>) -> Self {
+impl<'a, T, M: BlockMedianTimeContext> HeaderVerifier<'a, T, M> {
+    pub fn new(block_median_time_context: &'a M, pow: Arc<dyn PowEngine>) -> Self {
         HeaderVerifier {
             pow,
             block_median_time_context,
@@ -35,7 +35,7 @@ impl<T, M: BlockMedianTimeContext> HeaderVerifier<T, M> {
     }
 }
 
-impl<T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<T, M> {
+impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<'a, T, M> {
     type Target = T;
     fn verify(&self, target: &T) -> Result<(), Error> {
         let header = target.header();
@@ -46,7 +46,7 @@ impl<T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<T
             .parent()
             .ok_or_else(|| Error::UnknownParent(header.parent_hash().to_owned()))?;
         NumberVerifier::new(parent, header).verify()?;
-        TimestampVerifier::new(&self.block_median_time_context, header).verify()?;
+        TimestampVerifier::new(self.block_median_time_context, header).verify()?;
         EpochVerifier::verify(target)?;
         Ok(())
     }

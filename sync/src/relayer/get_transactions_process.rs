@@ -38,7 +38,7 @@ impl<'a> GetTransactionsProcess<'a> {
         );
 
         let transactions: Vec<_> = {
-            let state = self.relayer.shared.lock_chain_state();
+            let tx_pool = self.relayer.shared.shared().try_lock_tx_pool();
 
             tx_hashes
                 .iter()
@@ -46,8 +46,8 @@ impl<'a> GetTransactionsProcess<'a> {
                     let entry_opt = {
                         let short_id =
                             packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity().unpack());
-                        state
-                            .get_tx_with_cycles_from_pool(&short_id)
+                        tx_pool
+                            .get_tx_with_cycles(&short_id)
                             .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
                     };
 

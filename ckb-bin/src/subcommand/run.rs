@@ -20,7 +20,7 @@ const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
 
-    let shared = SharedBuilder::with_db_config(&args.config.db)
+    let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
         .tx_pool_config(args.config.tx_pool)
         .script_config(args.config.script)
@@ -35,7 +35,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     verify_genesis(&shared)?;
 
     let notify = NotifyService::default().start(Some("notify"));
-    let chain_service = ChainService::new(shared.clone(), notify.clone());
+    let chain_service = ChainService::new(shared.clone(), table, notify.clone());
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(
         crate::LOG_TARGET_MAIN,
@@ -169,7 +169,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
 
 fn verify_genesis(shared: &Shared) -> Result<(), ExitCode> {
     let genesis = shared.consensus().genesis_block();
-    BlockVerifier::new(shared.clone())
+    BlockVerifier::new(shared.consensus())
         .verify(genesis)
         .map_err(|err| {
             eprintln!("genesis error: {}", err);

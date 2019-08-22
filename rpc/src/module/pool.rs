@@ -69,15 +69,14 @@ impl PoolRpc for PoolRpcImpl {
     }
 
     fn tx_pool_info(&self) -> Result<TxPoolInfo> {
-        let chain_state = self.shared.lock_chain_state();
-        let tx_pool = chain_state.tx_pool();
+        let tx_pool = self.shared.try_lock_tx_pool();
         Ok(TxPoolInfo {
             pending: Unsigned(u64::from(tx_pool.pending_size())),
             proposed: Unsigned(u64::from(tx_pool.proposed_size())),
             orphan: Unsigned(u64::from(tx_pool.orphan_size())),
             total_tx_size: Unsigned(tx_pool.total_tx_size() as u64),
             total_tx_cycles: Unsigned(tx_pool.total_tx_cycles()),
-            last_txs_updated_at: Timestamp(chain_state.get_last_txs_updated_at()),
+            last_txs_updated_at: Timestamp(tx_pool.get_last_txs_updated_at()),
         })
     }
 }

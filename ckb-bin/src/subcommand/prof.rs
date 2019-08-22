@@ -9,7 +9,7 @@ use ckb_traits::ChainProvider;
 use std::sync::Arc;
 
 pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
-    let shared = SharedBuilder::with_db_config(&args.config.db)
+    let (shared, _table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool)
         .script_config(args.config.script)
@@ -19,7 +19,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
             ExitCode::Failure
         })?;
 
-    let tmp_shared = SharedBuilder::default()
+    let (tmp_shared, table) = SharedBuilder::default()
         .consensus(args.consensus)
         .tx_pool_config(args.config.tx_pool)
         .build()
@@ -29,9 +29,9 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
         })?;
 
     let from = std::cmp::max(1, args.from);
-    let to = std::cmp::min(shared.lock_chain_state().tip_number(), args.to);
+    let to = std::cmp::min(shared.snapshot().tip_number(), args.to);
     let notify = NotifyService::default().start::<&str>(Some("notify"));
-    let chain = ChainService::new(tmp_shared, notify);
+    let chain = ChainService::new(tmp_shared, table, notify);
     let chain_controller = chain.start(Some("chain"));
     profile_block_process(
         shared.clone(),

@@ -655,7 +655,7 @@ mod tests {
 
     fn setup(prefix: &str) -> (DefaultIndexerStore, ChainController, Shared) {
         let builder = SharedBuilder::default();
-        let shared = builder.consensus(Consensus::default()).build().unwrap();
+        let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
 
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let config = DBConfig {
@@ -663,7 +663,7 @@ mod tests {
             ..Default::default()
         };
         let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), notify);
+        let chain_service = ChainService::new(shared.clone(), table, notify);
         let chain_controller = chain_service.start::<&str>(None);
         (
             DefaultIndexerStore::new(&config, shared.clone()),

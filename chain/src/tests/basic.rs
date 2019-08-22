@@ -110,7 +110,7 @@ fn test_genesis_transaction_spend() {
 
     assert_eq!(
         shared
-            .lock_chain_state()
+            .snapshot()
             .cell(&OutPoint::new(genesis_tx_hash.unpack(), 0), false),
         CellStatus::Dead
     );
@@ -141,7 +141,7 @@ fn test_transaction_spend_in_same_block() {
     for hash in &[&last_cell_base_hash, &tx1_hash, &tx2_hash] {
         assert_eq!(
             shared
-                .lock_chain_state()
+                .snapshot()
                 .cell(&OutPoint::new(hash.unpack(), 0), false),
             CellStatus::Unknown
         );
@@ -170,21 +170,21 @@ fn test_transaction_spend_in_same_block() {
     // assert last_cell_base_hash is full dead
     assert_eq!(
         shared
-            .lock_chain_state()
+            .snapshot()
             .cell(&OutPoint::new(last_cell_base_hash.unpack(), 0), false),
         CellStatus::Unknown
     );
 
     assert_eq!(
         shared
-            .lock_chain_state()
+            .snapshot()
             .cell(&OutPoint::new(tx1_hash.unpack(), 0), false),
         CellStatus::Dead
     );
 
     assert_eq!(
         shared
-            .lock_chain_state()
+            .snapshot()
             .cell(&OutPoint::new(tx2_hash.unpack(), 0), false),
         CellStatus::live_cell(CellMeta {
             cell_output: tx2_output,
@@ -388,7 +388,7 @@ fn test_genesis_transaction_fetch() {
     let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
 
     let out_point = OutPoint::new(root_hash.unpack(), 0);
-    let state = shared.lock_chain_state().cell(&out_point, false);
+    let state = shared.snapshot().cell(&out_point, false);
     assert!(state.is_live());
 }
 
@@ -655,17 +655,16 @@ fn test_epoch_hash_rate_dampening() {
         prepare_context_chain(consensus.clone(), 26, 20_000);
 
     {
-        let chain_state = shared.lock_chain_state();
-        let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared
-            .store()
+        let snapshot = shared.snapshot();
+        let tip = snapshot.tip_header().clone();
+        let total_uncles_count = snapshot
             .get_block_ext(&tip.hash())
             .unwrap()
             .total_uncles_count;
         assert_eq!(total_uncles_count, 25);
 
-        let epoch = shared
-            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+        let epoch = snapshot
+            .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
         // last_epoch_previous_epoch_hash_rate 10
@@ -690,17 +689,16 @@ fn test_epoch_hash_rate_dampening() {
         prepare_context_chain(consensus.clone(), 26, 20_000);
 
     {
-        let chain_state = shared.lock_chain_state();
-        let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared
-            .store()
+        let snapshot = shared.snapshot();
+        let tip = snapshot.tip_header().clone();
+        let total_uncles_count = snapshot
             .get_block_ext(&tip.hash())
             .unwrap()
             .total_uncles_count;
         assert_eq!(total_uncles_count, 25);
 
-        let epoch = shared
-            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+        let epoch = snapshot
+            .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
         // last_epoch_previous_epoch_hash_rate 200
@@ -743,8 +741,8 @@ fn test_orphan_rate_estimation_overflow() {
     let (_chain_controller, shared, _genesis, _last_epoch) =
         prepare_context_chain(consensus.clone(), 151, 2_000_000);
     {
-        let chain_state = shared.lock_chain_state();
-        let tip = chain_state.tip_header().clone();
+        let snapshot = shared.snapshot();
+        let tip = snapshot.tip_header().clone();
         let total_uncles_count = shared
             .store()
             .get_block_ext(&tip.hash())
@@ -752,8 +750,8 @@ fn test_orphan_rate_estimation_overflow() {
             .total_uncles_count;
         assert_eq!(total_uncles_count, 150);
 
-        let epoch = shared
-            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+        let epoch = snapshot
+            .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
         assert_eq!(epoch.length(), 480, "epoch length {}", epoch.length());
@@ -794,17 +792,16 @@ fn test_next_epoch_ext() {
     let (_chain_controller, shared, _genesis, _last_epoch) =
         prepare_context_chain(consensus.clone(), 26, 20_000);
     {
-        let chain_state = shared.lock_chain_state();
-        let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared
-            .store()
+        let snapshot = shared.snapshot();
+        let tip = snapshot.tip_header().clone();
+        let total_uncles_count = snapshot
             .get_block_ext(&tip.hash())
             .unwrap()
             .total_uncles_count;
         assert_eq!(total_uncles_count, 25);
 
-        let epoch = shared
-            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+        let epoch = snapshot
+            .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
         // last_uncles_count 25
@@ -855,17 +852,16 @@ fn test_next_epoch_ext() {
     let (_chain_controller, shared, _genesis, _last_epoch) =
         prepare_context_chain(consensus.clone(), 11, 20_000);
     {
-        let chain_state = shared.lock_chain_state();
-        let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared
-            .store()
+        let snapshot = shared.snapshot();
+        let tip = snapshot.tip_header().clone();
+        let total_uncles_count = snapshot
             .get_block_ext(&tip.hash())
             .unwrap()
             .total_uncles_count;
         assert_eq!(total_uncles_count, 10);
 
-        let epoch = shared
-            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+        let epoch = snapshot
+            .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
         // last_uncles_count 10
@@ -893,10 +889,9 @@ fn test_next_epoch_ext() {
     let (_chain_controller, shared, _genesis, _last_epoch) =
         prepare_context_chain(consensus.clone(), 151, 20_000);
     {
-        let chain_state = shared.lock_chain_state();
-        let tip = chain_state.tip_header().clone();
-        let total_uncles_count = shared
-            .store()
+        let snapshot = shared.snapshot();
+        let tip = snapshot.tip_header().clone();
+        let total_uncles_count = snapshot
             .get_block_ext(&tip.hash())
             .unwrap()
             .total_uncles_count;
@@ -906,8 +901,8 @@ fn test_next_epoch_ext() {
         // last_epoch_length 400
         // epoch_duration_target 14400
         // last_duration 7980
-        let epoch = shared
-            .next_epoch_ext(chain_state.current_epoch_ext(), &tip)
+        let epoch = snapshot
+            .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
         // C_i+1,m = (o_ideal * (1 + o_i ) * L_ideal × C_i,m) / (o_i * (1 + o_ideal ) * L_i)

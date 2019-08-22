@@ -1,9 +1,10 @@
+use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::{Col, DBConfig, Error, Result};
 use ckb_logger::{info, warn};
 use rocksdb::ops::{Get, GetColumnFamilys, GetPinnedCF, IterateCF, OpenCF, Put, SetOptions};
 use rocksdb::{
-    ColumnFamily, DBPinnableSlice, IteratorMode, OptimisticTransactionDB,
+    ffi, ColumnFamily, DBPinnableSlice, IteratorMode, OptimisticTransactionDB,
     OptimisticTransactionOptions, Options, WriteOptions,
 };
 use std::sync::Arc;
@@ -165,6 +166,13 @@ impl RocksDB {
         RocksDBTransaction {
             db: Arc::clone(&self.inner),
             inner: self.inner.transaction(&write_options, &transaction_options),
+        }
+    }
+
+    pub fn get_snapshot(&self) -> RocksDBSnapshot {
+        unsafe {
+            let snapshot = ffi::rocksdb_create_snapshot(self.inner.base_db_ptr());
+            RocksDBSnapshot::new(&self.inner, snapshot)
         }
     }
 }

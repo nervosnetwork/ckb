@@ -1,5 +1,6 @@
 use ckb_shared::shared::Shared;
 use ckb_shared::tx_pool::PoolError;
+use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_traits::BlockMedianTimeContext;
@@ -58,6 +59,7 @@ impl TxPoolExecutor {
         }
         // resolve txs
         // early release the chain_state lock because tx verification is slow
+        let snapshot: &Snapshot = &self.shared.snapshot();
         let (
             resolved_txs,
             cached_txs,
@@ -67,12 +69,12 @@ impl TxPoolExecutor {
             epoch_number,
             parent_hash,
         ) = {
-            let chain_state = self.shared.lock_chain_state();
+            let tx_pool = self.shared.try_lock_tx_pool();
             let txs_verify_cache = self.shared.lock_txs_verify_cache();
-            let consensus = chain_state.consensus();
-            let parent_number = chain_state.tip_number();
-            let parent_hash = chain_state.tip_hash();
-            let epoch_number = chain_state.current_epoch_ext().number();
+            let consensus = self.shared.consensus();
+            let parent_number = snapshot.tip_number();
+            let parent_hash = snapshot.tip_hash().to_owned();
+            let epoch_number = snapshot.epoch_ext().number();
             let mut resolved_txs = Vec::with_capacity(txs.len());
             let mut unresolvable_txs = Vec::with_capacity(txs.len());
             let mut cached_txs = Vec::with_capacity(txs.len());
@@ -80,8 +82,7 @@ impl TxPoolExecutor {
                 if let Some(cycles) = txs_verify_cache.get(&tx.hash()) {
                     cached_txs.push((tx.hash(), Ok(*cycles)));
                 } else {
-                    let tx_pool = chain_state.tx_pool();
-                    match chain_state.resolve_tx_from_pending_and_proposed(tx, &tx_pool) {
+                    match tx_pool.resolve_tx_from_pending_and_proposed(tx) {
                         Ok(resolved_tx) => resolved_txs.push((tx.hash(), resolved_tx)),
                         Err(err) => unresolvable_txs
                             .push((tx.hash(), PoolError::UnresolvableTransaction(err))),
@@ -107,7 +108,7 @@ impl TxPoolExecutor {
 
         let max_block_cycles = consensus.max_block_cycles();
         let block_median_time_context = StoreBlockMedianTimeContext {
-            store: self.shared.store(),
+            store: snapshot,
             median_time_block_count: consensus.median_time_block_count() as u64,
         };
 
@@ -123,7 +124,7 @@ impl TxPoolExecutor {
                     parent_hash.clone(),
                     &consensus,
                     self.shared.script_config(),
-                    self.shared.store(),
+                    snapshot,
                 )
                 .verify(max_block_cycles)
                 .map(|cycles| (tx, cycles))
@@ -134,7 +135,7 @@ impl TxPoolExecutor {
 
         // Add verified txs to pool
         // must lock chain_state before txs_verify_cache to avoid dead lock.
-        let chain_state = self.shared.lock_chain_state();
+        let mut tx_pool = self.shared.try_lock_tx_pool();
         // write cache
         let cycles_vec = {
             let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
@@ -172,7 +173,7 @@ impl TxPoolExecutor {
         cycles_vec
             .into_iter()
             .map(|result| match result {
-                Ok((cycles, tx)) => chain_state.add_tx_to_pool(tx, cycles),
+                Ok((cycles, tx)) => tx_pool.add_tx_to_pool(tx, cycles),
                 Err(err) => Err(err),
             })
             .collect()
@@ -221,14 +222,14 @@ mod tests {
             .set_genesis_block(block.clone())
             .set_cellbase_maturity(0);
 
-        let shared = SharedBuilder::default()
+        let (shared, table) = SharedBuilder::default()
             .consensus(consensus)
             .build()
             .unwrap();
 
         let notify = NotifyService::default().start(Some("tx pool executor"));
 
-        let chain_service = ChainService::new(shared.clone(), notify);
+        let chain_service = ChainService::new(shared.clone(), table, notify);
         let chain_controller = chain_service.start::<&str>(None);
 
         for _i in 0..height {
@@ -295,7 +296,7 @@ mod tests {
         let (shared, always_success_out_point) = setup(10);
         let last_block = shared
             .store()
-            .get_block(&shared.lock_chain_state().tip_hash())
+            .get_block(&shared.snapshot().tip_hash())
             .unwrap();
         let last_cellbase = last_block.transactions().first().cloned().unwrap();
 
@@ -361,10 +362,10 @@ mod tests {
         let (shared, always_success_out_point) = setup(10);
         let last_block = shared
             .store()
-            .get_block(&shared.lock_chain_state().tip_hash())
+            .get_block(&shared.snapshot().tip_hash())
             .unwrap();
         let last_cellbase = last_block.transactions().first().cloned().unwrap();
-        let tip_number = shared.lock_chain_state().tip_number();
+        let tip_number = shared.snapshot().tip_number();
 
         let transactions: Vec<TransactionView> = (tip_number - 1..=tip_number + 2)
             .map(|number| {
