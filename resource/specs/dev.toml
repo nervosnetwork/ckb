@@ -55,6 +55,17 @@ lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835
 lock.args = ["0x470dcdc5e44064909650113a274b3b36aecb6dc7"]
 lock.hash_type = "data"
 
+# Dep group cells
+[genesis.dep_groups]
+secp256k1_blake160_sighash_all = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+]
+secp256k1_ripemd160_sha256_sighash_all = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
+]
+
 [params]
 epoch_reward = 1_250_000_00000000
 secondary_epoch_reward = 600_000_00000000
