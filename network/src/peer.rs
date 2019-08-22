@@ -1,7 +1,7 @@
 use crate::network_group::{Group, NetworkGroup};
 use crate::{multiaddr::Multiaddr, ProtocolId, ProtocolVersion, SessionType};
-use fnv::FnvHashMap;
 use p2p::{secio::PeerId, SessionId};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -22,7 +22,7 @@ pub struct Peer {
     pub connected_time: Instant,
     pub session_id: SessionId,
     pub session_type: SessionType,
-    pub protocols: FnvHashMap<ProtocolId, ProtocolVersion>,
+    pub protocols: HashMap<ProtocolId, ProtocolVersion>,
     pub is_whitelist: bool,
 }
 
@@ -45,7 +45,7 @@ impl Peer {
             peer_id,
             session_id,
             session_type,
-            protocols: FnvHashMap::with_capacity_and_hasher(1, Default::default()),
+            protocols: HashMap::with_capacity_and_hasher(1, Default::default()),
             is_whitelist,
         }
     }

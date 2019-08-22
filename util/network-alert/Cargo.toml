@@ -13,7 +13,6 @@ ckb-util = { path = ".." }
 ckb-network = { path = "../../network" }
 ckb-jsonrpc-types = { path = "../jsonrpc-types" }
 ckb-logger = { path = "../logger"}
-fnv = "1.0"
 faketime = "0.2.0"
 failure = "0.1.5"
 bytes = "0.4.12"

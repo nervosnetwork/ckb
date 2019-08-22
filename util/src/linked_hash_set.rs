@@ -1,12 +1,13 @@
 //! A `HashSet` wrapper that holds value in insertion order.
 
-use fnv::FnvBuildHasher;
 use linked_hash_map::{self, Keys, LinkedHashMap};
-use std::hash::BuildHasher;
-use std::hash::Hash;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{BuildHasher, BuildHasherDefault, Hash};
 use std::iter::Extend;
 
-pub struct LinkedHashSet<T, S = FnvBuildHasher> {
+type DefaultBuildHasher = BuildHasherDefault<DefaultHasher>;
+
+pub struct LinkedHashSet<T, S = DefaultBuildHasher> {
     map: LinkedHashMap<T, (), S>,
 }
 
@@ -73,8 +74,8 @@ where
     }
 }
 
-impl<T: Hash + Eq> LinkedHashSet<T, FnvBuildHasher> {
-    pub fn new() -> LinkedHashSet<T, FnvBuildHasher> {
+impl<T: Hash + Eq> LinkedHashSet<T, DefaultBuildHasher> {
+    pub fn new() -> LinkedHashSet<T, DefaultBuildHasher> {
         LinkedHashSet {
             map: LinkedHashMap::default(),
         }
@@ -120,9 +121,9 @@ where
     }
 }
 
-impl<T: Hash + Eq> Default for LinkedHashSet<T, FnvBuildHasher> {
+impl<T: Hash + Eq> Default for LinkedHashSet<T, DefaultBuildHasher> {
     /// Creates an empty `HashSet<T>` with the `Default` value for the hasher.
-    fn default() -> LinkedHashSet<T, FnvBuildHasher> {
+    fn default() -> LinkedHashSet<T, DefaultBuildHasher> {
         LinkedHashSet {
             map: LinkedHashMap::default(),
         }

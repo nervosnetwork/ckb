@@ -2,8 +2,8 @@
 use crate::peer_store::types::PeerAddr;
 use crate::NetworkState;
 use ckb_logger::{debug, error, trace, warn};
-use fnv::FnvHashMap;
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
+use std::collections::HashMap;
 use std::{sync::Arc, time::Duration};
 
 use p2p::{
@@ -21,7 +21,7 @@ use p2p_discovery::{
 pub struct DiscoveryProtocol {
     discovery: Option<Discovery<DiscoveryAddressManager>>,
     discovery_handle: DiscoveryHandle,
-    discovery_senders: FnvHashMap<SessionId, mpsc::Sender<Vec<u8>>>,
+    discovery_senders: HashMap<SessionId, mpsc::Sender<Vec<u8>>>,
     event_sender: mpsc::UnboundedSender<DiscoveryEvent>,
 }
 
@@ -35,7 +35,7 @@ impl DiscoveryProtocol {
         DiscoveryProtocol {
             discovery: Some(discovery),
             discovery_handle,
-            discovery_senders: FnvHashMap::default(),
+            discovery_senders: HashMap::default(),
             event_sender,
         }
     }
@@ -150,7 +150,7 @@ pub enum DiscoveryEvent {
 pub struct DiscoveryService {
     event_receiver: mpsc::UnboundedReceiver<DiscoveryEvent>,
     network_state: Arc<NetworkState>,
-    sessions: FnvHashMap<SessionId, PeerId>,
+    sessions: HashMap<SessionId, PeerId>,
     discovery_local_address: bool,
 }
 
@@ -163,7 +163,7 @@ impl DiscoveryService {
         DiscoveryService {
             event_receiver,
             network_state,
-            sessions: FnvHashMap::default(),
+            sessions: HashMap::default(),
             discovery_local_address,
         }
     }

@@ -2,7 +2,7 @@ use crate::types::InflightBlocks;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use ckb_types::prelude::*;
 use ckb_types::{h256, H256};
-use fnv::FnvHashSet;
+use std::collections::HashSet;
 use std::iter::FromIterator;
 
 #[test]
@@ -24,7 +24,7 @@ fn inflight_blocks_count() {
     assert_eq!(inflight_blocks.peer_inflight_count(2.into()), 1); // one block inflight
     assert_eq!(
         inflight_blocks.inflight_block_by_peer(1.into()).cloned(),
-        Some(FnvHashSet::from_iter(vec![
+        Some(HashSet::from_iter(vec![
             h256!("0x1").pack(),
             h256!("0x2").pack()
         ]))
@@ -63,7 +63,7 @@ fn inflight_blocks_state() {
             .inflight_state_by_block(&h256!("0x1").pack())
             .cloned()
             .map(|state| { state.peers }),
-        Some(FnvHashSet::from_iter(vec![1.into(), 2.into()]))
+        Some(HashSet::from_iter(vec![1.into(), 2.into()]))
     );
 
     assert_eq!(
@@ -135,6 +135,6 @@ fn inflight_blocks_timeout() {
             .inflight_state_by_block(&h256!("0x4").pack())
             .cloned()
             .map(|state| { state.peers }),
-        Some(FnvHashSet::from_iter(vec![1.into(), 4.into()]))
+        Some(HashSet::from_iter(vec![1.into(), 4.into()]))
     );
 }

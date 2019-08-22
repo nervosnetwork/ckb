@@ -23,10 +23,9 @@ use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification::HeaderResolverWrapper;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use fnv::{FnvHashMap, FnvHashSet};
 use lru_cache::LruCache;
 use std::cmp;
-use std::collections::{hash_map::HashMap, hash_set::HashSet, BTreeMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::mem;
@@ -236,7 +235,7 @@ impl<T: Eq + Hash> Filter<T> {
 
 #[derive(Default)]
 pub struct KnownFilter {
-    inner: FnvHashMap<PeerIndex, Filter<Byte32>>,
+    inner: HashMap<PeerIndex, Filter<Byte32>>,
 }
 
 impl KnownFilter {
@@ -253,19 +252,19 @@ impl KnownFilter {
 
 #[derive(Default)]
 pub struct Peers {
-    pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
+    pub state: RwLock<HashMap<PeerIndex, PeerState>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct InflightState {
-    pub(crate) peers: FnvHashSet<PeerIndex>,
+    pub(crate) peers: HashSet<PeerIndex>,
     pub(crate) timestamp: u64,
 }
 
 impl Default for InflightState {
     fn default() -> Self {
         InflightState {
-            peers: FnvHashSet::default(),
+            peers: HashSet::default(),
             timestamp: unix_time_as_millis(),
         }
     }
@@ -279,20 +278,20 @@ impl InflightState {
 
 #[derive(Clone)]
 pub struct InflightBlocks {
-    blocks: FnvHashMap<PeerIndex, FnvHashSet<Byte32>>,
-    states: FnvHashMap<Byte32, InflightState>,
+    blocks: HashMap<PeerIndex, HashSet<Byte32>>,
+    states: HashMap<Byte32, InflightState>,
 }
 
 impl Default for InflightBlocks {
     fn default() -> Self {
         InflightBlocks {
-            blocks: FnvHashMap::default(),
-            states: FnvHashMap::default(),
+            blocks: HashMap::default(),
+            states: HashMap::default(),
         }
     }
 }
 
-struct DebugHastSet<'a>(&'a FnvHashSet<Byte32>);
+struct DebugHastSet<'a>(&'a HashSet<Byte32>);
 
 impl<'a> fmt::Debug for DebugHastSet<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -314,7 +313,7 @@ impl fmt::Debug for InflightBlocks {
 }
 
 impl InflightBlocks {
-    pub fn blocks_iter(&self) -> impl Iterator<Item = (&PeerIndex, &FnvHashSet<Byte32>)> {
+    pub fn blocks_iter(&self) -> impl Iterator<Item = (&PeerIndex, &HashSet<Byte32>)> {
         self.blocks.iter()
     }
 
@@ -325,7 +324,7 @@ impl InflightBlocks {
     pub fn peer_inflight_count(&self, peer: PeerIndex) -> usize {
         self.blocks.get(&peer).map(HashSet::len).unwrap_or(0)
     }
-    pub fn inflight_block_by_peer(&self, peer: PeerIndex) -> Option<&FnvHashSet<Byte32>> {
+    pub fn inflight_block_by_peer(&self, peer: PeerIndex) -> Option<&HashSet<Byte32>> {
         self.blocks.get(&peer)
     }
 
@@ -356,7 +355,7 @@ impl InflightBlocks {
             return false;
         }
 
-        let blocks = self.blocks.entry(peer).or_insert_with(FnvHashSet::default);
+        let blocks = self.blocks.entry(peer).or_insert_with(HashSet::default);
         let ret = blocks.insert(hash);
         if ret {
             state.peers.insert(peer);
@@ -595,8 +594,7 @@ impl EpochIndices {
     }
 }
 
-type PendingCompactBlockMap =
-    FnvHashMap<Byte32, (packed::CompactBlock, FnvHashMap<PeerIndex, Vec<u32>>)>;
+type PendingCompactBlockMap = HashMap<Byte32, (packed::CompactBlock, HashMap<PeerIndex, Vec<u32>>)>;
 
 pub struct SyncSharedState {
     shared: Shared,
@@ -613,22 +611,22 @@ pub struct SyncSharedState {
 
     /* Status relevant to peers */
     peers: Peers,
-    misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
+    misbehavior: RwLock<HashMap<PeerIndex, u32>>,
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
-    pending_get_block_proposals: Mutex<FnvHashMap<packed::ProposalShortId, FnvHashSet<PeerIndex>>>,
+    pending_get_block_proposals: Mutex<HashMap<packed::ProposalShortId, HashSet<PeerIndex>>>,
     pending_get_headers: RwLock<LruCache<(PeerIndex, Byte32), Instant>>,
     pending_compact_blocks: Mutex<PendingCompactBlockMap>,
     orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
-    inflight_proposals: Mutex<FnvHashSet<packed::ProposalShortId>>,
+    inflight_proposals: Mutex<HashSet<packed::ProposalShortId>>,
     inflight_transactions: Mutex<LruCache<Byte32, Instant>>,
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_hashes: Mutex<FnvHashMap<PeerIndex, FnvHashSet<Byte32>>>,
+    tx_hashes: Mutex<HashMap<PeerIndex, HashSet<Byte32>>>,
 }
 
 impl SyncSharedState {
@@ -662,16 +660,16 @@ impl SyncSharedState {
             block_status_map: Mutex::new(HashMap::new()),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
-            misbehavior: RwLock::new(FnvHashMap::default()),
+            misbehavior: RwLock::new(HashMap::default()),
             known_txs: Mutex::new(KnownFilter::default()),
-            pending_get_block_proposals: Mutex::new(FnvHashMap::default()),
-            pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            pending_get_block_proposals: Mutex::new(HashMap::default()),
+            pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
-            inflight_proposals: Mutex::new(FnvHashSet::default()),
+            inflight_proposals: Mutex::new(HashSet::default()),
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
-            tx_hashes: Mutex::new(FnvHashMap::default()),
+            tx_hashes: Mutex::new(HashMap::default()),
         }
     }
 
@@ -711,7 +709,7 @@ impl SyncSharedState {
     pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<InflightBlocks> {
         self.inflight_blocks.write()
     }
-    pub fn inflight_proposals(&self) -> MutexGuard<FnvHashSet<packed::ProposalShortId>> {
+    pub fn inflight_proposals(&self) -> MutexGuard<HashSet<packed::ProposalShortId>> {
         self.inflight_proposals.lock()
     }
     pub fn store(&self) -> &ChainDB {
@@ -723,12 +721,12 @@ impl SyncSharedState {
     pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<Byte32, Cycle>> {
         self.shared.lock_txs_verify_cache()
     }
-    pub fn tx_hashes(&self) -> MutexGuard<FnvHashMap<PeerIndex, FnvHashSet<Byte32>>> {
+    pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, HashSet<Byte32>>> {
         self.tx_hashes.lock()
     }
-    pub fn take_tx_hashes(&self) -> FnvHashMap<PeerIndex, FnvHashSet<Byte32>> {
+    pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, HashSet<Byte32>> {
         let mut state = self.tx_hashes.lock();
-        mem::replace(&mut *state, FnvHashMap::default())
+        mem::replace(&mut *state, HashMap::default())
     }
     pub fn tip_header(&self) -> core::HeaderView {
         self.shared
@@ -1128,10 +1126,10 @@ impl SyncSharedState {
 
     pub fn clear_get_block_proposals(
         &self,
-    ) -> FnvHashMap<packed::ProposalShortId, FnvHashSet<PeerIndex>> {
+    ) -> HashMap<packed::ProposalShortId, HashSet<PeerIndex>> {
         let mut locked = self.pending_get_block_proposals.lock();
         let old = locked.deref_mut();
-        let mut ret = FnvHashMap::default();
+        let mut ret = HashMap::default();
         mem::swap(old, &mut ret);
         ret
     }

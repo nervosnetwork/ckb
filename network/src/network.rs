@@ -21,7 +21,6 @@ use ckb_build_info::Version;
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_util::{Mutex, RwLock};
-use fnv::{FnvHashMap, FnvHashSet};
 use futures::sync::mpsc::channel;
 use futures::sync::{mpsc, oneshot};
 use futures::Future;
@@ -46,6 +45,7 @@ use p2p_identify::IdentifyProtocol;
 use p2p_ping::PingHandler;
 use std::boxed::Box;
 use std::cmp::max;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
 use std::thread;
@@ -77,12 +77,12 @@ pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
     pub(crate) peer_store: Mutex<Box<dyn PeerStore>>,
     pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
-    dialing_addrs: RwLock<FnvHashMap<PeerId, Instant>>,
+    dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
 
-    pub(crate) protocol_ids: RwLock<FnvHashSet<ProtocolId>>,
-    listened_addresses: RwLock<FnvHashMap<Multiaddr, u8>>,
+    pub(crate) protocol_ids: RwLock<HashSet<ProtocolId>>,
+    listened_addresses: RwLock<HashMap<Multiaddr, u8>>,
     // Send disconnect message but not disconnected yet
-    disconnecting_sessions: RwLock<FnvHashSet<SessionId>>,
+    disconnecting_sessions: RwLock<HashSet<SessionId>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
     pub(crate) config: NetworkConfig,
@@ -93,7 +93,7 @@ impl NetworkState {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
         // set max score to public addresses
-        let listened_addresses: FnvHashMap<Multiaddr, u8> = config
+        let listened_addresses: HashMap<Multiaddr, u8> = config
             .listen_addresses
             .iter()
             .chain(config.public_addresses.iter())
@@ -125,13 +125,13 @@ impl NetworkState {
             peer_store,
             config,
             peer_registry: RwLock::new(peer_registry),
-            dialing_addrs: RwLock::new(FnvHashMap::default()),
+            dialing_addrs: RwLock::new(HashMap::default()),
             listened_addresses: RwLock::new(listened_addresses),
             original_listened_addresses: RwLock::new(Vec::new()),
-            disconnecting_sessions: RwLock::new(FnvHashSet::default()),
+            disconnecting_sessions: RwLock::new(HashSet::default()),
             local_private_key: local_private_key.clone(),
             local_peer_id: local_private_key.to_public_key().peer_id(),
-            protocol_ids: RwLock::new(FnvHashSet::default()),
+            protocol_ids: RwLock::new(HashSet::default()),
         })
     }
 

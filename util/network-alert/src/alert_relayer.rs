@@ -14,8 +14,8 @@ use ckb_logger::{debug, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
 use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
-use fnv::FnvHashSet;
 use lru_cache::LruCache;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 const KNOWN_LIST_SIZE: usize = 64;
@@ -26,7 +26,7 @@ const KNOWN_LIST_SIZE: usize = 64;
 pub struct AlertRelayer {
     notifier: Arc<Mutex<Notifier>>,
     verifier: Arc<Verifier>,
-    known_lists: LruCache<PeerIndex, FnvHashSet<u32>>,
+    known_lists: LruCache<PeerIndex, HashSet<u32>>,
 }
 
 impl AlertRelayer {
@@ -60,7 +60,7 @@ impl AlertRelayer {
         match self.known_lists.get_refresh(&peer) {
             Some(alert_ids) => alert_ids.insert(alert_id),
             None => {
-                let mut alert_ids = FnvHashSet::default();
+                let mut alert_ids = HashSet::new();
                 alert_ids.insert(alert_id);
                 self.known_lists.insert(peer, alert_ids);
                 true

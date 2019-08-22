@@ -13,16 +13,16 @@ use crate::peer_store::{
 use crate::peer_store::{ADDR_TIMEOUT_MS, DEFAULT_ADDRS, MAX_ADDRS, PEER_STORE_LIMIT};
 use crate::SessionType;
 use faketime::unix_time_as_millis;
-use fnv::FnvHashMap;
 use ipnetwork::IpNetwork;
 use rand::{seq::SliceRandom, thread_rng};
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::time::Duration;
 
 pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     peer_score_config: PeerScoreConfig,
-    banned_addresses: FnvHashMap<IpNetwork, u64>,
+    banned_addresses: HashMap<IpNetwork, u64>,
     pub(crate) conn: Connection,
 }
 
