@@ -1,0 +1,21 @@
+[package]
+name = "ckb-snapshot"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ckb-types = { path = "../types" }
+ckb-chain-spec = { path = "../../spec" }
+ckb-util = { path = "../" }
+ckb-store = { path = "../../store" }
+ckb-db = { path = "../../db" }
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
+ckb-traits = { path = "../../traits" }
+ckb-proposal-table = { path = "../proposal-table" }
+# DO NOT UPDATE "im", until clippy#4121 be solved
+# https://github.com/rust-lang/rust-clippy/issues/4121
+im = "~12.3"
+arc-swap = "0.4"

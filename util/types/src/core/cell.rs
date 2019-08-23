@@ -269,6 +269,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
     }
 }
 
+#[derive(Default)]
 pub struct TransactionsProvider<'a> {
     transactions: HashMap<Byte32, &'a TransactionView>,
 }
@@ -277,6 +278,10 @@ impl<'a> TransactionsProvider<'a> {
     pub fn new(transactions: impl Iterator<Item = &'a TransactionView>) -> Self {
         let transactions = transactions.map(|tx| (tx.hash(), tx)).collect();
         Self { transactions }
+    }
+
+    pub fn insert(&mut self, transaction: &'a TransactionView) {
+        self.transactions.insert(transaction.hash(), transaction);
     }
 }
 

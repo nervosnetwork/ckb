@@ -7,7 +7,6 @@ use crate::module::{
 use ckb_chain::chain::ChainController;
 use ckb_db::DBConfig;
 use ckb_indexer::DefaultIndexerStore;
-use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
@@ -50,20 +49,17 @@ impl<'a> ServiceBuilder<'a> {
         shared: Shared,
         network_controller: NetworkController,
         chain: ChainController,
-        block_assembler: Option<BlockAssemblerController>,
+        enable: bool,
     ) -> Self {
-        if let Some(block_assembler) = block_assembler {
-            if self.config.miner_enable() {
-                self.io_handler.extend_with(
-                    MinerRpcImpl {
-                        shared: shared.clone(),
-                        block_assembler,
-                        chain: chain.clone(),
-                        network_controller: network_controller.clone(),
-                    }
-                    .to_delegate(),
-                );
-            }
+        if enable && self.config.miner_enable() {
+            self.io_handler.extend_with(
+                MinerRpcImpl {
+                    shared: shared.clone(),
+                    chain: chain.clone(),
+                    network_controller: network_controller.clone(),
+                }
+                .to_delegate(),
+            );
         }
         self
     }

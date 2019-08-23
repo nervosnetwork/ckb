@@ -8,7 +8,7 @@ pub use app_config::{AppConfig, CKBAppConfig, MinerAppConfig};
 pub use args::{
     ExportArgs, ImportArgs, InitArgs, MinerArgs, ProfArgs, ResetDataArgs, RunArgs, StatsArgs,
 };
-pub use ckb_miner::BlockAssemblerConfig;
+pub use ckb_tx_pool::BlockAssemblerConfig;
 pub use exit_code::ExitCode;
 
 use ckb_build_info::Version;

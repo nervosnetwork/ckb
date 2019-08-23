@@ -11,6 +11,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
+use log::info;
 use std::convert::Into;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -157,6 +158,7 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
         .call();
     let error = result.expect_err(&format!("transaction is invalid since {}", message));
     let error_string = error.to_string();
+    info!("expect error \"{}\" but got \"{}\"", message, error_string,);
     assert!(
         error_string.contains(message),
         "expect error \"{}\" but got \"{}\"",

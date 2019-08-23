@@ -349,6 +349,7 @@ dependencies = [
  "ckb-script 0.21.0-pre",
  "ckb-shared 0.21.0-pre",
  "ckb-store 0.21.0-pre",
+ "ckb-tx-pool 0.1.0",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "path-clean 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "sentry 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -439,20 +440,24 @@ dependencies = [
  "ckb-chain-spec 0.21.0-pre",
  "ckb-dao 0.21.0-pre",
  "ckb-dao-utils 0.21.0-pre",
+ "ckb-jsonrpc-types 0.21.0-pre",
  "ckb-logger 0.21.0-pre",
  "ckb-notify 0.21.0-pre",
+ "ckb-pow 0.21.0-pre",
  "ckb-proposal-table 0.21.0-pre",
  "ckb-shared 0.21.0-pre",
  "ckb-stop-handler 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
+ "ckb-tx-pool 0.1.0",
  "ckb-types 0.21.0-pre",
  "ckb-verification 0.21.0-pre",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
  "im 12.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -836,7 +841,6 @@ dependencies = [
  "ckb-indexer 0.21.0-pre",
  "ckb-jsonrpc-types 0.21.0-pre",
  "ckb-logger 0.21.0-pre",
- "ckb-miner 0.21.0-pre",
  "ckb-network 0.21.0-pre",
  "ckb-network-alert 0.21.0-pre",
  "ckb-notify 0.21.0-pre",
@@ -845,7 +849,6 @@ dependencies = [
  "ckb-sync 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
- "ckb-tx-pool-executor 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "ckb-util 0.21.0-pre",
  "ckb-verification 0.21.0-pre",
@@ -898,7 +901,6 @@ name = "ckb-shared"
 version = "0.21.0-pre"
 dependencies = [
  "arc-swap 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-chain 0.21.0-pre",
  "ckb-chain-spec 0.21.0-pre",
  "ckb-dao 0.21.0-pre",
  "ckb-db 0.21.0-pre",
@@ -907,22 +909,35 @@ dependencies = [
  "ckb-proposal-table 0.21.0-pre",
  "ckb-reward-calculator 0.21.0-pre",
  "ckb-script 0.21.0-pre",
+ "ckb-snapshot 0.1.0",
  "ckb-store 0.21.0-pre",
- "ckb-test-chain-utils 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
+ "ckb-tx-pool 0.1.0",
  "ckb-types 0.21.0-pre",
  "ckb-util 0.21.0-pre",
  "ckb-verification 0.21.0-pre",
- "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "im 12.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
- "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
- "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ckb-snapshot"
+version = "0.1.0"
+dependencies = [
+ "arc-swap 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-chain-spec 0.21.0-pre",
+ "ckb-db 0.21.0-pre",
+ "ckb-proposal-table 0.21.0-pre",
+ "ckb-store 0.21.0-pre",
+ "ckb-traits 0.21.0-pre",
+ "ckb-types 0.21.0-pre",
+ "ckb-util 0.21.0-pre",
+ "im 12.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
 ]
 
 [[package]]
@@ -970,7 +985,6 @@ dependencies = [
  "ckb-store 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
- "ckb-tx-pool-executor 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "ckb-util 0.21.0-pre",
  "ckb-verification 0.21.0-pre",
@@ -1022,20 +1036,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "ckb-tx-pool-executor"
-version = "0.21.0-pre"
+name = "ckb-tx-pool"
+version = "0.1.0"
 dependencies = [
- "ckb-chain 0.21.0-pre",
  "ckb-chain-spec 0.21.0-pre",
- "ckb-db 0.21.0-pre",
+ "ckb-dao 0.21.0-pre",
+ "ckb-jsonrpc-types 0.21.0-pre",
+ "ckb-logger 0.21.0-pre",
  "ckb-notify 0.21.0-pre",
- "ckb-shared 0.21.0-pre",
+ "ckb-reward-calculator 0.21.0-pre",
+ "ckb-script 0.21.0-pre",
+ "ckb-snapshot 0.1.0",
+ "ckb-stop-handler 0.21.0-pre",
  "ckb-store 0.21.0-pre",
- "ckb-test-chain-utils 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
  "ckb-types 0.21.0-pre",
+ "ckb-util 0.21.0-pre",
  "ckb-verification 0.21.0-pre",
+ "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
+ "rayon 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1085,9 +1111,11 @@ dependencies = [
  "ckb-traits 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
  "lru-cache 0.1.0 (git+https://github.com/nervosnetwork/lru-cache?rev=a35fdb8)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio 0.1.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

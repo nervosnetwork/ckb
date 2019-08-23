@@ -23,8 +23,7 @@ use std::sync::Arc;
 fn test_find_fork_case1() {
     let builder = SharedBuilder::default();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainService::new(shared.clone(), table, notify);
+    let mut chain_service = ChainService::new(shared.clone(), table);
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
@@ -96,8 +95,7 @@ fn test_find_fork_case1() {
 fn test_find_fork_case2() {
     let builder = SharedBuilder::default();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainService::new(shared.clone(), table, notify);
+    let mut chain_service = ChainService::new(shared.clone(), table);
 
     let genesis = shared
         .store()
@@ -169,8 +167,7 @@ fn test_find_fork_case2() {
 fn test_find_fork_case3() {
     let builder = SharedBuilder::default();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainService::new(shared.clone(), table, notify);
+    let mut chain_service = ChainService::new(shared.clone(), table);
 
     let genesis = shared
         .store()
@@ -242,8 +239,7 @@ fn test_find_fork_case3() {
 fn test_find_fork_case4() {
     let builder = SharedBuilder::default();
     let (shared, table) = builder.consensus(Consensus::default()).build().unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let mut chain_service = ChainService::new(shared.clone(), table, notify);
+    let mut chain_service = ChainService::new(shared.clone(), table);
 
     let genesis = shared
         .store()
@@ -329,7 +325,7 @@ fn repeatedly_switch_fork() {
         .consensus(Consensus::default())
         .build()
         .unwrap();
-    let mut chain_service = ChainService::new(shared, table, notify);
+    let mut chain_service = ChainService::new(shared, table);
 
     for _ in 0..2 {
         fork1.gen_empty_block_with_nonce(1u64, &mock_store);

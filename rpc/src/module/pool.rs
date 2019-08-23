@@ -3,8 +3,8 @@ use ckb_jsonrpc_types::{Timestamp, Transaction, TxPoolInfo, Unsigned};
 use ckb_network::PeerIndex;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
-use ckb_tx_pool_executor::TxPoolExecutor;
 use ckb_types::{core, packed, prelude::*, H256};
+use futures::future::Future;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
@@ -23,16 +23,13 @@ pub trait PoolRpc {
 pub(crate) struct PoolRpcImpl {
     sync_shared_state: Arc<SyncSharedState>,
     shared: Shared,
-    tx_pool_executor: Arc<TxPoolExecutor>,
 }
 
 impl PoolRpcImpl {
     pub fn new(shared: Shared, sync_shared_state: Arc<SyncSharedState>) -> PoolRpcImpl {
-        let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.clone()));
         PoolRpcImpl {
             sync_shared_state,
             shared,
-            tx_pool_executor,
         }
     }
 }
@@ -42,7 +39,12 @@ impl PoolRpc for PoolRpcImpl {
         let tx: packed::Transaction = tx.into();
         let tx: core::TransactionView = tx.into_view();
 
-        let result = self.tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
+        let tx_pool = self.shared.tx_pool_controller();
+        let result = tx_pool
+            .submit_txs(vec![tx.clone()])
+            .unwrap()
+            .wait()
+            .unwrap();
 
         match result {
             Ok(_) => {
@@ -61,14 +63,15 @@ impl PoolRpc for PoolRpcImpl {
     }
 
     fn tx_pool_info(&self) -> Result<TxPoolInfo> {
-        let tx_pool = self.shared.try_lock_tx_pool();
+        let tx_pool = self.shared.tx_pool_controller();
+        let tx_pool_info = tx_pool.get_tx_pool_info().unwrap().wait().unwrap();
         Ok(TxPoolInfo {
-            pending: Unsigned(u64::from(tx_pool.pending_size())),
-            proposed: Unsigned(u64::from(tx_pool.proposed_size())),
-            orphan: Unsigned(u64::from(tx_pool.orphan_size())),
-            total_tx_size: Unsigned(tx_pool.total_tx_size() as u64),
-            total_tx_cycles: Unsigned(tx_pool.total_tx_cycles()),
-            last_txs_updated_at: Timestamp(tx_pool.get_last_txs_updated_at()),
+            pending: Unsigned(tx_pool_info.pending_size as u64),
+            proposed: Unsigned(tx_pool_info.proposed_size as u64),
+            orphan: Unsigned(tx_pool_info.orphan_size as u64),
+            total_tx_size: Unsigned(tx_pool_info.total_tx_size as u64),
+            total_tx_cycles: Unsigned(tx_pool_info.total_tx_cycles),
+            last_txs_updated_at: Timestamp(tx_pool_info.last_txs_updated_at),
         })
     }
 }

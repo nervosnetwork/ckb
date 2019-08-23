@@ -25,11 +25,7 @@ fn test_no_unknown() {
     let mock_protocal_context = MockProtocalContext::default();
     let nc = Arc::new(mock_protocal_context);
 
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoUnknown));
 }
@@ -49,11 +45,7 @@ fn test_no_asked() {
     let mock_protocal_context = MockProtocalContext::default();
     let nc = Arc::new(mock_protocal_context);
 
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoAsked));
 
@@ -84,11 +76,7 @@ fn test_ok() {
     let mock_protocal_context = MockProtocalContext::default();
     let nc = Arc::new(mock_protocal_context);
 
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::Ok));
 

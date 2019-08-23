@@ -13,7 +13,7 @@ use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::ChainProvider;
 use ckb_types::{
-    core::{self, BlockNumber, Cycle, EpochExt},
+    core::{self, BlockNumber, EpochExt},
     packed::{self, Byte32},
     prelude::*,
     U256,
@@ -704,9 +704,6 @@ impl SyncSharedState {
     pub fn snapshot(&self) -> ArcSwapGuard<Arc<Snapshot>> {
         self.shared.snapshot()
     }
-    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<Byte32, Cycle>> {
-        self.shared.lock_txs_verify_cache()
-    }
     pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, HashSet<Byte32>>> {
         self.tx_hashes.lock()
     }
@@ -1117,9 +1114,13 @@ impl SyncSharedState {
         ret
     }
 
-    pub fn insert_get_block_proposals(&self, pi: PeerIndex, ids: Vec<packed::ProposalShortId>) {
+    pub fn insert_get_block_proposals(
+        &self,
+        pi: PeerIndex,
+        ids: impl Iterator<Item = packed::ProposalShortId>,
+    ) {
         let mut locked = self.pending_get_block_proposals.lock();
-        for id in ids.into_iter() {
+        for id in ids {
             locked.entry(id).or_default().insert(pi);
         }
     }

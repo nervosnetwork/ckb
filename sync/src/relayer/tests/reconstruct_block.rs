@@ -6,6 +6,7 @@ use ckb_types::{
     packed,
     packed::{BlockBuilder, CompactBlockBuilder},
 };
+use futures::future::Future;
 use std::collections::HashSet;
 
 // There are more test cases in block_transactions_process and compact_block_process.rs
@@ -74,8 +75,13 @@ fn test_reconstruct_block() {
         pool_transactions.iter().for_each(|tx| {
             // `tx` is added into pool but not be proposed, since `tx` has not been proposal yet
             relayer
-                .tx_pool_executor
-                .verify_and_add_tx_to_pool(tx.clone())
+                .shared
+                .shared()
+                .tx_pool_controller()
+                .submit_txs(vec![tx.clone()])
+                .unwrap()
+                .wait()
+                .unwrap()
                 .expect("adding transaction into pool");
         });
 

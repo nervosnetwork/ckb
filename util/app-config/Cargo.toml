@@ -28,6 +28,7 @@ ckb-store = { path = "../../store" }
 ckb-network-alert = { path = "../network-alert" }
 ckb-build-info = { path = "../build-info" }
 ckb-script = { path = "../../script" }
+ckb-tx-pool = { path = "../../tx-pool" }
 
 [dev-dependencies]
 tempfile = "3.0"

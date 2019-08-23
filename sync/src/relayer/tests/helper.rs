@@ -118,8 +118,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .unwrap()
     };
     let chain_controller = {
-        let notify_controller = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify_controller);
+        let chain_service = ChainService::new(shared.clone(), table);
         chain_service.start::<&str>(None)
     };
 

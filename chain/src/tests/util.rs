@@ -56,8 +56,7 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
     });
     let (shared, table) = builder.consensus(consensus).build().unwrap();
 
-    let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), table, notify);
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
     let parent = shared
         .store()

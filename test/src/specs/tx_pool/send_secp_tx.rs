@@ -4,8 +4,8 @@ use ckb_app_config::CKBAppConfig;
 use ckb_crypto::secp::{Generator, Privkey};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::JsonBytes;
-use ckb_miner::BlockAssemblerConfig;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
+use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,

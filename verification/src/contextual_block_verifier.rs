@@ -1,4 +1,5 @@
 use crate::error::{CellbaseError, CommitError, Error};
+use crate::txs_verify_cache::{FetchCache, UpdateCache};
 use crate::uncles_verifier::{UncleProvider, UnclesVerifier};
 use crate::{ContextualTransactionVerifier, TransactionVerifier};
 use ckb_chain_spec::consensus::Consensus;
@@ -16,9 +17,12 @@ use ckb_types::{
     },
     packed::{Byte32, Script},
 };
+use futures::future::Future;
 use lru_cache::LruCache;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use tokio::prelude::{Async, Poll};
+use tokio::sync::lock::Lock;
 
 pub struct VerifyContext<'a, CS> {
     pub(crate) store: &'a CS,
@@ -335,15 +339,20 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         }
     }
 
-    pub fn verify(&self, txs_verify_cache: &mut LruCache<Byte32, Cycle>) -> Result<Cycle, Error> {
+    pub fn verify(self, txs_verify_cache: Lock<LruCache<Byte32, Cycle>>) -> Result<Cycle, Error> {
+        let keys = self.resolved.iter().map(|rtx| rtx.transaction.hash());
+        let fetched_cache = FetchCache::new(txs_verify_cache.clone(), keys)
+            .wait()
+            .expect("fetched cache no exception");
+
         // make verifiers orthogonal
-        let ret_set = self
+        let ret = self
             .resolved
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                let tx_hash = tx.transaction.hash().to_owned();
-                if let Some(cycles) = txs_verify_cache.get(&tx_hash) {
+                let tx_hash = tx.transaction.hash();
+                if let Some(cycles) = fetched_cache.get(&tx_hash) {
                     ContextualTransactionVerifier::new(
                         &tx,
                         self.context,
@@ -371,13 +380,11 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                     .map(|cycles| (tx_hash, cycles))
                 }
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<HashMap<Byte32, Cycle>, _>>()?;
 
-        let sum: Cycle = ret_set.iter().map(|(_, cycles)| cycles).sum();
-
-        for (hash, cycles) in ret_set {
-            txs_verify_cache.insert(hash, cycles);
-        }
+        let sum: Cycle = ret.iter().map(|(_, cycles)| cycles).sum();
+        let update = UpdateCache::new(txs_verify_cache.clone(), ret);
+        update.wait().expect("update cache no exception");
 
         if sum > self.context.consensus.max_block_cycles() {
             Err(Error::ExceededMaximumCycles)
@@ -413,7 +420,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
         &'a self,
         resolved: &'a [ResolvedTransaction],
         block: &'a BlockView,
-        txs_verify_cache: &mut LruCache<Byte32, Cycle>,
+        txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
     ) -> Result<(Cycle, Vec<Capacity>), Error> {
         let parent_hash = block.data().header().raw().parent_hash();
         let parent = self
