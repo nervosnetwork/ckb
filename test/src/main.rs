@@ -1,5 +1,6 @@
 use ckb_test::specs::*;
 use ckb_test::Spec;
+use ckb_types::core::ScriptHashType;
 use clap::{value_t, App, Arg};
 use log::{error, info};
 use rand::{seq::SliceRandom, thread_rng};
@@ -223,7 +224,14 @@ fn all_specs() -> SpecMap {
         Box::new(InvalidLocatorSize),
         Box::new(SizeLimit),
         Box::new(CyclesLimit),
-        Box::new(SendSecpTxUseDepGroup::default()),
+        Box::new(SendSecpTxUseDepGroup::new(
+            "send_secp_tx_use_dep_group_data_hash",
+            ScriptHashType::Data,
+        )),
+        Box::new(SendSecpTxUseDepGroup::new(
+            "send_secp_tx_use_dep_group_type_hash",
+            ScriptHashType::Type,
+        )),
         Box::new(AlertPropagation::default()),
         Box::new(IndexerBasic),
         Box::new(GenesisIssuedCells),

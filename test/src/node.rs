@@ -355,8 +355,8 @@ impl Node {
 
         let mut spec: ChainSpec =
             toml::from_slice(&integration_spec[..]).expect("chain spec config");
-        for r in spec.genesis.system_cells.files.iter_mut() {
-            r.absolutize(Path::new(&self.dir).join("specs"));
+        for r in spec.genesis.system_cells.iter_mut() {
+            r.file.absolutize(Path::new(&self.dir).join("specs"));
         }
         modify_chain_spec(&mut spec);
 

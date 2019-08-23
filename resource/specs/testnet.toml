@@ -8,7 +8,7 @@ difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x51df5d1ccc4ad35f811ca255f76536df032a3a4f91b35bb77eb53e28a134e367"
+hash = "0x5deec72acc3aab471b42e4276a872764f7e4aed1413566ec31b4c61f53637cf0"
 
 [genesis.genesis_cell]
 message = "rylai-v8"
@@ -20,15 +20,20 @@ hash_type = "Data"
 
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
-[genesis.system_cells]
-files = [
-  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
-  { bundled = "specs/cells/dao" },
-  { bundled = "specs/cells/secp256k1_data" },
-  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
-]
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
+create_type_id = true
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/dao" }
+create_type_id = true
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_data" }
+create_type_id = false
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" }
+create_type_id = true
 
-[genesis.system_cells.lock]
+[genesis.system_cells_lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
 hash_type = "Data"
