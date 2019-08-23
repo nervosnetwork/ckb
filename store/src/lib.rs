@@ -17,10 +17,8 @@ use ckb_types::{
     core::{HeaderView, TransactionView, UncleBlockVecView},
     packed::{Byte32, ProposalShortIdVec},
 };
-use ckb_util::Mutex;
-use lazy_static::lazy_static;
 use lru_cache::LruCache;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::RefCell;
 
 pub const COLUMNS: u32 = 12;
 pub const COLUMN_INDEX: Col = "0";
@@ -39,26 +37,11 @@ pub const COLUMN_UNCLES: Col = "11";
 const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
 const META_CURRENT_EPOCH_KEY: &[u8] = b"CURRENT_EPOCH";
 
-lazy_static! {
-    static ref CACHE_ENABLE: AtomicBool = AtomicBool::new(true);
-    static ref HEADER_CACHE: Mutex<LruCache<Byte32, HeaderView>> =
-        { Mutex::new(LruCache::new(4096)) };
-    static ref CELL_DATA_CACHE: Mutex<LruCache<(Byte32, u32), Bytes>> =
-        { Mutex::new(LruCache::new(128)) };
-    static ref BLOCK_PROPOSALS_CACHE: Mutex<LruCache<Byte32, ProposalShortIdVec>> =
-        { Mutex::new(LruCache::new(30)) };
-    static ref BLOCK_TX_HASHES_CACHE: Mutex<LruCache<Byte32, Vec<Byte32>>> =
-        { Mutex::new(LruCache::new(20)) };
-    static ref BLOCK_UNCLES_CACHE: Mutex<LruCache<Byte32, UncleBlockVecView>> =
-        { Mutex::new(LruCache::new(10)) };
-    static ref CELLBASE_CACHE: Mutex<LruCache<Byte32, TransactionView>> =
-        { Mutex::new(LruCache::new(20)) };
-}
-
-pub fn cache_enable() -> bool {
-    CACHE_ENABLE.load(Ordering::SeqCst)
-}
-
-pub fn set_cache_enable(enable: bool) {
-    CACHE_ENABLE.store(enable, Ordering::SeqCst)
+thread_local! {
+    pub static HEADER_CACHE: RefCell<LruCache<Byte32, HeaderView>> = RefCell::new(LruCache::new(4096));
+    pub static CELL_DATA_CACHE: RefCell<LruCache<(Byte32, u32), Bytes>> = RefCell::new(LruCache::new(128));
+    pub static BLOCK_PROPOSALS_CACHE: RefCell<LruCache<Byte32, ProposalShortIdVec>> = RefCell::new(LruCache::new(30));
+    pub static BLOCK_TX_HASHES_CACHE: RefCell<LruCache<Byte32, Vec<Byte32>>> = RefCell::new(LruCache::new(20));
+    pub static BLOCK_UNCLES_CACHE: RefCell<LruCache<Byte32, UncleBlockVecView>> = RefCell::new(LruCache::new(10));
+    pub static CELLBASE_CACHE: RefCell<LruCache<Byte32, TransactionView>> = RefCell::new(LruCache::new(20));
 }

@@ -2,6 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncSharedState;
 use ckb_chain::chain::ChainService;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_network::PeerIndex;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
@@ -9,7 +10,9 @@ use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
 use ckb_types::core::{BlockBuilder, BlockView, Capacity, TransactionBuilder};
 use ckb_types::prelude::*;
+use ckb_util::RwLock;
 use std::sync::Arc;
+use std::thread;
 
 #[test]
 fn test_insert_new_block() {
@@ -54,11 +57,37 @@ fn test_insert_invalid_block() {
 
 #[test]
 fn test_insert_parent_unknown_block() {
-    ckb_store::set_cache_enable(false);
-    let (shared1, _) = build_chain(2);
+    let consensus: Arc<RwLock<Consensus>> = Arc::new(RwLock::new(Default::default()));
+    let block: Arc<RwLock<BlockView>> = Arc::new(RwLock::new(BlockBuilder::default().build()));
+    let parent: Arc<RwLock<BlockView>> = Arc::new(RwLock::new(BlockBuilder::default().build()));
+
+    let clone_consensus = Arc::clone(&consensus);
+    let clone_block = Arc::clone(&block);
+    let clone_parent = Arc::clone(&parent);
+
+    thread::spawn(move || {
+        let (shared1, _) = build_chain(2);
+        let consensus = shared1.consensus().clone();
+        let block = shared1
+            .store()
+            .get_block(&shared1.tip_header().hash())
+            .unwrap()
+            .clone();
+        let parent = shared1
+            .store()
+            .get_block(&block.header().parent_hash().pack())
+            .unwrap();
+
+        *clone_consensus.write() = consensus;
+        *clone_block.write() = block;
+        *clone_parent.write() = parent;
+    })
+    .join()
+    .unwrap();
+
     let (shared, chain) = {
         let (shared, table) = SharedBuilder::default()
-            .consensus(shared1.consensus().clone())
+            .consensus(consensus.read().clone())
             .build()
             .unwrap();
         let chain_controller = {
@@ -69,30 +98,21 @@ fn test_insert_parent_unknown_block() {
         (SyncSharedState::new(shared), chain_controller)
     };
 
-    let block = shared1
-        .store()
-        .get_block(&shared1.tip_header().hash())
-        .unwrap();
-    let parent = {
-        let parent = shared1
-            .store()
-            .get_block(&block.header().parent_hash().pack())
-            .unwrap();
-        Arc::new(parent)
-    };
     let invalid_orphan = {
         let invalid_orphan = block
+            .read()
             .as_advanced_builder()
-            .header(block.header().clone())
+            .header(block.read().header().clone())
             .number(1000.pack())
             .build();
 
         Arc::new(invalid_orphan)
     };
-    let valid_orphan = Arc::new(block);
+    let valid_orphan = Arc::new(block.read().clone());
     let valid_hash = valid_orphan.header().hash();
     let invalid_hash = invalid_orphan.header().hash();
-    let parent_hash = parent.header().hash();
+    let parent_hash = parent.read().header().hash();
+    let parent = Arc::new(parent.read().clone());
 
     assert_eq!(
         shared

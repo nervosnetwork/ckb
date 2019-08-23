@@ -17,11 +17,23 @@ pub struct StoreConfig {
 
 impl StoreConfig {
     pub fn apply(self) {
-        *HEADER_CACHE.lock() = LruCache::new(self.header_cache_size);
-        *CELL_DATA_CACHE.lock() = LruCache::new(self.cell_data_cache_size);
-        *BLOCK_PROPOSALS_CACHE.lock() = LruCache::new(self.block_proposals_cache_size);
-        *BLOCK_TX_HASHES_CACHE.lock() = LruCache::new(self.block_tx_hashes_cache_size);
-        *BLOCK_UNCLES_CACHE.lock() = LruCache::new(self.block_uncles_cache_size);
-        *CELLBASE_CACHE.lock() = LruCache::new(self.cellbase_cache_size);
+        HEADER_CACHE.with(|cache| {
+            *cache.borrow_mut() = LruCache::new(self.header_cache_size);
+        });
+        CELL_DATA_CACHE.with(|cache| {
+            *cache.borrow_mut() = LruCache::new(self.cell_data_cache_size);
+        });
+        BLOCK_PROPOSALS_CACHE.with(|cache| {
+            *cache.borrow_mut() = LruCache::new(self.block_proposals_cache_size);
+        });
+        BLOCK_TX_HASHES_CACHE.with(|cache| {
+            *cache.borrow_mut() = LruCache::new(self.block_tx_hashes_cache_size);
+        });
+        BLOCK_UNCLES_CACHE.with(|cache| {
+            *cache.borrow_mut() = LruCache::new(self.block_uncles_cache_size);
+        });
+        CELLBASE_CACHE.with(|cache| {
+            *cache.borrow_mut() = LruCache::new(self.cellbase_cache_size);
+        });
     }
 }

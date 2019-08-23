@@ -1,5 +1,5 @@
 use crate::{
-    cache_enable, BLOCK_PROPOSALS_CACHE, BLOCK_TX_HASHES_CACHE, BLOCK_UNCLES_CACHE, CELLBASE_CACHE,
+    BLOCK_PROPOSALS_CACHE, BLOCK_TX_HASHES_CACHE, BLOCK_UNCLES_CACHE, CELLBASE_CACHE,
     CELL_DATA_CACHE, HEADER_CACHE,
 };
 use crate::{
@@ -46,24 +46,31 @@ pub trait ChainStore<'a>: Send + Sync {
 
     /// Get header by block header hash
     fn get_block_header(&'a self, hash: &packed::Byte32) -> Option<HeaderView> {
-        let cache_enable = cache_enable();
-        if cache_enable {
-            if let Some(header) = HEADER_CACHE.lock().get_refresh(hash) {
-                return Some(header.clone());
-            }
+        let mut ret: Option<HeaderView> = Default::default();
+        let mut hit = false;
+        HEADER_CACHE.with(|cache| {
+            if let Some(header) = cache.borrow_mut().get_refresh(hash) {
+                ret = Some(header.clone());
+                hit = true;
+            };
+        });
+
+        if hit {
+            return ret;
         }
-        let ret = self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
+
+        ret = self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice(&slice.as_ref()).should_be_ok();
             Unpack::<HeaderView>::unpack(&reader)
         });
-        if cache_enable {
-            ret.map(|header| {
-                HEADER_CACHE.lock().insert(hash.clone(), header.clone());
-                header
-            })
-        } else {
-            ret
+
+        if let Some(header) = ret.clone() {
+            HEADER_CACHE.with(|cache| {
+                cache.borrow_mut().insert(hash.clone(), header);
+            });
         }
+
+        ret
     }
 
     /// Get block body by block header hash
@@ -81,11 +88,17 @@ pub trait ChainStore<'a>: Send + Sync {
 
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&'a self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
-        let cache_enable = cache_enable();
-        if cache_enable {
-            if let Some(hashes) = BLOCK_TX_HASHES_CACHE.lock().get_refresh(hash) {
-                return hashes.clone();
+        let mut ret: Vec<packed::Byte32> = Default::default();
+        let mut hit = false;
+        BLOCK_TX_HASHES_CACHE.with(|cache| {
+            if let Some(hashes) = cache.borrow_mut().get_refresh(hash) {
+                ret = hashes.clone();
+                hit = true;
             }
+        });
+
+        if hit {
+            return ret;
         }
 
         let prefix = hash.as_slice();
@@ -99,11 +112,9 @@ pub trait ChainStore<'a>: Send + Sync {
             })
             .collect();
 
-        if cache_enable {
-            BLOCK_TX_HASHES_CACHE
-                .lock()
-                .insert(hash.clone(), ret.clone());
-        }
+        BLOCK_TX_HASHES_CACHE.with(|cache| {
+            cache.borrow_mut().insert(hash.clone(), ret.clone());
+        });
 
         ret
     }
@@ -113,14 +124,20 @@ pub trait ChainStore<'a>: Send + Sync {
         &'a self,
         hash: &packed::Byte32,
     ) -> Option<packed::ProposalShortIdVec> {
-        let cache_enable = cache_enable();
-        if cache_enable {
-            if let Some(data) = BLOCK_PROPOSALS_CACHE.lock().get_refresh(hash) {
-                return Some(data.clone());
+        let mut ret: Option<packed::ProposalShortIdVec> = Default::default();
+        let mut hit = false;
+        BLOCK_PROPOSALS_CACHE.with(|cache| {
+            if let Some(data) = cache.borrow_mut().get_refresh(hash) {
+                ret = Some(data.clone());
+                hit = true;
             }
+        });
+
+        if hit {
+            return ret;
         }
 
-        let ret = self
+        ret = self
             .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
             .map(|slice| {
                 packed::ProposalShortIdVecReader::from_slice(&slice.as_ref())
@@ -128,43 +145,44 @@ pub trait ChainStore<'a>: Send + Sync {
                     .to_entity()
             });
 
-        if cache_enable {
-            ret.map(|data| {
-                BLOCK_PROPOSALS_CACHE
-                    .lock()
-                    .insert(hash.clone(), data.clone());
-                data
-            })
-        } else {
-            ret
+        if let Some(data) = ret.clone() {
+            BLOCK_PROPOSALS_CACHE.with(|cache| {
+                cache.borrow_mut().insert(hash.clone(), data);
+            });
         }
+
+        ret
     }
 
     /// Get block uncles by block header hash
     fn get_block_uncles(&'a self, hash: &packed::Byte32) -> Option<UncleBlockVecView> {
-        let cache_enable = cache_enable();
-        if cache_enable {
-            if let Some(data) = BLOCK_UNCLES_CACHE.lock().get_refresh(&hash) {
-                return Some(data.clone());
+        let mut ret: Option<UncleBlockVecView> = Default::default();
+        let mut hit = false;
+
+        BLOCK_UNCLES_CACHE.with(|cache| {
+            if let Some(data) = cache.borrow_mut().get_refresh(&hash) {
+                ret = Some(data.clone());
+                hit = true;
             }
+        });
+
+        if hit {
+            return ret;
         }
 
-        let ret = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
+        ret = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
             let reader =
                 packed::UncleBlockVecViewReader::from_slice(&slice.as_ref()).should_be_ok();
             Unpack::<UncleBlockVecView>::unpack(&reader)
         });
 
-        if cache_enable {
-            ret.map(|uncles| {
-                BLOCK_UNCLES_CACHE
-                    .lock()
-                    .insert(hash.clone(), uncles.clone());
-                uncles
-            })
-        } else {
-            ret
+        if let Some(uncles) = ret.clone() {
+            BLOCK_UNCLES_CACHE.with(|cache| {
+                cache.borrow_mut().insert(hash.clone(), uncles);
+            });
         }
+
+        ret
     }
 
     /// Get block ext by block header hash
@@ -293,17 +311,20 @@ pub trait ChainStore<'a>: Send + Sync {
     }
 
     fn get_cell_data(&'a self, tx_hash: &packed::Byte32, index: u32) -> Option<Bytes> {
-        let cache_enable = cache_enable();
-        if cache_enable {
-            if let Some(data) = CELL_DATA_CACHE
-                .lock()
-                .get_refresh(&(tx_hash.clone(), index))
-            {
-                return Some(data.clone());
-            }
+        let mut ret: Option<Bytes> = Default::default();
+        let mut hit = false;
+        CELL_DATA_CACHE.with(|cache| {
+            if let Some(data) = cache.borrow_mut().get_refresh(&(tx_hash.clone(), index)) {
+                ret = Some(data.clone());
+                hit = true;
+            };
+        });
+
+        if hit {
+            return ret;
         }
 
-        let ret = self.get_transaction_info_packed(tx_hash).and_then(|info| {
+        ret = self.get_transaction_info_packed(tx_hash).and_then(|info| {
             self.get(COLUMN_BLOCK_BODY, info.key().as_slice())
                 .and_then(|slice| {
                     let reader =
@@ -316,16 +337,13 @@ pub trait ChainStore<'a>: Send + Sync {
                 })
         });
 
-        if cache_enable {
-            ret.map(|data| {
-                CELL_DATA_CACHE
-                    .lock()
-                    .insert((tx_hash.clone(), index), data.clone());
-                data
-            })
-        } else {
-            ret
+        if let Some(data) = ret.clone() {
+            CELL_DATA_CACHE.with(|cache| {
+                cache.borrow_mut().insert((tx_hash.clone(), index), data);
+            });
         }
+
+        ret
     }
 
     // Get current epoch ext
@@ -381,11 +399,18 @@ pub trait ChainStore<'a>: Send + Sync {
 
     // Get cellbase by block hash
     fn get_cellbase(&'a self, hash: &packed::Byte32) -> Option<TransactionView> {
-        let cache_enable = cache_enable();
-        if cache_enable {
-            if let Some(data) = CELLBASE_CACHE.lock().get_refresh(&hash) {
-                return Some(data.clone());
+        let mut ret: Option<TransactionView> = Default::default();
+        let mut hit = false;
+
+        CELLBASE_CACHE.with(|cache| {
+            if let Some(data) = cache.borrow_mut().get_refresh(&hash) {
+                ret = Some(data.clone());
+                hit = true;
             }
+        });
+
+        if hit {
+            return ret;
         }
 
         let key = packed::TransactionKey::new_builder()
@@ -396,14 +421,13 @@ pub trait ChainStore<'a>: Send + Sync {
             Unpack::<TransactionView>::unpack(&reader)
         });
 
-        if cache_enable {
-            ret.map(|data| {
-                CELLBASE_CACHE.lock().insert(hash.clone(), data.clone());
-                data
+        if let Some(data) = ret.clone() {
+            CELLBASE_CACHE.with(|cache| {
+                cache.borrow_mut().insert(hash.clone(), data);
             })
-        } else {
-            ret
         }
+
+        ret
     }
 
     fn next_epoch_ext(
