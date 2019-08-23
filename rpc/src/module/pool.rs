@@ -1,9 +1,8 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{Timestamp, Transaction, TxPoolInfo, Unsigned};
-use ckb_logger::error;
-use ckb_network::NetworkController;
+use ckb_network::PeerIndex;
 use ckb_shared::shared::Shared;
-use ckb_sync::NetworkProtocol;
+use ckb_sync::SyncSharedState;
 use ckb_tx_pool_executor::TxPoolExecutor;
 use ckb_types::{core, packed, prelude::*, H256};
 use jsonrpc_core::Result;
@@ -22,17 +21,17 @@ pub trait PoolRpc {
 }
 
 pub(crate) struct PoolRpcImpl {
-    network_controller: NetworkController,
+    sync_shared_state: Arc<SyncSharedState>,
     shared: Shared,
     tx_pool_executor: Arc<TxPoolExecutor>,
 }
 
 impl PoolRpcImpl {
-    pub fn new(shared: Shared, network_controller: NetworkController) -> PoolRpcImpl {
+    pub fn new(shared: Shared, sync_shared_state: Arc<SyncSharedState>) -> PoolRpcImpl {
         let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.clone()));
         PoolRpcImpl {
+            sync_shared_state,
             shared,
-            network_controller,
             tx_pool_executor,
         }
     }
@@ -46,23 +45,16 @@ impl PoolRpc for PoolRpcImpl {
         let result = self.tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
 
         match result {
-            Ok(cycles) => {
-                let relay_tx = packed::RelayTransaction::new_builder()
-                    .cycles(cycles.pack())
-                    .transaction(tx.data())
-                    .build();
-                let relay_txs = packed::RelayTransactions::new_builder()
-                    .transactions(vec![relay_tx].pack())
-                    .build();
-                let message = packed::RelayMessage::new_builder().set(relay_txs).build();
-                let data = message.as_slice().into();
-                if let Err(err) = self
-                    .network_controller
-                    .broadcast(NetworkProtocol::RELAY.into(), data)
-                {
-                    error!("Broadcast transaction failed: {:?}", err);
-                }
-                Ok(tx.hash().unpack())
+            Ok(_) => {
+                // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
+                let peer_index = PeerIndex::new(usize::max_value());
+                let hash = tx.hash().to_owned();
+                self.sync_shared_state
+                    .tx_hashes()
+                    .entry(peer_index)
+                    .or_default()
+                    .insert(hash.clone());
+                Ok(hash.unpack())
             }
             Err(e) => Err(RPCError::custom(RPCError::Invalid, e.to_string())),
         }
