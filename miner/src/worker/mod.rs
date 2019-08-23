@@ -69,7 +69,7 @@ pub fn start_worker(
 ) -> WorkerController {
     match config {
         WorkerConfig::Dummy(config) => {
-            if let Some(_dummy_engine) = pow.as_any().downcast_ref::<DummyPowEngine>() {
+            if pow.as_any().downcast_ref::<DummyPowEngine>().is_some() {
                 let worker_name = "Dummy-Worker";
                 let pb = mp.add(ProgressBar::new(100));
                 pb.set_style(ProgressStyle::default_bar().template(PROGRESS_BAR_TEMPLATE));
@@ -91,7 +91,7 @@ pub fn start_worker(
             }
         }
         WorkerConfig::EaglesongSimple(config) => {
-            if let Some(_eaglesong_engine) = pow.as_any().downcast_ref::<EaglesongPowEngine>() {
+            if pow.as_any().downcast_ref::<EaglesongPowEngine>().is_some() {
                 let worker_txs = (0..config.threads)
                     .map(|i| {
                         let worker_name = format!("EaglesongSimple-Worker-{}", i);

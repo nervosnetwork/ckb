@@ -590,6 +590,7 @@ dependencies = [
  "ckb-dao 0.19.0-pre",
  "ckb-dao-utils 0.19.0-pre",
  "ckb-db 0.19.0-pre",
+ "ckb-hash 0.19.0-pre",
  "ckb-jsonrpc-types 0.19.0-pre",
  "ckb-logger 0.19.0-pre",
  "ckb-notify 0.19.0-pre",
@@ -603,7 +604,7 @@ dependencies = [
  "ckb-verification 0.19.0-pre",
  "console 0.7.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "eaglesong 0.1.0 (git+https://github.com/rink1969/eaglesong)",
+ "eaglesong 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faketime 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -730,7 +731,7 @@ dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-hash 0.19.0-pre",
  "ckb-types 0.19.0-pre",
- "eaglesong 0.1.0 (git+https://github.com/rink1969/eaglesong)",
+ "eaglesong 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1372,10 +1373,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "eaglesong"
 version = "0.1.0"
-source = "git+https://github.com/rink1969/eaglesong#270ac138e6523d22abf6e5a769a57610f58e0de1"
-dependencies = [
- "crunchy 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "either"
@@ -4040,7 +4038,7 @@ dependencies = [
 "checksum difference 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "524cbf6897b527295dff137cec09ecf3a05f4fddffd7dfcd1585403449e74198"
 "checksum digest 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "05f47366984d3ad862010e22c7ce81a7dbcaebbdfb37241a620f8b6596ee135c"
 "checksum dtoa 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "6d301140eb411af13d3115f9a562c85cc6b541ade9dfa314132244aaee7489dd"
-"checksum eaglesong 0.1.0 (git+https://github.com/rink1969/eaglesong)" = "<none>"
+"checksum eaglesong 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8d978bd5d343e8ab9b5c0fc8d93ff9c602fdc96616ffff9c05ac7a155419b824"
 "checksum either 1.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c67353c641dc847124ea1902d69bd753dee9bb3beff9aa3662ecf86c971d1fac"
 "checksum encode_unicode 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "90b2c9496c001e8cb61827acdefad780795c42264c137744cae6f7d9e3450abd"
 "checksum encoding_rs 0.8.17 (registry+https://github.com/rust-lang/crates.io-index)" = "4155785c79f2f6701f185eb2e6b4caf0555ec03477cb4c70db67b465311620ed"

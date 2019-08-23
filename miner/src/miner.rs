@@ -100,7 +100,6 @@ impl Miner {
                 .build();
             let block = work
                 .block
-                .clone()
                 .as_builder()
                 .header(header)
                 .build()
@@ -115,7 +114,7 @@ impl Miner {
             // submit block and poll new work
             {
                 self.client
-                    .submit_block(&work.work_id.to_string(), &block.data());
+                    .submit_block(&work.work_id.to_string(), block.data());
                 self.client.try_update_block_template();
                 self.notify_workers(WorkerMessage::Start);
             }

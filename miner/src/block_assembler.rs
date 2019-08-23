@@ -556,7 +556,7 @@ mod tests {
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use std::sync::Arc;
 
-    const BASIC_BLOCK_SIZE: u64 = 706;
+    const BASIC_BLOCK_SIZE: u64 = 646;
 
     fn start_chain(
         consensus: Option<Consensus>,
