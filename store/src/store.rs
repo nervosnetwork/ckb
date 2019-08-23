@@ -1,6 +1,6 @@
 use crate::{
-    cache_enable, BLOCK_EXT_CACHE, BLOCK_PROPOSALS_CACHE, BLOCK_TX_HASHES_CACHE,
-    BLOCK_UNCLES_CACHE, CELLBASE_CACHE, CELL_DATA_CACHE, HEADER_CACHE,
+    cache_enable, BLOCK_PROPOSALS_CACHE, BLOCK_TX_HASHES_CACHE, BLOCK_UNCLES_CACHE, CELLBASE_CACHE,
+    CELL_DATA_CACHE, HEADER_CACHE,
 };
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
@@ -169,31 +169,12 @@ pub trait ChainStore<'a>: Send + Sync {
 
     /// Get block ext by block header hash
     fn get_block_ext(&'a self, block_hash: &packed::Byte32) -> Option<BlockExt> {
-        let cache_enable = cache_enable();
-        if cache_enable {
-            if let Some(data) = BLOCK_EXT_CACHE.lock().get_refresh(&block_hash) {
-                return Some(data.clone());
-            }
-        }
-
-        let ret = self
-            .get(COLUMN_BLOCK_EXT, block_hash.as_slice())
+        self.get(COLUMN_BLOCK_EXT, block_hash.as_slice())
             .map(|slice| {
                 packed::BlockExtReader::from_slice(&slice.as_ref()[..])
                     .should_be_ok()
                     .unpack()
-            });
-
-        if cache_enable {
-            ret.map(|data: BlockExt| {
-                BLOCK_EXT_CACHE
-                    .lock()
-                    .insert(block_hash.clone(), data.clone());
-                data
             })
-        } else {
-            ret
-        }
     }
 
     /// Get block header hash by block number
