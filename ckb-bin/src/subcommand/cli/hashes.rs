@@ -19,7 +19,7 @@ struct SystemCell {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct DepGroupCell {
-    pub name: String,
+    pub included_cells: Vec<String>,
     pub tx_hash: H256,
     pub index: usize,
 }
@@ -88,10 +88,10 @@ impl TryFrom<ChainSpec> for SpecHashes {
         let dep_groups = spec
             .genesis
             .dep_groups
-            .keys()
+            .values()
             .enumerate()
-            .map(|(index, name)| DepGroupCell {
-                name: name.clone(),
+            .map(|(index, files)| DepGroupCell {
+                included_cells: files.iter().map(|res| res.to_string()).collect::<Vec<_>>(),
                 tx_hash: dep_group_tx.hash().unpack(),
                 index,
             })

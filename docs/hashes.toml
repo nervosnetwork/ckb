@@ -33,12 +33,12 @@ data_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
 type_hash = "0x4c70007442df0a8f9314f3830f76e9d93aca01b692d06d16d16ba424d7be5fe0"
 
 [[ckb_dev.dep_groups]]
-name = "secp256k1_blake160_sighash_all"
+included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_sighash_all)"]
 tx_hash = "0x9a0d9a0d8bb39cbe468783df7db219f8eb1a703691e3bd2f691f3d1568a3abc1"
 index = 0
 
 [[ckb_dev.dep_groups]]
-name = "secp256k1_ripemd160_sha256_sighash_all"
+included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"]
 tx_hash = "0x9a0d9a0d8bb39cbe468783df7db219f8eb1a703691e3bd2f691f3d1568a3abc1"
 index = 1
 
@@ -76,12 +76,12 @@ data_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
 type_hash = "0x4c70007442df0a8f9314f3830f76e9d93aca01b692d06d16d16ba424d7be5fe0"
 
 [[ckb_testnet.dep_groups]]
-name = "secp256k1_blake160_sighash_all"
+included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_sighash_all)"]
 tx_hash = "0xc97f528578c1032354493d0bc2f82b410982958d389e2b39d6d04410f6fb2fbe"
 index = 0
 
 [[ckb_testnet.dep_groups]]
-name = "secp256k1_ripemd160_sha256_sighash_all"
+included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"]
 tx_hash = "0xc97f528578c1032354493d0bc2f82b410982958d389e2b39d6d04410f6fb2fbe"
 index = 1
 
@@ -119,11 +119,11 @@ data_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
 type_hash = "0x4c70007442df0a8f9314f3830f76e9d93aca01b692d06d16d16ba424d7be5fe0"
 
 [[ckb_staging.dep_groups]]
-name = "secp256k1_blake160_sighash_all"
+included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_sighash_all)"]
 tx_hash = "0x795ff46a579c9c73d1f440c30a1137f7dd7e391a27db887ca1f6f007f4c5ef1a"
 index = 0
 
 [[ckb_staging.dep_groups]]
-name = "secp256k1_ripemd160_sha256_sighash_all"
+included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"]
 tx_hash = "0x795ff46a579c9c73d1f440c30a1137f7dd7e391a27db887ca1f6f007f4c5ef1a"
 index = 1
