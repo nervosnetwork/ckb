@@ -12,7 +12,7 @@ use std::path::PathBuf;
 struct SystemCell {
     pub path: String,
     pub index: usize,
-    pub code_hash: H256,
+    pub data_hash: H256,
     pub type_hash: Option<H256>,
 }
 
@@ -49,18 +49,18 @@ impl TryFrom<ChainSpec> for SpecHashes {
         let cells_hashes = spec
             .genesis
             .system_cells
-            .files
             .iter()
+            .map(|system_cell| &system_cell.file)
             .zip(
                 cellbase
                     .outputs()
                     .into_iter()
-                    .skip(1)
-                    .zip(cellbase.outputs_data().into_iter().skip(1)),
+                    .zip(cellbase.outputs_data().into_iter())
+                    .skip(1),
             )
             .enumerate()
             .map(|(index_minus_one, (resource, (output, data)))| {
-                let code_hash: H256 = CellOutput::calc_data_hash(&data.raw_data());
+                let data_hash: H256 = CellOutput::calc_data_hash(&data.raw_data());
                 let type_hash: Option<H256> = output
                     .type_()
                     .to_opt()
@@ -68,7 +68,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
                 SystemCell {
                     path: resource.to_string(),
                     index: index_minus_one + 1,
-                    code_hash,
+                    data_hash,
                     type_hash,
                 }
             })

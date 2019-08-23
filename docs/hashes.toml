@@ -6,24 +6,24 @@ cellbase = "0xe284ea2bd7013c06ed471108e4c5cdf06b08e84293241075b7fce4bb7eeac906"
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
 index = 1
-code_hash = "0x1d107ddec56ec77b79c41cd10b35a3b47434c93a604ecb8e8e73e7372fe1a794"
+data_hash = "0x1d107ddec56ec77b79c41cd10b35a3b47434c93a604ecb8e8e73e7372fe1a794"
 type_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/dao)"
 index = 2
-code_hash = "0xece45e0979030e2f8909f76258631c42333b1e906fd9701ec3600a464a90b8f6"
+data_hash = "0xece45e0979030e2f8909f76258631c42333b1e906fd9701ec3600a464a90b8f6"
 type_hash = "0x6dd30a6d01bcc3ba014b9549b23ecef4aa453c2518fd047a360b3913095a6f8e"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/secp256k1_data)"
 index = 3
-code_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
+data_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"
 index = 4
-code_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
+data_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
 type_hash = "0x4c70007442df0a8f9314f3830f76e9d93aca01b692d06d16d16ba424d7be5fe0"
 
 [ckb_staging]
@@ -33,24 +33,24 @@ cellbase = "0x5b74744b5f4670e0d3db1ea3e8fb01bcf011733b4b7360cca57f20388bdb17be"
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
 index = 1
-code_hash = "0x1d107ddec56ec77b79c41cd10b35a3b47434c93a604ecb8e8e73e7372fe1a794"
+data_hash = "0x1d107ddec56ec77b79c41cd10b35a3b47434c93a604ecb8e8e73e7372fe1a794"
 type_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/dao)"
 index = 2
-code_hash = "0xece45e0979030e2f8909f76258631c42333b1e906fd9701ec3600a464a90b8f6"
+data_hash = "0xece45e0979030e2f8909f76258631c42333b1e906fd9701ec3600a464a90b8f6"
 type_hash = "0x6dd30a6d01bcc3ba014b9549b23ecef4aa453c2518fd047a360b3913095a6f8e"
 
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/secp256k1_data)"
 index = 3
-code_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
+data_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
 
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"
 index = 4
-code_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
+data_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
 type_hash = "0x4c70007442df0a8f9314f3830f76e9d93aca01b692d06d16d16ba424d7be5fe0"
 
 [ckb_testnet]
@@ -60,22 +60,22 @@ cellbase = "0x5005ea5b01eda9ae7e83dccea427f27a4e0df11fef7516ccf350ae10df1eaa80"
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
 index = 1
-code_hash = "0x1d107ddec56ec77b79c41cd10b35a3b47434c93a604ecb8e8e73e7372fe1a794"
+data_hash = "0x1d107ddec56ec77b79c41cd10b35a3b47434c93a604ecb8e8e73e7372fe1a794"
 type_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/dao)"
 index = 2
-code_hash = "0xece45e0979030e2f8909f76258631c42333b1e906fd9701ec3600a464a90b8f6"
+data_hash = "0xece45e0979030e2f8909f76258631c42333b1e906fd9701ec3600a464a90b8f6"
 type_hash = "0x6dd30a6d01bcc3ba014b9549b23ecef4aa453c2518fd047a360b3913095a6f8e"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_data)"
 index = 3
-code_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
+data_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"
 index = 4
-code_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
+data_hash = "0x1acf88382192fbf76fc5a457a11cc393a90d84a46c5e0d7ceebfd1d0dec871e4"
 type_hash = "0x4c70007442df0a8f9314f3830f76e9d93aca01b692d06d16d16ba424d7be5fe0"

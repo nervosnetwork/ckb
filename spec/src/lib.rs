@@ -16,7 +16,7 @@ use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
 use ckb_resource::{
-    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+    Resource, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
     CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
 };
 use ckb_types::{
@@ -69,14 +69,16 @@ pub struct Genesis {
     pub nonce: u64,
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
-    pub system_cells: SystemCells,
+    pub system_cells: Vec<SystemCell>,
+    pub system_cells_lock: Script,
     pub bootstrap_lock: Script,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct SystemCells {
-    pub files: Vec<Resource>,
-    pub lock: Script,
+pub struct SystemCell {
+    // NOTE: must put `create_type_id` before `file` otherwise this struct can not serialize
+    pub create_type_id: bool,
+    pub file: Resource,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -145,8 +147,8 @@ impl ChainSpec {
         }
 
         if let Some(parent) = resource.parent() {
-            for r in spec.genesis.system_cells.files.iter_mut() {
-                r.absolutize(parent)
+            for r in spec.genesis.system_cells.iter_mut() {
+                r.file.absolutize(parent)
             }
         }
 
@@ -220,9 +222,20 @@ impl Genesis {
 
         // The first output cell is genesis cell
         let system_cells_output_index_start = 1;
-        let (system_cells_outputs, system_cells_data) = self
+        let (system_cells_outputs, system_cells_data): (Vec<_>, Vec<_>) = self
             .system_cells
-            .build_outputs(&input, system_cells_output_index_start)?;
+            .iter()
+            .enumerate()
+            .map(|(index, system_cell)| {
+                system_cell.build_output(
+                    &input,
+                    system_cells_output_index_start + index as u64,
+                    &self.system_cells_lock,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .unzip();
         outputs.extend(system_cells_outputs);
         outputs_data.extend(system_cells_data);
 
@@ -299,11 +312,11 @@ impl Genesis {
 
         let (cell_blake160, data_blake160) = build_dep_group_output(
             vec![secp_data_out_point.clone(), secp_blake160_out_point.clone()],
-            self.system_cells.lock.clone().into(),
+            self.system_cells_lock.clone().into(),
         )?;
         let (cell_ripemd160, data_ripemd160) = build_dep_group_output(
             vec![secp_data_out_point.clone(), secp_ripemd160_out_point],
-            self.system_cells.lock.clone().into(),
+            self.system_cells_lock.clone().into(),
         )?;
         let outputs = vec![cell_blake160, cell_ripemd160];
         let outputs_data = vec![data_blake160.pack(), data_ripemd160.pack()];
@@ -376,55 +389,35 @@ impl IssuedCell {
     }
 }
 
-impl SystemCells {
-    fn len(&self) -> usize {
-        self.files.len()
-    }
-
-    fn build_outputs(
+impl SystemCell {
+    fn build_output(
         &self,
         input: &packed::CellInput,
-        output_index_start: u64,
-    ) -> Result<(Vec<packed::CellOutput>, Vec<Bytes>), Box<dyn Error>> {
-        let mut outputs = Vec::with_capacity(self.files.len());
-        let mut outputs_data = Vec::with_capacity(self.files.len());
-        for (offset, res) in self.files.iter().enumerate() {
-            let data: Bytes = res.get()?.into_owned().into();
-            let data_hash = packed::CellOutput::calc_data_hash(&data).pack();
-
-            let type_script = if [
-                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
-                CODE_HASH_DAO,
-                CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
-            ]
-            .iter()
-            .any(|hash| hash == &data_hash.unpack())
-            {
-                let output_index = output_index_start + offset as u64;
-                let mut blake2b = new_blake2b();
-                blake2b.update(input.as_slice());
-                blake2b.update(&output_index.to_le_bytes());
-                let mut ret = [0; 32];
-                blake2b.finalize(&mut ret);
-                let script_arg = Bytes::from(&ret[..]).pack();
-                let script = packed::Script::new_builder()
-                    .code_hash(TYPE_ID_CODE_HASH.pack())
-                    .hash_type(ScriptHashType::Type.pack())
-                    .args(vec![script_arg].pack())
-                    .build();
-                Some(script)
-            } else {
-                None
-            };
-            let cell = packed::CellOutput::new_builder()
-                .type_(type_script.pack())
-                .lock(self.lock.clone().into())
-                .build_exact_capacity(Capacity::bytes(data.len())?)?;
-            outputs.push(cell);
-            outputs_data.push(data);
-        }
-
-        Ok((outputs, outputs_data))
+        output_index: u64,
+        lock: &Script,
+    ) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
+        let data: Bytes = self.file.get()?.into_owned().into();
+        let type_script = if self.create_type_id {
+            let mut blake2b = new_blake2b();
+            blake2b.update(input.as_slice());
+            blake2b.update(&output_index.to_le_bytes());
+            let mut ret = [0; 32];
+            blake2b.finalize(&mut ret);
+            let script_arg = Bytes::from(&ret[..]).pack();
+            let script = packed::Script::new_builder()
+                .code_hash(TYPE_ID_CODE_HASH.pack())
+                .hash_type(ScriptHashType::Type.pack())
+                .args(vec![script_arg].pack())
+                .build();
+            Some(script)
+        } else {
+            None
+        };
+        let cell = packed::CellOutput::new_builder()
+            .type_(type_script.pack())
+            .lock(lock.clone().into())
+            .build_exact_capacity(Capacity::bytes(data.len())?)?;
+        Ok((cell, data))
     }
 }
 
@@ -438,7 +431,8 @@ pub mod test {
     struct SystemCell {
         pub path: String,
         pub index: usize,
-        pub code_hash: H256,
+        pub data_hash: H256,
+        pub type_hash: Option<H256>,
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -484,14 +478,26 @@ pub mod test {
 
             assert_eq!(spec_hashes.cellbase, cellbase_hash);
 
-            for (index_minus_one, (_output, cell)) in cellbase
-                .outputs()
-                .into_iter()
-                .skip(1)
-                .zip(spec_hashes.system_cells.iter())
+            for (index_minus_one, (cell, (output, data))) in spec_hashes
+                .system_cells
+                .iter()
+                .zip(
+                    cellbase
+                        .outputs()
+                        .into_iter()
+                        .zip(cellbase.outputs_data().into_iter())
+                        .skip(1),
+                )
                 .enumerate()
             {
+                let data_hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data());
+                let type_hash: Option<H256> = output
+                    .type_()
+                    .to_opt()
+                    .map(|script| script.calc_script_hash());
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
+                assert_eq!(cell.data_hash, data_hash, "{}", bundled_spec_err);
+                assert_eq!(cell.type_hash, type_hash, "{}", bundled_spec_err);
             }
         }
     }
