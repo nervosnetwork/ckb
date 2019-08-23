@@ -590,7 +590,6 @@ dependencies = [
  "ckb-dao 0.19.0-pre",
  "ckb-dao-utils 0.19.0-pre",
  "ckb-db 0.19.0-pre",
- "ckb-hash 0.19.0-pre",
  "ckb-jsonrpc-types 0.19.0-pre",
  "ckb-logger 0.19.0-pre",
  "ckb-notify 0.19.0-pre",

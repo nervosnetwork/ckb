@@ -98,12 +98,7 @@ impl Miner {
                 .raw(raw_header)
                 .nonce(nonce.pack())
                 .build();
-            let block = work
-                .block
-                .as_builder()
-                .header(header)
-                .build()
-                .into_view();
+            let block = work.block.as_builder().header(header).build().into_view();
             let block_hash: H256 = block.hash().unpack();
             if self.stderr_is_tty {
                 debug!("Found! #{} {:#x}", block.number(), block_hash);
