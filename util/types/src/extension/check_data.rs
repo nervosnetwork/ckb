@@ -60,15 +60,9 @@ impl<'r> packed::RawTransactionReader<'r> {
     }
 }
 
-impl<'r> packed::SlimTransactionReader<'r> {
-    pub fn check_data(&self) -> bool {
-        self.raw().check_data()
-    }
-}
-
 impl<'r> packed::TransactionReader<'r> {
     pub fn check_data(&self) -> bool {
-        self.slim().check_data()
+        self.raw().check_data()
     }
 }
 
@@ -138,8 +132,7 @@ mod tests {
             .outputs(outputs.into_iter().pack())
             .cell_deps(cell_deps.into_iter().pack())
             .build();
-        let slim = packed::SlimTransaction::new_builder().raw(raw).build();
-        packed::Transaction::new_builder().slim(slim).build()
+        packed::Transaction::new_builder().raw(raw).build()
     }
 
     fn test_check_data_via_transaction(
