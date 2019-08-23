@@ -1,6 +1,6 @@
 use crate::{
     bytes::Bytes,
-    core::{BlockView, Capacity, TransactionInfo, TransactionView},
+    core::{BlockView, Capacity, DepType, TransactionInfo, TransactionView},
     packed::{Byte32, CellOutput, OutPoint, OutPointVec},
     prelude::*,
 };
@@ -325,7 +325,7 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
         Vec::with_capacity(tx.cell_deps().len()),
         |mut out_points, dep| {
             let out_point = dep.out_point();
-            if Unpack::<bool>::unpack(&dep.is_dep_group()) {
+            if dep.dep_type().unpack() == DepType::DepGroup {
                 let data = get_cell_data(&out_point)
                     .ok_or_else(|| String::from("Can not get cell data"))?;
                 let sub_out_points =
@@ -432,7 +432,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     }
 
     for cell_dep in transaction.cell_deps_iter() {
-        if Unpack::<bool>::unpack(&cell_dep.is_dep_group()) {
+        if cell_dep.dep_type().unpack() == DepType::DepGroup {
             if let Some((dep_group, cell_deps)) =
                 resolve_dep_group(&cell_dep.out_point(), &mut resolve_cell)?
             {
@@ -610,7 +610,10 @@ mod tests {
             .cells
             .insert(op_dep.clone(), Some(dep_group_cell));
 
-        let dep = CellDep::new(op_dep, true);
+        let dep = CellDep::new_builder()
+            .out_point(op_dep)
+            .dep_type(DepType::DepGroup.pack())
+            .build();
 
         let transaction = TransactionBuilder::default().cell_dep(dep).build();
         let mut seen_inputs = HashSet::new();
@@ -640,7 +643,10 @@ mod tests {
             .cells
             .insert(op_dep.clone(), Some(dep_group_cell));
 
-        let dep = CellDep::new(op_dep.clone(), true);
+        let dep = CellDep::new_builder()
+            .out_point(op_dep.clone())
+            .dep_type(DepType::DepGroup.pack())
+            .build();
 
         let transaction = TransactionBuilder::default().cell_dep(dep).build();
         let mut seen_inputs = HashSet::new();
@@ -669,7 +675,10 @@ mod tests {
             .cells
             .insert(op_dep.clone(), Some(dep_group_cell));
 
-        let dep = CellDep::new(op_dep.clone(), true);
+        let dep = CellDep::new_builder()
+            .out_point(op_dep.clone())
+            .dep_type(DepType::DepGroup.pack())
+            .build();
 
         let transaction = TransactionBuilder::default().cell_dep(dep).build();
         let mut seen_inputs = HashSet::new();
@@ -759,9 +768,10 @@ mod tests {
             .input(CellInput::new(OutPoint::new(tx1.hash().unpack(), 0), 0))
             .build();
 
-        let tx3 = TransactionBuilder::default()
-            .cell_dep(CellDep::new(OutPoint::new(tx1.hash().unpack(), 0), false))
+        let dep = CellDep::new_builder()
+            .out_point(OutPoint::new(tx1.hash().unpack(), 0))
             .build();
+        let tx3 = TransactionBuilder::default().cell_dep(dep).build();
 
         // tx1 <- tx2
         // ok
@@ -823,9 +833,10 @@ mod tests {
             .cells
             .insert(out_point.clone(), Some(dummy_cell_meta.clone()));
 
+        let dep = CellDep::new_builder().out_point(out_point.clone()).build();
         let tx = TransactionBuilder::default()
             .input(CellInput::new(out_point.clone(), 0))
-            .cell_dep(CellDep::new(out_point.clone(), false))
+            .cell_dep(dep)
             .build();
 
         let mut seen_inputs = HashSet::new();
@@ -850,9 +861,8 @@ mod tests {
         // tx2 input consumed
         // ok
         {
-            let tx1 = TransactionBuilder::default()
-                .cell_dep(CellDep::new(out_point.clone(), false))
-                .build();
+            let dep = CellDep::new_builder().out_point(out_point.clone()).build();
+            let tx1 = TransactionBuilder::default().cell_dep(dep).build();
             let tx2 = TransactionBuilder::default()
                 .input(CellInput::new(out_point.clone(), 0))
                 .build();
@@ -875,9 +885,8 @@ mod tests {
                 .input(CellInput::new(out_point.clone(), 0))
                 .build();
 
-            let tx2 = TransactionBuilder::default()
-                .cell_dep(CellDep::new(out_point.clone(), false))
-                .build();
+            let dep = CellDep::new_builder().out_point(out_point.clone()).build();
+            let tx2 = TransactionBuilder::default().cell_dep(dep).build();
 
             let mut seen_inputs = HashSet::new();
             let result1 =

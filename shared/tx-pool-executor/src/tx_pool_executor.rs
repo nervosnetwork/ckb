@@ -192,7 +192,8 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            capacity_bytes, cell::UnresolvableError, BlockBuilder, Capacity, TransactionBuilder,
+            capacity_bytes, cell::UnresolvableError, BlockBuilder, Capacity, DepType,
+            TransactionBuilder,
         },
         packed::{CellDep, CellInput, CellOutput, OutPoint},
         prelude::*,
@@ -269,7 +270,12 @@ mod tests {
                             .build(),
                     )
                     .output_data(Default::default())
-                    .cell_dep(CellDep::new(always_success_out_point.to_owned(), false))
+                    .cell_dep(
+                        CellDep::new_builder()
+                            .out_point(always_success_out_point.to_owned())
+                            .dep_type(DepType::Code.pack())
+                            .build(),
+                    )
                     .build()
             });
 
@@ -315,7 +321,12 @@ mod tests {
                             .build(),
                     )
                     .output_data(data.pack())
-                    .cell_dep(CellDep::new(always_success_out_point.to_owned(), false))
+                    .cell_dep(
+                        CellDep::new_builder()
+                            .out_point(always_success_out_point.to_owned())
+                            .dep_type(DepType::Code.pack())
+                            .build(),
+                    )
                     .build()
             })
             .collect::<Vec<_>>();
@@ -380,7 +391,12 @@ mod tests {
                             .build(),
                     )
                     .output_data(Default::default())
-                    .cell_dep(CellDep::new(always_success_out_point.to_owned(), false))
+                    .cell_dep(
+                        CellDep::new_builder()
+                            .out_point(always_success_out_point.to_owned())
+                            .dep_type(DepType::Code.pack())
+                            .build(),
+                    )
                     .build()
             })
             .collect();

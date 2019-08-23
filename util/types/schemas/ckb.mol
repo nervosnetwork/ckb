@@ -25,6 +25,7 @@ option ScriptOpt (Script);
 
 array ProposalShortId [byte; 10];
 array ScriptHashType [byte; 1];
+array DepType [byte; 1];
 
 vector HeaderVec <Header>;
 vector UncleBlockVec <UncleBlock>;
@@ -60,7 +61,7 @@ table CellOutput {
 
 table CellDep {
     out_point:      OutPoint,
-    is_dep_group:   Bool,
+    dep_type:       DepType,
 }
 
 vector Witness <Bytes>;

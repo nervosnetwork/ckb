@@ -315,8 +315,12 @@ pub fn gen_secp_block(
 ) -> BlockView {
     let tx = create_secp_tx();
     let secp_cell_deps = vec![
-        CellDep::new(OutPoint::new(tx.hash().unpack(), 0), false),
-        CellDep::new(OutPoint::new(tx.hash().unpack(), 1), false),
+        CellDep::new_builder()
+            .out_point(OutPoint::new(tx.hash().unpack(), 0))
+            .build(),
+        CellDep::new_builder()
+            .out_point(OutPoint::new(tx.hash().unpack(), 1))
+            .build(),
     ];
     let (_, _, secp_script) = secp_cell();
     let (number, timestamp, difficulty) = (
@@ -389,7 +393,7 @@ fn create_transaction(parent_hash: &H256, lock: Script, dep: OutPoint) -> Transa
         )
         .output_data(data.pack())
         .input(CellInput::new(OutPoint::new(parent_hash.to_owned(), 0), 0))
-        .cell_dep(CellDep::new(dep, false))
+        .cell_dep(CellDep::new_builder().out_point(dep).build())
         .build()
 }
 

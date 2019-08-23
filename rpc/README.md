@@ -654,7 +654,7 @@ http://localhost:8114
         "transaction": {
             "cell_deps": [
                 {
-                    "is_dep_group": false,
+                    "dep_type": "Code",
                     "out_point": {
                         "index": "0",
                         "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -768,7 +768,7 @@ echo '{
         {
             "cell_deps": [
                 {
-                    "is_dep_group": false,
+                    "dep_type": "Code",
                     "out_point": {
                         "index": "0",
                         "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -839,7 +839,7 @@ echo '{
         {
             "cell_deps": [
                 {
-                    "is_dep_group": false,
+                    "dep_type": "Code",
                     "out_point": {
                         "index": "0",
                         "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -1322,7 +1322,7 @@ echo '{
         {
             "cell_deps": [
                 {
-                    "is_dep_group": false,
+                    "dep_type": "Code",
                     "out_point": {
                         "index": "0",
                         "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"

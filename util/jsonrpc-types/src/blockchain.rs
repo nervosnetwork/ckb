@@ -178,17 +178,47 @@ impl From<Witness> for packed::Witness {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+pub enum DepType {
+    Code,
+    DepGroup,
+}
+
+impl Default for DepType {
+    fn default() -> Self {
+        DepType::Code
+    }
+}
+
+impl From<DepType> for core::DepType {
+    fn from(json: DepType) -> Self {
+        match json {
+            DepType::Code => core::DepType::Code,
+            DepType::DepGroup => core::DepType::DepGroup,
+        }
+    }
+}
+
+impl From<core::DepType> for DepType {
+    fn from(core: core::DepType) -> DepType {
+        match core {
+            core::DepType::Code => DepType::Code,
+            core::DepType::DepGroup => DepType::DepGroup,
+        }
+    }
+}
+
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellDep {
     out_point: OutPoint,
-    is_dep_group: bool,
+    dep_type: DepType,
 }
 
 impl From<packed::CellDep> for CellDep {
     fn from(input: packed::CellDep) -> Self {
         CellDep {
             out_point: input.out_point().into(),
-            is_dep_group: input.is_dep_group().unpack(),
+            dep_type: input.dep_type().unpack().into(),
         }
     }
 }
@@ -197,11 +227,12 @@ impl From<CellDep> for packed::CellDep {
     fn from(json: CellDep) -> Self {
         let CellDep {
             out_point,
-            is_dep_group,
+            dep_type,
         } = json;
+        let dep_type: core::DepType = dep_type.into();
         packed::CellDep::new_builder()
             .out_point(out_point.into())
-            .is_dep_group(is_dep_group.pack())
+            .dep_type(dep_type.pack())
             .build()
     }
 }
@@ -681,7 +712,6 @@ mod tests {
 
     fn mock_full_tx(data: Bytes, arg: Bytes) -> core::TransactionView {
         TransactionBuilder::default()
-            .cell_dep(packed::CellDep::new(packed::OutPoint::default(), false))
             .inputs(vec![mock_cell_input()])
             .outputs(vec![mock_cell_output(arg.clone())])
             .outputs_data(vec![data.pack()])

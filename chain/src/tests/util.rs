@@ -154,7 +154,11 @@ pub(crate) fn create_multi_outputs_transaction(
         .outputs(outputs)
         .outputs_data(outputs_data)
         .inputs(inputs)
-        .cell_dep(CellDep::new(always_success_out_point, false))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
         .build()
 }
 
@@ -179,7 +183,11 @@ pub(crate) fn create_transaction_with_out_point(
         )
         .output_data(data.pack())
         .input(CellInput::new(out_point, 0))
-        .cell_dep(CellDep::new(always_success_out_point, false))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
         .build()
 }
 

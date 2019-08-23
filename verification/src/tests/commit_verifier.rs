@@ -61,7 +61,9 @@ fn create_transaction(
     let inputs: Vec<CellInput> = (0..100)
         .map(|index| CellInput::new(OutPoint::new(parent.clone(), index), 0))
         .collect();
-    let cell_dep = CellDep::new(always_success_out_point.to_owned(), false);
+    let cell_dep = CellDep::new_builder()
+        .out_point(always_success_out_point.to_owned())
+        .build();
 
     TransactionBuilder::default()
         .inputs(inputs.pack())

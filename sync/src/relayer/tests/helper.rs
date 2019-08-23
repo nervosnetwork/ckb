@@ -84,7 +84,11 @@ pub(crate) fn new_transaction(
             .build(),
         )
         .output_data(Bytes::new().pack())
-        .cell_dep(CellDep::new(always_success_out_point.to_owned(), false))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point.to_owned())
+                .build(),
+        )
         .build()
 }
 
