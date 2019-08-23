@@ -136,41 +136,42 @@ impl TransactionView {
     define_simple_getter!(witness_hash, Byte32);
 
     pub fn version(&self) -> Version {
-        self.data().slim().raw().version().unpack()
+        self.data().raw().version().unpack()
     }
 
     pub fn cell_deps(&self) -> packed::CellDepVec {
-        self.data().slim().raw().cell_deps()
+        self.data().raw().cell_deps()
     }
 
     pub fn header_deps(&self) -> packed::Byte32Vec {
-        self.data().slim().raw().header_deps()
+        self.data().raw().header_deps()
     }
 
     pub fn inputs(&self) -> packed::CellInputVec {
-        self.data().slim().raw().inputs()
+        self.data().raw().inputs()
     }
 
     pub fn outputs(&self) -> packed::CellOutputVec {
-        self.data().slim().raw().outputs()
-    }
-
-    pub fn witnesses(&self) -> packed::WitnessVec {
-        self.data().slim().witnesses()
+        self.data().raw().outputs()
     }
 
     pub fn outputs_data(&self) -> packed::BytesVec {
-        self.data().outputs_data()
+        self.data().raw().outputs_data()
+    }
+
+    pub fn witnesses(&self) -> packed::WitnessVec {
+        self.data().witnesses()
     }
 
     pub fn output(&self, idx: usize) -> Option<packed::CellOutput> {
-        self.data().slim().raw().outputs().get(idx)
+        self.data().raw().outputs().get(idx)
     }
 
     pub fn output_with_data(&self, idx: usize) -> Option<(packed::CellOutput, Bytes)> {
-        self.data().slim().raw().outputs().get(idx).map(|output| {
+        self.data().raw().outputs().get(idx).map(|output| {
             let data = self
                 .data()
+                .raw()
                 .outputs_data()
                 .get(idx)
                 .should_be_ok()
@@ -181,14 +182,13 @@ impl TransactionView {
 
     pub fn output_pts(&self) -> Vec<packed::OutPoint> {
         let h: H256 = self.hash().unpack();
-        (0..self.data().slim().raw().outputs().len())
+        (0..self.data().raw().outputs().len())
             .map(|x| packed::OutPoint::new(h.clone(), x as u32))
             .collect()
     }
 
     pub fn input_pts_iter(&self) -> impl Iterator<Item = packed::OutPoint> {
         self.data()
-            .slim()
             .raw()
             .inputs()
             .into_iter()
@@ -202,11 +202,11 @@ impl TransactionView {
     }
 
     pub fn cell_deps_iter(&self) -> impl Iterator<Item = packed::CellDep> {
-        self.data().slim().raw().cell_deps().into_iter()
+        self.data().raw().cell_deps().into_iter()
     }
 
     pub fn header_deps_iter(&self) -> impl Iterator<Item = packed::Byte32> {
-        self.data().slim().raw().header_deps().into_iter()
+        self.data().raw().header_deps().into_iter()
     }
 
     pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {
@@ -220,7 +220,7 @@ impl TransactionView {
     }
 
     pub fn outputs_capacity(&self) -> CapacityResult<Capacity> {
-        self.data().slim().raw().outputs().total_capacity()
+        self.data().raw().outputs().total_capacity()
     }
 
     pub fn is_cellbase(&self) -> bool {
@@ -228,7 +228,7 @@ impl TransactionView {
     }
 
     pub fn is_empty(&self) -> bool {
-        let raw = self.data().slim().raw();
+        let raw = self.data().raw();
         raw.inputs().is_empty() || raw.outputs().is_empty()
     }
 
@@ -495,7 +495,7 @@ impl BlockView {
         self.data
             .transactions()
             .get(tx_index)
-            .and_then(|tx| tx.slim().raw().outputs().get(index))
+            .and_then(|tx| tx.raw().outputs().get(index))
     }
 
     pub fn fake_hash(mut self, hash: packed::Byte32) -> Self {

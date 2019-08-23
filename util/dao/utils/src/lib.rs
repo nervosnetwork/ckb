@@ -28,7 +28,6 @@ pub enum Error {
 pub fn genesis_dao_data(genesis_cellbase_tx: &TransactionView) -> Result<Bytes, FailureError> {
     let c = genesis_cellbase_tx
         .data()
-        .slim()
         .raw()
         .outputs()
         .into_iter()
@@ -38,13 +37,13 @@ pub fn genesis_dao_data(genesis_cellbase_tx: &TransactionView) -> Result<Bytes, 
         })?;
     let u = genesis_cellbase_tx
         .data()
-        .slim()
         .raw()
         .outputs()
         .into_iter()
         .zip(
             genesis_cellbase_tx
                 .data()
+                .raw()
                 .outputs_data()
                 .into_iter()
                 .map(|d| d.raw_data()),

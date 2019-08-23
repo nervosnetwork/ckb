@@ -3,7 +3,6 @@ use crate::{
     core::{BlockView, Capacity, TransactionInfo, TransactionView},
     packed::{Byte32, CellOutput, OutPoint, OutPointVec},
     prelude::*,
-    H256,
 };
 use ckb_occupied_capacity::Result as CapacityResult;
 use std::collections::{HashMap, HashSet};
@@ -17,10 +16,10 @@ pub struct CellMeta {
     pub out_point: OutPoint,
     pub transaction_info: Option<TransactionInfo>,
     pub data_bytes: u64,
-    /// In memory cell data
+    /// In memory cell data and its hash
     /// A live cell either exists in memory or DB
     /// must check DB if this field is None
-    pub mem_cell_data: Option<Bytes>,
+    pub mem_cell_data: Option<(Bytes, Byte32)>,
 }
 
 #[derive(Default)]
@@ -29,7 +28,7 @@ pub struct CellMetaBuilder {
     out_point: OutPoint,
     transaction_info: Option<TransactionInfo>,
     data_bytes: u64,
-    mem_cell_data: Option<Bytes>,
+    mem_cell_data: Option<(Bytes, Byte32)>,
 }
 
 impl CellMetaBuilder {
@@ -54,7 +53,8 @@ impl CellMetaBuilder {
         let mut builder = CellMetaBuilder::default();
         builder.cell_output = cell_output;
         builder.data_bytes = data.len().try_into().expect("u32");
-        builder.mem_cell_data = Some(data);
+        let data_hash = CellOutput::calc_data_hash(&data).pack();
+        builder.mem_cell_data = Some((data, data_hash));
         builder
     }
 
@@ -107,10 +107,6 @@ impl CellMeta {
 
     pub fn capacity(&self) -> Capacity {
         self.cell_output.capacity().unpack()
-    }
-
-    pub fn data_hash(&self) -> H256 {
-        self.cell_output.data_hash().unpack()
     }
 
     pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
@@ -249,11 +245,11 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                 let j: usize = out_point.index().unpack();
                 self.block.output(*i, j).map(|output| {
                     let data = transaction
-                        .data()
                         .outputs_data()
                         .get(j)
                         .expect("must exists")
                         .raw_data();
+                    let data_hash = CellOutput::calc_data_hash(&data).pack();
                     let header = self.block.header();
                     CellStatus::live_cell(CellMeta {
                         cell_output: output,
@@ -265,7 +261,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                             index: *i,
                         }),
                         data_bytes: data.len() as u64,
-                        mem_cell_data: Some(data),
+                        mem_cell_data: Some((data, data_hash)),
                     })
                 })
             })
@@ -372,13 +368,14 @@ fn resolve_dep_group<
     let data = dep_group_cell
         .mem_cell_data
         .clone()
-        .expect("Load cell meta must with data");
+        .expect("Load cell meta must with data")
+        .0;
 
     let sub_out_points = parse_dep_group_data(&data)
         .map_err(|_| UnresolvableError::InvalidDepGroup(out_point.clone()))?;
     let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
     for sub_out_point in sub_out_points.into_iter() {
-        if let Some(sub_cell_meta) = cell_resolver(&sub_out_point, false)? {
+        if let Some(sub_cell_meta) = cell_resolver(&sub_out_point, true)? {
             resolved_deps.push(*sub_cell_meta);
         }
     }
@@ -442,7 +439,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
                 resolved_dep_groups.push(dep_group);
                 resolved_cell_deps.extend(cell_deps);
             }
-        } else if let Some(cell_meta) = resolve_cell(&cell_dep.out_point(), false)? {
+        } else if let Some(cell_meta) = resolve_cell(&cell_dep.out_point(), true)? {
             resolved_cell_deps.push(*cell_meta);
         }
     }
@@ -540,8 +537,8 @@ mod tests {
     fn generate_dummy_cell_meta_with_info(out_point: OutPoint, data: Bytes) -> CellMeta {
         let cell_output = CellOutput::new_builder()
             .capacity(capacity_bytes!(2).pack())
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .build();
+        let data_hash = CellOutput::calc_data_hash(&data).pack();
         CellMeta {
             transaction_info: Some(TransactionInfo {
                 block_number: 1,
@@ -552,7 +549,7 @@ mod tests {
             cell_output,
             out_point,
             data_bytes: data.len() as u64,
-            mem_cell_data: Some(data),
+            mem_cell_data: Some((data, data_hash)),
         }
     }
 

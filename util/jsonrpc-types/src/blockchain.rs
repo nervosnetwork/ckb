@@ -69,7 +69,6 @@ impl From<packed::Script> for Script {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellOutput {
     pub capacity: Capacity,
-    pub data_hash: H256,
     pub lock: Script,
     #[serde(rename = "type")]
     pub type_: Option<Script>,
@@ -79,7 +78,6 @@ impl From<packed::CellOutput> for CellOutput {
     fn from(input: packed::CellOutput) -> CellOutput {
         CellOutput {
             capacity: Capacity(input.capacity().unpack()),
-            data_hash: input.data_hash().unpack(),
             lock: input.lock().into(),
             type_: input.type_().to_opt().map(Into::into),
         }
@@ -90,7 +88,6 @@ impl From<CellOutput> for packed::CellOutput {
     fn from(json: CellOutput) -> Self {
         let CellOutput {
             capacity,
-            data_hash,
             lock,
             type_,
         } = json;
@@ -102,7 +99,6 @@ impl From<CellOutput> for packed::CellOutput {
         .build();
         packed::CellOutput::new_builder()
             .capacity(capacity.0.pack())
-            .data_hash(data_hash.pack())
             .lock(lock.into())
             .type_(type_)
             .build()
@@ -230,7 +226,7 @@ pub struct TransactionView {
 
 impl From<packed::Transaction> for Transaction {
     fn from(input: packed::Transaction) -> Self {
-        let raw = input.slim().raw();
+        let raw = input.raw();
         Self {
             version: Version(raw.version().unpack()),
             cell_deps: raw.cell_deps().into_iter().map(Into::into).collect(),
@@ -241,13 +237,8 @@ impl From<packed::Transaction> for Transaction {
                 .collect(),
             inputs: raw.inputs().into_iter().map(Into::into).collect(),
             outputs: raw.outputs().into_iter().map(Into::into).collect(),
-            witnesses: input
-                .slim()
-                .witnesses()
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            outputs_data: input.outputs_data().into_iter().map(Into::into).collect(),
+            outputs_data: raw.outputs_data().into_iter().map(Into::into).collect(),
+            witnesses: input.witnesses().into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -278,14 +269,11 @@ impl From<Transaction> for packed::Transaction {
             .header_deps(header_deps.iter().map(Pack::pack).pack())
             .inputs(inputs.into_iter().map(Into::into).pack())
             .outputs(outputs.into_iter().map(Into::into).pack())
-            .build();
-        let slim = packed::SlimTransaction::new_builder()
-            .raw(raw)
-            .witnesses(witnesses.into_iter().map(Into::into).pack())
+            .outputs_data(outputs_data.into_iter().map(Into::into).pack())
             .build();
         packed::Transaction::new_builder()
-            .slim(slim)
-            .outputs_data(outputs_data.into_iter().map(Into::into).pack())
+            .raw(raw)
+            .witnesses(witnesses.into_iter().map(Into::into).pack())
             .build()
     }
 }
@@ -704,10 +692,9 @@ mod tests {
             .build()
     }
 
-    fn mock_cell_output(data: Bytes, arg: Bytes) -> packed::CellOutput {
+    fn mock_cell_output(arg: Bytes) -> packed::CellOutput {
         packed::CellOutputBuilder::default()
             .capacity(core::Capacity::zero().pack())
-            .data_hash(packed::CellOutput::calc_data_hash(&data).pack())
             .lock(packed::Script::default())
             .type_(Some(mock_script(arg)).pack())
             .build()
@@ -721,8 +708,7 @@ mod tests {
         TransactionBuilder::default()
             .cell_dep(packed::CellDep::new(packed::OutPoint::default(), false))
             .inputs(vec![mock_cell_input()])
-            .outputs(vec![mock_cell_output(data.clone(), arg.clone())])
-            .outputs(vec![mock_cell_output(data.clone(), arg.clone())])
+            .outputs(vec![mock_cell_output(arg.clone())])
             .outputs_data(vec![data.pack()])
             .witness(vec![arg.pack()].pack())
             .build()

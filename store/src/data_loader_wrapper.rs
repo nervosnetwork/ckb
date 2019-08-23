@@ -15,8 +15,7 @@ impl<'a, T: ChainStore<'a>> DataLoaderWrapper<'a, T> {
 }
 
 impl<'a, T: ChainStore<'a>> DataLoader for DataLoaderWrapper<'a, T> {
-    // load CellOutput
-    fn load_cell_data(&self, cell: &CellMeta) -> Option<Bytes> {
+    fn load_cell_data(&self, cell: &CellMeta) -> Option<(Bytes, Byte32)> {
         cell.mem_cell_data
             .as_ref()
             .map(ToOwned::to_owned)

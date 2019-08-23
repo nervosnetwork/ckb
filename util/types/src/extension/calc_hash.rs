@@ -78,11 +78,11 @@ impl_calc_special_hash_for_entity!(ProposalShortIdVec, calc_proposals_hash);
 
 impl<'r> packed::TransactionReader<'r> {
     pub fn calc_tx_hash(&self) -> H256 {
-        self.slim().raw().calc_hash()
+        self.raw().calc_hash()
     }
 
     pub fn calc_witness_hash(&self) -> H256 {
-        self.slim().calc_hash()
+        self.calc_hash()
     }
 }
 impl_calc_special_hash_for_entity!(Transaction, calc_tx_hash);

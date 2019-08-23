@@ -10,7 +10,7 @@ use ckb_types::{
         cell::{CellMeta, ResolvedTransaction},
         BlockNumber, Capacity, Cycle, EpochNumber, TransactionView,
     },
-    packed::{Byte32, CellOutput},
+    packed::Byte32,
     prelude::*,
     H256,
 };
@@ -535,15 +535,8 @@ impl<'a> OutputsDataVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        let transaction = self.transaction;
-        if transaction.outputs().len() != transaction.outputs_data().len() {
+        if self.transaction.outputs().len() != self.transaction.outputs_data().len() {
             return Err(TransactionError::OutputsDataLengthMismatch);
-        }
-        let valid = transaction
-            .outputs_with_data_iter()
-            .all(|(output, data)| CellOutput::calc_data_hash(&data) == output.data_hash().unpack());
-        if !valid {
-            return Err(TransactionError::OutputDataHashMismatch);
         }
         Ok(())
     }

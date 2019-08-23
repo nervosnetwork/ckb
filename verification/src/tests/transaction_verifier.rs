@@ -47,7 +47,6 @@ pub fn test_exceeded_maximum_block_bytes() {
         .version((Version::default() + 1).pack())
         .output(
             CellOutput::new_builder()
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
                 .capacity(capacity_bytes!(50).pack())
                 .build(),
         )
@@ -67,7 +66,6 @@ pub fn test_capacity_outofbound() {
     let transaction = TransactionBuilder::default()
         .output(
             CellOutput::new_builder()
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
                 .capacity(capacity_bytes!(50).pack())
                 .build(),
         )
@@ -96,11 +94,9 @@ pub fn test_capacity_outofbound() {
 
 #[test]
 pub fn test_skip_dao_capacity_check() {
-    let data = Bytes::from(vec![1; 10]);
     let transaction = TransactionBuilder::default()
         .output(
             CellOutput::new_builder()
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
                 .capacity(capacity_bytes!(500).pack())
                 .type_(
                     Some(
@@ -484,33 +480,6 @@ pub fn test_outputs_data_length_mismatch() {
     let transaction = TransactionBuilder::default()
         .output(Default::default())
         .output_data(Default::default())
-        .build();
-    let verifier = OutputsDataVerifier::new(&transaction);
-
-    assert!(verifier.verify().is_ok());
-}
-
-#[test]
-pub fn test_outputs_data_hash_mismatch() {
-    let data: Bytes = Bytes::from(&b"Hello Wrold"[..]);
-    let transaction = TransactionBuilder::default()
-        .output(Default::default())
-        .output_data(data.pack())
-        .build();
-    let verifier = OutputsDataVerifier::new(&transaction);
-
-    assert_eq!(
-        verifier.verify().err(),
-        Some(TransactionError::OutputDataHashMismatch)
-    );
-
-    let transaction = TransactionBuilder::default()
-        .output(
-            CellOutput::new_builder()
-                .data_hash(CellOutput::calc_data_hash(&data).pack())
-                .build(),
-        )
-        .output_data(data.pack())
         .build();
     let verifier = OutputsDataVerifier::new(&transaction);
 

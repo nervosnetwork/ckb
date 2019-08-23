@@ -203,7 +203,6 @@ impl Consensus {
                     .transactions()
                     .get(0)
                     .unwrap()
-                    .slim()
                     .witnesses()
                     .is_empty(),
             "genesis block must contain the witness for cellbase"

@@ -311,7 +311,6 @@ mod tests {
                     ))
                     .output(
                         CellOutput::new_builder()
-                            .data_hash(CellOutput::calc_data_hash(&data).pack())
                             .capacity(capacity_bytes!(50).pack())
                             .build(),
                     )

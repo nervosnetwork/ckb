@@ -183,14 +183,11 @@ impl TransactionBuilder {
             .header_deps(header_deps.pack())
             .inputs(inputs.pack())
             .outputs(outputs.pack())
-            .build();
-        let slim = packed::SlimTransaction::new_builder()
-            .raw(raw)
-            .witnesses(witnesses.pack())
+            .outputs_data(outputs_data.pack())
             .build();
         let tx = packed::Transaction::new_builder()
-            .slim(slim)
-            .outputs_data(outputs_data.pack())
+            .raw(raw)
+            .witnesses(witnesses.pack())
             .build();
         let hash = tx.calc_tx_hash().pack();
         let witness_hash = tx.calc_witness_hash().pack();
@@ -407,13 +404,13 @@ impl BlockBuilder {
 impl packed::Transaction {
     pub fn as_advanced_builder(&self) -> TransactionBuilder {
         TransactionBuilder::default()
-            .version(self.slim().raw().version())
-            .cell_deps(self.slim().raw().cell_deps())
-            .header_deps(self.slim().raw().header_deps())
-            .inputs(self.slim().raw().inputs())
-            .outputs(self.slim().raw().outputs())
-            .witnesses(self.slim().witnesses())
-            .outputs_data(self.outputs_data())
+            .version(self.raw().version())
+            .cell_deps(self.raw().cell_deps())
+            .header_deps(self.raw().header_deps())
+            .inputs(self.raw().inputs())
+            .outputs(self.raw().outputs())
+            .outputs_data(self.raw().outputs_data())
+            .witnesses(self.witnesses())
     }
 }
 

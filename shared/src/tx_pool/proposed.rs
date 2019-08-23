@@ -667,7 +667,6 @@ mod tests {
             .input(CellInput::new(OutPoint::new(h256!("0x2"), 0), 0))
             .output(
                 CellOutput::new_builder()
-                    .data_hash(CellOutput::calc_data_hash(&tx2_data).pack())
                     .capacity(Capacity::bytes(1000).unwrap().pack())
                     .build(),
             )

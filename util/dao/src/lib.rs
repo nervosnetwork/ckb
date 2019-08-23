@@ -558,12 +558,10 @@ mod tests {
         let input_cell_data = Bytes::from("abcde");
         let input_cell = CellOutput::new_builder()
             .capacity(capacity_bytes!(10000).pack())
-            .data_hash(CellOutput::calc_data_hash(&input_cell_data).pack())
             .build();
         let output_cell_data = Bytes::from("abcde12345");
         let output_cell = CellOutput::new_builder()
             .capacity(capacity_bytes!(20000).pack())
-            .data_hash(CellOutput::calc_data_hash(&output_cell_data).pack())
             .build();
 
         let tx = TransactionBuilder::default()
@@ -598,7 +596,6 @@ mod tests {
         let data = Bytes::from(vec![1; 10]);
         let output = CellOutput::new_builder()
             .capacity(capacity_bytes!(1000000).pack())
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .build();
         let tx = TransactionBuilder::default()
             .output(output)
@@ -653,10 +650,8 @@ mod tests {
 
     #[test]
     fn check_withdraw_calculation_overflows() {
-        let data = Bytes::from(vec![1; 10]);
         let output = CellOutput::new_builder()
             .capacity(Capacity::shannons(18_446_744_073_709_550_000).pack())
-            .data_hash(CellOutput::calc_data_hash(&data).pack())
             .build();
         let tx = TransactionBuilder::default().output(output).build();
         let deposit_header = HeaderBuilder::default()

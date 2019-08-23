@@ -175,16 +175,14 @@ mod tests {
 
     fn build_cell_meta(capacity_bytes: usize, data: Bytes) -> CellMeta {
         let capacity = Capacity::bytes(capacity_bytes).expect("capacity bytes overflow");
-        let mut builder = CellOutput::new_builder().capacity(capacity.pack());
-        if !data.is_empty() {
-            builder = builder.data_hash(CellOutput::calc_data_hash(&data).pack())
-        }
+        let builder = CellOutput::new_builder().capacity(capacity.pack());
+        let data_hash = CellOutput::calc_data_hash(&data).pack();
         CellMeta {
             out_point: OutPoint::default(),
             transaction_info: None,
             cell_output: builder.build(),
             data_bytes: data.len() as u64,
-            mem_cell_data: Some(data),
+            mem_cell_data: Some((data, data_hash)),
         }
     }
 
@@ -373,11 +371,10 @@ mod tests {
         }
     }
 
-    fn _test_load_cell_partial(data: &[u8]) -> Result<(), TestCaseError> {
+    fn _test_load_cell_partial(data: &[u8], offset: u64) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
         let addr: u64 = 100;
-        let offset: u64 = 100;
 
         machine.set_register(A0, addr); // addr
         machine.set_register(A1, size_addr); // size_addr
@@ -414,7 +411,9 @@ mod tests {
         prop_assert!(load_cell.ecall(&mut machine).is_ok());
         prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
 
-        for (i, addr) in (addr..addr + input_correct_data.len() as u64 - offset).enumerate() {
+        for (i, addr) in
+            (addr..addr + (input_correct_data.len() as u64).saturating_sub(offset)).enumerate()
+        {
             prop_assert_eq!(
                 machine.memory_mut().load8(&addr),
                 Ok(u64::from(input_correct_data[i + offset as usize]))
@@ -425,8 +424,8 @@ mod tests {
 
     proptest! {
         #[test]
-        fn test_load_cell_partial(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_cell_partial(data)?;
+        fn test_load_cell_partial(ref data in any_with::<Vec<u8>>(size_range(1000).lift()), offset in 0u64..2000) {
+            _test_load_cell_partial(data, offset)?;
         }
     }
 
@@ -443,12 +442,14 @@ mod tests {
         machine.set_register(A5, CellField::Capacity as u64); //field: 0 capacity
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
+        let data = Bytes::new();
+        let data_hash = CellOutput::calc_data_hash(&data).pack();
         let input_cell = CellMeta {
             out_point: OutPoint::default(),
             transaction_info: None,
             cell_output: CellOutput::new_builder().capacity(capacity.pack()).build(),
             data_bytes: 0,
-            mem_cell_data: Some(Bytes::new()),
+            mem_cell_data: Some((data, data_hash)),
         };
         let outputs = vec![];
         let resolved_inputs = vec![input_cell.clone()];
@@ -526,66 +527,6 @@ mod tests {
         }
     }
 
-    fn _test_load_dep_cell_data_hash(data: &[u8]) -> Result<(), TestCaseError> {
-        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
-        let size_addr: u64 = 0;
-        let addr: u64 = 100;
-
-        machine.set_register(A0, addr); // addr
-        machine.set_register(A1, size_addr); // size_addr
-        machine.set_register(A2, 0); // offset
-        machine.set_register(A3, 0); //index
-        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::CellDep))); //source: 3 dep
-        machine.set_register(A5, CellField::DataHash as u64); //field: 2 data hash
-        machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
-
-        let input_cell = build_cell_meta(1000, Bytes::new());
-        let dep_cell_data = Bytes::from(data);
-        let dep_cell = build_cell_meta(1000, dep_cell_data);
-        let outputs = vec![];
-        let resolved_inputs = vec![input_cell.clone()];
-        let resolved_cell_deps = vec![dep_cell];
-        let group_inputs = vec![];
-        let group_outputs = vec![];
-        let mut load_cell = LoadCell::new(
-            &outputs,
-            &resolved_inputs,
-            &resolved_cell_deps,
-            &group_inputs,
-            &group_outputs,
-        );
-
-        let data_hash = blake2b_256(&data);
-
-        prop_assert!(machine
-            .memory_mut()
-            .store64(&size_addr, &(data_hash.len() as u64 + 20))
-            .is_ok());
-
-        prop_assert!(load_cell.ecall(&mut machine).is_ok());
-        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
-
-        prop_assert_eq!(
-            machine.memory_mut().load64(&size_addr),
-            Ok(data_hash.len() as u64)
-        );
-
-        for (i, addr) in (addr..addr + data_hash.len() as u64).enumerate() {
-            prop_assert_eq!(
-                machine.memory_mut().load8(&addr),
-                Ok(u64::from(data_hash[i]))
-            );
-        }
-        Ok(())
-    }
-
-    proptest! {
-        #[test]
-        fn test_load_dep_cell_data_hash(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
-            _test_load_dep_cell_data_hash(data)?;
-        }
-    }
-
     fn _test_load_header(data: &[u8]) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
@@ -610,7 +551,7 @@ mod tests {
             headers: HashMap<Byte32, HeaderView>,
         }
         impl DataLoader for MockDataLoader {
-            fn load_cell_data(&self, _cell: &CellMeta) -> Option<Bytes> {
+            fn load_cell_data(&self, _cell: &CellMeta) -> Option<(Bytes, Byte32)> {
                 None
             }
             fn get_block_ext(&self, _block_hash: &Byte32) -> Option<BlockExt> {

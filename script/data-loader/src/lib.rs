@@ -7,8 +7,8 @@ use ckb_types::{
 /// Script DataLoader
 /// abstract the data access layer
 pub trait DataLoader {
-    // load cell data
-    fn load_cell_data(&self, cell: &CellMeta) -> Option<Bytes>;
+    // load cell data and its hash
+    fn load_cell_data(&self, cell: &CellMeta) -> Option<(Bytes, Byte32)>;
     // load BlockExt
     fn get_block_ext(&self, block_hash: &Byte32) -> Option<BlockExt>;
     // load Header

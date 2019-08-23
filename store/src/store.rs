@@ -263,7 +263,6 @@ pub trait ChainStore<'a>: Send + Sync {
                             .should_be_ok();
                         let cell_output = reader
                             .data()
-                            .slim()
                             .raw()
                             .outputs()
                             .get(index as usize)
@@ -271,6 +270,7 @@ pub trait ChainStore<'a>: Send + Sync {
                             .to_entity();
                         let data_bytes = reader
                             .data()
+                            .raw()
                             .outputs_data()
                             .get(index as usize)
                             .expect("inconsistent index")
@@ -292,14 +292,18 @@ pub trait ChainStore<'a>: Send + Sync {
             })
     }
 
-    fn get_cell_data(&'a self, tx_hash: &packed::Byte32, index: u32) -> Option<Bytes> {
+    fn get_cell_data(
+        &'a self,
+        tx_hash: &packed::Byte32,
+        index: u32,
+    ) -> Option<(Bytes, packed::Byte32)> {
         let cache_enable = cache_enable();
         if cache_enable {
-            if let Some(data) = CELL_DATA_CACHE
+            if let Some(cached) = CELL_DATA_CACHE
                 .lock()
                 .get_refresh(&(tx_hash.clone(), index))
             {
-                return Some(data.clone());
+                return Some(cached.clone());
             }
         }
 
@@ -310,18 +314,24 @@ pub trait ChainStore<'a>: Send + Sync {
                         packed::TransactionViewReader::from_slice(&slice.as_ref()).should_be_ok();
                     reader
                         .data()
+                        .raw()
                         .outputs_data()
                         .get(index as usize)
-                        .map(|data| Unpack::<Bytes>::unpack(&data))
+                        .map(|data| {
+                            (
+                                Unpack::<Bytes>::unpack(&data),
+                                packed::CellOutput::calc_data_hash(&data.raw_data()).pack(),
+                            )
+                        })
                 })
         });
 
         if cache_enable {
-            ret.map(|data| {
+            ret.map(|cached| {
                 CELL_DATA_CACHE
                     .lock()
-                    .insert((tx_hash.clone(), index), data.clone());
-                data
+                    .insert((tx_hash.clone(), index), cached.clone());
+                cached
             })
         } else {
             ret

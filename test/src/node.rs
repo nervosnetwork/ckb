@@ -9,7 +9,7 @@ use ckb_types::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, ScriptHashType,
         TransactionView,
     },
-    packed::{Block, CellDep, CellInput, CellOutputBuilder, OutPoint, Script},
+    packed::{Block, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
     H256,
 };
@@ -365,15 +365,13 @@ impl Node {
             .clone_from(&consensus.genesis_block().transactions()[0].hash().unpack());
         self.dep_group_tx_hash
             .clone_from(&consensus.genesis_block().transactions()[1].hash().unpack());
-        self.always_success_code_hash = consensus.genesis_block().transactions()[0]
-            .outputs()
-            .as_reader()
-            .get(1)
-            .unwrap()
-            .to_entity()
-            .data_hash()
-            .to_owned()
-            .unpack();
+        self.always_success_code_hash = CellOutput::calc_data_hash(
+            &consensus.genesis_block().transactions()[0]
+                .outputs_data()
+                .get(1)
+                .unwrap()
+                .raw_data(),
+        );
 
         self.consensus = Some(consensus);
 
