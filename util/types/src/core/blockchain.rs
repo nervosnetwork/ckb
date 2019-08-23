@@ -25,6 +25,13 @@ impl TryFrom<u8> for ScriptHashType {
     }
 }
 
+impl ScriptHashType {
+    #[inline]
+    pub(crate) fn verify_value(v: u8) -> bool {
+        v <= 1
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DepType {
     Code = 0,
@@ -46,5 +53,12 @@ impl TryFrom<u8> for DepType {
             1 => Ok(DepType::DepGroup),
             _ => Err(err_msg(format!("Invalid dep type {}", v))),
         }
+    }
+}
+
+impl DepType {
+    #[inline]
+    pub(crate) fn verify_value(v: u8) -> bool {
+        v <= 1
     }
 }

@@ -74,7 +74,11 @@ impl Synchronizer {
                 GetBlocksProcess::new(reader, self, peer, nc).execute()?;
             }
             packed::SyncMessageUnionReader::SendBlock(reader) => {
-                BlockProcess::new(reader, self, peer, nc).execute()?;
+                if reader.check_data() {
+                    BlockProcess::new(reader, self, peer, nc).execute()?;
+                } else {
+                    Err(err_msg("SendBlock: invalid data"))?;
+                }
             }
             packed::SyncMessageUnionReader::InIBD(_) => {
                 InIBDProcess::new(self, peer, nc).execute()?;
