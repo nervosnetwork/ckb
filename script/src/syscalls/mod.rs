@@ -206,7 +206,6 @@ mod tests {
             out_point: OutPoint::default(),
             transaction_info: None,
             cell_output: builder.build(),
-            data_bytes: data.len() as u64,
             mem_cell_data: Some((data, data_hash)),
         }
     }
@@ -473,7 +472,7 @@ mod tests {
             out_point: OutPoint::default(),
             transaction_info: None,
             cell_output: CellOutput::new_builder().capacity(capacity.pack()).build(),
-            data_bytes: 0,
+            data_size: 0,
             mem_cell_data: Some((data, data_hash)),
         };
         let outputs = vec![];

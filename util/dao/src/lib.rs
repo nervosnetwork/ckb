@@ -219,7 +219,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             })?;
                         self.calculate_maximum_withdraw(
                             &output,
-                            Capacity::bytes(cell_meta.data_bytes as usize)?,
+                            Capacity::bytes(cell_meta.data_size as usize)?,
                             &deposit_header_hash,
                             &withdraw_header_hash,
                         )

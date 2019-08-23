@@ -188,7 +188,7 @@ fn test_transaction_spend_in_same_block() {
             .cell(&OutPoint::new(tx2_hash.clone(), 0), false),
         CellStatus::live_cell(CellMeta {
             cell_output: tx2_output,
-            data_bytes: tx2_output_data.len() as u64,
+            data_size: tx2_output_data.len() as u64,
             out_point: OutPoint::new(tx2_hash.clone(), 0),
             transaction_info: Some(TransactionInfo::new(parent_number4, 0, parent_hash4, 2)),
             mem_cell_data: None,

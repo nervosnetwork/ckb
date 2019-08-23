@@ -254,7 +254,7 @@ pub trait ChainStore<'a>: Send + Sync {
                             .get(index as usize)
                             .expect("inconsistent index")
                             .to_entity();
-                        let data_bytes = reader
+                        let data_size = reader
                             .data()
                             .raw()
                             .outputs_data()
@@ -271,7 +271,7 @@ pub trait ChainStore<'a>: Send + Sync {
                             cell_output,
                             out_point,
                             transaction_info: Some(tx_info.unpack()),
-                            data_bytes,
+                            data_size,
                             mem_cell_data: None,
                         }
                     })

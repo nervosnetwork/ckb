@@ -103,7 +103,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                     cell_output,
                     out_point,
                     transaction_info: None,
-                    data_bytes: data.len() as u64,
+                    data_size: data.len() as u64,
                     mem_cell_data: Some((data, data_hash)),
                 }
             })

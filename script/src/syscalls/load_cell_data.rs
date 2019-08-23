@@ -88,8 +88,8 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
         }
         let cell = cell.unwrap();
 
-        if content_offset >= cell.data_bytes
-            || (content_offset + content_size) > cell.data_bytes
+        if content_offset >= cell.data_size
+            || (content_offset + content_size) > cell.data_size
             || content_size > memory_size
         {
             machine.set_register(A0, Mac::REG::from_u8(SLICE_OUT_OF_BOUND));
@@ -111,7 +111,7 @@ impl<'a, DL: DataLoader + 'a> LoadCellData<'a, DL> {
             0,
         )?;
 
-        machine.add_cycles(cell.data_bytes * 10)?;
+        machine.add_cycles(cell.data_size * 10)?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         Ok(())
     }

@@ -17,8 +17,12 @@ pub struct CellMeta {
     pub cell_output: CellOutput,
     pub out_point: OutPoint,
     pub transaction_info: Option<TransactionInfo>,
-    pub data_bytes: u64,
     /// In memory cell data and its hash
+    pub data_size: u64,
+    /// Data occupied capacity
+    /// may not equals to actually data size since virtual occupied
+    pub data_occupied_capacity: Capacity,
+    /// In memory cell data
     /// A live cell either exists in memory or DB
     /// must check DB if this field is None
     pub mem_cell_data: Option<(Bytes, Byte32)>,
@@ -29,7 +33,8 @@ pub struct CellMetaBuilder {
     cell_output: CellOutput,
     out_point: OutPoint,
     transaction_info: Option<TransactionInfo>,
-    data_bytes: u64,
+    data_size: u64,
+    data_occupied_capacity: Capacity,
     mem_cell_data: Option<(Bytes, Byte32)>,
 }
 
@@ -39,24 +44,45 @@ impl CellMetaBuilder {
             cell_output,
             out_point,
             transaction_info,
-            data_bytes,
+            data_size,
+            data_occupied_capacity,
             mem_cell_data,
         } = cell_meta;
         Self {
             cell_output,
             out_point,
             transaction_info,
-            data_bytes,
+            data_size,
+            data_occupied_capacity,
             mem_cell_data,
         }
     }
 
-    pub fn from_cell_output(cell_output: CellOutput, data: Bytes) -> Self {
-        let mut builder = CellMetaBuilder::default();
-        builder.cell_output = cell_output;
-        builder.data_bytes = data.len().try_into().expect("u32");
+    pub fn from_virtual_occupied(cell_output: CellOutput, data: &Bytes) -> Self {
+        use crate::virtual_occupied::extract_occupied_capacity;
+
+        let data_size = data.len().try_into().expect("u64");
+        let mut builder = CellMetaBuilder::from_output(cell_output, data_size);
+        if let Some(virtual_occupied) = extract_occupied_capacity(data) {
+            builder.data_occupied_capacity = virtual_occupied;
+        }
+        builder
+    }
+
+    pub fn from_memory_output(cell_output: CellOutput, data: Bytes) -> Self {
+        let data_size = data.len().try_into().expect("u64");
+        let mut builder = CellMetaBuilder::from_output(cell_output, data_size);
         let data_hash = CellOutput::calc_data_hash(&data);
         builder.mem_cell_data = Some((data, data_hash));
+        builder
+    }
+
+    pub fn from_output(cell_output: CellOutput, data_size: u64) -> Self {
+        let mut builder = CellMetaBuilder::default();
+        builder.cell_output = cell_output;
+        builder.data_size = data_size;
+        builder.data_occupied_capacity =
+            Capacity::bytes(data.len()).expect("data occupied capacity");
         builder
     }
 
@@ -75,14 +101,14 @@ impl CellMetaBuilder {
             cell_output,
             out_point,
             transaction_info,
-            data_bytes,
+            data_size,
             mem_cell_data,
         } = self;
         CellMeta {
             cell_output,
             out_point,
             transaction_info,
-            data_bytes,
+            data_size,
             mem_cell_data,
         }
     }
@@ -94,7 +120,7 @@ impl fmt::Debug for CellMeta {
             .field("cell_output", &self.cell_output)
             .field("out_point", &self.out_point)
             .field("transaction_info", &self.transaction_info)
-            .field("data_bytes", &self.data_bytes)
+            .field("data_size", &self.data_size)
             .finish()
     }
 }
@@ -113,12 +139,12 @@ impl CellMeta {
 
     pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
         self.cell_output
-            .occupied_capacity(Capacity::bytes(self.data_bytes as usize)?)
+            .occupied_capacity(Capacity::bytes(self.data_size as usize)?)
     }
 
     pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
         self.cell_output
-            .is_lack_of_capacity(Capacity::bytes(self.data_bytes as usize)?)
+            .is_lack_of_capacity(Capacity::bytes(self.data_size as usize)?)
     }
 }
 
@@ -262,7 +288,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                             block_hash: self.block.hash(),
                             index: *i,
                         }),
-                        data_bytes: data.len() as u64,
+                        data_size: data.len() as u64,
                         mem_cell_data: Some((data, data_hash)),
                     })
                 })
@@ -540,7 +566,7 @@ mod tests {
             }),
             cell_output,
             out_point,
-            data_bytes: data.len() as u64,
+            data_size: data.len() as u64,
             mem_cell_data: Some((data, data_hash)),
         }
     }
