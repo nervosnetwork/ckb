@@ -375,7 +375,7 @@ fn resolve_dep_group<
         .map_err(|_| UnresolvableError::InvalidDepGroup(out_point.clone()))?;
     let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
     for sub_out_point in sub_out_points.into_iter() {
-        if let Some(sub_cell_meta) = cell_resolver(&sub_out_point, false)? {
+        if let Some(sub_cell_meta) = cell_resolver(&sub_out_point, true)? {
             resolved_deps.push(*sub_cell_meta);
         }
     }
@@ -439,7 +439,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
                 resolved_dep_groups.push(dep_group);
                 resolved_cell_deps.extend(cell_deps);
             }
-        } else if let Some(cell_meta) = resolve_cell(&cell_dep.out_point(), false)? {
+        } else if let Some(cell_meta) = resolve_cell(&cell_dep.out_point(), true)? {
             resolved_cell_deps.push(*cell_meta);
         }
     }
