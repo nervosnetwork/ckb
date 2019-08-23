@@ -7,7 +7,7 @@ timestamp = 1561788000134
 difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xf8d3fcd14b92916a9246635538a29b778462f622d0244c97c3487438b22187c6"
+hash = "0xde423a934887fc8fe9c62b8dd84ac58e02d7ca3824c5dfce01d747863ab5ccb0"
 
 [genesis.seal]
 nonce = 0
