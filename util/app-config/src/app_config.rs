@@ -13,7 +13,6 @@ use serde_derive::{Deserialize, Serialize};
 use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
 use ckb_logger::Config as LogConfig;
-use ckb_miner::BlockAssemblerConfig;
 use ckb_miner::MinerConfig;
 use ckb_network::NetworkConfig;
 use ckb_network_alert::config::{
@@ -22,8 +21,8 @@ use ckb_network_alert::config::{
 use ckb_resource::Resource;
 use ckb_rpc::Config as RpcConfig;
 use ckb_script::ScriptConfig;
-use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_store::StoreConfig;
+use ckb_tx_pool::{BlockAssemblerConfig, TxPoolConfig};
 
 use super::sentry_config::SentryConfig;
 use super::{cli, ExitCode};

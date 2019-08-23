@@ -2,7 +2,6 @@ use ckb_app_config::{ExitCode, ProfArgs};
 use ckb_chain::chain::ChainController;
 use ckb_chain::chain::ChainService;
 use ckb_logger::info;
-use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
@@ -30,8 +29,7 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
 
     let from = std::cmp::max(1, args.from);
     let to = std::cmp::min(shared.snapshot().tip_number(), args.to);
-    let notify = NotifyService::default().start::<&str>(Some("notify"));
-    let chain = ChainService::new(tmp_shared, table, notify);
+    let chain = ChainService::new(tmp_shared, table);
     let chain_controller = chain.start(Some("chain"));
     profile_block_process(
         shared.clone(),

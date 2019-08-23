@@ -24,8 +24,7 @@ pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController) {
         .build()
         .unwrap();
     let chain_controller = {
-        let notify_controller = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify_controller);
+        let chain_service = ChainService::new(shared.clone(), table);
         chain_service.start::<&str>(None)
     };
     generate_blocks(&shared, &chain_controller, tip);

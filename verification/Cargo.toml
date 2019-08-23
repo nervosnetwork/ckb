@@ -20,6 +20,8 @@ ckb-dao = { path = "../util/dao" }
 ckb-logger = {path = "../util/logger"}
 ckb-resource = { path = "../resource" }
 ckb-reward-calculator= { path = "../util/reward-calculator" }
+tokio = "0.1"
+futures = "0.1"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

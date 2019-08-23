@@ -107,9 +107,8 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
         .consensus(consensus)
         .build()
         .unwrap();
-    let notify = NotifyService::default().start(Some(thread_name));
 
-    let chain_service = ChainService::new(shared.clone(), table, notify);
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {

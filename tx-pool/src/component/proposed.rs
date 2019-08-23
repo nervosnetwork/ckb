@@ -1,4 +1,5 @@
-use crate::tx_pool::types::{TxEntriesPool, TxEntry};
+use crate::component::container::SortedTxMap;
+use crate::component::entry::TxEntry;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -82,7 +83,7 @@ impl<K: Hash + Eq, V: Eq + Hash> Edges<K, V> {
 #[derive(Default, Debug, Clone)]
 pub struct ProposedPool {
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
-    inner: TxEntriesPool,
+    inner: SortedTxMap,
 }
 
 impl CellProvider for ProposedPool {
@@ -191,7 +192,7 @@ impl ProposedPool {
         removed
     }
 
-    pub(crate) fn add_entry(&mut self, entry: TxEntry) {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Option<TxEntry> {
         let inputs = entry.transaction.input_pts_iter();
         let outputs = entry.transaction.output_pts();
 
@@ -212,7 +213,7 @@ impl ProposedPool {
         for o in outputs {
             self.edges.mark_inpool(o);
         }
-        self.inner.add_entry(entry);
+        self.inner.add_entry(entry)
     }
 
     fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<TxEntry> {

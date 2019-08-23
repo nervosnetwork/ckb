@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-store = { path = "../store" }
 ckb-types = {path = "../util/types"}
 ckb-network = { path = "../network" }

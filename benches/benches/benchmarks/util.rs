@@ -79,8 +79,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let chain_service = ChainService::new(shared.clone(), table);
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -283,8 +282,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let chain_service = ChainService::new(shared.clone(), table);
 
         chains.push((chain_service.start::<&str>(None), shared));
     }

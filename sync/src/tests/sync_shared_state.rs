@@ -62,8 +62,7 @@ fn test_insert_parent_unknown_block() {
             .build()
             .unwrap();
         let chain_controller = {
-            let notify_controller = NotifyService::default().start::<&str>(None);
-            let chain_service = ChainService::new(shared.clone(), table, notify_controller);
+            let chain_service = ChainService::new(shared.clone(), table);
             chain_service.start::<&str>(None)
         };
         (SyncSharedState::new(shared), chain_controller)

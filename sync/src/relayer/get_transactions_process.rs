@@ -3,6 +3,7 @@ use ckb_logger::{debug_target, trace_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
 use failure::Error as FailureError;
+use futures::future::Future;
 use std::sync::Arc;
 
 pub struct GetTransactionsProcess<'a> {
@@ -38,33 +39,26 @@ impl<'a> GetTransactionsProcess<'a> {
         );
 
         let transactions: Vec<_> = {
-            let tx_pool = self.relayer.shared.shared().try_lock_tx_pool();
+            let tx_pool = self.relayer.shared.shared().tx_pool_controller();
 
-            tx_hashes
-                .iter()
-                .filter_map(|tx_hash| {
-                    let entry_opt = {
-                        let short_id = packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity());
-                        tx_pool
-                            .get_tx_with_cycles(&short_id)
-                            .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))
-                    };
+            // TODO: error handle
+            let txs = tx_pool
+                .fetch_txs_with_cycles(
+                    tx_hashes
+                        .iter()
+                        .map(|tx_hash| packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity()))
+                        .collect(),
+                )
+                .unwrap()
+                .wait()
+                .unwrap();
 
-                    if let Some((tx, cycles)) = entry_opt {
-                        let content = packed::RelayTransaction::new_builder()
-                            .cycles(cycles.pack())
-                            .transaction(tx.data())
-                            .build();
-                        Some(content)
-                    } else {
-                        debug_target!(
-                            crate::LOG_TARGET_RELAY,
-                            "{} request transaction({}), but not found or without cycles",
-                            self.peer,
-                            tx_hash,
-                        );
-                        None
-                    }
+            txs.into_iter()
+                .map(|(_, (tx, cycles))| {
+                    packed::RelayTransaction::new_builder()
+                        .cycles(cycles.pack())
+                        .transaction(tx.data())
+                        .build()
                 })
                 .collect()
         };

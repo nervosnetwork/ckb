@@ -10,12 +10,10 @@ ckb-types = { path = "../util/types" }
 ckb-network = { path = "../network" }
 ckb-indexer = { path = "../indexer" }
 ckb-shared = { path = "../shared" }
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-store = { path = "../store" }
 ckb-db = { path = "../db" }
 ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
-ckb-miner = { path = "../miner" }
 ckb-logger = { path = "../util/logger"}
 ckb-network-alert = { path = "../util/network-alert" }
 jsonrpc-core = "10.1"

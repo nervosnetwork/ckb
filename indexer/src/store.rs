@@ -652,8 +652,7 @@ mod tests {
             path: tmp_dir.as_ref().to_path_buf(),
             ..Default::default()
         };
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let chain_service = ChainService::new(shared.clone(), table);
         let chain_controller = chain_service.start::<&str>(None);
         (
             DefaultIndexerStore::new(&config, shared.clone()),

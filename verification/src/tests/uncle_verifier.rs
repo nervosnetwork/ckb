@@ -43,8 +43,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
     }
     let (shared, table) = builder.build().unwrap();
 
-    let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), table, notify);
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
     (chain_controller, shared)
 }
