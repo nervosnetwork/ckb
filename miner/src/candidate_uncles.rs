@@ -50,12 +50,9 @@ impl CandidateUncles {
         }
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.count
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     pub fn values(&self) -> impl Iterator<Item = &Arc<UncleBlock>> {
@@ -78,6 +75,7 @@ impl CandidateUncles {
         false
     }
 
+    #[cfg(test)]
     pub fn clear(&mut self) {
         self.map.clear();
         self.count = 0;

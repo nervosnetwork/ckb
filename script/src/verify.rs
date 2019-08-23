@@ -515,8 +515,7 @@ mod tests {
     }
 
     fn random_keypair() -> (Privkey, Pubkey) {
-        let gen = Generator::new();
-        gen.random_keypair()
+        Generator::random_keypair()
     }
 
     fn to_hex_pubkey(pubkey: &Pubkey) -> Vec<u8> {
@@ -929,8 +928,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let gen = Generator::new();
-        let privkey = gen.random_privkey();
+        let privkey = Generator::random_privkey();
         let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
 
         let mut bytes = vec![];

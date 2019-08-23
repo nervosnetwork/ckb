@@ -227,18 +227,6 @@ enum Flag {
 struct Flags(u64);
 
 impl Flags {
-    /// Add a flag
-    #[allow(dead_code)]
-    pub fn add(&mut self, flag: Flag) {
-        self.0 |= flag as u64;
-    }
-
-    /// Remove a flag
-    #[allow(dead_code)]
-    pub fn remove(&mut self, flag: Flag) {
-        self.0 ^= flag as u64;
-    }
-
     /// Check if contains a target flag
     fn contains(self, flags: Flags) -> bool {
         (self.0 & flags.0) == flags.0

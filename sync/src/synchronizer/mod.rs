@@ -76,8 +76,8 @@ impl Synchronizer {
             packed::SyncMessageUnionReader::SendBlock(reader) => {
                 BlockProcess::new(reader, self, peer, nc).execute()?;
             }
-            packed::SyncMessageUnionReader::InIBD(reader) => {
-                InIBDProcess::new(reader, self, peer, nc).execute()?;
+            packed::SyncMessageUnionReader::InIBD(_) => {
+                InIBDProcess::new(self, peer, nc).execute()?;
             }
             _ => Err(err_msg("Unexpected sync message"))?,
         }
@@ -985,7 +985,6 @@ mod tests {
 
     #[test]
     fn test_sync_process() {
-        let _ = env_logger::try_init();
         let consensus = Consensus::default();
         let notify = NotifyService::default().start::<&str>(None);
         let (chain_controller1, shared1, _) =

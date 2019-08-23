@@ -515,18 +515,10 @@ impl TxEntriesPool {
 }
 
 // A template data struct used to store modified entries when package txs
+#[derive(Default)]
 pub struct TxModifiedEntries {
     entries: HashMap<ProposalShortId, TxEntry>,
     sort_index: BTreeSet<AncestorsScoreSortKey>,
-}
-
-impl Default for TxModifiedEntries {
-    fn default() -> Self {
-        TxModifiedEntries {
-            entries: HashMap::default(),
-            sort_index: BTreeSet::default(),
-        }
-    }
 }
 
 impl TxModifiedEntries {

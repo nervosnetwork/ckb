@@ -1,3 +1,4 @@
+use crate::utils::is_committed;
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_crypto::secp::{Generator, Privkey};
@@ -20,7 +21,7 @@ pub struct SendSecpTxUseDepGroup {
 
 impl Default for SendSecpTxUseDepGroup {
     fn default() -> Self {
-        let privkey = Generator::new().random_privkey();
+        let privkey = Generator::random_privkey();
         SendSecpTxUseDepGroup { privkey }
     }
 }
@@ -63,7 +64,19 @@ impl Spec for SendSecpTxUseDepGroup {
             .witness(witness)
             .build();
         info!("Send 1 secp tx use dep group");
-        node.rpc_client().send_transaction(tx.data().into());
+
+        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
+        node.generate_blocks(20);
+
+        let tx_status = node
+            .rpc_client()
+            .get_transaction(tx_hash.clone())
+            .expect("get sent transaction");
+        assert!(
+            is_committed(&tx_status),
+            "ensure_committed failed {:#x}",
+            tx_hash
+        );
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {

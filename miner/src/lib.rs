@@ -1,5 +1,4 @@
 mod block_assembler;
-#[allow(dead_code)]
 mod candidate_uncles;
 mod client;
 mod config;

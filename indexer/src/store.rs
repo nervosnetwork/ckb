@@ -64,18 +64,10 @@ pub trait IndexerStore: Sync + Send {
     fn remove_lock_hash(&self, lock_hash: &H256);
 }
 
+#[derive(Clone)]
 pub struct DefaultIndexerStore {
     db: Arc<RocksDB>,
     shared: Shared,
-}
-
-impl Clone for DefaultIndexerStore {
-    fn clone(&self) -> Self {
-        DefaultIndexerStore {
-            db: Arc::clone(&self.db),
-            shared: self.shared.clone(),
-        }
-    }
 }
 
 impl IndexerStore for DefaultIndexerStore {

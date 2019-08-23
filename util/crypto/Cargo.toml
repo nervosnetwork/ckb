@@ -12,9 +12,7 @@ failure = "0.1.5"
 rand = "0.6"
 numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 faster-hex = "0.3"
-crunchy =  { version = "0.2", optional= true }
 
 [features]
 default = [ "secp" ]
 secp = ["secp256k1"]
-bech32 = ["crunchy"]

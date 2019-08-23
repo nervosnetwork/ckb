@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use lazy_static::lazy_static;
 use numext_fixed_hash::H256;
 
@@ -35,15 +33,13 @@ mod tests {
 
     #[test]
     fn test_gen_keypair() {
-        let gen = Generator::new();
-        let (privkey, pubkey) = gen.random_keypair();
+        let (privkey, pubkey) = Generator::random_keypair();
         assert_eq!(privkey.pubkey().expect("pubkey"), pubkey);
     }
 
     #[test]
     fn test_sign_verify() {
-        let gen = Generator::new();
-        let (privkey, pubkey) = gen.random_keypair();
+        let (privkey, pubkey) = Generator::random_keypair();
         let message = random_message();
         let signature = privkey.sign_recoverable(&message).unwrap();
         assert!(signature.is_valid());
@@ -52,8 +48,7 @@ mod tests {
 
     #[test]
     fn test_recover() {
-        let gen = Generator::new();
-        let (privkey, pubkey) = gen.random_keypair();
+        let (privkey, pubkey) = Generator::random_keypair();
         let message = random_message();
         let signature = privkey.sign_recoverable(&message).unwrap();
         assert_eq!(pubkey, signature.recover(&message).unwrap());
@@ -61,8 +56,7 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let gen = Generator::new();
-        let (privkey, pubkey) = gen.random_keypair();
+        let (privkey, pubkey) = Generator::random_keypair();
         let ser_pubkey = privkey.pubkey().expect("pubkey").serialize();
         assert_eq!(ser_pubkey.len(), 33);
         let deser_pubkey = Pubkey::from_slice(&ser_pubkey).expect("deserialize pubkey");

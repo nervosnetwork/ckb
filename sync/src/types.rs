@@ -58,25 +58,13 @@ const ORPHAN_BLOCK_SIZE: usize = 1024;
 //     If their best known block is still behind when that new timeout is
 //     reached, disconnect.
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ChainSyncState {
     pub timeout: u64,
     pub work_header: Option<core::HeaderView>,
     pub total_difficulty: Option<U256>,
     pub sent_getheaders: bool,
     pub not_sync_until: Option<u64>,
-}
-
-impl Default for ChainSyncState {
-    fn default() -> Self {
-        ChainSyncState {
-            timeout: 0,
-            work_header: None,
-            total_difficulty: None,
-            sent_getheaders: false,
-            not_sync_until: None,
-        }
-    }
 }
 
 #[derive(Clone, Default, Debug, Copy)]
