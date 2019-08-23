@@ -14,7 +14,7 @@ pub use transaction::StoreTransaction;
 use ckb_db::Col;
 use ckb_types::{
     bytes::Bytes,
-    core::{BlockExt, HeaderView, TransactionView, UncleBlockVecView},
+    core::{HeaderView, TransactionView, UncleBlockVecView},
     packed::{Byte32, ProposalShortIdVec},
 };
 use ckb_util::Mutex;
@@ -48,8 +48,6 @@ lazy_static! {
     static ref BLOCK_PROPOSALS_CACHE: Mutex<LruCache<Byte32, ProposalShortIdVec>> =
         { Mutex::new(LruCache::new(30)) };
     static ref BLOCK_TX_HASHES_CACHE: Mutex<LruCache<Byte32, Vec<Byte32>>> =
-        { Mutex::new(LruCache::new(20)) };
-    static ref BLOCK_EXT_CACHE: Mutex<LruCache<Byte32, BlockExt>> =
         { Mutex::new(LruCache::new(20)) };
     static ref BLOCK_UNCLES_CACHE: Mutex<LruCache<Byte32, UncleBlockVecView>> =
         { Mutex::new(LruCache::new(10)) };
