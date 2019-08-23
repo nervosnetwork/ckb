@@ -125,23 +125,23 @@ impl Client {
     fn send_submit_block_request(
         &self,
         work_id: &str,
-        block: &Block,
+        block: Block,
     ) -> impl Future<Item = Output, Error = RpcError> {
-        let block: JsonBlock = block.clone().into();
+        let block: JsonBlock = block.into();
         let method = "submit_block".to_owned();
         let params = vec![json!(work_id), json!(block)];
 
         self.rpc.request(method, params)
     }
 
-    pub fn submit_block(&self, work_id: &str, block: &Block) {
+    pub fn submit_block(&self, work_id: &str, block: Block) {
         let future = self.send_submit_block_request(work_id, block);
         if self.config.block_on_submit {
             let ret: Result<Option<H256>, RpcError> = future.and_then(parse_response).wait();
             match ret {
                 Ok(hash) => {
                     if hash.is_none() {
-                        warn!("submit_block failed {:?}", block);
+                        warn!("submit_block failed");
                     }
                 }
                 Err(e) => {
