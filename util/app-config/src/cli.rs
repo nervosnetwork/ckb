@@ -363,11 +363,11 @@ fn init() -> App<'static, 'static> {
                 .long(ARG_BA_HASH_TYPE)
                 .value_name("hash_type")
                 .takes_value(true)
-                .possible_values(&["Data", "Type"])
-                .default_value("Data")
+                .possible_values(&["data", "type"])
+                .default_value("data")
                 .help(
                     "Sets hash type in [block_assembler] \
-                     [default: Data]",
+                     [default: data]",
                 ),
         )
         .group(

@@ -118,7 +118,7 @@
                             "lock": {
                                 "args": [],
                                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                                "hash_type": "Data"
+                                "hash_type": "data"
                             },
                             "type": null
                         }
@@ -208,7 +208,7 @@
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                    "hash_type": "Data"
+                    "hash_type": "data"
                 },
                 "out_point": {
                     "index": "0",
@@ -221,7 +221,7 @@
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                    "hash_type": "Data"
+                    "hash_type": "data"
                 },
                 "out_point": {
                     "index": "0",
@@ -257,7 +257,7 @@
                 "lock": {
                     "args": [],
                     "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash_type": "Data"
+                    "hash_type": "data"
                 },
                 "type": null
             },
@@ -415,7 +415,7 @@
             {
                 "cell_deps": [
                     {
-                        "dep_type": "Code",
+                        "dep_type": "code",
                         "out_point": {
                             "index": "0",
                             "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -440,7 +440,7 @@
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "Data"
+                            "hash_type": "data"
                         },
                         "type": null
                     }
@@ -464,7 +464,7 @@
             {
                 "cell_deps": [
                     {
-                        "dep_type": "Code",
+                        "dep_type": "code",
                         "out_point": {
                             "index": "0",
                             "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -489,7 +489,7 @@
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "Data"
+                            "hash_type": "data"
                         },
                         "type": null
                     }
@@ -534,7 +534,7 @@
             {
                 "cell_deps": [
                     {
-                        "dep_type": "Code",
+                        "dep_type": "code",
                         "out_point": {
                             "index": "0",
                             "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -559,7 +559,7 @@
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "Data"
+                            "hash_type": "data"
                         },
                         "type": null
                     }
@@ -607,7 +607,7 @@
             "transaction": {
                 "cell_deps": [
                     {
-                        "dep_type": "Code",
+                        "dep_type": "code",
                         "out_point": {
                             "index": "0",
                             "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -633,7 +633,7 @@
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "Data"
+                            "hash_type": "data"
                         },
                         "type": null
                     }
@@ -734,7 +734,7 @@
                             "lock": {
                                 "args": [],
                                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                                "hash_type": "Data"
+                                "hash_type": "data"
                             },
                             "type": null
                         }
@@ -811,7 +811,7 @@
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "Data"
+                        "hash_type": "data"
                     },
                     "type": null
                 },
@@ -827,7 +827,7 @@
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "Data"
+                        "hash_type": "data"
                     },
                     "type": null
                 },
@@ -917,7 +917,7 @@
             {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "Data"
+                "hash_type": "data"
             }
         ],
         "result": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9",
@@ -929,7 +929,7 @@
                 "code_hash": "Code hash of referenced cell"
             },
             {
-                "hash_type": "Data: code_hash matches against dep cell data hash; Type: code_hash matches against dep cell type hash."
+                "hash_type": "data: code_hash matches against dep cell data hash; type: code_hash matches against dep cell type hash."
             }
         ]
     }

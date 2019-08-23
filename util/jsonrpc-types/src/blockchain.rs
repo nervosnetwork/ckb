@@ -4,6 +4,7 @@ use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum ScriptHashType {
     Data,
     Type,
@@ -179,6 +180,7 @@ impl From<Witness> for packed::Witness {
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(rename_all = "snake_case")]
 pub enum DepType {
     Code,
     DepGroup,
