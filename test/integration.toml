@@ -7,10 +7,7 @@ timestamp = 0
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 issued_cells = []
-
-[genesis.seal]
 nonce = 0
-proof = [0]
 
 [genesis.genesis_cell]
 message = ""

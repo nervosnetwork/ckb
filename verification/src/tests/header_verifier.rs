@@ -7,7 +7,7 @@ use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
 use ckb_types::{
     constants::HEADER_VERSION,
-    core::{BlockNumber, EpochExt, HeaderBuilder, HeaderView},
+    core::{EpochExt, HeaderBuilder, HeaderView},
     packed::Header,
     prelude::*,
     U256,
@@ -170,20 +170,8 @@ fn test_epoch_difficulty() {
 struct FakePowEngine;
 
 impl PowEngine for FakePowEngine {
-    fn verify_header(&self, _header: &Header) -> bool {
+    fn verify(&self, _header: &Header) -> bool {
         false
-    }
-
-    fn verify_proof_difficulty(&self, _proof: &[u8], _difficulty: &U256) -> bool {
-        unimplemented!()
-    }
-
-    fn verify(&self, _number: BlockNumber, _message: &[u8], _proof: &[u8]) -> bool {
-        unimplemented!();
-    }
-
-    fn proof_size(&self) -> usize {
-        unimplemented!();
     }
 }
 
@@ -195,6 +183,6 @@ fn test_pow_verifier() {
 
     assert_eq!(
         verifier.verify().err(),
-        Some(Error::Pow(PowError::InvalidProof))
+        Some(Error::Pow(PowError::InvalidNonce))
     );
 }

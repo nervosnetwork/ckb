@@ -65,17 +65,11 @@ pub struct Genesis {
     pub difficulty: U256,
     pub uncles_hash: H256,
     pub hash: Option<H256>,
+    pub nonce: u64,
     pub issued_cells: Vec<IssuedCell>,
     pub genesis_cell: GenesisCell,
     pub system_cells: SystemCells,
     pub bootstrap_lock: Script,
-    pub seal: Seal,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct Seal {
-    pub nonce: u64,
-    pub proof: Bytes,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -200,8 +194,7 @@ impl Genesis {
             .difficulty(self.difficulty.pack())
             .uncles_hash(self.uncles_hash.pack())
             .dao(dao.pack())
-            .nonce(self.seal.nonce.pack())
-            .proof(self.seal.proof.pack())
+            .nonce(self.nonce.pack())
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
             .build();

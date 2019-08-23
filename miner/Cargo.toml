@@ -14,7 +14,6 @@ ckb-pow = { path = "../pow" }
 ckb-notify = { path = "../notify" }
 faketime = "0.2.0"
 rand = "0.6"
-byteorder = "1.3.1"
 serde = "1.0"
 serde_derive = "1.0"
 crossbeam-channel = "0.3"
@@ -30,8 +29,8 @@ ckb-verification = { path = "../verification" }
 indicatif = "0.11"
 console = "0.7.5"
 ckb-dao = { path = "../util/dao" }
-ckb-hash = { path = "../util/hash"}
 ckb-reward-calculator = { path = "../util/reward-calculator" }
+eaglesong = "0.1"
 
 [dev-dependencies]
 proptest = "0.9"
@@ -40,6 +39,3 @@ ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
 ckb-pow = { path = "../pow" }
 ckb-dao-utils = { path = "../util/dao/utils" }
-
-[build-dependencies]
-cc = "1.0"

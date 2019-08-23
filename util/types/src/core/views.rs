@@ -270,11 +270,7 @@ impl HeaderView {
     }
 
     pub fn nonce(&self) -> u64 {
-        self.data().seal().nonce().unpack()
-    }
-
-    pub fn proof(&self) -> Bytes {
-        self.data().seal().proof().raw_data()
+        self.data().nonce().unpack()
     }
 
     pub fn is_genesis(&self) -> bool {
@@ -316,11 +312,7 @@ impl UncleBlockView {
     }
 
     pub fn nonce(&self) -> u64 {
-        self.data().header().seal().nonce().unpack()
-    }
-
-    pub fn proof(&self) -> Bytes {
-        self.data().header().seal().proof().raw_data()
+        self.data().header().nonce().unpack()
     }
 
     pub fn header(&self) -> HeaderView {
@@ -424,11 +416,7 @@ impl BlockView {
     }
 
     pub fn nonce(&self) -> u64 {
-        self.data().header().seal().nonce().unpack()
-    }
-
-    pub fn proof(&self) -> Bytes {
-        self.data().header().seal().proof().raw_data()
+        self.data().header().nonce().unpack()
     }
 
     pub fn header(&self) -> HeaderView {

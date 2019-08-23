@@ -118,7 +118,7 @@ pub enum UnclesError {
     InvalidNumber,
     InvalidDifficulty,
     InvalidDifficultyEpoch,
-    InvalidProof,
+    InvalidNonce,
     ProposalsHash,
     ProposalDuplicate,
     Duplicate(H256),
@@ -131,7 +131,7 @@ pub enum UnclesError {
 #[derive(Debug, PartialEq, Clone, Eq)]
 pub enum PowError {
     Boundary { expected: U256, actual: U256 },
-    InvalidProof,
+    InvalidNonce,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]

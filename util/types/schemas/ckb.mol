@@ -94,14 +94,9 @@ table RawHeader {
     dao:                    Bytes,
 }
 
-table Seal {
-    nonce:                  Uint64,
-    proof:                  Bytes,
-}
-
 table Header {
     raw:                    RawHeader,
-    seal:                   Seal,
+    nonce:                  Uint64,
 }
 
 table UncleBlock {

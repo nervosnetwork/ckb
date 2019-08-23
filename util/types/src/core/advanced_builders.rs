@@ -34,9 +34,8 @@ pub struct HeaderBuilder {
     pub(crate) uncles_count: packed::Uint32,
     pub(crate) epoch: packed::Uint64,
     pub(crate) dao: packed::Bytes,
-    // Seal
+    // Nonce
     pub(crate) nonce: packed::Uint64,
-    pub(crate) proof: packed::Bytes,
 }
 
 #[derive(Debug, Default)]
@@ -82,7 +81,6 @@ impl ::std::default::Default for HeaderBuilder {
             epoch: Default::default(),
             dao: Default::default(),
             nonce: Default::default(),
-            proof: Default::default(),
         }
     }
 }
@@ -213,7 +211,6 @@ impl HeaderBuilder {
     def_setter_simple!(epoch, Uint64);
     def_setter_simple!(dao, Bytes);
     def_setter_simple!(nonce, Uint64);
-    def_setter_simple!(proof, Bytes);
 
     pub fn build(self) -> core::HeaderView {
         let Self {
@@ -230,7 +227,6 @@ impl HeaderBuilder {
             epoch,
             dao,
             nonce,
-            proof,
         } = self;
         debug_assert!(
             Unpack::<U256>::unpack(&difficulty) > U256::zero(),
@@ -250,11 +246,7 @@ impl HeaderBuilder {
             .epoch(epoch)
             .dao(dao)
             .build();
-        let seal = packed::Seal::new_builder()
-            .nonce(nonce)
-            .proof(proof)
-            .build();
-        let header = packed::Header::new_builder().raw(raw).seal(seal).build();
+        let header = packed::Header::new_builder().raw(raw).nonce(nonce).build();
         let hash = header.calc_header_hash().pack();
         core::HeaderView { data: header, hash }
     }
@@ -274,7 +266,6 @@ impl BlockBuilder {
     def_setter_simple!(header, epoch, Uint64);
     def_setter_simple!(header, dao, Bytes);
     def_setter_simple!(header, nonce, Uint64);
-    def_setter_simple!(header, proof, Bytes);
     def_setter_for_view_vector!(uncles, UncleBlockView, uncle, uncles, set_uncles);
     def_setter_for_view_vector!(
         transactions,
@@ -429,8 +420,7 @@ impl packed::Header {
             .uncles_count(self.raw().uncles_count())
             .epoch(self.raw().epoch())
             .dao(self.raw().dao())
-            .nonce(self.seal().nonce())
-            .proof(self.seal().proof())
+            .nonce(self.nonce())
     }
 }
 

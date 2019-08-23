@@ -9445,239 +9445,6 @@ impl RawHeaderBuilder {
     }
 }
 #[derive(Clone)]
-pub struct Seal(molecule::bytes::Bytes);
-#[derive(Clone, Copy)]
-pub struct SealReader<'r>(&'r [u8]);
-impl ::std::fmt::Debug for Seal {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl<'r> ::std::fmt::Debug for SealReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl ::std::fmt::Display for Seal {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "nonce", self.nonce())?;
-        write!(f, ", {}: {}", "proof", self.proof())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
-        write!(f, " }}")
-    }
-}
-impl<'r> ::std::fmt::Display for SealReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "nonce", self.nonce())?;
-        write!(f, ", {}: {}", "proof", self.proof())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
-        write!(f, " }}")
-    }
-}
-#[derive(Debug, Default)]
-pub struct SealBuilder {
-    pub(crate) nonce: Uint64,
-    pub(crate) proof: Bytes,
-}
-impl ::std::default::Default for Seal {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![
-            24, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        Seal::new_unchecked(v.into())
-    }
-}
-impl molecule::prelude::Entity for Seal {
-    type Builder = SealBuilder;
-    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        Seal(data)
-    }
-    fn as_bytes(&self) -> molecule::bytes::Bytes {
-        self.0.clone()
-    }
-    fn as_slice(&self) -> &[u8] {
-        &self.0[..]
-    }
-    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        SealReader::from_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn new_builder() -> Self::Builder {
-        ::std::default::Default::default()
-    }
-    fn as_builder(self) -> Self::Builder {
-        Self::new_builder().nonce(self.nonce()).proof(self.proof())
-    }
-}
-impl Seal {
-    pub const NAME: &'static str = "Seal";
-    pub fn as_reader(&self) -> SealReader<'_> {
-        SealReader::new_unchecked(self.as_slice())
-    }
-    pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
-    pub fn nonce(&self) -> Uint64 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn proof(&self) -> Bytes {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            Bytes::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            Bytes::new_unchecked(self.0.slice(start, end))
-        }
-    }
-}
-impl<'r> molecule::prelude::Reader<'r> for SealReader<'r> {
-    type Entity = Seal;
-    fn to_entity(&self) -> Self::Entity {
-        Seal::new_unchecked(self.as_slice().into())
-    }
-    fn new_unchecked(slice: &'r [u8]) -> Self {
-        SealReader(slice)
-    }
-    fn as_slice(&self) -> &[u8] {
-        self.0
-    }
-    fn verify(slice: &[u8]) -> molecule::error::VerificationResult<()> {
-        use molecule::error::VerificationError;
-        let len = slice.len();
-        if len < 4 {
-            let err = VerificationError::HeaderIsBroken(Self::NAME.to_owned(), 4, len);
-            Err(err)?;
-        }
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
-            Err(err)?;
-        }
-        if 2 == 0 && total_size == 4 {
-            return Ok(());
-        }
-        let expected = 4 + 4 * 2;
-        if total_size < expected {
-            let err =
-                VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..=2]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        if offsets[0] != expected {
-            let err =
-                VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), expected, offsets[0]);
-            Err(err)?;
-        }
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        BytesReader::verify(&slice[offsets[1]..offsets[2]])?;
-        Ok(())
-    }
-}
-impl<'r> SealReader<'r> {
-    pub const NAME: &'r str = "SealReader";
-    pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
-    pub fn nonce(&self) -> Uint64Reader<'_> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn proof(&self) -> BytesReader<'_> {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            BytesReader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            BytesReader::new_unchecked(&self.as_slice()[start..end])
-        }
-    }
-}
-impl molecule::prelude::Builder for SealBuilder {
-    type Entity = Seal;
-    fn expected_length(&self) -> usize {
-        let len_header = 4 + 2 * 4;
-        len_header + self.nonce.as_slice().len() + self.proof.as_slice().len()
-    }
-    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 2 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.nonce.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.proof.as_slice().len();
-        }
-        let _ = offset;
-        writer.write_all(self.nonce.as_slice())?;
-        writer.write_all(self.proof.as_slice())?;
-        Ok(())
-    }
-    fn build(&self) -> Self::Entity {
-        let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner).expect("write vector should be ok");
-        Seal::new_unchecked(inner.into())
-    }
-}
-impl SealBuilder {
-    pub const NAME: &'static str = "SealBuilder";
-    pub fn nonce(mut self, v: Uint64) -> Self {
-        self.nonce = v;
-        self
-    }
-    pub fn proof(mut self, v: Bytes) -> Self {
-        self.proof = v;
-        self
-    }
-}
-#[derive(Clone)]
 pub struct Header(molecule::bytes::Bytes);
 #[derive(Clone, Copy)]
 pub struct HeaderReader<'r>(&'r [u8]);
@@ -9705,7 +9472,7 @@ impl ::std::fmt::Display for Header {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "raw", self.raw())?;
-        write!(f, ", {}: {}", "seal", self.seal())?;
+        write!(f, ", {}: {}", "nonce", self.nonce())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -9717,7 +9484,7 @@ impl<'r> ::std::fmt::Display for HeaderReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "raw", self.raw())?;
-        write!(f, ", {}: {}", "seal", self.seal())?;
+        write!(f, ", {}: {}", "nonce", self.nonce())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -9728,12 +9495,12 @@ impl<'r> ::std::fmt::Display for HeaderReader<'r> {
 #[derive(Debug, Default)]
 pub struct HeaderBuilder {
     pub(crate) raw: RawHeader,
-    pub(crate) seal: Seal,
+    pub(crate) nonce: Uint64,
 }
 impl ::std::default::Default for Header {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            60, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0,
+            44, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0,
             0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0,
             8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9743,8 +9510,7 @@ impl ::std::default::Default for Header {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         Header::new_unchecked(v.into())
     }
@@ -9767,7 +9533,7 @@ impl molecule::prelude::Entity for Header {
         ::std::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder().raw(self.raw()).seal(self.seal())
+        Self::new_builder().raw(self.raw()).nonce(self.nonce())
     }
 }
 impl Header {
@@ -9789,14 +9555,14 @@ impl Header {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         RawHeader::new_unchecked(self.0.slice(start, end))
     }
-    pub fn seal(&self) -> Seal {
+    pub fn nonce(&self) -> Uint64 {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            Seal::new_unchecked(self.0.slice_from(start))
+            Uint64::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            Seal::new_unchecked(self.0.slice(start, end))
+            Uint64::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -9848,7 +9614,7 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderReader<'r> {
             Err(err)?;
         }
         RawHeaderReader::verify(&slice[offsets[0]..offsets[1]])?;
-        SealReader::verify(&slice[offsets[1]..offsets[2]])?;
+        Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
         Ok(())
     }
 }
@@ -9868,14 +9634,14 @@ impl<'r> HeaderReader<'r> {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         RawHeaderReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn seal(&self) -> SealReader<'_> {
+    pub fn nonce(&self) -> Uint64Reader<'_> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            SealReader::new_unchecked(&self.as_slice()[start..])
+            Uint64Reader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            SealReader::new_unchecked(&self.as_slice()[start..end])
+            Uint64Reader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -9883,7 +9649,7 @@ impl molecule::prelude::Builder for HeaderBuilder {
     type Entity = Header;
     fn expected_length(&self) -> usize {
         let len_header = 4 + 2 * 4;
-        len_header + self.raw.as_slice().len() + self.seal.as_slice().len()
+        len_header + self.raw.as_slice().len() + self.nonce.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
@@ -9897,11 +9663,11 @@ impl molecule::prelude::Builder for HeaderBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.seal.as_slice().len();
+            offset += self.nonce.as_slice().len();
         }
         let _ = offset;
         writer.write_all(self.raw.as_slice())?;
-        writer.write_all(self.seal.as_slice())?;
+        writer.write_all(self.nonce.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -9916,8 +9682,8 @@ impl HeaderBuilder {
         self.raw = v;
         self
     }
-    pub fn seal(mut self, v: Seal) -> Self {
-        self.seal = v;
+    pub fn nonce(mut self, v: Uint64) -> Self {
+        self.nonce = v;
         self
     }
 }
@@ -9977,7 +9743,7 @@ pub struct UncleBlockBuilder {
 impl ::std::default::Default for UncleBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            76, 1, 0, 0, 12, 0, 0, 0, 72, 1, 0, 0, 60, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0,
+            60, 1, 0, 0, 12, 0, 0, 0, 56, 1, 0, 0, 44, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0,
             0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168,
             0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9987,8 +9753,8 @@ impl ::std::default::Default for UncleBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 12, 0, 0,
-            0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0,
         ];
         UncleBlock::new_unchecked(v.into())
     }
@@ -10229,7 +9995,7 @@ pub struct BlockBuilder {
 impl ::std::default::Default for Block {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            92, 1, 0, 0, 20, 0, 0, 0, 80, 1, 0, 0, 84, 1, 0, 0, 88, 1, 0, 0, 60, 1, 0, 0, 12, 0, 0,
+            76, 1, 0, 0, 20, 0, 0, 0, 64, 1, 0, 0, 68, 1, 0, 0, 72, 1, 0, 0, 44, 1, 0, 0, 12, 0, 0,
             0, 36, 1, 0, 0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104,
             0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0,
             0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -10240,8 +10006,7 @@ impl ::std::default::Default for Block {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 24, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0,
-            0, 4, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
         ];
         Block::new_unchecked(v.into())
     }
@@ -10528,9 +10293,9 @@ pub struct HeaderViewBuilder {
 impl ::std::default::Default for HeaderView {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            104, 1, 0, 0, 12, 0, 0, 0, 72, 1, 0, 0, 60, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1,
-            0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0,
-            168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0,
+            88, 1, 0, 0, 12, 0, 0, 0, 56, 1, 0, 0, 44, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0,
+            0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168,
+            0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -10538,9 +10303,9 @@ impl ::std::default::Default for HeaderView {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 12,
-            0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
         ];
         HeaderView::new_unchecked(v.into())
     }
@@ -14592,10 +14357,10 @@ pub struct CompactBlockBuilder {
 impl ::std::default::Default for CompactBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            100, 1, 0, 0, 24, 0, 0, 0, 84, 1, 0, 0, 88, 1, 0, 0, 92, 1, 0, 0, 96, 1, 0, 0, 60, 1,
-            0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96,
-            0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0,
-            0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            84, 1, 0, 0, 24, 0, 0, 0, 68, 1, 0, 0, 72, 1, 0, 0, 76, 1, 0, 0, 80, 1, 0, 0, 44, 1, 0,
+            0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0,
+            0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0,
+            12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -14603,8 +14368,7 @@ impl ::std::default::Default for CompactBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
         ];
         CompactBlock::new_unchecked(v.into())
     }
@@ -18731,8 +18495,8 @@ pub struct SendBlockBuilder {
 impl ::std::default::Default for SendBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            100, 1, 0, 0, 8, 0, 0, 0, 92, 1, 0, 0, 20, 0, 0, 0, 80, 1, 0, 0, 84, 1, 0, 0, 88, 1, 0,
-            0, 60, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0,
+            84, 1, 0, 0, 8, 0, 0, 0, 76, 1, 0, 0, 20, 0, 0, 0, 64, 1, 0, 0, 68, 1, 0, 0, 72, 1, 0,
+            0, 44, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0, 0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0,
             0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0,
             0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -18742,8 +18506,8 @@ impl ::std::default::Default for SendBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+            0,
         ];
         SendBlock::new_unchecked(v.into())
     }
@@ -19591,9 +19355,9 @@ pub struct FilteredBlockBuilder {
 impl ::std::default::Default for FilteredBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            100, 1, 0, 0, 16, 0, 0, 0, 76, 1, 0, 0, 80, 1, 0, 0, 60, 1, 0, 0, 12, 0, 0, 0, 36, 1,
-            0, 0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0,
-            136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1,
+            84, 1, 0, 0, 16, 0, 0, 0, 60, 1, 0, 0, 64, 1, 0, 0, 44, 1, 0, 0, 12, 0, 0, 0, 36, 1, 0,
+            0, 24, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136,
+            0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -19601,9 +19365,9 @@ impl ::std::default::Default for FilteredBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 24, 0,
-            0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 20, 0,
-            0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 4, 0, 0, 0, 20, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0,
         ];
         FilteredBlock::new_unchecked(v.into())
     }

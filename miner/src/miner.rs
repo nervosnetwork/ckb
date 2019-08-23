@@ -4,11 +4,7 @@ use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
 use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
-use ckb_types::{
-    packed::{Header, Seal},
-    prelude::*,
-    H256,
-};
+use ckb_types::{packed::Header, prelude::*, utilities::difficulty_to_target, H256};
 use crossbeam_channel::{select, unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lru_cache::LruCache;
@@ -23,9 +19,9 @@ pub struct Miner {
     pub works: LruCache<H256, Work>,
     pub worker_controllers: Vec<WorkerController>,
     pub work_rx: Receiver<Work>,
-    pub seal_rx: Receiver<(H256, Seal)>,
+    pub nonce_rx: Receiver<(H256, u64)>,
     pub pb: ProgressBar,
-    pub seals_found: u64,
+    pub nonces_found: u64,
     pub stderr_is_tty: bool,
 }
 
@@ -36,12 +32,12 @@ impl Miner {
         work_rx: Receiver<Work>,
         workers: &[WorkerConfig],
     ) -> Miner {
-        let (seal_tx, seal_rx) = unbounded();
+        let (nonce_tx, nonce_rx) = unbounded();
         let mp = MultiProgress::new();
 
         let worker_controllers = workers
             .iter()
-            .map(|config| start_worker(Arc::clone(&pow), config, seal_tx.clone(), &mp))
+            .map(|config| start_worker(Arc::clone(&pow), config, nonce_tx.clone(), &mp))
             .collect();
 
         let pb = mp.add(ProgressBar::new(100));
@@ -55,12 +51,12 @@ impl Miner {
 
         Miner {
             works: LruCache::new(WORK_CACHE_SIZE),
-            seals_found: 0,
+            nonces_found: 0,
             pow,
             client,
             worker_controllers,
             work_rx,
-            seal_rx,
+            nonce_rx,
             pb,
             stderr_is_tty,
         }
@@ -74,18 +70,19 @@ impl Miner {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
                         let pow_hash = work.block.header().calc_pow_hash();
+                        let target = difficulty_to_target(&work.block.header().raw().difficulty().unpack());
                         self.works.insert(pow_hash.clone(), work);
-                        self.notify_workers(WorkerMessage::NewWork(pow_hash));
+                        self.notify_workers(WorkerMessage::NewWork{pow_hash, target});
                     },
                     _ => {
                         error!("work_rx closed");
                         break;
                     },
                 },
-                recv(self.seal_rx) -> msg => match msg {
-                    Ok((pow_hash, seal)) => self.check_seal(pow_hash, seal),
+                recv(self.nonce_rx) -> msg => match msg {
+                    Ok((pow_hash, nonce)) => self.submit_nonce(pow_hash, nonce),
                     _ => {
-                        error!("seal_rx closed");
+                        error!("nonce_rx closed");
                         break;
                     },
                 }
@@ -93,40 +90,38 @@ impl Miner {
         }
     }
 
-    fn check_seal(&mut self, pow_hash: H256, seal: Seal) {
+    fn submit_nonce(&mut self, pow_hash: H256, nonce: u64) {
         if let Some(work) = self.works.get_refresh(&pow_hash).cloned() {
-            if self.pow.verify_proof_difficulty(
-                seal.proof().as_slice(),
-                &work.block.header().raw().difficulty().unpack(),
-            ) {
-                let work_id = work.work_id.to_string();
-                self.notify_workers(WorkerMessage::Stop);
-                let raw_header = work.block.header().raw();
-                let header = Header::new_builder().raw(raw_header).seal(seal).build();
-                let block = work.block.as_builder().header(header).build().into_view();
-                let block_hash: H256 = block.hash().unpack();
-                if self.stderr_is_tty {
-                    debug!("Found! #{} {:#x}", block.number(), block_hash);
-                } else {
-                    info!("Found! #{} {:#x}", block.number(), block_hash);
-                }
+            self.notify_workers(WorkerMessage::Stop);
+            let raw_header = work.block.header().raw();
+            let header = Header::new_builder()
+                .raw(raw_header)
+                .nonce(nonce.pack())
+                .build();
+            let block = work.block.as_builder().header(header).build().into_view();
+            let block_hash: H256 = block.hash().unpack();
+            if self.stderr_is_tty {
+                debug!("Found! #{} {:#x}", block.number(), block_hash);
+            } else {
+                info!("Found! #{} {:#x}", block.number(), block_hash);
+            }
 
-                // submit block and poll new work
-                {
-                    self.client.submit_block(&work_id, block.data());
-                    self.client.try_update_block_template();
-                    self.notify_workers(WorkerMessage::Start);
-                }
+            // submit block and poll new work
+            {
+                self.client
+                    .submit_block(&work.work_id.to_string(), block.data());
+                self.client.try_update_block_template();
+                self.notify_workers(WorkerMessage::Start);
+            }
 
-                // draw progress bar
-                {
-                    self.seals_found += 1;
-                    self.pb
-                        .println(format!("Found! #{} {:#x}", block.number(), block_hash));
-                    self.pb
-                        .set_message(&format!("Total seals found: {:>3}", self.seals_found));
-                    self.pb.inc(1);
-                }
+            // draw progress bar
+            {
+                self.nonces_found += 1;
+                self.pb
+                    .println(format!("Found! #{} {:#x}", block.number(), block_hash));
+                self.pb
+                    .set_message(&format!("Total nonces found: {:>3}", self.nonces_found));
+                self.pb.inc(1);
             }
         }
     }
