@@ -1,7 +1,6 @@
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
 use ckb_logger::{debug, error};
-use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_sync::NetworkProtocol;
@@ -33,7 +32,6 @@ pub trait MinerRpc {
 pub(crate) struct MinerRpcImpl {
     pub network_controller: NetworkController,
     pub shared: Shared,
-    pub block_assembler: BlockAssemblerController,
     pub chain: ChainController,
 }
 
@@ -54,7 +52,8 @@ impl MinerRpc for MinerRpcImpl {
             None => None,
         };
 
-        self.block_assembler
+        let tx_pool = self.shared.tx_pool_controller();
+        tx_pool
             .get_block_template(bytes_limit, proposals_limit, max_version.map(|v| v.0))
             .map_err(|err| {
                 error!("get_block_template error {}", err);

@@ -27,12 +27,9 @@ ckb-proposal-table = { path = "../util/proposal-table" }
 # https://github.com/rust-lang/rust-clippy/issues/4121
 im = "~12.3"
 arc-swap = "0.4"
+ckb-tx-pool = { path = "../tx-pool" }
+ckb-snapshot = { path = "../util/snapshot" }
+ckb-notify = { path = "../notify"}
 
 [dev-dependencies]
-env_logger = "0.6"
-tempfile = "3.0"
-rand = "0.6"
-serde_json = "1.0"
-ckb-chain = { path = "../chain" }
-ckb-notify = { path = "../notify" }
-ckb-test-chain-utils = { path = "../util/test-chain-utils" }
+ckb-traits = { path = "../traits" }

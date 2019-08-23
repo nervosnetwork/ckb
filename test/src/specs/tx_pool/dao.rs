@@ -175,11 +175,7 @@ impl Spec for WithdrawDAOWithOverflowCapacity {
         };
         node0.generate_blocks(20);
         // Withdraw DAO with empty witnesses. Return DAO script ERROR_INCORRECT_CAPACITY
-        assert_send_transaction_fail(
-            node0,
-            &transaction,
-            "InvalidTx(ScriptFailure(ValidationFailure(-15)))",
-        );
+        assert_send_transaction_fail(node0, &transaction, "OccupiedCapacity: overflow");
     }
 }
 

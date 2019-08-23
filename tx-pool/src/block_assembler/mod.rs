@@ -1,53 +1,37 @@
-use crate::candidate_uncles::CandidateUncles;
+mod candidate_uncles;
+
+use crate::block_assembler::candidate_uncles::CandidateUncles;
+use crate::component::entry::TxEntry;
 use crate::config::BlockAssemblerConfig;
-use crate::error::Error;
-use ckb_dao::DaoCalculator;
+use crate::error::BlockAssemblerError as Error;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::{
-    BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
-    EpochNumber as JsonEpochNumber, Timestamp as JsonTimestamp, TransactionTemplate, UncleTemplate,
-    Unsigned, Version as JsonVersion,
+    BlockTemplate, CellbaseTemplate, Cycle as JsonCycle, TransactionTemplate, UncleTemplate,
+    Unsigned,
 };
-use ckb_logger::{error, info};
-use ckb_notify::NotifyController;
 use ckb_reward_calculator::RewardCalculator;
-use ckb_shared::{
-    shared::Shared,
-    tx_pool::{commit_txs_scanner::CommitTxsScanner, TxEntry, TxPool},
-    Snapshot,
-};
-use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
-use ckb_traits::ChainProvider;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
-        service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockNumber, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionBuilder,
-        TransactionView, Version,
+        BlockNumber, Capacity, Cycle, EpochExt, HeaderView, TransactionBuilder, TransactionView,
+        Version,
     },
     packed::{self, CellInput, CellOutput, ProposalShortId, Script, Transaction, UncleBlock},
     prelude::*,
     H256,
 };
 use ckb_verification::TransactionError;
-use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
-use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
-use std::cmp;
 use std::collections::HashSet;
-use std::iter;
 use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering, Arc};
-use std::thread;
 
-type BlockTemplateParams = (Option<u64>, Option<u64>, Option<Version>);
-type BlockTemplateResult = Result<BlockTemplate, FailureError>;
-const BLOCK_ASSEMBLER_SUBSCRIBER: &str = "block_assembler";
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
 
-struct TemplateCache {
+pub(crate) struct TemplateCache {
     pub time: u64,
     pub uncles_updated_at: u64,
     pub txs_updated_at: u64,
@@ -55,142 +39,46 @@ struct TemplateCache {
 }
 
 impl TemplateCache {
-    fn is_outdate(&self, current_time: u64) -> bool {
+    pub(crate) fn is_outdate(&self, current_time: u64) -> bool {
         current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
     }
 
-    fn is_modified(&self, last_uncles_updated_at: u64, last_txs_updated_at: u64) -> bool {
+    pub(crate) fn is_modified(
+        &self,
+        last_uncles_updated_at: u64,
+        last_txs_updated_at: u64,
+    ) -> bool {
         last_uncles_updated_at != self.uncles_updated_at
             || last_txs_updated_at != self.txs_updated_at
     }
 }
 
-#[derive(Clone)]
-pub struct BlockAssemblerController {
-    get_block_template_sender: Sender<Request<BlockTemplateParams, BlockTemplateResult>>,
-    stop: StopHandler<()>,
-}
-
-impl Drop for BlockAssemblerController {
-    fn drop(&mut self) {
-        self.stop.try_send();
-    }
-}
-
-struct BlockAssemblerReceivers {
-    get_block_template_receiver: Receiver<Request<BlockTemplateParams, BlockTemplateResult>>,
-}
-
-impl BlockAssemblerController {
-    pub fn get_block_template(
-        &self,
-        bytes_limit: Option<u64>,
-        proposals_limit: Option<u64>,
-        max_version: Option<Version>,
-    ) -> BlockTemplateResult {
-        Request::call(
-            &self.get_block_template_sender,
-            (bytes_limit, proposals_limit, max_version),
-        )
-        .expect("get_block_template() failed")
-    }
-}
-
 pub struct BlockAssembler {
-    shared: Shared,
-    config: BlockAssemblerConfig,
-    work_id: AtomicUsize,
-    last_uncles_updated_at: AtomicU64,
-    template_caches: LruCache<(H256, Cycle, u64, Version), TemplateCache>,
+    pub(crate) config: BlockAssemblerConfig,
+    pub(crate) work_id: AtomicUsize,
+    pub(crate) last_uncles_updated_at: AtomicU64,
+    pub(crate) template_caches: LruCache<(H256, Cycle, u64, Version), TemplateCache>,
+    pub(crate) candidate_uncles: CandidateUncles,
 }
 
 impl BlockAssembler {
-    pub fn new(shared: Shared, config: BlockAssemblerConfig) -> Self {
+    pub fn new(config: BlockAssemblerConfig) -> Self {
         Self {
-            shared,
             config,
             work_id: AtomicUsize::new(0),
             last_uncles_updated_at: AtomicU64::new(0),
             template_caches: LruCache::new(TEMPLATE_CACHE_SIZE),
+            candidate_uncles: CandidateUncles::new(),
         }
     }
 
-    // remove `allow` tag when https://github.com/crossbeam-rs/crossbeam/issues/404 is solved
-    #[allow(clippy::zero_ptr, clippy::drop_copy)]
-    pub fn start<S: ToString>(
-        mut self,
-        thread_name: Option<S>,
-        notify: &NotifyController,
-    ) -> BlockAssemblerController {
-        let (signal_sender, signal_receiver) =
-            crossbeam_channel::bounded::<()>(SIGNAL_CHANNEL_SIZE);
-        let (get_block_template_sender, get_block_template_receiver) =
-            crossbeam_channel::bounded(DEFAULT_CHANNEL_SIZE);
-
-        let mut thread_builder = thread::Builder::new();
-        // Mainly for test: give a empty thread_name
-        if let Some(name) = thread_name {
-            thread_builder = thread_builder.name(name.to_string());
-        }
-
-        let receivers = BlockAssemblerReceivers {
-            get_block_template_receiver,
-        };
-
-        let new_uncle_receiver = notify.subscribe_new_uncle(BLOCK_ASSEMBLER_SUBSCRIBER);
-        let thread = thread_builder
-            .spawn(move || {
-                let mut candidate_uncles = CandidateUncles::new();
-                loop {
-                    select! {
-                        recv(signal_receiver) -> _ => {
-                            break;
-                        }
-                        recv(new_uncle_receiver) -> msg => match msg {
-                            Ok(uncle_block) => {
-                                candidate_uncles.insert(uncle_block);
-                                self.last_uncles_updated_at
-                                    .store(unix_time_as_millis(), Ordering::SeqCst);
-                            }
-                            _ => {
-                                error!("new_uncle_receiver closed");
-                                break;
-                            }
-                        },
-                        recv(receivers.get_block_template_receiver) -> msg => match msg {
-                            Ok(Request { responder, arguments: (bytes_limit, proposals_limit,  max_version) }) => {
-                                let _ = responder.send(
-                                    self.get_block_template(
-                                        bytes_limit,
-                                        proposals_limit,
-                                        max_version,
-                                        &mut candidate_uncles
-                                    )
-                                );
-                            },
-                            _ => {
-                                error!("get_block_template_receiver closed");
-                                break;
-                            },
-                        }
-                    }
-                }
-            }).expect("Start MinerAgent failed");
-        let stop = StopHandler::new(SignalSender::Crossbeam(signal_sender), thread);
-
-        BlockAssemblerController {
-            get_block_template_sender,
-            stop,
-        }
-    }
-
-    fn transform_params(
+    pub(crate) fn transform_params(
         &self,
+        consensus: &Consensus,
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
     ) -> (u64, u64, Version) {
-        let consensus = self.shared.consensus();
         let bytes_limit = bytes_limit
             .min(Some(consensus.max_block_bytes()))
             .unwrap_or_else(|| consensus.max_block_bytes());
@@ -204,7 +92,11 @@ impl BlockAssembler {
         (bytes_limit, proposals_limit, version)
     }
 
-    fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
+    pub(crate) fn load_last_uncles_updated_at(&self) -> u64 {
+        self.last_uncles_updated_at.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
         UncleTemplate {
             hash: uncle.calc_header_hash().unpack(),
             required: false,
@@ -213,7 +105,10 @@ impl BlockAssembler {
         }
     }
 
-    fn transform_cellbase(tx: &TransactionView, cycles: Option<Cycle>) -> CellbaseTemplate {
+    pub(crate) fn transform_cellbase(
+        tx: &TransactionView,
+        cycles: Option<Cycle>,
+    ) -> CellbaseTemplate {
         CellbaseTemplate {
             hash: tx.hash().unpack(),
             cycles: cycles.map(JsonCycle),
@@ -221,7 +116,7 @@ impl BlockAssembler {
         }
     }
 
-    fn transform_tx(
+    pub(crate) fn transform_tx(
         tx: &TxEntry,
         required: bool,
         depends: Option<Vec<u32>>,
@@ -235,7 +130,7 @@ impl BlockAssembler {
         }
     }
 
-    fn calculate_txs_size_limit(
+    pub(crate) fn calculate_txs_size_limit(
         &self,
         bytes_limit: u64,
         cellbase: Transaction,
@@ -264,167 +159,11 @@ impl BlockAssembler {
             .ok_or_else(|| Error::InvalidParams(format!("bytes_limit {}", bytes_limit)).into())
     }
 
-    fn get_block_template(
-        &mut self,
-        bytes_limit: Option<u64>,
-        proposals_limit: Option<u64>,
-        max_version: Option<Version>,
-        candidate_uncles: &mut CandidateUncles,
-    ) -> Result<BlockTemplate, FailureError> {
-        let cycles_limit = self.shared.consensus().max_block_cycles();
-        let (bytes_limit, proposals_limit, version) =
-            self.transform_params(bytes_limit, proposals_limit, max_version);
-        let uncles_count_limit = self.shared.consensus().max_uncles_num() as u32;
-
-        let last_uncles_updated_at = self.last_uncles_updated_at.load(Ordering::SeqCst);
-
-        // try get cache
-        let snapshot: &Snapshot = &self.shared.snapshot();
-        let tip_header = snapshot.get_tip_header().expect("get tip header");
-        let tip_hash = tip_header.hash();
-        let candidate_number = tip_header.number() + 1;
-        let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
-        if let Some(template_cache) = self.template_caches.get(&(
-            tip_header.hash().unpack(),
-            cycles_limit,
-            bytes_limit,
-            version,
-        )) {
-            // check template cache outdate time
-            if !template_cache.is_outdate(current_time) {
-                let mut template = template_cache.template.clone();
-                template.current_time = JsonTimestamp(current_time);
-                return Ok(template);
-            }
-            let last_txs_updated_at = self.shared.try_lock_tx_pool().get_last_txs_updated_at();
-
-            if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
-                let mut template = template_cache.template.clone();
-                template.current_time = JsonTimestamp(current_time);
-                return Ok(template);
-            }
-        }
-
-        let last_epoch = snapshot.get_current_epoch_ext().expect("current epoch ext");
-        let next_epoch_ext =
-            snapshot.next_epoch_ext(self.shared.consensus(), &last_epoch, &tip_header);
-        let current_epoch = next_epoch_ext.unwrap_or(last_epoch);
-        let uncles = self.prepare_uncles(
-            &snapshot,
-            candidate_number,
-            &current_epoch,
-            candidate_uncles,
-        );
-
-        let cellbase_lock_args = self
-            .config
-            .args
-            .clone()
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<packed::Bytes>>();
-
-        let hash_type: ScriptHashType = self.config.hash_type.clone().into();
-        let cellbase_lock = Script::new_builder()
-            .args(cellbase_lock_args.pack())
-            .code_hash(self.config.code_hash.pack())
-            .hash_type(hash_type.pack())
-            .build();
-
-        let cellbase = self.build_cellbase(&snapshot, &tip_header, cellbase_lock)?;
-
-        let (proposals, entries, last_txs_updated_at) = {
-            let tx_pool = self.shared.try_lock_tx_pool();
-            let last_txs_updated_at = tx_pool.get_last_txs_updated_at();
-            let proposals = tx_pool.get_proposals(proposals_limit as usize);
-            let txs_size_limit =
-                self.calculate_txs_size_limit(bytes_limit, cellbase.data(), &uncles, &proposals)?;
-
-            let (entries, size, cycles) = self.package_txs(&tx_pool, txs_size_limit, cycles_limit);
-            if !entries.is_empty() {
-                info!(
-                    "[get_block_template] candidate txs count: {}, size: {}/{}, cycles:{}/{}",
-                    entries.len(),
-                    size,
-                    txs_size_limit,
-                    cycles,
-                    cycles_limit
-                );
-            }
-            (proposals, entries, last_txs_updated_at)
-        };
-
-        let mut txs = iter::once(&cellbase).chain(entries.iter().map(|entry| &entry.transaction));
-
-        let mut seen_inputs = HashSet::new();
-        let transactions_provider = TransactionsProvider::new(txs.clone());
-        let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
-
-        let rtxs = txs
-            .try_fold(vec![], |mut rtxs, tx| {
-                match resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot) {
-                    Ok(rtx) => {
-                        rtxs.push(rtx);
-                        Ok(rtxs)
-                    }
-                    Err(e) => Err(e),
-                }
-            })
-            .map_err(|_| Error::InvalidInput)?;
-        // Generate DAO fields here
-        let dao =
-            DaoCalculator::new(self.shared.consensus(), snapshot).dao_field(&rtxs, &tip_header)?;
-
-        // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
-        let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
-        let template = BlockTemplate {
-            version: JsonVersion(version),
-            difficulty: current_epoch.difficulty().clone(),
-            current_time: JsonTimestamp(current_time),
-            number: JsonBlockNumber(candidate_number),
-            epoch: JsonEpochNumber(current_epoch.number()),
-            parent_hash: tip_hash.unpack(),
-            cycles_limit: JsonCycle(cycles_limit),
-            bytes_limit: Unsigned(bytes_limit),
-            uncles_count_limit: Unsigned(uncles_count_limit.into()),
-            uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
-            transactions: entries
-                .iter()
-                .map(|entry| Self::transform_tx(entry, false, None))
-                .collect(),
-            proposals: proposals.into_iter().map(Into::into).collect(),
-            cellbase: Self::transform_cellbase(&cellbase, None),
-            work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
-            dao: dao.into(),
-        };
-
-        self.template_caches.insert(
-            (tip_hash.unpack(), cycles_limit, bytes_limit, version),
-            TemplateCache {
-                time: current_time,
-                uncles_updated_at: last_uncles_updated_at,
-                txs_updated_at: last_txs_updated_at,
-                template: template.clone(),
-            },
-        );
-
-        Ok(template)
-    }
-
-    fn package_txs(
-        &self,
-        tx_pool: &TxPool,
-        size_limit: usize,
-        cycles_limit: Cycle,
-    ) -> (Vec<TxEntry>, usize, Cycle) {
-        CommitTxsScanner::new(tx_pool.proposed()).txs_to_commit(size_limit, cycles_limit)
-    }
-
     /// Miner mined block H(c), the block reward will be finalized at H(c + w_far + 1).
     /// Miner specify own lock in cellbase witness.
     /// The cellbase have only one output,
     /// miner should collect the block reward for finalize target H(max(0, c - w_far - 1))
-    fn build_cellbase(
+    pub(crate) fn build_cellbase(
         &self,
         snapshot: &Snapshot,
         tip: &HeaderView,
@@ -434,7 +173,7 @@ impl BlockAssembler {
 
         let tx = {
             let (target_lock, block_reward) =
-                RewardCalculator::new(self.shared.consensus(), snapshot).block_reward(tip)?;
+                RewardCalculator::new(snapshot.consensus(), snapshot).block_reward(tip)?;
             let witness = lock.into_witness();
             let input = CellInput::new_cellbase_input(candidate_number);
             let output = CellOutput::new_builder()
@@ -454,7 +193,7 @@ impl BlockAssembler {
         Ok(tx)
     }
 
-    fn build_output_data(
+    pub(crate) fn build_output_data(
         &self,
         reward: Capacity,
         output: &CellOutput,
@@ -486,19 +225,18 @@ impl BlockAssembler {
     // (2) height(B2) > height(B1);
     // (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
     // and (4) B2 is the first block in its chain to refer to B1.
-    fn prepare_uncles(
-        &self,
+    pub(crate) fn prepare_uncles(
+        &mut self,
         snapshot: &Snapshot,
         candidate_number: BlockNumber,
         current_epoch_ext: &EpochExt,
-        candidate_uncles: &mut CandidateUncles,
     ) -> Vec<UncleBlock> {
         let epoch_number = current_epoch_ext.number();
-        let max_uncles_num = self.shared.consensus().max_uncles_num();
+        let max_uncles_num = snapshot.consensus().max_uncles_num();
         let mut uncles: Vec<UncleBlock> = Vec::with_capacity(max_uncles_num);
         let mut removed = Vec::new();
 
-        for uncle in candidate_uncles.values() {
+        for uncle in self.candidate_uncles.values() {
             if uncles.len() == max_uncles_num {
                 break;
             }
@@ -520,7 +258,7 @@ impl BlockAssembler {
         }
 
         for r in removed {
-            candidate_uncles.remove(&r);
+            self.candidate_uncles.remove(&r);
         }
         uncles
     }
@@ -553,7 +291,7 @@ mod tests {
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use std::sync::Arc;
 
-    const BASIC_BLOCK_SIZE: u64 = 646;
+    const BASIC_BLOCK_SIZE: u64 = 706;
 
     fn start_chain(
         consensus: Option<Consensus>,

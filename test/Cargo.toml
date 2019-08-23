@@ -13,6 +13,7 @@ ckb-app-config = { path = "../util/app-config" }
 ckb-network = { path = "../network" }
 ckb-sync = { path = "../sync" }
 ckb-miner = { path = "../miner" }
+ckb-tx-pool = { path = "../tx-pool" }
 ckb-types = { path = "../util/types" }
 ckb-hash = { path = "../util/hash" }
 ckb-util = { path = "../util" }

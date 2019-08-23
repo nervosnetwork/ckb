@@ -97,16 +97,14 @@ impl ChainRpc for ChainRpcImpl {
         let id = packed::ProposalShortId::from_tx_hash(&hash);
 
         let tx = {
-            let tx_pool = self.shared.try_lock_tx_pool();
-            tx_pool
-                .proposed()
-                .get(&id)
-                .map(|entry| TransactionWithStatus::with_proposed(entry.transaction.to_owned()))
-                .or_else(|| {
-                    tx_pool
-                        .get_tx_without_conflict(&id)
-                        .map(TransactionWithStatus::with_pending)
-                })
+            let tx_pool = self.shared.tx_pool_controller();
+            tx_pool.fetch_tx_for_rpc(id).map(|(proposed, tx)| {
+                if proposed {
+                    TransactionWithStatus::with_proposed(tx)
+                } else {
+                    TransactionWithStatus::with_pending(tx)
+                }
+            })
         };
 
         Ok(tx.or_else(|| {

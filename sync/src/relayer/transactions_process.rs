@@ -84,16 +84,16 @@ impl<'a> TransactionsProcess<'a> {
                 let nc = Arc::clone(&self.nc);
                 let peer_index = self.peer;
                 let shared = Arc::clone(self.relayer.shared());
-                let tx_pool_executor = Arc::clone(&self.relayer.tx_pool_executor);
+                let tx_pool = self.relayer.shared.shared().tx_pool_controller();
                 Box::new(lazy(move || -> FutureResult<(), ()> {
                     for (_,relay_tx) in txs.into_iter() {
                         let relay_cycles: Cycle = relay_tx.cycles().unpack();
                         let tx = relay_tx.transaction().into_view();
                         let tx_hash = tx.hash();
-                        let tx_result = tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
+                        let tx_result = tx_pool.submit_txs(vec![tx.clone()]);
                         // disconnect peer if cycles mismatch
                         match tx_result {
-                            Ok(cycles) if cycles == relay_cycles => {
+                            Ok(ref cycles) if cycles[0] == relay_cycles => {
                                 let mut cache = shared.tx_hashes();
                                 let entry = cache.entry(peer_index).or_insert_with(HashSet::default);
                                 entry.insert(tx_hash);
@@ -104,7 +104,7 @@ impl<'a> TransactionsProcess<'a> {
                                     "peer {} relay wrong cycles tx: {:?} real cycles {} wrong cycles {}",
                                     peer_index,
                                     tx,
-                                    cycles,
+                                    cycles[0],
                                     relay_cycles,
                                 );
 

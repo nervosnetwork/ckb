@@ -27,7 +27,6 @@ use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
-use ckb_tx_pool_executor::TxPoolExecutor;
 use ckb_types::{
     core,
     packed::{self, Byte32, ProposalShortId},
@@ -57,17 +56,11 @@ pub enum ReconstructionError {
 pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncSharedState>,
-    pub(crate) tx_pool_executor: Arc<TxPoolExecutor>,
 }
 
 impl Relayer {
     pub fn new(chain: ChainController, shared: Arc<SyncSharedState>) -> Self {
-        let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.shared().clone()));
-        Relayer {
-            chain,
-            shared,
-            tx_pool_executor,
-        }
+        Relayer { chain, shared }
     }
 
     pub fn shared(&self) -> &Arc<SyncSharedState> {
@@ -111,7 +104,7 @@ impl Relayer {
                 GetBlockProposalProcess::new(reader, self, nc, peer).execute()?;
             }
             packed::RelayMessageUnionReader::BlockProposal(reader) => {
-                BlockProposalProcess::new(reader, self, nc).execute()?;
+                BlockProposalProcess::new(reader, self).execute()?;
             }
             packed::RelayMessageUnionReader::NotSet => Err(err_msg("invalid data"))?,
         }
@@ -145,12 +138,11 @@ impl Relayer {
                 .into_iter()
                 .flat_map(|u| u.proposals().into_iter()),
         );
-        let fresh_proposals: Vec<ProposalShortId> = {
-            let tx_pool = self.shared.shared().try_lock_tx_pool();
-            proposals
-                .filter(|id| !tx_pool.contains_proposal_id(id))
-                .collect()
+        let fresh_proposals = {
+            let tx_pool = self.shared.shared().tx_pool_controller();
+            tx_pool.fresh_proposals_filter(proposals.collect())
         };
+
         let to_ask_proposals: Vec<ProposalShortId> = self
             .shared()
             .insert_inflight_proposals(fresh_proposals.clone())
@@ -257,12 +249,9 @@ impl Relayer {
             .collect();
 
         if !short_ids_set.is_empty() {
-            let tx_pool = self.shared.shared().try_lock_tx_pool();
-            short_ids_set.into_iter().for_each(|short_id| {
-                if let Some(tx) = tx_pool.get_tx_from_pool_or_store(&short_id) {
-                    txs_map.insert(short_id, tx);
-                }
-            })
+            let tx_pool = self.shared.shared().tx_pool_controller();
+            let txs = tx_pool.fetch_txs(short_ids_set);
+            txs_map.extend(txs.into_iter());
         }
 
         let txs_len = compact_block.txs_len();
@@ -341,15 +330,15 @@ impl Relayer {
 
     fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
         let get_block_proposals = self.shared().clear_get_block_proposals();
+        let tx_pool = self.shared.shared().tx_pool_controller();
+
+        let txs = tx_pool.fetch_txs(get_block_proposals.keys().cloned().collect());
         let mut peer_txs = HashMap::new();
-        {
-            let tx_pool = self.shared.shared().try_lock_tx_pool();
-            for (id, peer_indices) in get_block_proposals.into_iter() {
-                if let Some(tx) = tx_pool.get_tx(&id) {
-                    for peer_index in peer_indices {
-                        let tx_set = peer_txs.entry(peer_index).or_insert_with(Vec::new);
-                        tx_set.push(tx.clone());
-                    }
+        for (id, peer_indices) in get_block_proposals.into_iter() {
+            if let Some(tx) = txs.get(&id) {
+                for peer_index in peer_indices {
+                    let tx_set = peer_txs.entry(peer_index).or_insert_with(Vec::new);
+                    tx_set.push(tx.clone());
                 }
             }
         }

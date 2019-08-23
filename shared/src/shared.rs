@@ -1,16 +1,17 @@
 use crate::error::SharedError;
-use crate::tx_pool::{TxPool, TxPoolConfig};
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{DBConfig, RocksDB};
 use ckb_logger::info_target;
+use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
+use ckb_tx_pool::{BlockAssemblerConfig, TxPoolConfig, TxPoolController, TxPoolServiceBuiler};
 use ckb_types::{
     core::{BlockReward, Cycle, EpochExt, HeaderView, TransactionMeta},
     packed::{Byte32, Script},
@@ -27,7 +28,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct Shared {
     pub(crate) store: Arc<ChainDB>,
-    pub(crate) tx_pool: Arc<Mutex<TxPool>>,
+    pub(crate) tx_pool_controller: TxPoolController,
     pub(crate) txs_verify_cache: Arc<Mutex<LruCache<Byte32, Cycle>>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) script_config: ScriptConfig,
@@ -40,6 +41,8 @@ impl Shared {
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
         script_config: ScriptConfig,
+        block_assembler_config: Option<BlockAssemblerConfig>,
+        notify: &NotifyController,
     ) -> Result<(Self, ProposalTable), SharedError> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
@@ -51,6 +54,7 @@ impl Shared {
 
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
+
         let txs_verify_cache = Arc::new(Mutex::new(LruCache::new(
             tx_pool_config.max_verify_cache_size,
         )));
@@ -64,8 +68,17 @@ impl Shared {
             proposal_view,
             Arc::clone(&consensus),
         ));
+
+        let tx_pool_builer = TxPoolServiceBuiler::new(
+            tx_pool_config,
+            Arc::clone(&snapshot),
+            script_config.clone(),
+            block_assembler_config,
+            Arc::clone(&txs_verify_cache),
+        );
+
+        let tx_pool_controller = tx_pool_builer.start(notify);
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
-        let tx_pool = TxPool::new(tx_pool_config, snapshot, script_config.clone());
 
         let shared = Shared {
             store,
@@ -73,7 +86,7 @@ impl Shared {
             script_config,
             txs_verify_cache,
             snapshot_mgr,
-            tx_pool: Arc::new(Mutex::new(tx_pool)),
+            tx_pool_controller,
         };
 
         Ok((shared, proposal_table))
@@ -179,8 +192,8 @@ impl Shared {
         lock_or_panic(&self.txs_verify_cache)
     }
 
-    pub fn try_lock_tx_pool(&self) -> MutexGuard<TxPool> {
-        lock_or_panic(&self.tx_pool)
+    pub fn tx_pool_controller(&self) -> TxPoolController {
+        self.tx_pool_controller.clone()
     }
 
     pub fn snapshot(&self) -> Guard<Arc<Snapshot>> {
@@ -263,6 +276,8 @@ pub struct SharedBuilder {
     tx_pool_config: Option<TxPoolConfig>,
     script_config: Option<ScriptConfig>,
     store_config: Option<StoreConfig>,
+    block_assembler_config: Option<BlockAssemblerConfig>,
+    notify: Option<NotifyController>,
 }
 
 impl Default for SharedBuilder {
@@ -273,6 +288,8 @@ impl Default for SharedBuilder {
             tx_pool_config: None,
             script_config: None,
             store_config: None,
+            block_assembler_config: None,
+            notify: None,
         }
     }
 }
@@ -308,6 +325,16 @@ impl SharedBuilder {
         self
     }
 
+    pub fn block_assembler_config(mut self, config: Option<BlockAssemblerConfig>) -> Self {
+        self.block_assembler_config = config;
+        self
+    }
+
+    pub fn notify(mut self, notify: NotifyController) -> Self {
+        self.notify = Some(notify);
+        self
+    }
+
     pub fn build(self) -> Result<(Shared, ProposalTable), SharedError> {
         if let Some(config) = self.store_config {
             config.apply()
@@ -316,6 +343,16 @@ impl SharedBuilder {
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         let script_config = self.script_config.unwrap_or_else(Default::default);
         let store = ChainDB::new(self.db);
-        Shared::init(store, consensus, tx_pool_config, script_config)
+        let notify = self
+            .notify
+            .unwrap_or_else(|| NotifyService::default().start(Some("notify")));
+        Shared::init(
+            store,
+            consensus,
+            tx_pool_config,
+            script_config,
+            self.block_assembler_config,
+            &notify,
+        )
     }
 }

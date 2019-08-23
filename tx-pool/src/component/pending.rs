@@ -1,4 +1,5 @@
-use crate::tx_pool::types::{TxEntriesPool, TxEntry};
+use crate::component::container::SortedTxMap;
+use crate::component::entry::TxEntry;
 use ckb_types::{
     core::{
         cell::{CellMetaBuilder, CellProvider, CellStatus},
@@ -11,7 +12,7 @@ use std::collections::HashSet;
 
 #[derive(Default, Debug, Clone)]
 pub(crate) struct PendingQueue {
-    inner: TxEntriesPool,
+    inner: SortedTxMap,
 }
 
 impl PendingQueue {

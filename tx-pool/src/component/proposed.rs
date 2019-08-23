@@ -1,4 +1,5 @@
-use crate::tx_pool::types::{TxEntriesPool, TxEntry};
+use crate::component::container::SortedTxMap;
+use crate::component::entry::TxEntry;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -82,7 +83,7 @@ impl<K: Hash + Eq, V: Eq + Hash> Edges<K, V> {
 #[derive(Default, Debug, Clone)]
 pub struct ProposedPool {
     pub(crate) edges: Edges<OutPoint, ProposalShortId>,
-    inner: TxEntriesPool,
+    inner: SortedTxMap,
 }
 
 impl CellProvider for ProposedPool {
@@ -191,7 +192,7 @@ impl ProposedPool {
         removed
     }
 
-    pub(crate) fn add_entry(&mut self, entry: TxEntry) {
+    pub(crate) fn add_entry(&mut self, entry: TxEntry) -> Option<TxEntry> {
         let inputs = entry.transaction.input_pts_iter();
         let outputs = entry.transaction.output_pts();
 
@@ -212,7 +213,7 @@ impl ProposedPool {
         for o in outputs {
             self.edges.mark_inpool(o);
         }
-        self.inner.add_entry(entry);
+        self.inner.add_entry(entry)
     }
 
     fn resolve_conflict(&mut self, tx: &TransactionView) -> Vec<TxEntry> {
@@ -265,8 +266,7 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::get_related_dep_out_points, Capacity, Cycle, DepType, TransactionBuilder,
-            TransactionView,
+            cell::get_related_dep_out_points, Capacity, Cycle, TransactionBuilder, TransactionView,
         },
         h256,
         packed::{Byte32, CellDep, CellInput, CellOutput},
@@ -669,6 +669,7 @@ mod tests {
             .input(CellInput::new(OutPoint::new(h256!("0x2").pack(), 0), 0))
             .output(
                 CellOutput::new_builder()
+                    .data_hash(CellOutput::calc_data_hash(&tx2_data).pack())
                     .capacity(Capacity::bytes(1000).unwrap().pack())
                     .build(),
             )
@@ -677,10 +678,7 @@ mod tests {
         let tx2_out_point = OutPoint::new(tx2.hash(), 0);
 
         // Transaction use dep group
-        let dep = CellDep::new_builder()
-            .out_point(tx2_out_point.clone())
-            .dep_type(DepType::DepGroup.pack())
-            .build();
+        let dep = CellDep::new(OutPoint::new(tx2.hash().unpack(), 0), true);
         let tx3 = TransactionBuilder::default()
             .cell_dep(dep)
             .input(CellInput::new(OutPoint::new(h256!("0x3").pack(), 0), 0))

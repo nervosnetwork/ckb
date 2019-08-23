@@ -1,0 +1,30 @@
+[package]
+name = "ckb-tx-pool"
+version = "0.1.0"
+authors = ["Nervos Core Dev <dev@nervos.org>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = "1.0"
+serde_derive = "1.0"
+ckb-types = { path = "../util/types" }
+ckb-logger = {path = "../util/logger"}
+ckb-verification = { path = "../verification" }
+ckb-script = { path = "../script" }
+failure = "0.1.5"
+faketime = "0.2"
+lru-cache = { git = "https://github.com/nervosnetwork/lru-cache", rev = "a35fdb8" }
+ckb-dao = { path = "../util/dao" }
+ckb-reward-calculator = { path = "../util/reward-calculator" }
+ckb-store = { path = "../store" }
+ckb-util = { path = "../util" }
+ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
+ckb-traits = { path = "../traits" }
+crossbeam-channel = "0.3"
+ckb-stop-handler = { path = "../util/stop-handler" }
+ckb-notify = { path = "../notify" }
+ckb-chain-spec = { path = "../spec" }
+rayon = "1.0"
+ckb-snapshot = { path = "../util/snapshot" }

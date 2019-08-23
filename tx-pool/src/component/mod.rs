@@ -1,13 +1,12 @@
 pub mod commit_txs_scanner;
-pub mod pool;
-pub mod types;
+pub mod entry;
 
-mod orphan;
-mod pending;
-mod proposed;
+pub(crate) mod container;
+pub(crate) mod orphan;
+pub(crate) mod pending;
+pub(crate) mod proposed;
 
-pub use self::pool::TxPool;
-pub use self::types::{DefectEntry, PoolError, TxEntry, TxPoolConfig};
+pub use self::entry::{DefectEntry, TxEntry};
 
 const DEFAULT_BYTES_PER_CYCLES: f64 = 0.00042f64;
 

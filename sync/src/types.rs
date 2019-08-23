@@ -1117,9 +1117,13 @@ impl SyncSharedState {
         ret
     }
 
-    pub fn insert_get_block_proposals(&self, pi: PeerIndex, ids: Vec<packed::ProposalShortId>) {
+    pub fn insert_get_block_proposals(
+        &self,
+        pi: PeerIndex,
+        ids: impl Iterator<Item = packed::ProposalShortId>,
+    ) {
         let mut locked = self.pending_get_block_proposals.lock();
-        for id in ids.into_iter() {
+        for id in ids {
             locked.entry(id).or_default().insert(pi);
         }
     }

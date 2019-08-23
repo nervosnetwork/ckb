@@ -358,9 +358,6 @@ impl ChainService {
                 .finalize(origin_proposals, tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
 
-            let mut tx_pool = self.shared.try_lock_tx_pool();
-            let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
-
             let new_snapshot = self.shared.new_snapshot(
                 tip_header,
                 total_difficulty,
@@ -371,11 +368,10 @@ impl ChainService {
 
             self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
-            tx_pool.update_tx_pool_for_reorg(
-                fork.detached_blocks().iter(),
-                fork.attached_blocks().iter(),
-                fork.detached_proposal_id().iter(),
-                &mut txs_verify_cache,
+            self.shared.tx_pool_controller().update_tx_pool_for_reorg(
+                fork.detached_blocks().clone(),
+                fork.attached_blocks().clone(),
+                fork.detached_proposal_id().clone(),
                 new_snapshot,
             );
             for detached_block in fork.detached_blocks() {

@@ -13,7 +13,7 @@ const MAX_PER_HEIGHT: usize = 10;
 const MAX_PER_HEIGHT: usize = 2;
 
 pub struct CandidateUncles {
-    pub(in crate::candidate_uncles) map: BTreeMap<BlockNumber, HashSet<Arc<UncleBlock>>>,
+    pub(crate) map: BTreeMap<BlockNumber, HashSet<Arc<UncleBlock>>>,
     count: usize,
 }
 
@@ -73,12 +73,6 @@ impl CandidateUncles {
             }
         }
         false
-    }
-
-    #[cfg(test)]
-    pub fn clear(&mut self) {
-        self.map.clear();
-        self.count = 0;
     }
 }
 
