@@ -313,15 +313,19 @@ fn deposit_dao_deps(node: &Node) -> (Vec<CellDep>, Vec<H256>) {
     let genesis_tx = &genesis_block.transactions()[0];
 
     // Reference to AlwaysSuccess lock_script, to unlock the cellbase
-    let always_dep = CellDep::new(
-        OutPoint::new(genesis_tx.hash().unpack(), SYSTEM_CELL_ALWAYS_SUCCESS_INDEX),
-        false,
-    );
+    let always_dep = CellDep::new_builder()
+        .out_point(OutPoint::new(
+            genesis_tx.hash().unpack(),
+            SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
+        ))
+        .build();
     // Reference to DAO type_script
-    let dao_dep = CellDep::new(
-        OutPoint::new(genesis_tx.hash().unpack(), SYSTEM_CELL_DAO_INDEX),
-        false,
-    );
+    let dao_dep = CellDep::new_builder()
+        .out_point(OutPoint::new(
+            genesis_tx.hash().unpack(),
+            SYSTEM_CELL_DAO_INDEX,
+        ))
+        .build();
 
     (
         vec![always_dep, dao_dep],

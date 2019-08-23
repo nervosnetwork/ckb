@@ -279,10 +279,12 @@ fn construct_transaction() -> TransactionView {
         .capacity(capacity_bytes!(1000).pack())
         .lock(always_success_cell().2.clone())
         .build();
-    let cell_dep = CellDep::new(
-        OutPoint::new(always_success_transaction().hash().unpack(), 0),
-        false,
-    );
+    let cell_dep = CellDep::new_builder()
+        .out_point(OutPoint::new(
+            always_success_transaction().hash().unpack(),
+            0,
+        ))
+        .build();
     TransactionBuilder::default()
         .input(input)
         .output(output)

@@ -323,7 +323,11 @@ impl Node {
         let always_success_script = self.always_success_script();
 
         core::TransactionBuilder::default()
-            .cell_dep(CellDep::new(always_success_out_point, false))
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(always_success_out_point)
+                    .build(),
+            )
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity.pack())

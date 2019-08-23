@@ -105,7 +105,7 @@ http://localhost:8114
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "Data"
+                            "hash_type": "data"
                         },
                         "type": null
                     }
@@ -194,7 +194,7 @@ http://localhost:8114
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "Data"
+                            "hash_type": "data"
                         },
                         "type": null
                     }
@@ -326,7 +326,7 @@ http://localhost:8114
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "Data"
+                "hash_type": "data"
             },
             "out_point": {
                 "index": "0",
@@ -339,7 +339,7 @@ http://localhost:8114
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                "hash_type": "Data"
+                "hash_type": "data"
             },
             "out_point": {
                 "index": "0",
@@ -544,7 +544,7 @@ http://localhost:8114
             "lock": {
                 "args": [],
                 "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "hash_type": "Data"
+                "hash_type": "data"
             },
             "type": null
         },
@@ -654,7 +654,7 @@ http://localhost:8114
         "transaction": {
             "cell_deps": [
                 {
-                    "is_dep_group": false,
+                    "dep_type": "code",
                     "out_point": {
                         "index": "0",
                         "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -680,7 +680,7 @@ http://localhost:8114
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "Data"
+                        "hash_type": "data"
                     },
                     "type": null
                 }
@@ -711,7 +711,7 @@ Returns script hash of given transaction script
 
     args - Hex encoded arguments passed to reference cell
     code_hash - Code hash of referenced cell
-    hash_type - Data: code_hash matches against dep cell data hash; Type: code_hash matches against dep cell type hash.
+    hash_type - data: code_hash matches against dep cell data hash; type: code_hash matches against dep cell type hash.
 
 #### Examples
 
@@ -724,7 +724,7 @@ echo '{
         {
             "args": [],
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-            "hash_type": "Data"
+            "hash_type": "data"
         }
     ]
 }' \
@@ -768,7 +768,7 @@ echo '{
         {
             "cell_deps": [
                 {
-                    "is_dep_group": false,
+                    "dep_type": "code",
                     "out_point": {
                         "index": "0",
                         "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -793,7 +793,7 @@ echo '{
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "Data"
+                        "hash_type": "data"
                     },
                     "type": null
                 }
@@ -839,7 +839,7 @@ echo '{
         {
             "cell_deps": [
                 {
-                    "is_dep_group": false,
+                    "dep_type": "code",
                     "out_point": {
                         "index": "0",
                         "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -864,7 +864,7 @@ echo '{
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "Data"
+                        "hash_type": "data"
                     },
                     "type": null
                 }
@@ -966,7 +966,7 @@ http://localhost:8114
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                    "hash_type": "Data"
+                    "hash_type": "data"
                 },
                 "type": null
             },
@@ -982,7 +982,7 @@ http://localhost:8114
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                    "hash_type": "Data"
+                    "hash_type": "data"
                 },
                 "type": null
             },
@@ -1322,7 +1322,7 @@ echo '{
         {
             "cell_deps": [
                 {
-                    "is_dep_group": false,
+                    "dep_type": "code",
                     "out_point": {
                         "index": "0",
                         "tx_hash": "0xca457e8f2babbced0321daa535d5d357f554ff601a164c3ce76b547fd5ad2452"
@@ -1347,7 +1347,7 @@ echo '{
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "Data"
+                        "hash_type": "data"
                     },
                     "type": null
                 }

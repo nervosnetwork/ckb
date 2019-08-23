@@ -9,7 +9,7 @@ use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
-    core::{capacity_bytes, Capacity, ScriptHashType, TransactionBuilder},
+    core::{capacity_bytes, Capacity, DepType, ScriptHashType, TransactionBuilder},
     packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
     H256,
@@ -49,7 +49,10 @@ impl Spec for SendSecpTxUseDepGroup {
         let block = node.get_tip_block();
         let cellbase_hash: H256 = block.transactions()[0].hash().to_owned().unpack();
 
-        let cell_dep = CellDep::new(secp_out_point, true);
+        let cell_dep = CellDep::new_builder()
+            .out_point(secp_out_point)
+            .dep_type(DepType::DepGroup.pack())
+            .build();
         let output = CellOutput::new_builder()
             .capacity(capacity_bytes!(100).pack())
             .lock(node.always_success_script())

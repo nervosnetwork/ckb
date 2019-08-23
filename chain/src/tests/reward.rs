@@ -111,7 +111,11 @@ pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> Transa
             OutPoint::new(parent.hash().unpack(), index),
             0,
         ))
-        .cell_dep(CellDep::new(always_success_out_point, false))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(always_success_out_point)
+                .build(),
+        )
         .build()
 }
 

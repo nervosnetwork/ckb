@@ -267,7 +267,8 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::get_related_dep_out_points, Capacity, Cycle, TransactionBuilder, TransactionView,
+            cell::get_related_dep_out_points, Capacity, Cycle, DepType, TransactionBuilder,
+            TransactionView,
         },
         h256,
         packed::{CellDep, CellInput, CellOutput},
@@ -675,7 +676,10 @@ mod tests {
         let tx2_out_point = OutPoint::new(tx2.hash().unpack(), 0);
 
         // Transaction use dep group
-        let dep = CellDep::new(OutPoint::new(tx2.hash().unpack(), 0), true);
+        let dep = CellDep::new_builder()
+            .out_point(tx2_out_point.clone())
+            .dep_type(DepType::DepGroup.pack())
+            .build();
         let tx3 = TransactionBuilder::default()
             .cell_dep(dep)
             .input(CellInput::new(OutPoint::new(h256!("0x3"), 0), 0))

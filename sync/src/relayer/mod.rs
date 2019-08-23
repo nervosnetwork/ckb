@@ -33,6 +33,7 @@ use ckb_types::{
     packed::{self, Byte32, ProposalShortId},
     prelude::*,
 };
+use failure::err_msg;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
 use std::collections::{HashMap, HashSet};
@@ -84,7 +85,11 @@ impl Relayer {
                 CompactBlockProcess::new(reader, self, nc, peer).execute()?;
             }
             packed::RelayMessageUnionReader::RelayTransactions(reader) => {
-                TransactionsProcess::new(reader, self, nc, peer).execute()?;
+                if reader.check_data() {
+                    TransactionsProcess::new(reader, self, nc, peer).execute()?;
+                } else {
+                    Err(err_msg("RelayTransactions: invalid data"))?;
+                }
             }
             packed::RelayMessageUnionReader::RelayTransactionHashes(reader) => {
                 TransactionHashesProcess::new(reader, self, peer).execute()?;
@@ -96,7 +101,11 @@ impl Relayer {
                 GetBlockTransactionsProcess::new(reader, self, nc, peer).execute()?;
             }
             packed::RelayMessageUnionReader::BlockTransactions(reader) => {
-                BlockTransactionsProcess::new(reader, self, nc, peer).execute()?;
+                if reader.check_data() {
+                    BlockTransactionsProcess::new(reader, self, nc, peer).execute()?;
+                } else {
+                    Err(err_msg("BlockTransactions: invalid data"))?;
+                }
             }
             packed::RelayMessageUnionReader::GetBlockProposal(reader) => {
                 GetBlockProposalProcess::new(reader, self, nc, peer).execute()?;

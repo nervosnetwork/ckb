@@ -3963,6 +3963,161 @@ impl ScriptHashTypeBuilder {
     }
 }
 #[derive(Clone)]
+pub struct DepType(molecule::bytes::Bytes);
+#[derive(Clone, Copy)]
+pub struct DepTypeReader<'r>(&'r [u8]);
+impl ::std::fmt::Debug for DepType {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(self.as_slice()).unwrap()
+        )
+    }
+}
+impl<'r> ::std::fmt::Debug for DepTypeReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(self.as_slice()).unwrap()
+        )
+    }
+}
+impl ::std::fmt::Display for DepType {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(&self.raw_data()).unwrap()
+        )
+    }
+}
+impl<'r> ::std::fmt::Display for DepTypeReader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(&self.raw_data()).unwrap()
+        )
+    }
+}
+pub struct DepTypeBuilder(pub(crate) [u8; 1]);
+impl ::std::fmt::Debug for DepTypeBuilder {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(f, "{}({:?})", Self::NAME, &self.0[..])
+    }
+}
+impl ::std::default::Default for DepTypeBuilder {
+    fn default() -> Self {
+        DepTypeBuilder([0; 1])
+    }
+}
+impl molecule::prelude::Entity for DepType {
+    type Builder = DepTypeBuilder;
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        DepType(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        DepTypeReader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::std::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder().set([self.nth0()])
+    }
+}
+impl ::std::default::Default for DepType {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![0];
+        DepType::new_unchecked(v.into())
+    }
+}
+impl DepType {
+    pub const NAME: &'static str = "DepType";
+    pub fn as_reader(&self) -> DepTypeReader<'_> {
+        DepTypeReader::new_unchecked(self.as_slice())
+    }
+    pub const TOTAL_SIZE: usize = 1;
+    pub const ITEM_SIZE: usize = 1;
+    pub const ITEM_COUNT: usize = 1;
+    pub fn raw_data(&self) -> molecule::bytes::Bytes {
+        self.as_bytes()
+    }
+    pub fn nth0(&self) -> u8 {
+        self.0[0]
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for DepTypeReader<'r> {
+    type Entity = DepType;
+    fn to_entity(&self) -> Self::Entity {
+        DepType::new_unchecked(self.as_slice().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        DepTypeReader(slice)
+    }
+    fn as_slice(&self) -> &[u8] {
+        self.0
+    }
+    fn verify(slice: &[u8]) -> molecule::error::VerificationResult<()> {
+        use molecule::error::VerificationError;
+        if slice.len() != 1 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 1, slice.len());
+            Err(err)?;
+        }
+        Ok(())
+    }
+}
+impl<'r> DepTypeReader<'r> {
+    pub const NAME: &'r str = "DepTypeReader";
+    pub const TOTAL_SIZE: usize = 1;
+    pub const ITEM_SIZE: usize = 1;
+    pub const ITEM_COUNT: usize = 1;
+    pub fn raw_data(&self) -> &[u8] {
+        self.as_slice()
+    }
+    pub fn nth0(&self) -> u8 {
+        self.0[0]
+    }
+}
+impl molecule::prelude::Builder for DepTypeBuilder {
+    type Entity = DepType;
+    fn expected_length(&self) -> usize {
+        1
+    }
+    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
+        writer.write_all(&self.0)?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner).expect("write vector should be ok");
+        DepType::new_unchecked(inner.into())
+    }
+}
+impl DepTypeBuilder {
+    pub const NAME: &'static str = "DepTypeBuilder";
+    pub fn set(mut self, v: [u8; 1]) -> Self {
+        self.0 = v;
+        self
+    }
+    pub fn nth0(mut self, v: u8) -> Self {
+        self.0[0] = v;
+        self
+    }
+}
+#[derive(Clone)]
 pub struct HeaderVec(molecule::bytes::Bytes);
 #[derive(Clone, Copy)]
 pub struct HeaderVecReader<'r>(&'r [u8]);
@@ -7802,7 +7957,7 @@ impl ::std::fmt::Display for CellDep {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "out_point", self.out_point())?;
-        write!(f, ", {}: {}", "is_dep_group", self.is_dep_group())?;
+        write!(f, ", {}: {}", "dep_type", self.dep_type())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -7814,7 +7969,7 @@ impl<'r> ::std::fmt::Display for CellDepReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "out_point", self.out_point())?;
-        write!(f, ", {}: {}", "is_dep_group", self.is_dep_group())?;
+        write!(f, ", {}: {}", "dep_type", self.dep_type())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -7825,7 +7980,7 @@ impl<'r> ::std::fmt::Display for CellDepReader<'r> {
 #[derive(Debug, Default)]
 pub struct CellDepBuilder {
     pub(crate) out_point: OutPoint,
-    pub(crate) is_dep_group: Bool,
+    pub(crate) dep_type: DepType,
 }
 impl ::std::default::Default for CellDep {
     fn default() -> Self {
@@ -7857,7 +8012,7 @@ impl molecule::prelude::Entity for CellDep {
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
             .out_point(self.out_point())
-            .is_dep_group(self.is_dep_group())
+            .dep_type(self.dep_type())
     }
 }
 impl CellDep {
@@ -7879,14 +8034,14 @@ impl CellDep {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         OutPoint::new_unchecked(self.0.slice(start, end))
     }
-    pub fn is_dep_group(&self) -> Bool {
+    pub fn dep_type(&self) -> DepType {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            Bool::new_unchecked(self.0.slice_from(start))
+            DepType::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            Bool::new_unchecked(self.0.slice(start, end))
+            DepType::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -7938,7 +8093,7 @@ impl<'r> molecule::prelude::Reader<'r> for CellDepReader<'r> {
             Err(err)?;
         }
         OutPointReader::verify(&slice[offsets[0]..offsets[1]])?;
-        BoolReader::verify(&slice[offsets[1]..offsets[2]])?;
+        DepTypeReader::verify(&slice[offsets[1]..offsets[2]])?;
         Ok(())
     }
 }
@@ -7958,14 +8113,14 @@ impl<'r> CellDepReader<'r> {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         OutPointReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn is_dep_group(&self) -> BoolReader<'_> {
+    pub fn dep_type(&self) -> DepTypeReader<'_> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            BoolReader::new_unchecked(&self.as_slice()[start..])
+            DepTypeReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            BoolReader::new_unchecked(&self.as_slice()[start..end])
+            DepTypeReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -7973,7 +8128,7 @@ impl molecule::prelude::Builder for CellDepBuilder {
     type Entity = CellDep;
     fn expected_length(&self) -> usize {
         let len_header = 4 + 2 * 4;
-        len_header + self.out_point.as_slice().len() + self.is_dep_group.as_slice().len()
+        len_header + self.out_point.as_slice().len() + self.dep_type.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
@@ -7987,11 +8142,11 @@ impl molecule::prelude::Builder for CellDepBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.is_dep_group.as_slice().len();
+            offset += self.dep_type.as_slice().len();
         }
         let _ = offset;
         writer.write_all(self.out_point.as_slice())?;
-        writer.write_all(self.is_dep_group.as_slice())?;
+        writer.write_all(self.dep_type.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -8006,8 +8161,8 @@ impl CellDepBuilder {
         self.out_point = v;
         self
     }
-    pub fn is_dep_group(mut self, v: Bool) -> Self {
-        self.is_dep_group = v;
+    pub fn dep_type(mut self, v: DepType) -> Self {
+        self.dep_type = v;
         self
     }
 }

@@ -340,8 +340,12 @@ impl Genesis {
         let input = packed::CellInput::new(input_out_point, 0);
 
         let cell_deps = vec![
-            packed::CellDep::new(secp_data_out_point.clone(), false),
-            packed::CellDep::new(secp_blake160_out_point.clone(), false),
+            packed::CellDep::new_builder()
+                .out_point(secp_data_out_point.clone())
+                .build(),
+            packed::CellDep::new_builder()
+                .out_point(secp_blake160_out_point.clone())
+                .build(),
         ];
         let tx = TransactionBuilder::default()
             .cell_deps(cell_deps.clone())

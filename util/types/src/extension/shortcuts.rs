@@ -46,15 +46,6 @@ impl packed::OutPoint {
     }
 }
 
-impl packed::CellDep {
-    pub fn new(out_point: packed::OutPoint, is_dep_group: bool) -> packed::CellDep {
-        packed::CellDep::new_builder()
-            .out_point(out_point)
-            .is_dep_group(is_dep_group.pack())
-            .build()
-    }
-}
-
 impl packed::CellInput {
     pub fn new(previous_output: packed::OutPoint, block_number: BlockNumber) -> Self {
         packed::CellInput::new_builder()

@@ -265,7 +265,7 @@ pub fn test_capacity_invalid() {
 #[test]
 pub fn test_duplicate_deps() {
     let out_point = OutPoint::new(h256!("0x1"), 0);
-    let cell_dep = CellDep::new(out_point, false);
+    let cell_dep = CellDep::new_builder().out_point(out_point).build();
     let transaction = TransactionBuilder::default()
         .cell_deps(vec![cell_dep.clone(), cell_dep])
         .build();
