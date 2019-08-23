@@ -36,6 +36,17 @@ code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
 hash_type = "Data"
 
+# Dep group cells
+[genesis.dep_groups]
+secp256k1_blake160_sighash_all = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+]
+secp256k1_ripemd160_sha256_sighash_all = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
+]
+
 [genesis.bootstrap_lock]
 code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
 # Lock for developers to run tests
@@ -58,17 +69,6 @@ capacity = 50_000_000_00000000
 lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 lock.hash_type = "Data"
-
-# Dep group cells
-[genesis.dep_groups]
-secp256k1_blake160_sighash_all = [
-  { bundled = "specs/cells/secp256k1_data" },
-  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
-]
-secp256k1_ripemd160_sha256_sighash_all = [
-  { bundled = "specs/cells/secp256k1_data" },
-  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
-]
 
 [params]
 epoch_reward = 1_250_000_00000000
