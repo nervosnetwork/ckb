@@ -179,7 +179,7 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::CellMeta, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
+            cell::{CellMeta, CellMetaBuilder}, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
         },
         packed::{Byte32, CellOutput, OutPoint, Script, Witness},
         prelude::*,
@@ -201,13 +201,7 @@ mod tests {
     fn build_cell_meta(capacity_bytes: usize, data: Bytes) -> CellMeta {
         let capacity = Capacity::bytes(capacity_bytes).expect("capacity bytes overflow");
         let builder = CellOutput::new_builder().capacity(capacity.pack());
-        let data_hash = CellOutput::calc_data_hash(&data);
-        CellMeta {
-            out_point: OutPoint::default(),
-            transaction_info: None,
-            cell_output: builder.build(),
-            mem_cell_data: Some((data, data_hash)),
-        }
+        CellMetaBuilder::from_memory_cell(builder.build(), data).build()
     }
 
     fn _test_load_cell_not_exist(data: &[u8]) -> Result<(), TestCaseError> {
@@ -466,15 +460,11 @@ mod tests {
         machine.set_register(A5, CellField::Capacity as u64); //field: 0 capacity
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
-        let data = Bytes::new();
-        let data_hash = CellOutput::calc_data_hash(&data);
-        let input_cell = CellMeta {
-            out_point: OutPoint::default(),
-            transaction_info: None,
-            cell_output: CellOutput::new_builder().capacity(capacity.pack()).build(),
-            data_size: 0,
-            mem_cell_data: Some((data, data_hash)),
-        };
+        let input_cell = CellMetaBuilder::from_memory_cell(
+            CellOutput::new_builder().capacity(capacity.pack()).build(),
+            Bytes::new(),
+        )
+        .build();
         let outputs = vec![];
         let resolved_inputs = vec![input_cell.clone()];
         let resolved_cell_deps = vec![];

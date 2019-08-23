@@ -13,7 +13,7 @@ use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
     core::{
-        cell::{CellMeta, ResolvedTransaction},
+        cell::{CellMeta, CellMetaBuilder, ResolvedTransaction},
         Cycle, ScriptHashType,
     },
     packed::{Byte32, Byte32Vec, CellInputVec, CellOutput, OutPoint, Script, WitnessVec},
@@ -98,14 +98,9 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                     .tx_hash(tx_hash.clone())
                     .index(index.pack())
                     .build();
-                let data_hash = CellOutput::calc_data_hash(&data);
-                CellMeta {
-                    cell_output,
-                    out_point,
-                    transaction_info: None,
-                    data_size: data.len() as u64,
-                    mem_cell_data: Some((data, data_hash)),
-                }
+                CellMetaBuilder::from_memory_cell(cell_output, data)
+                    .out_point(out_point)
+                    .build()
             })
             .collect();
 
@@ -515,10 +510,7 @@ mod tests {
     use ckb_hash::{blake2b_256, new_blake2b};
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
     use ckb_types::{
-        core::{
-            capacity_bytes, cell::CellMetaBuilder, Capacity, ScriptHashType, TransactionBuilder,
-            TransactionInfo,
-        },
+        core::{capacity_bytes, Capacity, ScriptHashType, TransactionBuilder, TransactionInfo},
         h256,
         packed::{
             Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, Script,
@@ -601,10 +593,10 @@ mod tests {
 
         let transaction = TransactionBuilder::default().input(input.clone()).build();
 
-        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
-        let always_success_cell = CellMetaBuilder::from_cell_output(
+        let always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
@@ -650,7 +642,7 @@ mod tests {
         let output = CellOutputBuilder::default()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
-        let dep_cell = CellMetaBuilder::from_cell_output(output, data)
+        let dep_cell = CellMetaBuilder::from_memory_cell(output, data)
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point.clone())
             .build();
@@ -671,7 +663,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -733,7 +725,7 @@ mod tests {
         let output = CellOutputBuilder::default()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
-        let dep_cell = CellMetaBuilder::from_cell_output(output, data)
+        let dep_cell = CellMetaBuilder::from_memory_cell(output, data)
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point.clone())
             .build();
@@ -754,7 +746,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output.to_owned(), Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -809,7 +801,7 @@ mod tests {
             )
             .build();
         let type_hash = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
-        let dep_cell = CellMetaBuilder::from_cell_output(output, data)
+        let dep_cell = CellMetaBuilder::from_memory_cell(output, data)
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point.clone())
             .build();
@@ -830,7 +822,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -882,7 +874,7 @@ mod tests {
             )
             .build();
         let type_hash = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
-        let dep_cell = CellMetaBuilder::from_cell_output(output, data.clone())
+        let dep_cell = CellMetaBuilder::from_memory_cell(output, data.clone())
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point.clone())
             .build();
@@ -903,7 +895,7 @@ mod tests {
                 .pack(),
             )
             .build();
-        let dep_cell2 = CellMetaBuilder::from_cell_output(output2, data)
+        let dep_cell2 = CellMetaBuilder::from_memory_cell(output2, data)
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point2.clone())
             .build();
@@ -925,7 +917,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -985,7 +977,7 @@ mod tests {
         let output = CellOutputBuilder::default()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
-        let dep_cell = CellMetaBuilder::from_cell_output(output.to_owned(), data)
+        let dep_cell = CellMetaBuilder::from_memory_cell(output.to_owned(), data)
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point.clone())
             .build();
@@ -1006,7 +998,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output.to_owned(), Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -1053,7 +1045,7 @@ mod tests {
         let output = CellOutputBuilder::default()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
-        let dep_cell = CellMetaBuilder::from_cell_output(output.to_owned(), data)
+        let dep_cell = CellMetaBuilder::from_memory_cell(output.to_owned(), data)
             .transaction_info(default_transaction_info())
             .build();
 
@@ -1073,7 +1065,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output.to_owned(), Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -1130,7 +1122,7 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(script)
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -1173,10 +1165,10 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(always_success_script.clone())
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output.to_owned(), Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
-        let always_success_cell = CellMetaBuilder::from_cell_output(
+        let always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
@@ -1207,7 +1199,7 @@ mod tests {
             let output = CellOutputBuilder::default()
                 .capacity(Capacity::bytes(data.len()).unwrap().pack())
                 .build();
-            CellMetaBuilder::from_cell_output(output.to_owned(), data)
+            CellMetaBuilder::from_memory_cell(output.to_owned(), data)
                 .transaction_info(default_transaction_info())
                 .out_point(dep_out_point.clone())
                 .build()
@@ -1259,10 +1251,10 @@ mod tests {
             .capacity(capacity_bytes!(100).pack())
             .lock(always_success_script.clone())
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output.to_owned(), Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
-        let always_success_cell = CellMetaBuilder::from_cell_output(
+        let always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.to_owned(),
             always_success_cell_data.to_owned(),
         )
@@ -1287,7 +1279,7 @@ mod tests {
             let output = CellOutputBuilder::default()
                 .capacity(Capacity::bytes(dep_cell_data.len()).unwrap().pack())
                 .build();
-            CellMetaBuilder::from_cell_output(output, dep_cell_data)
+            CellMetaBuilder::from_memory_cell(output, dep_cell_data)
                 .transaction_info(default_transaction_info())
                 .build()
         };
@@ -1348,7 +1340,7 @@ mod tests {
         let output = CellOutputBuilder::default()
             .capacity(Capacity::bytes(data.len()).unwrap().pack())
             .build();
-        let dep_cell = CellMetaBuilder::from_cell_output(output, data)
+        let dep_cell = CellMetaBuilder::from_memory_cell(output, data)
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point.clone())
             .build();
@@ -1364,7 +1356,7 @@ mod tests {
             .lock(script.clone())
             .type_(Some(script.clone()).pack())
             .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output, Bytes::new())
+        let dummy_cell = CellMetaBuilder::from_memory_cell(output, Bytes::new())
             .transaction_info(default_transaction_info())
             .build();
 
@@ -1420,10 +1412,10 @@ mod tests {
             )
             .build();
 
-        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        let resolved_input_cell = CellMetaBuilder::from_memory_cell(input_cell, Bytes::new())
             .out_point(input.previous_output().clone())
             .build();
-        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+        let resolved_always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
@@ -1483,10 +1475,10 @@ mod tests {
             )
             .build();
 
-        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        let resolved_input_cell = CellMetaBuilder::from_memory_cell(input_cell, Bytes::new())
             .out_point(input.previous_output().clone())
             .build();
-        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+        let resolved_always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
@@ -1557,10 +1549,10 @@ mod tests {
             )
             .build();
 
-        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        let resolved_input_cell = CellMetaBuilder::from_memory_cell(input_cell, Bytes::new())
             .out_point(input.previous_output().clone())
             .build();
-        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+        let resolved_always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
@@ -1619,10 +1611,10 @@ mod tests {
             )
             .build();
 
-        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        let resolved_input_cell = CellMetaBuilder::from_memory_cell(input_cell, Bytes::new())
             .out_point(input.previous_output().clone())
             .build();
-        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+        let resolved_always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
@@ -1696,10 +1688,10 @@ mod tests {
             )
             .build();
 
-        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        let resolved_input_cell = CellMetaBuilder::from_memory_cell(input_cell, Bytes::new())
             .out_point(input.previous_output().clone())
             .build();
-        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+        let resolved_always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
@@ -1779,10 +1771,10 @@ mod tests {
             )
             .build();
 
-        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        let resolved_input_cell = CellMetaBuilder::from_memory_cell(input_cell, Bytes::new())
             .out_point(input.previous_output().clone())
             .build();
-        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+        let resolved_always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )
@@ -1851,10 +1843,10 @@ mod tests {
             )
             .build();
 
-        let resolved_input_cell = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        let resolved_input_cell = CellMetaBuilder::from_memory_cell(input_cell, Bytes::new())
             .out_point(input.previous_output().clone())
             .build();
-        let resolved_always_success_cell = CellMetaBuilder::from_cell_output(
+        let resolved_always_success_cell = CellMetaBuilder::from_memory_cell(
             always_success_cell.clone(),
             always_success_cell_data.to_owned(),
         )

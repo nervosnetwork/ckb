@@ -61,28 +61,26 @@ impl CellMetaBuilder {
     pub fn from_virtual_occupied(cell_output: CellOutput, data: &Bytes) -> Self {
         use crate::virtual_occupied::extract_occupied_capacity;
 
-        let data_size = data.len().try_into().expect("u64");
-        let mut builder = CellMetaBuilder::from_output(cell_output, data_size);
+        let mut builder = CellMetaBuilder::from_cell(cell_output, data.len());
         if let Some(virtual_occupied) = extract_occupied_capacity(data) {
             builder.data_occupied_capacity = virtual_occupied;
         }
         builder
     }
 
-    pub fn from_memory_output(cell_output: CellOutput, data: Bytes) -> Self {
-        let data_size = data.len().try_into().expect("u64");
-        let mut builder = CellMetaBuilder::from_output(cell_output, data_size);
-        let data_hash = CellOutput::calc_data_hash(&data);
+    pub fn from_memory_cell(cell_output: CellOutput, data: Bytes) -> Self {
+        let mut builder = CellMetaBuilder::from_cell(cell_output, data.len());
+        let data_hash = CellOutput::calc_data_hash(&data).pack();
         builder.mem_cell_data = Some((data, data_hash));
         builder
     }
 
-    pub fn from_output(cell_output: CellOutput, data_size: u64) -> Self {
+    pub fn from_cell(cell_output: CellOutput, data_size: usize) -> Self {
         let mut builder = CellMetaBuilder::default();
         builder.cell_output = cell_output;
-        builder.data_size = data_size;
+        builder.data_size = data_size.try_into().expect("u64");
         builder.data_occupied_capacity =
-            Capacity::bytes(data.len()).expect("data occupied capacity");
+            Capacity::bytes(data_size).expect("data occupied capacity");
         builder
     }
 
@@ -96,12 +94,19 @@ impl CellMetaBuilder {
         self
     }
 
+    pub fn mem_cell_data(mut self, data: Bytes) -> Self {
+        let data_hash = CellOutput::calc_data_hash(&data).pack();
+        self.mem_cell_data = Some((data, data_hash));
+        self
+    }
+
     pub fn build(self) -> CellMeta {
         let Self {
             cell_output,
             out_point,
             transaction_info,
             data_size,
+            data_occupied_capacity,
             mem_cell_data,
         } = self;
         CellMeta {
@@ -109,6 +114,7 @@ impl CellMetaBuilder {
             out_point,
             transaction_info,
             data_size,
+            data_occupied_capacity,
             mem_cell_data,
         }
     }
@@ -279,18 +285,18 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         .raw_data();
                     let data_hash = CellOutput::calc_data_hash(&data);
                     let header = self.block.header();
-                    CellStatus::live_cell(CellMeta {
-                        cell_output: output,
-                        out_point: out_point.clone(),
-                        transaction_info: Some(TransactionInfo {
-                            block_number: header.number(),
-                            block_epoch: header.epoch(),
-                            block_hash: self.block.hash(),
-                            index: *i,
-                        }),
-                        data_size: data.len() as u64,
-                        mem_cell_data: Some((data, data_hash)),
-                    })
+                    let tx_info = TransactionInfo {
+                        block_number: header.number(),
+                        block_epoch: header.epoch(),
+                        block_hash: self.block.hash(),
+                        index: *i,
+                    };
+                    CellStatus::live_cell(
+                        CellMetaBuilder::from_memory_cell(output, data)
+                            .out_point(out_point.clone())
+                            .transaction_info(tx_info)
+                            .build()
+                    )
                 })
             })
             .unwrap_or_else(|| CellStatus::Unknown)
@@ -320,7 +326,7 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
                         .get(out_point.index().unpack())
                         .expect("output data")
                         .raw_data();
-                    CellStatus::live_cell(CellMetaBuilder::from_cell_output(cell, data).build())
+                    CellStatus::live_cell(CellMetaBuilder::from_memory_cell(cell, data).build())
                 })
                 .unwrap_or(CellStatus::Unknown),
             None => CellStatus::Unknown,
@@ -556,19 +562,15 @@ mod tests {
         let cell_output = CellOutput::new_builder()
             .capacity(capacity_bytes!(2).pack())
             .build();
-        let data_hash = CellOutput::calc_data_hash(&data);
-        CellMeta {
-            transaction_info: Some(TransactionInfo {
+        CellMetaBuilder::from_memory_cell(cell_output, data)
+            .out_point(out_point)
+            .transaction_info(TransactionInfo {
                 block_number: 1,
                 block_epoch: 1,
                 block_hash: Byte32::zero(),
                 index: 1,
-            }),
-            cell_output,
-            out_point,
-            data_size: data.len() as u64,
-            mem_cell_data: Some((data, data_hash)),
-        }
+            })
+            .build()
     }
 
     fn generate_dummy_cell_meta_with_out_point(out_point: OutPoint) -> CellMeta {

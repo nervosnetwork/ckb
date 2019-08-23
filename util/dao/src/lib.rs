@@ -546,7 +546,7 @@ mod tests {
             transaction: &tx,
             resolved_cell_deps: vec![],
             resolved_inputs: vec![
-                CellMetaBuilder::from_cell_output(input_cell, input_cell_data).build(),
+                CellMetaBuilder::from_memory_cell(input_cell, input_cell_data).build(),
             ],
             resolved_dep_groups: vec![],
         };

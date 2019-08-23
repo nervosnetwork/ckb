@@ -79,7 +79,7 @@ pub fn test_capacity_outofbound() {
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_cell_deps: Vec::new(),
-        resolved_inputs: vec![CellMetaBuilder::from_cell_output(
+        resolved_inputs: vec![CellMetaBuilder::from_memory_cell(
             CellOutput::new_builder()
                 .capacity(capacity_bytes!(50).pack())
                 .build(),
@@ -140,7 +140,7 @@ pub fn test_inputs_cellbase_maturity() {
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
-            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
+            CellMetaBuilder::from_memory_cell(output.clone(), Bytes::new())
                 .transaction_info(MockMedianTime::get_transaction_info(30, 0, 0))
                 .build(),
         ],
@@ -172,7 +172,7 @@ fn test_ignore_genesis_cellbase_maturity() {
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
-            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
+            CellMetaBuilder::from_memory_cell(output.clone(), Bytes::new())
                 .transaction_info(MockMedianTime::get_transaction_info(0, 0, 0))
                 .build(),
         ],
@@ -195,10 +195,10 @@ pub fn test_deps_cellbase_maturity() {
     let rtx = ResolvedTransaction {
         transaction: &transaction,
         resolved_cell_deps: vec![
-            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
+            CellMetaBuilder::from_memory_cell(output.clone(), Bytes::new())
                 .transaction_info(MockMedianTime::get_transaction_info(30, 0, 0))
                 .build(),
-            CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
+            CellMetaBuilder::from_memory_cell(output.clone(), Bytes::new())
                 .transaction_info(MockMedianTime::get_transaction_info(40, 0, 1))
                 .build(),
         ],
@@ -241,14 +241,14 @@ pub fn test_capacity_invalid() {
         transaction: &transaction,
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![
-            CellMetaBuilder::from_cell_output(
+            CellMetaBuilder::from_memory_cell(
                 CellOutput::new_builder()
                     .capacity(capacity_bytes!(49).pack())
                     .build(),
                 Bytes::new(),
             )
             .build(),
-            CellMetaBuilder::from_cell_output(
+            CellMetaBuilder::from_memory_cell(
                 CellOutput::new_builder()
                     .capacity(capacity_bytes!(100).pack())
                     .build(),
@@ -346,7 +346,7 @@ fn create_resolve_tx_with_transaction_info(
     ResolvedTransaction {
         transaction: &tx,
         resolved_cell_deps: Vec::new(),
-        resolved_inputs: vec![CellMetaBuilder::from_cell_output(
+        resolved_inputs: vec![CellMetaBuilder::from_memory_cell(
             CellOutput::new_builder()
                 .capacity(capacity_bytes!(50).pack())
                 .build(),

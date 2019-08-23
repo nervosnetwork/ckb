@@ -50,6 +50,14 @@ impl TransactionInfo {
     pub fn is_cellbase(&self) -> bool {
         self.index == 0
     }
+
+    pub fn is_genesis(&self) -> bool {
+        self.block_number == 0
+    }
+
+    pub fn allow_virtual_occupied(&self) -> bool {
+        self.is_genesis() && self.is_cellbase()
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Default)]

@@ -13,8 +13,9 @@ use ckb_db::{iter::DBIteratorItem, Col, Direction};
 use ckb_types::{
     bytes::Bytes,
     core::{
-        cell::CellMeta, BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView,
-        TransactionInfo, TransactionMeta, TransactionView, UncleBlockVecView,
+        cell::{CellMeta, CellMetaBuilder},
+        BlockExt, BlockNumber, BlockView, EpochExt, EpochNumber, HeaderView, TransactionInfo,
+        TransactionMeta, TransactionView, UncleBlockVecView,
     },
     packed,
     prelude::*,
@@ -254,25 +255,29 @@ pub trait ChainStore<'a>: Send + Sync {
                             .get(index as usize)
                             .expect("inconsistent index")
                             .to_entity();
-                        let data_size = reader
+                        let data = reader
                             .data()
                             .raw()
                             .outputs_data()
                             .get(index as usize)
                             .expect("inconsistent index")
-                            .raw_data()
-                            .len() as u64;
+                            .unpack();
                         let out_point = packed::OutPoint::new_builder()
                             .tx_hash(tx_hash.to_owned())
                             .index(index.pack())
                             .build();
                         // notice mem_cell_data is set to None, the cell data should be load in need
-                        CellMeta {
-                            cell_output,
-                            out_point,
-                            transaction_info: Some(tx_info.unpack()),
-                            data_size,
-                            mem_cell_data: None,
+                        let tx_info: TransactionInfo = tx_info.unpack();
+                        if tx_info.allow_virtual_occupied() {
+                            CellMetaBuilder::from_virtual_occupied(cell_output, &data)
+                                .out_point(out_point)
+                                .transaction_info(tx_info)
+                                .build()
+                        } else {
+                            CellMetaBuilder::from_cell(cell_output, data.len())
+                                .out_point(out_point)
+                                .transaction_info(tx_info)
+                                .build()
                         }
                     })
             })

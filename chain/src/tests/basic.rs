@@ -16,7 +16,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes,
-        cell::{CellMeta, CellProvider, CellStatus},
+        cell::{CellMeta, CellMetaBuilder, CellProvider, CellStatus, UnresolvableError},
         BlockBuilder, BlockView, Capacity, EpochExt, HeaderView, TransactionBuilder,
         TransactionInfo,
     },
@@ -186,13 +186,16 @@ fn test_transaction_spend_in_same_block() {
         shared
             .snapshot()
             .cell(&OutPoint::new(tx2_hash.clone(), 0), false),
-        CellStatus::live_cell(CellMeta {
-            cell_output: tx2_output,
-            data_size: tx2_output_data.len() as u64,
-            out_point: OutPoint::new(tx2_hash.clone(), 0),
-            transaction_info: Some(TransactionInfo::new(parent_number4, 0, parent_hash4, 2)),
-            mem_cell_data: None,
-        })
+            CellMetaBuilder::from_cell(tx2_output, tx2_output_data.len())
+                .out_point(OutPoint::new(tx2_hash.clone(), 0))
+                .transaction_info(TransactionInfo::new(
+                    parent_number4,
+                    0,
+                    parent_hash4.unpack(),
+                    2
+                ))
+                .build()
+        )
     );
 }
 
