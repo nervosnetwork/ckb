@@ -3,12 +3,12 @@ use std::path::PathBuf;
 
 use crate::helper::prompt;
 use ckb_app_config::{ExitCode, InitArgs};
+use ckb_chain_spec::ChainSpec;
 use ckb_db::{db::RocksDB, DBConfig, Error};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
-    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME,
-    CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
-    SPEC_DEV_FILE_NAME,
+    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC,
+    MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
 use ckb_script::Runner;
 
@@ -90,10 +90,17 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     }
 
     let runner = Runner::default().to_string();
-    let default_hash = format!("{:#x}", CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL);
+    let default_code_hash =
+        ChainSpec::load_from(&Resource::bundled(format!("specs/{}.toml", args.chain)))
+            .expect("Load chain spec fialed")
+            .build_consensus()
+            .expect("Build consensus failed")
+            .get_secp_type_script_hash();
+    let default_code_hash_string = format!("{:#x}", default_code_hash);
+    let default_hash_type = "type";
     let block_assembler_code_hash = args.block_assembler_code_hash.as_ref().or_else(|| {
         if !args.block_assembler_args.is_empty() {
-            Some(&default_hash)
+            Some(&default_code_hash_string)
         } else {
             None
         }
@@ -101,11 +108,11 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
     let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
-            if default_hash != *hash {
+            if default_code_hash_string != *hash {
                 eprintln!(
-                    "WARN: the default secp256k1 code hash is `{}`, you are using `{}`.\n\
+                    "WARN: the default secp256k1 code hash is `{:#x}`, you are using `{}`.\n\
                      It will require `ckb run --ba-advanced` to enable this block assembler",
-                    default_hash, hash
+                    default_code_hash, hash
                 );
             } else if args.block_assembler_args.len() != 1
                 || args.block_assembler_args[0].len() != SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
@@ -136,8 +143,8 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
                  # code_hash = \"{:#x}\"\n\
                  # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]\n\
                  # data = \"A 0x-prefixed hex string\"\n\
-                 # hash_type = \"Hash type, could be Data or Type\"",
-                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
+                 # hash_type = \"{}\"",
+                default_code_hash, default_hash_type,
             )
         }
     };
