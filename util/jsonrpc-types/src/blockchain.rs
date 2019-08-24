@@ -2,6 +2,7 @@ use crate::bytes::JsonBytes;
 use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsigned, Version};
 use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -30,6 +31,15 @@ impl From<core::ScriptHashType> for ScriptHashType {
         match core {
             core::ScriptHashType::Data => ScriptHashType::Data,
             core::ScriptHashType::Type => ScriptHashType::Type,
+        }
+    }
+}
+
+impl fmt::Display for ScriptHashType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            ScriptHashType::Data => write!(f, "data"),
+            ScriptHashType::Type => write!(f, "type"),
         }
     }
 }

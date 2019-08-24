@@ -85,10 +85,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
                     )
                 } else {
                     info_target!(
-                        crate::LOG_TARGET_MAIN,
-                        "Miner is disabled because block assmebler is not a valid secp256k1 lock. \
-                         Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
-                    );
+                    crate::LOG_TARGET_MAIN,
+                    "Miner is disabled because block assmebler is not a recommended lock format. \
+                     Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
+                );
 
                     None
                 }
