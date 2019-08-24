@@ -68,22 +68,22 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         check_db_compatibility(db_path);
         check_db_compatibility(indexer_db_path);
 
-        let _block_assembler_code_hash = prompt("code hash: ");
-        let _args = prompt("args: ");
-        let _data = prompt("data: ");
-        let _hash_type = prompt("hash_type: ");
+        let in_block_assembler_code_hash = prompt("code hash: ");
+        let in_args = prompt("args: ");
+        let in_data = prompt("data: ");
+        let in_hash_type = prompt("hash_type: ");
 
-        args.block_assembler_code_hash = Some(_block_assembler_code_hash.trim().to_string());
+        args.block_assembler_code_hash = Some(in_block_assembler_code_hash.trim().to_string());
 
-        args.block_assembler_args = _args
+        args.block_assembler_args = in_args
             .trim()
             .split_whitespace()
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
 
-        args.block_assembler_data = Some(_data.trim().to_string());
+        args.block_assembler_data = Some(in_data.trim().to_string());
 
-        match serde_plain::from_str::<ScriptHashType>(_hash_type.trim()).ok() {
+        match serde_plain::from_str::<ScriptHashType>(in_hash_type.trim()).ok() {
             Some(hash_type) => args.block_assembler_hash_type = hash_type,
             None => eprintln!("Invalid block assembler hash type"),
         }
@@ -108,7 +108,13 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
     let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
-            if default_code_hash_string != *hash {
+            if ScriptHashType::Type != args.block_assembler_hash_type {
+                eprintln!(
+                    "WARN: the default lock should use hash type `{}`, you are using `{}`.\n\
+                     It will require `ckb run --ba-advanced` to enable this block assembler",
+                    default_hash_type, args.block_assembler_hash_type
+                );
+            } else if default_code_hash_string != *hash {
                 eprintln!(
                     "WARN: the default secp256k1 code hash is `{:#x}`, you are using `{}`.\n\
                      It will require `ckb run --ba-advanced` to enable this block assembler",
