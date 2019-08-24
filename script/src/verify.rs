@@ -16,7 +16,7 @@ use ckb_types::{
         cell::{CellMeta, CellMetaBuilder, ResolvedTransaction},
         Cycle, ScriptHashType,
     },
-    packed::{Byte32, Byte32Vec, CellInputVec, CellOutput, OutPoint, Script, WitnessVec},
+    packed::{Byte32, Byte32Vec, CellInputVec, OutPoint, Script, WitnessVec},
     prelude::*,
 };
 use ckb_vm::{

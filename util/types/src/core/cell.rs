@@ -283,7 +283,6 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         .get(j)
                         .expect("must exists")
                         .raw_data();
-                    let data_hash = CellOutput::calc_data_hash(&data);
                     let header = self.block.header();
                     let tx_info = TransactionInfo {
                         block_number: header.number(),

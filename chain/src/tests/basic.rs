@@ -16,7 +16,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes,
-        cell::{CellMeta, CellMetaBuilder, CellProvider, CellStatus, UnresolvableError},
+        cell::{CellMetaBuilder, CellProvider, CellStatus, UnresolvableError},
         BlockBuilder, BlockView, Capacity, EpochExt, HeaderView, TransactionBuilder,
         TransactionInfo,
     },
