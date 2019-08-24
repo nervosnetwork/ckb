@@ -1,3 +1,143 @@
+# [v0.19.0](https://github.com/nervosnetwork/ckb/compare/v0.18.2...v0.19.9) (2019-08-24)
+
+### Features
+
+* #1297: Add RPC `get_block_finalized_reward_info` (@u2)
+
+    Get info about the amount of every part in the reward.
+
+* #1270: When a node is in IBD, it will tell others it is in IBD as the response on requests sent from peers. (@driftluo)
+* #1312: Upgrade CKB VM to 0.15.1 (@xxuejie)
+
+    Please refer to the following URLs for changes from 0.13.0 to 0.15.1 in CKB VM.
+
+    https://github.com/nervosnetwork/ckb-vm/releases/tag/v0.14.0
+    https://github.com/nervosnetwork/ckb-vm/releases/tag/0.15.0
+    https://github.com/nervosnetwork/ckb-vm/releases/tag/0.15.1
+
+    One important note is that even though CKB VM supports the all-new AOT mode right now, we are still only using the ASM interpreter in CKB since the performance is already good enough.
+
+* #1252: Uncle descendant limit (@zhangsoledad)
+
+    This is a breaking change: b:consensus
+
+    A block B1 is considered to be the uncle of another block B2 if B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle.
+
+* #1316: Add script hash type in block assembler config (@xxuejie)
+
+    This is a breaking change: b:cli
+
+* #1311: Remove RPC `_compute_code_hash` (@doitian)
+
+    This is a breaking change: b:rpc
+
+* #1329: Allow dep and input in the same transaction use the same previous output (@TheWaWaR)
+
+    This is a breaking change: b:consensus
+
+* #1323: Relay new transaction hashes in batch (@u2)
+
+    This is a breaking change: b:p2p
+
+* #1319: Leverage rocksdb transaction (@zhangsoledad)
+* #1343: Tweak cellbase maturity (@zhangsoledad)
+
+    This is a breaking change: b:consensus
+
+* #1307: Difficulty adjustment rfc version (@zhangsoledad)
+
+    This is a breaking change: b:consensus, b:database
+
+    Apply new difficulty adjustment mechanism according to [RFC](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#dynamic-difficulty-adjustment-mechanism)
+
+* #1342: Add bench test to run secp256k1 lock script (@zhangsoledad)
+* #1341: Implement cell's type ID as special system script (@xxuejie)
+* #1383: Allow DNS resolver on rpc server config (@driftluo)
+* #1385 **ckb-bin:** Add interactive mode for init sub command (@zjhmale)
+* #1382 **ckb-bin:** Add reset data subcommand (@zjhmale)
+* #1381: Split load data logic from load code syscall (@xxuejie)
+* #1387: Add dep group support (@TheWaWaR)
+
+    This is a breaking change: b:consensus, b:database
+
+* #1335: Pool sorts transactions by fee rate (@jjyr)
+* #1415: Ignore genesis cellbase maturity rule (@TheWaWaR)
+* #1427: Upgrade system cells with dep group support (@TheWaWaR)
+* #1356: Refactor transaction structure, split deps into cell deps and header deps. (@TheWaWaR)
+* #1249: New serialization (@yangby-cryptape)
+* #1317: Fill get peers RPC version field (@driftluo)
+
+    BREAKING CHANGE: identify message adds a new field
+
+* #1318: Only accept blocks with a height greater than tip - N (@u2)
+* #1305: IBD only with protect/whitelist peers (@driftluo)
+* #1379: Expose data field in jsonrpc-types' Witness (@xxuejie)
+* #1359: Allow multiple type ID cell creation in single transaction (@xxuejie)
+* #1384: Chain snapshot (@zhangsoledad)
+
+    Introduce chain snapshot, which leverage rocksdb `snapshot` and `hamt` to achieve captures point-in-time view of the chain,  get rid of `chain_state` and global lock. get 3x improve when switch fork.
+
+* #1423: Use
+  [eaglesong](https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0010-eaglesong/0010-eaglesong.md) as new pow (@quake)
+* #1451: Add type script for some system cells (@TheWaWaR)
+* #1417: Remove `data_hash` from CellOutput (@quake)
+
+    This is a breaking change: b:consensus, b:rpc, b:database
+
+    This PR removed `data_hash` from CellOutput and refactored `Transaction` struct in `ckb.mol`
+
+* #1454: Change `is_dep_group` (bool) to `dep_type` (enum) and use underscore
+  case for all enum values in RPC.
+
+    This is a breaking change: b:consensus, b:rpc, b:database
+
+### Bug Fixes
+
+* #1267: Header verifier uses the wrong header resolver (@u2)
+* #1282: Byte index is not a char boundary for non-ASCII char (@yangby-cryptape)
+* #1268: Node should not reject the compact block which is in a worse fork (@u2)
+* #1306: Network should not retry dialing on failed address (@jjyr)
+* #1310: Compact block median time is wrong (@u2)
+* #1313: Fix Tx pool config typo and new config param (@quake)
+
+    fix typo `max_verfify_cache_size` => `max_verify_cache_size`, txs verify cache should use this config value instead of a hardcoded value.
+
+    added a new config param for conflict txs cache capacity
+
+* #1309: Script hash type should be preserved when converting to/from witness (@xxuejie)
+* #1314: Fix Randomly failed integration test valid since (@jjyr)
+* #1322: Transaction is rejected if a script matches deps via type and there are multiple matches (@xxuejie)
+* #1337: Fix process block bench (@zhangsoledad)
+* #1334: Remove useless `epoch_reward` from EpochView in RPC (@spartucus)
+* #1411: Fix Header provider index check (@zhangsoledad)
+* #1349: Fix Compact block `short_id` collition (@u2)
+* #1432: Pool should return error when `pending_tx` failed (@u2)
+* #1442: Use new serialization to calculate `type_id` (include since) (@TheWaWaR)
+* #1399: Should check `sync_started` before handle `InIBD` (@keroro520)
+* #1455: Remove `block_ext` cache to fix data inconsistence (@u2)
+
+### Improvements
+
+* #1236: Add BlockTransactions verifier (@u2)
+* #1280: Explicit deny alert when version does not match (@jjyr)
+* #1286: Use `block_hash` instead of `block_number` in `get_block_proposal` message (@u2)
+* #1279: Extract data field from CellOutput to Transaction (@jjyr)
+* #1308: Use ProposalShortId in CompactBlock (@quake)
+
+    This is a breaking change: b:p2p
+
+    This PR changes `CompactBlock#short_id` to `ProposalShortId`, and `reconstruct_block` will try to get tx from the entire tx pool instead of proposal tx pool only.
+
+* #1326: Add committed txs cache for compact block reconstruction (@quake)
+* #1336: Refactoring block body store (@quake)
+
+    This PR splits block body (transactions) into small value store and use rocksdb prefix seek API to improve the DB fetch performance.
+
+* #1128: Add more cache in store to speed up reward calculation (@u2)
+* #1361: Use `TransactionInfo` instead of `BlockInfo` (@u2)
+* #1328: Method `get_cell_data` should use cache (@quake)
+
+
 # [v0.18.2](https://github.com/nervosnetwork/ckb/compare/v0.18.0...v0.18.2) (2019-08-17)
 
 ### Bug Fixes
