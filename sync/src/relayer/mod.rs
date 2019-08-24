@@ -457,7 +457,7 @@ impl CKBProtocolHandler for Relayer {
             .expect("set_notify at init is ok");
         nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN)
             .expect("set_notify at init is ok");
-        nc.set_notify(Duration::from_millis(300), TX_HASHES_TOKEN)
+        nc.set_notify(Duration::from_millis(1000), TX_HASHES_TOKEN)
             .expect("set_notify at init is ok");
     }
 
