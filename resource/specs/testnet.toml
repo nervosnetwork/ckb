@@ -8,7 +8,7 @@ difficulty = "0x1000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x171453631efcac153c99ebcd92cbf49a4ba64f11f60fde02b2fab1c50f9bd6cb"
+hash = "0xe5e7448a796352cc6e2dfbdd4dffaf98c8efb2f237fe57ff7d6c0ba7ab147127"
 
 [genesis.genesis_cell]
 message = "rylai-v9"
@@ -50,27 +50,27 @@ secp256k1_ripemd160_sha256_sighash_all = [
 ]
 
 [genesis.bootstrap_lock]
-code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 # Lock for developers to run tests
 args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
-hash_type = "data"
+hash_type = "type"
 
 # Locks for developers to run tests
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
-lock.hash_type = "data"
+lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
-lock.hash_type = "data"
+lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
-lock.hash_type = "data"
+lock.hash_type = "type"
 
 [params]
 epoch_reward = 1_250_000_00000000
