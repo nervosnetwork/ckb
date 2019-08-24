@@ -76,7 +76,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .timestamp((parent.header().timestamp() + 1).pack())
         .epoch(epoch.number().pack())
         .difficulty(epoch.difficulty().pack())
-        .dao(dao.pack())
+        .dao(dao)
         .transaction(inherit_cellbase(shared, parent_number))
 }
 

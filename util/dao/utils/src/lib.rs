@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_types::{
-    bytes::Bytes,
     core::{Capacity, TransactionView},
+    packed::Byte32,
     prelude::*,
 };
 use failure::{Error as FailureError, Fail};
@@ -25,7 +25,7 @@ pub enum Error {
     Format,
 }
 
-pub fn genesis_dao_data(genesis_cellbase_tx: &TransactionView) -> Result<Bytes, FailureError> {
+pub fn genesis_dao_data(genesis_cellbase_tx: &TransactionView) -> Result<Byte32, FailureError> {
     let c = genesis_cellbase_tx
         .data()
         .raw()
@@ -58,22 +58,22 @@ pub fn genesis_dao_data(genesis_cellbase_tx: &TransactionView) -> Result<Bytes, 
     Ok(pack_dao_data(DEFAULT_ACCUMULATED_RATE, c, u))
 }
 
-pub fn extract_dao_data(data: &[u8]) -> Result<(u64, Capacity, Capacity), FailureError> {
-    if data.len() != DAO_SIZE || data[0] != DAO_VERSION {
+pub fn extract_dao_data(dao: Byte32) -> Result<(u64, Capacity, Capacity), FailureError> {
+    let data = dao.raw_data();
+    if data[0] != DAO_VERSION {
         return Err(Error::Format.into());
     }
-
     let ar = LittleEndian::read_u64(&data[8..16]);
     let c = Capacity::shannons(LittleEndian::read_u64(&data[16..24]));
     let u = Capacity::shannons(LittleEndian::read_u64(&data[24..32]));
     Ok((ar, c, u))
 }
 
-pub fn pack_dao_data(ar: u64, c: Capacity, u: Capacity) -> Bytes {
+pub fn pack_dao_data(ar: u64, c: Capacity, u: Capacity) -> Byte32 {
     let mut buf = [0u8; DAO_SIZE];
     buf[0] = DAO_VERSION;
     LittleEndian::write_u64(&mut buf[8..16], ar);
     LittleEndian::write_u64(&mut buf[16..24], c.as_u64());
     LittleEndian::write_u64(&mut buf[24..32], u.as_u64());
-    (&buf[..]).into()
+    Byte32::from_slice(&buf).expect("impossible: fail to read array")
 }

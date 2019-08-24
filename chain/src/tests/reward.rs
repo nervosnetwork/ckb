@@ -77,7 +77,7 @@ pub(crate) fn gen_block(
         .timestamp((parent_header.timestamp() + 20_000).pack())
         .number(number.pack())
         .difficulty(parent_header.difficulty().pack())
-        .dao(dao.pack())
+        .dao(dao)
         .transactions(txs)
         .uncles(uncles)
         .proposals(proposals)
@@ -139,7 +139,7 @@ fn finalize_reward() {
         .transaction(create_always_success_tx())
         .transaction(tx.clone())
         .difficulty(U256::one().pack())
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     let consensus = Consensus::default()

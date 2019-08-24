@@ -46,7 +46,7 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
         let tx = create_always_success_tx();
         let dao = genesis_dao_data(&tx).unwrap();
         let genesis_block = BlockBuilder::default()
-            .dao(dao.pack())
+            .dao(dao)
             .difficulty(U256::one().pack())
             .transaction(tx)
             .build();
@@ -216,7 +216,7 @@ impl<'a> MockChain<'a> {
             .parent_hash(parent.hash().to_owned())
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(100u64)).pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .proposals(txs.iter().map(TransactionView::proposal_short_id))
             .build();
@@ -234,7 +234,7 @@ impl<'a> MockChain<'a> {
             .parent_hash(parent.hash().to_owned())
             .number((parent.number() + 1).pack())
             .difficulty(U256::from(difficulty).pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .build();
 
@@ -252,7 +252,7 @@ impl<'a> MockChain<'a> {
             .parent_hash(parent.hash().to_owned())
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(diff)).pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .build();
 
@@ -283,7 +283,7 @@ impl<'a> MockChain<'a> {
             .parent_hash(parent.hash().to_owned())
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(100u64)).pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .transactions(txs)
             .build();
@@ -323,7 +323,7 @@ pub fn dao_data(
     txs: &[TransactionView],
     store: &MockStore,
     ignore_resolve_error: bool,
-) -> Bytes {
+) -> Byte32 {
     let mut seen_inputs = HashSet::new();
     // In case of resolving errors, we just output a dummp DAO field,
     // since those should be the cases where we are testing invalid

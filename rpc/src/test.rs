@@ -74,7 +74,7 @@ fn always_success_consensus() -> Consensus {
     let genesis = BlockBuilder::default()
         .timestamp(GENESIS_TIMESTAMP.pack())
         .difficulty(U256::from(GENESIS_DIFFICULTY).pack())
-        .dao(dao.pack())
+        .dao(dao)
         .transaction(always_success_tx)
         .build();
     Consensus::default()
@@ -132,7 +132,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         .epoch(epoch.number().pack())
         .timestamp((parent.timestamp() + 1).pack())
         .difficulty(epoch.difficulty().pack())
-        .dao(dao.pack())
+        .dao(dao)
         .build()
 }
 
