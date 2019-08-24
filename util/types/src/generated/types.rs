@@ -14494,7 +14494,7 @@ pub struct CompactBlockBuilder {
     pub(crate) header: Header,
     pub(crate) short_ids: ProposalShortIdVec,
     pub(crate) prefilled_transactions: IndexTransactionVec,
-    pub(crate) uncles: UncleBlockVec,
+    pub(crate) uncles: Byte32Vec,
     pub(crate) proposals: ProposalShortIdVec,
 }
 impl ::std::default::Default for CompactBlock {
@@ -14511,7 +14511,7 @@ impl ::std::default::Default for CompactBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         CompactBlock::new_unchecked(v.into())
     }
@@ -14580,11 +14580,11 @@ impl CompactBlock {
         let end = u32::from_le(offsets[2 + 1]) as usize;
         IndexTransactionVec::new_unchecked(self.0.slice(start, end))
     }
-    pub fn uncles(&self) -> UncleBlockVec {
+    pub fn uncles(&self) -> Byte32Vec {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[3]) as usize;
         let end = u32::from_le(offsets[3 + 1]) as usize;
-        UncleBlockVec::new_unchecked(self.0.slice(start, end))
+        Byte32Vec::new_unchecked(self.0.slice(start, end))
     }
     pub fn proposals(&self) -> ProposalShortIdVec {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -14678,7 +14678,7 @@ impl<'r> molecule::prelude::Reader<'r> for CompactBlockReader<'r> {
         HeaderReader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         ProposalShortIdVecReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         IndexTransactionVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
-        UncleBlockVecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
+        Byte32VecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         ProposalShortIdVecReader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
         Ok(())
     }
@@ -14715,11 +14715,11 @@ impl<'r> CompactBlockReader<'r> {
         let end = u32::from_le(offsets[2 + 1]) as usize;
         IndexTransactionVecReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn uncles(&self) -> UncleBlockVecReader<'r> {
+    pub fn uncles(&self) -> Byte32VecReader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[3]) as usize;
         let end = u32::from_le(offsets[3 + 1]) as usize;
-        UncleBlockVecReader::new_unchecked(&self.as_slice()[start..end])
+        Byte32VecReader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn proposals(&self) -> ProposalShortIdVecReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -14800,7 +14800,7 @@ impl CompactBlockBuilder {
         self.prefilled_transactions = v;
         self
     }
-    pub fn uncles(mut self, v: UncleBlockVec) -> Self {
+    pub fn uncles(mut self, v: Byte32Vec) -> Self {
         self.uncles = v;
         self
     }
@@ -16189,8 +16189,9 @@ impl ::std::fmt::Display for GetBlockTransactions {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "block_hash", self.block_hash())?;
         write!(f, ", {}: {}", "indexes", self.indexes())?;
+        write!(f, ", {}: {}", "uncle_indexes", self.uncle_indexes())?;
         let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
+        if count != 3 {
             write!(f, ", ..")?;
         }
         write!(f, " }}")
@@ -16201,8 +16202,9 @@ impl<'r> ::std::fmt::Display for GetBlockTransactionsReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "block_hash", self.block_hash())?;
         write!(f, ", {}: {}", "indexes", self.indexes())?;
+        write!(f, ", {}: {}", "uncle_indexes", self.uncle_indexes())?;
         let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
+        if count != 3 {
             write!(f, ", ..")?;
         }
         write!(f, " }}")
@@ -16212,12 +16214,13 @@ impl<'r> ::std::fmt::Display for GetBlockTransactionsReader<'r> {
 pub struct GetBlockTransactionsBuilder {
     pub(crate) block_hash: Byte32,
     pub(crate) indexes: Uint32Vec,
+    pub(crate) uncle_indexes: Uint32Vec,
 }
 impl ::std::default::Default for GetBlockTransactions {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            48, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            56, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         GetBlockTransactions::new_unchecked(v.into())
     }
@@ -16246,6 +16249,7 @@ impl molecule::prelude::Entity for GetBlockTransactions {
         Self::new_builder()
             .block_hash(self.block_hash())
             .indexes(self.indexes())
+            .uncle_indexes(self.uncle_indexes())
     }
 }
 impl GetBlockTransactions {
@@ -16253,7 +16257,7 @@ impl GetBlockTransactions {
     pub fn as_reader<'r>(&'r self) -> GetBlockTransactionsReader<'r> {
         GetBlockTransactionsReader::new_unchecked(self.as_slice())
     }
-    pub const FIELD_COUNT: usize = 2;
+    pub const FIELD_COUNT: usize = 3;
     pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
         let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
         let bytes_len = u32::from_le(ptr[0]) as usize;
@@ -16272,12 +16276,18 @@ impl GetBlockTransactions {
         Byte32::new_unchecked(self.0.slice(start, end))
     }
     pub fn indexes(&self) -> Uint32Vec {
-        let (_, count, offsets) = Self::field_offsets(self);
+        let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        Uint32Vec::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn uncle_indexes(&self) -> Uint32Vec {
+        let (_, count, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[2]) as usize;
+        if count == 3 {
             Uint32Vec::new_unchecked(self.0.slice_from(start))
         } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
+            let end = u32::from_le(offsets[2 + 1]) as usize;
             Uint32Vec::new_unchecked(self.0.slice(start, end))
         }
     }
@@ -16306,10 +16316,10 @@ impl<'r> molecule::prelude::Reader<'r> for GetBlockTransactionsReader<'r> {
             let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
             Err(err)?;
         }
-        if 2 == 0 && total_size == 4 {
+        if 3 == 0 && total_size == 4 {
             return Ok(());
         }
-        let expected = 4 + 4 * 2;
+        let expected = 4 + 4 * 3;
         if total_size < expected {
             let err =
                 VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
@@ -16349,7 +16359,7 @@ impl<'r> molecule::prelude::Reader<'r> for GetBlockTransactionsReader<'r> {
                 );
                 Err(err)?;
             }
-            2
+            3
         };
         let mut offsets: Vec<usize> = ptr[1..=real_field_count]
             .iter()
@@ -16362,12 +16372,13 @@ impl<'r> molecule::prelude::Reader<'r> for GetBlockTransactionsReader<'r> {
         }
         Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Uint32VecReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        Uint32VecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Ok(())
     }
 }
 impl<'r> GetBlockTransactionsReader<'r> {
     pub const NAME: &'r str = "GetBlockTransactionsReader";
-    pub const FIELD_COUNT: usize = 2;
+    pub const FIELD_COUNT: usize = 3;
     pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
         let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
         let bytes_len = u32::from_le(ptr[0]) as usize;
@@ -16386,12 +16397,18 @@ impl<'r> GetBlockTransactionsReader<'r> {
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn indexes(&self) -> Uint32VecReader<'r> {
-        let (_, count, offsets) = Self::field_offsets(self);
+        let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        Uint32VecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn uncle_indexes(&self) -> Uint32VecReader<'r> {
+        let (_, count, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[2]) as usize;
+        if count == 3 {
             Uint32VecReader::new_unchecked(&self.as_slice()[start..])
         } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
+            let end = u32::from_le(offsets[2 + 1]) as usize;
             Uint32VecReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
@@ -16399,13 +16416,16 @@ impl<'r> GetBlockTransactionsReader<'r> {
 impl molecule::prelude::Builder for GetBlockTransactionsBuilder {
     type Entity = GetBlockTransactions;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 2 * 4;
-        len_header + self.block_hash.as_slice().len() + self.indexes.as_slice().len()
+        let len_header = 4 + 3 * 4;
+        len_header
+            + self.block_hash.as_slice().len()
+            + self.indexes.as_slice().len()
+            + self.uncle_indexes.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
-        let mut offset = 4 + 2 * 4;
+        let mut offset = 4 + 3 * 4;
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
@@ -16416,9 +16436,15 @@ impl molecule::prelude::Builder for GetBlockTransactionsBuilder {
             writer.write_all(&tmp[..])?;
             offset += self.indexes.as_slice().len();
         }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.uncle_indexes.as_slice().len();
+        }
         let _ = offset;
         writer.write_all(self.block_hash.as_slice())?;
         writer.write_all(self.indexes.as_slice())?;
+        writer.write_all(self.uncle_indexes.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -16435,6 +16461,10 @@ impl GetBlockTransactionsBuilder {
     }
     pub fn indexes(mut self, v: Uint32Vec) -> Self {
         self.indexes = v;
+        self
+    }
+    pub fn uncle_indexes(mut self, v: Uint32Vec) -> Self {
+        self.uncle_indexes = v;
         self
     }
 }
@@ -16467,8 +16497,9 @@ impl ::std::fmt::Display for BlockTransactions {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "block_hash", self.block_hash())?;
         write!(f, ", {}: {}", "transactions", self.transactions())?;
+        write!(f, ", {}: {}", "uncles", self.uncles())?;
         let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
+        if count != 3 {
             write!(f, ", ..")?;
         }
         write!(f, " }}")
@@ -16479,8 +16510,9 @@ impl<'r> ::std::fmt::Display for BlockTransactionsReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "block_hash", self.block_hash())?;
         write!(f, ", {}: {}", "transactions", self.transactions())?;
+        write!(f, ", {}: {}", "uncles", self.uncles())?;
         let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
+        if count != 3 {
             write!(f, ", ..")?;
         }
         write!(f, " }}")
@@ -16490,12 +16522,13 @@ impl<'r> ::std::fmt::Display for BlockTransactionsReader<'r> {
 pub struct BlockTransactionsBuilder {
     pub(crate) block_hash: Byte32,
     pub(crate) transactions: TransactionVec,
+    pub(crate) uncles: UncleBlockVec,
 }
 impl ::std::default::Default for BlockTransactions {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            48, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+            56, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
         ];
         BlockTransactions::new_unchecked(v.into())
     }
@@ -16524,6 +16557,7 @@ impl molecule::prelude::Entity for BlockTransactions {
         Self::new_builder()
             .block_hash(self.block_hash())
             .transactions(self.transactions())
+            .uncles(self.uncles())
     }
 }
 impl BlockTransactions {
@@ -16531,7 +16565,7 @@ impl BlockTransactions {
     pub fn as_reader<'r>(&'r self) -> BlockTransactionsReader<'r> {
         BlockTransactionsReader::new_unchecked(self.as_slice())
     }
-    pub const FIELD_COUNT: usize = 2;
+    pub const FIELD_COUNT: usize = 3;
     pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
         let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
         let bytes_len = u32::from_le(ptr[0]) as usize;
@@ -16550,13 +16584,19 @@ impl BlockTransactions {
         Byte32::new_unchecked(self.0.slice(start, end))
     }
     pub fn transactions(&self) -> TransactionVec {
-        let (_, count, offsets) = Self::field_offsets(self);
+        let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            TransactionVec::new_unchecked(self.0.slice_from(start))
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        TransactionVec::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn uncles(&self) -> UncleBlockVec {
+        let (_, count, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[2]) as usize;
+        if count == 3 {
+            UncleBlockVec::new_unchecked(self.0.slice_from(start))
         } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            TransactionVec::new_unchecked(self.0.slice(start, end))
+            let end = u32::from_le(offsets[2 + 1]) as usize;
+            UncleBlockVec::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -16584,10 +16624,10 @@ impl<'r> molecule::prelude::Reader<'r> for BlockTransactionsReader<'r> {
             let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
             Err(err)?;
         }
-        if 2 == 0 && total_size == 4 {
+        if 3 == 0 && total_size == 4 {
             return Ok(());
         }
-        let expected = 4 + 4 * 2;
+        let expected = 4 + 4 * 3;
         if total_size < expected {
             let err =
                 VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
@@ -16627,7 +16667,7 @@ impl<'r> molecule::prelude::Reader<'r> for BlockTransactionsReader<'r> {
                 );
                 Err(err)?;
             }
-            2
+            3
         };
         let mut offsets: Vec<usize> = ptr[1..=real_field_count]
             .iter()
@@ -16640,12 +16680,13 @@ impl<'r> molecule::prelude::Reader<'r> for BlockTransactionsReader<'r> {
         }
         Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         TransactionVecReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        UncleBlockVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Ok(())
     }
 }
 impl<'r> BlockTransactionsReader<'r> {
     pub const NAME: &'r str = "BlockTransactionsReader";
-    pub const FIELD_COUNT: usize = 2;
+    pub const FIELD_COUNT: usize = 3;
     pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
         let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
         let bytes_len = u32::from_le(ptr[0]) as usize;
@@ -16664,26 +16705,35 @@ impl<'r> BlockTransactionsReader<'r> {
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn transactions(&self) -> TransactionVecReader<'r> {
-        let (_, count, offsets) = Self::field_offsets(self);
+        let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            TransactionVecReader::new_unchecked(&self.as_slice()[start..])
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        TransactionVecReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn uncles(&self) -> UncleBlockVecReader<'r> {
+        let (_, count, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[2]) as usize;
+        if count == 3 {
+            UncleBlockVecReader::new_unchecked(&self.as_slice()[start..])
         } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            TransactionVecReader::new_unchecked(&self.as_slice()[start..end])
+            let end = u32::from_le(offsets[2 + 1]) as usize;
+            UncleBlockVecReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
 impl molecule::prelude::Builder for BlockTransactionsBuilder {
     type Entity = BlockTransactions;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 2 * 4;
-        len_header + self.block_hash.as_slice().len() + self.transactions.as_slice().len()
+        let len_header = 4 + 3 * 4;
+        len_header
+            + self.block_hash.as_slice().len()
+            + self.transactions.as_slice().len()
+            + self.uncles.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
-        let mut offset = 4 + 2 * 4;
+        let mut offset = 4 + 3 * 4;
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
@@ -16694,9 +16744,15 @@ impl molecule::prelude::Builder for BlockTransactionsBuilder {
             writer.write_all(&tmp[..])?;
             offset += self.transactions.as_slice().len();
         }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.uncles.as_slice().len();
+        }
         let _ = offset;
         writer.write_all(self.block_hash.as_slice())?;
         writer.write_all(self.transactions.as_slice())?;
+        writer.write_all(self.uncles.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -16713,6 +16769,10 @@ impl BlockTransactionsBuilder {
     }
     pub fn transactions(mut self, v: TransactionVec) -> Self {
         self.transactions = v;
+        self
+    }
+    pub fn uncles(mut self, v: UncleBlockVec) -> Self {
+        self.uncles = v;
         self
     }
 }

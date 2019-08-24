@@ -32,8 +32,21 @@ fn test_accept_block() {
         .output_data(Bytes::new().pack())
         .build();
 
+    let tx3 = TransactionBuilder::default()
+        .output(
+            CellOutputBuilder::default()
+                .capacity(Capacity::bytes(2).unwrap().pack())
+                .build(),
+        )
+        .output_data(Bytes::new().pack())
+        .build();
+    let uncle = packed::BlockBuilder::default()
+        .proposals(vec![tx3.proposal_short_id()].pack())
+        .build();
+
     let block = BlockBuilder::default()
         .transactions(vec![tx1.clone(), tx2.clone()])
+        .uncle(uncle.clone().as_uncle().into_view())
         .build();
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
 
@@ -46,7 +59,10 @@ fn test_accept_block() {
             hash.clone(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1]), (other_peer_index, vec![1])]),
+                HashMap::from_iter(vec![
+                    (peer_index, (vec![1], vec![0])),
+                    (other_peer_index, (vec![1], vec![])),
+                ]),
             ),
         );
     }
@@ -54,6 +70,7 @@ fn test_accept_block() {
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
         .block_hash(block.header().hash())
         .transactions(vec![tx2.data()].pack())
+        .uncles(vec![uncle.clone().as_uncle()].pack())
         .build();
 
     let mock_protocal_context = MockProtocalContext::default();
@@ -72,6 +89,11 @@ fn test_accept_block() {
 
     assert!(pending_compact_blocks.get(&hash).is_none());
     assert_eq!(r.ok(), Some(Status::Accept));
+
+    assert!(relayer
+        .shared
+        .inflight_proposals()
+        .contains(&tx3.proposal_short_id()));
 }
 
 #[test]
@@ -104,7 +126,7 @@ fn test_unknown_request() {
             compact_block.header().calc_header_hash(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(foo_peer_index, vec![1])]),
+                HashMap::from_iter(vec![(foo_peer_index, (vec![1], vec![]))]),
             ),
         );
     }
@@ -170,7 +192,7 @@ fn test_invalid_transaction_root() {
             block_hash.clone(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1])]),
+                HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
             ),
         );
     }
@@ -266,7 +288,7 @@ fn test_collision_and_send_missing_indexes() {
             hash.clone(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1])]),
+                HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
             ),
         );
     }
@@ -312,7 +334,7 @@ fn test_collision_and_send_missing_indexes() {
                 .unwrap()
                 .1
                 .get(&peer_index),
-            Some(&vec![1, 2])
+            Some(&(vec![1, 2], vec![]))
         );
     }
 
@@ -379,7 +401,7 @@ fn test_missing() {
             compact_block.header().calc_header_hash(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1])]),
+                HashMap::from_iter(vec![(peer_index, (vec![1], vec![]))]),
             ),
         );
     }

@@ -9,6 +9,7 @@ pub type ParentHash = packed::Byte32;
 #[derive(Default)]
 pub struct OrphanBlockPool {
     blocks: RwLock<HashMap<ParentHash, HashMap<packed::Byte32, core::BlockView>>>,
+    parents: RwLock<HashMap<packed::Byte32, ParentHash>>,
 }
 
 impl OrphanBlockPool {
@@ -18,16 +19,20 @@ impl OrphanBlockPool {
                 capacity,
                 Default::default(),
             )),
+            parents: RwLock::new(Default::default()),
         }
     }
 
     /// Insert orphaned block, for which we have already requested its parent block
     pub fn insert(&self, block: core::BlockView) {
+        let hash = block.header().hash().clone();
+        let parent_hash = block.data().header().raw().parent_hash().clone();
         self.blocks
             .write()
-            .entry(block.data().header().raw().parent_hash())
+            .entry(parent_hash.clone())
             .or_insert_with(HashMap::default)
-            .insert(block.header().hash(), block);
+            .insert(hash.clone(), block);
+        self.parents.write().insert(hash, parent_hash);
     }
 
     pub fn remove_blocks_by_parent(&self, hash: &packed::Byte32) -> Vec<core::BlockView> {
@@ -39,11 +44,29 @@ impl OrphanBlockPool {
         while let Some(parent_hash) = queue.pop_front() {
             if let Some(orphaned) = guard.remove(&parent_hash) {
                 let (hashes, blocks): (Vec<_>, Vec<_>) = orphaned.into_iter().unzip();
+                let mut parents = self.parents.write();
+                for hash in hashes.iter() {
+                    parents.remove(hash);
+                }
                 queue.extend(hashes);
                 removed.extend(blocks);
             }
         }
         removed
+    }
+
+    pub fn get_block(&self, hash: &packed::Byte32) -> Option<core::BlockView> {
+        self.parents
+            .write()
+            .get(hash)
+            .map(|parent_hash| {
+                self.blocks
+                    .write()
+                    .get(parent_hash)
+                    .map(|value| value.get(hash).cloned())
+                    .unwrap_or(None)
+            })
+            .unwrap_or(None)
     }
 }
 

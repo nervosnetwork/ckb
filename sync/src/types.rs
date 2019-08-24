@@ -579,7 +579,14 @@ impl EpochIndices {
     }
 }
 
-type PendingCompactBlockMap = HashMap<Byte32, (packed::CompactBlock, HashMap<PeerIndex, Vec<u32>>)>;
+// <CompactBlockHash, (CompactBlock, <PeerIndex, (TransactionsIndex, UnclesIndex)>)>
+type PendingCompactBlockMap = HashMap<
+    Byte32,
+    (
+        packed::CompactBlock,
+        HashMap<PeerIndex, (Vec<u32>, Vec<u32>)>,
+    ),
+>;
 
 pub struct SyncSharedState {
     shared: Shared,
@@ -1066,6 +1073,14 @@ impl SyncSharedState {
             block_status_map.remove(&b.hash());
         });
         blocks
+    }
+
+    pub fn get_orphan_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
+        self.orphan_block_pool.get_block(block_hash)
+    }
+
+    pub fn get_block(&self, block_hash: &Byte32) -> Option<core::BlockView> {
+        self.shared.store().get_block(block_hash)
     }
 
     pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {

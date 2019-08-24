@@ -243,7 +243,7 @@ fn test_already_pending() {
             compact_block.header().into_view().hash().clone(),
             (
                 compact_block.clone(),
-                HashMap::from_iter(vec![(1.into(), vec![0])]),
+                HashMap::from_iter(vec![(1.into(), (vec![0], vec![]))]),
             ),
         );
     }
@@ -376,6 +376,8 @@ fn test_send_missing_indexes() {
 
     let proposal_id = ProposalShortId::new([1u8; 10]);
 
+    let uncle = packed::BlockBuilder::default().build();
+
     // Better block including one missing transaction
     let block = BlockBuilder::default()
         .header(header.clone())
@@ -390,6 +392,7 @@ fn test_send_missing_indexes() {
                 .output_data(Bytes::new().pack())
                 .build(),
         )
+        .uncle(uncle.clone().as_uncle().into_view())
         .proposal(proposal_id.clone())
         .build();
 
@@ -416,6 +419,7 @@ fn test_send_missing_indexes() {
     let content = packed::GetBlockTransactions::new_builder()
         .block_hash(block.header().hash())
         .indexes([1u32].pack())
+        .uncle_indexes([0u32].pack())
         .build();
     let message = packed::RelayMessage::new_builder().set(content).build();
     let data = message.as_slice().into();
@@ -455,11 +459,26 @@ fn test_accept_block() {
 
     let header = new_header_builder(relayer.shared.shared(), &parent).build();
 
-    // Better block without missing txs
+    let uncle = packed::BlockBuilder::default().build();
+    let ext = packed::BlockExtBuilder::default()
+        .verified(Some(true).pack())
+        .build();
+
     let block = BlockBuilder::default()
         .header(header.clone())
         .transaction(TransactionBuilder::default().build())
+        .uncle(uncle.clone().as_uncle().into_view())
         .build();
+
+    let uncle_hash = uncle.calc_header_hash();
+    {
+        let uncle_view = uncle.into_view();
+        let db_txn = relayer.shared().store().begin_transaction();
+        db_txn.insert_block(&uncle_view).unwrap();
+        db_txn.attach_block(&uncle_view).unwrap();
+        db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
+        db_txn.commit().unwrap();
+    }
 
     let mut prefilled_transactions_indexes = HashSet::new();
     prefilled_transactions_indexes.insert(0);

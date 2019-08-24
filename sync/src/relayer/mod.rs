@@ -1,6 +1,7 @@
 mod block_proposal_process;
 mod block_transactions_process;
 mod block_transactions_verifier;
+mod block_uncles_verifier;
 mod compact_block_process;
 mod compact_block_verifier;
 mod error;
@@ -48,9 +49,10 @@ pub const MAX_RELAY_PEERS: usize = 128;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ReconstructionError {
-    MissingIndexes(Vec<usize>),
+    MissingIndexes(Vec<usize>, Vec<usize>),
     InvalidTransactionRoot,
     Collision,
+    InvalidUncle,
 }
 
 #[derive(Clone)]
@@ -137,17 +139,15 @@ impl Relayer {
         &self,
         nc: &CKBProtocolContext,
         peer: PeerIndex,
-        block: &packed::CompactBlock,
+        block_hash: Byte32,
+        proposals: Vec<packed::ProposalShortId>,
     ) {
-        let proposals = block.proposals().into_iter().chain(
-            block
-                .uncles()
-                .into_iter()
-                .flat_map(|u| u.proposals().into_iter()),
-        );
+        let mut proposals = proposals;
+        proposals.dedup();
         let fresh_proposals: Vec<ProposalShortId> = {
             let tx_pool = self.shared.shared().try_lock_tx_pool();
             proposals
+                .into_iter()
                 .filter(|id| !tx_pool.contains_proposal_id(id))
                 .collect()
         };
@@ -160,7 +160,7 @@ impl Relayer {
             .collect();
         if !to_ask_proposals.is_empty() {
             let content = packed::GetBlockProposal::new_builder()
-                .block_hash(block.calc_header_hash())
+                .block_hash(block_hash)
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
@@ -231,12 +231,14 @@ impl Relayer {
     pub fn reconstruct_block(
         &self,
         compact_block: &packed::CompactBlock,
-        transactions: Vec<core::TransactionView>,
+        received_transactions: Vec<core::TransactionView>,
+        uncles_index: &[u32],
+        received_unlces: &[core::UncleBlockView],
     ) -> Result<core::BlockView, ReconstructionError> {
-        let block_txs_len = transactions.len();
+        let block_txs_len = received_transactions.len();
         debug_target!(
             crate::LOG_TARGET_RELAY,
-            "start block reconstruction, block hash: {}, transactions len: {}",
+            "start block reconstruction, block hash: {}, received transactions len: {}",
             compact_block.calc_header_hash(),
             block_txs_len,
         );
@@ -244,7 +246,7 @@ impl Relayer {
         let mut short_ids_set: HashSet<ProposalShortId> =
             compact_block.short_ids().into_iter().collect();
 
-        let mut txs_map: HashMap<ProposalShortId, core::TransactionView> = transactions
+        let mut txs_map: HashMap<ProposalShortId, core::TransactionView> = received_transactions
             .into_iter()
             .filter_map(|tx| {
                 let short_id = tx.proposal_short_id();
@@ -290,14 +292,64 @@ impl Relayer {
 
         let missing = block_transactions.iter().any(Option::is_none);
 
-        if !missing {
+        let mut missing_uncles = Vec::with_capacity(compact_block.uncles().len());
+        let mut uncles = Vec::with_capacity(compact_block.uncles().len());
+
+        let mut position = 0;
+        for (i, uncle_hash) in compact_block.uncles().into_iter().enumerate() {
+            if uncles_index.contains(&(i as u32)) {
+                uncles.push(
+                    received_unlces
+                        .get(position)
+                        .expect("have checked the indexes")
+                        .clone()
+                        .data(),
+                );
+                position += 1;
+                continue;
+            };
+            let status = self.shared().get_block_status(&uncle_hash);
+            match status {
+                BlockStatus::UNKNOWN | BlockStatus::HEADER_VALID => missing_uncles.push(i),
+                BlockStatus::BLOCK_STORED | BlockStatus::BLOCK_VALID => {
+                    if let Some(uncle) = self.shared.get_block(&uncle_hash) {
+                        uncles.push(uncle.as_uncle().data());
+                    } else {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "reconstruct_block could not find {:#?} uncle block: {:#?}",
+                            status,
+                            uncle_hash,
+                        );
+                        missing_uncles.push(i);
+                    }
+                }
+                BlockStatus::BLOCK_RECEIVED => {
+                    if let Some(uncle) = self.shared.get_orphan_block(&uncle_hash) {
+                        uncles.push(uncle.as_uncle().data());
+                    } else {
+                        debug_target!(
+                            crate::LOG_TARGET_RELAY,
+                            "reconstruct_block could not find {:#?} uncle block: {:#?}",
+                            status,
+                            uncle_hash,
+                        );
+                        missing_uncles.push(i);
+                    }
+                }
+                BlockStatus::BLOCK_INVALID => return Err(ReconstructionError::InvalidUncle),
+                _ => missing_uncles.push(i),
+            }
+        }
+
+        if !missing && missing_uncles.is_empty() {
             let txs = block_transactions
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
                 .expect("missing checked, should not fail");
             let block = packed::Block::new_builder()
                 .header(compact_block.header())
-                .uncles(compact_block.uncles())
+                .uncles(uncles.pack())
                 .transactions(txs.into_iter().map(|tx| tx.data()).pack())
                 .proposals(compact_block.proposals())
                 .build()
@@ -335,7 +387,10 @@ impl Relayer {
                 compact_block.short_ids().len(),
             );
 
-            Err(ReconstructionError::MissingIndexes(missing_indexes))
+            Err(ReconstructionError::MissingIndexes(
+                missing_indexes,
+                missing_uncles,
+            ))
         }
     }
 
