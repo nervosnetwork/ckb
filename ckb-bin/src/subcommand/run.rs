@@ -2,12 +2,13 @@ use crate::helper::{deadlock_detection, wait_for_exit};
 use ckb_app_config::{ExitCode, RunArgs};
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
+use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
+use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
@@ -46,10 +47,37 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let block_assembler_controller =
         match (args.config.rpc.miner_enable(), args.config.block_assembler) {
             (true, Some(block_assembler)) => {
+                let check_lock_code_hash = |code_hash| -> Result<bool, ExitCode> {
+                    let secp_cell_data =
+                        Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
+                            .get()
+                            .map_err(|err| {
+                                eprintln!(
+                                    "Load specs/cells/secp256k1_blake160_sighash_all error: {:?}",
+                                    err
+                                );
+                                ExitCode::Failure
+                            })?;
+                    let genesis_cellbase = &shared.consensus().genesis_block().transactions()[0];
+                    Ok(genesis_cellbase
+                        .outputs()
+                        .into_iter()
+                        .zip(genesis_cellbase.outputs_data().into_iter())
+                        .any(|(output, data)| {
+                            data.raw_data() == secp_cell_data.as_ref()
+                                && output
+                                    .type_()
+                                    .to_opt()
+                                    .map(|script| script.calc_script_hash())
+                                    .as_ref()
+                                    == Some(code_hash)
+                        }))
+                };
                 if args.block_assembler_advanced
-                    || (block_assembler.code_hash == CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
+                    || (block_assembler.hash_type == ScriptHashType::Type
                         && block_assembler.args.len() == 1
-                        && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN)
+                        && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
+                        && check_lock_code_hash(&block_assembler.code_hash)?)
                 {
                     Some(
                         BlockAssembler::new(shared.clone(), block_assembler)
