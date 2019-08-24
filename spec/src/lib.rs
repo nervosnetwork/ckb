@@ -15,10 +15,7 @@ use ckb_dao_utils::genesis_dao_data;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
-use ckb_resource::{
-    Resource, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
-    CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
-};
+use ckb_resource::{Resource, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA};
 use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
@@ -31,6 +28,7 @@ use ckb_types::{
     H256, U256,
 };
 use serde_derive::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
@@ -72,6 +70,7 @@ pub struct Genesis {
     pub system_cells: Vec<SystemCell>,
     pub system_cells_lock: Script,
     pub bootstrap_lock: Script,
+    pub dep_groups: BTreeMap<String, Vec<Resource>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -287,39 +286,32 @@ impl Genesis {
                 .map(|index| packed::OutPoint::new(tx.hash().clone().unpack(), index as u32))
         }
 
-        fn build_dep_group_output(
-            out_points: Vec<packed::OutPoint>,
-            lock: packed::Script,
-        ) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
-            let data = Bytes::from(out_points.pack().as_slice());
-            let cell = packed::CellOutput::new_builder()
-                .lock(lock)
-                .build_exact_capacity(Capacity::bytes(data.len())?)?;
-            Ok((cell, data))
-        }
+        let (outputs, outputs_data): (Vec<_>, Vec<_>) = self
+            .dep_groups
+            .values()
+            .map(|files| {
+                let out_points: Vec<_> = files
+                    .iter()
+                    .map(|res| {
+                        let data: Bytes = res.get()?.into_owned().into();
+                        let data_hash: H256 = packed::CellOutput::calc_data_hash(&data);
+                        let out_point = find_out_point_by_data_hash(cellbase_tx, &data_hash)
+                            .ok_or_else(|| {
+                                format!("Can not find {} in genesis cellbase transaction", res)
+                            })?;
+                        Ok(out_point)
+                    })
+                    .collect::<Result<_, Box<dyn Error>>>()?;
 
-        let secp_data_out_point =
-            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_DATA)
-                .expect("Get secp data out point failed");
-        let secp_blake160_out_point =
-            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL)
-                .expect("Get secp blake160 out point failed");
-        let secp_ripemd160_out_point = find_out_point_by_data_hash(
-            cellbase_tx,
-            &CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
-        )
-        .expect("Get secp ripemd160 out point failed");
-
-        let (cell_blake160, data_blake160) = build_dep_group_output(
-            vec![secp_data_out_point.clone(), secp_blake160_out_point.clone()],
-            self.system_cells_lock.clone().into(),
-        )?;
-        let (cell_ripemd160, data_ripemd160) = build_dep_group_output(
-            vec![secp_data_out_point.clone(), secp_ripemd160_out_point],
-            self.system_cells_lock.clone().into(),
-        )?;
-        let outputs = vec![cell_blake160, cell_ripemd160];
-        let outputs_data = vec![data_blake160.pack(), data_ripemd160.pack()];
+                let data = Bytes::from(out_points.pack().as_slice());
+                let cell = packed::CellOutput::new_builder()
+                    .lock(self.system_cells_lock.clone().into())
+                    .build_exact_capacity(Capacity::bytes(data.len())?)?;
+                Ok((cell, data.pack()))
+            })
+            .collect::<Result<Vec<(packed::CellOutput, packed::Bytes)>, Box<dyn Error>>>()?
+            .into_iter()
+            .unzip();
 
         let privkey = Privkey::from(SPECIAL_CELL_PRIVKEY.clone());
         let lock_arg = secp_lock_arg(&privkey);
@@ -339,6 +331,12 @@ impl Genesis {
             .expect("Get special issued input failed");
         let input = packed::CellInput::new(input_out_point, 0);
 
+        let secp_data_out_point =
+            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_DATA)
+                .ok_or_else(|| String::from("Get secp data out point failed"))?;
+        let secp_blake160_out_point =
+            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL)
+                .ok_or_else(|| String::from("Get secp blake160 out point failed"))?;
         let cell_deps = vec![
             packed::CellDep::new_builder()
                 .out_point(secp_data_out_point.clone())
