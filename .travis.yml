@@ -101,9 +101,8 @@ matrix:
       install:
         - cargo tarpaulin --version || travis_retry cargo install cargo-tarpaulin
       script:
-        - make cov
-      after_success:
-        - bash <(curl -s https://codecov.io/bash)
+        # allow failures
+        - if make cov; then bash <(curl -s https://codecov.io/bash); fi
 
     - name: Package for macOS
       if: 'tag IS present AND env(GITHUB_TOKEN) IS present'
