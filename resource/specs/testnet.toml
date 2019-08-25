@@ -3,12 +3,12 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1561788000134
-difficulty = "0x1000"
+timestamp = 1566626400882
+difficulty = "0x10000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0xe5e7448a796352cc6e2dfbdd4dffaf98c8efb2f237fe57ff7d6c0ba7ab147127"
+hash = "0x87e6952f061170f2ce701bbfcf79b2ba93e2a646afce73afbd65a913d301616d"
 
 [genesis.genesis_cell]
 message = "rylai-v9"
