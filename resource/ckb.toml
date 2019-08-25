@@ -138,7 +138,7 @@ cellbase_cache_size        = 20
 #       sed 's/41534e31204f49443a20736563703235366b310a30740201010420/PrivKey: /' | \
 #       sed 's/a00706052b8104000aa144034200/\'$'\nPubKey: /'
 #
-# Once you get your public key, generate the block assembler parameters:
+# Once you get your public key, generate the args for block assembler:
 #
 #     ckb cli secp256k1-lock <pubkey>
 #

@@ -3,15 +3,16 @@ use std::path::PathBuf;
 
 use crate::helper::prompt;
 use ckb_app_config::{ExitCode, InitArgs};
+use ckb_chain_spec::ChainSpec;
 use ckb_db::{db::RocksDB, DBConfig, Error};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
-    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME,
-    CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, DEFAULT_SPEC, MINER_CONFIG_FILE_NAME,
-    SPEC_DEV_FILE_NAME,
+    Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC,
+    MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
 use ckb_script::Runner;
 
+const DEFAULT_LOCK_SCRIPT_HASH_TYPE: &str = "type";
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20 * 2 + 2; // 42 = 20 x 2 + prefix 0x
 
 fn check_db_compatibility(path: PathBuf) {
@@ -68,32 +69,45 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         check_db_compatibility(db_path);
         check_db_compatibility(indexer_db_path);
 
-        let _block_assembler_code_hash = prompt("code hash: ");
-        let _args = prompt("args: ");
-        let _data = prompt("data: ");
-        let _hash_type = prompt("hash_type: ");
+        let in_block_assembler_code_hash = prompt("code hash: ");
+        let in_args = prompt("args: ");
+        let in_data = prompt("data: ");
+        let in_hash_type = prompt("hash_type: ");
 
-        args.block_assembler_code_hash = Some(_block_assembler_code_hash.trim().to_string());
+        args.block_assembler_code_hash = Some(in_block_assembler_code_hash.trim().to_string());
 
-        args.block_assembler_args = _args
+        args.block_assembler_args = in_args
             .trim()
             .split_whitespace()
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
 
-        args.block_assembler_data = Some(_data.trim().to_string());
+        args.block_assembler_data = Some(in_data.trim().to_string());
 
-        match serde_plain::from_str::<ScriptHashType>(_hash_type.trim()).ok() {
+        match serde_plain::from_str::<ScriptHashType>(in_hash_type.trim()).ok() {
             Some(hash_type) => args.block_assembler_hash_type = hash_type,
             None => eprintln!("Invalid block assembler hash type"),
         }
     }
 
     let runner = Runner::default().to_string();
-    let default_hash = format!("{:#x}", CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL);
+
+    // Try to find the default secp256k1 from bundled chain spec.
+    let default_code_hash_option =
+        ChainSpec::load_from(&Resource::bundled(format!("specs/{}.toml", args.chain)))
+            .ok()
+            .map(|spec| {
+                format!(
+                    "{:#x}",
+                    spec.build_consensus()
+                        .expect("Build consensus failed")
+                        .get_secp_type_script_hash()
+                )
+            });
+
     let block_assembler_code_hash = args.block_assembler_code_hash.as_ref().or_else(|| {
         if !args.block_assembler_args.is_empty() {
-            Some(&default_hash)
+            default_code_hash_option.as_ref()
         } else {
             None
         }
@@ -101,19 +115,27 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
     let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
-            if default_hash != *hash {
-                eprintln!(
-                    "WARN: the default secp256k1 code hash is `{}`, you are using `{}`.\n\
-                     It will require `ckb run --ba-advanced` to enable this block assembler",
-                    default_hash, hash
-                );
-            } else if args.block_assembler_args.len() != 1
-                || args.block_assembler_args[0].len() != SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
-            {
-                eprintln!(
-                    "WARN: the block assembler arg is not a valid secp256k1 pubkey hash.\n\
-                     It will require `ckb run --ba-advanced` to enable this block assembler"
-                );
+            if let Some(default_code_hash) = &default_code_hash_option {
+                if ScriptHashType::Type != args.block_assembler_hash_type {
+                    eprintln!(
+                        "WARN: the default lock should use hash type `{}`, you are using `{}`.\n\
+                         It will require `ckb run --ba-advanced` to enable this block assembler",
+                        DEFAULT_LOCK_SCRIPT_HASH_TYPE, args.block_assembler_hash_type
+                    );
+                } else if *default_code_hash != *hash {
+                    eprintln!(
+                        "WARN: the default secp256k1 code hash is `{}`, you are using `{}`.\n\
+                         It will require `ckb run --ba-advanced` to enable this block assembler",
+                        default_code_hash, hash
+                    );
+                } else if args.block_assembler_args.len() != 1
+                    || args.block_assembler_args[0].len() != SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
+                {
+                    eprintln!(
+                        "WARN: the block assembler arg is not a valid secp256k1 pubkey hash.\n\
+                         It will require `ckb run --ba-advanced` to enable this block assembler"
+                    );
+                }
             }
             format!(
                 "[block_assembler]\n\
@@ -133,11 +155,12 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             format!(
                 "# secp256k1_blake160_sighash_all example:\n\
                  # [block_assembler]\n\
-                 # code_hash = \"{:#x}\"\n\
+                 # code_hash = \"{}\"\n\
                  # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]\n\
                  # data = \"A 0x-prefixed hex string\"\n\
-                 # hash_type = \"Hash type, could be Data or Type\"",
-                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
+                 # hash_type = \"{}\"",
+                default_code_hash_option.unwrap_or_default(),
+                DEFAULT_LOCK_SCRIPT_HASH_TYPE,
             )
         }
     };
