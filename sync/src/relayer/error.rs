@@ -1,3 +1,4 @@
+use ckb_types::packed::ProposalShortId;
 use failure::Fail;
 
 #[derive(Debug, Fail, Eq, PartialEq)]
@@ -28,6 +29,21 @@ pub enum Misbehavior {
     OverflowPrefilledTransactions,
     #[fail(display = "CompactBlockError::IntersectedPrefilledTransactions")]
     IntersectedPrefilledTransactions,
+    #[fail(display = "CompactBlockError::InvalidTransactionRoot")]
+    InvalidTransactionRoot,
+    #[fail(
+        display = "block transactions' length is invalid, expect {}, but got {}",
+        expect, got
+    )]
+    InvalidBlockTransactionsLength { expect: usize, got: usize },
+    #[fail(
+        display = "block transactions' short id is invalid, expect {:#?}, but got {:#?}",
+        expect, got
+    )]
+    InvalidBlockTransactions {
+        expect: ProposalShortId,
+        got: ProposalShortId,
+    },
     #[fail(display = "BlockInvalid")]
     BlockInvalid,
     #[fail(display = "HeaderInvalid")]
@@ -36,12 +52,12 @@ pub enum Misbehavior {
 
 #[derive(Debug, Fail, Eq, PartialEq)]
 pub enum Ignored {
-    #[fail(display = "Not a better block")]
-    NotBetter,
     #[fail(display = "Already pending compact block")]
     AlreadyPending,
     #[fail(display = "Already in-flight compact block")]
     AlreadyInFlight,
     #[fail(display = "Already stored")]
     AlreadyStored,
+    #[fail(display = "Block is too old")]
+    TooOldBlock,
 }

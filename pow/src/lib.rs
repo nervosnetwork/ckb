@@ -1,32 +1,28 @@
 use byteorder::{ByteOrder, LittleEndian};
-use ckb_core::difficulty::difficulty_to_target;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_hash::blake2b_256;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
+use ckb_types::{packed::Header, H256};
 use serde_derive::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
-mod cuckoo;
 mod dummy;
+mod eaglesong;
 
-pub use crate::cuckoo::{Cuckoo, CuckooEngine, CuckooParams, CuckooSip};
 pub use crate::dummy::DummyPowEngine;
+pub use crate::eaglesong::EaglesongPowEngine;
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 #[serde(tag = "func", content = "params")]
 pub enum Pow {
     Dummy,
-    Cuckoo(CuckooParams),
+    Eaglesong,
 }
 
 impl fmt::Display for Pow {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Pow::Dummy => write!(f, "Dummy"),
-            Pow::Cuckoo(params) => write!(f, "Cuckoo{}", params),
+            Pow::Eaglesong => write!(f, "Eaglesong"),
         }
     }
 }
@@ -35,7 +31,7 @@ impl Pow {
     pub fn engine(&self) -> Arc<dyn PowEngine> {
         match *self {
             Pow::Dummy => Arc::new(DummyPowEngine),
-            Pow::Cuckoo(params) => Arc::new(CuckooEngine::new(params)),
+            Pow::Eaglesong => Arc::new(EaglesongPowEngine),
         }
     }
 }
@@ -48,23 +44,7 @@ pub fn pow_message(pow_hash: &H256, nonce: u64) -> [u8; 40] {
 }
 
 pub trait PowEngine: Send + Sync + AsAny {
-    fn verify_header(&self, header: &Header) -> bool {
-        if self.verify_proof_difficulty(&header.proof(), &header.difficulty()) {
-            let message = pow_message(&header.pow_hash(), header.nonce());
-            self.verify(header.number(), &message, &header.proof())
-        } else {
-            false
-        }
-    }
-
-    fn verify_proof_difficulty(&self, proof: &[u8], difficulty: &U256) -> bool {
-        let proof_hash: H256 = blake2b_256(proof).into();
-        proof_hash < difficulty_to_target(difficulty)
-    }
-
-    fn verify(&self, number: BlockNumber, message: &[u8], proof: &[u8]) -> bool;
-
-    fn proof_size(&self) -> usize;
+    fn verify(&self, header: &Header) -> bool;
 }
 
 pub trait AsAny {

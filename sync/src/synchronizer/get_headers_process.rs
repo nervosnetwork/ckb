@@ -1,29 +1,25 @@
 use crate::synchronizer::Synchronizer;
-use crate::{MAX_LOCATOR_SIZE, SYNC_USELESS_BAN_TIME};
-use ckb_core::header::Header;
+use crate::{NetworkProtocol, MAX_LOCATOR_SIZE, SYNC_USELESS_BAN_TIME};
 use ckb_logger::{debug, info, warn};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{cast, GetHeaders, SyncMessage};
-use ckb_store::ChainStore;
-use failure::Error as FailureError;
-use flatbuffers::FlatBufferBuilder;
-use numext_fixed_hash::H256;
-use std::convert::TryInto;
+use ckb_types::{
+    core,
+    packed::{self, Byte32},
+    prelude::*,
+};
+use failure::{err_msg, Error as FailureError};
 
-pub struct GetHeadersProcess<'a, CS: ChainStore + 'a> {
-    message: &'a GetHeaders<'a>,
-    synchronizer: &'a Synchronizer<CS>,
+pub struct GetHeadersProcess<'a> {
+    message: packed::GetHeadersReader<'a>,
+    synchronizer: &'a Synchronizer,
     peer: PeerIndex,
     nc: &'a CKBProtocolContext,
 }
 
-impl<'a, CS> GetHeadersProcess<'a, CS>
-where
-    CS: ChainStore + 'a,
-{
+impl<'a> GetHeadersProcess<'a> {
     pub fn new(
-        message: &'a GetHeaders,
-        synchronizer: &'a Synchronizer<CS>,
+        message: packed::GetHeadersReader<'a>,
+        synchronizer: &'a Synchronizer,
         peer: PeerIndex,
         nc: &'a CKBProtocolContext,
     ) -> Self {
@@ -41,24 +37,27 @@ where
                 "Ignoring getheaders from peer={} because node is in initial block download",
                 self.peer
             );
+            self.send_in_ibd();
             return Ok(());
         }
 
-        let locator = cast!(self.message.block_locator_hashes())?;
-        let locator_size = locator.len();
+        let block_locator_hashes = self
+            .message
+            .block_locator_hashes()
+            .iter()
+            .map(|x| x.to_entity())
+            .collect::<Vec<Byte32>>();
+        let hash_stop = self.message.hash_stop().to_entity();
+        let locator_size = block_locator_hashes.len();
         if locator_size > MAX_LOCATOR_SIZE {
             warn!(
                 " getheaders locator size {} from peer={}",
                 locator_size, self.peer
             );
-            cast!(None)?;
+            Err(err_msg(
+                "locator size is greater than MAX_LOCATOR_SIZE".to_owned(),
+            ))?;
         }
-
-        let hash_stop = H256::zero(); // TODO PENDING self.message.hash_stop().into();
-        let block_locator_hashes = locator
-            .iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, FailureError>>()?;
 
         if let Some(block_number) = self
             .synchronizer
@@ -72,7 +71,7 @@ where
             );
 
             self.synchronizer.peers().getheaders_received(self.peer);
-            let headers: Vec<Header> = self
+            let headers: Vec<core::HeaderView> = self
                 .synchronizer
                 .shared
                 .get_locator_response(block_number, &hash_stop);
@@ -80,22 +79,33 @@ where
 
             debug!("headers len={}", headers.len());
 
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = SyncMessage::build_headers(fbb, &headers);
-            fbb.finish(message, None);
-            if let Err(err) = self
-                .nc
-                .send_message_to(self.peer, fbb.finished_data().into())
-            {
+            let content = packed::SendHeaders::new_builder()
+                .headers(headers.into_iter().map(|x| x.data()).pack())
+                .build();
+            let message = packed::SyncMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
+            if let Err(err) = self.nc.send_message_to(self.peer, data) {
                 debug!("synchronizer send Headers error: {:?}", err);
             }
         } else {
             for hash in &block_locator_hashes[..] {
-                warn!("unknown block headers from peer {} {:#x}", self.peer, hash);
+                warn!("unknown block headers from peer {} {}", self.peer, hash);
             }
             // Got 'headers' message without known blocks
             self.nc.ban_peer(self.peer, SYNC_USELESS_BAN_TIME);
         }
         Ok(())
+    }
+
+    fn send_in_ibd(&self) {
+        let content = packed::InIBD::new_builder().build();
+        let message = packed::SyncMessage::new_builder().set(content).build();
+        let data = message.as_slice().into();
+        if let Err(err) = self
+            .nc
+            .send_message(NetworkProtocol::SYNC.into(), self.peer, data)
+        {
+            debug!("synchronizer send in ibd error: {:?}", err);
+        }
     }
 }

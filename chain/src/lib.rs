@@ -9,5 +9,6 @@
 
 pub mod chain;
 
+mod cell;
 #[cfg(test)]
 mod tests;

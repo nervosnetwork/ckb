@@ -3,6 +3,7 @@ use jsonrpc_core::IoHandler;
 use jsonrpc_http_server::{Server, ServerBuilder};
 use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
+use std::net::ToSocketAddrs;
 
 pub struct RpcServer {
     pub(crate) server: Server,
@@ -20,7 +21,9 @@ impl RpcServer {
             .start_http(
                 &config
                     .listen_address
-                    .parse()
+                    .to_socket_addrs()
+                    .expect("config listen_address parsed")
+                    .next()
                     .expect("config listen_address parsed"),
             )
             .expect("Jsonrpc initialize");

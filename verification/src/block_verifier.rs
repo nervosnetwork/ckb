@@ -1,43 +1,34 @@
 use crate::error::{CellbaseError, Error};
 use crate::header_verifier::HeaderResolver;
 use crate::Verifier;
-use ckb_core::block::Block;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::Header;
-use ckb_core::script::Script;
-use ckb_core::transaction::CellInput;
+use ckb_chain_spec::consensus::Consensus;
 use ckb_store::ChainStore;
-use ckb_traits::ChainProvider;
+use ckb_types::{
+    core::{BlockView, EpochExt, HeaderView},
+    packed::{CellInput, Script},
+};
 use std::collections::HashSet;
 
 //TODO: cellbase, witness
 #[derive(Clone)]
-pub struct BlockVerifier<P> {
-    provider: P,
+pub struct BlockVerifier<'a> {
+    consensus: &'a Consensus,
 }
 
-impl<P> BlockVerifier<P>
-where
-    P: ChainProvider + Clone,
-{
-    pub fn new(provider: P) -> Self {
-        BlockVerifier { provider }
+impl<'a> BlockVerifier<'a> {
+    pub fn new(consensus: &'a Consensus) -> Self {
+        BlockVerifier { consensus }
     }
 }
 
-impl<P> Verifier for BlockVerifier<P>
-where
-    P: ChainProvider + Clone,
-{
-    type Target = Block;
+impl<'a> Verifier for BlockVerifier<'a> {
+    type Target = BlockView;
 
-    fn verify(&self, target: &Block) -> Result<(), Error> {
-        let consensus = self.provider.consensus();
-        let proof_size = consensus.pow_engine().proof_size();
-        let max_block_proposals_limit = consensus.max_block_proposals_limit();
-        let max_block_bytes = consensus.max_block_bytes();
+    fn verify(&self, target: &BlockView) -> Result<(), Error> {
+        let max_block_proposals_limit = self.consensus.max_block_proposals_limit();
+        let max_block_bytes = self.consensus.max_block_bytes();
         BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
-        BlockBytesVerifier::new(max_block_bytes, proof_size).verify(target)?;
+        BlockBytesVerifier::new(max_block_bytes).verify(target)?;
         CellbaseVerifier::new().verify(target)?;
         DuplicateVerifier::new().verify(target)?;
         MerkleRootVerifier::new().verify(target)
@@ -52,7 +43,7 @@ impl CellbaseVerifier {
         CellbaseVerifier {}
     }
 
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         if block.is_genesis() {
             return Ok(());
         }
@@ -77,7 +68,7 @@ impl CellbaseVerifier {
         if cellbase_transaction
             .witnesses()
             .get(0)
-            .and_then(|witness| Script::from_witness(witness))
+            .and_then(Script::from_witness)
             .is_none()
         {
             return Err(Error::Cellbase(CellbaseError::InvalidWitness));
@@ -85,13 +76,16 @@ impl CellbaseVerifier {
 
         if cellbase_transaction
             .outputs()
-            .iter()
-            .any(|output| output.type_.is_some())
+            .into_iter()
+            .any(|output| output.type_().is_some())
         {
             return Err(Error::Cellbase(CellbaseError::InvalidTypeScript));
         }
 
-        let cellbase_input = &cellbase_transaction.inputs()[0];
+        let cellbase_input = &cellbase_transaction
+            .inputs()
+            .get(0)
+            .expect("cellbase should have input");
         if cellbase_input != &CellInput::new_cellbase_input(block.header().number()) {
             return Err(Error::Cellbase(CellbaseError::InvalidInput));
         }
@@ -108,14 +102,19 @@ impl DuplicateVerifier {
         DuplicateVerifier {}
     }
 
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         let mut seen = HashSet::with_capacity(block.transactions().len());
         if !block.transactions().iter().all(|tx| seen.insert(tx.hash())) {
             return Err(Error::CommitTransactionDuplicate);
         }
 
-        let mut seen = HashSet::with_capacity(block.proposals().len());
-        if !block.proposals().iter().all(|id| seen.insert(id)) {
+        let mut seen = HashSet::with_capacity(block.data().proposals().len());
+        if !block
+            .data()
+            .proposals()
+            .into_iter()
+            .all(|id| seen.insert(id))
+        {
             return Err(Error::ProposalTransactionDuplicate);
         }
         Ok(())
@@ -130,16 +129,16 @@ impl MerkleRootVerifier {
         MerkleRootVerifier::default()
     }
 
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        if block.header().transactions_root() != &block.cal_transactions_root() {
+    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
+        if block.transactions_root() != block.calc_transactions_root() {
             return Err(Error::CommitTransactionsRoot);
         }
 
-        if block.header().witnesses_root() != &block.cal_witnesses_root() {
+        if block.witnesses_root() != block.calc_witnesses_root() {
             return Err(Error::WitnessesMerkleRoot);
         }
 
-        if block.header().proposals_hash() != &block.cal_proposals_hash() {
+        if block.proposals_hash() != block.calc_proposals_hash() {
             return Err(Error::ProposalTransactionsRoot);
         }
 
@@ -148,27 +147,27 @@ impl MerkleRootVerifier {
 }
 
 pub struct HeaderResolverWrapper<'a> {
-    header: &'a Header,
-    parent: Option<Header>,
+    header: &'a HeaderView,
+    parent: Option<HeaderView>,
     epoch: Option<EpochExt>,
 }
 
 impl<'a> HeaderResolverWrapper<'a> {
-    pub fn new<CP>(header: &'a Header, provider: &CP) -> Self
+    pub fn new<CS>(header: &'a HeaderView, store: &'a CS, consensus: &'a Consensus) -> Self
     where
-        CP: ChainProvider,
+        CS: ChainStore<'a>,
     {
-        let parent = provider.store().get_block_header(header.parent_hash());
+        let parent = store.get_block_header(&header.data().raw().parent_hash());
         let epoch = parent
             .as_ref()
             .and_then(|parent| {
-                provider
-                    .get_block_epoch(parent.hash())
+                store
+                    .get_block_epoch(&parent.hash())
                     .map(|ext| (parent, ext))
             })
             .map(|(parent, last_epoch)| {
-                provider
-                    .next_epoch_ext(&last_epoch, parent)
+                store
+                    .next_epoch_ext(consensus, &last_epoch, &parent)
                     .unwrap_or(last_epoch)
             });
 
@@ -179,7 +178,11 @@ impl<'a> HeaderResolverWrapper<'a> {
         }
     }
 
-    pub fn build(header: &'a Header, parent: Option<Header>, epoch: Option<EpochExt>) -> Self {
+    pub fn build(
+        header: &'a HeaderView,
+        parent: Option<HeaderView>,
+        epoch: Option<EpochExt>,
+    ) -> Self {
         HeaderResolverWrapper {
             parent,
             header,
@@ -189,11 +192,11 @@ impl<'a> HeaderResolverWrapper<'a> {
 }
 
 impl<'a> HeaderResolver for HeaderResolverWrapper<'a> {
-    fn header(&self) -> &Header {
+    fn header(&self) -> &HeaderView {
         self.header
     }
 
-    fn parent(&self) -> Option<&Header> {
+    fn parent(&self) -> Option<&HeaderView> {
         self.parent.as_ref()
     }
 
@@ -214,8 +217,8 @@ impl BlockProposalsLimitVerifier {
         }
     }
 
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
-        let proposals_len = block.proposals().len() as u64;
+    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
+        let proposals_len = block.data().proposals().len() as u64;
         if proposals_len <= self.block_proposals_limit {
             Ok(())
         } else {
@@ -227,23 +230,19 @@ impl BlockProposalsLimitVerifier {
 #[derive(Clone)]
 pub struct BlockBytesVerifier {
     block_bytes_limit: u64,
-    proof_size: usize,
 }
 
 impl BlockBytesVerifier {
-    pub fn new(block_bytes_limit: u64, proof_size: usize) -> Self {
-        BlockBytesVerifier {
-            block_bytes_limit,
-            proof_size,
-        }
+    pub fn new(block_bytes_limit: u64) -> Self {
+        BlockBytesVerifier { block_bytes_limit }
     }
 
-    pub fn verify(&self, block: &Block) -> Result<(), Error> {
+    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         // Skip bytes limit on genesis block
         if block.is_genesis() {
             return Ok(());
         }
-        let block_bytes = block.serialized_size(self.proof_size) as u64;
+        let block_bytes = block.serialized_size() as u64;
         if block_bytes <= self.block_bytes_limit {
             Ok(())
         } else {

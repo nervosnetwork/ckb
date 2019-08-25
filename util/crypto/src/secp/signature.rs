@@ -4,8 +4,8 @@ use super::Message;
 use super::SECP256K1;
 use faster_hex::hex_string;
 use numext_fixed_hash::{h256, H256, H520};
+use secp256k1::recovery::{RecoverableSignature, RecoveryId};
 use secp256k1::Message as SecpMessage;
-use secp256k1::{RecoverableSignature, RecoveryId};
 use std::fmt;
 use std::str::FromStr;
 
@@ -13,8 +13,6 @@ use std::str::FromStr;
 #[derive(Clone)]
 pub struct Signature([u8; 65]);
 
-const HALF_N: H256 =
-    h256!("0x7fffffff_ffffffff_ffffffff_ffffffff_5d576e73_57a4501d_dfe92f46_681b20a0");
 const N: H256 = h256!("0xffffffff_ffffffff_ffffffff_fffffffe_baaedce6_af48a03b_bfd25e8c_d0364141");
 const ONE: H256 = h256!("0x1");
 
@@ -104,7 +102,11 @@ impl Signature {
     }
 
     pub fn serialize_der(&self) -> Vec<u8> {
-        self.to_recoverable().unwrap().to_standard().serialize_der()
+        self.to_recoverable()
+            .unwrap()
+            .to_standard()
+            .serialize_der()
+            .to_vec()
     }
 }
 

@@ -1,10 +1,7 @@
 // use crate::peer_store::Behaviour;
-use crate::{network::FEELER_PROTOCOL_ID, NetworkState};
+use crate::{network::FEELER_PROTOCOL_ID, NetworkState, PeerIdentifyInfo};
 use ckb_logger::{debug, trace};
-use ckb_protocol::{
-    flatbuffers::FlatBufferBuilder, get_root, Identify as FbsIdentify,
-    IdentifyBuilder as FbsIdentifyBuilder,
-};
+use ckb_types::{bytes::Bytes, packed, prelude::*};
 use p2p::{
     context::ProtocolContextMutRef,
     multiaddr::{Multiaddr, Protocol},
@@ -27,12 +24,16 @@ pub(crate) struct IdentifyCallback {
 }
 
 impl IdentifyCallback {
-    pub(crate) fn new(network_state: Arc<NetworkState>, name: String) -> IdentifyCallback {
+    pub(crate) fn new(
+        network_state: Arc<NetworkState>,
+        name: String,
+        client_version: String,
+    ) -> IdentifyCallback {
         let flags = Flags(Flag::FullNode as u64);
 
         IdentifyCallback {
             network_state,
-            identify: Identify::new(name, flags),
+            identify: Identify::new(name, flags, client_version),
             remote_listen_addrs: HashMap::default(),
         }
     }
@@ -62,9 +63,21 @@ impl Callback for IdentifyCallback {
     ) -> MisbehaveResult {
         match self.identify.verify(identify) {
             None => MisbehaveResult::Disconnect,
-            Some(flags) => {
+            Some((flags, client_version)) => {
+                let registry_client_version = |version: String| {
+                    self.network_state.with_peer_registry_mut(|registry| {
+                        if let Some(peer) = registry.get_peer_mut(context.session.id) {
+                            peer.identify_info = Some(PeerIdentifyInfo {
+                                client_version: version,
+                            })
+                        }
+                    });
+                };
+
                 if context.session.ty.is_outbound() {
                     if flags.contains(self.identify.flags) {
+                        registry_client_version(client_version);
+
                         // The remote end can support all local protocols.
                         let protos = self
                             .network_state
@@ -76,6 +89,8 @@ impl Callback for IdentifyCallback {
                         // The remote end cannot support all local protocols.
                         return MisbehaveResult::Disconnect;
                     }
+                } else {
+                    registry_client_version(client_version);
                 }
                 MisbehaveResult::Continue
             }
@@ -153,58 +168,51 @@ impl Callback for IdentifyCallback {
 #[derive(Clone)]
 struct Identify {
     name: String,
+    client_version: String,
     flags: Flags,
-    encode_data: Vec<u8>,
+    encode_data: Bytes,
 }
 
 impl Identify {
-    fn new(name: String, flags: Flags) -> Self {
+    fn new(name: String, flags: Flags, client_version: String) -> Self {
         Identify {
             name,
+            client_version,
             flags,
-            encode_data: Vec::default(),
+            encode_data: Bytes::default(),
         }
     }
 
     fn encode(&mut self) -> &[u8] {
         if self.encode_data.is_empty() {
-            let mut fbb = FlatBufferBuilder::new();
-            let name = fbb.create_string(&self.name);
-
-            let mut builder = FbsIdentifyBuilder::new(&mut fbb);
-
-            builder.add_flag(self.flags.0);
-            builder.add_name(name);
-
-            let data = builder.finish();
-            fbb.finish(data, None);
-            self.encode_data = fbb.finished_data().to_vec();
+            self.encode_data = packed::Identify::new_builder()
+                .name(self.name.as_str().pack())
+                .flag(self.flags.0.pack())
+                .client_version(self.client_version.as_str().pack())
+                .build()
+                .as_bytes();
         }
 
         &self.encode_data
     }
 
-    fn verify(&self, data: &[u8]) -> Option<Flags> {
-        let fbs_message = get_root::<FbsIdentify>(data).ok()?;
+    fn verify<'a>(&self, data: &'a [u8]) -> Option<(Flags, String)> {
+        let reader = packed::IdentifyReader::from_slice(data).ok()?;
 
-        match (fbs_message.name(), fbs_message.flag()) {
-            (Some(raw_name), flag) => {
-                if self.name != raw_name {
-                    debug!(
-                        "Not the same chain, self: {}, remote: {}",
-                        self.name, raw_name
-                    );
-                    return None;
-                }
-
-                if flag == 0 {
-                    return None;
-                }
-
-                Some(Flags::from(flag))
-            }
-            _ => None,
+        let name = reader.name().as_utf8().ok()?.to_owned();
+        if self.name != name {
+            debug!("Not the same chain, self: {}, remote: {}", self.name, name);
+            return None;
         }
+
+        let flag: u64 = reader.flag().unpack();
+        if flag == 0 {
+            return None;
+        }
+
+        let raw_client_version = reader.client_version().as_utf8().ok()?.to_owned();
+
+        Some((Flags::from(flag), raw_client_version))
     }
 }
 
@@ -219,18 +227,6 @@ enum Flag {
 struct Flags(u64);
 
 impl Flags {
-    /// Add a flag
-    #[allow(dead_code)]
-    pub fn add(&mut self, flag: Flag) {
-        self.0 |= flag as u64;
-    }
-
-    /// Remove a flag
-    #[allow(dead_code)]
-    pub fn remove(&mut self, flag: Flag) {
-        self.0 ^= flag as u64;
-    }
-
     /// Check if contains a target flag
     fn contains(self, flags: Flags) -> bool {
         (self.0 & flags.0) == flags.0

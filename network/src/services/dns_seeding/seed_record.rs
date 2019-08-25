@@ -10,7 +10,11 @@ use p2p::{
     secio::PeerId,
     utils::{is_reachable, socketaddr_to_multiaddr},
 };
-use secp256k1::{key::PublicKey, Message, RecoverableSignature, RecoveryId};
+use secp256k1::{
+    key::PublicKey,
+    recovery::{RecoverableSignature, RecoveryId},
+    Message,
+};
 
 lazy_static! {
     static ref SECP256K1: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
@@ -160,9 +164,7 @@ pub enum SeedRecordError {
     InvalidSignature,
     VerifyFailed,
     SeedTimeout,
-
-    // Secret not match the public key
-    #[allow(dead_code)]
+    #[cfg(test)]
     KeyNotMatch,
 }
 

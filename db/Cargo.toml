@@ -1,20 +1,21 @@
 [package]
 name = "ckb-db"
-version = "0.18.2"
+version = "0.19.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-ckb-util = { path = "../util" }
-ckb-protos = { path = "../protos" }
-rocksdb = { version = "0.12.2", default-features = false }
-fnv = "1.0.3"
 serde = "1.0"
 serde_derive = "1.0"
 failure = "0.1.5"
 ckb-logger = { path = "../util/logger" }
 semver = "0.9"
+tempfile = "3.0"
+
+[dependencies.rocksdb]
+git = "https://github.com/nervosnetwork/rust-rocksdb"
+rev = "14d2991"
 
 [dev-dependencies]
 tempfile = "3.0"

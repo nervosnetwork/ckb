@@ -1,14 +1,25 @@
 use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
 use crate::{Net, Spec, TestProtocol};
-use ckb_core::block::Block;
-use ckb_core::transaction::TransactionBuilder;
-use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
+use ckb_types::{
+    core::{BlockView, TransactionBuilder},
+    packed::{self, SyncMessage},
+    prelude::*,
+    H256,
+};
 use std::time::Duration;
 
 pub struct ChainContainsInvalidBlock;
 
 impl Spec for ChainContainsInvalidBlock {
+    crate::name!("chain_contains_invalid_block");
+
+    crate::setup!(
+        connect_all: false,
+        num_nodes: 3,
+        protocols: vec![TestProtocol::sync()],
+    );
+
     // Case:
     //   1. `bad_node` generate a long chain `CN` contains a invalid block
     //      B[i] is an invalid block.
@@ -63,33 +74,29 @@ impl Spec for ChainContainsInvalidBlock {
         );
         assert!(
             wait_until(5, || fresh_node.get_tip_block().header().hash()
-                == &valid_hash),
+                == valid_hash),
             "fresh_node should synchronize the valid blocks only",
         );
-    }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
     }
 }
 
 pub struct ForkContainsInvalidBlock;
 
 impl Spec for ForkContainsInvalidBlock {
+    crate::name!("fork_contains_invalid_block");
+
+    crate::setup!(
+        connect_all: false,
+        num_nodes: 2,
+        protocols: vec![TestProtocol::sync()],
+    );
+
     fn run(&self, net: Net) {
         let mut net = net;
 
         // Build bad forks
         let invalid_number = 4;
-        let bad_chain: Vec<Block> = {
+        let bad_chain: Vec<BlockView> = {
             let tip_number = invalid_number * 2;
             let bad_node = net.nodes.pop().unwrap();
             bad_node.generate_blocks(invalid_number - 1);
@@ -103,10 +110,10 @@ impl Spec for ForkContainsInvalidBlock {
                 .map(|i| bad_node.get_block_by_number(i))
                 .collect()
         };
-        let bad_hashes: Vec<_> = bad_chain
+        let bad_hashes: Vec<H256> = bad_chain
             .iter()
             .skip(invalid_number - 1)
-            .map(|b| b.header().hash().to_owned())
+            .map(|b| b.header().hash().to_owned().unpack())
             .collect();
 
         // Sync headers of bad forks
@@ -135,7 +142,7 @@ impl Spec for ForkContainsInvalidBlock {
         assert!(
             wait_until(10, || good_node
                 .rpc_client()
-                .get_block(last_hash.clone())
+                .get_block(last_hash.clone().unpack())
                 .is_some()),
             "good_node should store the fork blocks even it contains invalid blocks",
         );
@@ -153,7 +160,7 @@ impl Spec for ForkContainsInvalidBlock {
         assert!(
             !wait_until(10, || good_node
                 .rpc_client()
-                .get_block(last_hash.clone())
+                .get_block(last_hash.clone().unpack())
                 .is_some()),
             "good_node should keep the good chain",
         );
@@ -167,8 +174,8 @@ impl Spec for ForkContainsInvalidBlock {
         );
         let ret = wait_until(10, || {
             if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
-                if let Ok(message) = get_root::<SyncMessage>(&data) {
-                    return message.payload_type() == SyncPayload::Block;
+                if let Ok(message) = SyncMessage::from_slice(&data) {
+                    return message.to_enum().item_name() == packed::SendBlock::NAME;
                 }
             }
             false
@@ -178,25 +185,13 @@ impl Spec for ForkContainsInvalidBlock {
             "request an invalid fork via GetBlock should be failed"
         );
     }
-
-    fn connect_all(&self) -> bool {
-        false
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
-    }
 }
 
 fn wait_get_blocks(net: &Net) -> bool {
     wait_until(10, || {
         if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
-            if let Ok(message) = get_root::<SyncMessage>(&data) {
-                return message.payload_type() == SyncPayload::GetBlocks;
+            if let Ok(message) = SyncMessage::from_slice(&data) {
+                return message.to_enum().item_name() == packed::GetBlocks::NAME;
             }
         }
         false

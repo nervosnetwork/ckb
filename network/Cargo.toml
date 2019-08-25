@@ -1,6 +1,6 @@
 [package]
 name = "ckb-network"
-version = "0.18.2"
+version = "0.19.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
@@ -10,7 +10,6 @@ db-trace = ["rusqlite/trace"]
 
 [dependencies]
 rand = "0.6"
-fnv = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
 ckb-util = { path = "../util" }
@@ -30,15 +29,15 @@ rusqlite = {version = "0.18.0", features = ["bundled"]}
 lazy_static = "1.3.0"
 generic-channel = { version = "0.2.0", features = ["all"] }
 bs58 = "0.2.0"
-sentry = "^0.15.4"
+sentry = "^0.16.0"
 faster-hex = "0.3"
 ckb-hash = {path = "../util/hash"}
-secp256k1 = {version = "0.12.2" }
+secp256k1 = {version = "0.15.0", features = ["recovery"] }
 resolve = "0.2.0"
 ckb-build-info = {path = "../util/build-info"}
 num_cpus = "1.10"
 snap = "0.2"
-ckb-protocol = { path = "../protocol" }
+ckb-types = { path = "../util/types" }
 ipnetwork = "0.14"
 
 [dev-dependencies]

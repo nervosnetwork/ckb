@@ -1,4 +1,4 @@
-use ckb_core::transaction::ProposalShortId as CoreProposalShortId;
+use ckb_types::{packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
@@ -15,15 +15,15 @@ impl ProposalShortId {
     }
 }
 
-impl From<CoreProposalShortId> for ProposalShortId {
-    fn from(core: CoreProposalShortId) -> ProposalShortId {
-        ProposalShortId::new(core.into_inner())
+impl From<packed::ProposalShortId> for ProposalShortId {
+    fn from(core: packed::ProposalShortId) -> ProposalShortId {
+        ProposalShortId::new(core.unpack())
     }
 }
 
-impl From<ProposalShortId> for CoreProposalShortId {
+impl From<ProposalShortId> for packed::ProposalShortId {
     fn from(json: ProposalShortId) -> Self {
-        CoreProposalShortId::new(json.into_inner())
+        json.into_inner().pack()
     }
 }
 
@@ -40,7 +40,7 @@ impl<'b> serde::de::Visitor<'b> for ProposalShortIdVisitor {
     where
         E: serde::de::Error,
     {
-        if v.len() < 2 || &v[0..2] != "0x" || v.len() != 22 {
+        if v.len() < 2 || &v.as_bytes()[0..2] != b"0x" || v.len() != 22 {
             return Err(E::invalid_value(serde::de::Unexpected::Str(v), &self));
         }
         let mut buffer = [0u8; 10]; // we checked length

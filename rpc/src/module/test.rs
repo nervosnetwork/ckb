@@ -1,13 +1,13 @@
+use crate::error::RPCError;
 use ckb_chain::chain::ChainController;
-use ckb_core::block::Block as CoreBlock;
-use ckb_jsonrpc_types::Block;
+use ckb_jsonrpc_types::{Block, Transaction};
 use ckb_logger::error;
 use ckb_network::NetworkController;
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
+use ckb_sync::NetworkProtocol;
+use ckb_types::{core, packed, prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
-use numext_fixed_hash::H256;
 use std::sync::Arc;
 
 #[rpc]
@@ -22,15 +22,18 @@ pub trait IntegrationTestRpc {
 
     #[rpc(name = "process_block_without_verify")]
     fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>>;
+
+    #[rpc(name = "broadcast_transaction")]
+    fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256>;
 }
 
-pub(crate) struct IntegrationTestRpcImpl<CS> {
+pub(crate) struct IntegrationTestRpcImpl {
     pub network_controller: NetworkController,
-    pub shared: Shared<CS>,
+    pub shared: Shared,
     pub chain: ChainController,
 }
 
-impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS> {
+impl IntegrationTestRpc for IntegrationTestRpcImpl {
     fn add_node(&self, peer_id: String, address: String) -> Result<()> {
         self.network_controller.add_node(
             &peer_id.parse().expect("invalid peer_id"),
@@ -46,13 +49,37 @@ impl<CS: ChainStore + 'static> IntegrationTestRpc for IntegrationTestRpcImpl<CS>
     }
 
     fn process_block_without_verify(&self, data: Block) -> Result<Option<H256>> {
-        let block: Arc<CoreBlock> = Arc::new(data.into());
+        let block: packed::Block = data.into();
+        let block: Arc<core::BlockView> = Arc::new(block.into_view());
         let ret = self.chain.process_block(Arc::clone(&block), false);
         if ret.is_ok() {
-            Ok(Some(block.header().hash().to_owned()))
+            Ok(Some(block.hash().unpack()))
         } else {
             error!("process_block_without_verify error: {:?}", ret);
             Ok(None)
+        }
+    }
+
+    fn broadcast_transaction(&self, transaction: Transaction) -> Result<H256> {
+        let tx: packed::Transaction = transaction.into();
+        let hash = tx.calc_tx_hash();
+        let relay_tx = packed::RelayTransaction::new_builder()
+            .cycles(10000u64.pack())
+            .transaction(tx)
+            .build();
+        let relay_txs = packed::RelayTransactions::new_builder()
+            .transactions(vec![relay_tx].pack())
+            .build();
+        let message = packed::RelayMessage::new_builder().set(relay_txs).build();
+        let data = message.as_slice().into();
+        if let Err(err) = self
+            .network_controller
+            .broadcast(NetworkProtocol::RELAY.into(), data)
+        {
+            error!("Broadcast transaction failed: {:?}", err);
+            Err(RPCError::custom(RPCError::Invalid, err.to_string()))
+        } else {
+            Ok(hash)
         }
     }
 }

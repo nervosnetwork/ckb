@@ -1,6 +1,6 @@
 use crate::{assert_regex_match, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
-use ckb_core::BlockNumber;
+use ckb_types::{core::BlockNumber, prelude::*};
 use log::info;
 
 const MATURITY: BlockNumber = 5;
@@ -8,6 +8,8 @@ const MATURITY: BlockNumber = 5;
 pub struct CellbaseMaturity;
 
 impl Spec for CellbaseMaturity {
+    crate::name!("cellbase_maturity");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 
@@ -16,11 +18,11 @@ impl Spec for CellbaseMaturity {
 
         info!("Use generated block's cellbase as tx input");
         let tip_block = node.get_tip_block();
-        let tx = node.new_transaction(tip_block.transactions()[0].hash().to_owned());
+        let tx = node.new_transaction(tip_block.transactions()[0].hash().to_owned().unpack());
 
         (0..MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is not maturity in N + {} block", i);
-            let error = node.rpc_client().send_transaction((&tx).into());
+            let error = node.rpc_client().send_transaction(tx.clone().data().into());
             assert_regex_match(&error.to_string(), r"InvalidTx\(CellbaseImmaturity\)");
             node.generate_block();
         });
@@ -29,8 +31,8 @@ impl Spec for CellbaseMaturity {
             "Tx will be added to pending pool in N + {} block",
             MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
-        let tx_hash = node.rpc_client().send_transaction((&tx).into());
-        assert_eq!(tx_hash, tx.hash().to_owned());
+        let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
+        assert_eq!(tx_hash, tx.hash().to_owned().unpack());
         node.assert_tx_pool_size(1, 0);
 
         info!(

@@ -5,6 +5,10 @@ use log::info;
 pub struct IndexerBasic;
 
 impl Spec for IndexerBasic {
+    crate::name!("indexer_basic");
+
+    crate::setup!(num_nodes: 2, connect_all: false);
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -13,7 +17,12 @@ impl Spec for IndexerBasic {
         node0.generate_block();
 
         let tip_block = node0.get_tip_block();
-        let lock_hash = tip_block.transactions()[0].outputs()[0].lock.hash();
+        let lock_hash = tip_block.transactions()[0]
+            .outputs()
+            .as_reader()
+            .get(0)
+            .unwrap()
+            .calc_lock_hash();
         let rpc_client = node0.rpc_client();
 
         info!("Should return empty result before index the lock hash");
@@ -42,7 +51,7 @@ impl Spec for IndexerBasic {
 
         (0..5).for_each(|_| {
             let tx = node0.new_transaction(hash.clone());
-            hash = rpc_client.send_transaction((&tx).into());
+            hash = rpc_client.send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
@@ -98,13 +107,5 @@ impl Spec for IndexerBasic {
         let tip_header = rpc_client.get_tip_header();
         assert_eq!(index_state.block_number, tip_header.inner.number);
         assert_eq!(index_state.block_hash, tip_header.hash);
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }

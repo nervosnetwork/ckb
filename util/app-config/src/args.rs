@@ -1,6 +1,7 @@
 use super::app_config::CKBAppConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_instrument::Format;
+use ckb_jsonrpc_types::ScriptHashType;
 use ckb_miner::MinerConfig;
 use ckb_pow::PowEngine;
 use std::path::PathBuf;
@@ -46,6 +47,7 @@ pub struct StatsArgs {
 }
 
 pub struct InitArgs {
+    pub interactive: bool,
     pub root_dir: PathBuf,
     pub chain: String,
     pub rpc_port: String,
@@ -56,5 +58,24 @@ pub struct InitArgs {
     pub force: bool,
     pub block_assembler_code_hash: Option<String>,
     pub block_assembler_args: Vec<String>,
+    pub block_assembler_hash_type: ScriptHashType,
     pub block_assembler_data: Option<String>,
+}
+
+pub struct ResetDataArgs {
+    pub force: bool,
+    pub all: bool,
+    pub database: bool,
+    pub indexer: bool,
+    pub network: bool,
+    pub network_peer_store: bool,
+    pub network_secret_key: bool,
+    pub logs: bool,
+    pub data_dir: PathBuf,
+    pub db_path: PathBuf,
+    pub indexer_db_path: PathBuf,
+    pub network_dir: PathBuf,
+    pub network_peer_store_path: PathBuf,
+    pub network_secret_key_path: PathBuf,
+    pub logs_dir: Option<PathBuf>,
 }

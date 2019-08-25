@@ -1,11 +1,11 @@
 use crate::{ClientConfig, Work};
-use ckb_core::block::Block;
 use ckb_jsonrpc_types::{
     error::Error as RpcFail, error::ErrorCode as RpcFailCode, id::Id, params::Params,
     request::MethodCall, response::Output, version::Version, Block as JsonBlock, BlockTemplate,
 };
 use ckb_logger::{debug, error, warn};
 use ckb_stop_handler::{SignalSender, StopHandler};
+use ckb_types::{packed::Block, H256};
 use crossbeam_channel::Sender;
 use failure::Error;
 use futures::sync::{mpsc, oneshot};
@@ -14,7 +14,6 @@ use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::rt::{self, Future, Stream};
 use hyper::Uri;
 use hyper::{Body, Chunk, Client as HttpClient, Method, Request};
-use numext_fixed_hash::H256;
 use serde_json::error::Error as JsonError;
 use serde_json::{self, json, Value};
 use std::convert::Into;
@@ -126,7 +125,7 @@ impl Client {
     fn send_submit_block_request(
         &self,
         work_id: &str,
-        block: &Block,
+        block: Block,
     ) -> impl Future<Item = Output, Error = RpcError> {
         let block: JsonBlock = block.into();
         let method = "submit_block".to_owned();
@@ -135,17 +134,14 @@ impl Client {
         self.rpc.request(method, params)
     }
 
-    pub fn submit_block(&self, work_id: &str, block: &Block) {
+    pub fn submit_block(&self, work_id: &str, block: Block) {
         let future = self.send_submit_block_request(work_id, block);
         if self.config.block_on_submit {
             let ret: Result<Option<H256>, RpcError> = future.and_then(parse_response).wait();
             match ret {
                 Ok(hash) => {
                     if hash.is_none() {
-                        warn!(
-                            "submit_block failed {}",
-                            serde_json::to_string(block).unwrap()
-                        );
+                        warn!("submit_block failed");
                     }
                 }
                 Err(e) => {

@@ -1,25 +1,24 @@
-use ckb_core::block::Block;
-use ckb_core::BlockNumber;
-use ckb_shared::shared::Shared;
+use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
-use ckb_traits::ChainProvider;
+use ckb_types::{core::BlockNumber, core::BlockView};
+use std::sync::Arc;
 
 // An iterator over the entries of a `Chain`.
-pub struct ChainIterator<CS> {
-    shared: Shared<CS>,
-    current: Option<Block>,
+pub struct ChainIterator {
+    snapshot: Arc<Snapshot>,
+    current: Option<BlockView>,
     tip: BlockNumber,
 }
 
-impl<CS: ChainStore> ChainIterator<CS> {
-    pub fn new(shared: Shared<CS>) -> Self {
-        let current = shared
-            .store()
+impl ChainIterator {
+    pub fn new(shared: Shared) -> Self {
+        let snapshot = Arc::clone(&shared.snapshot());
+        let current = snapshot
             .get_block_hash(0)
-            .and_then(|h| shared.store().get_block(&h));
-        let tip = shared.lock_chain_state().tip_number();
+            .and_then(|h| snapshot.get_block(&h));
+        let tip = snapshot.tip_number();
         ChainIterator {
-            shared,
+            snapshot,
             current,
             tip,
         }
@@ -30,18 +29,16 @@ impl<CS: ChainStore> ChainIterator<CS> {
     }
 }
 
-impl<CS: ChainStore> Iterator for ChainIterator<CS> {
-    type Item = Block;
+impl Iterator for ChainIterator {
+    type Item = BlockView;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.current.take();
 
         self.current = match current {
             Some(ref b) => {
-                if let Some(block_hash) =
-                    self.shared.store().get_block_hash(b.header().number() + 1)
-                {
-                    self.shared.store().get_block(&block_hash)
+                if let Some(block_hash) = self.snapshot.get_block_hash(b.header().number() + 1) {
+                    self.snapshot.get_block(&block_hash)
                 } else {
                     None
                 }

@@ -55,7 +55,7 @@ pub const MAX_PEERS_PER_BLOCK: usize = 2;
 // behind headers chain.
 pub const MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT: usize = 4;
 pub const CHAIN_SYNC_TIMEOUT: u64 = 12 * 60 * 1000; // 12 minutes
-pub const PROTECT_STOP_SYNC_TIME: u64 = 5 * 60 * 1000; // 5 minutes
+pub const SUSPEND_SYNC_TIME: u64 = 5 * 60 * 1000; // 5 minutes
 pub const EVICTION_HEADERS_RESPONSE_TIME: u64 = 120 * 1000; // 2 minutes
 
 //The maximum number of entries in a locator

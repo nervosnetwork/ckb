@@ -3,22 +3,29 @@ use crate::utils::{
     build_header, build_headers, clear_messages, wait_until,
 };
 use crate::{Net, Spec, TestProtocol};
-use ckb_core::block::BlockBuilder;
-use ckb_core::cell::{resolve_transaction, ResolvedTransaction};
-use ckb_core::header::{Header, HeaderBuilder};
-use ckb_core::transaction::{CellInput, TransactionBuilder};
 use ckb_dao::DaoCalculator;
-use ckb_protocol::{get_root, RelayMessage, RelayPayload, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
 use ckb_test_chain_utils::MockStore;
-use fnv::FnvHashSet;
-use numext_fixed_hash::{h256, H256};
-use std::sync::Arc;
+use ckb_types::{
+    core::{
+        cell::{resolve_transaction, ResolvedTransaction},
+        BlockBuilder, HeaderBuilder, HeaderView, TransactionBuilder,
+    },
+    h256,
+    packed::{self, CellInput, GetHeaders, RelayMessage, SyncMessage},
+    prelude::*,
+    H256,
+};
+use std::collections::HashSet;
 use std::time::Duration;
 
 pub struct CompactBlockEmptyParentUnknown;
 
 impl Spec for CompactBlockEmptyParentUnknown {
+    crate::name!("compact_block_empty_parent_unknown");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: Sent to node0 a parent-unknown empty block, node0 should be unable to reconstruct
     // it and send us back a `GetHeaders` message
     fn run(&self, net: Net) {
@@ -32,7 +39,11 @@ impl Spec for CompactBlockEmptyParentUnknown {
 
         let parent_unknown_block = node
             .new_block_builder(None, None, None)
-            .header_builder(HeaderBuilder::default().parent_hash(h256!("0x123456")))
+            .header(
+                HeaderBuilder::default()
+                    .parent_hash(h256!("0x123456").pack())
+                    .build(),
+            )
             .build();
         let tip_block = node.get_tip_block();
         net.send(
@@ -44,22 +55,22 @@ impl Spec for CompactBlockEmptyParentUnknown {
         assert!(!ret, "Node0 should reconstruct empty block failed");
 
         let (_, _, data) = net.receive();
-        let message = get_root::<SyncMessage>(&data).unwrap();
+        let message = SyncMessage::from_slice(&data).unwrap();
         assert_eq!(
-            message.payload_type(),
-            SyncPayload::GetHeaders,
+            message.to_enum().item_name(),
+            GetHeaders::NAME,
             "Node0 should send back GetHeaders message for unknown parent header"
         );
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
     }
 }
 
 pub struct CompactBlockEmpty;
 
 impl Spec for CompactBlockEmpty {
+    crate::name!("compact_block_empty");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: Send to node0 a parent-known empty block, node0 should be able to reconstruct it
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
@@ -76,15 +87,15 @@ impl Spec for CompactBlockEmpty {
         let ret = wait_until(10, move || node.get_tip_block() == new_empty_block);
         assert!(ret, "Node0 should reconstruct empty block successfully");
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
 }
 
 pub struct CompactBlockPrefilled;
 
 impl Spec for CompactBlockPrefilled {
+    crate::name!("compact_block_prefilled");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: Send to node0 a block with all transactions prefilled, node0 should be able to reconstruct it
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
@@ -93,12 +104,18 @@ impl Spec for CompactBlockPrefilled {
         let (peer_id, _, _) = net.receive();
 
         // Proposal a tx, and grow up into proposal window
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
+        let new_tx = node.new_transaction(
+            node.get_tip_block().transactions()[0]
+                .hash()
+                .clone()
+                .unpack(),
+        );
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build(),
+                .build()
+                .data(),
         );
         node.generate_blocks(3);
 
@@ -118,15 +135,15 @@ impl Spec for CompactBlockPrefilled {
             "Node0 should reconstruct all-prefilled block successfully"
         );
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
 }
 
 pub struct CompactBlockMissingFreshTxs;
 
 impl Spec for CompactBlockMissingFreshTxs {
+    crate::name!("compact_block_missing_fresh_txs");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: Send to node0 a block which missing a tx, which is a fresh tx for
     // tx_pool, node0 should send `GetBlockTransactions` back for requesting
     // these missing txs
@@ -136,12 +153,18 @@ impl Spec for CompactBlockMissingFreshTxs {
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
+        let new_tx = node.new_transaction(
+            node.get_tip_block().transactions()[0]
+                .hash()
+                .clone()
+                .unpack(),
+        );
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build(),
+                .build()
+                .data(),
         );
         node.generate_blocks(3);
 
@@ -164,22 +187,22 @@ impl Spec for CompactBlockMissingFreshTxs {
         assert!(!ret, "Node0 should be unable to reconstruct the block");
 
         let (_, _, data) = net.receive();
-        let message = get_root::<RelayMessage>(&data).unwrap();
+        let message = RelayMessage::from_slice(&data).unwrap();
         assert_eq!(
-            message.payload_type(),
-            RelayPayload::GetBlockTransactions,
+            message.to_enum().item_name(),
+            packed::GetBlockTransactions::NAME,
             "Node0 should send GetBlockTransactions message for missing transactions",
         );
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
     }
 }
 
 pub struct CompactBlockMissingNotFreshTxs;
 
 impl Spec for CompactBlockMissingNotFreshTxs {
+    crate::name!("compact_block_missing_not_fresh_txs");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: As for the missing transactions of a compact block, we should try to find it from
     //       tx_pool. If we find out, we can reconstruct the target block without any requests
     //       to the peer.
@@ -193,12 +216,18 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         let (peer_id, _, _) = net.receive();
 
         // Build the target transaction
-        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
+        let new_tx = node.new_transaction(
+            node.get_tip_block().transactions()[0]
+                .hash()
+                .clone()
+                .unpack(),
+        );
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build(),
+                .build()
+                .data(),
         );
         node.generate_blocks(3);
 
@@ -209,7 +238,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
             .build();
 
         // Put `new_tx` as an not fresh tx into tx_pool
-        node.rpc_client().send_transaction((&new_tx).into());
+        node.rpc_client().send_transaction(new_tx.data().into());
 
         // Relay the target block
         clear_messages(&net);
@@ -221,15 +250,19 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         let ret = wait_until(10, move || node.get_tip_block() == new_block);
         assert!(ret, "Node0 should be able to reconstruct the block");
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::relay(), TestProtocol::sync()]
-    }
 }
 
 pub struct CompactBlockLoseGetBlockTransactions;
 
 impl Spec for CompactBlockLoseGetBlockTransactions {
+    crate::name!("compact_block_lose_get_block_transactions");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
+    );
+
     fn run(&self, net: Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];
@@ -239,12 +272,18 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         net.connect(node1);
         let _ = net.receive();
 
-        let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash().clone());
+        let new_tx = node0.new_transaction(
+            node0.get_tip_block().transactions()[0]
+                .hash()
+                .clone()
+                .unpack(),
+        );
         node0.submit_block(
             &node0
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build(),
+                .build()
+                .data(),
         );
         // Proposal a tx, and grow up into proposal window
         node0.generate_blocks(6);
@@ -273,34 +312,26 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         let (_, _, data) = net
             .receive_timeout(Duration::from_secs(10))
             .expect("receive GetBlockTransactions");
-        let message = get_root::<RelayMessage>(&data).unwrap();
+        let message = RelayMessage::from_slice(&data).unwrap();
         assert_eq!(
-            message.payload_type(),
-            RelayPayload::GetBlockTransactions,
+            message.to_enum().item_name(),
+            packed::GetBlockTransactions::NAME,
             "Node0 should send GetBlockTransactions message for missing transactions",
         );
 
         // Submit the new block to node1. We expect node1 will relay the new block to node0.
-        node1.submit_block(&block);
+        node1.submit_block(&block.data());
         node1.waiting_for_sync(node0, node1.get_tip_block().header().number());
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }
 
 pub struct CompactBlockRelayParentOfOrphanBlock;
 
 impl Spec for CompactBlockRelayParentOfOrphanBlock {
+    crate::name!("compact_block_relay_parent_of_orphan_block");
+
+    crate::setup!(protocols: vec![TestProtocol::sync(), TestProtocol::relay()]);
+
     // Case: A <- B, A == B.parent
     // 1. Sync B to node0. Node0 will put B into orphan_block_pool since B's parent unknown
     // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
@@ -317,12 +348,13 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             &node
                 .new_block_builder(None, None, None)
                 .proposal(new_tx.proposal_short_id())
-                .build(),
+                .build()
+                .data(),
         );
         node.generate_blocks(6);
 
         let consensus = node.consensus.as_ref().unwrap();
-        let mut mock_store = MockStore::default();
+        let mock_store = MockStore::default();
         for i in 0..=node.get_tip_block_number() {
             mock_store.insert_block(&node.get_block_by_number(i), consensus.genesis_epoch_ext());
         }
@@ -331,47 +363,73 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .new_block_builder(None, None, None)
             .transaction(new_tx)
             .build();
-        let mut seen_inputs = FnvHashSet::default();
-        let rtxs: Vec<ResolvedTransaction> = parent
-            .transactions()
+        let mut seen_inputs = HashSet::new();
+        let transactions = parent.transactions();
+        let rtxs: Vec<ResolvedTransaction> = transactions
             .iter()
             .map(|tx| resolve_transaction(&tx, &mut seen_inputs, &mock_store, &mock_store).unwrap())
             .collect();
-        let calculator = DaoCalculator::new(&consensus, Arc::clone(&mock_store.0));
+        let calculator = DaoCalculator::new(&consensus, mock_store.store());
         let dao = calculator
-            .dao_field(&rtxs, node.get_tip_block().header())
+            .dao_field(&rtxs, &node.get_tip_block().header())
             .unwrap();
-        let header = HeaderBuilder::from_header(parent.header().to_owned())
-            .dao(dao)
+        let header = parent
+            .header()
+            .to_owned()
+            .as_advanced_builder()
+            .dao(dao.pack())
             .build();
-        let parent = BlockBuilder::from_block(parent).header(header).build();
+        let parent = parent.as_advanced_builder().header(header).build();
         mock_store.insert_block(&parent, consensus.genesis_epoch_ext());
 
         let fakebase = node.new_block(None, None, None).transactions()[0].clone();
-        let mut output = fakebase.outputs()[0].clone();
+        let output = fakebase
+            .outputs()
+            .as_reader()
+            .get(0)
+            .unwrap()
+            .to_entity()
+            .as_builder()
+            .capacity(
+                calculator
+                    .base_block_reward(&parent.header())
+                    .unwrap()
+                    .pack(),
+            )
+            .build();
+        let output_data = fakebase
+            .outputs_data()
+            .as_reader()
+            .get(0)
+            .unwrap()
+            .to_entity();
 
-        output.capacity = calculator.base_block_reward(parent.header()).unwrap();
         let cellbase = TransactionBuilder::default()
             .output(output)
-            .witness(fakebase.witnesses()[0].clone())
+            .output_data(output_data)
+            .witness(fakebase.witnesses().as_reader().get(0).unwrap().to_entity())
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))
             .build();
         let rtxs =
             vec![
-                resolve_transaction(&cellbase, &mut Default::default(), &mock_store, &mock_store)
+                resolve_transaction(&cellbase, &mut HashSet::new(), &mock_store, &mock_store)
                     .unwrap(),
             ];
-        let dao = DaoCalculator::new(&consensus, Arc::clone(&mock_store.0))
-            .dao_field(&rtxs, parent.header())
+        let dao = DaoCalculator::new(&consensus, mock_store.store())
+            .dao_field(&rtxs, &parent.header())
             .unwrap();
         let block = BlockBuilder::default()
             .transaction(cellbase)
-            .header_builder(
-                HeaderBuilder::from_header(parent.header().to_owned())
-                    .number(parent.header().number() + 1)
-                    .timestamp(parent.header().timestamp() + 1)
+            .header(
+                parent
+                    .header()
+                    .to_owned()
+                    .as_advanced_builder()
+                    .number((parent.header().number() + 1).pack())
+                    .timestamp((parent.header().timestamp() + 1).pack())
                     .parent_hash(parent.header().hash().to_owned())
-                    .dao(dao),
+                    .dao(dao.pack())
+                    .build(),
             )
             .build();
         let old_tip = node.get_tip_block().header().number();
@@ -387,12 +445,12 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         net.send(
             NetworkProtocol::SYNC.into(),
             peer_id,
-            build_header(parent.header()),
+            build_header(&parent.header()),
         );
         net.send(
             NetworkProtocol::SYNC.into(),
             peer_id,
-            build_header(block.header()),
+            build_header(&block.header()),
         );
         clear_messages(&net);
 
@@ -411,15 +469,19 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             "relayer should process the two blocks, including the orphan block"
         );
     }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
 }
 
 pub struct CompactBlockRelayLessThenSharedBestKnown;
 
 impl Spec for CompactBlockRelayLessThenSharedBestKnown {
+    crate::name!("compact_block_relay_less_then_shared_best_known");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
+    );
+
     // Case: Relay a compact block which has lower total difficulty than shared_best_known
     // 1. Synchronize Headers[Tip+1, Tip+10]
     // 2. Relay CompactBlock[Tip+1]
@@ -433,7 +495,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         assert_eq!(node0.get_tip_block(), node1.get_tip_block());
         let old_tip = node1.get_tip_block_number();
         node1.generate_blocks(10);
-        let headers: Vec<Header> = (old_tip + 1..node1.get_tip_block_number())
+        let headers: Vec<HeaderView> = (old_tip + 1..node1.get_tip_block_number())
             .map(|i| node1.rpc_client().get_header_by_number(i).unwrap().into())
             .collect();
         net.send(
@@ -444,8 +506,11 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         {
             let (_, _, data) = net.receive_timeout(Duration::from_secs(5)).expect("");
             assert_eq!(
-                get_root::<SyncMessage>(&data).unwrap().payload_type(),
-                SyncPayload::GetBlocks,
+                SyncMessage::from_slice(&data)
+                    .unwrap()
+                    .to_enum()
+                    .item_name(),
+                packed::GetBlocks::NAME,
                 "Node0 should send GetBlocks message",
             );
         }
@@ -460,17 +525,5 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
             wait_until(20, move || node0.get_tip_block().header().number() == old_tip + 1),
             "node0 should process the new block, even its difficulty is less then best_shared_known",
         );
-    }
-
-    fn num_nodes(&self) -> usize {
-        2
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync(), TestProtocol::relay()]
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }

@@ -13,16 +13,16 @@ use crate::peer_store::{
 use crate::peer_store::{ADDR_TIMEOUT_MS, DEFAULT_ADDRS, MAX_ADDRS, PEER_STORE_LIMIT};
 use crate::SessionType;
 use faketime::unix_time_as_millis;
-use fnv::FnvHashMap;
 use ipnetwork::IpNetwork;
 use rand::{seq::SliceRandom, thread_rng};
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::time::Duration;
 
 pub struct SqlitePeerStore {
     bootnodes: Vec<(PeerId, Multiaddr)>,
     peer_score_config: PeerScoreConfig,
-    banned_addresses: FnvHashMap<IpNetwork, u64>,
+    banned_addresses: HashMap<IpNetwork, u64>,
     pub(crate) conn: Connection,
 }
 
@@ -48,7 +48,6 @@ impl SqlitePeerStore {
         Ok(SqlitePeerStore::new(conn, PeerScoreConfig::default()))
     }
 
-    #[allow(dead_code)]
     pub fn temp() -> Result<Self, DBError> {
         Self::file("".into())
     }
@@ -335,9 +334,11 @@ impl PeerStore for SqlitePeerStore {
                 let mut rng = thread_rng();
                 // randomly find a address to attempt
                 paddrs.shuffle(&mut rng);
-                paddrs
-                    .into_iter()
-                    .find(|paddr| !self.is_addr_banned(&paddr.addr) && !paddr.is_terrible(now_ms))
+                paddrs.into_iter().find(|paddr| {
+                    !(self.is_addr_banned(&paddr.addr)
+                        || paddr.tried_in_last_minute(now_ms)
+                        || paddr.is_terrible(now_ms))
+                })
             })
             .collect()
     }
@@ -360,7 +361,7 @@ impl PeerStore for SqlitePeerStore {
                             .expect("delete peer addr");
                         false
                     } else {
-                        !self.is_addr_banned(&paddr.addr) && !paddr.tried_in_last_minute(now_ms)
+                        !(self.is_addr_banned(&paddr.addr) || paddr.tried_in_last_minute(now_ms))
                     }
                 })
             })

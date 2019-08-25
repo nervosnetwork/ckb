@@ -1,12 +1,19 @@
 use crate::utils::wait_until;
 use crate::{Net, Spec};
-use ckb_core::transaction::{CellInput, OutPoint, TransactionBuilder};
-use ckb_core::Capacity;
+use ckb_types::{
+    core::{Capacity, TransactionBuilder},
+    packed::{CellInput, OutPoint},
+    prelude::*,
+};
 use log::info;
 
 pub struct TransactionRelayBasic;
 
 impl Spec for TransactionRelayBasic {
+    crate::name!("transaction_relay_basic");
+
+    crate::setup!(num_nodes: 3);
+
     fn run(&self, net: Net) {
         net.exit_ibd_mode();
 
@@ -39,10 +46,6 @@ impl Spec for TransactionRelayBasic {
         });
         assert!(ret, "Transaction should be relayed to node2");
     }
-
-    fn num_nodes(&self) -> usize {
-        3
-    }
 }
 
 const MIN_CAPACITY: u64 = 60_0000_0000;
@@ -50,23 +53,45 @@ const MIN_CAPACITY: u64 = 60_0000_0000;
 pub struct TransactionRelayMultiple;
 
 impl Spec for TransactionRelayMultiple {
+    crate::name!("transaction_relay_multiple");
+
+    crate::setup!(num_nodes: 5);
+
     fn run(&self, net: Net) {
         let block = net.exit_ibd_mode();
         let node0 = &net.nodes[0];
         info!("Use generated block's cellbase as tx input");
-        let reward = block.transactions()[0].outputs()[0].capacity;
+        let reward: Capacity = block.transactions()[0]
+            .outputs()
+            .as_reader()
+            .get(0)
+            .unwrap()
+            .to_entity()
+            .capacity()
+            .unpack();
         let txs_num = reward.as_u64() / MIN_CAPACITY;
 
         let parent_hash = block.transactions()[0].hash().to_owned();
-        let temp_transaction = node0.new_transaction(parent_hash);
-        let mut output = temp_transaction.outputs()[0].clone();
-        output.capacity = Capacity::shannons(reward.as_u64() / txs_num);
-        let mut tb = TransactionBuilder::from_transaction(temp_transaction).outputs_clear();
+        let temp_transaction = node0.new_transaction(parent_hash.unpack());
+        let output = temp_transaction
+            .outputs()
+            .as_reader()
+            .get(0)
+            .unwrap()
+            .to_entity()
+            .as_builder()
+            .capacity(Capacity::shannons(reward.as_u64() / txs_num).pack())
+            .build();
+        let mut tb = temp_transaction
+            .as_advanced_builder()
+            .set_outputs(Vec::new());
         for _ in 0..txs_num {
             tb = tb.output(output.clone());
         }
         let transaction = tb.build();
-        node0.rpc_client().send_transaction((&transaction).into());
+        node0
+            .rpc_client()
+            .send_transaction(transaction.data().into());
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
@@ -76,18 +101,25 @@ impl Spec for TransactionRelayMultiple {
         let tx_hash = transaction.hash().to_owned();
         transaction
             .outputs()
-            .iter()
+            .into_iter()
             .enumerate()
             .for_each(|(i, output)| {
                 let tx = TransactionBuilder::default()
-                    .dep(transaction.deps()[0].clone())
+                    .cell_dep(
+                        transaction
+                            .cell_deps()
+                            .as_reader()
+                            .get(0)
+                            .unwrap()
+                            .to_entity(),
+                    )
                     .output(output.clone())
                     .input(CellInput::new(
-                        OutPoint::new_cell(tx_hash.clone(), i as u32),
+                        OutPoint::new(tx_hash.clone().unpack(), i as u32),
                         0,
                     ))
                     .build();
-                node0.rpc_client().send_transaction((&tx).into());
+                node0.rpc_client().send_transaction(tx.data().into());
             });
 
         node0.generate_block();
@@ -104,9 +136,5 @@ impl Spec for TransactionRelayMultiple {
                 txs_num + 1
             )
         });
-    }
-
-    fn num_nodes(&self) -> usize {
-        5
     }
 }

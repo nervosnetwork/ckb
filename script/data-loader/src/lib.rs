@@ -1,13 +1,16 @@
-use ckb_core::cell::CellMeta;
-use ckb_core::extras::BlockExt;
-use ckb_core::transaction::CellOutput;
-use numext_fixed_hash::H256;
+use ckb_types::{
+    bytes::Bytes,
+    core::{cell::CellMeta, BlockExt, HeaderView},
+    packed::Byte32,
+};
 
 /// Script DataLoader
 /// abstract the data access layer
 pub trait DataLoader {
-    // load CellOutput
-    fn lazy_load_cell_output(&self, cell: &CellMeta) -> CellOutput;
+    // load cell data and its hash
+    fn load_cell_data(&self, cell: &CellMeta) -> Option<(Bytes, Byte32)>;
     // load BlockExt
-    fn get_block_ext(&self, block_hash: &H256) -> Option<BlockExt>;
+    fn get_block_ext(&self, block_hash: &Byte32) -> Option<BlockExt>;
+    // load Header
+    fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView>;
 }

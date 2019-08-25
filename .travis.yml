@@ -14,7 +14,7 @@ git:
 env:
   global:
     - RUST_BACKTRACE=full
-    - CKB_CLI_VERSION=v0.18.0
+    - CKB_CLI_VERSION=v0.19.0
 
 addons:
   apt:
@@ -57,13 +57,13 @@ matrix:
       if: 'tag IS NOT present AND (type = pull_request OR branch IN (master, staging, trying) OR repo != nervosnetwork/ckb)'
       os: linux
     - name: PR Integration
-      if: 'tag IS NOT present AND (type = pull_request OR repo != nervosnetwork/ckb)'
+      if: 'tag IS NOT present AND branch != develop AND branch !~ /^rc\// AND (type = pull_request OR repo != nervosnetwork/ckb)'
       os: linux
       script: make CKB_TEST_ARGS="--max-time 1200" integration
     - name: Linters
       if: 'tag IS NOT present AND (type = pull_request OR branch in (master, staging, trying) OR repo != nervosnetwork/ckb)'
-      os: linux
       env: CACHE_NAME=linters
+      os: linux
       install:
         - cargo fmt --version || travis_retry rustup component add rustfmt
         - cargo clippy --version || travis_retry rustup component add clippy
@@ -78,14 +78,20 @@ matrix:
       addons: { apt: { packages: [] } }
       script:
         - make check-cargotoml
-        - make check-dirty-doc
+        - make check-whitespaces
+        - make check-dirty-rpc-doc
 
+    - name: Test benchmarks on Linux
+      env: CACHE_NAME=bench
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
+      os: linux
+      script: make bench-test
     - name: Integration on macOS
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: osx
       script: make integration
     - name: Integration on Linux
-      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^ Merge #\d+/))'
+      if: 'tag IS NOT present AND type != pull_request AND (branch IN (master, staging, trying) OR branch =~ /^rc\// OR (branch = develop AND commit_message !~ /^Merge #\d+/))'
       os: linux
       script: make integration
     - name: Code Coverage

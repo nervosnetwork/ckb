@@ -1,5 +1,3 @@
-#![allow(clippy::fallible_impl_from)]
-
 use crate::*;
 use numext_fixed_uint::U256;
 use proptest::arbitrary::Arbitrary;
@@ -139,13 +137,13 @@ impl Arbitrary for U256LeBytes {
 
 impl<'a> ::std::convert::From<&'a U256LeBytes> for U256 {
     fn from(bytes: &U256LeBytes) -> Self {
-        U256::from_little_endian(&bytes.inner).unwrap()
+        U256::from_little_endian(&bytes.inner).expect("U256LeBytes convert")
     }
 }
 
 impl ::std::convert::From<U256LeBytes> for U256 {
     fn from(bytes: U256LeBytes) -> Self {
-        U256::from_little_endian(&bytes.inner).unwrap()
+        U256::from_little_endian(&bytes.inner).expect("U256LeBytes convert")
     }
 }
 

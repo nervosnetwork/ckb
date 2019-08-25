@@ -8,7 +8,7 @@ use super::{
 use crate::{
     network::EventHandler,
     network::{DISCOVERY_PROTOCOL_ID, FEELER_PROTOCOL_ID, IDENTIFY_PROTOCOL_ID, PING_PROTOCOL_ID},
-    NetworkConfig, NetworkState,
+    NetworkConfig, NetworkState, PeerIdentifyInfo,
 };
 
 use std::{
@@ -70,6 +70,16 @@ impl Node {
             .peers()
             .get(&id)
             .map(|peer| peer.protocols.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    fn session_version(&self, id: SessionId) -> Option<PeerIdentifyInfo> {
+        self.network_state
+            .peer_registry
+            .read()
+            .peers()
+            .get(&id)
+            .map(|peer| peer.identify_info.clone())
             .unwrap_or_default()
     }
 
@@ -154,7 +164,8 @@ fn net_service_start(name: String) -> Node {
         .build();
 
     // Identify protocol
-    let identify_callback = IdentifyCallback::new(Arc::clone(&network_state), name);
+    let identify_callback =
+        IdentifyCallback::new(Arc::clone(&network_state), name, "0.1.0".to_string());
     let identify_meta = MetaBuilder::default()
         .id(IDENTIFY_PROTOCOL_ID.into())
         .service_handle(move || {
@@ -261,7 +272,7 @@ fn wait_connect_state(node: &Node, expect_num: usize) {
 
 #[allow(clippy::block_in_if_condition_stmt)]
 fn wait_discovery(node: &Node) {
-    if !wait_until(10, || {
+    if !wait_until(100, || {
         node.network_state
             .peer_store
             .lock()
@@ -301,7 +312,11 @@ fn test_identify_behavior() {
         panic!("identify can't open other protocols")
     }
 
-    // FIXME async opening protocols, cann't assert it
+    assert_eq!(
+        node3.session_version(sessions[0]).unwrap().client_version,
+        "0.1.0"
+    );
+
     let mut protocols = node3.connected_protocols(sessions[0]);
     protocols.sort();
 

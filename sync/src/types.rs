@@ -1,39 +1,34 @@
 use crate::block_status::BlockStatus;
-use crate::relayer::compact_block::CompactBlock;
 use crate::synchronizer::OrphanBlockPool;
-use crate::NetworkProtocol;
 use crate::BLOCK_DOWNLOAD_TIMEOUT;
 use crate::MAX_PEERS_PER_BLOCK;
+use crate::{NetworkProtocol, SUSPEND_SYNC_TIME};
 use crate::{MAX_HEADERS_LEN, MAX_TIP_AGE};
+use arc_swap::Guard as ArcSwapGuard;
 use ckb_chain::chain::ChainController;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::block::Block;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::{BlockNumber, Header};
-use ckb_core::transaction::ProposalShortId;
-use ckb_core::Cycle;
 use ckb_logger::{debug, debug_target, error};
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::SyncMessage;
-use ckb_shared::chain_state::ChainState;
-use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
+use ckb_shared::{shared::Shared, Snapshot};
+use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::ChainProvider;
+use ckb_types::{
+    core::{self, BlockNumber, Cycle, EpochExt},
+    packed::{self, Byte32},
+    prelude::*,
+    H256, U256,
+};
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ckb_verification::HeaderResolverWrapper;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use flatbuffers::FlatBufferBuilder;
-use fnv::{FnvHashMap, FnvHashSet};
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
 use std::cmp;
-use std::collections::{hash_map::HashMap, hash_set::HashSet, BTreeMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
-use std::mem::swap;
+use std::mem;
 use std::ops::DerefMut;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -63,25 +58,13 @@ const ORPHAN_BLOCK_SIZE: usize = 1024;
 //     If their best known block is still behind when that new timeout is
 //     reached, disconnect.
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ChainSyncState {
     pub timeout: u64,
-    pub work_header: Option<Header>,
+    pub work_header: Option<core::HeaderView>,
     pub total_difficulty: Option<U256>,
     pub sent_getheaders: bool,
     pub not_sync_until: Option<u64>,
-}
-
-impl Default for ChainSyncState {
-    fn default() -> Self {
-        ChainSyncState {
-            timeout: 0,
-            work_header: None,
-            total_difficulty: None,
-            sent_getheaders: false,
-            not_sync_until: None,
-        }
-    }
 }
 
 #[derive(Clone, Default, Debug, Copy)]
@@ -100,11 +83,11 @@ pub struct PeerState {
     pub disconnect: bool,
     pub chain_sync: ChainSyncState,
     // The key is a `timeout`, means do not ask the tx before `timeout`.
-    tx_ask_for_map: BTreeMap<Instant, Vec<H256>>,
-    tx_ask_for_set: HashSet<H256>,
+    tx_ask_for_map: BTreeMap<Instant, Vec<Byte32>>,
+    tx_ask_for_set: HashSet<Byte32>,
 
     pub best_known_header: Option<HeaderView>,
-    pub last_common_header: Option<Header>,
+    pub last_common_header: Option<core::HeaderView>,
 }
 
 impl PeerState {
@@ -117,15 +100,15 @@ impl PeerState {
             disconnect: false,
             chain_sync: ChainSyncState::default(),
             tx_ask_for_map: BTreeMap::default(),
-            tx_ask_for_set: HashSet::default(),
+            tx_ask_for_set: HashSet::new(),
             best_known_header: None,
             last_common_header: None,
         }
     }
 
     pub fn can_sync(&self, now: u64, ibd: bool) -> bool {
-        // only sync with outbound/whitelist peer in IBD
-        ((self.peer_flags.is_outbound || self.peer_flags.is_whitelist) || !ibd)
+        // only sync with protect/whitelist peer in IBD
+        ((self.peer_flags.is_protect || self.peer_flags.is_whitelist) || !ibd)
             && !self.sync_started
             && self
                 .chain_sync
@@ -140,9 +123,10 @@ impl PeerState {
         self.headers_sync_timeout = Some(headers_sync_timeout);
     }
 
-    pub fn stop_sync(&mut self, not_sync_until: u64) {
+    pub fn suspend_sync(&mut self, suspend_time: u64) {
+        let now = unix_time_as_millis();
         self.sync_started = false;
-        self.chain_sync.not_sync_until = Some(not_sync_until);
+        self.chain_sync.not_sync_until = Some(now + suspend_time);
         self.headers_sync_timeout = None;
     }
 
@@ -153,13 +137,13 @@ impl PeerState {
 
     pub fn add_ask_for_tx(
         &mut self,
-        tx_hash: H256,
+        tx_hash: Byte32,
         last_ask_timeout: Option<Instant>,
     ) -> Option<Instant> {
         if self.tx_ask_for_map.len() > MAX_ASK_MAP_SIZE {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "this peer tx_ask_for_map is full, ignore {:#x}",
+                "this peer tx_ask_for_map is full, ignore {}",
                 tx_hash
             );
             return None;
@@ -167,7 +151,7 @@ impl PeerState {
         if self.tx_ask_for_set.len() > MAX_ASK_SET_SIZE {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "this peer tx_ask_for_set is full, ignore {:#x}",
+                "this peer tx_ask_for_set is full, ignore {}",
                 tx_hash
             );
             return None;
@@ -176,7 +160,7 @@ impl PeerState {
         if self.tx_ask_for_set.contains(&tx_hash) {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "this peer already register ask tx({:#x})",
+                "this peer already register ask tx({})",
                 tx_hash
             );
             return None;
@@ -194,11 +178,11 @@ impl PeerState {
         Some(next_ask_timeout)
     }
 
-    pub fn remove_ask_for_tx(&mut self, tx_hash: &H256) {
+    pub fn remove_ask_for_tx(&mut self, tx_hash: &Byte32) {
         self.tx_ask_for_set.remove(tx_hash);
     }
 
-    pub fn pop_ask_for_txs(&mut self) -> Vec<H256> {
+    pub fn pop_ask_for_txs(&mut self) -> Vec<Byte32> {
         let mut all_txs = Vec::new();
         let mut timeouts = Vec::new();
         let now = Instant::now();
@@ -239,14 +223,14 @@ impl<T: Eq + Hash> Filter<T> {
 
 #[derive(Default)]
 pub struct KnownFilter {
-    inner: FnvHashMap<PeerIndex, Filter<H256>>,
+    inner: HashMap<PeerIndex, Filter<Byte32>>,
 }
 
 impl KnownFilter {
     /// Adds a value to the filter.
     /// If the filter did not have this value present, `true` is returned.
     /// If the filter did have this value present, `false` is returned.
-    pub fn insert(&mut self, index: PeerIndex, hash: H256) -> bool {
+    pub fn insert(&mut self, index: PeerIndex, hash: Byte32) -> bool {
         self.inner
             .entry(index)
             .or_insert_with(|| Filter::new(FILTER_SIZE))
@@ -256,19 +240,19 @@ impl KnownFilter {
 
 #[derive(Default)]
 pub struct Peers {
-    pub state: RwLock<FnvHashMap<PeerIndex, PeerState>>,
+    pub state: RwLock<HashMap<PeerIndex, PeerState>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct InflightState {
-    pub(crate) peers: FnvHashSet<PeerIndex>,
+    pub(crate) peers: HashSet<PeerIndex>,
     pub(crate) timestamp: u64,
 }
 
 impl Default for InflightState {
     fn default() -> Self {
         InflightState {
-            peers: FnvHashSet::default(),
+            peers: HashSet::default(),
             timestamp: unix_time_as_millis(),
         }
     }
@@ -282,25 +266,25 @@ impl InflightState {
 
 #[derive(Clone)]
 pub struct InflightBlocks {
-    blocks: FnvHashMap<PeerIndex, FnvHashSet<H256>>,
-    states: FnvHashMap<H256, InflightState>,
+    blocks: HashMap<PeerIndex, HashSet<Byte32>>,
+    states: HashMap<Byte32, InflightState>,
 }
 
 impl Default for InflightBlocks {
     fn default() -> Self {
         InflightBlocks {
-            blocks: FnvHashMap::default(),
-            states: FnvHashMap::default(),
+            blocks: HashMap::default(),
+            states: HashMap::default(),
         }
     }
 }
 
-struct DebugHastSet<'a>(&'a FnvHashSet<H256>);
+struct DebugHastSet<'a>(&'a HashSet<Byte32>);
 
 impl<'a> fmt::Debug for DebugHastSet<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt.debug_set()
-            .entries(self.0.iter().map(|h| format!("{:#x}", h)))
+            .entries(self.0.iter().map(|h| format!("{}", h)))
             .finish()
     }
 }
@@ -311,13 +295,13 @@ impl fmt::Debug for InflightBlocks {
             .entries(self.blocks.iter().map(|(k, v)| (k, DebugHastSet(v))))
             .finish()?;
         fmt.debug_map()
-            .entries(self.states.iter().map(|(k, v)| (format!("{:#x}", k), v)))
+            .entries(self.states.iter().map(|(k, v)| (format!("{}", k), v)))
             .finish()
     }
 }
 
 impl InflightBlocks {
-    pub fn blocks_iter(&self) -> impl Iterator<Item = (&PeerIndex, &FnvHashSet<H256>)> {
+    pub fn blocks_iter(&self) -> impl Iterator<Item = (&PeerIndex, &HashSet<Byte32>)> {
         self.blocks.iter()
     }
 
@@ -328,11 +312,11 @@ impl InflightBlocks {
     pub fn peer_inflight_count(&self, peer: PeerIndex) -> usize {
         self.blocks.get(&peer).map(HashSet::len).unwrap_or(0)
     }
-    pub fn inflight_block_by_peer(&self, peer: PeerIndex) -> Option<&FnvHashSet<H256>> {
+    pub fn inflight_block_by_peer(&self, peer: PeerIndex) -> Option<&HashSet<Byte32>> {
         self.blocks.get(&peer)
     }
 
-    pub fn inflight_state_by_block(&self, block: &H256) -> Option<&InflightState> {
+    pub fn inflight_state_by_block(&self, block: &Byte32) -> Option<&InflightState> {
         self.states.get(block)
     }
 
@@ -350,7 +334,7 @@ impl InflightBlocks {
         });
     }
 
-    pub fn insert(&mut self, peer: PeerIndex, hash: H256) -> bool {
+    pub fn insert(&mut self, peer: PeerIndex, hash: Byte32) -> bool {
         let state = self
             .states
             .entry(hash.clone())
@@ -359,7 +343,7 @@ impl InflightBlocks {
             return false;
         }
 
-        let blocks = self.blocks.entry(peer).or_insert_with(FnvHashSet::default);
+        let blocks = self.blocks.entry(peer).or_insert_with(HashSet::default);
         let ret = blocks.insert(hash);
         if ret {
             state.peers.insert(peer);
@@ -380,12 +364,12 @@ impl InflightBlocks {
             .is_some()
     }
 
-    pub fn remove_by_block(&mut self, block: &H256) -> bool {
+    pub fn remove_by_block(&mut self, block: Byte32) -> bool {
         self.states
-            .remove(block)
+            .remove(&block)
             .map(|state| {
                 for peer in state.peers {
-                    self.blocks.get_mut(&peer).map(|set| set.remove(block));
+                    self.blocks.get_mut(&peer).map(|set| set.remove(&block));
                 }
             })
             .is_some()
@@ -417,14 +401,14 @@ impl Peers {
             .and_modify(|peer_state| peer_state.best_known_header = Some(header_view));
     }
 
-    pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<Header> {
+    pub fn get_last_common_header(&self, pi: PeerIndex) -> Option<core::HeaderView> {
         self.state
             .read()
             .get(&pi)
             .and_then(|peer_state| peer_state.last_common_header.clone())
     }
 
-    pub fn set_last_common_header(&self, pi: PeerIndex, header: Header) {
+    pub fn set_last_common_header(&self, pi: PeerIndex, header: core::HeaderView) {
         self.state
             .write()
             .entry(pi)
@@ -434,7 +418,7 @@ impl Peers {
     pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
         if let Some(peer_state) = self.state.write().get_mut(&peer) {
             if let Some(ref hv) = peer_state.best_known_header {
-                if header_view.is_better_than(hv.total_difficulty(), hv.hash()) {
+                if header_view.is_better_than(&hv.total_difficulty(), &hv.hash()) {
                     peer_state.best_known_header = Some(header_view.clone());
                 }
             } else {
@@ -454,15 +438,15 @@ impl Peers {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeaderView {
-    inner: Header,
+    inner: core::HeaderView,
     total_difficulty: U256,
     total_uncles_count: u64,
     // pointer to the index of some further predecessor of this block
-    skip_hash: Option<H256>,
+    skip_hash: Option<Byte32>,
 }
 
 impl HeaderView {
-    pub fn new(inner: Header, total_difficulty: U256, total_uncles_count: u64) -> Self {
+    pub fn new(inner: core::HeaderView, total_difficulty: U256, total_uncles_count: u64) -> Self {
         HeaderView {
             inner,
             total_difficulty,
@@ -475,12 +459,12 @@ impl HeaderView {
         self.inner.number()
     }
 
-    pub fn hash(&self) -> &H256 {
+    pub fn hash(&self) -> Byte32 {
         self.inner.hash()
     }
 
-    pub fn parent_hash(&self) -> &H256 {
-        self.inner.parent_hash()
+    pub fn parent_hash(&self) -> Byte32 {
+        self.inner.data().raw().parent_hash()
     }
 
     pub fn timestamp(&self) -> u64 {
@@ -495,27 +479,31 @@ impl HeaderView {
         &self.total_difficulty
     }
 
-    pub fn inner(&self) -> &Header {
+    pub fn inner(&self) -> &core::HeaderView {
         &self.inner
     }
 
-    pub fn into_inner(self) -> Header {
+    pub fn into_inner(self) -> core::HeaderView {
         self.inner
     }
 
     pub fn build_skip<F>(&mut self, mut get_header_view: F)
     where
-        F: FnMut(&H256) -> Option<HeaderView>,
+        F: FnMut(&Byte32) -> Option<HeaderView>,
     {
-        self.skip_hash = get_header_view(self.parent_hash())
+        self.skip_hash = get_header_view(&self.parent_hash())
             .and_then(|parent| parent.get_ancestor(get_skip_height(self.number()), get_header_view))
-            .map(|header| header.hash().clone());
+            .map(|header| header.hash());
     }
 
     // NOTE: get_header_view may change source state, for cache or for tests
-    pub fn get_ancestor<F>(self, number: BlockNumber, mut get_header_view: F) -> Option<Header>
+    pub fn get_ancestor<F>(
+        self,
+        number: BlockNumber,
+        mut get_header_view: F,
+    ) -> Option<core::HeaderView>
     where
-        F: FnMut(&H256) -> Option<HeaderView>,
+        F: FnMut(&Byte32) -> Option<HeaderView>,
     {
         let mut current = self;
         if number > current.number() {
@@ -537,7 +525,7 @@ impl HeaderView {
                     number_walk = number_skip;
                 }
                 _ => {
-                    current = get_header_view(current.parent_hash())?;
+                    current = get_header_view(&current.parent_hash())?;
                     number_walk -= 1;
                 }
             }
@@ -545,9 +533,11 @@ impl HeaderView {
         Some(current.clone()).map(HeaderView::into_inner)
     }
 
-    pub fn is_better_than(&self, total_difficulty: &U256, hash: &H256) -> bool {
+    pub fn is_better_than(&self, total_difficulty: &U256, hash: &Byte32) -> bool {
+        let self_hash: H256 = self.hash().unpack();
+        let input_hash: H256 = hash.unpack();
         self.total_difficulty() > total_difficulty
-            || (self.total_difficulty() == total_difficulty && self.hash() < hash)
+            || (self.total_difficulty() == total_difficulty && self_hash < input_hash)
     }
 }
 
@@ -574,27 +564,28 @@ fn get_skip_height(height: BlockNumber) -> BlockNumber {
 
 #[derive(Default)]
 pub struct EpochIndices {
-    epoch: HashMap<H256, EpochExt>,
-    indices: HashMap<H256, H256>,
+    epoch: HashMap<Byte32, EpochExt>,
+    indices: HashMap<Byte32, Byte32>,
 }
 
 impl EpochIndices {
-    pub fn get_epoch_ext(&self, hash: &H256) -> Option<&EpochExt> {
+    pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<&EpochExt> {
         self.indices.get(hash).and_then(|h| self.epoch.get(h))
     }
 
-    fn insert_index(&mut self, block_hash: H256, epoch_hash: H256) -> Option<H256> {
+    fn insert_index(&mut self, block_hash: Byte32, epoch_hash: Byte32) -> Option<Byte32> {
         self.indices.insert(block_hash, epoch_hash)
     }
 
-    fn insert_epoch(&mut self, hash: H256, epoch: EpochExt) -> Option<EpochExt> {
+    fn insert_epoch(&mut self, hash: Byte32, epoch: EpochExt) -> Option<EpochExt> {
         self.epoch.insert(hash, epoch)
     }
 }
 
-pub struct SyncSharedState<CS> {
-    shared: Shared<CS>,
+type PendingCompactBlockMap = HashMap<Byte32, (packed::CompactBlock, HashMap<PeerIndex, Vec<u32>>)>;
 
+pub struct SyncSharedState {
+    shared: Shared,
     n_sync_started: AtomicUsize,
     n_protected_outbound_peers: AtomicUsize,
     ibd_finished: AtomicBool,
@@ -602,38 +593,41 @@ pub struct SyncSharedState<CS> {
     /* Status irrelevant to peers */
     shared_best_header: RwLock<HeaderView>,
     epoch_map: RwLock<EpochIndices>,
-    header_map: RwLock<HashMap<H256, HeaderView>>,
-    block_status_map: Mutex<HashMap<H256, BlockStatus>>,
-    tx_filter: Mutex<Filter<H256>>,
+    header_map: RwLock<HashMap<Byte32, HeaderView>>,
+    block_status_map: Mutex<HashMap<Byte32, BlockStatus>>,
+    tx_filter: Mutex<Filter<Byte32>>,
 
     /* Status relevant to peers */
     peers: Peers,
-    misbehavior: RwLock<FnvHashMap<PeerIndex, u32>>,
+    misbehavior: RwLock<HashMap<PeerIndex, u32>>,
     known_txs: Mutex<KnownFilter>,
 
     /* Cached items which we had received but not completely process */
-    pending_get_block_proposals: Mutex<FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>>>,
-    pending_get_headers: RwLock<LruCache<(PeerIndex, H256), Instant>>,
-    pending_compact_blocks: Mutex<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>>,
+    pending_get_block_proposals: Mutex<HashMap<packed::ProposalShortId, HashSet<PeerIndex>>>,
+    pending_get_headers: RwLock<LruCache<(PeerIndex, Byte32), Instant>>,
+    pending_compact_blocks: Mutex<PendingCompactBlockMap>,
     orphan_block_pool: OrphanBlockPool,
 
     /* In-flight items for which we request to peers, but not got the responses yet */
-    inflight_proposals: Mutex<FnvHashSet<ProposalShortId>>,
-    inflight_transactions: Mutex<LruCache<H256, Instant>>,
+    inflight_proposals: Mutex<HashSet<packed::ProposalShortId>>,
+    inflight_transactions: Mutex<LruCache<Byte32, Instant>>,
     inflight_blocks: RwLock<InflightBlocks>,
+
+    /* cached for sending bulk */
+    tx_hashes: Mutex<HashMap<PeerIndex, HashSet<Byte32>>>,
 }
 
-impl<CS: ChainStore> SyncSharedState<CS> {
-    pub fn new(shared: Shared<CS>) -> SyncSharedState<CS> {
+impl SyncSharedState {
+    pub fn new(shared: Shared) -> SyncSharedState {
         let (total_difficulty, header, total_uncles_count) = {
-            let chain_state = shared.lock_chain_state();
-            let block_ext = shared
-                .store()
-                .get_block_ext(&chain_state.tip_hash())
+            let snapshot = shared.snapshot();
+            let tip_header = snapshot.tip_header();
+            let block_ext = snapshot
+                .get_block_ext(&tip_header.hash())
                 .expect("tip block_ext must exist");
             (
-                chain_state.total_difficulty().to_owned(),
-                chain_state.tip_header().to_owned(),
+                snapshot.total_difficulty().to_owned(),
+                snapshot.tip_header().to_owned(),
                 block_ext.total_uncles_count,
             )
         };
@@ -654,19 +648,20 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             block_status_map: Mutex::new(HashMap::new()),
             tx_filter: Mutex::new(Filter::new(TX_FILTER_SIZE)),
             peers: Peers::default(),
-            misbehavior: RwLock::new(FnvHashMap::default()),
+            misbehavior: RwLock::new(HashMap::default()),
             known_txs: Mutex::new(KnownFilter::default()),
-            pending_get_block_proposals: Mutex::new(FnvHashMap::default()),
-            pending_compact_blocks: Mutex::new(FnvHashMap::default()),
+            pending_get_block_proposals: Mutex::new(HashMap::default()),
+            pending_compact_blocks: Mutex::new(HashMap::default()),
             orphan_block_pool: OrphanBlockPool::with_capacity(ORPHAN_BLOCK_SIZE),
-            inflight_proposals: Mutex::new(FnvHashSet::default()),
+            inflight_proposals: Mutex::new(HashSet::default()),
             inflight_transactions: Mutex::new(LruCache::new(TX_ASKED_SIZE)),
             inflight_blocks: RwLock::new(InflightBlocks::default()),
             pending_get_headers: RwLock::new(LruCache::new(GET_HEADERS_CACHE_SIZE)),
+            tx_hashes: Mutex::new(HashMap::default()),
         }
     }
 
-    pub fn shared(&self) -> &Shared<CS> {
+    pub fn shared(&self) -> &Shared {
         &self.shared
     }
     pub fn n_sync_started(&self) -> &AtomicUsize {
@@ -690,12 +685,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn known_txs(&self) -> MutexGuard<KnownFilter> {
         self.known_txs.lock()
     }
-    pub fn pending_compact_blocks(
-        &self,
-    ) -> MutexGuard<FnvHashMap<H256, (CompactBlock, FnvHashSet<PeerIndex>)>> {
+    pub fn pending_compact_blocks(&self) -> MutexGuard<PendingCompactBlockMap> {
         self.pending_compact_blocks.lock()
     }
-    pub fn inflight_transactions(&self) -> MutexGuard<LruCache<H256, Instant>> {
+    pub fn inflight_transactions(&self) -> MutexGuard<LruCache<Byte32, Instant>> {
         self.inflight_transactions.lock()
     }
     pub fn read_inflight_blocks(&self) -> RwLockReadGuard<InflightBlocks> {
@@ -704,16 +697,26 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     pub fn write_inflight_blocks(&self) -> RwLockWriteGuard<InflightBlocks> {
         self.inflight_blocks.write()
     }
-    pub fn store(&self) -> &Arc<CS> {
+    pub fn inflight_proposals(&self) -> MutexGuard<HashSet<packed::ProposalShortId>> {
+        self.inflight_proposals.lock()
+    }
+    pub fn store(&self) -> &ChainDB {
         self.shared.store()
     }
-    pub fn lock_chain_state(&self) -> MutexGuard<ChainState<CS>> {
-        self.shared.lock_chain_state()
+    pub fn snapshot(&self) -> ArcSwapGuard<Arc<Snapshot>> {
+        self.shared.snapshot()
     }
-    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<H256, Cycle>> {
+    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<Byte32, Cycle>> {
         self.shared.lock_txs_verify_cache()
     }
-    pub fn tip_header(&self) -> Header {
+    pub fn tx_hashes(&self) -> MutexGuard<HashMap<PeerIndex, HashSet<Byte32>>> {
+        self.tx_hashes.lock()
+    }
+    pub fn take_tx_hashes(&self) -> HashMap<PeerIndex, HashSet<Byte32>> {
+        let mut state = self.tx_hashes.lock();
+        mem::replace(&mut *state, HashMap::default())
+    }
+    pub fn tip_header(&self) -> core::HeaderView {
         self.shared
             .store()
             .get_tip_header()
@@ -752,9 +755,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     // Update the header_map
     // Update the epoch_map
     // Update the block_status_map
-    pub fn insert_valid_header(&self, peer: PeerIndex, header: &Header, epoch: EpochExt) {
+    pub fn insert_valid_header(&self, peer: PeerIndex, header: &core::HeaderView, epoch: EpochExt) {
         let parent_view = self
-            .get_header_view(header.parent_hash())
+            .get_header_view(&header.data().raw().parent_hash())
             .expect("parent should be verified");
         let mut header_view = {
             let total_difficulty = parent_view.total_difficulty() + header.difficulty();
@@ -766,25 +769,23 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         // Update shared_best_header if the arrived header has greater difficulty
         let shared_best_header = self.shared_best_header();
         if header_view.is_better_than(
-            shared_best_header.total_difficulty(),
-            shared_best_header.hash(),
+            &shared_best_header.total_difficulty(),
+            &shared_best_header.hash(),
         ) {
             self.set_shared_best_header(header_view.clone());
         }
 
         self.peers().new_header_received(peer, &header_view);
         header_view.build_skip(|hash| self.get_header_view(hash));
-        self.header_map
-            .write()
-            .insert(header.hash().to_owned(), header_view);
+        self.header_map.write().insert(header.hash(), header_view);
         self.insert_epoch(header, epoch);
-        self.insert_block_status(header.hash().to_owned(), BlockStatus::HEADER_VALID);
+        self.insert_block_status(header.hash(), BlockStatus::HEADER_VALID);
     }
 
-    pub fn remove_header_view(&self, hash: &H256) {
+    pub fn remove_header_view(&self, hash: &Byte32) {
         self.header_map.write().remove(hash);
     }
-    pub fn get_header_view(&self, hash: &H256) -> Option<HeaderView> {
+    pub fn get_header_view(&self, hash: &Byte32) -> Option<HeaderView> {
         self.header_map.read().get(hash).cloned().or_else(|| {
             self.shared
                 .store()
@@ -800,7 +801,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                 })
         })
     }
-    pub fn get_header(&self, hash: &H256) -> Option<Header> {
+    pub fn get_header(&self, hash: &Byte32) -> Option<core::HeaderView> {
         self.header_map
             .read()
             .get(hash)
@@ -809,24 +810,28 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .or_else(|| self.shared.store().get_block_header(hash))
     }
 
-    pub fn get_epoch_ext(&self, hash: &H256) -> Option<EpochExt> {
+    pub fn get_epoch_ext(&self, hash: &Byte32) -> Option<EpochExt> {
         self.epoch_map
             .read()
             .get_epoch_ext(hash)
             .cloned()
-            .or_else(|| self.shared.get_block_epoch(hash))
+            .or_else(|| self.shared.get_block_epoch(&hash.unpack()))
     }
 
-    pub fn insert_epoch(&self, header: &Header, epoch: EpochExt) {
+    pub fn insert_epoch(&self, header: &core::HeaderView, epoch: EpochExt) {
         let mut epoch_map = self.epoch_map.write();
         epoch_map.insert_index(
-            header.hash().to_owned(),
-            epoch.last_block_hash_in_previous_epoch().clone(),
+            header.hash(),
+            epoch.last_block_hash_in_previous_epoch().pack(),
         );
-        epoch_map.insert_epoch(epoch.last_block_hash_in_previous_epoch().clone(), epoch);
+        epoch_map.insert_epoch(epoch.last_block_hash_in_previous_epoch().pack(), epoch);
     }
 
-    pub fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt> {
+    pub fn next_epoch_ext(
+        &self,
+        last_epoch: &EpochExt,
+        header: &core::HeaderView,
+    ) -> Option<EpochExt> {
         let consensus = self.shared.consensus();
         consensus.next_epoch_ext(
             last_epoch,
@@ -839,12 +844,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         )
     }
 
-    pub fn get_ancestor(&self, base: &H256, number: BlockNumber) -> Option<Header> {
+    pub fn get_ancestor(&self, base: &Byte32, number: BlockNumber) -> Option<core::HeaderView> {
         self.get_header_view(base)?
             .get_ancestor(number, |hash| self.get_header_view(hash))
     }
 
-    pub fn get_locator(&self, start: &Header) -> Vec<H256> {
+    pub fn get_locator(&self, start: &core::HeaderView) -> Vec<Byte32> {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
@@ -862,7 +867,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             if index < step {
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(self.shared.genesis_hash().to_owned());
+                    locator.push(self.shared.genesis_hash().pack());
                 }
                 break;
             }
@@ -876,9 +881,9 @@ impl<CS: ChainStore> SyncSharedState<CS> {
     // of its current best_known_header. Go back enough to fix that.
     pub fn last_common_ancestor(
         &self,
-        last_common_header: &Header,
-        best_known_header: &Header,
-    ) -> Option<Header> {
+        last_common_header: &core::HeaderView,
+        best_known_header: &core::HeaderView,
+    ) -> Option<core::HeaderView> {
         debug_assert!(best_known_header.number() >= last_common_header.number());
 
         let mut m_right =
@@ -900,14 +905,15 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub fn locate_latest_common_block(
         &self,
-        _hash_stop: &H256,
-        locator: &[H256],
+        _hash_stop: &Byte32,
+        locator: &[Byte32],
     ) -> Option<BlockNumber> {
         if locator.is_empty() {
             return None;
         }
 
-        if locator.last().expect("empty checked") != self.shared.genesis_hash() {
+        let locator_hash: H256 = locator.last().expect("empty checked").unpack();
+        if &locator_hash != self.shared.genesis_hash() {
             return None;
         }
 
@@ -927,7 +933,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             .get(index - 1)
             .and_then(|hash| self.shared.store().get_block_header(hash))
         {
-            let mut block_hash = header.parent_hash().to_owned();
+            let mut block_hash = header.data().raw().parent_hash();
             loop {
                 let block_header = match self.shared.store().get_block_header(&block_hash) {
                     None => break latest_common,
@@ -938,14 +944,18 @@ impl<CS: ChainStore> SyncSharedState<CS> {
                     return Some(block_number);
                 }
 
-                block_hash = block_header.parent_hash().to_owned();
+                block_hash = block_header.data().raw().parent_hash();
             }
         } else {
             latest_common
         }
     }
 
-    pub fn get_locator_response(&self, block_number: BlockNumber, hash_stop: &H256) -> Vec<Header> {
+    pub fn get_locator_response(
+        &self,
+        block_number: BlockNumber,
+        hash_stop: &Byte32,
+    ) -> Vec<core::HeaderView> {
         let tip_number = self.tip_header().number();
         let max_height = cmp::min(
             block_number + 1 + MAX_HEADERS_LEN as BlockNumber,
@@ -962,12 +972,12 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         &self,
         nc: &CKBProtocolContext,
         peer: PeerIndex,
-        header: &Header,
+        header: &core::HeaderView,
     ) {
         if let Some(last_time) = self
             .pending_get_headers
             .write()
-            .get_refresh(&(peer, header.hash().to_owned()))
+            .get_refresh(&(peer, header.hash()))
         {
             if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
                 debug!(
@@ -984,67 +994,82 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         }
         self.pending_get_headers
             .write()
-            .insert((peer, header.hash().to_owned()), Instant::now());
+            .insert((peer, header.hash()), Instant::now());
 
         debug!(
-            "send_getheaders_to_peer peer={}, hash={:x}",
+            "send_getheaders_to_peer peer={}, hash={}",
             peer,
             header.hash()
         );
         let locator_hash = self.get_locator(header);
-        let fbb = &mut FlatBufferBuilder::new();
-        let message = SyncMessage::build_get_headers(fbb, &locator_hash);
-        fbb.finish(message, None);
-        if let Err(err) = nc.send_message(
-            NetworkProtocol::SYNC.into(),
-            peer,
-            fbb.finished_data().into(),
-        ) {
+        let content = packed::GetHeaders::new_builder()
+            .block_locator_hashes(locator_hash.pack())
+            .hash_stop(H256::zero().pack())
+            .build();
+        let message = packed::SyncMessage::new_builder().set(content).build();
+        let data = message.as_slice().into();
+        if let Err(err) = nc.send_message(NetworkProtocol::SYNC.into(), peer, data) {
             debug!("synchronizer send get_headers error: {:?}", err);
         }
     }
 
-    pub fn mark_as_known_tx(&self, hash: H256) {
-        self.inflight_transactions().remove(&hash);
-        self.tx_filter.lock().insert(hash);
+    pub fn mark_as_known_tx(&self, hash: Byte32) {
+        self.mark_as_known_txs(vec![hash]);
     }
 
-    pub fn already_known_tx(&self, hash: &H256) -> bool {
+    pub fn mark_as_known_txs(&self, hashes: Vec<Byte32>) {
+        {
+            let mut inflight_transactions = self.inflight_transactions.lock();
+            for hash in hashes.iter() {
+                inflight_transactions.remove(&hash);
+            }
+        }
+
+        let mut tx_filter = self.tx_filter.lock();
+
+        for hash in hashes {
+            tx_filter.insert(hash);
+        }
+    }
+
+    pub fn already_known_tx(&self, hash: &Byte32) -> bool {
         self.tx_filter.lock().contains(hash)
     }
 
-    // Return true when the block is that we have requested and received first time.
-    pub fn new_block_received(&self, block: &Block) -> bool {
-        self.write_inflight_blocks()
-            .remove_by_block(block.header().hash())
+    pub fn tx_filter(&self) -> MutexGuard<Filter<Byte32>> {
+        self.tx_filter.lock()
     }
 
-    pub fn insert_inflight_proposals(&self, ids: Vec<ProposalShortId>) -> Vec<bool> {
+    // Return true when the block is that we have requested and received first time.
+    pub fn new_block_received(&self, block: &core::BlockView) -> bool {
+        self.write_inflight_blocks().remove_by_block(block.hash())
+    }
+
+    pub fn insert_inflight_proposals(&self, ids: Vec<packed::ProposalShortId>) -> Vec<bool> {
         let mut locked = self.inflight_proposals.lock();
         ids.into_iter().map(|id| locked.insert(id)).collect()
     }
 
-    pub fn remove_inflight_proposals(&self, ids: &[ProposalShortId]) -> Vec<bool> {
+    pub fn remove_inflight_proposals(&self, ids: &[packed::ProposalShortId]) -> Vec<bool> {
         let mut locked = self.inflight_proposals.lock();
         ids.iter().map(|id| locked.remove(id)).collect()
     }
 
-    pub fn insert_orphan_block(&self, block: Block) {
-        let block_hash = block.header().hash().to_owned();
+    pub fn insert_orphan_block(&self, block: core::BlockView) {
+        self.insert_block_status(block.hash(), BlockStatus::BLOCK_RECEIVED);
         self.orphan_block_pool.insert(block);
-        self.insert_block_status(block_hash, BlockStatus::BLOCK_RECEIVED);
     }
 
-    pub fn remove_orphan_by_parent(&self, parent_hash: &H256) -> Vec<Block> {
+    pub fn remove_orphan_by_parent(&self, parent_hash: &Byte32) -> Vec<core::BlockView> {
         let blocks = self.orphan_block_pool.remove_blocks_by_parent(parent_hash);
         let mut block_status_map = self.block_status_map.lock();
         blocks.iter().for_each(|b| {
-            block_status_map.remove(b.header().hash());
+            block_status_map.remove(&b.hash());
         });
         blocks
     }
 
-    pub fn get_block_status(&self, block_hash: &H256) -> BlockStatus {
+    pub fn get_block_status(&self, block_hash: &Byte32) -> BlockStatus {
         let mut locked = self.block_status_map.lock();
         match locked.get(block_hash).cloned() {
             Some(status) => status,
@@ -1071,31 +1096,33 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         }
     }
 
-    pub fn contains_block_status(&self, block_hash: &H256, status: BlockStatus) -> bool {
+    pub fn contains_block_status(&self, block_hash: &Byte32, status: BlockStatus) -> bool {
         self.get_block_status(block_hash).contains(status)
     }
 
-    pub fn unknown_block_status(&self, block_hash: &H256) -> bool {
+    pub fn unknown_block_status(&self, block_hash: &Byte32) -> bool {
         self.get_block_status(block_hash) == BlockStatus::UNKNOWN
     }
 
-    pub fn insert_block_status(&self, block_hash: H256, status: BlockStatus) {
+    pub fn insert_block_status(&self, block_hash: Byte32, status: BlockStatus) {
         self.block_status_map.lock().insert(block_hash, status);
     }
 
-    pub fn remove_block_status(&self, block_hash: &H256) {
+    pub fn remove_block_status(&self, block_hash: &Byte32) {
         self.block_status_map.lock().remove(block_hash);
     }
 
-    pub fn clear_get_block_proposals(&self) -> FnvHashMap<ProposalShortId, FnvHashSet<PeerIndex>> {
+    pub fn clear_get_block_proposals(
+        &self,
+    ) -> HashMap<packed::ProposalShortId, HashSet<PeerIndex>> {
         let mut locked = self.pending_get_block_proposals.lock();
         let old = locked.deref_mut();
-        let mut ret = FnvHashMap::default();
-        swap(old, &mut ret);
+        let mut ret = HashMap::default();
+        mem::swap(old, &mut ret);
         ret
     }
 
-    pub fn insert_get_block_proposals(&self, pi: PeerIndex, ids: Vec<ProposalShortId>) {
+    pub fn insert_get_block_proposals(&self, pi: PeerIndex, ids: Vec<packed::ProposalShortId>) {
         let mut locked = self.pending_get_block_proposals.lock();
         for id in ids.into_iter() {
             locked.entry(id).or_default().insert(pi);
@@ -1112,18 +1139,18 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         &self,
         chain: &ChainController,
         pi: PeerIndex,
-        block: Arc<Block>,
+        block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
-        let known_parent = |block: &Block| {
+        let known_parent = |block: &core::BlockView| {
             self.store()
-                .get_block_header(block.header().parent_hash())
+                .get_block_header(&block.data().header().raw().parent_hash())
                 .is_some()
         };
 
         // Insert the given block into orphan_block_pool if its parent is not found
         if !known_parent(&block) {
             debug!(
-                "insert new orphan block {} {:x}",
+                "insert new orphan block {} {}",
                 block.header().number(),
                 block.header().hash()
             );
@@ -1140,13 +1167,13 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
         // The above block has been accepted. Attempt to accept its descendant blocks in orphan pool.
         // The returned blocks of `remove_blocks_by_parent` are in topology order by parents
-        let descendants = self.remove_orphan_by_parent(block.header().hash());
+        let descendants = self.remove_orphan_by_parent(&block.as_ref().hash());
         for block in descendants {
             // If we can not find the block's parent in database, that means it was failed to accept
             // its parent, so we treat it as a invalid block as well.
             if !known_parent(&block) {
                 debug!(
-                    "parent-unknown orphan block, block: {}, {:x}, parent: {:x}",
+                    "parent-unknown orphan block, block: {}, {}, parent: {}",
                     block.header().number(),
                     block.header().hash(),
                     block.header().parent_hash(),
@@ -1157,7 +1184,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             let block = Arc::new(block);
             if let Err(err) = self.accept_block(chain, pi, Arc::clone(&block)) {
                 debug!(
-                    "accept descendant orphan block {:#x} error {:?}",
+                    "accept descendant orphan block {} error {:?}",
                     block.header().hash(),
                     err
                 );
@@ -1171,7 +1198,7 @@ impl<CS: ChainStore> SyncSharedState<CS> {
         &self,
         chain: &ChainController,
         peer: PeerIndex,
-        block: Arc<Block>,
+        block: Arc<core::BlockView>,
     ) -> Result<bool, FailureError> {
         let ret = chain.process_block(Arc::clone(&block), true);
         if ret.is_err() {
@@ -1185,10 +1212,10 @@ impl<CS: ChainStore> SyncSharedState<CS> {
             // So we just simply remove the corresponding in-memory block status,
             // and the next time `get_block_status` would acquire the real-time
             // status via fetching block_ext from the database.
-            self.remove_block_status(block.header().hash());
+            self.remove_block_status(&block.as_ref().hash());
         }
 
-        self.remove_header_view(block.header().hash());
+        self.remove_header_view(&block.as_ref().hash());
         self.peers()
             .set_last_common_header(peer, block.header().clone());
         ret
@@ -1196,11 +1223,11 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
     pub(crate) fn new_header_resolver<'a>(
         &'a self,
-        header: &'a Header,
-        parent: Header,
+        header: &'a core::HeaderView,
+        parent: core::HeaderView,
     ) -> HeaderResolverWrapper<'a> {
         let epoch = self
-            .get_epoch_ext(parent.hash())
+            .get_epoch_ext(&parent.hash())
             .map(|ext| ext)
             .map(|last_epoch| {
                 self.next_epoch_ext(&last_epoch, &parent)
@@ -1209,31 +1236,46 @@ impl<CS: ChainStore> SyncSharedState<CS> {
 
         HeaderResolverWrapper::build(header, Some(parent), epoch)
     }
+
+    pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
+        peer_state.suspend_sync(SUSPEND_SYNC_TIME);
+        assert_ne!(
+            self.n_sync_started().fetch_sub(1, Ordering::Release),
+            0,
+            "n_sync_started overflow when suspend_sync"
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
-    use ckb_core::header::HeaderBuilder;
+    use super::HeaderView;
+    use ckb_types::{
+        core::{BlockNumber, HeaderBuilder},
+        packed::Byte32,
+        prelude::*,
+        U256,
+    };
     use rand::{thread_rng, Rng};
+    use std::collections::{BTreeMap, HashMap};
 
     const SKIPLIST_LENGTH: u64 = 10_000;
 
     #[test]
     fn test_get_ancestor_use_skip_list() {
-        let mut header_map: HashMap<H256, HeaderView> = HashMap::default();
-        let mut hashes: BTreeMap<BlockNumber, H256> = BTreeMap::default();
+        let mut header_map: HashMap<Byte32, HeaderView> = HashMap::default();
+        let mut hashes: BTreeMap<BlockNumber, Byte32> = BTreeMap::default();
 
         let mut parent_hash = None;
         for number in 0..SKIPLIST_LENGTH {
-            let mut header_builder = HeaderBuilder::default().number(number);
+            let mut header_builder = HeaderBuilder::default().number(number.pack());
             if let Some(parent_hash) = parent_hash.take() {
                 header_builder = header_builder.parent_hash(parent_hash);
             }
             let header = header_builder.build();
-            hashes.insert(number, header.hash().clone());
-            parent_hash = Some(header.hash().clone());
+            hashes.insert(number, header.hash());
+            parent_hash = Some(header.hash());
 
             let mut view = HeaderView::new(header, U256::zero(), 0);
             view.build_skip(|hash| header_map.get(hash).cloned());
@@ -1246,7 +1288,10 @@ mod tests {
                     .get(hash)
                     .and_then(|view| header_map.get(view.skip_hash.as_ref().unwrap()))
                     .unwrap();
-                assert_eq!(Some(skip_view.hash()), hashes.get(&skip_view.number()));
+                assert_eq!(
+                    Some(skip_view.hash()).as_ref(),
+                    hashes.get(&skip_view.number())
+                );
                 assert!(skip_view.number() < *number);
             } else {
                 assert!(header_map[hash].skip_hash.is_none());

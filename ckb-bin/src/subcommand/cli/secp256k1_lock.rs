@@ -2,9 +2,8 @@ use super::parse_hex_data;
 use ckb_app_config::{cli, ExitCode};
 use ckb_crypto::secp::Pubkey;
 use ckb_hash::blake2b_256;
-use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
+use ckb_types::H160;
 use clap::ArgMatches;
-use numext_fixed_hash::H160;
 
 pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
     let pubkey_bytes = parse_hex_data(matches.value_of(cli::ARG_DATA).unwrap())?;
@@ -26,20 +25,11 @@ pub fn secp256k1_lock<'m>(matches: &ArgMatches<'m>) -> Result<(), ExitCode> {
 
     match matches.value_of(cli::ARG_FORMAT).unwrap() {
         "toml" => {
-            println!("[block_assembler]");
-            println!("# secp256k1_blake160_sighash_all");
-            println!(
-                "code_hash = \"{:#x}\"",
-                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
-            );
             println!("# args = [ \"ckb cli blake160 <compressed-pubkey>\" ]");
             println!("args = [ \"{:#x}\" ]", pubkey_blake160);
         }
         "cmd" => {
-            println!(
-                "--ba-code-hash {:#x} --ba-arg {:#x}",
-                CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, pubkey_blake160
-            );
+            println!("--ba-arg {:#x}", pubkey_blake160);
         }
         _ => unreachable!(),
     }

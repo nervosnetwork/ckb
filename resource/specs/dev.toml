@@ -6,10 +6,7 @@ parent_hash = "0x000000000000000000000000000000000000000000000000000000000000000
 timestamp = 0
 difficulty = "0x100"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-
-[genesis.seal]
 nonce = 0
-proof = [0]
 
 [genesis.genesis_cell]
 message = "ckb_dev"
@@ -17,39 +14,57 @@ message = "ckb_dev"
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
-hash_type = "Data"
+hash_type = "data"
 
 # An array list paths to system cell files, which is absolute or relative to
 # the directory containing this config file.
-[genesis.system_cells]
-files = [
-  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
-  { bundled = "specs/cells/dao" }
-]
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
+create_type_id = true
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/dao" }
+create_type_id = true
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_data" }
+create_type_id = false
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" }
+create_type_id = true
 
-[genesis.system_cells.lock]
+[genesis.system_cells_lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
 args = []
-hash_type = "Data"
+hash_type = "data"
+
+# Dep group cells
+[genesis.dep_groups]
+secp256k1_blake160_sighash_all = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+]
+secp256k1_ripemd160_sha256_sighash_all = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
+]
 
 [genesis.bootstrap_lock]
-code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
-hash_type = "Data"
+hash_type = "type"
 
 # issue 5M cell for random generated private key: d00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc
 [[genesis.issued_cells]]
 capacity = 5_000_000_00000000
-lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 lock.args = ["0xc8328aabcd9b9e8e64fbc566c4385c3bdeb219d7"]
-lock.hash_type = "Data"
+lock.hash_type = "type"
 
 # issue 5M cell for random generated private key: 63d86723e08f0f813a36ce6aa123bb2289d90680ae1e99d4de8cdb334553f24d
 [[genesis.issued_cells]]
 capacity = 5_000_000_00000000
-lock.code_hash = "0x54811ce986d5c3e57eaafab22cdd080e32209e39590e204a99b32935f835a13c"
+lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
 lock.args = ["0x470dcdc5e44064909650113a274b3b36aecb6dc7"]
-lock.hash_type = "Data"
+lock.hash_type = "type"
 
 [params]
 epoch_reward = 1_250_000_00000000

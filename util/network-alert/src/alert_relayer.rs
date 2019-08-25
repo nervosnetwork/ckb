@@ -10,15 +10,12 @@ use crate::config::{NotifierConfig, SignatureConfig};
 use crate::notifier::Notifier;
 use crate::verifier::Verifier;
 use crate::BAD_MESSAGE_BAN_TIME;
-use ckb_core::alert::Alert;
 use ckb_logger::{debug, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
-use ckb_protocol::{get_root, AlertMessage};
+use ckb_types::{packed, prelude::*};
 use ckb_util::Mutex;
-use flatbuffers::FlatBufferBuilder;
-use fnv::FnvHashSet;
 use lru_cache::LruCache;
-use std::convert::TryInto;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 const KNOWN_LIST_SIZE: usize = 64;
@@ -29,7 +26,7 @@ const KNOWN_LIST_SIZE: usize = 64;
 pub struct AlertRelayer {
     notifier: Arc<Mutex<Notifier>>,
     verifier: Arc<Verifier>,
-    known_lists: LruCache<PeerIndex, FnvHashSet<u32>>,
+    known_lists: LruCache<PeerIndex, HashSet<u32>>,
 }
 
 impl AlertRelayer {
@@ -63,7 +60,7 @@ impl AlertRelayer {
         match self.known_lists.get_refresh(&peer) {
             Some(alert_ids) => alert_ids.insert(alert_id),
             None => {
-                let mut alert_ids = FnvHashSet::default();
+                let mut alert_ids = HashSet::new();
                 alert_ids.insert(alert_id);
                 self.known_lists.insert(peer, alert_ids);
                 true
@@ -83,11 +80,9 @@ impl CKBProtocolHandler for AlertRelayer {
     ) {
         self.clear_expired_alerts();
         for alert in self.notifier.lock().received_alerts() {
-            trace!("send alert {} to peer {}", alert.id, peer_index);
-            let fbb = &mut FlatBufferBuilder::new();
-            let msg = AlertMessage::build_alert(fbb, &alert);
-            fbb.finish(msg, None);
-            if let Err(err) = nc.quick_send_message_to(peer_index, fbb.finished_data().into()) {
+            let alert_id: u32 = alert.as_reader().raw().id().unpack();
+            trace!("send alert {} to peer {}", alert_id, peer_index);
+            if let Err(err) = nc.quick_send_message_to(peer_index, alert.as_slice().into()) {
                 debug!("alert_relayer send alert when connected error: {:?}", err);
             }
         }
@@ -99,21 +94,42 @@ impl CKBProtocolHandler for AlertRelayer {
         peer_index: PeerIndex,
         data: bytes::Bytes,
     ) {
-        let alert: Arc<Alert> = match get_root::<AlertMessage>(&data)
-            .ok()
-            .and_then(|m| m.payload())
-            .map(TryInto::try_into)
-        {
-            Some(Ok(alert)) => Arc::new(alert),
-            Some(Err(_)) | None => {
-                info!("Peer {} sends us malformed message", peer_index);
+        let alert: Arc<packed::Alert> = match packed::AlertReader::from_slice(&data) {
+            Ok(alert) => {
+                if alert.raw().message().is_utf8()
+                    && alert
+                        .raw()
+                        .min_version()
+                        .to_opt()
+                        .map(|x| x.is_utf8())
+                        .unwrap_or(true)
+                    && alert
+                        .raw()
+                        .max_version()
+                        .to_opt()
+                        .map(|x| x.is_utf8())
+                        .unwrap_or(true)
+                {
+                    Arc::new(alert.to_entity())
+                } else {
+                    info!(
+                        "Peer {} sends us malformed message: not utf-8 string",
+                        peer_index
+                    );
+                    nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
+                    return;
+                }
+            }
+            Err(err) => {
+                info!("Peer {} sends us malformed message: {:?}", peer_index, err);
                 nc.ban_peer(peer_index, BAD_MESSAGE_BAN_TIME);
                 return;
             }
         };
-        trace!("receive alert {} from peer {}", alert.id, peer_index);
+        let alert_id = alert.as_reader().raw().id().unpack();
+        trace!("receive alert {} from peer {}", alert_id, peer_index);
         // ignore alert
-        if self.notifier.lock().has_received(alert.id) {
+        if self.notifier.lock().has_received(alert_id) {
             return;
         }
         // verify
@@ -126,16 +142,12 @@ impl CKBProtocolHandler for AlertRelayer {
             return;
         }
         // mark sender as known
-        self.mark_as_known(peer_index, alert.id);
+        self.mark_as_known(peer_index, alert_id);
         // broadcast message
-        let fbb = &mut FlatBufferBuilder::new();
-        let msg = AlertMessage::build_alert(fbb, &alert);
-        fbb.finish(msg, None);
-        let data = fbb.finished_data().into();
         let selected_peers: Vec<PeerIndex> = nc
             .connected_peers()
             .into_iter()
-            .filter(|peer| self.mark_as_known(*peer, alert.id))
+            .filter(|peer| self.mark_as_known(*peer, alert_id))
             .collect();
         if let Err(err) = nc.quick_filter_broadcast(TargetSession::Multi(selected_peers), data) {
             debug!("alert broadcast error: {:?}", err);

@@ -5,6 +5,10 @@ use log::info;
 pub struct BlockRelayBasic;
 
 impl Spec for BlockRelayBasic {
+    crate::name!("block_relay_basic");
+
+    crate::setup!(num_nodes: 3);
+
     fn run(&self, net: Net) {
         net.exit_ibd_mode();
         let node0 = &net.nodes[0];
@@ -21,9 +25,5 @@ impl Spec for BlockRelayBasic {
         let rpc_client = node2.rpc_client();
         let ret = wait_until(10, || rpc_client.get_block(hash.clone()).is_some());
         assert!(ret, "Block should be relayed to node2");
-    }
-
-    fn num_nodes(&self) -> usize {
-        3
     }
 }

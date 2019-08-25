@@ -1,13 +1,15 @@
-use crate::Net;
-use bytes::Bytes;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::header::{Header, HeaderBuilder, Seal};
-use ckb_core::BlockNumber;
-use ckb_jsonrpc_types::BlockTemplate;
-use ckb_protocol::{RelayMessage, SyncMessage};
-use flatbuffers::FlatBufferBuilder;
-use numext_fixed_hash::H256;
-use std::collections::HashSet;
+use crate::{Net, Node};
+use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
+use ckb_types::{
+    bytes::Bytes,
+    core::{BlockNumber, BlockView, HeaderView, TransactionView},
+    packed::{
+        Block, BlockTransactions, CompactBlock, GetBlocks, RelayMessage, SendBlock, SendHeaders,
+        SyncMessage,
+    },
+    prelude::*,
+    H256,
+};
 use std::convert::Into;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -23,73 +25,82 @@ pub const FLAG_SINCE_TIMESTAMP: u64 =
     0b100_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000;
 
 // Build compact block based on core block, and specific prefilled indices
-pub fn build_compact_block_with_prefilled(block: &Block, prefilled: Vec<usize>) -> Bytes {
+pub fn build_compact_block_with_prefilled(block: &BlockView, prefilled: Vec<usize>) -> Bytes {
     let prefilled = prefilled.into_iter().collect();
-    let fbb = &mut FlatBufferBuilder::new();
-    let message = RelayMessage::build_compact_block(fbb, &block, &prefilled);
-    fbb.finish(message, None);
-    fbb.finished_data().into()
+    let compact_block = CompactBlock::build_from_block(block, &prefilled);
+    RelayMessage::new_builder()
+        .set(compact_block)
+        .build()
+        .as_bytes()
 }
 
 // Build compact block based on core block
-pub fn build_compact_block(block: &Block) -> Bytes {
-    let fbb = &mut FlatBufferBuilder::new();
-    let message = RelayMessage::build_compact_block(fbb, &block, &HashSet::new());
-    fbb.finish(message, None);
-    fbb.finished_data().into()
+pub fn build_compact_block(block: &BlockView) -> Bytes {
+    build_compact_block_with_prefilled(block, Vec::new())
 }
 
-pub fn build_block_transactions(block: &Block) -> Bytes {
-    let fbb = &mut FlatBufferBuilder::new();
-    let message =
-        RelayMessage::build_block_transactions(fbb, block.header().hash(), block.transactions());
-    fbb.finish(message, None);
-    fbb.finished_data().into()
+pub fn build_block_transactions(block: &BlockView) -> Bytes {
+    // compact block has always prefilled cellbase
+    let block_txs = BlockTransactions::new_builder()
+        .block_hash(block.header().hash())
+        .transactions(
+            block
+                .transactions()
+                .into_iter()
+                .map(|view| view.data())
+                .skip(1)
+                .pack(),
+        )
+        .build();
+    RelayMessage::new_builder()
+        .set(block_txs)
+        .build()
+        .as_bytes()
 }
 
-pub fn build_header(header: &Header) -> Bytes {
+pub fn build_header(header: &HeaderView) -> Bytes {
     build_headers(&[header.clone()])
 }
 
-pub fn build_headers(headers: &[Header]) -> Bytes {
-    let fbb = &mut FlatBufferBuilder::new();
-    let message = SyncMessage::build_headers(fbb, headers);
-    fbb.finish(message, None);
-    fbb.finished_data().into()
+pub fn build_headers(headers: &[HeaderView]) -> Bytes {
+    let send_headers = SendHeaders::new_builder()
+        .headers(
+            headers
+                .iter()
+                .map(|view| view.data())
+                .collect::<Vec<_>>()
+                .pack(),
+        )
+        .build();
+    SyncMessage::new_builder()
+        .set(send_headers)
+        .build()
+        .as_bytes()
 }
 
-pub fn build_block(block: &Block) -> Bytes {
-    let fbb = &mut FlatBufferBuilder::new();
-    let message = SyncMessage::build_block(fbb, block);
-    fbb.finish(message, None);
-    fbb.finished_data().into()
+pub fn build_block(block: &BlockView) -> Bytes {
+    SyncMessage::new_builder()
+        .set(SendBlock::new_builder().block(block.data()).build())
+        .build()
+        .as_bytes()
 }
 
 pub fn build_get_blocks(hashes: &[H256]) -> Bytes {
-    let fbb = &mut FlatBufferBuilder::new();
-    let message = SyncMessage::build_get_blocks(fbb, hashes);
-    fbb.finish(message, None);
-    fbb.finished_data().into()
+    let get_blocks = GetBlocks::new_builder()
+        .block_hashes(hashes.iter().map(|hash| hash.pack()).pack())
+        .build();
+    SyncMessage::new_builder()
+        .set(get_blocks)
+        .build()
+        .as_bytes()
 }
 
 pub fn new_block_with_template(template: BlockTemplate) -> Block {
-    let cellbase = template.cellbase.data;
-    let header_builder = HeaderBuilder::default()
-        .version(template.version.0)
-        .number(template.number.0)
-        .difficulty(template.difficulty.clone())
-        .timestamp(template.current_time.0)
-        .parent_hash(template.parent_hash)
-        .seal(Seal::new(rand::random(), Bytes::new()))
-        .dao(template.dao.into_bytes());
-
-    BlockBuilder::default()
-        .uncles(template.uncles)
-        .transaction(cellbase)
-        .transactions(template.transactions)
-        .proposals(template.proposals)
-        .header_builder(header_builder)
+    Block::from(template)
+        .as_advanced_builder()
+        .nonce(rand::random::<u64>().pack())
         .build()
+        .data()
 }
 
 pub fn wait_until<F>(secs: u64, mut f: F) -> bool
@@ -134,4 +145,26 @@ pub fn since_from_relative_timestamp(timestamp: u64) -> u64 {
 
 pub fn since_from_absolute_timestamp(timestamp: u64) -> u64 {
     FLAG_SINCE_TIMESTAMP | timestamp
+}
+
+pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, message: &str) {
+    let result = node
+        .rpc_client()
+        .inner()
+        .lock()
+        .send_transaction(transaction.data().into())
+        .call();
+    let error = result.expect_err(&format!("transaction is invalid since {}", message));
+    let error_string = error.to_string();
+    assert!(
+        error_string.contains(message),
+        "expect error \"{}\" but got \"{}\"",
+        message,
+        error_string,
+    );
+}
+
+pub fn is_committed(tx_status: &TransactionWithStatus) -> bool {
+    let committed_status = TxStatus::committed(H256::zero());
+    tx_status.tx_status.status == committed_status.status
 }

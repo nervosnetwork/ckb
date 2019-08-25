@@ -1,12 +1,19 @@
 use crate::utils::wait_until;
 use crate::{Net, Spec, TestProtocol};
-use ckb_protocol::{get_root, SyncMessage, SyncPayload};
 use ckb_sync::NetworkProtocol;
+use ckb_types::{
+    packed::{GetHeaders, SyncMessage},
+    prelude::*,
+};
 use log::info;
 
 pub struct MalformedMessage;
 
 impl Spec for MalformedMessage {
+    crate::name!("malformed_message");
+
+    crate::setup!(protocols: vec![TestProtocol::sync()]);
+
     fn run(&self, net: Net) {
         info!("Connect node0");
         let node0 = &net.nodes[0];
@@ -15,8 +22,8 @@ impl Spec for MalformedMessage {
 
         info!("Test node should receive GetHeaders message from node0");
         let (peer_id, _, data) = net.receive();
-        let msg = get_root::<SyncMessage>(&data).expect("parse message failed");
-        assert_eq!(SyncPayload::GetHeaders, msg.payload_type());
+        let message = SyncMessage::from_slice(&data).expect("parse message failed");
+        assert_eq!(GetHeaders::NAME, message.to_enum().item_name());
 
         info!("Send malformed message to node0 twice");
         net.send(
@@ -39,9 +46,5 @@ impl Spec for MalformedMessage {
                 .any(|ban| ban.address == "127.0.0.1/32")
         });
         assert!(ret, "Node0 should ban test node");
-    }
-
-    fn test_protocols(&self) -> Vec<TestProtocol> {
-        vec![TestProtocol::sync()]
     }
 }

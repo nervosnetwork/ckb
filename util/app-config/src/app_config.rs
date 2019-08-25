@@ -152,6 +152,21 @@ impl AppConfig {
 impl CKBAppConfig {
     fn derive_options(mut self, root_dir: &Path, subcommand_name: &str) -> Result<Self, ExitCode> {
         self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
+
+        if subcommand_name == cli::CMD_RESET_DATA {
+            self.db.path = self.data_dir.join("db");
+            self.indexer_db.path = self.data_dir.join("indexer_db");
+            self.network.path = self.data_dir.join("network");
+            self.logger.file = Some(
+                self.data_dir
+                    .join("logs")
+                    .join(subcommand_name.to_string() + ".log"),
+            );
+
+            return Ok(self);
+        }
+
+        self.data_dir = mkdir(self.data_dir)?;
         if self.logger.log_to_file {
             self.logger.file = Some(touch(
                 mkdir(self.data_dir.join("logs"))?.join(subcommand_name.to_string() + ".log"),
@@ -168,7 +183,7 @@ impl CKBAppConfig {
 
 impl MinerAppConfig {
     fn derive_options(mut self, root_dir: &Path) -> Result<Self, ExitCode> {
-        self.data_dir = canonicalize_data_dir(self.data_dir, root_dir)?;
+        self.data_dir = mkdir(canonicalize_data_dir(self.data_dir, root_dir)?)?;
         if self.logger.log_to_file {
             self.logger.file = Some(touch(mkdir(self.data_dir.join("logs"))?.join("miner.log"))?);
         }
@@ -185,7 +200,7 @@ fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> Result<PathBuf, 
         root_dir.join(data_dir)
     };
 
-    mkdir(path)
+    Ok(path)
 }
 
 fn mkdir(dir: PathBuf) -> Result<PathBuf, ExitCode> {

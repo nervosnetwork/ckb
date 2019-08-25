@@ -1,18 +1,17 @@
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::Header;
-use ckb_core::reward::BlockReward;
-use ckb_core::script::Script;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
+use ckb_types::{
+    core::{BlockReward, EpochExt, HeaderView},
+    packed::Script,
+    H256,
+};
 use failure::Error as FailureError;
-use numext_fixed_hash::H256;
-use std::sync::Arc;
 
 pub trait ChainProvider: Sync + Send {
-    type Store: ChainStore;
+    type Store: ChainStore<'static>;
 
-    fn store(&self) -> &Arc<Self::Store>;
+    fn store(&self) -> &Self::Store;
 
     fn script_config(&self) -> &ScriptConfig;
 
@@ -20,10 +19,12 @@ pub trait ChainProvider: Sync + Send {
 
     fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt>;
 
-    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &Header) -> Option<EpochExt>;
+    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt>;
 
-    fn finalize_block_reward(&self, parent: &Header)
-        -> Result<(Script, BlockReward), FailureError>;
+    fn finalize_block_reward(
+        &self,
+        parent: &HeaderView,
+    ) -> Result<(Script, BlockReward), FailureError>;
 
     fn consensus(&self) -> &Consensus;
 }

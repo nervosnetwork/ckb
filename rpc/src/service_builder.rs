@@ -11,28 +11,25 @@ use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
+use ckb_sync::SyncSharedState;
 use ckb_sync::Synchronizer;
 use ckb_util::Mutex;
 use jsonrpc_core::IoHandler;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
-pub struct ServiceBuilder<'a, CS> {
+pub struct ServiceBuilder<'a> {
     config: &'a Config,
     io_handler: IoHandler,
-    _phantom: PhantomData<CS>,
 }
 
-impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
+impl<'a> ServiceBuilder<'a> {
     pub fn new(config: &'a Config) -> Self {
         Self {
             config,
             io_handler: IoHandler::new(),
-            _phantom: PhantomData,
         }
     }
-    pub fn enable_chain(mut self, shared: Shared<CS>) -> Self {
+    pub fn enable_chain(mut self, shared: Shared) -> Self {
         if self.config.chain_enable() {
             self.io_handler
                 .extend_with(ChainRpcImpl { shared }.to_delegate());
@@ -40,21 +37,17 @@ impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
         self
     }
 
-    pub fn enable_pool(
-        mut self,
-        shared: Shared<CS>,
-        network_controller: NetworkController,
-    ) -> Self {
+    pub fn enable_pool(mut self, shared: Shared, sync_shared_state: Arc<SyncSharedState>) -> Self {
         if self.config.pool_enable() {
             self.io_handler
-                .extend_with(PoolRpcImpl::new(shared, network_controller).to_delegate());
+                .extend_with(PoolRpcImpl::new(shared, sync_shared_state).to_delegate());
         }
         self
     }
 
     pub fn enable_miner(
         mut self,
-        shared: Shared<CS>,
+        shared: Shared,
         network_controller: NetworkController,
         chain: ChainController,
         block_assembler: Option<BlockAssemblerController>,
@@ -85,8 +78,8 @@ impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
 
     pub fn enable_stats(
         mut self,
-        shared: Shared<CS>,
-        synchronizer: Synchronizer<CS>,
+        shared: Shared,
+        synchronizer: Synchronizer,
         alert_notifier: Arc<Mutex<AlertNotifier>>,
     ) -> Self {
         if self.config.stats_enable() {
@@ -102,7 +95,7 @@ impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
         self
     }
 
-    pub fn enable_experiment(mut self, shared: Shared<CS>) -> Self {
+    pub fn enable_experiment(mut self, shared: Shared) -> Self {
         if self.config.experiment_enable() {
             self.io_handler
                 .extend_with(ExperimentRpcImpl { shared }.to_delegate());
@@ -112,7 +105,7 @@ impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
 
     pub fn enable_integration_test(
         mut self,
-        shared: Shared<CS>,
+        shared: Shared,
         network_controller: NetworkController,
         chain: ChainController,
     ) -> Self {
@@ -143,7 +136,7 @@ impl<'a, CS: ChainStore + 'static> ServiceBuilder<'a, CS> {
         self
     }
 
-    pub fn enable_indexer(mut self, db_config: &DBConfig, shared: Shared<CS>) -> Self {
+    pub fn enable_indexer(mut self, db_config: &DBConfig, shared: Shared) -> Self {
         if self.config.indexer_enable() {
             let store = DefaultIndexerStore::new(db_config, shared);
             store.clone().start(Some("IndexerStore"));

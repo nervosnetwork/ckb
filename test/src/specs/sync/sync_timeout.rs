@@ -4,6 +4,10 @@ use log::info;
 pub struct SyncTimeout;
 
 impl Spec for SyncTimeout {
+    crate::name!("sync_timeout");
+
+    crate::setup!(num_nodes: 5, connect_all: false);
+
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -42,13 +46,5 @@ impl Spec for SyncTimeout {
         node4.connect(node1);
         info!("Waiting for all nodes sync");
         net.waiting_for_sync(402);
-    }
-
-    fn num_nodes(&self) -> usize {
-        5
-    }
-
-    fn connect_all(&self) -> bool {
-        false
     }
 }

@@ -1,6 +1,6 @@
-use crate::worker::{CuckooSimpleConfig, DummyConfig};
-use ckb_jsonrpc_types::JsonBytes;
-use numext_fixed_hash::H256;
+use crate::worker::{DummyConfig, EaglesongSimpleConfig};
+use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
+use ckb_types::H256;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -20,12 +20,13 @@ pub struct ClientConfig {
 #[serde(tag = "worker_type")]
 pub enum WorkerConfig {
     Dummy(DummyConfig),
-    CuckooSimple(CuckooSimpleConfig),
+    EaglesongSimple(EaglesongSimpleConfig),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockAssemblerConfig {
     pub code_hash: H256,
+    pub hash_type: ScriptHashType,
     pub args: Vec<JsonBytes>,
     #[serde(default)]
     pub data: JsonBytes,

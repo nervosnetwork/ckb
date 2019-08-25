@@ -5,6 +5,8 @@ use log::info;
 pub struct SizeLimit;
 
 impl Spec for SizeLimit {
+    crate::name!("size_limit");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 
@@ -18,7 +20,8 @@ impl Spec for SizeLimit {
 
         (0..4).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
-            hash = node.rpc_client().send_transaction((&tx).into());
+            info!("tx.size: {}", tx.serialized_size());
+            hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
@@ -27,13 +30,13 @@ impl Spec for SizeLimit {
 
         let error = node
             .rpc_client()
-            .send_transaction_result((&tx).into())
+            .send_transaction_result(tx.data().into())
             .unwrap_err();
         assert_regex_match(&error.to_string(), r"LimitReached");
 
-        // 149 * 5
+        // 298 * 5
         // 12 * 5
-        node.assert_tx_pool_statics(745, 60);
+        node.assert_tx_pool_statics(1490, 60);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
@@ -43,7 +46,7 @@ impl Spec for SizeLimit {
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         Box::new(|config| {
-            config.tx_pool.max_mem_size = 745;
+            config.tx_pool.max_mem_size = 1490;
             config.tx_pool.max_cycles = 200_000_000_000;
         })
     }
@@ -52,6 +55,8 @@ impl Spec for SizeLimit {
 pub struct CyclesLimit;
 
 impl Spec for CyclesLimit {
+    crate::name!("cycles_limit");
+
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
 
@@ -65,7 +70,8 @@ impl Spec for CyclesLimit {
 
         (0..4).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
-            hash = node.rpc_client().send_transaction((&tx).into());
+            info!("tx.size: {}", tx.serialized_size());
+            hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
@@ -74,13 +80,13 @@ impl Spec for CyclesLimit {
 
         let error = node
             .rpc_client()
-            .send_transaction_result((&tx).into())
+            .send_transaction_result(tx.data().into())
             .unwrap_err();
         assert_regex_match(&error.to_string(), r"LimitReached");
 
-        // 149 * 5
+        // 298 * 5
         // 12 * 5
-        node.assert_tx_pool_statics(745, 60);
+        node.assert_tx_pool_statics(1490, 60);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });

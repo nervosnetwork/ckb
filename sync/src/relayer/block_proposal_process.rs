@@ -1,26 +1,29 @@
 use crate::relayer::Relayer;
-use ckb_core::transaction::{ProposalShortId, Transaction};
 use ckb_logger::{debug_target, warn_target};
 use ckb_network::CKBProtocolContext;
-use ckb_protocol::{cast, BlockProposal, FlatbuffersVectorIterator};
-use ckb_store::ChainStore;
+use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use futures::{self, future::FutureResult, lazy};
-use numext_fixed_hash::H256;
-use std::convert::TryInto;
 use std::sync::Arc;
 
-pub struct BlockProposalProcess<'a, CS> {
-    message: &'a BlockProposal<'a>,
-    relayer: &'a Relayer<CS>,
-    nc: Arc<dyn CKBProtocolContext + Sync>,
+pub struct BlockProposalProcess<'a> {
+    message: packed::BlockProposalReader<'a>,
+    relayer: &'a Relayer,
+    nc: Arc<dyn CKBProtocolContext>,
 }
 
-impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
+#[derive(Debug, Eq, PartialEq)]
+pub enum Status {
+    NoUnknown,
+    NoAsked,
+    Ok,
+}
+
+impl<'a> BlockProposalProcess<'a> {
     pub fn new(
-        message: &'a BlockProposal,
-        relayer: &'a Relayer<CS>,
-        nc: Arc<dyn CKBProtocolContext + Sync>,
+        message: packed::BlockProposalReader<'a>,
+        relayer: &'a Relayer,
+        nc: Arc<dyn CKBProtocolContext>,
     ) -> Self {
         BlockProposalProcess {
             message,
@@ -29,38 +32,34 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
         }
     }
 
-    pub fn execute(self) -> Result<(), FailureError> {
-        let txs: Vec<Transaction> =
-            FlatbuffersVectorIterator::new(cast!(self.message.transactions())?)
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<Transaction>, _>>()?;
-
-        let unknown_txs: Vec<(H256, Transaction)> = txs
-            .into_iter()
-            .filter_map(|tx| {
-                let tx_hash = tx.hash();
-                if self.relayer.shared().already_known_tx(&tx_hash) {
-                    None
-                } else {
-                    Some((tx_hash.to_owned(), tx))
-                }
-            })
+    pub fn execute(self) -> Result<Status, FailureError> {
+        let unknown_txs: Vec<core::TransactionView> = self
+            .message
+            .transactions()
+            .iter()
+            .map(|x| x.to_entity().into_view())
+            .filter(|tx| !self.relayer.shared().already_known_tx(&tx.hash()))
             .collect();
+
         if unknown_txs.is_empty() {
-            return Ok(());
+            return Ok(Status::NoUnknown);
         }
 
-        let proposals: Vec<ProposalShortId> = unknown_txs
+        let proposals: Vec<packed::ProposalShortId> = unknown_txs
             .iter()
-            .map(|(tx_hash, _)| ProposalShortId::from_tx_hash(tx_hash))
+            .map(|tx| packed::ProposalShortId::from_tx_hash(&tx.hash().unpack()))
             .collect();
         let removes = self.relayer.shared().remove_inflight_proposals(&proposals);
         let mut asked_txs = Vec::new();
-        for (previously_in, (tx_hash, transaction)) in removes.into_iter().zip(unknown_txs) {
+        for (previously_in, tx) in removes.into_iter().zip(unknown_txs) {
             if previously_in {
-                self.relayer.shared().mark_as_known_tx(tx_hash);
-                asked_txs.push(transaction);
+                self.relayer.shared().mark_as_known_tx(tx.hash());
+                asked_txs.push(tx);
             }
+        }
+
+        if asked_txs.is_empty() {
+            return Ok(Status::NoAsked);
         }
 
         if let Err(err) = self.nc.future_task(
@@ -86,6 +85,6 @@ impl<'a, CS: ChainStore + 'static> BlockProposalProcess<'a, CS> {
                 err,
             );
         }
-        Ok(())
+        Ok(Status::Ok)
     }
 }

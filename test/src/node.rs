@@ -3,15 +3,19 @@ use crate::utils::wait_until;
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::script::{Script, ScriptHashType};
-use ckb_core::transaction::{CellInput, CellOutput, OutPoint, Transaction, TransactionBuilder};
-use ckb_core::{capacity_bytes, BlockNumber, Bytes, Capacity};
 use ckb_jsonrpc_types::JsonBytes;
-use numext_fixed_hash::H256;
+use ckb_types::{
+    core::{
+        self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, ScriptHashType,
+        TransactionView,
+    },
+    packed::{Block, CellDep, CellInput, CellOutput, CellOutputBuilder, OutPoint, Script},
+    prelude::*,
+    H256,
+};
+use failure::Error;
 use std::convert::Into;
 use std::fs;
-use std::io::Error;
 use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
 
@@ -23,6 +27,7 @@ pub struct Node {
     rpc_client: RpcClient,
     node_id: Option<String>,
     genesis_cellbase_hash: H256,
+    dep_group_tx_hash: H256,
     always_success_code_hash: H256,
     guard: Option<ProcessGuard>,
     pub consensus: Option<Consensus>,
@@ -52,6 +57,7 @@ impl Node {
             node_id: None,
             guard: None,
             genesis_cellbase_hash: Default::default(),
+            dep_group_tx_hash: Default::default(),
             always_success_code_hash: Default::default(),
             consensus: None,
         }
@@ -63,6 +69,10 @@ impl Node {
 
     pub fn p2p_port(&self) -> u16 {
         self.p2p_port
+    }
+
+    pub fn dep_group_tx_hash(&self) -> &H256 {
+        &self.dep_group_tx_hash
     }
 
     pub fn start(
@@ -126,6 +136,17 @@ impl Node {
         if !result {
             panic!("Connect outbound peer timeout, node id: {}", node_id);
         }
+    }
+
+    pub fn connect_uncheck(&self, outbound_peer: &Node) {
+        let node_info = outbound_peer.rpc_client().local_node_info();
+
+        let node_id = node_info.node_id;
+        let rpc_client = self.rpc_client();
+        rpc_client.add_node(
+            node_id.clone(),
+            format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
+        );
     }
 
     // workaround for banned address checking (because we are using loopback address)
@@ -205,13 +226,13 @@ impl Node {
 
     pub fn submit_block(&self, block: &Block) -> H256 {
         self.rpc_client()
-            .submit_block("".to_owned(), block.into())
+            .submit_block("".to_owned(), block.clone().into())
             .expect("submit_block result none")
     }
 
-    pub fn process_block_without_verify(&self, block: &Block) -> H256 {
+    pub fn process_block_without_verify(&self, block: &BlockView) -> H256 {
         self.rpc_client()
-            .process_block_without_verify(block.into())
+            .process_block_without_verify(block.data().into())
             .expect("process_block_without_verify result none")
     }
 
@@ -221,7 +242,7 @@ impl Node {
 
     // generate a new block and submit it through rpc.
     pub fn generate_block(&self) -> H256 {
-        self.submit_block(&self.new_block(None, None, None))
+        self.submit_block(&self.new_block(None, None, None).data())
     }
 
     // generate a transaction which spend tip block's cellbase and send it to pool through rpc.
@@ -230,17 +251,18 @@ impl Node {
     }
 
     // generate a transaction which spend tip block's cellbase
-    pub fn new_transaction_spend_tip_cellbase(&self) -> Transaction {
+    pub fn new_transaction_spend_tip_cellbase(&self) -> TransactionView {
         let block = self.get_tip_block();
         let cellbase = &block.transactions()[0];
-        self.new_transaction(cellbase.hash().to_owned())
+        self.new_transaction(cellbase.hash().to_owned().unpack())
     }
 
-    pub fn submit_transaction(&self, transaction: &Transaction) -> H256 {
-        self.rpc_client().send_transaction(transaction.into())
+    pub fn submit_transaction(&self, transaction: &TransactionView) -> H256 {
+        self.rpc_client()
+            .send_transaction(transaction.data().into())
     }
 
-    pub fn get_tip_block(&self) -> Block {
+    pub fn get_tip_block(&self) -> BlockView {
         let rpc_client = self.rpc_client();
         let tip_number = rpc_client.get_tip_block_number();
         rpc_client
@@ -253,7 +275,7 @@ impl Node {
         self.rpc_client().get_tip_block_number()
     }
 
-    pub fn get_block_by_number(&self, number: BlockNumber) -> Block {
+    pub fn get_block_by_number(&self, number: BlockNumber) -> BlockView {
         self.rpc_client()
             .get_block_by_number(number)
             .expect("block exists")
@@ -265,7 +287,7 @@ impl Node {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<u32>,
-    ) -> Block {
+    ) -> BlockView {
         self.new_block_builder(bytes_limit, proposals_limit, max_version)
             .build()
     }
@@ -280,30 +302,47 @@ impl Node {
             self.rpc_client()
                 .get_block_template(bytes_limit, proposals_limit, max_version);
 
-        template.into()
+        Block::from(template).as_advanced_builder()
     }
 
-    pub fn new_transaction(&self, hash: H256) -> Transaction {
+    pub fn new_transaction(&self, hash: H256) -> TransactionView {
         self.new_transaction_with_since(hash, 0)
     }
 
-    pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> Transaction {
-        let always_success_out_point = OutPoint::new_cell(self.genesis_cellbase_hash.clone(), 1);
-        let always_success_script = Script::new(
-            vec![],
-            self.always_success_code_hash.clone(),
-            ScriptHashType::Data,
-        );
+    pub fn new_transaction_with_since(&self, hash: H256, since: u64) -> TransactionView {
+        self.new_transaction_with_since_capacity(hash, since, capacity_bytes!(100))
+    }
 
-        TransactionBuilder::default()
-            .dep(always_success_out_point)
-            .output(CellOutput::new(
-                capacity_bytes!(100),
-                Bytes::new(),
-                always_success_script,
-                None,
-            ))
-            .input(CellInput::new(OutPoint::new_cell(hash, 0), since))
+    pub fn new_transaction_with_since_capacity(
+        &self,
+        hash: H256,
+        since: u64,
+        capacity: Capacity,
+    ) -> TransactionView {
+        let always_success_out_point = OutPoint::new(self.genesis_cellbase_hash.clone(), 1);
+        let always_success_script = self.always_success_script();
+
+        core::TransactionBuilder::default()
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(always_success_out_point)
+                    .build(),
+            )
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(capacity.pack())
+                    .lock(always_success_script)
+                    .build(),
+            )
+            .output_data(Default::default())
+            .input(CellInput::new(OutPoint::new(hash, 0), since))
+            .build()
+    }
+
+    pub fn always_success_script(&self) -> Script {
+        Script::new_builder()
+            .code_hash(self.always_success_code_hash.clone().pack())
+            .hash_type(ScriptHashType::Data.pack())
             .build()
     }
 
@@ -320,16 +359,23 @@ impl Node {
 
         let mut spec: ChainSpec =
             toml::from_slice(&integration_spec[..]).expect("chain spec config");
-        for r in spec.genesis.system_cells.files.iter_mut() {
-            r.absolutize(Path::new(&self.dir).join("specs"));
+        for r in spec.genesis.system_cells.iter_mut() {
+            r.file.absolutize(Path::new(&self.dir).join("specs"));
         }
         modify_chain_spec(&mut spec);
 
         let consensus = spec.build_consensus().expect("build consensus");
         self.genesis_cellbase_hash
-            .clone_from(consensus.genesis_block().transactions()[0].hash());
-        self.always_success_code_hash =
-            consensus.genesis_block().transactions()[0].outputs()[1].data_hash();
+            .clone_from(&consensus.genesis_block().transactions()[0].hash().unpack());
+        self.dep_group_tx_hash
+            .clone_from(&consensus.genesis_block().transactions()[1].hash().unpack());
+        self.always_success_code_hash = CellOutput::calc_data_hash(
+            &consensus.genesis_block().transactions()[0]
+                .outputs_data()
+                .get(1)
+                .unwrap()
+                .raw_data(),
+        );
 
         self.consensus = Some(consensus);
 
@@ -338,6 +384,7 @@ impl Node {
             Path::new(&self.dir).join("specs/integration.toml"),
             toml::to_string(&spec).expect("chain spec serialize"),
         )
+        .map_err(Into::into)
     }
 
     fn rewrite_spec(
@@ -352,6 +399,7 @@ impl Node {
             code_hash: self.always_success_code_hash.clone(),
             args: Default::default(),
             data: JsonBytes::default(),
+            hash_type: ScriptHashType::Data.into(),
         });
 
         if ::std::env::var("CI").is_ok() {
@@ -364,6 +412,7 @@ impl Node {
             &ckb_config_path,
             toml::to_string(&ckb_config).expect("ckb config serialize"),
         )
+        .map_err(Into::into)
     }
 
     fn init_config_file(
@@ -374,7 +423,7 @@ impl Node {
         let rpc_port = format!("{}", self.rpc_port).to_string();
         let p2p_port = format!("{}", self.p2p_port).to_string();
 
-        Command::new(self.binary.to_owned())
+        let init_exit_status = Command::new(self.binary.to_owned())
             .args(&[
                 "-C",
                 &self.dir,
@@ -386,8 +435,12 @@ impl Node {
                 "--p2p-port",
                 &p2p_port,
             ])
-            .output()
-            .map(|_| ())?;
+            .stdout(Stdio::null())
+            .status()?;
+
+        if !init_exit_status.success() {
+            return Err(failure::err_msg("Fail to execute ckb init"));
+        }
 
         self.prepare_chain_spec(modify_chain_spec)?;
         self.rewrite_spec(modify_ckb_config)?;

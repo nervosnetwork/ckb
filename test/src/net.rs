@@ -1,11 +1,13 @@
 use crate::specs::TestProtocol;
 use crate::utils::wait_until;
 use crate::Node;
-use bytes::Bytes;
-use ckb_core::{block::Block, BlockNumber};
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
     NetworkService, NetworkState, PeerIndex, ProtocolId,
+};
+use ckb_types::{
+    bytes::Bytes,
+    core::{BlockNumber, BlockView},
 };
 use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
@@ -109,6 +111,7 @@ impl Net {
                         Arc::clone(&network_state),
                         protocols,
                         node.consensus.as_ref().unwrap().identify_name(),
+                        "0.1.0".to_string(),
                     )
                     .start(Default::default(), Some("NetworkService"))
                     .expect("Start network service failed"),
@@ -148,10 +151,10 @@ impl Net {
     }
 
     // generate a same block on all nodes, exit IBD mode and return the tip block
-    pub fn exit_ibd_mode(&self) -> Block {
+    pub fn exit_ibd_mode(&self) -> BlockView {
         let block = self.nodes[0].new_block(None, None, None);
         self.nodes.iter().for_each(|node| {
-            node.submit_block(&block);
+            node.submit_block(&block.data());
         });
         block
     }
@@ -202,7 +205,7 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         &mut self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer_index: PeerIndex,
-        data: bytes::Bytes,
+        data: Bytes,
     ) {
         let _ = self.tx.send((peer_index, nc.protocol_id(), data));
     }

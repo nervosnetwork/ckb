@@ -1,19 +1,17 @@
 [package]
 name = "ckb-reward-calculator"
-version = "0.18.2"
+version = "0.19.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-ckb-core = { path = "../../core" }
+ckb-types = { path = "../types" }
 ckb-store = { path = "../../store" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-ckb-traits = { path = "../../traits" }
 failure = "0.1.5"
-fnv = "1.0.3"
 ckb-dao = { path = "../dao" }
 ckb-logger = { path = "../logger" }
+ckb-chain-spec = {path = "../../spec"}
 
 [dev-dependencies]
 ckb-chain-spec = { path = "../../spec" }

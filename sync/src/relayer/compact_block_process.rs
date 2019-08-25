@@ -1,27 +1,33 @@
 use crate::block_status::BlockStatus;
-use crate::relayer::compact_block::CompactBlock;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
-use crate::relayer::Relayer;
-use ckb_core::header::Header;
-use ckb_core::BlockNumber;
+use crate::relayer::{ReconstructionError, Relayer};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_protocol::{CompactBlock as FbsCompactBlock, RelayMessage};
-use ckb_shared::shared::Shared;
+use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_traits::{BlockMedianTimeContext, ChainProvider};
+use ckb_traits::BlockMedianTimeContext;
+use ckb_types::{
+    core::{self, BlockNumber},
+    packed,
+    prelude::*,
+};
 use ckb_verification::{HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
-use flatbuffers::FlatBufferBuilder;
-use fnv::FnvHashSet;
-use numext_fixed_hash::H256;
-use std::convert::TryInto;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct CompactBlockProcess<'a, CS> {
-    message: &'a FbsCompactBlock<'a>,
-    relayer: &'a Relayer<CS>,
+// Keeping in mind that short_ids are expected to occasionally collide.
+// On receiving compact-block message,
+// while the reconstructed the block has a different transactions_root,
+// 1. if all the transactions are prefilled,
+// the node should ban the peer but not mark the block invalid
+// because of the block hash may be wrong.
+// 2. otherwise, there may be short_id collision in transaction pool,
+// the node retreat to request all the short_ids from the peer.
+pub struct CompactBlockProcess<'a> {
+    message: packed::CompactBlockReader<'a>,
+    relayer: &'a Relayer,
     nc: Arc<dyn CKBProtocolContext>,
     peer: PeerIndex,
 }
@@ -30,18 +36,18 @@ pub struct CompactBlockProcess<'a, CS> {
 pub enum Status {
     // Accept block
     AcceptBlock,
-    // Send missing_indexes by get_block_transactions
-    SendMissingIndexes,
     // Send get_headers
     UnknownParent,
-    // Should never reach
-    MissingIndexesEmpty,
+    // Send missing_indexes by get_block_transactions
+    SendMissingIndexes,
+    // Collision and Send missing_indexes by get_block_transactions
+    CollisionAndSendMissingIndexes,
 }
 
-impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
+impl<'a> CompactBlockProcess<'a> {
     pub fn new(
-        message: &'a FbsCompactBlock,
-        relayer: &'a Relayer<CS>,
+        message: packed::CompactBlockReader<'a>,
+        relayer: &'a Relayer,
         nc: Arc<dyn CKBProtocolContext>,
         peer: PeerIndex,
     ) -> Self {
@@ -54,17 +60,28 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
     }
 
     pub fn execute(self) -> Result<Status, FailureError> {
-        let compact_block: CompactBlock = (*self.message).try_into()?;
-        let block_hash = compact_block.header.hash().to_owned();
+        let compact_block = self.message.to_entity();
+        let header = compact_block.header().into_view();
+        let block_hash = header.hash();
+
+        // Only accept blocks with a height greater than tip - N
+        // where N is the current epoch length
+        let snapshot: &Snapshot = &self.relayer.shared.snapshot();
+        let tip = snapshot.tip_header().clone();
+        let epoch_length = snapshot.epoch_ext().length();
+        let lowest_number = tip.number().saturating_sub(epoch_length);
+
+        if lowest_number > header.number() {
+            return Err(Error::Ignored(Ignored::TooOldBlock).into());
+        }
 
         let status = self.relayer.shared().get_block_status(&block_hash);
-        // TODO: after https://github.com/nervosnetwork/ckb/pull/1237 merge
         if status.contains(BlockStatus::BLOCK_STORED) {
             return Err(Error::Ignored(Ignored::AlreadyStored).into());
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "receive a compact block with invalid status, {:#x}, peer: {}",
+                "receive a compact block with invalid status, {}, peer: {}",
                 block_hash,
                 self.peer
             );
@@ -74,46 +91,21 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         let parent = self
             .relayer
             .shared
-            .get_header_view(compact_block.header.parent_hash());
+            .get_header_view(&header.data().raw().parent_hash());
         if parent.is_none() {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "UnknownParent: {:#x}, send_getheaders_to_peer({})",
+                "UnknownParent: {}, send_getheaders_to_peer({})",
                 block_hash,
                 self.peer
             );
-            self.relayer.shared.send_getheaders_to_peer(
-                self.nc.as_ref(),
-                self.peer,
-                self.relayer.shared.lock_chain_state().tip_header(),
-            );
+            self.relayer
+                .shared
+                .send_getheaders_to_peer(self.nc.as_ref(), self.peer, &tip);
             return Ok(Status::UnknownParent);
         }
 
         let parent = parent.unwrap();
-        {
-            let tip_header = self.relayer.shared.tip_header();
-            let tip_header_view = self
-                .relayer
-                .shared
-                .get_header_view(tip_header.hash())
-                .expect("Get tip header view failed");
-            let current_total_difficulty =
-                parent.total_difficulty() + compact_block.header.difficulty();
-
-            if tip_header_view
-                .is_better_than(&current_total_difficulty, compact_block.header.hash())
-            {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "Received a compact block({:#x}), total difficulty {:#x} <= {:#x}, ignore it",
-                    block_hash,
-                    current_total_difficulty,
-                    tip_header_view.total_difficulty(),
-                );
-                return Err(Error::Ignored(Ignored::NotBetter).into());
-            }
-        }
 
         if let Some(flight) = self
             .relayer
@@ -124,7 +116,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
             if flight.peers.contains(&self.peer) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
-                    "discard already in-flight compact block {:x}",
+                    "discard already in-flight compact block {}",
                     block_hash,
                 );
                 return Err(Error::Ignored(Ignored::AlreadyInFlight).into());
@@ -132,18 +124,19 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
         }
 
         // The new arrived has greater difficulty than local best known chain
-        let missing_indexes: Vec<usize>;
+        let missing_indexes: Vec<u32>;
+        let mut collision = false;
         {
             // Verify compact block
             let mut pending_compact_blocks = self.relayer.shared().pending_compact_blocks();
             if pending_compact_blocks
                 .get(&block_hash)
-                .map(|(_, peers_set)| peers_set.contains(&self.peer))
+                .map(|(_, peers_map)| peers_map.contains_key(&self.peer))
                 .unwrap_or(false)
             {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
-                    "discard already pending compact block {:x}",
+                    "discard already pending compact block {}",
                     block_hash
                 );
                 return Err(Error::Ignored(Ignored::AlreadyPending).into());
@@ -152,7 +145,7 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                     |block_hash| {
                         pending_compact_blocks
                             .get(&block_hash)
-                            .map(|(compact_block, _)| compact_block.header.to_owned())
+                            .map(|(compact_block, _)| compact_block.header().into_view())
                             .or_else(|| {
                                 self.relayer
                                     .shared
@@ -164,31 +157,29 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                 let resolver = self
                     .relayer
                     .shared
-                    .new_header_resolver(&compact_block.header, parent.into_inner());
+                    .new_header_resolver(&header, parent.into_inner());
+                let median_time_context = CompactBlockMedianTimeView {
+                    fn_get_pending_header: Box::new(fn_get_pending_header),
+                    snapshot,
+                };
                 let header_verifier = HeaderVerifier::new(
-                    CompactBlockMedianTimeView {
-                        fn_get_pending_header: Box::new(fn_get_pending_header),
-                        shared: self.relayer.shared.shared(),
-                    },
+                    &median_time_context,
                     Arc::clone(&self.relayer.shared.consensus().pow_engine()),
                 );
-                let compact_block_verifier = CompactBlockVerifier::new();
                 if let Err(err) = header_verifier.verify(&resolver) {
                     debug_target!(crate::LOG_TARGET_RELAY, "invalid header: {}", err);
-                    // TODO: after https://github.com/nervosnetwork/ckb/pull/1237 merge
-                    // let status = self
-                    //     .relayer
-                    //     .shared()
-                    //     .insert_block_status(&block_hash, BlockStatus::HEADER_INVALID);
+                    self.relayer
+                        .shared()
+                        .insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
                     return Err(Error::Misbehavior(Misbehavior::HeaderInvalid).into());
                 }
-                compact_block_verifier.verify(&compact_block)?;
+                CompactBlockVerifier::verify(&compact_block)?;
 
                 // Header has been verified ok, update state
                 let epoch = resolver.epoch().expect("epoch verified").clone();
                 self.relayer
                     .shared()
-                    .insert_valid_header(self.peer, &compact_block.header, epoch);
+                    .insert_valid_header(self.peer, &header, epoch);
             }
 
             // Reconstruct block
@@ -208,88 +199,92 @@ impl<'a, CS: ChainStore + 'static> CompactBlockProcess<'a, CS> {
                         .accept_block(self.nc.as_ref(), self.peer, block);
                     return Ok(Status::AcceptBlock);
                 }
-                Err(missing) => {
-                    missing_indexes = missing;
-                    pending_compact_blocks
-                        .entry(block_hash.clone())
-                        .or_insert_with(|| (compact_block, FnvHashSet::default()))
-                        .1
-                        .insert(self.peer);
+                Err(ReconstructionError::InvalidTransactionRoot) => {
+                    return Err(Error::Misbehavior(Misbehavior::InvalidTransactionRoot).into());
+                }
+                Err(ReconstructionError::MissingIndexes(missing)) => {
+                    missing_indexes = missing.into_iter().map(|i| i as u32).collect();
+                }
+                Err(ReconstructionError::Collision) => {
+                    missing_indexes = compact_block
+                        .short_id_indexes()
+                        .into_iter()
+                        .map(|i| i as u32)
+                        .collect();
+                    collision = true;
                 }
             }
-        }
 
-        // The missing_indexes should never be empty
-        if missing_indexes.is_empty() {
-            return Ok(Status::MissingIndexesEmpty);
+            assert!(!missing_indexes.is_empty());
+
+            pending_compact_blocks
+                .entry(block_hash.clone())
+                .or_insert_with(|| (compact_block, HashMap::default()))
+                .1
+                .insert(self.peer, missing_indexes.clone());
         }
 
         if !self
             .relayer
             .shared()
             .write_inflight_blocks()
-            .insert(self.peer, block_hash.to_owned())
+            .insert(self.peer, block_hash.clone())
         {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "BlockInFlight reach limit or had requested, peer: {}, block: {:x}",
+                "BlockInFlight reach limit or had requested, peer: {}, block: {}",
                 self.peer,
                 block_hash,
             );
             return Err(Error::Internal(Internal::InflightBlocksReachLimit).into());
         }
 
-        let fbb = &mut FlatBufferBuilder::new();
-        let message = RelayMessage::build_get_block_transactions(
-            fbb,
-            &block_hash,
-            &missing_indexes
-                .into_iter()
-                .map(|i| i as u32)
-                .collect::<Vec<_>>(),
-        );
-        fbb.finish(message, None);
-        if let Err(err) = self
-            .nc
-            .send_message_to(self.peer, fbb.finished_data().into())
-        {
+        let content = packed::GetBlockTransactions::new_builder()
+            .block_hash(block_hash)
+            .indexes(missing_indexes.pack())
+            .build();
+        let message = packed::RelayMessage::new_builder().set(content).build();
+        let data = message.as_slice().into();
+        if let Err(err) = self.nc.send_message_to(self.peer, data) {
             ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
         }
-        Ok(Status::SendMissingIndexes)
+
+        if collision {
+            Ok(Status::CollisionAndSendMissingIndexes)
+        } else {
+            Ok(Status::SendMissingIndexes)
+        }
     }
 }
 
-struct CompactBlockMedianTimeView<'a, CS> {
-    fn_get_pending_header: Box<Fn(H256) -> Option<Header> + 'a>,
-    shared: &'a Shared<CS>,
+struct CompactBlockMedianTimeView<'a> {
+    fn_get_pending_header: Box<Fn(packed::Byte32) -> Option<core::HeaderView> + 'a>,
+    snapshot: &'a Snapshot,
 }
 
-impl<'a, CS> CompactBlockMedianTimeView<'a, CS>
-where
-    CS: ChainStore,
-{
-    fn get_header(&self, hash: &H256) -> Option<Header> {
+impl<'a> CompactBlockMedianTimeView<'a> {
+    fn get_header(&self, hash: &packed::Byte32) -> Option<core::HeaderView> {
         (self.fn_get_pending_header)(hash.to_owned())
-            .or_else(|| self.shared.store().get_block_header(hash))
+            .or_else(|| self.snapshot.get_block_header(hash))
     }
 }
 
-impl<'a, CS> BlockMedianTimeContext for CompactBlockMedianTimeView<'a, CS>
-where
-    CS: ChainStore,
-{
+impl<'a> BlockMedianTimeContext for CompactBlockMedianTimeView<'a> {
     fn median_block_count(&self) -> u64 {
-        self.shared.consensus().median_time_block_count() as u64
+        self.snapshot.consensus().median_time_block_count() as u64
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
+    fn timestamp_and_parent(
+        &self,
+        block_hash: &packed::Byte32,
+    ) -> (u64, BlockNumber, packed::Byte32) {
         let header = self
             .get_header(&block_hash)
             .expect("[CompactBlockMedianTimeView] blocks used for median time exist");
         (
             header.timestamp(),
             header.number(),
-            header.parent_hash().to_owned(),
+            header.data().raw().parent_hash(),
         )
     }
 }

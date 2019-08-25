@@ -14,6 +14,7 @@ pub const CMD_HASHES: &str = "hashes";
 pub const CMD_BLAKE256: &str = "blake256";
 pub const CMD_BLAKE160: &str = "blake160";
 pub const CMD_SECP256K1_LOCK: &str = "secp256k1-lock";
+pub const CMD_RESET_DATA: &str = "reset-data";
 
 pub const ARG_CONFIG_DIR: &str = "config-dir";
 pub const ARG_FORMAT: &str = "format";
@@ -21,6 +22,7 @@ pub const ARG_TARGET: &str = "target";
 pub const ARG_SOURCE: &str = "source";
 pub const ARG_DATA: &str = "data";
 pub const ARG_LIST_CHAINS: &str = "list-chains";
+pub const ARG_INTERACTIVE: &str = "interactive";
 pub const ARG_CHAIN: &str = "chain";
 pub const ARG_P2P_PORT: &str = "p2p-port";
 pub const ARG_RPC_PORT: &str = "rpc-port";
@@ -29,10 +31,18 @@ pub const ARG_LOG_TO: &str = "log-to";
 pub const ARG_BUNDLED: &str = "bundled";
 pub const ARG_BA_CODE_HASH: &str = "ba-code-hash";
 pub const ARG_BA_ARG: &str = "ba-arg";
+pub const ARG_BA_HASH_TYPE: &str = "ba-hash-type";
 pub const ARG_BA_DATA: &str = "ba-data";
 pub const ARG_BA_ADVANCED: &str = "ba-advanced";
 pub const ARG_FROM: &str = "from";
 pub const ARG_TO: &str = "to";
+pub const ARG_ALL: &str = "all";
+pub const ARG_DATABASE: &str = "database";
+pub const ARG_INDEXER: &str = "indexer";
+pub const ARG_NETWORK: &str = "network";
+pub const ARG_NETWORK_PEER_STORE: &str = "network-peer-store";
+pub const ARG_NETWORK_SECRET_KEY: &str = "network-secret-key";
+pub const ARG_LOGS: &str = "logs";
 
 const GROUP_BA: &str = "ba";
 
@@ -59,6 +69,7 @@ fn basic_app<'b>() -> App<'static, 'b> {
         .subcommand(init())
         .subcommand(prof())
         .subcommand(stats())
+        .subcommand(reset_data())
 }
 
 pub fn get_matches(version: &Version) -> ArgMatches<'static> {
@@ -78,6 +89,56 @@ fn run() -> App<'static, 'static> {
 
 fn miner() -> App<'static, 'static> {
     SubCommand::with_name(CMD_MINER).about("Runs ckb miner")
+}
+
+fn reset_data() -> App<'static, 'static> {
+    SubCommand::with_name(CMD_RESET_DATA)
+        .about(
+            "Truncate the data directory\n\
+             Example:\n\
+             ckb reset-data --force --indexer",
+        )
+        .arg(
+            Arg::with_name(ARG_FORCE)
+                .short("f")
+                .long(ARG_FORCE)
+                .help("Delete data without interactive prompt"),
+        )
+        .arg(
+            Arg::with_name(ARG_ALL)
+                .long(ARG_ALL)
+                .help("Delete the whole data directory"),
+        )
+        .arg(
+            Arg::with_name(ARG_DATABASE)
+                .long(ARG_DATABASE)
+                .help("Delete both `data/db` and `data/indexer_db`"),
+        )
+        .arg(
+            Arg::with_name(ARG_INDEXER)
+                .long(ARG_INDEXER)
+                .help("Delete only `data/indexer_db`"),
+        )
+        .arg(
+            Arg::with_name(ARG_NETWORK)
+                .long(ARG_NETWORK)
+                .help("Delete both peer store and secret key"),
+        )
+        .arg(
+            Arg::with_name(ARG_NETWORK_PEER_STORE)
+                .long(ARG_NETWORK_PEER_STORE)
+                .help("Delete only `data/network/peer_store.db`"),
+        )
+        .arg(
+            Arg::with_name(ARG_NETWORK_SECRET_KEY)
+                .long(ARG_NETWORK_SECRET_KEY)
+                .help("Delete only `data/network/secret_key`"),
+        )
+        .arg(
+            Arg::with_name(ARG_LOGS)
+                .long(ARG_LOGS)
+                .help("Delete only `data/logs`"),
+        )
 }
 
 pub(crate) fn stats() -> App<'static, 'static> {
@@ -209,7 +270,7 @@ fn cli_blake160() -> App<'static, 'static> {
 
 fn cli_secp256k1_lock() -> App<'static, 'static> {
     SubCommand::with_name(CMD_SECP256K1_LOCK)
-        .about("Prints lock structure from secp256k1 pubkey")
+        .about("Prints lock args from secp256k1 pubkey")
         .arg(
             Arg::with_name(ARG_DATA)
                 .short("d")
@@ -233,6 +294,12 @@ fn cli_secp256k1_lock() -> App<'static, 'static> {
 fn init() -> App<'static, 'static> {
     SubCommand::with_name(CMD_INIT)
         .about("Creates a CKB direcotry or reinitializes an existing one")
+        .arg(
+            Arg::with_name(ARG_INTERACTIVE)
+                .short("i")
+                .long(ARG_INTERACTIVE)
+                .help("Interactive mode"),
+        )
         .arg(
             Arg::with_name(ARG_LIST_CHAINS)
                 .short("l")
@@ -290,6 +357,15 @@ fn init() -> App<'static, 'static> {
                 .multiple(true)
                 .number_of_values(1)
                 .help("Sets args in [block_assembler]"),
+        )
+        .arg(
+            Arg::with_name(ARG_BA_HASH_TYPE)
+                .long(ARG_BA_HASH_TYPE)
+                .value_name("hash_type")
+                .takes_value(true)
+                .possible_values(&["data", "type"])
+                .default_value("type")
+                .help("Sets hash type in [block_assembler]"),
         )
         .group(
             ArgGroup::with_name(GROUP_BA)

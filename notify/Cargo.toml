@@ -1,13 +1,12 @@
 [package]
 name = "ckb-notify"
-version = "0.18.2"
+version = "0.19.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 
 [dependencies]
-fnv = "1.0"
-ckb-core = { path = "../core" }
+ckb-types = { path = "../util/types" }
 crossbeam-channel = "0.3"
 ckb-stop-handler = { path = "../util/stop-handler" }
 ckb-logger = { path = "../util/logger" }

@@ -1,7 +1,10 @@
-use ckb_core::cell::BlockInfo;
-use ckb_core::{BlockNumber, EpochNumber};
 use ckb_traits::BlockMedianTimeContext;
-use numext_fixed_hash::H256;
+use ckb_types::{
+    core::{BlockNumber, EpochNumber, TransactionInfo},
+    packed::Byte32,
+    prelude::*,
+    H256,
+};
 
 pub struct MockMedianTime {
     timestamps: Vec<u64>,
@@ -12,16 +15,16 @@ impl BlockMedianTimeContext for MockMedianTime {
         11
     }
 
-    fn timestamp_and_parent(&self, block_hash: &H256) -> (u64, BlockNumber, H256) {
+    fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
         for i in 0..self.timestamps.len() {
-            if &Self::get_block_hash(i as u64) == block_hash {
+            if Self::get_block_hash(i as u64) == block_hash.unpack() {
                 if i == 0 {
-                    return (self.timestamps[i], i as u64, H256::zero());
+                    return (self.timestamps[i], i as u64, H256::zero().pack());
                 } else {
                     return (
                         self.timestamps[i],
                         i as u64,
-                        Self::get_block_hash(i as u64 - 1),
+                        Self::get_block_hash(i as u64 - 1).pack(),
                     );
                 }
             }
@@ -40,8 +43,17 @@ impl MockMedianTime {
         H256::from_slice(vec.as_slice()).unwrap()
     }
 
-    pub fn get_block_info(block_number: BlockNumber, epoch_number: EpochNumber) -> BlockInfo {
+    pub fn get_transaction_info(
+        block_number: BlockNumber,
+        epoch_number: EpochNumber,
+        index: usize,
+    ) -> TransactionInfo {
         let block_hash = Self::get_block_hash(block_number);
-        BlockInfo::new(block_number, epoch_number, block_hash)
+        TransactionInfo {
+            block_number,
+            block_epoch: epoch_number,
+            block_hash,
+            index,
+        }
     }
 }

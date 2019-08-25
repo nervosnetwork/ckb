@@ -90,7 +90,9 @@ modules = ["Net", "Pool", "Miner", "Chain", "Stats", "Experiment"] # {{
 [tx_pool]
 max_mem_size = 20_000_000 # 20mb
 max_cycles = 200_000_000_000
-max_verfify_cache_size = 100_000
+max_verify_cache_size = 100_000
+max_conflict_cache_size = 1_000
+max_committed_txs_hash_cache_size = 100_000
 
 [script]
 runner = "Rust" # {{
@@ -98,8 +100,12 @@ runner = "Rust" # {{
 # }}
 
 [store]
-header_cache_size       = 4096
-cell_output_cache_size  = 128
+header_cache_size          = 4096
+cell_data_cache_size       = 128
+block_proposals_cache_size = 30
+block_tx_hashes_cache_size = 20
+block_uncles_cache_size    = 10
+cellbase_cache_size        = 20
 
 # [alert_notifier]
 # # Script will be notified when node received an alert, first arg is alert message string.
@@ -132,7 +138,7 @@ cell_output_cache_size  = 128
 #       sed 's/41534e31204f49443a20736563703235366b310a30740201010420/PrivKey: /' | \
 #       sed 's/a00706052b8104000aa144034200/\'$'\nPubKey: /'
 #
-# Once you get your public key, generate the block assembler parameters:
+# Once you get your public key, generate the args for block assembler:
 #
 #     ckb cli secp256k1-lock <pubkey>
 #

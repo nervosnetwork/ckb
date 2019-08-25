@@ -1,9 +1,8 @@
 use super::{Worker, WorkerMessage};
-use ckb_core::header::Seal;
 use ckb_logger::error;
+use ckb_types::H256;
 use crossbeam_channel::{Receiver, Sender};
 use indicatif::ProgressBar;
-use numext_fixed_hash::H256;
 use rand::{
     distributions::{self as dist, Distribution as _},
     thread_rng,
@@ -25,7 +24,7 @@ pub struct Dummy {
     delay: Delay,
     start: bool,
     pow_hash: Option<H256>,
-    seal_tx: Sender<(H256, Seal)>,
+    nonce_tx: Sender<(H256, u64)>,
     worker_rx: Receiver<WorkerMessage>,
 }
 
@@ -71,14 +70,14 @@ impl Delay {
 impl Dummy {
     pub fn new(
         config: &DummyConfig,
-        seal_tx: Sender<(H256, Seal)>,
+        nonce_tx: Sender<(H256, u64)>,
         worker_rx: Receiver<WorkerMessage>,
     ) -> Self {
         Self {
             start: true,
             pow_hash: None,
             delay: config.into(),
-            seal_tx,
+            nonce_tx,
             worker_rx,
         }
     }
@@ -86,7 +85,7 @@ impl Dummy {
     fn poll_worker_message(&mut self) {
         if let Ok(msg) = self.worker_rx.recv() {
             match msg {
-                WorkerMessage::NewWork(pow_hash) => self.pow_hash = Some(pow_hash),
+                WorkerMessage::NewWork { pow_hash, .. } => self.pow_hash = Some(pow_hash),
                 WorkerMessage::Stop => {
                     self.start = false;
                 }
@@ -99,9 +98,8 @@ impl Dummy {
 
     fn solve(&self, pow_hash: &H256, nonce: u64) {
         thread::sleep(self.delay.duration());
-        let seal = Seal::new(nonce, Vec::new().into());
-        if let Err(err) = self.seal_tx.send((pow_hash.clone(), seal)) {
-            error!("seal_tx send error {:?}", err);
+        if let Err(err) = self.nonce_tx.send((pow_hash.clone(), nonce)) {
+            error!("nonce_tx send error {:?}", err);
         }
     }
 }

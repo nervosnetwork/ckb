@@ -1,74 +1,67 @@
 mod block_proposal_process;
 mod block_transactions_process;
-pub mod compact_block;
+mod block_transactions_verifier;
 mod compact_block_process;
 mod compact_block_verifier;
 mod error;
 mod get_block_proposal_process;
 mod get_block_transactions_process;
-mod get_transaction_process;
+mod get_transactions_process;
 #[cfg(test)]
 mod tests;
-mod transaction_hash_process;
-mod transaction_process;
+mod transaction_hashes_process;
+mod transactions_process;
 
 use self::block_proposal_process::BlockProposalProcess;
 use self::block_transactions_process::BlockTransactionsProcess;
-use self::compact_block::CompactBlock;
 use self::compact_block_process::CompactBlockProcess;
 pub use self::error::{Error, Misbehavior};
 use self::get_block_proposal_process::GetBlockProposalProcess;
 use self::get_block_transactions_process::GetBlockTransactionsProcess;
-use self::get_transaction_process::GetTransactionProcess;
-use self::transaction_hash_process::TransactionHashProcess;
-use self::transaction_process::TransactionProcess;
+use self::get_transactions_process::GetTransactionsProcess;
+use self::transaction_hashes_process::TransactionHashesProcess;
+use self::transactions_process::TransactionsProcess;
 use crate::block_status::BlockStatus;
-use crate::relayer::compact_block::ShortTransactionID;
 use crate::types::SyncSharedState;
 use crate::BAD_MESSAGE_BAN_TIME;
 use ckb_chain::chain::ChainController;
-use ckb_core::block::{Block, BlockBuilder};
-use ckb_core::transaction::{ProposalShortId, Transaction};
-use ckb_core::uncle::UncleBlock;
 use ckb_logger::{debug_target, info_target, trace_target};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex, TargetSession};
-use ckb_protocol::error::Error as ProtocalError;
-use ckb_protocol::{
-    cast, get_root, short_transaction_id, short_transaction_id_keys, RelayMessage, RelayPayload,
-};
-use ckb_store::ChainStore;
 use ckb_tx_pool_executor::TxPoolExecutor;
+use ckb_types::{
+    core,
+    packed::{self, Byte32, ProposalShortId},
+    prelude::*,
+};
+use failure::err_msg;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
-use flatbuffers::FlatBufferBuilder;
-use fnv::FnvHashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const ASK_FOR_TXS_TOKEN: u64 = 1;
+pub const TX_HASHES_TOKEN: u64 = 2;
 
 pub const MAX_RELAY_PEERS: usize = 128;
 
-pub struct Relayer<CS> {
+#[derive(Debug, Eq, PartialEq)]
+pub enum ReconstructionError {
+    MissingIndexes(Vec<usize>),
+    InvalidTransactionRoot,
+    Collision,
+}
+
+#[derive(Clone)]
+pub struct Relayer {
     chain: ChainController,
-    pub(crate) shared: Arc<SyncSharedState<CS>>,
-    pub(crate) tx_pool_executor: Arc<TxPoolExecutor<CS>>,
+    pub(crate) shared: Arc<SyncSharedState>,
+    pub(crate) tx_pool_executor: Arc<TxPoolExecutor>,
 }
 
-impl<CS: ChainStore> Clone for Relayer<CS> {
-    fn clone(&self) -> Self {
-        Relayer {
-            chain: self.chain.clone(),
-            shared: Arc::clone(&self.shared),
-            tx_pool_executor: Arc::clone(&self.tx_pool_executor),
-        }
-    }
-}
-
-impl<CS: ChainStore + 'static> Relayer<CS> {
-    pub fn new(chain: ChainController, shared: Arc<SyncSharedState<CS>>) -> Self {
+impl Relayer {
+    pub fn new(chain: ChainController, shared: Arc<SyncSharedState>) -> Self {
         let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.shared().clone()));
         Relayer {
             chain,
@@ -77,110 +70,64 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         }
     }
 
-    pub fn shared(&self) -> &Arc<SyncSharedState<CS>> {
+    pub fn shared(&self) -> &Arc<SyncSharedState> {
         &self.shared
     }
 
-    fn try_process(
+    fn try_process<'r>(
         &self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
-        message: RelayMessage,
+        message: packed::RelayMessageUnionReader<'r>,
     ) -> Result<(), FailureError> {
-        match message.payload_type() {
-            RelayPayload::CompactBlock => {
-                CompactBlockProcess::new(
-                    &cast!(message.payload_as_compact_block())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+        match message {
+            packed::RelayMessageUnionReader::CompactBlock(reader) => {
+                CompactBlockProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::RelayTransaction => {
-                TransactionProcess::new(
-                    &cast!(message.payload_as_relay_transaction())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::RelayTransactions(reader) => {
+                if reader.check_data() {
+                    TransactionsProcess::new(reader, self, nc, peer).execute()?;
+                } else {
+                    Err(err_msg("RelayTransactions: invalid data"))?;
+                }
             }
-            RelayPayload::RelayTransactionHash => {
-                TransactionHashProcess::new(
-                    &cast!(message.payload_as_relay_transaction_hash())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::RelayTransactionHashes(reader) => {
+                TransactionHashesProcess::new(reader, self, peer).execute()?;
             }
-            RelayPayload::GetRelayTransaction => {
-                GetTransactionProcess::new(
-                    &cast!(message.payload_as_get_relay_transaction())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::GetRelayTransactions(reader) => {
+                GetTransactionsProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::GetBlockTransactions => {
-                GetBlockTransactionsProcess::new(
-                    &cast!(message.payload_as_get_block_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::GetBlockTransactions(reader) => {
+                GetBlockTransactionsProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::BlockTransactions => {
-                BlockTransactionsProcess::new(
-                    &cast!(message.payload_as_block_transactions())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::BlockTransactions(reader) => {
+                if reader.check_data() {
+                    BlockTransactionsProcess::new(reader, self, nc, peer).execute()?;
+                } else {
+                    Err(err_msg("BlockTransactions: invalid data"))?;
+                }
             }
-            RelayPayload::GetBlockProposal => {
-                GetBlockProposalProcess::new(
-                    &cast!(message.payload_as_get_block_proposal())?,
-                    self,
-                    nc,
-                    peer,
-                )
-                .execute()?;
+            packed::RelayMessageUnionReader::GetBlockProposal(reader) => {
+                GetBlockProposalProcess::new(reader, self, nc, peer).execute()?;
             }
-            RelayPayload::BlockProposal => {
-                BlockProposalProcess::new(&cast!(message.payload_as_block_proposal())?, self, nc)
-                    .execute()?;
-            }
-            RelayPayload::NONE => {
-                cast!(None)?;
+            packed::RelayMessageUnionReader::BlockProposal(reader) => {
+                BlockProposalProcess::new(reader, self, nc).execute()?;
             }
         }
         Ok(())
     }
 
-    fn process(
+    fn process<'r>(
         &self,
         nc: Arc<dyn CKBProtocolContext + Sync>,
         peer: PeerIndex,
-        message: RelayMessage,
+        message: packed::RelayMessageUnionReader<'r>,
     ) {
         if let Err(err) = self.try_process(Arc::clone(&nc), peer, message) {
             if let Some(&Error::Misbehavior(ref e)) = err.downcast_ref() {
                 debug_target!(crate::LOG_TARGET_RELAY, "try_process error {}", e);
                 nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
                 return;
-            }
-            if let Some(&ProtocalError::Malformed) = err.downcast_ref() {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "try_process error {}",
-                    ProtocalError::Malformed
-                );
-                nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
             }
         }
     }
@@ -189,18 +136,18 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         &self,
         nc: &CKBProtocolContext,
         peer: PeerIndex,
-        block: &CompactBlock,
+        block: &packed::CompactBlock,
     ) {
-        let proposals = block
-            .proposals
-            .iter()
-            .chain(block.uncles.iter().flat_map(UncleBlock::proposals));
+        let proposals = block.proposals().into_iter().chain(
+            block
+                .uncles()
+                .into_iter()
+                .flat_map(|u| u.proposals().into_iter()),
+        );
         let fresh_proposals: Vec<ProposalShortId> = {
-            let chain_state = self.shared.lock_chain_state();
-            let tx_pool = chain_state.tx_pool();
+            let tx_pool = self.shared.shared().try_lock_tx_pool();
             proposals
                 .filter(|id| !tx_pool.contains_proposal_id(id))
-                .cloned()
                 .collect()
         };
         let to_ask_proposals: Vec<ProposalShortId> = self
@@ -211,15 +158,14 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             .filter_map(|(firstly_in, id)| if firstly_in { Some(id) } else { None })
             .collect();
         if !to_ask_proposals.is_empty() {
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = RelayMessage::build_get_block_proposal(
-                fbb,
-                block.header.number(),
-                &to_ask_proposals,
-            );
-            fbb.finish(message, None);
+            let content = packed::GetBlockProposal::new_builder()
+                .block_hash(block.calc_header_hash().pack())
+                .proposals(to_ask_proposals.clone().pack())
+                .build();
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
 
-            if let Err(err) = nc.send_message_to(peer, fbb.finished_data().into()) {
+            if let Err(err) = nc.send_message_to(peer, data) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send GetBlockProposal error {:?}",
@@ -230,10 +176,10 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         }
     }
 
-    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: Block) {
+    pub fn accept_block(&self, nc: &CKBProtocolContext, peer: PeerIndex, block: core::BlockView) {
         if self
             .shared()
-            .contains_block_status(block.header().hash(), BlockStatus::BLOCK_STORED)
+            .contains_block_status(&block.hash(), BlockStatus::BLOCK_STORED)
         {
             return;
         }
@@ -246,16 +192,15 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "[block_relay] relayer accept_block {:x} {}",
+                "[block_relay] relayer accept_block {} {}",
                 boxed.header().hash(),
                 unix_time_as_millis()
             );
-            let block_hash = boxed.header().hash();
+            let block_hash = boxed.hash();
             self.shared.remove_header_view(&block_hash);
-            let fbb = &mut FlatBufferBuilder::new();
-            let message = RelayMessage::build_compact_block(fbb, &boxed, &HashSet::new());
-            fbb.finish(message, None);
-            let data = fbb.finished_data().into();
+            let cb = packed::CompactBlock::build_from_block(&boxed, &HashSet::new());
+            let message = packed::RelayMessage::new_builder().set(cb).build();
+            let data = message.as_slice().into();
 
             let selected_peers: Vec<PeerIndex> = nc
                 .connected_peers()
@@ -274,20 +219,34 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         }
     }
 
+    // nodes should attempt to reconstruct the full block by taking the prefilledtxn transactions
+    // from the original CompactBlock message and placing them in the marked positions,
+    // then for each short transaction ID from the original compact_block message, in order,
+    // find the corresponding transaction either from the BlockTransactions message or
+    // from other sources and place it in the first available position in the block
+    // then once the block has been reconstructed, it shall be processed as normal,
+    // keeping in mind that short_ids are expected to occasionally collide,
+    // and that nodes must not be penalized for such collisions, wherever they appear.
     pub fn reconstruct_block(
         &self,
-        compact_block: &CompactBlock,
-        transactions: Vec<Transaction>,
-    ) -> Result<Block, Vec<usize>> {
-        let (key0, key1) =
-            short_transaction_id_keys(compact_block.header.nonce(), compact_block.nonce);
-        let mut short_ids_set: HashSet<&ShortTransactionID> =
-            compact_block.short_ids.iter().collect();
+        compact_block: &packed::CompactBlock,
+        transactions: Vec<core::TransactionView>,
+    ) -> Result<core::BlockView, ReconstructionError> {
+        let block_txs_len = transactions.len();
+        debug_target!(
+            crate::LOG_TARGET_RELAY,
+            "start block reconstruction, block hash: {:#x}, transactions len: {}",
+            compact_block.calc_header_hash(),
+            block_txs_len,
+        );
 
-        let mut txs_map: FnvHashMap<ShortTransactionID, Transaction> = transactions
+        let mut short_ids_set: HashSet<ProposalShortId> =
+            compact_block.short_ids().into_iter().collect();
+
+        let mut txs_map: HashMap<ProposalShortId, core::TransactionView> = transactions
             .into_iter()
             .filter_map(|tx| {
-                let short_id = short_transaction_id(key0, key1, &tx.witness_hash());
+                let short_id = tx.proposal_short_id();
                 if short_ids_set.remove(&short_id) {
                     Some((short_id, tx))
                 } else {
@@ -297,37 +256,36 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
             .collect();
 
         if !short_ids_set.is_empty() {
-            let chain_state = self.shared().lock_chain_state();
-            for entry in chain_state.tx_pool().proposed_txs_iter() {
-                let short_id = short_transaction_id(key0, key1, &entry.transaction.witness_hash());
-                if short_ids_set.remove(&short_id) {
-                    txs_map.insert(short_id, entry.transaction.clone());
-
-                    // Early exit here for performance
-                    if short_ids_set.is_empty() {
-                        break;
-                    }
+            let tx_pool = self.shared.shared().try_lock_tx_pool();
+            short_ids_set.into_iter().for_each(|short_id| {
+                if let Some(tx) = tx_pool.get_tx_from_pool_or_store(&short_id) {
+                    txs_map.insert(short_id, tx);
                 }
-            }
+            })
         }
 
-        let txs_len = compact_block.prefilled_transactions.len() + compact_block.short_ids.len();
-        let mut block_transactions: Vec<Option<Transaction>> = Vec::with_capacity(txs_len);
+        let txs_len = compact_block.txs_len();
+        let mut block_transactions: Vec<Option<core::TransactionView>> =
+            Vec::with_capacity(txs_len);
 
-        let short_ids_iter = &mut compact_block.short_ids.iter();
+        let short_ids_iter = &mut compact_block.short_ids().into_iter();
         // fill transactions gap
-        compact_block.prefilled_transactions.iter().for_each(|pt| {
-            let gap = pt.index - block_transactions.len();
-            if gap > 0 {
-                short_ids_iter
-                    .take(gap)
-                    .for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
-            }
-            block_transactions.push(Some(pt.transaction.clone()));
-        });
+        compact_block
+            .prefilled_transactions()
+            .into_iter()
+            .for_each(|pt| {
+                let index: usize = pt.index().unpack();
+                let gap = index - block_transactions.len();
+                if gap > 0 {
+                    short_ids_iter
+                        .take(gap)
+                        .for_each(|short_id| block_transactions.push(txs_map.remove(&short_id)));
+                }
+                block_transactions.push(Some(pt.transaction().into_view()));
+            });
 
         // append remain transactions
-        short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(short_id)));
+        short_ids_iter.for_each(|short_id| block_transactions.push(txs_map.remove(&short_id)));
 
         let missing = block_transactions.iter().any(Option::is_none);
 
@@ -336,30 +294,57 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
                 .expect("missing checked, should not fail");
-            let block = BlockBuilder::default()
-                .header(compact_block.header.clone())
-                .uncles(compact_block.uncles.clone())
-                .transactions(txs)
-                .proposals(compact_block.proposals.clone())
-                .build();
+            let block = packed::Block::new_builder()
+                .header(compact_block.header())
+                .uncles(compact_block.uncles())
+                .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                .proposals(compact_block.proposals())
+                .build()
+                .into_view();
+
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "finish block reconstruction, block hash: {:#x}",
+                compact_block.calc_header_hash(),
+            );
+
+            if compact_block.header().raw().transactions_root()
+                != block.header().transactions_root().pack()
+            {
+                if compact_block.short_ids().is_empty()
+                    || compact_block.short_ids().len() == block_txs_len
+                {
+                    return Err(ReconstructionError::InvalidTransactionRoot);
+                } else {
+                    return Err(ReconstructionError::Collision);
+                }
+            }
 
             Ok(block)
         } else {
-            let missing_indexes = block_transactions
+            let missing_indexes: Vec<usize> = block_transactions
                 .iter()
                 .enumerate()
                 .filter_map(|(i, t)| if t.is_none() { Some(i) } else { None })
                 .collect();
-            Err(missing_indexes)
+
+            debug_target!(
+                crate::LOG_TARGET_RELAY,
+                "block reconstruction failed, block hash: {:#x}, missing: {}, total: {}",
+                compact_block.calc_header_hash(),
+                missing_indexes.len(),
+                compact_block.short_ids().len(),
+            );
+
+            Err(ReconstructionError::MissingIndexes(missing_indexes))
         }
     }
 
     fn prune_tx_proposal_request(&self, nc: &CKBProtocolContext) {
         let get_block_proposals = self.shared().clear_get_block_proposals();
-        let mut peer_txs = FnvHashMap::default();
+        let mut peer_txs = HashMap::new();
         {
-            let chain_state = self.shared.lock_chain_state();
-            let tx_pool = chain_state.tx_pool();
+            let tx_pool = self.shared.shared().try_lock_tx_pool();
             for (id, peer_indices) in get_block_proposals.into_iter() {
                 if let Some(tx) = tx_pool.get_tx(&id) {
                     for peer_index in peer_indices {
@@ -371,11 +356,12 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
         }
 
         for (peer_index, txs) in peer_txs {
-            let fbb = &mut FlatBufferBuilder::new();
-            let message =
-                RelayMessage::build_block_proposal(fbb, &txs.into_iter().collect::<Vec<_>>());
-            fbb.finish(message, None);
-            if let Err(err) = nc.send_message_to(peer_index, fbb.finished_data().into()) {
+            let content = packed::BlockProposal::new_builder()
+                .transactions(txs.into_iter().map(|tx| tx.data()).pack())
+                .build();
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
+            if let Err(err) = nc.send_message_to(peer_index, data) {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
                     "relayer send BlockProposal error: {:?}",
@@ -407,30 +393,71 @@ impl<CS: ChainStore + 'static> Relayer<CS> {
                     tx_hashes.len(),
                     peer,
                 );
-            }
-            for tx_hash in tx_hashes {
-                let fbb = &mut FlatBufferBuilder::new();
-                let message = RelayMessage::build_get_transaction(fbb, &tx_hash);
-                fbb.finish(message, None);
-                let data = fbb.finished_data().into();
+                let content = packed::GetRelayTransactions::new_builder()
+                    .tx_hashes(tx_hashes.pack())
+                    .build();
+                let message = packed::RelayMessage::new_builder().set(content).build();
+                let data = message.as_slice().into();
                 if let Err(err) = nc.send_message_to(*peer, data) {
                     debug_target!(
                         crate::LOG_TARGET_RELAY,
                         "relayer send Transaction error: {:?}",
                         err,
                     );
-                    break;
                 }
+            }
+        }
+    }
+
+    // Send bulk of tx hashes to selected peers
+    pub fn send_bulk_of_tx_hashes(&self, nc: &CKBProtocolContext) {
+        let mut selected: HashMap<PeerIndex, HashSet<Byte32>> = HashMap::default();
+        {
+            let peer_tx_hashes = self.shared.take_tx_hashes();
+            let mut known_txs = self.shared.known_txs();
+
+            for (peer_index, tx_hashes) in peer_tx_hashes.into_iter() {
+                for tx_hash in tx_hashes {
+                    for peer in nc
+                        .connected_peers()
+                        .into_iter()
+                        .filter(|target_peer| {
+                            known_txs.insert(*target_peer, tx_hash.clone())
+                                && (peer_index != *target_peer)
+                        })
+                        .take(MAX_RELAY_PEERS)
+                    {
+                        let hashes = selected.entry(peer).or_insert_with(HashSet::default);
+                        hashes.insert(tx_hash.clone());
+                    }
+                }
+            }
+        };
+
+        for (peer, hashes) in selected {
+            let content = packed::RelayTransactionHashes::new_builder()
+                .tx_hashes(hashes.pack())
+                .build();
+            let message = packed::RelayMessage::new_builder().set(content).build();
+            let data = message.as_slice().into();
+            if let Err(err) = nc.filter_broadcast(TargetSession::Single(peer), data) {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "relayer send TransactionHashes error: {:?}",
+                    err,
+                );
             }
         }
     }
 }
 
-impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
+impl CKBProtocolHandler for Relayer {
     fn init(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) {
         nc.set_notify(Duration::from_millis(100), TX_PROPOSAL_TOKEN)
             .expect("set_notify at init is ok");
         nc.set_notify(Duration::from_millis(100), ASK_FOR_TXS_TOKEN)
+            .expect("set_notify at init is ok");
+        nc.set_notify(Duration::from_millis(300), TX_HASHES_TOKEN)
             .expect("set_notify at init is ok");
     }
 
@@ -445,8 +472,8 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
             return;
         }
 
-        let msg = match get_root::<RelayMessage>(&data) {
-            Ok(msg) => msg,
+        let msg = match packed::RelayMessage::from_slice(&data) {
+            Ok(msg) => msg.to_enum(),
             _ => {
                 info_target!(
                     crate::LOG_TARGET_RELAY,
@@ -460,16 +487,16 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
 
         debug_target!(
             crate::LOG_TARGET_RELAY,
-            "received msg {:?} from {}",
-            msg.payload_type(),
+            "received msg {} from {}",
+            msg.item_name(),
             peer_index
         );
         let start_time = Instant::now();
-        self.process(nc, peer_index, msg);
+        self.process(nc, peer_index, msg.as_reader());
         debug_target!(
             crate::LOG_TARGET_RELAY,
-            "process message={:?}, peer={}, cost={:?}",
-            msg.payload_type(),
+            "process message={}, peer={}, cost={:?}",
+            msg.item_name(),
             peer_index,
             start_time.elapsed(),
         );
@@ -510,6 +537,7 @@ impl<CS: ChainStore + 'static> CKBProtocolHandler for Relayer<CS> {
         match token {
             TX_PROPOSAL_TOKEN => self.prune_tx_proposal_request(nc.as_ref()),
             ASK_FOR_TXS_TOKEN => self.ask_for_txs(nc.as_ref()),
+            TX_HASHES_TOKEN => self.send_bulk_of_tx_hashes(nc.as_ref()),
             _ => unreachable!(),
         }
         trace_target!(

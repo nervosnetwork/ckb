@@ -1,30 +1,32 @@
 use super::Verifier;
 use crate::error::{EpochError, Error, NumberError, PowError, TimestampError};
 use crate::ALLOWED_FUTURE_BLOCKTIME;
-use ckb_core::extras::EpochExt;
-use ckb_core::header::{Header, HEADER_VERSION};
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_types::{
+    constants::HEADER_VERSION,
+    core::{EpochExt, HeaderView},
+};
 use faketime::unix_time_as_millis;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 pub trait HeaderResolver {
-    fn header(&self) -> &Header;
+    fn header(&self) -> &HeaderView;
     /// resolves parent header
-    fn parent(&self) -> Option<&Header>;
+    fn parent(&self) -> Option<&HeaderView>;
     /// resolves header difficulty
     fn epoch(&self) -> Option<&EpochExt>;
 }
 
-pub struct HeaderVerifier<T, M> {
+pub struct HeaderVerifier<'a, T, M> {
     pub pow: Arc<dyn PowEngine>,
-    block_median_time_context: M,
+    block_median_time_context: &'a M,
     _phantom: PhantomData<T>,
 }
 
-impl<T, M: BlockMedianTimeContext> HeaderVerifier<T, M> {
-    pub fn new(block_median_time_context: M, pow: Arc<dyn PowEngine>) -> Self {
+impl<'a, T, M: BlockMedianTimeContext> HeaderVerifier<'a, T, M> {
+    pub fn new(block_median_time_context: &'a M, pow: Arc<dyn PowEngine>) -> Self {
         HeaderVerifier {
             pow,
             block_median_time_context,
@@ -33,7 +35,7 @@ impl<T, M: BlockMedianTimeContext> HeaderVerifier<T, M> {
     }
 }
 
-impl<T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<T, M> {
+impl<'a, T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<'a, T, M> {
     type Target = T;
     fn verify(&self, target: &T) -> Result<(), Error> {
         let header = target.header();
@@ -44,18 +46,18 @@ impl<T: HeaderResolver, M: BlockMedianTimeContext> Verifier for HeaderVerifier<T
             .parent()
             .ok_or_else(|| Error::UnknownParent(header.parent_hash().to_owned()))?;
         NumberVerifier::new(parent, header).verify()?;
-        TimestampVerifier::new(&self.block_median_time_context, header).verify()?;
+        TimestampVerifier::new(self.block_median_time_context, header).verify()?;
         EpochVerifier::verify(target)?;
         Ok(())
     }
 }
 
 pub struct VersionVerifier<'a> {
-    header: &'a Header,
+    header: &'a HeaderView,
 }
 
 impl<'a> VersionVerifier<'a> {
-    pub fn new(header: &'a Header) -> Self {
+    pub fn new(header: &'a HeaderView) -> Self {
         VersionVerifier { header }
     }
 
@@ -68,13 +70,13 @@ impl<'a> VersionVerifier<'a> {
 }
 
 pub struct TimestampVerifier<'a, M> {
-    header: &'a Header,
+    header: &'a HeaderView,
     block_median_time_context: &'a M,
     now: u64,
 }
 
 impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
-    pub fn new(block_median_time_context: &'a M, header: &'a Header) -> Self {
+    pub fn new(block_median_time_context: &'a M, header: &'a HeaderView) -> Self {
         TimestampVerifier {
             block_median_time_context,
             header,
@@ -90,7 +92,7 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
 
         let min = self
             .block_median_time_context
-            .block_median_time(self.header.parent_hash());
+            .block_median_time(&self.header.data().raw().parent_hash());
         if self.header.timestamp() <= min {
             return Err(Error::Timestamp(TimestampError::BlockTimeTooOld {
                 min,
@@ -109,12 +111,12 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
 }
 
 pub struct NumberVerifier<'a> {
-    parent: &'a Header,
-    header: &'a Header,
+    parent: &'a HeaderView,
+    header: &'a HeaderView,
 }
 
 impl<'a> NumberVerifier<'a> {
-    pub fn new(parent: &'a Header, header: &'a Header) -> Self {
+    pub fn new(parent: &'a HeaderView, header: &'a HeaderView) -> Self {
         NumberVerifier { parent, header }
     }
 
@@ -146,7 +148,7 @@ impl<T: HeaderResolver> EpochVerifier<T> {
             }));
         }
         let actual_difficulty = target.header().difficulty();
-        if epoch.difficulty() != actual_difficulty {
+        if epoch.difficulty() != &actual_difficulty {
             return Err(Error::Epoch(EpochError::DifficultyMismatch {
                 expected: epoch.difficulty().clone(),
                 actual: actual_difficulty.clone(),
@@ -157,12 +159,12 @@ impl<T: HeaderResolver> EpochVerifier<T> {
 }
 
 pub struct PowVerifier<'a> {
-    header: &'a Header,
+    header: &'a HeaderView,
     pow: Arc<dyn PowEngine>,
 }
 
 impl<'a> PowVerifier<'a> {
-    pub fn new(header: &'a Header, pow: &Arc<dyn PowEngine>) -> Self {
+    pub fn new(header: &'a HeaderView, pow: &Arc<dyn PowEngine>) -> Self {
         PowVerifier {
             header,
             pow: Arc::clone(pow),
@@ -170,10 +172,10 @@ impl<'a> PowVerifier<'a> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        if self.pow.verify_header(self.header) {
+        if self.pow.verify(&self.header.data()) {
             Ok(())
         } else {
-            Err(Error::Pow(PowError::InvalidProof))
+            Err(Error::Pow(PowError::InvalidNonce))
         }
     }
 }

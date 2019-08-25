@@ -1,23 +1,21 @@
 [package]
 name = "ckb-tx-pool-executor"
-version = "0.18.2"
+version = "0.19.0"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
 
 [dependencies]
 ckb-shared = { path = ".." }
-ckb-core = { path = "../../core" }
+ckb-types = { path = "../../util/types" }
 ckb-store = { path = "../../store" }
 ckb-traits = { path = "../../traits" }
 ckb-verification = { path = "../../verification" }
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-fnv = "1.0.3"
+
 [dev-dependencies]
 ckb-chain = { path = "../../chain" }
 ckb-notify = { path = "../../notify" }
 ckb-db = { path = "../../db" }
 ckb-chain-spec = { path = "../../spec" }
-numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
 faketime = "0.2"
 ckb-test-chain-utils = { path = "../../util/test-chain-utils" }

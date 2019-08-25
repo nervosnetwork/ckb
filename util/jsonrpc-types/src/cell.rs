@@ -1,5 +1,5 @@
 use crate::{Capacity, CellOutput, OutPoint, Script};
-use ckb_core::cell::CellStatus;
+use ckb_types::{core::cell::CellStatus, H256};
 use serde_derive::{Deserialize, Serialize};
 
 // This is used as return value of get_cells_by_lock_hash RPC:
@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct CellOutputWithOutPoint {
     pub out_point: OutPoint,
+    pub block_hash: H256,
     pub capacity: Capacity,
     pub lock: Script,
 }
@@ -21,10 +22,9 @@ pub struct CellWithStatus {
 impl From<CellStatus> for CellWithStatus {
     fn from(status: CellStatus) -> Self {
         let (cell, status) = match status {
-            CellStatus::Live(cell_meta) => (cell_meta.cell_output, "live"),
+            CellStatus::Live(cell_meta) => (Some(cell_meta.cell_output), "live"),
             CellStatus::Dead => (None, "dead"),
             CellStatus::Unknown => (None, "unknown"),
-            CellStatus::Unspecified => (None, "unspecified"),
         };
         Self {
             cell: cell.map(Into::into),

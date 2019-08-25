@@ -1,7 +1,7 @@
 use crate::format::Format;
 use crate::iter::ChainIterator;
+use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_shared::shared::Shared;
-use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
@@ -13,16 +13,16 @@ use std::io::Write;
 use std::path::PathBuf;
 
 /// Export block from datbase to specify file.
-pub struct Export<CS> {
+pub struct Export {
     /// export target path
     pub target: PathBuf,
-    pub shared: Shared<CS>,
+    pub shared: Shared,
     /// which format be used to export
     pub format: Format,
 }
 
-impl<CS: ChainStore> Export<CS> {
-    pub fn new(shared: Shared<CS>, format: Format, target: PathBuf) -> Self {
+impl Export {
+    pub fn new(shared: Shared, format: Format, target: PathBuf) -> Self {
         Export {
             shared,
             format,
@@ -31,7 +31,7 @@ impl<CS: ChainStore> Export<CS> {
     }
 
     /// Returning ChainIterator dealing with blocks iterate.
-    pub fn iter(&self) -> ChainIterator<CS> {
+    pub fn iter(&self) -> ChainIterator {
         ChainIterator::new(self.shared.clone())
     }
 
@@ -58,7 +58,7 @@ impl<CS: ChainStore> Export<CS> {
         let mut writer = io::BufWriter::new(f);
 
         for block in self.iter() {
-            let block: Block = block.into();
+            let block: JsonBlock = block.into();
             let encoded = serde_json::to_vec(&block)?;
             writer.write_all(&encoded)?;
             writer.write_all(b"\n")?;
@@ -83,6 +83,7 @@ impl<CS: ChainStore> Export<CS> {
                 .progress_chars("##-"),
         );
         for block in blocks_iter {
+            let block: JsonBlock = block.into();
             let encoded = serde_json::to_vec(&block)?;
             writer.write_all(&encoded)?;
             writer.write_all(b"\n")?;

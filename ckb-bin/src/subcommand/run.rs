@@ -2,16 +2,15 @@ use crate::helper::{deadlock_detection, wait_for_exit};
 use ckb_app_config::{ExitCode, RunArgs};
 use ckb_build_info::Version;
 use ckb_chain::chain::ChainService;
-use ckb_db::RocksDB;
+use ckb_jsonrpc_types::ScriptHashType;
 use ckb_logger::info_target;
 use ckb_miner::BlockAssembler;
 use ckb_network::{CKBProtocol, NetworkService, NetworkState};
 use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
-use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
+use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
-use ckb_store::ChainStore;
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_verification::{BlockVerifier, Verifier};
@@ -22,9 +21,8 @@ const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20;
 pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     deadlock_detection();
 
-    let shared = SharedBuilder::<RocksDB>::new()
+    let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
-        .db(&args.config.db)
         .tx_pool_config(args.config.tx_pool)
         .script_config(args.config.script)
         .store_config(args.config.store)
@@ -38,7 +36,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     verify_genesis(&shared)?;
 
     let notify = NotifyService::default().start(Some("notify"));
-    let chain_service = ChainService::new(shared.clone(), notify.clone());
+    let chain_service = ChainService::new(shared.clone(), table, notify.clone());
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(
         crate::LOG_TARGET_MAIN,
@@ -49,10 +47,37 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let block_assembler_controller =
         match (args.config.rpc.miner_enable(), args.config.block_assembler) {
             (true, Some(block_assembler)) => {
+                let check_lock_code_hash = |code_hash| -> Result<bool, ExitCode> {
+                    let secp_cell_data =
+                        Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
+                            .get()
+                            .map_err(|err| {
+                                eprintln!(
+                                    "Load specs/cells/secp256k1_blake160_sighash_all error: {:?}",
+                                    err
+                                );
+                                ExitCode::Failure
+                            })?;
+                    let genesis_cellbase = &shared.consensus().genesis_block().transactions()[0];
+                    Ok(genesis_cellbase
+                        .outputs()
+                        .into_iter()
+                        .zip(genesis_cellbase.outputs_data().into_iter())
+                        .any(|(output, data)| {
+                            data.raw_data() == secp_cell_data.as_ref()
+                                && output
+                                    .type_()
+                                    .to_opt()
+                                    .map(|script| script.calc_script_hash())
+                                    .as_ref()
+                                    == Some(code_hash)
+                        }))
+                };
                 if args.block_assembler_advanced
-                    || (block_assembler.code_hash == CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL
+                    || (block_assembler.hash_type == ScriptHashType::Type
                         && block_assembler.args.len() == 1
-                        && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN)
+                        && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
+                        && check_lock_code_hash(&block_assembler.code_hash)?)
                 {
                     Some(
                         BlockAssembler::new(shared.clone(), block_assembler)
@@ -60,10 +85,10 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
                     )
                 } else {
                     info_target!(
-                        crate::LOG_TARGET_MAIN,
-                        "Miner is disabled because block assmebler is not a valid secp256k1 lock. \
-                         Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
-                    );
+                    crate::LOG_TARGET_MAIN,
+                    "Miner is disabled because block assmebler is not a recommended lock format. \
+                     Edit ckb.toml or use `ckb run --ba-advanced` to use other lock scripts"
+                );
 
                     None
                 }
@@ -85,7 +110,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     );
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
 
-    let relayer = Relayer::new(chain_controller.clone(), sync_shared_state);
+    let relayer = Relayer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
     let net_timer = NetTimeProtocol::default();
     let alert_signature_config = args.config.alert_signature.unwrap_or_default();
     let alert_notifier_config = args.config.alert_notifier.unwrap_or_default();
@@ -133,13 +158,14 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
         Arc::clone(&network_state),
         protocols,
         shared.consensus().identify_name(),
+        version.to_string(),
     )
     .start(version, Some("NetworkService"))
     .expect("Start network service failed");
 
     let builder = ServiceBuilder::new(&args.config.rpc)
         .enable_chain(shared.clone())
-        .enable_pool(shared.clone(), network_controller.clone())
+        .enable_pool(shared.clone(), sync_shared_state)
         .enable_miner(
             shared.clone(),
             network_controller.clone(),
@@ -169,9 +195,9 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     Ok(())
 }
 
-fn verify_genesis<CS: ChainStore + 'static>(shared: &Shared<CS>) -> Result<(), ExitCode> {
+fn verify_genesis(shared: &Shared) -> Result<(), ExitCode> {
     let genesis = shared.consensus().genesis_block();
-    BlockVerifier::new(shared.clone())
+    BlockVerifier::new(shared.consensus())
         .verify(genesis)
         .map_err(|err| {
             eprintln!("genesis error: {}", err);

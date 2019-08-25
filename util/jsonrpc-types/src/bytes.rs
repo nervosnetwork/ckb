@@ -1,15 +1,9 @@
-use ckb_core::Bytes;
+use ckb_types::{bytes::Bytes, packed, prelude::*};
 use faster_hex::{hex_decode, hex_encode};
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct JsonBytes(Bytes);
-
-impl Default for JsonBytes {
-    fn default() -> Self {
-        JsonBytes(Bytes::default())
-    }
-}
 
 impl JsonBytes {
     pub fn from_bytes(bytes: Bytes) -> Self {
@@ -38,6 +32,22 @@ impl JsonBytes {
     }
 }
 
+impl From<packed::Bytes> for JsonBytes {
+    fn from(input: packed::Bytes) -> Self {
+        JsonBytes::from_bytes(input.as_bytes().slice_from(4))
+    }
+}
+
+impl From<JsonBytes> for packed::Bytes {
+    fn from(input: JsonBytes) -> Self {
+        let len = input.as_bytes().len();
+        let mut vec: Vec<u8> = Vec::with_capacity(4 + len);
+        vec.extend_from_slice(&(len as u32).to_le_bytes()[..]);
+        vec.extend_from_slice(input.as_bytes());
+        packed::Bytes::new_unchecked(Bytes::from(vec))
+    }
+}
+
 struct BytesVisitor;
 
 impl<'b> serde::de::Visitor<'b> for BytesVisitor {
@@ -51,7 +61,7 @@ impl<'b> serde::de::Visitor<'b> for BytesVisitor {
     where
         E: serde::de::Error,
     {
-        if v.len() < 2 || &v[0..2] != "0x" {
+        if v.len() < 2 || &v.as_bytes()[0..2] != b"0x" {
             return Err(E::invalid_value(serde::de::Unexpected::Str(v), &self));
         }
 
@@ -113,21 +123,46 @@ mod test {
         }
 
         let invalid_prefixed = r#"{"bytes": "2143"}"#;
-        let invalid_length = r#"{"bytes" : "0x0"}"#;
-        let illegal_char = r#"{"bytes":"0xgh"}"#;
-
         let e = serde_json::from_str::<Test>(invalid_prefixed);
-        assert_eq!(r#"invalid value: string "2143", expected a 0x-prefixed hex string at line 1 column 16"#, format!("{}", e.unwrap_err()));
+        assert_eq!(
+            "invalid value: string \"2143\", \
+             expected a 0x-prefixed hex string at line 1 column 16",
+            format!("{}", e.unwrap_err())
+        );
 
+        let invalid_prefixed = r#"{"bytes": "换个行会死吗"}"#;
+        let e = serde_json::from_str::<Test>(invalid_prefixed);
+        assert_eq!(
+            "invalid value: string \"换个行会死吗\", \
+             expected a 0x-prefixed hex string at line 1 column 30",
+            format!("{}", e.unwrap_err())
+        );
+
+        let invalid_length = r#"{"bytes" : "0x0"}"#;
         let e = serde_json::from_str::<Test>(invalid_length);
         assert_eq!(
             r#"invalid length 3, expected even length at line 1 column 16"#,
             format!("{}", e.unwrap_err())
         );
 
+        let invalid_length = r#"{"bytes":"0x这个测试写的真垃圾，需要用正则重写"}"#;
+        let e = serde_json::from_str::<Test>(invalid_length);
+        assert_eq!(
+            r#"invalid length 53, expected even length at line 1 column 64"#,
+            format!("{}", e.unwrap_err())
+        );
+
+        let illegal_char = r#"{"bytes":"0xgh"}"#;
         let e = serde_json::from_str::<Test>(illegal_char);
         assert_eq!(
             r#"Invalid character at line 1 column 15"#,
+            format!("{}", e.unwrap_err())
+        );
+
+        let illegal_char = r#"{"bytes":"0x一二三四"}"#;
+        let e = serde_json::from_str::<Test>(illegal_char);
+        assert_eq!(
+            r#"Invalid character at line 1 column 25"#,
             format!("{}", e.unwrap_err())
         );
     }

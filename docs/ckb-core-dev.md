@@ -39,20 +39,11 @@ The chain spec in `specs/dev.toml` can switch between different PoW engines.
 
 CKB now supports following PoW Engines.
 
-### Cuckoo
+### Eaglesong
 
 ```
 [pow]
-func = "Cuckoo"
-
-[pow.params]
-# the 2-log of the graph size, which is the size in bits of the node
-# identifiers
-edge_bits = 15
-
-# length of the cycle to be found, must be an even number, a minimum of 12 is
-# recommended
-cycle_length = 12
+func = "Eaglesong"
 ```
 
 ### Dummy
@@ -69,4 +60,12 @@ and don't forget to modify `ckb-miner.toml` miner workers section:
 worker_type = "Dummy"
 delay_type  = "Constant"
 value       = 5000
+```
+
+## Development Tools
+
+### Schema Compiler and  Code Generator For Serialization
+
+```
+cargo install moleculec
 ```

@@ -1,25 +1,28 @@
 use crate::error::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_core::{
-    cell::{CellMeta, ResolvedOutPoint, ResolvedTransaction},
-    transaction::{Transaction, TX_VERSION},
-    BlockNumber, Cycle, EpochNumber,
-};
 use ckb_resource::CODE_HASH_DAO;
 use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
-use ckb_script_data_loader::DataLoader;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
+use ckb_types::{
+    constants::TX_VERSION,
+    core::{
+        cell::{CellMeta, ResolvedTransaction},
+        BlockNumber, Capacity, Cycle, EpochNumber, TransactionView,
+    },
+    packed::Byte32,
+    prelude::*,
+    H256,
+};
 use lru_cache::LruCache;
-use numext_fixed_hash::H256;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 pub struct ContextualTransactionVerifier<'a, M> {
     pub maturity: MaturityVerifier<'a>,
     pub since: SinceVerifier<'a, M>,
 }
+
 impl<'a, M> ContextualTransactionVerifier<'a, M>
 where
     M: BlockMedianTimeContext,
@@ -29,7 +32,7 @@ where
         median_time_context: &'a M,
         block_number: BlockNumber,
         epoch_number: EpochNumber,
-        parent_hash: &'a H256,
+        parent_hash: Byte32,
         consensus: &'a Consensus,
     ) -> Self {
         ContextualTransactionVerifier {
@@ -56,8 +59,9 @@ pub struct TransactionVerifier<'a, M, CS> {
     pub size: SizeVerifier<'a>,
     pub empty: EmptyVerifier<'a>,
     pub maturity: MaturityVerifier<'a>,
-    pub capacity: CapacityVerifier<'a, CS>,
+    pub capacity: CapacityVerifier<'a>,
     pub duplicate_deps: DuplicateDepsVerifier<'a>,
+    pub outputs_data_verifier: OutputsDataVerifier<'a>,
     pub script: ScriptVerifier<'a, CS>,
     pub since: SinceVerifier<'a, M>,
 }
@@ -65,7 +69,7 @@ pub struct TransactionVerifier<'a, M, CS> {
 impl<'a, M, CS> TransactionVerifier<'a, M, CS>
 where
     M: BlockMedianTimeContext,
-    CS: ChainStore,
+    CS: ChainStore<'a>,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -73,10 +77,10 @@ where
         median_time_context: &'a M,
         block_number: BlockNumber,
         epoch_number: EpochNumber,
-        parent_hash: &'a H256,
+        parent_hash: Byte32,
         consensus: &'a Consensus,
         script_config: &'a ScriptConfig,
-        chain_store: &'a Arc<CS>,
+        chain_store: &'a CS,
     ) -> Self {
         TransactionVerifier {
             version: VersionVerifier::new(&rtx.transaction),
@@ -84,8 +88,9 @@ where
             empty: EmptyVerifier::new(&rtx.transaction),
             maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
+            outputs_data_verifier: OutputsDataVerifier::new(&rtx.transaction),
             script: ScriptVerifier::new(rtx, chain_store, script_config),
-            capacity: CapacityVerifier::new(rtx, chain_store),
+            capacity: CapacityVerifier::new(rtx),
             since: SinceVerifier::new(
                 rtx,
                 median_time_context,
@@ -103,6 +108,7 @@ where
         self.maturity.verify()?;
         self.capacity.verify()?;
         self.duplicate_deps.verify()?;
+        self.outputs_data_verifier.verify()?;
         self.since.verify()?;
         let cycles = self.script.verify(max_cycles)?;
         Ok(cycles)
@@ -110,11 +116,11 @@ where
 }
 
 pub struct VersionVerifier<'a> {
-    transaction: &'a Transaction,
+    transaction: &'a TransactionView,
 }
 
 impl<'a> VersionVerifier<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
+    pub fn new(transaction: &'a TransactionView) -> Self {
         VersionVerifier { transaction }
     }
 
@@ -127,12 +133,12 @@ impl<'a> VersionVerifier<'a> {
 }
 
 pub struct SizeVerifier<'a> {
-    transaction: &'a Transaction,
+    transaction: &'a TransactionView,
     block_bytes_limit: u64,
 }
 
 impl<'a> SizeVerifier<'a> {
-    pub fn new(transaction: &'a Transaction, block_bytes_limit: u64) -> Self {
+    pub fn new(transaction: &'a TransactionView, block_bytes_limit: u64) -> Self {
         SizeVerifier {
             transaction,
             block_bytes_limit,
@@ -150,15 +156,15 @@ impl<'a> SizeVerifier<'a> {
 }
 
 pub struct ScriptVerifier<'a, CS> {
-    chain_store: &'a Arc<CS>,
+    chain_store: &'a CS,
     resolved_transaction: &'a ResolvedTransaction<'a>,
     script_config: &'a ScriptConfig,
 }
 
-impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
+impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
     pub fn new(
         resolved_transaction: &'a ResolvedTransaction,
-        chain_store: &'a Arc<CS>,
+        chain_store: &'a CS,
         script_config: &'a ScriptConfig,
     ) -> Self {
         ScriptVerifier {
@@ -169,7 +175,7 @@ impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, TransactionError> {
-        let data_loader = DataLoaderWrapper::new(Arc::clone(&self.chain_store));
+        let data_loader = DataLoaderWrapper::new(self.chain_store);
         TransactionScriptsVerifier::new(
             &self.resolved_transaction,
             &data_loader,
@@ -181,11 +187,11 @@ impl<'a, CS: ChainStore> ScriptVerifier<'a, CS> {
 }
 
 pub struct EmptyVerifier<'a> {
-    transaction: &'a Transaction,
+    transaction: &'a TransactionView,
 }
 
 impl<'a> EmptyVerifier<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
+    pub fn new(transaction: &'a TransactionView) -> Self {
         EmptyVerifier { transaction }
     }
 
@@ -219,28 +225,26 @@ impl<'a> MaturityVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let cellbase_immature = |meta: &CellMeta| -> bool {
-            meta.is_cellbase()
-                && self.block_number
-                    < meta
-                        .block_info
-                        .as_ref()
-                        .expect("cell meta should have block number when transaction verify")
-                        .number
-                        + self.cellbase_maturity
+            meta.transaction_info
+                .as_ref()
+                .map(|info| {
+                    info.block_number > 0
+                        && info.is_cellbase()
+                        && self.block_number < info.block_number + self.cellbase_maturity
+                })
+                .unwrap_or(false)
         };
 
         let input_immature_spend = || {
             self.transaction
                 .resolved_inputs
                 .iter()
-                .filter_map(ResolvedOutPoint::cell)
                 .any(cellbase_immature)
         };
         let dep_immature_spend = || {
             self.transaction
-                .resolved_deps
+                .resolved_cell_deps
                 .iter()
-                .filter_map(ResolvedOutPoint::cell)
                 .any(cellbase_immature)
         };
 
@@ -253,19 +257,26 @@ impl<'a> MaturityVerifier<'a> {
 }
 
 pub struct DuplicateDepsVerifier<'a> {
-    transaction: &'a Transaction,
+    transaction: &'a TransactionView,
 }
 
 impl<'a> DuplicateDepsVerifier<'a> {
-    pub fn new(transaction: &'a Transaction) -> Self {
+    pub fn new(transaction: &'a TransactionView) -> Self {
         DuplicateDepsVerifier { transaction }
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         let transaction = self.transaction;
-        let mut seen = HashSet::with_capacity(self.transaction.deps().len());
+        let mut seen_cells = HashSet::with_capacity(self.transaction.cell_deps().len());
+        let mut seen_headers = HashSet::with_capacity(self.transaction.header_deps().len());
 
-        if transaction.deps().iter().all(|id| seen.insert(id)) {
+        if transaction
+            .cell_deps_iter()
+            .all(|dep| seen_cells.insert(dep))
+            && transaction
+                .header_deps_iter()
+                .all(|hash| seen_headers.insert(hash))
+        {
             Ok(())
         } else {
             Err(TransactionError::DuplicateDeps)
@@ -273,15 +284,13 @@ impl<'a> DuplicateDepsVerifier<'a> {
     }
 }
 
-pub struct CapacityVerifier<'a, CS> {
-    chain_store: &'a Arc<CS>,
+pub struct CapacityVerifier<'a> {
     resolved_transaction: &'a ResolvedTransaction<'a>,
 }
 
-impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction, chain_store: &'a Arc<CS>) -> Self {
+impl<'a> CapacityVerifier<'a> {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction) -> Self {
         CapacityVerifier {
-            chain_store,
             resolved_transaction,
         }
     }
@@ -300,8 +309,12 @@ impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
             }
         }
 
-        for output in self.resolved_transaction.transaction.outputs().iter() {
-            if output.is_lack_of_capacity()? {
+        for (output, data) in self
+            .resolved_transaction
+            .transaction
+            .outputs_with_data_iter()
+        {
+            if output.is_lack_of_capacity(Capacity::bytes(data.len())?)? {
                 return Err(TransactionError::InsufficientCellCapacity);
             }
         }
@@ -310,20 +323,15 @@ impl<'a, CS: ChainStore> CapacityVerifier<'a, CS> {
     }
 
     fn valid_dao_withdraw_transaction(&self) -> bool {
-        let data_loader = DataLoaderWrapper::new(Arc::clone(&self.chain_store));
         self.resolved_transaction
             .resolved_inputs
             .iter()
-            .any(|input| {
-                input
-                    .cell()
-                    .map(|cell| {
-                        let output = data_loader.lazy_load_cell_output(&cell);
-                        output
-                            .type_
-                            .map(|type_| type_.code_hash == CODE_HASH_DAO)
-                            .unwrap_or(false)
-                    })
+            .any(|cell_meta| {
+                cell_meta
+                    .cell_output
+                    .type_()
+                    .to_opt()
+                    .map(|t| Unpack::<H256>::unpack(&t.code_hash()) == CODE_HASH_DAO)
                     .unwrap_or(false)
             })
     }
@@ -379,8 +387,8 @@ pub struct SinceVerifier<'a, M> {
     block_median_time_context: &'a M,
     block_number: BlockNumber,
     epoch_number: EpochNumber,
-    parent_hash: &'a H256,
-    median_timestamps_cache: RefCell<LruCache<H256, u64>>,
+    parent_hash: Byte32,
+    median_timestamps_cache: RefCell<LruCache<Byte32, u64>>,
 }
 
 impl<'a, M> SinceVerifier<'a, M>
@@ -392,7 +400,7 @@ where
         block_median_time_context: &'a M,
         block_number: BlockNumber,
         epoch_number: BlockNumber,
-        parent_hash: &'a H256,
+        parent_hash: Byte32,
     ) -> Self {
         let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
         SinceVerifier {
@@ -405,14 +413,14 @@ where
         }
     }
 
-    fn parent_median_time(&self, block_hash: &H256) -> u64 {
+    fn parent_median_time(&self, block_hash: &Byte32) -> u64 {
         let (_, _, parent_hash) = self
             .block_median_time_context
             .timestamp_and_parent(block_hash);
         self.block_median_time(&parent_hash)
     }
 
-    fn block_median_time(&self, block_hash: &H256) -> u64 {
+    fn block_median_time(&self, block_hash: &Byte32) -> u64 {
         if let Some(median_time) = self.median_timestamps_cache.borrow().get(block_hash) {
             return *median_time;
         }
@@ -438,7 +446,7 @@ where
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
-                    let tip_timestamp = self.block_median_time(self.parent_hash);
+                    let tip_timestamp = self.block_median_time(&self.parent_hash);
                     if tip_timestamp < timestamp {
                         return Err(TransactionError::Immature);
                     }
@@ -457,18 +465,18 @@ where
         cell_meta: &CellMeta,
     ) -> Result<(), TransactionError> {
         if since.is_relative() {
-            let cell = match cell_meta.block_info {
-                Some(ref block_info) => block_info,
+            let info = match cell_meta.transaction_info {
+                Some(ref transaction_info) => transaction_info,
                 None => return Err(TransactionError::Immature),
             };
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
-                    if self.block_number < cell.number + block_number {
+                    if self.block_number < info.block_number + block_number {
                         return Err(TransactionError::Immature);
                     }
                 }
                 Some(SinceMetric::EpochNumber(epoch_number)) => {
-                    if self.epoch_number < cell.epoch + epoch_number {
+                    if self.epoch_number < info.block_epoch + epoch_number {
                         return Err(TransactionError::Immature);
                     }
                 }
@@ -477,8 +485,8 @@ where
                     // parent of current block.
                     // pass_median_time(input_cell's block) starts with cell_block_number - 1,
                     // which is the parent of input_cell's block
-                    let cell_median_timestamp = self.parent_median_time(&cell.hash);
-                    let current_median_time = self.block_median_time(self.parent_hash);
+                    let cell_median_timestamp = self.parent_median_time(&info.block_hash.pack());
+                    let current_median_time = self.block_median_time(&self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
                         return Err(TransactionError::Immature);
                     }
@@ -492,21 +500,18 @@ where
     }
 
     pub fn verify(&self) -> Result<(), TransactionError> {
-        for (resolved_out_point, input) in self
+        for (cell_meta, input) in self
             .rtx
             .resolved_inputs
             .iter()
             .zip(self.rtx.transaction.inputs())
         {
-            if resolved_out_point.cell().is_none() {
-                continue;
-            }
-            let cell_meta = resolved_out_point.cell().unwrap();
             // ignore empty since
-            if input.since == 0 {
+            let since: u64 = input.since().unpack();
+            if since == 0 {
                 continue;
             }
-            let since = Since(input.since);
+            let since = Since(since);
             // check remain flags
             if !since.flags_is_valid() {
                 return Err(TransactionError::InvalidSince);
@@ -515,6 +520,23 @@ where
             // verify time lock
             self.verify_absolute_lock(since)?;
             self.verify_relative_lock(since, cell_meta)?;
+        }
+        Ok(())
+    }
+}
+
+pub struct OutputsDataVerifier<'a> {
+    transaction: &'a TransactionView,
+}
+
+impl<'a> OutputsDataVerifier<'a> {
+    pub fn new(transaction: &'a TransactionView) -> Self {
+        Self { transaction }
+    }
+
+    pub fn verify(&self) -> Result<(), TransactionError> {
+        if self.transaction.outputs().len() != self.transaction.outputs_data().len() {
+            return Err(TransactionError::OutputsDataLengthMismatch);
         }
         Ok(())
     }

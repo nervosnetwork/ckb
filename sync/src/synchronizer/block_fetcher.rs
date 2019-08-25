@@ -2,31 +2,26 @@ use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::types::HeaderView;
 use crate::{MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
-use ckb_core::header::Header;
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
-use numext_fixed_hash::H256;
-use numext_fixed_uint::U256;
+use ckb_types::{core, packed, U256};
 use std::cmp::min;
 
-pub struct BlockFetcher<CS: ChainStore> {
-    synchronizer: Synchronizer<CS>,
+pub struct BlockFetcher {
+    synchronizer: Synchronizer,
     peer: PeerIndex,
-    tip_header: Header,
+    tip_header: core::HeaderView,
     total_difficulty: U256,
 }
 
-impl<CS> BlockFetcher<CS>
-where
-    CS: ChainStore,
-{
-    pub fn new(synchronizer: Synchronizer<CS>, peer: PeerIndex) -> Self {
+impl BlockFetcher {
+    pub fn new(synchronizer: Synchronizer, peer: PeerIndex) -> Self {
         let (tip_header, total_difficulty) = {
-            let chain_state = synchronizer.shared.lock_chain_state();
+            let snapshot = synchronizer.shared.snapshot();
             (
-                chain_state.tip_header().to_owned(),
-                chain_state.total_difficulty().to_owned(),
+                snapshot.tip_header().to_owned(),
+                snapshot.total_difficulty().to_owned(),
             )
         };
         BlockFetcher {
@@ -44,14 +39,14 @@ where
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.is_better_than(&self.total_difficulty, self.tip_header.hash())
+        header.is_better_than(&self.total_difficulty, &self.tip_header.hash())
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
         self.synchronizer.peers().get_best_known_header(self.peer)
     }
 
-    pub fn last_common_header(&self, best: &HeaderView) -> Option<Header> {
+    pub fn last_common_header(&self, best: &HeaderView) -> Option<core::HeaderView> {
         let last_common_header = {
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
                 Some(header)
@@ -84,7 +79,7 @@ where
         Some(fixed_last_common_header)
     }
 
-    pub fn fetch(self) -> Option<Vec<H256>> {
+    pub fn fetch(self) -> Option<Vec<packed::Byte32>> {
         trace!("[block downloader] BlockFetcher process");
 
         if self.reached_inflight_limit() {
@@ -155,23 +150,22 @@ where
                 let to_fetch = self
                     .synchronizer
                     .shared
-                    .get_ancestor(best_known_header.hash(), index_height)?;
-                let to_fetch_hash = to_fetch.hash();
+                    .get_ancestor(&best_known_header.hash(), index_height)?;
                 if self
                     .synchronizer
                     .shared()
-                    .contains_block_status(to_fetch_hash, BlockStatus::BLOCK_RECEIVED)
+                    .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_RECEIVED)
                 {
                     continue;
                 }
 
-                if inflight.insert(self.peer, to_fetch_hash.to_owned()) {
+                if inflight.insert(self.peer, to_fetch.hash()) {
                     trace!(
-                        "[Synchronizer] inflight insert {:?}------------{:x}",
+                        "[Synchronizer] inflight insert {:?}------------{}",
                         to_fetch.number(),
-                        to_fetch_hash
+                        to_fetch.hash(),
                     );
-                    fetch.push(to_fetch_hash.to_owned());
+                    fetch.push(to_fetch.hash());
                 }
             }
         }
