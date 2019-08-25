@@ -270,7 +270,7 @@ fn cli_blake160() -> App<'static, 'static> {
 
 fn cli_secp256k1_lock() -> App<'static, 'static> {
     SubCommand::with_name(CMD_SECP256K1_LOCK)
-        .about("Prints lock structure from secp256k1 pubkey")
+        .about("Prints lock args from secp256k1 pubkey")
         .arg(
             Arg::with_name(ARG_DATA)
                 .short("d")
@@ -364,11 +364,8 @@ fn init() -> App<'static, 'static> {
                 .value_name("hash_type")
                 .takes_value(true)
                 .possible_values(&["data", "type"])
-                .default_value("data")
-                .help(
-                    "Sets hash type in [block_assembler] \
-                     [default: data]",
-                ),
+                .default_value("type")
+                .help("Sets hash type in [block_assembler]"),
         )
         .group(
             ArgGroup::with_name(GROUP_BA)

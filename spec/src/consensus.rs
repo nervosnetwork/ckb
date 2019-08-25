@@ -1,6 +1,7 @@
 use ckb_dao_utils::genesis_dao_data;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
+use ckb_resource::Resource;
 use ckb_types::{
     constants::BLOCK_VERSION,
     core::{
@@ -517,6 +518,26 @@ impl Consensus {
     pub fn identify_name(&self) -> String {
         let genesis_hash = format!("{:x}", &self.genesis_hash);
         format!("/{}/{}", self.id, &genesis_hash[..8])
+    }
+
+    pub fn get_secp_type_script_hash(&self) -> H256 {
+        let secp_cell_data =
+            Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
+                .get()
+                .expect("Load secp script data failed");
+        let genesis_cellbase = &self.genesis_block().transactions()[0];
+        genesis_cellbase
+            .outputs()
+            .into_iter()
+            .zip(genesis_cellbase.outputs_data().into_iter())
+            .find(|(_, data)| data.raw_data() == secp_cell_data.as_ref())
+            .and_then(|(output, _)| {
+                output
+                    .type_()
+                    .to_opt()
+                    .map(|script| script.calc_script_hash())
+            })
+            .expect("Can not find secp script")
     }
 }
 
