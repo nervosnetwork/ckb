@@ -12,6 +12,7 @@ use ckb_resource::{
 };
 use ckb_script::Runner;
 
+const DEFAULT_LOCK_SCRIPT_HASH_TYPE: &str = "type";
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20 * 2 + 2; // 42 = 20 x 2 + prefix 0x
 
 fn check_db_compatibility(path: PathBuf) {
@@ -90,17 +91,23 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
     }
 
     let runner = Runner::default().to_string();
-    let default_code_hash =
+
+    // Try to find the default secp256k1 from bundled chain spec.
+    let default_code_hash_option =
         ChainSpec::load_from(&Resource::bundled(format!("specs/{}.toml", args.chain)))
-            .expect("Load chain spec fialed")
-            .build_consensus()
-            .expect("Build consensus failed")
-            .get_secp_type_script_hash();
-    let default_code_hash_string = format!("{:#x}", default_code_hash);
-    let default_hash_type = "type";
+            .ok()
+            .map(|spec| {
+                format!(
+                    "{:#x}",
+                    spec.build_consensus()
+                        .expect("Build consensus failed")
+                        .get_secp_type_script_hash()
+                )
+            });
+
     let block_assembler_code_hash = args.block_assembler_code_hash.as_ref().or_else(|| {
         if !args.block_assembler_args.is_empty() {
-            Some(&default_code_hash_string)
+            default_code_hash_option.as_ref()
         } else {
             None
         }
@@ -108,25 +115,27 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
 
     let block_assembler = match block_assembler_code_hash {
         Some(hash) => {
-            if ScriptHashType::Type != args.block_assembler_hash_type {
-                eprintln!(
-                    "WARN: the default lock should use hash type `{}`, you are using `{}`.\n\
-                     It will require `ckb run --ba-advanced` to enable this block assembler",
-                    default_hash_type, args.block_assembler_hash_type
-                );
-            } else if default_code_hash_string != *hash {
-                eprintln!(
-                    "WARN: the default secp256k1 code hash is `{:#x}`, you are using `{}`.\n\
-                     It will require `ckb run --ba-advanced` to enable this block assembler",
-                    default_code_hash, hash
-                );
-            } else if args.block_assembler_args.len() != 1
-                || args.block_assembler_args[0].len() != SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
-            {
-                eprintln!(
-                    "WARN: the block assembler arg is not a valid secp256k1 pubkey hash.\n\
-                     It will require `ckb run --ba-advanced` to enable this block assembler"
-                );
+            if let Some(default_code_hash) = &default_code_hash_option {
+                if ScriptHashType::Type != args.block_assembler_hash_type {
+                    eprintln!(
+                        "WARN: the default lock should use hash type `{}`, you are using `{}`.\n\
+                         It will require `ckb run --ba-advanced` to enable this block assembler",
+                        DEFAULT_LOCK_SCRIPT_HASH_TYPE, args.block_assembler_hash_type
+                    );
+                } else if *default_code_hash != *hash {
+                    eprintln!(
+                        "WARN: the default secp256k1 code hash is `{}`, you are using `{}`.\n\
+                         It will require `ckb run --ba-advanced` to enable this block assembler",
+                        default_code_hash, hash
+                    );
+                } else if args.block_assembler_args.len() != 1
+                    || args.block_assembler_args[0].len() != SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
+                {
+                    eprintln!(
+                        "WARN: the block assembler arg is not a valid secp256k1 pubkey hash.\n\
+                         It will require `ckb run --ba-advanced` to enable this block assembler"
+                    );
+                }
             }
             format!(
                 "[block_assembler]\n\
@@ -146,11 +155,12 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
             format!(
                 "# secp256k1_blake160_sighash_all example:\n\
                  # [block_assembler]\n\
-                 # code_hash = \"{:#x}\"\n\
+                 # code_hash = \"{}\"\n\
                  # args = [ \"ckb cli blake160 <compressed-pubkey>\" ]\n\
                  # data = \"A 0x-prefixed hex string\"\n\
                  # hash_type = \"{}\"",
-                default_code_hash, default_hash_type,
+                default_code_hash_option.unwrap_or_default(),
+                DEFAULT_LOCK_SCRIPT_HASH_TYPE,
             )
         }
     };

@@ -13,9 +13,9 @@ use ckb_types::{
     prelude::*,
     H256,
 };
+use failure::Error;
 use std::convert::Into;
 use std::fs;
-use std::io::Error;
 use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
 
@@ -384,6 +384,7 @@ impl Node {
             Path::new(&self.dir).join("specs/integration.toml"),
             toml::to_string(&spec).expect("chain spec serialize"),
         )
+        .map_err(Into::into)
     }
 
     fn rewrite_spec(
@@ -411,6 +412,7 @@ impl Node {
             &ckb_config_path,
             toml::to_string(&ckb_config).expect("ckb config serialize"),
         )
+        .map_err(Into::into)
     }
 
     fn init_config_file(
@@ -421,7 +423,7 @@ impl Node {
         let rpc_port = format!("{}", self.rpc_port).to_string();
         let p2p_port = format!("{}", self.p2p_port).to_string();
 
-        Command::new(self.binary.to_owned())
+        let init_exit_status = Command::new(self.binary.to_owned())
             .args(&[
                 "-C",
                 &self.dir,
@@ -433,8 +435,12 @@ impl Node {
                 "--p2p-port",
                 &p2p_port,
             ])
-            .output()
-            .map(|_| ())?;
+            .stdout(Stdio::null())
+            .status()?;
+
+        if !init_exit_status.success() {
+            return Err(failure::err_msg("Fail to execute ckb init"));
+        }
 
         self.prepare_chain_spec(modify_chain_spec)?;
         self.rewrite_spec(modify_ckb_config)?;
