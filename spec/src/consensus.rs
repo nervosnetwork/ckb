@@ -159,14 +159,14 @@ impl Consensus {
             / EPOCH_DURATION_TARGET;
 
         let genesis_epoch_ext = EpochExt::new(
-            0, // number
+            0,                // number
             block_reward,     // block_reward
             remainder_reward, // remainder_reward
             genesis_hash_rate,
             H256::zero(),
-            0, // start
-            GENESIS_EPOCH_LENGTH, // length
-            genesis_header.difficulty() // difficulty,
+            0,                           // start
+            GENESIS_EPOCH_LENGTH,        // length
+            genesis_header.difficulty(), // difficulty,
         );
 
         Consensus {
