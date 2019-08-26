@@ -89,7 +89,7 @@ impl Node {
 
         let child_process = Command::new(self.binary.to_owned())
             .env("RUST_BACKTRACE", "full")
-            .args(&["-C", &self.working_dir, "run", "--ba-advanced"])
+            .args(&["-C", self.working_dir(), "run", "--ba-advanced"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -355,16 +355,16 @@ impl Node {
     ) -> Result<(), Error> {
         let integration_spec = include_bytes!("../integration.toml");
         let always_success_cell = include_bytes!("../../script/testdata/always_success");
-        let always_success_path = Path::new(&self.working_dir).join("specs/cells/always_success");
-        fs::create_dir_all(format!("{}/specs", self.working_dir))?;
-        fs::create_dir_all(format!("{}/specs/cells", self.working_dir))?;
+        let always_success_path = Path::new(self.working_dir()).join("specs/cells/always_success");
+        fs::create_dir_all(format!("{}/specs", self.working_dir()))?;
+        fs::create_dir_all(format!("{}/specs/cells", self.working_dir()))?;
         fs::write(&always_success_path, &always_success_cell[..])?;
 
         let mut spec: ChainSpec =
             toml::from_slice(&integration_spec[..]).expect("chain spec config");
         for r in spec.genesis.system_cells.iter_mut() {
             r.file
-                .absolutize(Path::new(&self.working_dir).join("specs"));
+                .absolutize(Path::new(self.working_dir()).join("specs"));
         }
         modify_chain_spec(&mut spec);
 
@@ -385,7 +385,7 @@ impl Node {
 
         // write to dir
         fs::write(
-            Path::new(&self.working_dir).join("specs/integration.toml"),
+            Path::new(self.working_dir()).join("specs/integration.toml"),
             toml::to_string(&spec).expect("chain spec serialize"),
         )
         .map_err(Into::into)
@@ -396,7 +396,7 @@ impl Node {
         modify_ckb_config: Box<dyn Fn(&mut CKBAppConfig) -> ()>,
     ) -> Result<(), Error> {
         // rewrite ckb.toml
-        let ckb_config_path = format!("{}/ckb.toml", self.working_dir);
+        let ckb_config_path = format!("{}/ckb.toml", self.working_dir());
         let mut ckb_config: CKBAppConfig =
             toml::from_slice(&fs::read(&ckb_config_path)?).expect("ckb config");
         ckb_config.block_assembler = Some(BlockAssemblerConfig {
@@ -430,7 +430,7 @@ impl Node {
         let init_exit_status = Command::new(self.binary.to_owned())
             .args(&[
                 "-C",
-                &self.working_dir,
+                self.working_dir(),
                 "init",
                 "--chain",
                 "integration",

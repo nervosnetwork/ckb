@@ -1,6 +1,6 @@
 use crate::specs::TestProtocol;
 use crate::utils::{temp_path, wait_until};
-use crate::Node;
+use crate::{Node, Setup};
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
     NetworkService, NetworkState, PeerIndex, ProtocolId,
@@ -19,20 +19,18 @@ pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 pub struct Net {
     pub nodes: Vec<Node>,
     pub controller: Option<(NetworkController, Receiver<NetMessage>)>,
-    pub test_protocols: Vec<TestProtocol>,
-    num_nodes: usize,
     start_port: u16,
+    setup: Setup,
     working_dir: String,
 }
 
 impl Net {
     pub fn new(
         binary: &str,
-        num_nodes: usize,
         start_port: u16,
-        test_protocols: Vec<TestProtocol>,
+        setup: Setup,
     ) -> Self {
-        let nodes: Vec<Node> = (0..num_nodes)
+        let nodes: Vec<Node> = (0..setup.num_nodes)
             .map(|n| {
                 Node::new(
                     binary,
@@ -45,16 +43,27 @@ impl Net {
         Self {
             nodes,
             controller: None,
-            test_protocols,
             start_port,
-            num_nodes,
+            setup,
             working_dir: temp_path(),
         }
     }
 
+    pub fn working_dir(&self) -> &str {
+        &self.working_dir
+    }
+
+    fn num_nodes(&self) -> u32 {
+        self.setup.num_nodes as u32
+    }
+
+    fn test_protocols(&self) -> &[TestProtocol] {
+        &self.setup.protocols
+    }
+
     pub fn connect(&self, node: &Node) {
         if self.controller.is_none() {
-            let controller = if self.test_protocols.is_empty() {
+            let controller = if self.test_protocols().is_empty() {
                 None
             } else {
                 let (tx, rx) = crossbeam_channel::unbounded();
@@ -68,8 +77,8 @@ impl Net {
                     dns_seeds: vec![],
                     whitelist_peers: vec![],
                     whitelist_only: false,
-                    max_peers: self.num_nodes as u32,
-                    max_outbound_peers: self.num_nodes as u32,
+                    max_peers: self.num_nodes(),
+                    max_outbound_peers: self.num_nodes(),
                     path: self.working_dir().into(),
                     ping_interval_secs: 15,
                     ping_timeout_secs: 20,
@@ -84,9 +93,9 @@ impl Net {
                     Arc::new(NetworkState::from_config(config).expect("Init network state failed"));
 
                 let protocols = self
-                    .test_protocols
-                    .clone()
-                    .into_iter()
+                    .test_protocols()
+                    .iter()
+                    .cloned()
                     .map(|tp| {
                         let tx = tx.clone();
                         CKBProtocol::new(
@@ -125,10 +134,6 @@ impl Net {
                 .parse()
                 .expect("invalid address"),
         );
-    }
-
-    pub fn working_dir(&self) -> &str {
-        &self.working_dir
     }
 
     pub fn connect_all(&self) {

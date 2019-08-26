@@ -267,7 +267,7 @@ fn nodes_panicked(node_dirs: &[String]) -> bool {
 
 // tail -n 2000 $node_log_path
 fn tail_node_logs(node_dirs: Vec<String>) {
-    let tail_n : usize = env::var("CKB_TEST_TAIL_N")
+    let tail_n: usize = env::var("CKB_TEST_TAIL_N")
         .unwrap_or_default()
         .parse()
         .unwrap_or(2000);
