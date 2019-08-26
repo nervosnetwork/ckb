@@ -1,4 +1,4 @@
-use crate::utils::wait_until;
+use crate::utils::{exit_ibd_mode, wait_until};
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::{NetworkProtocol, MAX_LOCATOR_SIZE};
 use ckb_types::{
@@ -18,11 +18,11 @@ impl Spec for InvalidLocatorSize {
 
     fn run(&self, net: Net) {
         info!("Connect node0");
-        net.exit_ibd_mode();
+        exit_ibd_mode(&net.nodes);
         let node0 = &net.nodes[0];
         net.connect(node0);
         // get peer_id from GetHeaders message
-        let (peer_id, _, _) = net.receive();
+        let (peer_id, _, _) = net.recv();
 
         let hashes: Vec<Byte32> = (0..=MAX_LOCATOR_SIZE)
             .map(|_| h256!("0x1").pack())

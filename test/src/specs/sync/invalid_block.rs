@@ -1,4 +1,6 @@
-use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
+use crate::utils::{
+    build_block, build_get_blocks, build_headers, connect_and_wait_ban, wait_until,
+};
 use crate::{Net, Spec, TestProtocol};
 use ckb_sync::NetworkProtocol;
 use ckb_types::{
@@ -47,8 +49,8 @@ impl Spec for ChainContainsInvalidBlock {
         // Start good_node and let it synchronize from bad_node
         good_node.generate_block();
         fresh_node.connect(&good_node);
-        good_node.connect_and_wait_ban(&bad_node);
-        fresh_node.connect_and_wait_ban(&bad_node);
+        connect_and_wait_ban(&good_node, &bad_node);
+        connect_and_wait_ban(&fresh_node, &bad_node);
         assert!(
             wait_until(5, || good_node.get_tip_block_number() >= invalid_number - 1),
             "good_node should synchronize from bad_node 1~{}",
@@ -120,7 +122,7 @@ impl Spec for ForkContainsInvalidBlock {
         let good_node = net.nodes.pop().unwrap();
         good_node.generate_block();
         net.connect(&good_node);
-        let (pi, _, _) = net.receive();
+        let (pi, _, _) = net.recv();
         let headers: Vec<_> = bad_chain.iter().map(|b| b.header().clone()).collect();
         net.send(NetworkProtocol::SYNC.into(), pi, build_headers(&headers));
         assert!(wait_get_blocks(&net), "timeout to wait GetBlocks",);
@@ -173,7 +175,7 @@ impl Spec for ForkContainsInvalidBlock {
             build_get_blocks(&bad_hashes),
         );
         let ret = wait_until(10, || {
-            if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
+            if let Ok((_, _, data)) = net.recv_timeout(Duration::from_secs(10)) {
                 if let Ok(message) = SyncMessage::from_slice(&data) {
                     return message.to_enum().item_name() == packed::SendBlock::NAME;
                 }
@@ -189,7 +191,7 @@ impl Spec for ForkContainsInvalidBlock {
 
 fn wait_get_blocks(net: &Net) -> bool {
     wait_until(10, || {
-        if let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
+        if let Ok((_, _, data)) = net.recv_timeout(Duration::from_secs(10)) {
             if let Ok(message) = SyncMessage::from_slice(&data) {
                 return message.to_enum().item_name() == packed::GetBlocks::NAME;
             }

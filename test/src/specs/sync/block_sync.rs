@@ -1,4 +1,4 @@
-use crate::utils::{build_block, build_header, new_block_with_template, wait_until};
+use crate::utils::{build_block, build_header, exit_ibd_mode, new_block_with_template, wait_until};
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::{ChainInfo, Timestamp};
 use ckb_network::PeerIndex;
@@ -123,17 +123,17 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
         let rpc_client = node.rpc_client();
-        net.exit_ibd_mode();
+        exit_ibd_mode(&net.nodes);
         net.connect(node);
         let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
+            .recv_timeout(Duration::new(10, 0))
             .expect("build connection with node");
 
         // Sync a new header to `node`, `node` should send back a corresponding GetBlocks message
         let block = node.new_block(None, None, None);
         sync_header(&net, peer_id, &block);
         let (_, _, data) = net
-            .receive_timeout(Duration::new(10, 0))
+            .recv_timeout(Duration::new(10, 0))
             .expect("Expect SyncMessage");
         let message = SyncMessage::from_slice(&data).unwrap();
         assert_eq!(
@@ -147,7 +147,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         // So we will not receive any response messages
         sync_header(&net, peer_id, &block);
         assert!(
-            net.receive_timeout(Duration::new(10, 0)).is_err(),
+            net.recv_timeout(Duration::new(10, 0)).is_err(),
             "node should discard duplicated sync headers",
         );
 
@@ -163,11 +163,11 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
 
         net.connect(node);
         let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
+            .recv_timeout(Duration::new(10, 0))
             .expect("build connection with node");
         sync_header(&net, peer_id, &block);
         let (_, _, data) = net
-            .receive_timeout(Duration::new(10, 0))
+            .recv_timeout(Duration::new(10, 0))
             .expect("Expect SyncMessage");
         let message = SyncMessage::from_slice(&data).unwrap();
         assert_eq!(
@@ -198,10 +198,10 @@ impl Spec for BlockSyncOrphanBlocks {
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
-        net.exit_ibd_mode();
+        exit_ibd_mode(&net.nodes);
         net.connect(node0);
         let (peer_id, _, _) = net
-            .receive_timeout(Duration::new(10, 0))
+            .recv_timeout(Duration::new(10, 0))
             .expect("net receive timeout");
         let rpc_client = node0.rpc_client();
         let tip_number = rpc_client.get_tip_block_number();

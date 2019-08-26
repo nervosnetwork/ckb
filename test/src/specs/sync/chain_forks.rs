@@ -1,3 +1,6 @@
+use crate::utils::{
+    connect_and_wait_ban, disconnect_all, exit_ibd_mode, waiting_for_sync, waiting_for_sync2,
+};
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_types::{
@@ -28,7 +31,7 @@ impl Spec for ChainFork1 {
 
         info!("Connect node0 to node1");
         node1.connect(node0);
-        node0.waiting_for_sync(node1, 2);
+        waiting_for_sync2(node0, node1, 2);
         info!("Disconnect node1");
         node0.disconnect(node1);
 
@@ -39,7 +42,7 @@ impl Spec for ChainFork1 {
 
         info!("Reconnect node0 to node1");
         node0.connect(node1);
-        net.waiting_for_sync(4);
+        waiting_for_sync(&net.nodes, 4);
     }
 
     // workaround to disable node discovery
@@ -71,14 +74,14 @@ impl Spec for ChainFork2 {
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        waiting_for_sync(&net.nodes, 2);
         info!("Disconnect all nodes");
-        net.disconnect_all();
+        disconnect_all(&net.nodes);
 
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        waiting_for_sync2(node0, node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -86,14 +89,14 @@ impl Spec for ChainFork2 {
         node1.generate_blocks(2);
         info!("Reconnect node1");
         node0.connect(node1);
-        node0.waiting_for_sync(node1, 4);
+        waiting_for_sync2(node0, node1, 4);
 
         info!("Generate 2 blocks (F, G) on node2");
         node2.generate_blocks(2);
         info!("Reconnect node2");
         node0.connect(node2);
         node1.connect(node2);
-        net.waiting_for_sync(5);
+        waiting_for_sync(&net.nodes, 5);
     }
 }
 
@@ -120,15 +123,15 @@ impl Spec for ChainFork3 {
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        waiting_for_sync(&net.nodes, 2);
 
         info!("Disconnect all nodes");
-        net.disconnect_all();
+        disconnect_all(&net.nodes);
 
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        waiting_for_sync2(node0, node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -157,14 +160,14 @@ impl Spec for ChainFork3 {
         assert_eq!(5, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
-        node0.connect_and_wait_ban(node1);
+        connect_and_wait_ban(node0, node1);
 
         info!("Generate 1 block (G) on node2");
         node2.generate_blocks(1);
         info!("Reconnect node2");
         node2.connect(node0);
-        node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        connect_and_wait_ban(node2, node1);
+        waiting_for_sync2(node0, node2, 4);
     }
 }
 
@@ -191,15 +194,15 @@ impl Spec for ChainFork4 {
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        waiting_for_sync(&net.nodes, 2);
 
         info!("Disconnect all nodes");
-        net.disconnect_all();
+        disconnect_all(&net.nodes);
 
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        waiting_for_sync2(node0, node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -226,14 +229,14 @@ impl Spec for ChainFork4 {
         assert_eq!(5, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
-        node0.connect_and_wait_ban(node1);
+        connect_and_wait_ban(node0, node1);
 
         info!("Generate 1 block (G) on node2");
         node2.generate_blocks(1);
         info!("Reconnect node2");
         node2.connect(node0);
-        node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        connect_and_wait_ban(node2, node1);
+        waiting_for_sync2(node0, node2, 4);
     }
 }
 
@@ -263,15 +266,15 @@ impl Spec for ChainFork5 {
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        waiting_for_sync(&net.nodes, 2);
 
         info!("Disconnect all nodes");
-        net.disconnect_all();
+        disconnect_all(&net.nodes);
 
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        waiting_for_sync2(node0, node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -292,14 +295,14 @@ impl Spec for ChainFork5 {
         assert_eq!(5, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
-        node0.connect_and_wait_ban(node1);
+        connect_and_wait_ban(node0, node1);
 
         info!("Generate 1 block (G) on node2");
         node2.generate_blocks(1);
         info!("Reconnect node2");
         node2.connect(node0);
-        node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        connect_and_wait_ban(node2, node1);
+        waiting_for_sync2(node0, node2, 4);
     }
 }
 
@@ -326,15 +329,15 @@ impl Spec for ChainFork6 {
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        waiting_for_sync(&net.nodes, 2);
 
         info!("Disconnect all nodes");
-        net.disconnect_all();
+        disconnect_all(&net.nodes);
 
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        waiting_for_sync2(node0, node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -351,14 +354,14 @@ impl Spec for ChainFork6 {
         assert_eq!(5, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
-        node0.connect_and_wait_ban(node1);
+        connect_and_wait_ban(node0, node1);
 
         info!("Generate 1 block (G) on node2");
         node2.generate_blocks(1);
         info!("Reconnect node2");
         node2.connect(node0);
-        node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        connect_and_wait_ban(node2, node1);
+        waiting_for_sync2(node0, node2, 4);
     }
 }
 
@@ -385,15 +388,15 @@ impl Spec for ChainFork7 {
         info!("Connect all nodes");
         node1.connect(node0);
         node2.connect(node0);
-        net.waiting_for_sync(2);
+        waiting_for_sync(&net.nodes, 2);
 
         info!("Disconnect all nodes");
-        net.disconnect_all();
+        disconnect_all(&net.nodes);
 
         info!("Generate 1 block (C) on node0");
         node0.generate_blocks(1);
         node0.connect(node2);
-        node0.waiting_for_sync(node2, 3);
+        waiting_for_sync2(node0, node2, 3);
         info!("Disconnect node2");
         node0.disconnect(node2);
 
@@ -421,14 +424,14 @@ impl Spec for ChainFork7 {
         assert_eq!(5, node1.rpc_client().get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
-        node0.connect_and_wait_ban(node1);
+        connect_and_wait_ban(node0, node1);
 
         info!("Generate 1 block (G) on node2");
         node2.generate_blocks(1);
         info!("Reconnect node2");
         node2.connect(node0);
-        node2.connect_and_wait_ban(node1);
-        node0.waiting_for_sync(node2, 4);
+        connect_and_wait_ban(node2, node1);
+        waiting_for_sync2(node0, node2, 4);
     }
 }
 
@@ -444,7 +447,7 @@ impl Spec for LongForks {
     fn run(&self, net: Net) {
         const PER_FETCH_BLOCK_LIMIT: usize = 128;
 
-        net.exit_ibd_mode();
+        exit_ibd_mode(&net.nodes);
         let test_node = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];
@@ -452,19 +455,19 @@ impl Spec for LongForks {
         // test_node == node1 == chain1, height = 139 = PER_FETCH_BLOCK_LIMIT + 10 + 1
         node1.generate_blocks(PER_FETCH_BLOCK_LIMIT + 10);
         test_node.connect(node1);
-        test_node.waiting_for_sync(node1, PER_FETCH_BLOCK_LIMIT as u64 + 10 + 1);
+        waiting_for_sync2(test_node, node1, PER_FETCH_BLOCK_LIMIT as u64 + 10 + 1);
         test_node.disconnect(node1);
 
         // test_node == node2 == chain2, height = 149 = PER_FETCH_BLOCK_LIMIT + 20 + 1
         node2.generate_blocks(PER_FETCH_BLOCK_LIMIT + 20);
         test_node.connect(node2);
-        test_node.waiting_for_sync(node2, PER_FETCH_BLOCK_LIMIT as u64 + 20 + 1);
+        waiting_for_sync2(test_node, node2, PER_FETCH_BLOCK_LIMIT as u64 + 20 + 1);
         test_node.disconnect(node2);
 
         // test_node == node1 == chain1, height = 169 = PER_FETCH_BLOCK_LIMIT + 10 + 30 + 1
         node1.generate_blocks(30);
         test_node.connect(node1);
-        test_node.waiting_for_sync(node1, PER_FETCH_BLOCK_LIMIT as u64 + 10 + 30 + 1);
+        waiting_for_sync2(test_node, node1, PER_FETCH_BLOCK_LIMIT as u64 + 10 + 30 + 1);
     }
 }
 

@@ -14,6 +14,7 @@ pub use relay::*;
 pub use sync::*;
 pub use tx_pool::*;
 
+use crate::utils::connect_all;
 use crate::Net;
 use ckb_app_config::CKBAppConfig;
 use ckb_chain_spec::ChainSpec;
@@ -96,7 +97,7 @@ pub trait Spec {
 
         // connect the nodes as a linear chain: node0 <-> node1 <-> node2 <-> ...
         if setup.connect_all {
-            net.connect_all();
+            connect_all(&net.nodes);
         }
 
         net

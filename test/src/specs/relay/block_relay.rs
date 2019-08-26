@@ -1,4 +1,4 @@
-use crate::utils::wait_until;
+use crate::utils::{exit_ibd_mode, wait_until};
 use crate::{Net, Spec};
 use log::info;
 
@@ -10,7 +10,7 @@ impl Spec for BlockRelayBasic {
     crate::setup!(num_nodes: 3);
 
     fn run(&self, net: Net) {
-        net.exit_ibd_mode();
+        exit_ibd_mode(&net.nodes);
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
         let node2 = &net.nodes[2];

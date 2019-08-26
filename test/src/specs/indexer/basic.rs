@@ -1,4 +1,4 @@
-use crate::utils::wait_until;
+use crate::utils::{wait_until, waiting_for_sync2};
 use crate::{Net, Spec};
 use log::info;
 
@@ -82,7 +82,7 @@ impl Spec for IndexerBasic {
         info!("Generate 5 blocks on node1 and connect node0 to switch fork");
         node1.generate_blocks(5);
         node0.connect(node1);
-        node0.waiting_for_sync(node1, 5);
+        waiting_for_sync2(node0, node1, 5);
         info!("Live cells size should be 5, cell transactions size should be 5");
         let result = wait_until(5, || {
             let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);

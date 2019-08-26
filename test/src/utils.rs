@@ -10,6 +10,7 @@ use ckb_types::{
     prelude::*,
     H256,
 };
+use std::borrow::Borrow;
 use std::convert::Into;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -120,7 +121,7 @@ where
 
 // Clear net message channel
 pub fn clear_messages(net: &Net) {
-    while let Ok(_) = net.receive_timeout(Duration::new(3, 0)) {}
+    while let Ok(_) = net.recv_timeout(Duration::new(3, 0)) {}
 }
 
 pub fn since_from_relative_block_number(block_number: BlockNumber) -> u64 {
@@ -167,4 +168,103 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
 pub fn is_committed(tx_status: &TransactionWithStatus) -> bool {
     let committed_status = TxStatus::committed(H256::zero());
     tx_status.tx_status.status == committed_status.status
+}
+
+/// Workaround for banned address checking (because we are using loop-back addresses)
+///   1. checking banned addresses is empty
+///   2. connecting outbound peer and checking banned addresses is not empty
+///   3. clear banned addresses
+pub fn connect_and_wait_ban(inbound: &Node, outbound: &Node) {
+    assert!(
+        inbound.rpc_client().get_banned_addresses().is_empty(),
+        "banned addresses should be empty"
+    );
+
+    let outbound_info = outbound.rpc_client().local_node_info();
+    let outbound_id = outbound_info.node_id;
+    inbound.rpc_client().add_node(
+        outbound_id.clone(),
+        format!("/ip4/127.0.0.1/tcp/{}", outbound.p2p_port()),
+    );
+
+    let banned = wait_until(10, || {
+        !inbound.rpc_client().get_banned_addresses().is_empty()
+    });
+    assert!(
+        !banned,
+        "connect_and_wait_ban timeout, inbound_id: {}, outbound_id: {}",
+        inbound.node_id().as_ref().unwrap(),
+        outbound.node_id().as_ref().unwrap(),
+    );
+
+    let banned_addresses = inbound.rpc_client().get_banned_addresses();
+    banned_addresses.into_iter().for_each(|ban_address| {
+        inbound
+            .rpc_client()
+            .set_ban(ban_address.address, "delete".to_owned(), None, None, None)
+    });
+}
+
+pub fn waiting_for_sync<N>(nodes: &[N], expected: BlockNumber)
+where
+    N: Borrow<Node>,
+{
+    // 60 seconds is a reasonable timeout to sync, even for poor CI server
+    let synced = wait_until(60, || {
+        nodes
+            .iter()
+            .map(|node| node.borrow().get_tip_block_number())
+            .all(|tip_number| tip_number == expected)
+    });
+    assert!(
+        synced,
+        "waiting_for_sync timeout, expected: {}, actual: {:?}",
+        expected,
+        nodes
+            .iter()
+            .map(|node| node.borrow().get_tip_block_number())
+            .collect::<Vec<_>>(),
+    );
+}
+
+pub fn waiting_for_sync2(node_a: &Node, node_b: &Node, expected: BlockNumber) {
+    waiting_for_sync(&[node_a, node_b], expected)
+}
+
+pub fn assert_tx_pool_size(node: &Node, pending_size: u64, proposed_size: u64) {
+    let tx_pool_info = node.rpc_client().tx_pool_info();
+    assert_eq!(tx_pool_info.pending.0, pending_size);
+    assert_eq!(tx_pool_info.proposed.0, proposed_size);
+}
+
+pub fn assert_tx_pool_statics(node: &Node, total_tx_size: u64, total_tx_cycles: u64) {
+    let tx_pool_info = node.rpc_client().tx_pool_info();
+    assert_eq!(tx_pool_info.total_tx_size.0, total_tx_size);
+    assert_eq!(tx_pool_info.total_tx_cycles.0, total_tx_cycles);
+}
+
+/// All nodes disconnect each other
+pub fn disconnect_all(nodes: &[Node]) {
+    for i in 0..nodes.len() {
+        for j in i + 1..nodes.len() {
+            nodes[i].disconnect(&nodes[j]);
+            nodes[j].disconnect(&nodes[i]);
+        }
+    }
+}
+
+/// All nodes connect each other
+pub fn connect_all(nodes: &[Node]) {
+    nodes
+        .windows(2)
+        .for_each(|nodes| nodes[0].connect(&nodes[1]));
+}
+
+/// All nodes mine a same block to exit the IBD mode
+pub fn exit_ibd_mode(nodes: &[Node]) -> BlockView {
+    let block = nodes[0].new_block(None, None, None);
+    nodes.iter().for_each(|node| {
+        node.submit_block(&block.data());
+    });
+    block
 }

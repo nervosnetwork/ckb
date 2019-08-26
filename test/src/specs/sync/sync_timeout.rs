@@ -1,3 +1,4 @@
+use crate::utils::{disconnect_all, waiting_for_sync, waiting_for_sync2};
 use crate::{Net, Spec};
 use log::info;
 
@@ -23,17 +24,17 @@ impl Spec for SyncTimeout {
         node2.connect(node0);
         node3.connect(node0);
         node4.connect(node0);
-        net.waiting_for_sync(2);
+        waiting_for_sync(&net.nodes, 2);
 
         info!("Disconnect all nodes");
-        net.disconnect_all();
+        disconnect_all(&net.nodes);
 
         info!("Generate 200 blocks on node0");
         node0.generate_blocks(200);
 
         node0.connect(node1);
         info!("Waiting for node0 and node1 sync");
-        node0.waiting_for_sync(node1, 202);
+        waiting_for_sync2(node0, node1, 202);
 
         info!("Generate 200 blocks on node1");
         node1.generate_blocks(200);
@@ -45,6 +46,6 @@ impl Spec for SyncTimeout {
         node4.connect(node0);
         node4.connect(node1);
         info!("Waiting for all nodes sync");
-        net.waiting_for_sync(402);
+        waiting_for_sync(&net.nodes, 402);
     }
 }

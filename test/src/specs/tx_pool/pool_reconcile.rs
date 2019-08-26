@@ -1,3 +1,4 @@
+use crate::utils::waiting_for_sync;
 use crate::{Net, Spec};
 use log::info;
 
@@ -36,7 +37,7 @@ impl Spec for PoolReconcile {
         info!("Connect node0 to node1");
         node0.connect(node1);
 
-        net.waiting_for_sync(5);
+        waiting_for_sync(&net.nodes, 5);
 
         info!("Tx should be re-added to node0's pool");
         assert!(node0

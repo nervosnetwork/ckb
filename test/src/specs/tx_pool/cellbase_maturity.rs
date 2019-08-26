@@ -1,3 +1,4 @@
+use crate::utils::assert_tx_pool_size;
 use crate::{assert_regex_match, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
 use ckb_types::{core::BlockNumber, prelude::*};
@@ -33,7 +34,7 @@ impl Spec for CellbaseMaturity {
         );
         let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
         assert_eq!(tx_hash, tx.hash().to_owned().unpack());
-        node.assert_tx_pool_size(1, 0);
+        assert_tx_pool_size(node, 1, 0);
 
         info!(
             "Tx will be added to proposed pool in N + {} block",
@@ -43,9 +44,9 @@ impl Spec for CellbaseMaturity {
             node.generate_block();
         });
 
-        node.assert_tx_pool_size(0, 1);
+        assert_tx_pool_size(node, 0, 1);
         node.generate_block();
-        node.assert_tx_pool_size(0, 0);
+        assert_tx_pool_size(node, 0, 0);
     }
 
     fn modify_chain_spec(&self) -> Box<dyn Fn(&mut ChainSpec) -> ()> {

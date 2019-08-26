@@ -1,3 +1,4 @@
+use crate::utils::assert_tx_pool_statics;
 use crate::{assert_regex_match, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_app_config::CKBAppConfig;
 use log::info;
@@ -36,12 +37,12 @@ impl Spec for SizeLimit {
 
         // 298 * 5
         // 12 * 5
-        node.assert_tx_pool_statics(1490, 60);
+        assert_tx_pool_statics(node, 1490, 60);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
         node.generate_block();
-        node.assert_tx_pool_statics(0, 0);
+        assert_tx_pool_statics(node, 0, 0);
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
@@ -86,12 +87,12 @@ impl Spec for CyclesLimit {
 
         // 298 * 5
         // 12 * 5
-        node.assert_tx_pool_statics(1490, 60);
+        assert_tx_pool_statics(node, 1490, 60);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
         node.generate_block();
-        node.assert_tx_pool_statics(0, 0);
+        assert_tx_pool_statics(node, 0, 0);
     }
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {

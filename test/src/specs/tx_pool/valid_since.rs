@@ -1,6 +1,7 @@
 use crate::utils::{
-    assert_send_transaction_fail, since_from_absolute_block_number, since_from_absolute_timestamp,
-    since_from_relative_block_number, since_from_relative_timestamp, MEDIAN_TIME_BLOCK_COUNT,
+    assert_send_transaction_fail, assert_tx_pool_size, since_from_absolute_block_number,
+    since_from_absolute_timestamp, since_from_relative_block_number, since_from_relative_timestamp,
+    MEDIAN_TIME_BLOCK_COUNT,
 };
 use crate::{assert_regex_match, Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
@@ -237,7 +238,7 @@ impl ValidSince {
         );
         let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
         assert_eq!(tx_hash, tx.hash().to_owned().unpack());
-        node.assert_tx_pool_size(1, 0);
+        assert_tx_pool_size(node, 1, 0);
 
         info!(
             "Tx will be added to proposed pool in N + {} block",
@@ -246,10 +247,10 @@ impl ValidSince {
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
-        node.assert_tx_pool_size(0, 1);
+        assert_tx_pool_size(node, 0, 1);
 
         node.generate_block();
-        node.assert_tx_pool_size(0, 0);
+        assert_tx_pool_size(node, 0, 0);
 
         // test absolute block number since
         let tip_number: BlockNumber = node.rpc_client().get_tip_block_number();
@@ -282,7 +283,7 @@ impl ValidSince {
         );
         let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
         assert_eq!(tx_hash, tx.hash().to_owned().as_reader().unpack());
-        node.assert_tx_pool_size(1, 0);
+        assert_tx_pool_size(node, 1, 0);
 
         info!(
             "Tx will be added to proposed pool in {} block",
@@ -291,9 +292,9 @@ impl ValidSince {
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
-        node.assert_tx_pool_size(0, 1);
+        assert_tx_pool_size(node, 0, 1);
 
         node.generate_block();
-        node.assert_tx_pool_size(0, 0);
+        assert_tx_pool_size(node, 0, 0);
     }
 }

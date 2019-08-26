@@ -1,4 +1,4 @@
-use crate::utils::wait_until;
+use crate::utils::{assert_tx_pool_size, exit_ibd_mode, wait_until, waiting_for_sync};
 use crate::{Net, Spec};
 use ckb_types::{
     core::{Capacity, TransactionBuilder},
@@ -15,7 +15,7 @@ impl Spec for TransactionRelayBasic {
     crate::setup!(num_nodes: 3);
 
     fn run(&self, net: Net) {
-        net.exit_ibd_mode();
+        exit_ibd_mode(&net.nodes);
 
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
@@ -58,7 +58,7 @@ impl Spec for TransactionRelayMultiple {
     crate::setup!(num_nodes: 5);
 
     fn run(&self, net: Net) {
-        let block = net.exit_ibd_mode();
+        let block = exit_ibd_mode(&net.nodes);
         let node0 = &net.nodes[0];
         info!("Use generated block's cellbase as tx input");
         let reward: Capacity = block.transactions()[0]
@@ -95,7 +95,7 @@ impl Spec for TransactionRelayMultiple {
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
-        net.waiting_for_sync(4);
+        waiting_for_sync(&net.nodes, 4);
 
         info!("Send multiple transactions to node0");
         let tx_hash = transaction.hash().to_owned();
@@ -125,10 +125,10 @@ impl Spec for TransactionRelayMultiple {
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
-        net.waiting_for_sync(7);
+        waiting_for_sync(&net.nodes, 7);
 
         info!("All transactions should be relayed and mined");
-        node0.assert_tx_pool_size(0, 0);
+        assert_tx_pool_size(node0, 0, 0);
 
         net.nodes.iter().for_each(|node| {
             assert_eq!(
