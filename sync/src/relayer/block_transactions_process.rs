@@ -5,6 +5,7 @@ use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
 use std::collections::hash_map::Entry;
+use std::mem;
 use std::sync::Arc;
 
 // Keeping in mind that short_ids are expected to occasionally collide.
@@ -74,7 +75,8 @@ impl<'a> BlockTransactionsProcess<'a> {
             .entry(block_hash.clone())
         {
             let (compact_block, peers_map) = pending.get_mut();
-            if let Some(indexes) = peers_map.remove(&self.peer) {
+            if let Entry::Occupied(mut value) = peers_map.entry(self.peer) {
+                let indexes = value.get_mut();
                 ckb_logger::info!(
                     "realyer receive BLOCKTXN of {}, peer: {}",
                     block_hash,
@@ -119,6 +121,8 @@ impl<'a> BlockTransactionsProcess<'a> {
                 if let Err(err) = self.nc.send_message_to(self.peer, data) {
                     ckb_logger::debug!("relayer send get_block_transactions error: {:?}", err);
                 }
+
+                mem::replace(indexes, missing_indexes);
 
                 if collision {
                     return Ok(Status::CollisionAndSendMissingIndexes);

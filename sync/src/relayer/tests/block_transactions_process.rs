@@ -13,8 +13,7 @@ use ckb_types::{
     },
     H256,
 };
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::sync::Arc;
 
@@ -22,6 +21,7 @@ use std::sync::Arc;
 fn test_accept_block() {
     let (relayer, _) = build_chain(5);
     let peer_index: PeerIndex = 100.into();
+    let other_peer_index: PeerIndex = 101.into();
 
     let tx1 = TransactionBuilder::default().build();
     let tx2 = TransactionBuilder::default()
@@ -39,14 +39,15 @@ fn test_accept_block() {
     let prefilled = HashSet::from_iter(vec![0usize].into_iter());
 
     let compact_block = CompactBlock::build_from_block(&block, &prefilled);
+    let hash = compact_block.header().calc_header_hash().pack();
 
     {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
-            compact_block.header().calc_header_hash().pack(),
+            hash.clone(),
             (
                 compact_block,
-                HashMap::from_iter(vec![(peer_index, vec![1])]),
+                HashMap::from_iter(vec![(peer_index, vec![1]), (other_peer_index, vec![1])]),
             ),
         );
     }
@@ -68,6 +69,9 @@ fn test_accept_block() {
 
     let r = process.execute();
 
+    let pending_compact_blocks = relayer.shared.pending_compact_blocks();
+
+    assert!(pending_compact_blocks.get(&hash).is_none());
     assert_eq!(r.ok(), Some(Status::Accept));
 }
 
@@ -254,13 +258,16 @@ fn test_collision_and_send_missing_indexes() {
 
     {
         let mut tx_pool = relayer.shared.shared().try_lock_tx_pool();
-        tx_pool.add_tx_to_pool(tx3, 10000u16.into()).unwrap();
+        tx_pool
+            .add_tx_to_pool(tx3.clone(), 10000u16.into())
+            .unwrap();
     }
 
+    let hash = compact_block.header().calc_header_hash().pack();
     {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
-            compact_block.header().calc_header_hash().pack(),
+            hash.clone(),
             (
                 compact_block,
                 HashMap::from_iter(vec![(peer_index, vec![1])]),
@@ -299,6 +306,42 @@ fn test_collision_and_send_missing_indexes() {
         .sent_messages_to
         .borrow()
         .contains(&(peer_index, data)));
+
+    // update cached missing_index
+    {
+        let pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        assert_eq!(
+            pending_compact_blocks
+                .get(&hash)
+                .unwrap()
+                .1
+                .get(&peer_index),
+            Some(&vec![1, 2])
+        );
+    }
+
+    // resend BlockTransactions with all the transactions without prefilled
+    let new_block_transactions = packed::BlockTransactions::new_builder()
+        .block_hash(block.header().hash())
+        .transactions(vec![tx2.data(), tx3.data()].pack())
+        .build();
+
+    let mock_protocal_context = MockProtocalContext::default();
+    let nc = Arc::new(mock_protocal_context);
+
+    let process = BlockTransactionsProcess::new(
+        new_block_transactions.as_reader(),
+        &relayer,
+        Arc::<MockProtocalContext>::clone(&nc),
+        peer_index,
+    );
+
+    let r = process.execute();
+
+    assert_eq!(
+        r.unwrap_err().downcast::<Error>().unwrap(),
+        Error::Misbehavior(Misbehavior::InvalidTransactionRoot)
+    );
 }
 
 #[test]
