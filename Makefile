@@ -94,8 +94,7 @@ bench-test:
 ##@ Continuous Integration
 
 ci: ## Run recipes for CI.
-ci: fmt clippy test bench-test check-cargotoml check-whitespaces check-dirty-rpc-doc security-audit
-	git diff --exit-code Cargo.lock
+ci: integration
 
 check-cargotoml:
 	./devtools/ci/check-cargotoml.sh
