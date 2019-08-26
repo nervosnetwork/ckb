@@ -29,6 +29,7 @@ use ckb_types::{
 };
 pub use error::SpecError;
 use failure::Fail;
+use faster_hex::hex_decode;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
@@ -108,6 +109,8 @@ pub struct GenesisCell {
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct IssuedCell {
     pub capacity: Capacity,
+    #[serde(default)]
+    pub data: String,
     pub lock: Script,
 }
 
@@ -116,6 +119,7 @@ pub enum SpecLoadError {
     FileNotFound,
     ChainNameNotAllowed(String),
     GenesisMismatch { expect: H256, actual: H256 },
+    InvalidHex(String),
 }
 
 impl SpecLoadError {
@@ -129,6 +133,10 @@ impl SpecLoadError {
 
     fn genesis_mismatch(expect: H256, actual: H256) -> Box<Self> {
         Box::new(SpecLoadError::GenesisMismatch { expect, actual })
+    }
+
+    fn invalid_hex(reason: String) -> Box<Self> {
+        Box::new(SpecLoadError::InvalidHex(reason))
     }
 }
 
@@ -148,6 +156,9 @@ impl fmt::Display for SpecLoadError {
                 "ChainSpec: genesis hash mismatch, expect {:#x}, actual {:#x}",
                 expect, actual
             ),
+            SpecLoadError::InvalidHex(reason) => {
+                write!(f, "ChainSpec: invalid hex, reason {}", reason)
+            }
         }
     }
 }
@@ -322,8 +333,13 @@ impl Genesis {
         outputs.push(special_issued_cell);
         outputs_data.push(Bytes::new());
 
-        outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
-        outputs_data.extend(self.issued_cells.iter().map(|_| Bytes::new()));
+        let issued_cells = self
+            .issued_cells
+            .iter()
+            .map(IssuedCell::build_output)
+            .collect::<Result<Vec<_>, _>>()?;
+        outputs.extend(issued_cells.iter().map(|(cell, _)| cell).cloned());
+        outputs_data.extend(issued_cells.iter().map(|(_, data)| data).cloned());
 
         let script: packed::Script = self.bootstrap_lock.clone().into();
 
@@ -457,11 +473,26 @@ impl GenesisCell {
 }
 
 impl IssuedCell {
-    fn build_output(&self) -> packed::CellOutput {
-        packed::CellOutput::new_builder()
+    fn build_output(&self) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
+        let data = if self.data.is_empty() {
+            Bytes::new()
+        } else {
+            let hex_data = if self.data.starts_with("0x") {
+                &self.data.as_bytes()[2..]
+            } else {
+                self.data.as_bytes()
+            };
+            let mut buffer = vec![0; hex_data.len() >> 1];
+            hex_decode(hex_data, &mut buffer)
+                .map_err(|e| SpecLoadError::invalid_hex(format!("{:?}", e)))?;
+            buffer.into()
+        };
+        let capacity = std::cmp::max(data.len() as u64, self.capacity.as_u64());
+        let cell = packed::CellOutput::new_builder()
             .lock(self.lock.clone().into())
-            .capacity(self.capacity.pack())
-            .build()
+            .capacity(capacity.pack())
+            .build();
+        Ok((cell, data))
     }
 }
 

@@ -48,6 +48,7 @@ impl Spec for GenesisIssuedCells {
         Box::new(|spec_config| {
             spec_config.genesis.issued_cells = vec![IssuedCell {
                 capacity: capacity_bytes!(5_000),
+                data: "".into(),
                 lock: Script::new_builder()
                     .args(vec![Bytes::from(vec![1]).pack(), Bytes::from(vec![2]).pack()].pack())
                     .code_hash(

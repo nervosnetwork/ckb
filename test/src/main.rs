@@ -216,6 +216,8 @@ fn all_specs() -> SpecMap {
         Box::new(WithdrawDAOWithNotMaturitySince),
         Box::new(WithdrawDAOWithOverflowCapacity),
         Box::new(WithdrawDAOWithInvalidWitness),
+        Box::new(DAOWithVirtualOccupied),
+        Box::new(SpendVirtualOccupiedCell),
         Box::new(MiningBasic),
         Box::new(BootstrapCellbase),
         Box::new(TemplateSizeLimit),

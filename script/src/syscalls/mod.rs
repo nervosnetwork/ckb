@@ -181,7 +181,7 @@ mod tests {
         core::{
             cell::{CellMeta, CellMetaBuilder}, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
         },
-        packed::{Byte32, CellOutput, OutPoint, Script, Witness},
+        packed::{Byte32, CellOutput, Script, Witness},
         prelude::*,
         H256, U256,
     };

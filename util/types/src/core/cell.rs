@@ -63,7 +63,8 @@ impl CellMetaBuilder {
 
         let mut builder = CellMetaBuilder::from_cell(cell_output, data.len());
         if let Some(virtual_occupied) = extract_occupied_capacity(data) {
-            builder.data_occupied_capacity = virtual_occupied;
+            builder.data_occupied_capacity =
+                std::cmp::max(virtual_occupied, builder.data_occupied_capacity);
         }
         builder
     }
@@ -126,6 +127,7 @@ impl fmt::Debug for CellMeta {
             .field("cell_output", &self.cell_output)
             .field("out_point", &self.out_point)
             .field("transaction_info", &self.transaction_info)
+            .field("data_occupied_capacity", &self.data_occupied_capacity)
             .field("data_size", &self.data_size)
             .finish()
     }
@@ -145,12 +147,12 @@ impl CellMeta {
 
     pub fn occupied_capacity(&self) -> CapacityResult<Capacity> {
         self.cell_output
-            .occupied_capacity(Capacity::bytes(self.data_size as usize)?)
+            .occupied_capacity(self.data_occupied_capacity)
     }
 
     pub fn is_lack_of_capacity(&self) -> CapacityResult<bool> {
         self.cell_output
-            .is_lack_of_capacity(Capacity::bytes(self.data_size as usize)?)
+            .is_lack_of_capacity(self.data_occupied_capacity)
     }
 }
 

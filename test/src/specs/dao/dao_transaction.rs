@@ -1,19 +1,13 @@
-use crate::utils::{assert_send_transaction_fail, is_committed};
+use super::*;
+use crate::utils::assert_send_transaction_fail;
 use crate::{Net, Node, Spec};
-use ckb_resource::CODE_HASH_DAO;
-use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockNumber, Capacity, ScriptHashType, TransactionBuilder, TransactionView},
     packed::{self, Byte32, CellDep, CellInput, CellOutput, OutPoint, Script},
+    packed::{self, CellInput, OutPoint},
     prelude::*,
 };
-
-const SYSTEM_CELL_ALWAYS_SUCCESS_INDEX: u32 = 1;
-const SYSTEM_CELL_DAO_INDEX: u32 = 3;
-const WITHDRAW_WINDOW_LEFT: u64 = 10;
-// The second witness
-const WITHDRAW_HEADER_INDEX: u64 = 1;
 
 pub struct DepositDAO;
 
@@ -241,6 +235,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
         }
     }
 }
+<<<<<<< HEAD:test/src/specs/dao/dao.rs
 
 // Send the given transaction and ensure it being committed
 fn ensure_committed(node: &Node, transaction: &TransactionView) -> (OutPoint, Byte32) {
@@ -391,3 +386,5 @@ fn withdraw_dao_transaction(
         .witness(withdraw_dao_witness)
         .build()
 }
+=======
+>>>>>>> feat: allow genesis block cells virtual occupied:test/src/specs/dao/dao_transaction.rs

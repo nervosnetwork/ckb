@@ -12,7 +12,7 @@ pub fn extract_occupied_capacity(data: &Bytes) -> Option<Capacity> {
     if data.len() != prefix_len + size_of::<u64>() {
         return None;
     }
-    if &data.slice_to(prefix_len) != &MAGIC_FLAGS[..] {
+    if data.slice_to(prefix_len) != MAGIC_FLAGS[..] {
         return None;
     }
     let mut occupied_bytes = [0u8; 8];
