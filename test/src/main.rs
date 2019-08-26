@@ -254,6 +254,10 @@ fn all_specs() -> SpecMap {
         Box::new(IndexerBasic),
         Box::new(GenesisIssuedCells),
         Box::new(IBDProcess),
+        Box::new(PrimaryRewardOfChainsWithoutAnyUncles),
+        Box::new(PrimaryRewardOfChainsWithTheSameNumberOfUncles),
+        Box::new(PrimaryRewardOfChainsWithTheSameNumberOfUncles2),
+        Box::new(TotalIssuedOccupiedCapacities),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }

@@ -3,6 +3,7 @@ mod indexer;
 mod mining;
 mod p2p;
 mod relay;
+mod reward;
 mod sync;
 mod tx_pool;
 
@@ -11,6 +12,7 @@ pub use indexer::*;
 pub use mining::*;
 pub use p2p::*;
 pub use relay::*;
+pub use reward::*;
 pub use sync::*;
 pub use tx_pool::*;
 
@@ -57,7 +59,7 @@ impl Default for Setup {
     fn default() -> Self {
         Setup {
             num_nodes: 1,
-            connect_all: true,
+            connect_all: false,
             protocols: vec![],
         }
     }
