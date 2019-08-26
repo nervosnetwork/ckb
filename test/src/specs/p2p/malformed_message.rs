@@ -36,11 +36,11 @@ impl Spec for MalformedMessage {
             peer_id,
             vec![0, 1, 2, 3].into(),
         );
-        let rpc_client = net.nodes[0].rpc_client();
-        let ret = wait_until(10, || rpc_client.get_peers().is_empty());
+        let node0 = &net.nodes[0];
+        let ret = wait_until(10, || node0.get_peers().is_empty());
         assert!(ret, "Node0 should disconnect test node");
         let ret = wait_until(10, || {
-            rpc_client
+            node0
                 .get_banned_addresses()
                 .iter()
                 .any(|ban| ban.address == "127.0.0.1/32")

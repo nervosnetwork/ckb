@@ -32,9 +32,8 @@ impl Spec for IBDProcess {
 
         sleep(Duration::from_secs(5));
 
-        let rpc_client = node0.rpc_client();
         let ret = wait_until(10, || {
-            let peers = rpc_client.get_peers();
+            let peers = node0.get_peers();
             peers.len() == 4
         });
 

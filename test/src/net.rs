@@ -125,7 +125,7 @@ impl Net {
             }
         }
 
-        let node_info = node.rpc_client().local_node_info();
+        let node_info = node.local_node_info();
         self.controller.as_ref().unwrap().0.add_node(
             &node_info.node_id.parse().expect("invalid peer_id"),
             format!("/ip4/127.0.0.1/tcp/{}", node.p2p_port())

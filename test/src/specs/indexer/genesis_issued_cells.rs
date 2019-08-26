@@ -26,14 +26,13 @@ impl Spec for GenesisIssuedCells {
             .build()
             .calc_script_hash();
         info!("{:x}", lock_hash);
-        let rpc_client = node0.rpc_client();
 
         info!("Should return live cells and cell transactions of genesis issued cells");
-        rpc_client.index_lock_hash(lock_hash.clone(), Some(0));
+        node0.index_lock_hash(lock_hash.clone(), Some(0));
         let result = wait_until(5, || {
-            let live_cells = rpc_client.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);
+            let live_cells = node0.get_live_cells_by_lock_hash(lock_hash.clone(), 0, 20, None);
             let cell_transactions =
-                rpc_client.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20, None);
+                node0.get_transactions_by_lock_hash(lock_hash.clone(), 0, 20, None);
             live_cells.len() == 1 && cell_transactions.len() == 1
         });
         if !result {

@@ -238,7 +238,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
             .build();
 
         // Put `new_tx` as an not fresh tx into tx_pool
-        node.rpc_client().send_transaction(new_tx.data().into());
+        node.send_transaction(new_tx.data().into());
 
         // Relay the target block
         clear_messages(&net);
@@ -496,7 +496,7 @@ impl Spec for CompactBlockRelayLessThenSharedBestKnown {
         let old_tip = node1.get_tip_block_number();
         node1.generate_blocks(10);
         let headers: Vec<HeaderView> = (old_tip + 1..node1.get_tip_block_number())
-            .map(|i| node1.rpc_client().get_header_by_number(i).unwrap().into())
+            .map(|i| node1.get_header_by_number(i).unwrap().into())
             .collect();
         net.send(
             NetworkProtocol::SYNC.into(),

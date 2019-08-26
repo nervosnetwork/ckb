@@ -55,10 +55,7 @@ impl Spec for ChainContainsInvalidBlock {
             invalid_number - 1,
         );
         assert!(
-            !wait_until(5, || good_node
-                .rpc_client()
-                .get_block(invalid_hash.clone())
-                .is_some()),
+            !wait_until(5, || good_node.get_block(invalid_hash.clone()).is_some()),
             "good_node should not synchronize invalid block {} from bad_node",
             invalid_number,
         );
@@ -141,7 +138,6 @@ impl Spec for ForkContainsInvalidBlock {
             .unwrap();
         assert!(
             wait_until(10, || good_node
-                .rpc_client()
                 .get_block(last_hash.clone().unpack())
                 .is_some()),
             "good_node should store the fork blocks even it contains invalid blocks",
@@ -159,7 +155,6 @@ impl Spec for ForkContainsInvalidBlock {
             .unwrap();
         assert!(
             !wait_until(10, || good_node
-                .rpc_client()
                 .get_block(last_hash.clone().unpack())
                 .is_some()),
             "good_node should keep the good chain",

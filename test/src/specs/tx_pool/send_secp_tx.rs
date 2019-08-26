@@ -78,11 +78,10 @@ impl Spec for SendSecpTxUseDepGroup {
             .build();
         info!("Send 1 secp tx use dep group");
 
-        let tx_hash = node.rpc_client().send_transaction(tx.data().into());
+        let tx_hash = node.send_transaction(tx.data().into());
         node.generate_blocks(20);
 
         let tx_status = node
-            .rpc_client()
             .get_transaction(tx_hash.clone())
             .expect("get sent transaction");
         assert!(

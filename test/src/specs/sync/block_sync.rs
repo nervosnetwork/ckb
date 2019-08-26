@@ -28,9 +28,8 @@ impl Spec for BlockSyncFromOne {
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
-        let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
-        assert_eq!(0, rpc_client0.get_tip_block_number());
-        assert_eq!(0, rpc_client1.get_tip_block_number());
+        assert_eq!(0, node0.get_tip_block_number());
+        assert_eq!(0, node1.get_tip_block_number());
 
         (0..3).for_each(|_| {
             node0.generate_block();
@@ -39,8 +38,8 @@ impl Spec for BlockSyncFromOne {
         node1.connect(node0);
 
         let ret = wait_until(10, || {
-            let header0 = rpc_client0.get_tip_header();
-            let header1 = rpc_client1.get_tip_header();
+            let header0 = node0.get_tip_header();
+            let header1 = node1.get_tip_header();
             header0 == header1 && header0.inner.number.0 == 3
         });
         assert!(
@@ -65,24 +64,23 @@ impl Spec for BlockSyncForks {
     fn run(&self, net: Net) {
         let node0 = &net.nodes[0];
         let node1 = &net.nodes[1];
-        let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
-        assert_eq!(0, rpc_client0.get_tip_block_number());
-        assert_eq!(0, rpc_client1.get_tip_block_number());
+        assert_eq!(0, node0.get_tip_block_number());
+        assert_eq!(0, node1.get_tip_block_number());
 
         build_forks(node0, &[2, 0, 0, 0, 0, 0, 0, 0, 0]);
         build_forks(node1, &[1, 0, 0, 0, 0, 0, 0, 0, 0]);
-        let info0: ChainInfo = rpc_client0.get_blockchain_info();
-        let info1: ChainInfo = rpc_client1.get_blockchain_info();
-        let tip0 = rpc_client0.get_tip_header();
-        let tip1 = rpc_client1.get_tip_header();
+        let info0: ChainInfo = node0.get_blockchain_info();
+        let info1: ChainInfo = node1.get_blockchain_info();
+        let tip0 = node0.get_tip_header();
+        let tip1 = node1.get_tip_header();
         assert_eq!(tip0.inner.number, tip1.inner.number);
         assert_ne!(tip0.hash, tip1.hash);
 
         // Connect node0 and node1, so that they can sync with each other
         node0.connect(node1);
         let ret = wait_until(10, || {
-            let header0 = rpc_client0.get_tip_header();
-            let header1 = rpc_client1.get_tip_header();
+            let header0 = node0.get_tip_header();
+            let header1 = node1.get_tip_header();
             header0 == header1
         });
         assert!(
@@ -90,15 +88,15 @@ impl Spec for BlockSyncForks {
             "Node0 and node1 should sync with each other until same tip chain",
         );
         for number in 1u64..tip0.inner.number.0 {
-            let block0 = rpc_client0.get_block_by_number(number);
-            let block1 = rpc_client1.get_block_by_number(number);
+            let block0 = node0.get_block_by_number(number);
+            let block1 = node1.get_block_by_number(number);
             assert_eq!(
                 block0, block1,
                 "nodes should have same best chain after synchronizing",
             );
         }
-        let info00: ChainInfo = rpc_client0.get_blockchain_info();
-        let info11: ChainInfo = rpc_client1.get_blockchain_info();
+        let info00: ChainInfo = node0.get_blockchain_info();
+        let info11: ChainInfo = node1.get_blockchain_info();
         let medians = vec![
             info0.median_time.0,
             info00.median_time.0,
@@ -122,7 +120,6 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
     // Case: Sync a header, sync a duplicated header, reconnect and sync a duplicated header
     fn run(&self, net: Net) {
         let node = &net.nodes[0];
-        let rpc_client = node.rpc_client();
         net.exit_ibd_mode();
         net.connect(node);
         let (peer_id, _, _) = net
@@ -157,7 +154,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
             let peer = ctrl.0.connected_peers()[peer_id.value() - 1].clone();
             ctrl.0.remove_node(&peer.0);
             wait_until(5, || {
-                rpc_client.get_peers().is_empty() && ctrl.0.connected_peers().is_empty()
+                node.get_peers().is_empty() && ctrl.0.connected_peers().is_empty()
             });
         }
 
@@ -180,7 +177,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(&net, peer_id, &block);
         let hash = block.header().hash().clone();
-        wait_until(10, || rpc_client.get_tip_header().hash == hash.unpack());
+        wait_until(10, || node.get_tip_header().hash == hash.unpack());
     }
 }
 
@@ -203,8 +200,7 @@ impl Spec for BlockSyncOrphanBlocks {
         let (peer_id, _, _) = net
             .receive_timeout(Duration::new(10, 0))
             .expect("net receive timeout");
-        let rpc_client = node0.rpc_client();
-        let tip_number = rpc_client.get_tip_block_number();
+        let tip_number = node0.get_tip_block_number();
 
         // Generate some blocks from node1
         let mut blocks: Vec<BlockView> = (1..=5)
@@ -228,20 +224,19 @@ impl Spec for BlockSyncOrphanBlocks {
         blocks.into_iter().for_each(|block| {
             sync_block(&net, peer_id, &block);
         });
-        let ret = wait_until(5, || rpc_client.get_tip_block_number() > tip_number);
+        let ret = wait_until(5, || node0.get_tip_block_number() > tip_number);
         assert!(!ret, "node0 should stay the same");
 
         // Send that skipped first block to node0
         sync_block(&net, peer_id, &first);
-        let ret = wait_until(10, || rpc_client.get_tip_block_number() > tip_number + 2);
+        let ret = wait_until(10, || node0.get_tip_block_number() > tip_number + 2);
         assert!(ret, "node0 should grow up");
     }
 }
 
 fn build_forks(node: &Node, offsets: &[u64]) {
-    let rpc_client = node.rpc_client();
     for offset in offsets.iter() {
-        let mut template = rpc_client.get_block_template(None, None, None);
+        let mut template = node.get_block_template(None, None, None);
         template.current_time = Timestamp(template.current_time.0 + offset);
         let block = new_block_with_template(template);
         node.submit_block(&block);

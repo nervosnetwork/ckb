@@ -23,7 +23,6 @@ impl Spec for PoolReconcile {
 
         info!("Pool should be empty");
         assert!(node0
-            .rpc_client()
             .get_transaction(hash.clone())
             .unwrap()
             .tx_status
@@ -40,7 +39,6 @@ impl Spec for PoolReconcile {
 
         info!("Tx should be re-added to node0's pool");
         assert!(node0
-            .rpc_client()
             .get_transaction(hash.clone())
             .unwrap()
             .tx_status

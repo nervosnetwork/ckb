@@ -30,8 +30,8 @@ impl MiningBasic {
         let _ = node.generate_block(); // skip
         let block3_hash = node.generate_block();
 
-        let block1: BlockView = node.rpc_client().get_block(block1_hash).unwrap().into();
-        let block3: BlockView = node.rpc_client().get_block(block3_hash).unwrap().into();
+        let block1: BlockView = node.get_block(block1_hash).unwrap().into();
+        let block3: BlockView = node.get_block(block3_hash).unwrap().into();
 
         info!("Generated tx should be included in next block's proposal txs");
         assert!(block1
@@ -69,13 +69,12 @@ impl MiningBasic {
             std::mem::swap(&mut block1, &mut block2);
         }
         let block_hash1: H256 = block1.header().hash().unpack();
-        let rpc_client = node.rpc_client();
         assert_eq!(block_hash1, node.submit_block(&block1.data()));
-        assert_eq!(block_hash1, rpc_client.get_tip_header().hash);
+        assert_eq!(block_hash1, node.get_tip_header().hash);
 
-        let template1 = rpc_client.get_block_template(None, None, None);
+        let template1 = node.get_block_template(None, None, None);
         sleep(Duration::new(0, 200));
-        let template2 = rpc_client.get_block_template(None, None, None);
+        let template2 = node.get_block_template(None, None, None);
         assert_eq!(block_hash1, template1.parent_hash);
         assert!(
             is_block_template_equal(&template1, &template2),
@@ -84,8 +83,8 @@ impl MiningBasic {
 
         let block_hash2: H256 = block2.header().hash().clone().unpack();
         assert_eq!(block_hash2, node.submit_block(&block2.data()));
-        assert_eq!(block_hash2, rpc_client.get_tip_header().hash);
-        let template3 = rpc_client.get_block_template(None, None, None);
+        assert_eq!(block_hash2, node.get_tip_header().hash);
+        let template3 = node.get_block_template(None, None, None);
         assert_eq!(block_hash2, template3.parent_hash);
         assert!(
             template3.current_time.0 > template1.current_time.0,

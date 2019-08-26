@@ -16,6 +16,7 @@ use ckb_types::{
 use failure::Error;
 use std::convert::Into;
 use std::fs;
+use std::ops::Deref;
 use std::path::Path;
 use std::process::{self, Child, Command, Stdio};
 
@@ -42,6 +43,13 @@ impl Drop for ProcessGuard {
             Ok(_) => log::debug!("Successfully killed ckb process"),
         }
         let _ = self.0.wait();
+    }
+}
+
+impl Deref for Node {
+    type Target = RpcClient;
+    fn deref(&self) -> &Self::Target {
+        &self.rpc_client
     }
 }
 
@@ -98,7 +106,7 @@ impl Node {
             let result = { self.rpc_client().inner().local_node_info().call() };
             if let Ok(local_node_info) = result {
                 self.node_id = Some(local_node_info.node_id);
-                let _ = self.rpc_client().tx_pool_info();
+                let _ = self.tx_pool_info();
                 break;
             } else if let Some(ref mut child) = self.guard {
                 match child.0.try_wait() {
@@ -122,14 +130,13 @@ impl Node {
         let node_info = outbound_peer.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
-        let rpc_client = self.rpc_client();
-        rpc_client.add_node(
+        self.add_node(
             node_id.clone(),
             format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
         );
 
         let result = wait_until(5, || {
-            let peers = rpc_client.get_peers();
+            let peers = self.get_peers();
             peers.iter().any(|peer| peer.node_id == node_id)
         });
 
@@ -142,8 +149,7 @@ impl Node {
         let node_info = outbound_peer.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
-        let rpc_client = self.rpc_client();
-        rpc_client.add_node(
+        self.add_node(
             node_id.clone(),
             format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
         );
@@ -154,24 +160,23 @@ impl Node {
     // 2. connecting outbound peer and checking banned addresses is not empty
     // 3. clear banned addresses
     pub fn connect_and_wait_ban(&self, outbound_peer: &Node) {
-        let node_info = outbound_peer.rpc_client().local_node_info();
+        let node_info = outbound_peer.local_node_info();
         let node_id = node_info.node_id;
-        let rpc_client = self.rpc_client();
 
         assert!(
-            rpc_client.get_banned_addresses().is_empty(),
+            self.get_banned_addresses().is_empty(),
             "banned addresses should be empty"
         );
-        rpc_client.add_node(
+        self.add_node(
             node_id.clone(),
             format!("/ip4/127.0.0.1/tcp/{}", outbound_peer.p2p_port),
         );
 
         let result = wait_until(10, || {
-            let banned_addresses = rpc_client.get_banned_addresses();
+            let banned_addresses = self.get_banned_addresses();
             let result = banned_addresses.is_empty();
             banned_addresses.into_iter().for_each(|ban_address| {
-                rpc_client.set_ban(ban_address.address, "delete".to_owned(), None, None, None)
+                self.set_ban(ban_address.address, "delete".to_owned(), None, None, None)
             });
             result
         });
@@ -188,11 +193,10 @@ impl Node {
         let node_info = node.rpc_client().local_node_info();
 
         let node_id = node_info.node_id;
-        let rpc_client = self.rpc_client();
-        rpc_client.remove_node(node_id.clone());
+        self.remove_node(node_id.clone());
 
         let result = wait_until(5, || {
-            let peers = rpc_client.get_peers();
+            let peers = self.get_peers();
             peers.iter().all(|peer| peer.node_id != node_id)
         });
 
@@ -202,7 +206,7 @@ impl Node {
     }
 
     pub fn waiting_for_sync(&self, node: &Node, target: BlockNumber) {
-        let self_rpc_client = self.rpc_client();
+        let self_rpc_client = self;
         let node_rpc_client = node.rpc_client();
         let (mut self_tip_number, mut node_tip_number) = (0, 0);
         // 60 seconds is a reasonable timeout to sync, even for poor CI server
@@ -258,21 +262,15 @@ impl Node {
     }
 
     pub fn submit_transaction(&self, transaction: &TransactionView) -> H256 {
-        self.rpc_client()
-            .send_transaction(transaction.data().into())
+        self.send_transaction(transaction.data().into())
     }
 
     pub fn get_tip_block(&self) -> BlockView {
-        let rpc_client = self.rpc_client();
-        let tip_number = rpc_client.get_tip_block_number();
-        rpc_client
+        let tip_number = self.get_tip_block_number();
+        self.rpc_client()
             .get_block_by_number(tip_number)
             .expect("tip block exists")
             .into()
-    }
-
-    pub fn get_tip_block_number(&self) -> BlockNumber {
-        self.rpc_client().get_tip_block_number()
     }
 
     pub fn get_block_by_number(&self, number: BlockNumber) -> BlockView {
@@ -298,9 +296,7 @@ impl Node {
         proposals_limit: Option<u64>,
         max_version: Option<u32>,
     ) -> BlockBuilder {
-        let template =
-            self.rpc_client()
-                .get_block_template(bytes_limit, proposals_limit, max_version);
+        let template = self.get_block_template(bytes_limit, proposals_limit, max_version);
 
         Block::from(template).as_advanced_builder()
     }
@@ -448,13 +444,13 @@ impl Node {
     }
 
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.tx_pool_info();
         assert_eq!(tx_pool_info.pending.0, pending_size);
         assert_eq!(tx_pool_info.proposed.0, proposed_size);
     }
 
     pub fn assert_tx_pool_statics(&self, total_tx_size: u64, total_tx_cycles: u64) {
-        let tx_pool_info = self.rpc_client().tx_pool_info();
+        let tx_pool_info = self.tx_pool_info();
         assert_eq!(tx_pool_info.total_tx_size.0, total_tx_size);
         assert_eq!(tx_pool_info.total_tx_cycles.0, total_tx_cycles);
     }

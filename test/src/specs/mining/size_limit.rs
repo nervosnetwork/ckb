@@ -23,12 +23,12 @@ impl Spec for TemplateSizeLimit {
             0,
             capacity,
         );
-        let mut hash = node.rpc_client().send_transaction(tx.data().into());
+        let mut hash = node.send_transaction(tx.data().into());
         txs_hash.push(hash.clone());
 
         (0..5).for_each(|_| {
             let tx = node.new_transaction_with_since_capacity(hash.clone(), 0, capacity);
-            hash = node.rpc_client().send_transaction(tx.data().into());
+            hash = node.send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 

@@ -26,9 +26,8 @@ impl Spec for TransactionRelayBasic {
         let hash = node1.generate_transaction();
 
         info!("Waiting for relay");
-        let rpc_client = node0.rpc_client();
         let ret = wait_until(10, || {
-            if let Some(transaction) = rpc_client.get_transaction(hash.clone()) {
+            if let Some(transaction) = node0.get_transaction(hash.clone()) {
                 transaction.tx_status.block_hash.is_none()
             } else {
                 false
@@ -36,9 +35,8 @@ impl Spec for TransactionRelayBasic {
         });
         assert!(ret, "Transaction should be relayed to node0");
 
-        let rpc_client = node2.rpc_client();
         let ret = wait_until(10, || {
-            if let Some(transaction) = rpc_client.get_transaction(hash.clone()) {
+            if let Some(transaction) = node2.get_transaction(hash.clone()) {
                 transaction.tx_status.block_hash.is_none()
             } else {
                 false
@@ -89,9 +87,7 @@ impl Spec for TransactionRelayMultiple {
             tb = tb.output(output.clone());
         }
         let transaction = tb.build();
-        node0
-            .rpc_client()
-            .send_transaction(transaction.data().into());
+        node0.send_transaction(transaction.data().into());
         node0.generate_block();
         node0.generate_block();
         node0.generate_block();
@@ -119,7 +115,7 @@ impl Spec for TransactionRelayMultiple {
                         0,
                     ))
                     .build();
-                node0.rpc_client().send_transaction(tx.data().into());
+                node0.send_transaction(tx.data().into());
             });
 
         node0.generate_block();

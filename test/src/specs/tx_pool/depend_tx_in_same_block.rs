@@ -15,7 +15,7 @@ impl Spec for DepentTxInSameBlock {
         let tx_hash_0 = node0.generate_transaction();
         let tx = node0.new_transaction(tx_hash_0.clone());
         let tx_hash_1 = tx.hash().unpack();
-        node0.rpc_client().send_transaction(tx.data().into());
+        node0.send_transaction(tx.data().into());
 
         info!("Generated 2 tx should be included in the next block's proposals");
         node0.generate_block();

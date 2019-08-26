@@ -21,17 +21,14 @@ impl Spec for SizeLimit {
         (0..4).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
             info!("tx.size: {}", tx.serialized_size());
-            hash = node.rpc_client().send_transaction(tx.data().into());
+            hash = node.send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
         info!("No.6 tx reach size limit");
         let tx = node.new_transaction(hash.clone());
 
-        let error = node
-            .rpc_client()
-            .send_transaction_result(tx.data().into())
-            .unwrap_err();
+        let error = node.send_transaction_result(tx.data().into()).unwrap_err();
         assert_regex_match(&error.to_string(), r"LimitReached");
 
         // 298 * 5
@@ -71,17 +68,14 @@ impl Spec for CyclesLimit {
         (0..4).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
             info!("tx.size: {}", tx.serialized_size());
-            hash = node.rpc_client().send_transaction(tx.data().into());
+            hash = node.send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
         info!("No.6 tx reach cycles limit");
         let tx = node.new_transaction(hash.clone());
 
-        let error = node
-            .rpc_client()
-            .send_transaction_result(tx.data().into())
-            .unwrap_err();
+        let error = node.send_transaction_result(tx.data().into()).unwrap_err();
         assert_regex_match(&error.to_string(), r"LimitReached");
 
         // 298 * 5

@@ -154,7 +154,7 @@ impl Spec for ChainFork3 {
                 .build()
         });
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(5, node1.get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -223,7 +223,7 @@ impl Spec for ChainFork4 {
                 .build()
         });
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(5, node1.get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -284,12 +284,12 @@ impl Spec for ChainFork5 {
             .transaction(transaction.clone())
             .build();
         node1.submit_block(&block.data());
-        assert_eq!(4, node1.rpc_client().get_tip_block_number());
+        assert_eq!(4, node1.get_tip_block_number());
         info!("Generate 1 blocks (F) with spent transaction on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = block.as_advanced_builder().transaction(transaction).build();
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(5, node1.get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -348,7 +348,7 @@ impl Spec for ChainFork6 {
             .transaction(invalid_transaction)
             .build();
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(5, node1.get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);
@@ -418,7 +418,7 @@ impl Spec for ChainFork7 {
             .transaction(invalid_transaction)
             .build();
         node1.process_block_without_verify(&invalid_block);
-        assert_eq!(5, node1.rpc_client().get_tip_block_number());
+        assert_eq!(5, node1.get_tip_block_number());
 
         info!("Reconnect node1 and node1 should be banned");
         node0.connect_and_wait_ban(node1);

@@ -130,10 +130,7 @@ impl RpcClient {
     }
 
     pub fn get_peers(&self) -> Vec<Node> {
-        self.inner()
-            .get_peers()
-            .call()
-            .expect("rpc call get_peers")
+        self.inner().get_peers().call().expect("rpc call get_peers")
     }
 
     pub fn get_banned_addresses(&self) -> Vec<BannedAddress> {
