@@ -66,7 +66,6 @@ impl ValidSince {
         assert!(
             node.rpc_client()
                 .inner()
-                .lock()
                 .send_transaction(transaction.data().into())
                 .call()
                 .is_ok(),
@@ -103,7 +102,6 @@ impl ValidSince {
         assert!(
             node.rpc_client()
                 .inner()
-                .lock()
                 .send_transaction(transaction.data().into())
                 .call()
                 .is_ok(),
@@ -153,7 +151,6 @@ impl ValidSince {
             assert!(
                 node.rpc_client()
                     .inner()
-                    .lock()
                     .send_transaction(transaction.data().into())
                     .call()
                     .is_ok(),
@@ -201,7 +198,6 @@ impl ValidSince {
             assert!(
                 node.rpc_client()
                     .inner()
-                    .lock()
                     .send_transaction(transaction.data().into())
                     .call()
                     .is_ok(),

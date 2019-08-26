@@ -95,7 +95,7 @@ impl Node {
         log::info!("Started node with working dir: {}", self.dir);
 
         loop {
-            let result = { self.rpc_client().inner().lock().local_node_info().call() };
+            let result = { self.rpc_client().inner().local_node_info().call() };
             if let Ok(local_node_info) = result {
                 self.node_id = Some(local_node_info.node_id);
                 let _ = self.rpc_client().tx_pool_info();

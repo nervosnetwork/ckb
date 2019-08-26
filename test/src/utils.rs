@@ -151,7 +151,6 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
     let result = node
         .rpc_client()
         .inner()
-        .lock()
         .send_transaction(transaction.data().into())
         .call();
     let error = result.expect_err(&format!("transaction is invalid since {}", message));
