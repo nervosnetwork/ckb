@@ -11,7 +11,7 @@ impl Spec for Discovery {
     crate::setup!(num_nodes: 3);
 
     fn run(&self, net: Net) {
-        let node0_id = &net.nodes[0].node_id().clone().unwrap();
+        let node0_id = net.nodes[0].node_id();
         let node2 = &net.nodes[2];
         let rpc_client = node2.rpc_client();
 
@@ -20,7 +20,7 @@ impl Spec for Discovery {
             rpc_client
                 .get_peers()
                 .iter()
-                .any(|peer| &peer.node_id == node0_id)
+                .any(|peer| peer.node_id == node0_id)
         });
         assert!(
             ret,

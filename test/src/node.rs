@@ -30,7 +30,7 @@ pub struct Node {
     dep_group_tx_hash: H256,
     always_success_code_hash: H256,
     guard: Option<ProcessGuard>,
-    pub consensus: Option<Consensus>,
+    consensus: Option<Consensus>,
 }
 
 struct ProcessGuard(pub Child);
@@ -63,8 +63,12 @@ impl Node {
         }
     }
 
-    pub fn node_id(&self) -> &Option<String> {
-        &self.node_id
+    pub fn node_id(&self) -> &str {
+        self.node_id.as_ref().expect("uninitialized node_id")
+    }
+
+    pub fn consensus(&self) -> &Consensus {
+        self.consensus.as_ref().expect("uninitialized consensus")
     }
 
     pub fn p2p_port(&self) -> u16 {
