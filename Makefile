@@ -4,6 +4,7 @@ MOLC    := moleculec
 MOLC_VERSION := 0.2.5
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::enum_glob_use -D clippy::fallible_impl_from
+CKB_TEST_ARGS := forks_contain_same_transactions
 
 ##@ Testing
 test: ## Run all tests.
