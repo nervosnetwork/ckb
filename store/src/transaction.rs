@@ -162,7 +162,7 @@ impl StoreTransaction {
             self.delete(COLUMN_TRANSACTION_INFO, tx_hash.as_slice())?;
         }
         for uncle in block.uncles().into_iter() {
-            self.delete(COLUMN_BLOCK_HEADER, &uncle.hash().as_slice())?;
+            // self.delete(COLUMN_BLOCK_HEADER, &uncle.hash().as_slice())?;
             self.delete(COLUMN_UNCLES, uncle.hash().as_slice())?;
         }
         let block_number = block.data().header().raw().number();
