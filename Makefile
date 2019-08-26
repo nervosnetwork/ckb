@@ -13,7 +13,7 @@ test: ## Run all tests.
 # https://github.com/xd009642/tarpaulin/issues/161
 # https://github.com/xd009642/tarpaulin/issues/190#issuecomment-473564880
 cov: ## Run code coverage.
-	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --timeout 300 --exclude-files protocol/src/protocol_generated* test/* */tests/ --all -v --out Xml
+	RUSTC="$$(pwd)/devtools/cov/rustc-proptest-fix" taskset -c 0 cargo tarpaulin --timeout 300 --exclude-files "*/generated/" "test/*" "*/tests/" --all -v --out Xml
 
 setup-ckb-test:
 	cp -f Cargo.lock test/Cargo.lock
