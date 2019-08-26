@@ -1,5 +1,5 @@
 use crate::specs::TestProtocol;
-use crate::utils::wait_until;
+use crate::utils::{temp_path, wait_until};
 use crate::Node;
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, NetworkConfig, NetworkController,
@@ -13,7 +13,6 @@ use crossbeam_channel::{self, Receiver, RecvTimeoutError, Sender};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use tempfile::tempdir;
 
 pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 
@@ -23,6 +22,7 @@ pub struct Net {
     pub test_protocols: Vec<TestProtocol>,
     num_nodes: usize,
     start_port: u16,
+    working_dir: String,
 }
 
 impl Net {
@@ -36,11 +36,6 @@ impl Net {
             .map(|n| {
                 Node::new(
                     binary,
-                    tempdir()
-                        .expect("create tempdir failed")
-                        .path()
-                        .to_str()
-                        .unwrap(),
                     start_port + (n * 2 + 1) as u16,
                     start_port + (n * 2 + 2) as u16,
                 )
@@ -53,6 +48,7 @@ impl Net {
             test_protocols,
             start_port,
             num_nodes,
+            working_dir: temp_path(),
         }
     }
 
@@ -74,10 +70,7 @@ impl Net {
                     whitelist_only: false,
                     max_peers: self.num_nodes as u32,
                     max_outbound_peers: self.num_nodes as u32,
-                    path: tempdir()
-                        .expect("create tempdir failed")
-                        .path()
-                        .to_path_buf(),
+                    path: self.working_dir().into(),
                     ping_interval_secs: 15,
                     ping_timeout_secs: 20,
                     connect_outbound_interval_secs: 0,
@@ -132,6 +125,10 @@ impl Net {
                 .parse()
                 .expect("invalid address"),
         );
+    }
+
+    pub fn working_dir(&self) -> &str {
+        &self.working_dir
     }
 
     pub fn connect_all(&self) {

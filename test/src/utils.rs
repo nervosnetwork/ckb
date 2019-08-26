@@ -13,6 +13,7 @@ use ckb_types::{
 use std::convert::Into;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tempfile::tempdir;
 
 pub const MEDIAN_TIME_BLOCK_COUNT: u64 = 11;
 pub const FLAG_SINCE_RELATIVE: u64 =
@@ -167,4 +168,15 @@ pub fn assert_send_transaction_fail(node: &Node, transaction: &TransactionView, 
 pub fn is_committed(tx_status: &TransactionWithStatus) -> bool {
     let committed_status = TxStatus::committed(H256::zero());
     tx_status.tx_status.status == committed_status.status
+}
+
+/// Return a random path located on temp_dir
+///
+/// We use `tempdir` only for generating a random path, and expect the corresponding directory
+/// that `tempdir` creates be deleted when go out of this function.
+pub fn temp_path() -> String {
+    let tempdir = tempdir().expect("create tempdir failed");
+    let path = tempdir.path().to_str().unwrap().to_owned();
+    tempdir.close().expect("close tempdir failed");
+    path
 }
