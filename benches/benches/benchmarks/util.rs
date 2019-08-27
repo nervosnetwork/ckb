@@ -61,7 +61,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
         .collect();
 
     let genesis_block = BlockBuilder::default()
-        .dao(dao.pack())
+        .dao(dao)
         .difficulty(U256::from(1000u64).pack())
         .transaction(tx)
         .transactions(transactions)
@@ -178,7 +178,7 @@ pub fn gen_always_success_block(
         .timestamp(timestamp.pack())
         .difficulty(difficulty.pack())
         .nonce(random::<u64>().pack())
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     blocks.push(block.clone());
@@ -266,7 +266,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
 
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
-        .dao(dao.pack())
+        .dao(dao)
         .transaction(tx)
         .transactions(transactions)
         .build();
@@ -375,7 +375,7 @@ pub fn gen_secp_block(
         .timestamp(timestamp.pack())
         .difficulty(difficulty.pack())
         .nonce(random::<u64>().pack())
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     blocks.push(block.clone());
@@ -438,7 +438,7 @@ fn create_2out_transaction(
         .build()
 }
 
-pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -> Bytes {
+pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -> Byte32 {
     let mut seen_inputs = HashSet::new();
     // In case of resolving errors, we just output a dummp DAO field,
     // since those should be the cases where we are testing invalid

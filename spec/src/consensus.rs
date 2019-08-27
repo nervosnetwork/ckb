@@ -128,7 +128,7 @@ impl Default for Consensus {
         let dao = genesis_dao_data(&cellbase).unwrap();
         let genesis_block = BlockBuilder::default()
             .difficulty(U256::one().pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .build();
 

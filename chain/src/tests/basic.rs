@@ -82,7 +82,7 @@ fn test_genesis_transaction_spend() {
         .transaction(tx)
         .transaction(create_always_success_tx())
         .difficulty(U256::from(1000u64).pack())
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
@@ -561,7 +561,7 @@ fn prepare_context_chain(
             .timestamp((parent.timestamp() + timestep).pack())
             .difficulty(epoch.difficulty().pack())
             .transactions(transactions)
-            .dao(dao.pack())
+            .dao(dao)
             .build();
 
         chain_controller
@@ -600,7 +600,7 @@ fn prepare_context_chain(
             .timestamp((parent.timestamp() + timestep).pack())
             .difficulty(epoch.difficulty().pack())
             .transactions(transactions)
-            .dao(dao.pack())
+            .dao(dao)
             .build();
 
         chain_controller
@@ -624,7 +624,7 @@ fn test_epoch_hash_rate_dampening() {
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
         .transaction(cellbase)
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     // last_difficulty 1000
@@ -711,7 +711,7 @@ fn test_orphan_rate_estimation_overflow() {
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
         .transaction(cellbase)
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
@@ -763,7 +763,7 @@ fn test_next_epoch_ext() {
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
         .transaction(cellbase)
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);

@@ -275,7 +275,7 @@ fn test_full_dead_transaction() {
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
         .difficulty((difficulty + U256::from(100u64)).pack())
-        .dao(dao.pack())
+        .dao(dao)
         .transaction(cellbase_tx)
         .build();
 
@@ -301,7 +301,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(100u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .transactions(transactions)
                 .proposals(vec![tx1.proposal_short_id()])
                 .build()
@@ -321,7 +321,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(100u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .transactions(transactions)
                 .build()
         } else {
@@ -337,7 +337,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(100u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .transactions(transactions)
                 .build()
         };
@@ -365,7 +365,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(100u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .transactions(transactions)
                 .proposals(vec![tx2.proposal_short_id(), tx3.proposal_short_id()])
                 .build()
@@ -386,7 +386,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(100u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .transactions(transactions)
                 .build()
         } else {
@@ -403,7 +403,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(100u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .transactions(transactions)
                 .build()
         };
@@ -428,7 +428,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(101u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .proposals(vec![tx2.proposal_short_id(), tx3.proposal_short_id()])
                 .transactions(transactions)
                 .build()
@@ -449,7 +449,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(101u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .transactions(transactions)
                 .build()
         } else {
@@ -466,7 +466,7 @@ fn test_full_dead_transaction() {
                 .parent_hash(parent.hash().to_owned())
                 .number((parent.number() + 1).pack())
                 .difficulty((difficulty + U256::from(101u64)).pack())
-                .dao(dao.pack())
+                .dao(dao)
                 .transactions(transactions)
                 .build()
         };

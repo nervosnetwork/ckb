@@ -273,8 +273,8 @@ impl HeaderView {
     define_header_packed_inner_getter!(proposals_hash, Byte32);
     define_header_packed_inner_getter!(uncles_hash, Byte32);
 
-    pub fn dao(&self) -> Bytes {
-        self.data().raw().dao().raw_data()
+    pub fn dao(&self) -> packed::Byte32 {
+        self.data().raw().dao()
     }
 
     pub fn nonce(&self) -> u64 {
@@ -324,8 +324,8 @@ impl UncleBlockView {
     define_uncle_packed_inner_getter!(proposals_hash, Byte32);
     define_uncle_packed_inner_getter!(uncles_hash, Byte32);
 
-    pub fn dao(&self) -> Bytes {
-        self.data().header().raw().dao().raw_data()
+    pub fn dao(&self) -> packed::Byte32 {
+        self.data().header().raw().dao()
     }
 
     pub fn nonce(&self) -> u64 {
@@ -437,8 +437,8 @@ impl BlockView {
     define_block_packed_inner_getter!(proposals_hash, Byte32);
     define_block_packed_inner_getter!(uncles_hash, Byte32);
 
-    pub fn dao(&self) -> Bytes {
-        self.data().header().raw().dao().raw_data()
+    pub fn dao(&self) -> packed::Byte32 {
+        self.data().header().raw().dao()
     }
 
     pub fn nonce(&self) -> u64 {
