@@ -35,9 +35,7 @@ impl IdentifyCallback {
     }
 
     fn listen_addrs(&self) -> Vec<Multiaddr> {
-        let mut addrs = self
-            .network_state
-            .listened_addrs(MAX_RETURN_LISTEN_ADDRS * 2);
+        let mut addrs = self.network_state.public_addrs(MAX_RETURN_LISTEN_ADDRS * 2);
         addrs.sort_by(|a, b| a.1.cmp(&b.1));
         addrs
             .into_iter()

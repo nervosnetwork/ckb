@@ -76,13 +76,16 @@ pub struct SessionInfo {
 pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
     pub(crate) peer_store: Mutex<Box<dyn PeerStore>>,
-    pub(crate) original_listened_addrs: RwLock<Vec<Multiaddr>>,
+    /// Node listened addresses
+    pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
 
     pub(crate) protocol_ids: RwLock<HashSet<ProtocolId>>,
-    listened_addrs: RwLock<HashMap<Multiaddr, u8>>,
+    /// Node public addresses,
+    /// includes manualy public addrs and remote peer observed addrs
+    public_addrs: RwLock<HashMap<Multiaddr, u8>>,
     pending_observed_addrs: RwLock<HashSet<Multiaddr>>,
-    // Send disconnect message but not disconnected yet
+    /// Send disconnect message but not disconnected yet
     disconnecting_sessions: RwLock<HashSet<SessionId>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
@@ -94,7 +97,7 @@ impl NetworkState {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
         // set max score to public addresses
-        let listened_addrs: HashMap<Multiaddr, u8> = config
+        let public_addrs: HashMap<Multiaddr, u8> = config
             .listen_addresses
             .iter()
             .chain(config.public_addresses.iter())
@@ -127,8 +130,8 @@ impl NetworkState {
             config,
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
-            listened_addrs: RwLock::new(listened_addrs),
-            original_listened_addrs: RwLock::new(Vec::new()),
+            public_addrs: RwLock::new(public_addrs),
+            listened_addrs: RwLock::new(Vec::new()),
             pending_observed_addrs: RwLock::new(HashSet::default()),
             disconnecting_sessions: RwLock::new(HashSet::default()),
             local_private_key: local_private_key.clone(),
@@ -284,8 +287,8 @@ impl NetworkState {
         self.local_private_key().to_peer_id().to_base58()
     }
 
-    pub(crate) fn listened_addrs(&self, count: usize) -> Vec<(Multiaddr, u8)> {
-        self.listened_addrs
+    pub(crate) fn public_addrs(&self, count: usize) -> Vec<(Multiaddr, u8)> {
+        self.public_addrs
             .read()
             .iter()
             .take(count)
@@ -294,8 +297,8 @@ impl NetworkState {
     }
 
     pub(crate) fn vote_listened_addr(&self, addr: Multiaddr, votes: u8) {
-        let mut listened_addrs = self.listened_addrs.write();
-        let score = listened_addrs.entry(addr).or_default();
+        let mut public_addrs = self.public_addrs.write();
+        let score = public_addrs.entry(addr).or_default();
         *score = score.saturating_add(votes);
     }
 
@@ -303,16 +306,12 @@ impl NetworkState {
         self.peer_registry.read().connection_status()
     }
 
-    pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
-        let original_listened_addrs = self.original_listened_addrs.read();
-        self.listened_addrs(max_urls.saturating_sub(original_listened_addrs.len()))
+    pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
+        let listened_addrs = self.listened_addrs.read();
+        self.public_addrs(max_urls.saturating_sub(listened_addrs.len()))
             .into_iter()
-            .filter(|(addr, _)| !original_listened_addrs.contains(addr))
-            .chain(
-                original_listened_addrs
-                    .iter()
-                    .map(|addr| (addr.to_owned(), 1)),
-            )
+            .filter(|(addr, _)| !listened_addrs.contains(addr))
+            .chain(listened_addrs.iter().map(|addr| (addr.to_owned(), 1)))
             .map(|(addr, score)| (self.to_external_url(&addr), score))
             .collect()
     }
@@ -349,7 +348,7 @@ impl NetworkState {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if self.listened_addrs.read().contains_key(&addr) {
+        if self.public_addrs.read().contains_key(&addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id,
@@ -483,10 +482,10 @@ impl NetworkState {
     }
 
     pub fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
-        let mut listened_addrs = self.listened_addrs.write();
+        let mut public_addrs = self.public_addrs.write();
         let mut pending_observed_addrs = self.pending_observed_addrs.write();
         for addr in iter {
-            if let Some(score) = listened_addrs.get_mut(&addr) {
+            if let Some(score) = public_addrs.get_mut(&addr) {
                 *score = score.saturating_add(1);
                 trace!(
                     "increase score for exists observed addr: {:?} {}",
@@ -940,7 +939,7 @@ impl NetworkService {
                         self.network_state.to_external_url(&listen_address)
                     );
                     self.network_state
-                        .original_listened_addrs
+                        .listened_addrs
                         .write()
                         .push(listen_address.clone())
                 }
@@ -1049,8 +1048,8 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
-    pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
-        self.network_state.external_urls(max_urls)
+    pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
+        self.network_state.public_urls(max_urls)
     }
 
     pub fn node_version(&self) -> &Version {

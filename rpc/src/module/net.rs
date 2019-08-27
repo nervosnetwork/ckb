@@ -46,7 +46,7 @@ impl NetworkRpc for NetworkRpcImpl {
             node_id: self.network_controller.node_id(),
             addresses: self
                 .network_controller
-                .external_urls(MAX_ADDRS)
+                .public_urls(MAX_ADDRS)
                 .into_iter()
                 .map(|(address, score)| NodeAddress {
                     address,
