@@ -385,6 +385,14 @@ pub trait ChainStore<'a>: Send + Sync {
         self.get(COLUMN_UNCLES, hash.as_slice()).is_some()
     }
 
+    /// Get header by uncle header hash
+    fn get_uncle_header(&'a self, hash: &packed::Byte32) -> Option<HeaderView> {
+        self.get(COLUMN_UNCLES, hash.as_slice()).map(|slice| {
+            let reader = packed::HeaderViewReader::from_slice(&slice.as_ref()).should_be_ok();
+            Unpack::<HeaderView>::unpack(&reader)
+        })
+    }
+
     fn block_exists(&'a self, hash: &packed::Byte32) -> bool {
         self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).is_some()
     }

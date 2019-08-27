@@ -50,6 +50,57 @@ impl Spec for BlockSyncFromOne {
     }
 }
 
+pub struct BlockSyncWithUncle;
+
+impl Spec for BlockSyncWithUncle {
+    crate::name!("block_sync_with_uncle");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync(), TestProtocol::relay()],
+    );
+
+    // Case: Sync a block with uncle
+    fn run(&self, net: Net) {
+        let target = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        net.exit_ibd_mode();
+
+        let new_builder = node1.new_block_builder(None, None, None);
+        let new_block1 = new_builder.clone().nonce(0.pack()).build();
+        let new_block2 = new_builder.clone().nonce(1.pack()).build();
+
+        node1.submit_block(&new_block1.data());
+        node1.submit_block(&new_block2.data());
+
+        let uncle = if node1.get_tip_block() == new_block1 {
+            new_block2.as_uncle()
+        } else {
+            new_block1.as_uncle()
+        };
+
+        let block_builder = node1.new_block_builder(None, None, None);
+
+        node1.submit_block(
+            &block_builder
+                .clone()
+                .set_uncles(vec![uncle.clone()])
+                .build()
+                .data(),
+        );
+
+        target.connect(node1);
+        target.waiting_for_sync(node1, 3);
+
+        // check whether node panic
+        assert!(target
+            .rpc_client()
+            .get_block(uncle.hash().unpack())
+            .is_none());
+    }
+}
+
 pub struct BlockSyncForks;
 
 impl Spec for BlockSyncForks {
