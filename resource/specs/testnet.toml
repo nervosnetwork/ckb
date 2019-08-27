@@ -71,6 +71,16 @@ capacity = 50_000_000_00000000
 lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 lock.hash_type = "type"
+# Satoshi's gift, a cell send to satoshi's signature,
+# 60% capacity of this cell is occupied.
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+lock.args = ["0x0000000000000000000000000000000000000000"]
+lock.hash_type = "type"
+# A special mark, hex of `"occupied" + 30_000_000_00000000.to_le_bytes()`
+# indicates that 30_000_000 bytes is occupied in this cell.
+data = "0x6f63637570696564008053ee7ba80a00"
 
 [pow]
 func = "Eaglesong"
