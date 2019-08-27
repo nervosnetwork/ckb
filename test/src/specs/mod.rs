@@ -85,9 +85,7 @@ pub trait Spec {
     }
 
     fn setup_net(&self, binary: &str, start_port: u16) -> Net {
-        let setup = self.setup();
-
-        let mut net = Net::new(binary, setup.num_nodes, start_port, setup.protocols);
+        let mut net = Net::new(binary, start_port, self.setup());
 
         // start all nodes
         net.nodes.iter_mut().for_each(|node| {
@@ -95,7 +93,7 @@ pub trait Spec {
         });
 
         // connect the nodes as a linear chain: node0 <-> node1 <-> node2 <-> ...
-        if setup.connect_all {
+        if self.setup().connect_all {
             net.connect_all();
         }
 

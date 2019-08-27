@@ -153,13 +153,12 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
 
         // Disconnect and reconnect node, and then sync the same header
         // `node` should send back a corresponding GetBlocks message
-        if let Some(ref ctrl) = net.controller.as_ref() {
-            let peer = ctrl.0.connected_peers()[peer_id.value() - 1].clone();
-            ctrl.0.remove_node(&peer.0);
-            wait_until(5, || {
-                rpc_client.get_peers().is_empty() && ctrl.0.connected_peers().is_empty()
-            });
-        }
+        let ctrl = net.controller();
+        let peer = ctrl.0.connected_peers()[peer_id.value() - 1].clone();
+        ctrl.0.remove_node(&peer.0);
+        wait_until(5, || {
+            rpc_client.get_peers().is_empty() && ctrl.0.connected_peers().is_empty()
+        });
 
         net.connect(node);
         let (peer_id, _, _) = net
