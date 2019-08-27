@@ -563,17 +563,10 @@ impl ChainService {
         let verify_context =
             VerifyContext::new(txn, self.shared.consensus(), self.shared.script_config());
 
-        let mut verify_results = fork
+        let mut found_error = None;
+        for (ext, b) in fork
             .dirty_exts
             .iter()
-            .zip(fork.attached_blocks().iter().skip(verified_len))
-            .map(|(ext, b)| (b.header().hash().to_owned(), ext.verified, vec![]))
-            .collect::<Vec<_>>();
-
-        let mut found_error = None;
-        // verify transaction
-        for ((_, verified, l_txs_fees), b) in verify_results
-            .iter_mut()
             .zip(fork.attached_blocks.iter().skip(verified_len))
         {
             if need_verify {
@@ -615,8 +608,10 @@ impl ChainService {
                                 Ok((cycles, txs_fees)) => {
                                     txn.attach_block(b)?;
                                     attach_block_cell(txn, b, cell_set)?;
-                                    *verified = Some(true);
-                                    l_txs_fees.extend(txs_fees);
+                                    let mut mut_ext = ext.clone();
+                                    mut_ext.verified = Some(true);
+                                    mut_ext.txs_fees = txs_fees;
+                                    txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
                                     if b.transactions().len() > 1 {
                                         info!(
                                             "[block_verifier] block number: {}, hash: {}, size:{}/{}, cycles: {}/{}",
@@ -636,30 +631,31 @@ impl ChainService {
                                         trace!("block {}", b.data());
                                     }
                                     found_error = Some(SharedError::InvalidBlock(err.to_string()));
-                                    *verified = Some(false);
+                                    let mut mut_ext = ext.clone();
+                                    mut_ext.verified = Some(false);
+                                    txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
                                 }
                             }
                         }
                         Err(err) => {
                             found_error = Some(SharedError::UnresolvableTransaction(err));
-                            *verified = Some(false);
+                            let mut mut_ext = ext.clone();
+                            mut_ext.verified = Some(false);
+                            txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
                         }
                     }
                 } else {
-                    *verified = Some(false);
+                    let mut mut_ext = ext.clone();
+                    mut_ext.verified = Some(false);
+                    txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
                 }
             } else {
                 txn.attach_block(b)?;
                 attach_block_cell(txn, b, cell_set)?;
-                *verified = Some(true);
+                let mut mut_ext = ext.clone();
+                mut_ext.verified = Some(true);
+                txn.insert_block_ext(&b.header().hash(), &mut_ext)?;
             }
-        }
-
-        // update exts
-        for (ext, (hash, verified, txs_fees)) in fork.dirty_exts.iter_mut().zip(verify_results) {
-            ext.verified = verified;
-            ext.txs_fees = txs_fees;
-            txn.insert_block_ext(&hash, ext)?;
         }
 
         if let Some(err) = found_error {
