@@ -242,6 +242,25 @@ impl<'a> MockChain<'a> {
         self.blocks.push(new_block);
     }
 
+    pub fn gen_empty_block_with_nonce(&mut self, nonce: u64, store: &MockStore) {
+        let difficulty = self.difficulty();
+        let parent = self.tip_header();
+        let cellbase = create_cellbase(store, self.consensus, &parent);
+        let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
+
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash().to_owned())
+            .number((parent.number() + 1).pack())
+            .difficulty(difficulty.pack())
+            .nonce(nonce.pack())
+            .dao(dao.pack())
+            .transaction(cellbase)
+            .build();
+
+        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
+        self.blocks.push(new_block);
+    }
+
     pub fn gen_empty_block(&mut self, diff: u64, store: &MockStore) {
         let difficulty = self.difficulty();
         let parent = self.tip_header();
