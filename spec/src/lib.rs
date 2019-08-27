@@ -195,7 +195,7 @@ impl Genesis {
             .timestamp(self.timestamp.pack())
             .difficulty(self.difficulty.pack())
             .uncles_hash(self.uncles_hash.pack())
-            .dao(dao.pack())
+            .dao(dao)
             .nonce(self.nonce.pack())
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)

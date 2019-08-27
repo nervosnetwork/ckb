@@ -377,7 +377,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .header()
             .to_owned()
             .as_advanced_builder()
-            .dao(dao.pack())
+            .dao(dao)
             .build();
         let parent = parent.as_advanced_builder().header(header).build();
         mock_store.insert_block(&parent, consensus.genesis_epoch_ext());
@@ -428,7 +428,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
                     .number((parent.header().number() + 1).pack())
                     .timestamp((parent.header().timestamp() + 1).pack())
                     .parent_hash(parent.header().hash().to_owned())
-                    .dao(dao.pack())
+                    .dao(dao)
                     .build(),
             )
             .build();

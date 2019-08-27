@@ -55,7 +55,7 @@ pub fn always_success_consensus() -> Consensus {
     let genesis = BlockBuilder::default()
         .timestamp(unix_time_as_millis().pack())
         .difficulty(U256::from(1000u64).pack())
-        .dao(dao.pack())
+        .dao(dao)
         .transaction(always_success_tx)
         .build();
     Consensus::default()

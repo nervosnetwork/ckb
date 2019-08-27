@@ -591,7 +591,7 @@ mod tests {
             .number(number.pack())
             .difficulty(epoch.difficulty().pack())
             .nonce(nonce.pack())
-            .dao(dao.pack())
+            .dao(dao)
             .build()
     }
 

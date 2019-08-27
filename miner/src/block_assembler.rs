@@ -1,11 +1,11 @@
 use crate::candidate_uncles::CandidateUncles;
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
-use ckb_dao::{DaoCalculator, DAO_SIZE};
+use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
     BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
-    EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
-    UncleTemplate, Unsigned, Version as JsonVersion,
+    EpochNumber as JsonEpochNumber, Timestamp as JsonTimestamp, TransactionTemplate, UncleTemplate,
+    Unsigned, Version as JsonVersion,
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
@@ -242,10 +242,8 @@ impl BlockAssembler {
         uncles: &[UncleBlock],
         proposals: &HashSet<ProposalShortId>,
     ) -> Result<usize, FailureError> {
-        let empty_dao = vec![0u8; DAO_SIZE];
-        let raw_header = packed::RawHeader::new_builder()
-            .dao(empty_dao.pack())
-            .build();
+        let empty_dao = packed::Byte32::default();
+        let raw_header = packed::RawHeader::new_builder().dao(empty_dao).build();
         let header = packed::Header::new_builder().raw(raw_header).build();
         let block = packed::Block::new_builder()
             .header(header)
@@ -397,7 +395,7 @@ impl BlockAssembler {
             proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
             work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
-            dao: JsonBytes::from_bytes(dao),
+            dao: dao.into(),
         };
 
         self.template_caches.insert(
@@ -538,7 +536,7 @@ mod tests {
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_dao_utils::genesis_dao_data;
-    use ckb_jsonrpc_types::ScriptHashType;
+    use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
@@ -624,7 +622,7 @@ mod tests {
             .epoch(epoch.number().pack())
             .difficulty(epoch.difficulty().clone().pack())
             .nonce(nonce.pack())
-            .dao(dao.pack())
+            .dao(dao)
             .build();
 
         BlockBuilder::default()

@@ -96,7 +96,7 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
     let mut block = BlockBuilder::default()
         .timestamp(unix_time_as_millis().pack())
         .difficulty(U256::from(1000u64).pack())
-        .dao(dao.pack())
+        .dao(dao)
         .transaction(always_success_tx)
         .build();
 
@@ -154,7 +154,7 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
             .epoch(epoch.number().pack())
             .timestamp(timestamp.pack())
             .difficulty(epoch.difficulty().pack())
-            .dao(dao.pack())
+            .dao(dao)
             .build();
 
         chain_controller

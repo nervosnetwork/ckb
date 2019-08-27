@@ -1,5 +1,7 @@
 use crate::bytes::JsonBytes;
-use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsigned, Version};
+use crate::{
+    BlockNumber, Byte32, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsigned, Version,
+};
 use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -408,7 +410,7 @@ pub struct Header {
     pub difficulty: U256,
     pub uncles_hash: H256,
     pub uncles_count: Unsigned,
-    pub dao: JsonBytes,
+    pub dao: Byte32,
     pub nonce: Unsigned,
 }
 

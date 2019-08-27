@@ -92,7 +92,7 @@ table RawHeader {
     uncles_hash:            Byte32,
     uncles_count:           Uint32,
     epoch:                  Uint64,
-    dao:                    Bytes,
+    dao:                    Byte32,
 }
 
 table Header {
