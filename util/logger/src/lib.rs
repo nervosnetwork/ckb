@@ -116,6 +116,7 @@ pub struct Logger {
     sender: crossbeam_channel::Sender<Message>,
     handle: Mutex<Option<thread::JoinHandle<()>>>,
     filter: Filter,
+    emit_sentry_breadcrumbs: bool,
 }
 
 impl Logger {
@@ -176,6 +177,7 @@ impl Logger {
             sender,
             handle: Mutex::new(Some(tb)),
             filter: builder.build(),
+            emit_sentry_breadcrumbs: config.emit_sentry_breadcrumbs.unwrap_or_default(),
         }
     }
 
@@ -191,6 +193,7 @@ pub struct Config {
     pub file: Option<PathBuf>,
     pub log_to_file: bool,
     pub log_to_stdout: bool,
+    pub emit_sentry_breadcrumbs: Option<bool>,
 }
 
 impl Default for Config {
@@ -201,6 +204,7 @@ impl Default for Config {
             file: None,
             log_to_file: false,
             log_to_stdout: true,
+            emit_sentry_breadcrumbs: None,
         }
     }
 }
@@ -213,6 +217,11 @@ impl Log for Logger {
     fn log(&self, record: &Record) {
         // Check if the record is matched by the filter
         if self.filter.matches(record) {
+            if self.emit_sentry_breadcrumbs {
+                use sentry::{add_breadcrumb, integrations::log::breadcrumb_from_record};
+                add_breadcrumb(|| breadcrumb_from_record(record));
+            }
+
             let thread = thread::current();
             let thread_name = thread.name().unwrap_or_default();
 
