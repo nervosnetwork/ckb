@@ -253,7 +253,7 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty(difficulty.pack())
             .nonce(nonce.pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .build();
 
