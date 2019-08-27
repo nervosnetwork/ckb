@@ -50,7 +50,7 @@ impl ChainController {
         need_verify: bool,
     ) -> Result<bool, FailureError> {
         Request::call(&self.process_block_sender, (block, need_verify))
-            .expect("process_block() failed")
+            .unwrap_or_else(|| Err(failure::err_msg("Chain service has gone")))
     }
 }
 

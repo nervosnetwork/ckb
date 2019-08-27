@@ -100,19 +100,15 @@ impl<'a, 'b, CS: ChainStore<'a>> UncleProvider for UncleVerifierContext<'a, 'b, 
         let uncle_number = uncle.number();
         let store = self.context.store;
 
-        let number_continuity = |parent_hash| {
-            store
+        if store.get_block_number(&parent_hash).is_some() {
+            return store
                 .get_block_header(&parent_hash)
                 .map(|parent| (parent.number() + 1) == uncle_number)
-                .unwrap_or(false)
-        };
-
-        if store.get_block_number(&parent_hash).is_some() {
-            return number_continuity(parent_hash);
+                .unwrap_or(false);
         }
 
-        if store.is_uncle(&parent_hash) {
-            return number_continuity(parent_hash);
+        if let Some(uncle_parent) = store.get_uncle_header(&parent_hash) {
+            return (uncle_parent.number() + 1) == uncle_number;
         }
 
         false

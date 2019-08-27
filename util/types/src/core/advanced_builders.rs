@@ -6,7 +6,7 @@ use crate::{constants, core, packed, prelude::*, utilities::merkle_root, U256};
  * Definitions
  */
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TransactionBuilder {
     pub(crate) version: packed::Uint32,
     pub(crate) cell_deps: Vec<packed::CellDep>,
@@ -17,7 +17,7 @@ pub struct TransactionBuilder {
     pub(crate) outputs_data: Vec<packed::Bytes>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HeaderBuilder {
     // RawHeader
     pub(crate) version: packed::Uint32,
@@ -36,7 +36,7 @@ pub struct HeaderBuilder {
     pub(crate) nonce: packed::Uint64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BlockBuilder {
     pub(crate) header: HeaderBuilder,
     // Others
