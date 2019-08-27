@@ -39,14 +39,13 @@ impl TryFrom<ChainSpec> for SpecHashes {
         let hash_option = spec.genesis.hash.take();
         let consensus = spec.build_consensus().map_err(to_config_error)?;
         if let Some(hash) = hash_option {
-            if hash != *consensus.genesis_hash() {
+            let genesis_hash: H256 = consensus.genesis_hash().unpack();
+            if hash != genesis_hash {
                 eprintln!(
                     "Genesis hash unmatched in {} chainspec config file:\n\
                      in file {:#x},\n\
                      actual {:#x}",
-                    spec.name,
-                    hash,
-                    consensus.genesis_hash()
+                    spec.name, hash, genesis_hash
                 );
             }
         }
@@ -70,11 +69,11 @@ impl TryFrom<ChainSpec> for SpecHashes {
             )
             .enumerate()
             .map(|(index_minus_one, (resource, (output, data)))| {
-                let data_hash: H256 = CellOutput::calc_data_hash(&data.raw_data());
+                let data_hash: H256 = CellOutput::calc_data_hash(&data.raw_data()).unpack();
                 let type_hash: Option<H256> = output
                     .type_()
                     .to_opt()
-                    .map(|script| script.calc_script_hash());
+                    .map(|script| script.calc_script_hash().unpack());
                 SystemCell {
                     path: resource.to_string(),
                     tx_hash: cellbase.hash().unpack(),
@@ -98,7 +97,7 @@ impl TryFrom<ChainSpec> for SpecHashes {
             .collect::<Vec<_>>();
 
         Ok(SpecHashes {
-            genesis: consensus.genesis_hash().to_owned(),
+            genesis: consensus.genesis_hash().unpack(),
             cellbase: cellbase.hash().unpack(),
             system_cells: cells_hashes,
             dep_groups,

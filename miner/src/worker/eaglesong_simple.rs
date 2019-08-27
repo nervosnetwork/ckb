@@ -1,7 +1,7 @@
 use super::{Worker, WorkerMessage};
 use ckb_logger::{debug, error};
 use ckb_pow::pow_message;
-use ckb_types::H256;
+use ckb_types::{packed::Byte32, prelude::*};
 use crossbeam_channel::{Receiver, Sender};
 use eaglesong::eaglesong;
 use indicatif::ProgressBar;
@@ -16,19 +16,19 @@ pub struct EaglesongSimpleConfig {
 
 pub struct EaglesongSimple {
     start: bool,
-    pow_hash: Option<H256>,
-    target: H256,
-    nonce_tx: Sender<(H256, u64)>,
+    pow_hash: Option<Byte32>,
+    target: Byte32,
+    nonce_tx: Sender<(Byte32, u64)>,
     worker_rx: Receiver<WorkerMessage>,
     nonces_found: u64,
 }
 
 impl EaglesongSimple {
-    pub fn new(nonce_tx: Sender<(H256, u64)>, worker_rx: Receiver<WorkerMessage>) -> Self {
+    pub fn new(nonce_tx: Sender<(Byte32, u64)>, worker_rx: Receiver<WorkerMessage>) -> Self {
         Self {
             start: true,
             pow_hash: None,
-            target: H256::zero(),
+            target: Byte32::zero(),
             nonce_tx,
             worker_rx,
             nonces_found: 0,
@@ -52,14 +52,14 @@ impl EaglesongSimple {
         }
     }
 
-    fn solve(&mut self, pow_hash: &H256, nonce: u64) {
-        debug!("solve, pow_hash {:x}, nonce {:?}", pow_hash, nonce);
-        let input = pow_message(pow_hash, nonce);
+    fn solve(&mut self, pow_hash: &Byte32, nonce: u64) {
+        debug!("solve, pow_hash {}, nonce {:?}", pow_hash, nonce);
+        let input = pow_message(&pow_hash, nonce);
         let mut output = [0u8; 32];
         eaglesong(&input, &mut output);
-        if H256::from_slice(&output[..]).expect("H256 from 32 bytes slice") < self.target {
+        if output.pack() < self.target {
             debug!(
-                "send new found nonce, pow_hash {:x}, nonce {:?}",
+                "send new found nonce, pow_hash {}, nonce {:?}",
                 pow_hash, nonce
             );
             if let Err(err) = self.nonce_tx.send((pow_hash.clone(), nonce)) {

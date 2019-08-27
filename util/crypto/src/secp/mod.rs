@@ -1,5 +1,5 @@
+use ckb_fixed_hash::H256;
 use lazy_static::lazy_static;
-use numext_fixed_hash::H256;
 
 pub type Message = H256;
 

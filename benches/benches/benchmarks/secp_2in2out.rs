@@ -1,7 +1,6 @@
 use crate::benchmarks::util::{gen_secp_block, new_secp_chain};
 use ckb_store::{self, ChainStore};
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_types::prelude::*;
 use criterion::{criterion_group, Criterion};
 use std::sync::Arc;
 
@@ -22,10 +21,8 @@ fn bench(c: &mut Criterion) {
                     let chains = new_secp_chain(**txs_size, 2);
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
-                    let mut blocks = vec![shared1
-                        .store()
-                        .get_block(&shared1.genesis_hash().pack())
-                        .unwrap()];
+                    let mut blocks =
+                        vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
                     (0..20).for_each(|_| {
                         let block = gen_secp_block(&mut blocks, &parent, shared2);
@@ -61,10 +58,8 @@ fn bench(c: &mut Criterion) {
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
                     let (ref chain3, ref shared3) = chains.0[2];
-                    let mut blocks = vec![shared1
-                        .store()
-                        .get_block(&shared1.genesis_hash().pack())
-                        .unwrap()];
+                    let mut blocks =
+                        vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
                     (0..5).for_each(|i| {
                         let block = gen_secp_block(&mut blocks, &parent, &shared2);
@@ -123,10 +118,8 @@ fn bench(c: &mut Criterion) {
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
                     let (ref chain3, ref shared3) = chains.0[2];
-                    let mut blocks = vec![shared1
-                        .store()
-                        .get_block(&shared1.genesis_hash().pack())
-                        .unwrap()];
+                    let mut blocks =
+                        vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
                     (0..5).for_each(|i| {
                         let block = gen_secp_block(&mut blocks, &parent, &shared2);

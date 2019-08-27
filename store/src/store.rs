@@ -320,7 +320,7 @@ pub trait ChainStore<'a>: Send + Sync {
                         .map(|data| {
                             (
                                 Unpack::<Bytes>::unpack(&data),
-                                packed::CellOutput::calc_data_hash(&data.raw_data()).pack(),
+                                packed::CellOutput::calc_data_hash(&data.raw_data()),
                             )
                         })
                 })

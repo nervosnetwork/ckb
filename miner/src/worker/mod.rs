@@ -4,7 +4,7 @@ mod eaglesong_simple;
 use crate::config::WorkerConfig;
 use ckb_logger::error;
 use ckb_pow::{DummyPowEngine, EaglesongPowEngine, PowEngine};
-use ckb_types::H256;
+use ckb_types::packed::Byte32;
 use crossbeam_channel::{unbounded, Sender};
 use dummy::Dummy;
 use eaglesong_simple::EaglesongSimple;
@@ -21,7 +21,7 @@ pub use eaglesong_simple::EaglesongSimpleConfig;
 pub enum WorkerMessage {
     Stop,
     Start,
-    NewWork { pow_hash: H256, target: H256 },
+    NewWork { pow_hash: Byte32, target: Byte32 },
 }
 
 pub struct WorkerController {
@@ -64,7 +64,7 @@ const PROGRESS_BAR_TEMPLATE: &str = "{prefix:.bold.dim} {spinner:.green} [{elaps
 pub fn start_worker(
     pow: Arc<dyn PowEngine>,
     config: &WorkerConfig,
-    nonce_tx: Sender<(H256, u64)>,
+    nonce_tx: Sender<(Byte32, u64)>,
     mp: &MultiProgress,
 ) -> WorkerController {
     match config {

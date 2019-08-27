@@ -71,8 +71,8 @@ impl Spec for TransactionRelayMultiple {
             .unpack();
         let txs_num = reward.as_u64() / MIN_CAPACITY;
 
-        let parent_hash = block.transactions()[0].hash().to_owned();
-        let temp_transaction = node0.new_transaction(parent_hash.unpack());
+        let parent_hash = block.transactions()[0].hash();
+        let temp_transaction = node0.new_transaction(parent_hash);
         let output = temp_transaction
             .outputs()
             .as_reader()
@@ -114,10 +114,7 @@ impl Spec for TransactionRelayMultiple {
                             .to_entity(),
                     )
                     .output(output.clone())
-                    .input(CellInput::new(
-                        OutPoint::new(tx_hash.clone().unpack(), i as u32),
-                        0,
-                    ))
+                    .input(CellInput::new(OutPoint::new(tx_hash.clone(), i as u32), 0))
                     .build();
                 node0.rpc_client().send_transaction(tx.data().into());
             });

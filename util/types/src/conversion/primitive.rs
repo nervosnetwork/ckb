@@ -130,26 +130,16 @@ impl Pack<packed::Bytes> for str {
 }
 
 impl<'r> packed::BytesReader<'r> {
-    pub fn as_unpack_slice(&self) -> &[u8] {
-        self.raw_data()
-    }
-
     pub fn as_utf8(&self) -> Result<&str, ::std::str::Utf8Error> {
-        ::std::str::from_utf8(self.as_unpack_slice())
+        ::std::str::from_utf8(self.raw_data())
     }
 
     pub unsafe fn as_utf8_unchecked(&self) -> &str {
-        ::std::str::from_utf8_unchecked(self.as_unpack_slice())
+        ::std::str::from_utf8_unchecked(self.raw_data())
     }
 
     pub fn is_utf8(&self) -> bool {
         self.as_utf8().is_ok()
-    }
-}
-
-impl packed::Bytes {
-    pub fn as_unpack_bytes(&self) -> Bytes {
-        self.as_bytes().slice_from(4)
     }
 }
 

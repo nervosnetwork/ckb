@@ -11,7 +11,6 @@ use ckb_types::{
         self, BlockTransactions, CellInput, CellOutputBuilder, CompactBlock, Header,
         IndexTransaction, OutPoint,
     },
-    H256,
 };
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -43,7 +42,7 @@ fn test_accept_block() {
     {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
-            compact_block.header().calc_header_hash().pack(),
+            compact_block.header().calc_header_hash(),
             (
                 compact_block,
                 HashMap::from_iter(vec![(peer_index, vec![1])]),
@@ -98,7 +97,7 @@ fn test_unknown_request() {
     {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
-            compact_block.header().calc_header_hash().pack(),
+            compact_block.header().calc_header_hash(),
             (
                 compact_block,
                 HashMap::from_iter(vec![(foo_peer_index, vec![1])]),
@@ -148,7 +147,7 @@ fn test_invalid_transaction_root() {
     let header_with_invalid_tx_root = Header::new_builder()
         .raw(
             packed::RawHeader::new_builder()
-                .transactions_root(H256::zero().pack())
+                .transactions_root(packed::Byte32::zero())
                 .build(),
         )
         .build();
@@ -164,7 +163,7 @@ fn test_invalid_transaction_root() {
     {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
-            block_hash.clone().pack(),
+            block_hash.clone(),
             (
                 compact_block,
                 HashMap::from_iter(vec![(peer_index, vec![1])]),
@@ -173,7 +172,7 @@ fn test_invalid_transaction_root() {
     }
 
     let block_transactions: BlockTransactions = packed::BlockTransactions::new_builder()
-        .block_hash(block_hash.pack())
+        .block_hash(block_hash.clone())
         .transactions(vec![tx2.data()].pack())
         .build();
 
@@ -217,10 +216,7 @@ fn test_collision_and_send_missing_indexes() {
         .output_data(Bytes::new().pack())
         .build();
     let tx3 = TransactionBuilder::default()
-        .input(CellInput::new(
-            OutPoint::new(last_cellbase.hash().unpack(), 0),
-            0,
-        ))
+        .input(CellInput::new(OutPoint::new(last_cellbase.hash(), 0), 0))
         .output(
             CellOutputBuilder::default()
                 .capacity(Capacity::bytes(2).unwrap().pack())
@@ -260,7 +256,7 @@ fn test_collision_and_send_missing_indexes() {
     {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
-            compact_block.header().calc_header_hash().pack(),
+            compact_block.header().calc_header_hash(),
             (
                 compact_block,
                 HashMap::from_iter(vec![(peer_index, vec![1])]),
@@ -337,7 +333,7 @@ fn test_missing() {
     {
         let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
         pending_compact_blocks.insert(
-            compact_block.header().calc_header_hash().pack(),
+            compact_block.header().calc_header_hash(),
             (
                 compact_block,
                 HashMap::from_iter(vec![(peer_index, vec![1])]),

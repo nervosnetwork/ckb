@@ -12,7 +12,6 @@ use ckb_types::{
     },
     packed::Byte32,
     prelude::*,
-    H256,
 };
 use lru_cache::LruCache;
 use std::cell::RefCell;
@@ -331,7 +330,7 @@ impl<'a> CapacityVerifier<'a> {
                     .cell_output
                     .type_()
                     .to_opt()
-                    .map(|t| Unpack::<H256>::unpack(&t.code_hash()) == CODE_HASH_DAO)
+                    .map(|t| t.code_hash() == CODE_HASH_DAO.pack())
                     .unwrap_or(false)
             })
     }
@@ -485,7 +484,7 @@ where
                     // parent of current block.
                     // pass_median_time(input_cell's block) starts with cell_block_number - 1,
                     // which is the parent of input_cell's block
-                    let cell_median_timestamp = self.parent_median_time(&info.block_hash.pack());
+                    let cell_median_timestamp = self.parent_median_time(&info.block_hash);
                     let current_median_time = self.block_median_time(&self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
                         return Err(TransactionError::Immature);

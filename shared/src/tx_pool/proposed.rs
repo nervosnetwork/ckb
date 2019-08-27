@@ -129,9 +129,7 @@ impl ProposedPool {
 
     pub(crate) fn get_output_with_data(&self, out_point: &OutPoint) -> Option<(CellOutput, Bytes)> {
         self.inner
-            .get(&ProposalShortId::from_tx_hash(
-                &out_point.tx_hash().unpack(),
-            ))
+            .get(&ProposalShortId::from_tx_hash(&out_point.tx_hash()))
             .and_then(|x| x.transaction.output_with_data(out_point.index().unpack()))
     }
 
@@ -271,11 +269,11 @@ mod tests {
             TransactionView,
         },
         h256,
-        packed::{CellDep, CellInput, CellOutput},
+        packed::{Byte32, CellDep, CellInput, CellOutput},
         H256,
     };
 
-    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> TransactionView {
+    fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
         TransactionBuilder::default()
             .inputs(
                 inputs
@@ -297,8 +295,8 @@ mod tests {
 
     #[test]
     fn test_add_entry() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1), (&H256::zero(), 2)], 1);
-        let tx1_hash: H256 = tx1.hash().unpack();
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&Byte32::zero(), 2)], 1);
+        let tx1_hash = tx1.hash();
         let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
 
         let mut pool = ProposedPool::new();
@@ -329,8 +327,11 @@ mod tests {
 
     #[test]
     fn test_add_roots() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1), (&H256::zero(), 2)], 1);
-        let tx2 = build_tx(vec![(&h256!("0x2"), 1), (&h256!("0x3"), 2)], 3);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1), (&Byte32::zero(), 2)], 1);
+        let tx2 = build_tx(
+            vec![(&h256!("0x2").pack(), 1), (&h256!("0x3").pack(), 2)],
+            3,
+        );
 
         let mut pool = ProposedPool::new();
 
@@ -361,15 +362,15 @@ mod tests {
     #[test]
     #[allow(clippy::cognitive_complexity)]
     fn test_add_no_roots() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1)], 3);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 3);
         let tx2 = build_tx(vec![], 4);
-        let tx1_hash: H256 = tx1.hash().unpack();
-        let tx2_hash: H256 = tx2.hash().unpack();
+        let tx1_hash = tx1.hash();
+        let tx2_hash = tx2.hash();
 
-        let tx3 = build_tx(vec![(&tx1_hash, 0), (&H256::zero(), 2)], 2);
+        let tx3 = build_tx(vec![(&tx1_hash, 0), (&Byte32::zero(), 2)], 2);
         let tx4 = build_tx(vec![(&tx1_hash, 1), (&tx2_hash, 0)], 2);
 
-        let tx3_hash: H256 = tx3.hash().unpack();
+        let tx3_hash = tx3.hash();
         let tx5 = build_tx(vec![(&tx1_hash, 2), (&tx3_hash, 0)], 2);
 
         let mut pool = ProposedPool::new();
@@ -421,9 +422,9 @@ mod tests {
 
     #[test]
     fn test_sorted_by_tx_fee_rate() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1)], 1);
-        let tx2 = build_tx(vec![(&H256::zero(), 2)], 1);
-        let tx3 = build_tx(vec![(&H256::zero(), 3)], 1);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 1);
+        let tx2 = build_tx(vec![(&Byte32::zero(), 2)], 1);
+        let tx3 = build_tx(vec![(&Byte32::zero(), 3)], 1);
 
         let mut pool = ProposedPool::new();
 
@@ -466,12 +467,12 @@ mod tests {
 
     #[test]
     fn test_sorted_by_ancestors_score() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1)], 2);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 2);
         let tx1_hash = tx1.hash();
-        let tx2 = build_tx(vec![(&tx1_hash.unpack(), 1)], 1);
+        let tx2 = build_tx(vec![(&tx1_hash, 1)], 1);
         let tx2_hash = tx2.hash();
-        let tx3 = build_tx(vec![(&tx1_hash.unpack(), 2)], 1);
-        let tx4 = build_tx(vec![(&tx2_hash.unpack(), 1)], 1);
+        let tx3 = build_tx(vec![(&tx1_hash, 2)], 1);
+        let tx4 = build_tx(vec![(&tx2_hash, 1)], 1);
 
         let mut pool = ProposedPool::new();
 
@@ -522,19 +523,19 @@ mod tests {
 
     #[test]
     fn test_sorted_by_ancestors_score_competitive() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1)], 2);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 2);
         let tx1_hash = tx1.hash();
-        let tx2 = build_tx(vec![(&tx1_hash.unpack(), 0)], 1);
+        let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
         let tx2_hash = tx2.hash();
-        let tx3 = build_tx(vec![(&tx2_hash.unpack(), 0)], 1);
+        let tx3 = build_tx(vec![(&tx2_hash, 0)], 1);
 
-        let tx2_1 = build_tx(vec![(&H256::zero(), 2)], 2);
+        let tx2_1 = build_tx(vec![(&Byte32::zero(), 2)], 2);
         let tx2_1_hash = tx2_1.hash();
-        let tx2_2 = build_tx(vec![(&tx2_1_hash.unpack(), 0)], 1);
+        let tx2_2 = build_tx(vec![(&tx2_1_hash, 0)], 1);
         let tx2_2_hash = tx2_2.hash();
-        let tx2_3 = build_tx(vec![(&tx2_2_hash.unpack(), 0)], 1);
+        let tx2_3 = build_tx(vec![(&tx2_2_hash, 0)], 1);
         let tx2_3_hash = tx2_3.hash();
-        let tx2_4 = build_tx(vec![(&tx2_3_hash.unpack(), 0)], 1);
+        let tx2_4 = build_tx(vec![(&tx2_3_hash, 0)], 1);
 
         let mut pool = ProposedPool::new();
 
@@ -562,12 +563,12 @@ mod tests {
 
     #[test]
     fn test_get_ancestors() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1)], 2);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 2);
         let tx1_hash = tx1.hash();
-        let tx2 = build_tx(vec![(&tx1_hash.unpack(), 0)], 1);
+        let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
         let tx2_hash = tx2.hash();
-        let tx3 = build_tx(vec![(&tx1_hash.unpack(), 1)], 1);
-        let tx4 = build_tx(vec![(&tx2_hash.unpack(), 0)], 1);
+        let tx3 = build_tx(vec![(&tx1_hash, 1)], 1);
+        let tx4 = build_tx(vec![(&tx2_hash, 0)], 1);
 
         let mut pool = ProposedPool::new();
 
@@ -659,13 +660,13 @@ mod tests {
 
     #[test]
     fn test_dep_group() {
-        let tx1 = build_tx(vec![(&h256!("0x1"), 0)], 1);
-        let tx1_out_point = OutPoint::new(tx1.hash().unpack(), 0);
+        let tx1 = build_tx(vec![(&h256!("0x1").pack(), 0)], 1);
+        let tx1_out_point = OutPoint::new(tx1.hash(), 0);
 
         // Dep group cell
         let tx2_data = vec![tx1_out_point.clone()].pack().as_bytes();
         let tx2 = TransactionBuilder::default()
-            .input(CellInput::new(OutPoint::new(h256!("0x2"), 0), 0))
+            .input(CellInput::new(OutPoint::new(h256!("0x2").pack(), 0), 0))
             .output(
                 CellOutput::new_builder()
                     .capacity(Capacity::bytes(1000).unwrap().pack())
@@ -673,7 +674,7 @@ mod tests {
             )
             .output_data(tx2_data.pack())
             .build();
-        let tx2_out_point = OutPoint::new(tx2.hash().unpack(), 0);
+        let tx2_out_point = OutPoint::new(tx2.hash(), 0);
 
         // Transaction use dep group
         let dep = CellDep::new_builder()
@@ -682,7 +683,7 @@ mod tests {
             .build();
         let tx3 = TransactionBuilder::default()
             .cell_dep(dep)
-            .input(CellInput::new(OutPoint::new(h256!("0x3"), 0), 0))
+            .input(CellInput::new(OutPoint::new(h256!("0x3").pack(), 0), 0))
             .output(
                 CellOutput::new_builder()
                     .capacity(Capacity::bytes(3).unwrap().pack())
@@ -690,7 +691,7 @@ mod tests {
             )
             .output_data(Bytes::new().pack())
             .build();
-        let tx3_out_point = OutPoint::new(tx3.hash().unpack(), 0);
+        let tx3_out_point = OutPoint::new(tx3.hash(), 0);
 
         let get_cell_data = |out_point: &OutPoint| -> Option<Bytes> {
             if out_point == &tx2_out_point {

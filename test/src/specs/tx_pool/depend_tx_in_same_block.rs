@@ -1,5 +1,5 @@
 use crate::{Net, Spec};
-use ckb_types::{core::TransactionView, packed::ProposalShortId, prelude::*};
+use ckb_types::{core::TransactionView, packed::ProposalShortId};
 use log::info;
 
 pub struct DepentTxInSameBlock;
@@ -14,7 +14,7 @@ impl Spec for DepentTxInSameBlock {
         node0.generate_block();
         let tx_hash_0 = node0.generate_transaction();
         let tx = node0.new_transaction(tx_hash_0.clone());
-        let tx_hash_1 = tx.hash().unpack();
+        let tx_hash_1 = tx.hash();
         node0.rpc_client().send_transaction(tx.data().into());
 
         info!("Generated 2 tx should be included in the next block's proposals");
@@ -35,7 +35,7 @@ impl Spec for DepentTxInSameBlock {
             .map(TransactionView::hash)
             .collect();
 
-        assert!(commit_txs_hash.contains(&tx_hash_0.pack()));
-        assert!(commit_txs_hash.contains(&tx_hash_1.pack()));
+        assert!(commit_txs_hash.contains(&tx_hash_0));
+        assert!(commit_txs_hash.contains(&tx_hash_1));
     }
 }

@@ -158,7 +158,6 @@ mod tests {
         core::{cell::CellMeta, BlockExt, Capacity, HeaderBuilder, HeaderView, ScriptHashType},
         packed::{Byte32, CellOutput, OutPoint, Script, Witness},
         prelude::*,
-        H256,
     };
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
@@ -176,7 +175,7 @@ mod tests {
     fn build_cell_meta(capacity_bytes: usize, data: Bytes) -> CellMeta {
         let capacity = Capacity::bytes(capacity_bytes).expect("capacity bytes overflow");
         let builder = CellOutput::new_builder().capacity(capacity.pack());
-        let data_hash = CellOutput::calc_data_hash(&data).pack();
+        let data_hash = CellOutput::calc_data_hash(&data);
         CellMeta {
             out_point: OutPoint::default(),
             transaction_info: None,
@@ -443,7 +442,7 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
         let data = Bytes::new();
-        let data_hash = CellOutput::calc_data_hash(&data).pack();
+        let data_hash = CellOutput::calc_data_hash(&data);
         let input_cell = CellMeta {
             out_point: OutPoint::default(),
             transaction_info: None,
@@ -539,9 +538,9 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::HeaderDep))); //source: 4 header
         machine.set_register(A7, LOAD_HEADER_SYSCALL_NUMBER); // syscall number
 
-        let data_hash: H256 = blake2b_256(&data).into();
+        let data_hash = blake2b_256(&data).pack();
         let header = HeaderBuilder::default()
-            .transactions_root(data_hash.pack())
+            .transactions_root(data_hash)
             .build();
 
         let header_correct_bytes = header.data();
@@ -615,7 +614,7 @@ mod tests {
         machine.set_register(A2, 0); // offset
         machine.set_register(A7, LOAD_TX_HASH_SYSCALL_NUMBER); // syscall number
 
-        let hash: H256 = blake2b_256(&data).into();
+        let hash = blake2b_256(&data);
         let hash_len = 32u64;
         let mut load_tx_hash = LoadTxHash::new(hash.pack());
 
@@ -630,10 +629,7 @@ mod tests {
         prop_assert_eq!(machine.memory_mut().load64(&size_addr), Ok(hash_len));
 
         for (i, addr) in (addr..addr + hash_len as u64).enumerate() {
-            prop_assert_eq!(
-                machine.memory_mut().load8(&addr),
-                Ok(u64::from(hash.as_bytes()[i]))
-            );
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(hash[i])));
         }
         Ok(())
     }
@@ -659,8 +655,8 @@ mod tests {
             .args(vec![Bytes::from(data)].pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
-        let h = script.calc_script_hash();
-        let hash = h.as_bytes();
+        let hash = script.calc_script_hash();
+        let data = hash.raw_data();
         let mut load_script_hash = LoadScriptHash::new(hash);
 
         prop_assert!(machine.memory_mut().store64(&size_addr, &64).is_ok());
@@ -670,11 +666,11 @@ mod tests {
 
         prop_assert_eq!(
             machine.memory_mut().load64(&size_addr),
-            Ok(hash.len() as u64)
+            Ok(data.len() as u64)
         );
 
-        for (i, addr) in (addr..addr + hash.len() as u64).enumerate() {
-            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(hash[i])));
+        for (i, addr) in (addr..addr + data.len() as u64).enumerate() {
+            prop_assert_eq!(machine.memory_mut().load8(&addr), Ok(u64::from(data[i])));
         }
 
         machine.set_register(A0, addr); // addr
@@ -685,7 +681,7 @@ mod tests {
 
         prop_assert_eq!(
             machine.memory_mut().load64(&size_addr),
-            Ok(hash.len() as u64)
+            Ok(data.len() as u64)
         );
         Ok(())
     }

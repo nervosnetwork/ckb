@@ -39,8 +39,7 @@ impl MockStore {
 
     pub fn insert_block(&self, block: &BlockView, epoch_ext: &EpochExt) {
         let db_txn = self.0.begin_transaction();
-        let last_block_hash_in_previous_epoch =
-            epoch_ext.last_block_hash_in_previous_epoch().pack();
+        let last_block_hash_in_previous_epoch = epoch_ext.last_block_hash_in_previous_epoch();
         db_txn.insert_block(&block).unwrap();
         db_txn.attach_block(&block).unwrap();
         db_txn

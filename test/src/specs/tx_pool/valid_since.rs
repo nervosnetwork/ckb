@@ -4,7 +4,7 @@ use crate::utils::{
 };
 use crate::{assert_regex_match, Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
-use ckb_types::{core::BlockNumber, prelude::*};
+use ckb_types::core::BlockNumber;
 use log::info;
 use std::cmp::max;
 use std::thread::sleep;
@@ -47,7 +47,7 @@ impl ValidSince {
         let since = since_from_relative_block_number(relative);
         let transaction = {
             let cellbase = node.get_tip_block().transactions()[0].clone();
-            node.new_transaction_with_since(cellbase.hash().to_owned().unpack(), since)
+            node.new_transaction_with_since(cellbase.hash(), since)
         };
 
         // Failed to send transaction since CellbaseImmaturity
@@ -83,7 +83,7 @@ impl ValidSince {
         let since = since_from_absolute_block_number(absolute);
         let transaction = {
             let cellbase = node.get_tip_block().transactions()[0].clone();
-            node.new_transaction_with_since(cellbase.hash().to_owned().unpack(), since)
+            node.new_transaction_with_since(cellbase.hash(), since)
         };
 
         // Failed to send transaction since CellbaseImmaturity
@@ -142,14 +142,12 @@ impl ValidSince {
         let median_time_seconds = (median_time - old_median_time) / 1000;
         {
             let since = since_from_relative_timestamp(median_time_seconds + 1);
-            let transaction =
-                node.new_transaction_with_since(cellbase.hash().to_owned().unpack(), since);
+            let transaction = node.new_transaction_with_since(cellbase.hash(), since);
             assert_send_transaction_fail(node, &transaction, "InvalidTx(Immature)");
         }
         {
             let since = since_from_relative_timestamp(median_time_seconds - 1);
-            let transaction =
-                node.new_transaction_with_since(cellbase.hash().to_owned().unpack(), since);
+            let transaction = node.new_transaction_with_since(cellbase.hash(), since);
             assert!(
                 node.rpc_client()
                     .inner()
@@ -190,14 +188,12 @@ impl ValidSince {
         let median_time_seconds = median_time / 1000;
         {
             let since = since_from_absolute_timestamp(median_time_seconds + 1);
-            let transaction =
-                node.new_transaction_with_since(cellbase.hash().to_owned().unpack(), since);
+            let transaction = node.new_transaction_with_since(cellbase.hash(), since);
             assert_send_transaction_fail(node, &transaction, "InvalidTx(Immature)");
         }
         {
             let since = since_from_absolute_timestamp(median_time_seconds - 1);
-            let transaction =
-                node.new_transaction_with_since(cellbase.hash().to_owned().unpack(), since);
+            let transaction = node.new_transaction_with_since(cellbase.hash(), since);
             assert!(
                 node.rpc_client()
                     .inner()
@@ -219,10 +215,7 @@ impl ValidSince {
         let relative_blocks: BlockNumber = 5;
         let since = (0b1000_0000 << 56) + relative_blocks;
         let tip_block = node.get_tip_block();
-        let tx = node.new_transaction_with_since(
-            tip_block.transactions()[0].hash().to_owned().unpack(),
-            since,
-        );
+        let tx = node.new_transaction_with_since(tip_block.transactions()[0].hash(), since);
 
         (0..relative_blocks - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is immature in block N + {}", i);
@@ -236,7 +229,7 @@ impl ValidSince {
             relative_blocks - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
         let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
-        assert_eq!(tx_hash, tx.hash().to_owned().unpack());
+        assert_eq!(tx_hash, tx.hash());
         node.assert_tx_pool_size(1, 0);
 
         info!(
@@ -260,14 +253,7 @@ impl ValidSince {
         let absolute_block: BlockNumber = 10;
         let since = (0b0000_0000 << 56) + absolute_block;
         let tip_block = node.get_tip_block();
-        let tx = node.new_transaction_with_since(
-            tip_block.transactions()[0]
-                .hash()
-                .to_owned()
-                .as_reader()
-                .unpack(),
-            since,
-        );
+        let tx = node.new_transaction_with_since(tip_block.transactions()[0].hash(), since);
 
         (tip_number..absolute_block - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is immature in block {}", i);
@@ -281,7 +267,7 @@ impl ValidSince {
             absolute_block - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
         let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
-        assert_eq!(tx_hash, tx.hash().to_owned().as_reader().unpack());
+        assert_eq!(tx_hash, tx.hash());
         node.assert_tx_pool_size(1, 0);
 
         info!(

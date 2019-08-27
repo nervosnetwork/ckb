@@ -1,6 +1,6 @@
 use super::{Worker, WorkerMessage};
 use ckb_logger::error;
-use ckb_types::H256;
+use ckb_types::packed::Byte32;
 use crossbeam_channel::{Receiver, Sender};
 use indicatif::ProgressBar;
 use rand::{
@@ -23,8 +23,8 @@ pub enum DummyConfig {
 pub struct Dummy {
     delay: Delay,
     start: bool,
-    pow_hash: Option<H256>,
-    nonce_tx: Sender<(H256, u64)>,
+    pow_hash: Option<Byte32>,
+    nonce_tx: Sender<(Byte32, u64)>,
     worker_rx: Receiver<WorkerMessage>,
 }
 
@@ -70,7 +70,7 @@ impl Delay {
 impl Dummy {
     pub fn new(
         config: &DummyConfig,
-        nonce_tx: Sender<(H256, u64)>,
+        nonce_tx: Sender<(Byte32, u64)>,
         worker_rx: Receiver<WorkerMessage>,
     ) -> Self {
         Self {
@@ -96,7 +96,7 @@ impl Dummy {
         }
     }
 
-    fn solve(&self, pow_hash: &H256, nonce: u64) {
+    fn solve(&self, pow_hash: &Byte32, nonce: u64) {
         thread::sleep(self.delay.duration());
         if let Err(err) = self.nonce_tx.send((pow_hash.clone(), nonce)) {
             error!("nonce_tx send error {:?}", err);

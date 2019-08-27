@@ -90,7 +90,7 @@ impl ProposalWindow {
 pub struct Consensus {
     pub id: String,
     pub genesis_block: BlockView,
-    pub genesis_hash: H256,
+    pub genesis_hash: Byte32,
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_uncles_num: usize,
@@ -163,14 +163,14 @@ impl Consensus {
             block_reward,     // block_reward
             remainder_reward, // remainder_reward
             genesis_hash_rate,
-            H256::zero(),
+            Byte32::zero(),
             0,                           // start
             GENESIS_EPOCH_LENGTH,        // length
             genesis_header.difficulty(), // difficulty,
         );
 
         Consensus {
-            genesis_hash: genesis_header.hash().unpack(),
+            genesis_hash: genesis_header.hash(),
             genesis_block,
             id: "main".to_owned(),
             max_uncles_num: MAX_UNCLE_NUM,
@@ -210,7 +210,7 @@ impl Consensus {
         );
         self.genesis_epoch_ext
             .set_difficulty(genesis_block.difficulty());
-        self.genesis_hash = genesis_block.hash().unpack();
+        self.genesis_hash = genesis_block.hash();
         self.genesis_block = genesis_block;
         self
     }
@@ -274,8 +274,8 @@ impl Consensus {
         }
     }
 
-    pub fn genesis_hash(&self) -> &H256 {
-        &self.genesis_hash
+    pub fn genesis_hash(&self) -> Byte32 {
+        self.genesis_hash.clone()
     }
 
     pub fn max_uncles_num(&self) -> usize {
@@ -403,7 +403,7 @@ impl Consensus {
         let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {
             self.genesis_block().header()
         } else {
-            get_block_header(&last_epoch.last_block_hash_in_previous_epoch().pack())?
+            get_block_header(&last_epoch.last_block_hash_in_previous_epoch())?
         };
 
         // (1) Computing the Adjusted Hash Rate Estimation
@@ -506,21 +506,21 @@ impl Consensus {
             block_reward,
             remainder_reward, // remainder_reward
             adjusted_last_epoch_hash_rate,
-            header.hash().unpack(), // last_block_hash_in_previous_epoch
-            header_number + 1,      // start
-            next_epoch_length,      // length
-            next_epoch_diff,        // difficulty,
+            header.hash(),     // last_block_hash_in_previous_epoch
+            header_number + 1, // start
+            next_epoch_length, // length
+            next_epoch_diff,   // difficulty,
         );
 
         Some(epoch_ext)
     }
 
     pub fn identify_name(&self) -> String {
-        let genesis_hash = format!("{:x}", &self.genesis_hash);
+        let genesis_hash = format!("{:x}", Unpack::<H256>::unpack(&self.genesis_hash));
         format!("/{}/{}", self.id, &genesis_hash[..8])
     }
 
-    pub fn get_secp_type_script_hash(&self) -> H256 {
+    pub fn get_secp_type_script_hash(&self) -> Byte32 {
         let secp_cell_data =
             Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
                 .get()

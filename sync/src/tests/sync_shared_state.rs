@@ -76,7 +76,7 @@ fn test_insert_parent_unknown_block() {
     let parent = {
         let parent = shared1
             .store()
-            .get_block(&block.header().parent_hash().pack())
+            .get_block(&block.header().parent_hash())
             .unwrap();
         Arc::new(parent)
     };

@@ -206,7 +206,7 @@ impl BlockAssembler {
 
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
         UncleTemplate {
-            hash: uncle.calc_header_hash(),
+            hash: uncle.calc_header_hash().unpack(),
             required: false,
             proposals: uncle.proposals().into_iter().map(Into::into).collect(),
             header: uncle.header().into(),
@@ -510,9 +510,7 @@ impl BlockAssembler {
                 || uncle.epoch() != epoch_number
                 || snapshot.get_block_number(&uncle.hash()).is_some()
                 || snapshot.is_uncle(&uncle.hash())
-                || !(uncles
-                    .iter()
-                    .any(|u| u.calc_header_hash().pack() == parent_hash)
+                || !(uncles.iter().any(|u| u.calc_header_hash() == parent_hash)
                     || snapshot.get_block_number(&parent_hash).is_some()
                     || snapshot.is_uncle(&parent_hash))
                 || uncle.number() >= candidate_number
@@ -550,6 +548,7 @@ mod tests {
             BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder, HeaderView,
             TransactionBuilder, TransactionView,
         },
+        h256,
         packed::{Block, CellInput, CellOutput, CellOutputBuilder, OutPoint},
         H256,
     };
@@ -582,7 +581,7 @@ mod tests {
     fn test_get_block_template() {
         let (_chain_controller, shared, _notify) = start_chain(None, None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
@@ -654,7 +653,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
@@ -743,12 +742,11 @@ mod tests {
         let per_output_capacity =
             Capacity::shannons(parent_tx.outputs_capacity().unwrap().as_u64() / outputs_len as u64);
         TransactionBuilder::default()
-            .inputs(inputs.iter().map(|index| {
-                CellInput::new(
-                    OutPoint::new(parent_tx.hash().to_owned().unpack(), *index),
-                    0,
-                )
-            }))
+            .inputs(
+                inputs.iter().map(|index| {
+                    CellInput::new(OutPoint::new(parent_tx.hash().to_owned(), *index), 0)
+                }),
+            )
             .outputs(
                 (0..outputs_len)
                     .map(|_| {
@@ -770,7 +768,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
@@ -905,7 +903,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
@@ -1034,7 +1032,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,

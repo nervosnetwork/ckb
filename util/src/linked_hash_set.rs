@@ -192,7 +192,7 @@ impl<K> ExactSizeIterator for IntoIter<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use numext_fixed_hash::{h256, H256};
+    use ckb_fixed_hash::{h256, H256};
 
     #[test]
     fn insertion_order() {

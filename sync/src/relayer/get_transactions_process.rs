@@ -44,8 +44,7 @@ impl<'a> GetTransactionsProcess<'a> {
                 .iter()
                 .filter_map(|tx_hash| {
                     let entry_opt = {
-                        let short_id =
-                            packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity().unpack());
+                        let short_id = packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity());
                         tx_pool
                             .get_tx_with_cycles(&short_id)
                             .and_then(|(tx, cycles)| cycles.map(|cycles| (tx, cycles)))

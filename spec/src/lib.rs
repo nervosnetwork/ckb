@@ -275,15 +275,15 @@ impl Genesis {
     ) -> Result<TransactionView, Box<dyn Error>> {
         fn find_out_point_by_data_hash(
             tx: &TransactionView,
-            data_hash: &H256,
+            data_hash: &packed::Byte32,
         ) -> Option<packed::OutPoint> {
             tx.outputs_data()
                 .into_iter()
                 .position(|data| {
-                    let hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data());
+                    let hash = packed::CellOutput::calc_data_hash(&data.raw_data());
                     &hash == data_hash
                 })
-                .map(|index| packed::OutPoint::new(tx.hash().clone().unpack(), index as u32))
+                .map(|index| packed::OutPoint::new(tx.hash(), index as u32))
         }
 
         let (outputs, outputs_data): (Vec<_>, Vec<_>) = self
@@ -294,7 +294,7 @@ impl Genesis {
                     .iter()
                     .map(|res| {
                         let data: Bytes = res.get()?.into_owned().into();
-                        let data_hash: H256 = packed::CellOutput::calc_data_hash(&data);
+                        let data_hash = packed::CellOutput::calc_data_hash(&data);
                         let out_point = find_out_point_by_data_hash(cellbase_tx, &data_hash)
                             .ok_or_else(|| {
                                 format!("Can not find {} in genesis cellbase transaction", res)
@@ -327,16 +327,18 @@ impl Genesis {
                     .as_ref()
                     == Some(&lock_arg)
             })
-            .map(|index| packed::OutPoint::new(cellbase_tx.hash().clone().unpack(), index as u32))
+            .map(|index| packed::OutPoint::new(cellbase_tx.hash(), index as u32))
             .expect("Get special issued input failed");
         let input = packed::CellInput::new(input_out_point, 0);
 
         let secp_data_out_point =
-            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_DATA)
+            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_DATA.pack())
                 .ok_or_else(|| String::from("Get secp data out point failed"))?;
-        let secp_blake160_out_point =
-            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL)
-                .ok_or_else(|| String::from("Get secp blake160 out point failed"))?;
+        let secp_blake160_out_point = find_out_point_by_data_hash(
+            cellbase_tx,
+            &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.pack(),
+        )
+        .ok_or_else(|| String::from("Get secp blake160 out point failed"))?;
         let cell_deps = vec![
             packed::CellDep::new_builder()
                 .out_point(secp_data_out_point.clone())
@@ -492,11 +494,11 @@ pub mod test {
                 )
                 .enumerate()
             {
-                let data_hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data());
+                let data_hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data()).unpack();
                 let type_hash: Option<H256> = output
                     .type_()
                     .to_opt()
-                    .map(|script| script.calc_script_hash());
+                    .map(|script| script.calc_script_hash().unpack());
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
                 assert_eq!(cell.data_hash, data_hash, "{}", bundled_spec_err);
                 assert_eq!(cell.type_hash, type_hash, "{}", bundled_spec_err);

@@ -342,7 +342,7 @@ impl Spec for ChainFork6 {
         node1.generate_blocks(2);
         info!("Generate 1 block (F) with spending non-existent transaction on node1");
         let block = node1.new_block(None, None, None);
-        let invalid_transaction = node1.new_transaction(h256!("0x1"));
+        let invalid_transaction = node1.new_transaction(h256!("0x1").pack());
         let invalid_block = block
             .as_advanced_builder()
             .transaction(invalid_transaction)

@@ -699,12 +699,12 @@ impl From<core::BlockReward> for BlockReward {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_types::{bytes::Bytes, core::TransactionBuilder};
+    use ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::Byte32};
     use proptest::{collection::size_range, prelude::*};
 
     fn mock_script(arg: Bytes) -> packed::Script {
         packed::ScriptBuilder::default()
-            .code_hash(H256::zero().pack())
+            .code_hash(Byte32::zero())
             .args(vec![arg].pack())
             .hash_type(core::ScriptHashType::Data.pack())
             .build()

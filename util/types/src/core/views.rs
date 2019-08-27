@@ -2,7 +2,6 @@
 
 use std::collections::HashSet;
 
-use ckb_merkle_tree::merkle_root;
 use ckb_occupied_capacity::Result as CapacityResult;
 
 use crate::{
@@ -10,7 +9,8 @@ use crate::{
     core::{BlockNumber, Capacity, EpochNumber, Version},
     packed,
     prelude::*,
-    H256, U256,
+    utilities::merkle_root,
+    U256,
 };
 
 /*
@@ -181,9 +181,8 @@ impl TransactionView {
     }
 
     pub fn output_pts(&self) -> Vec<packed::OutPoint> {
-        let h: H256 = self.hash().unpack();
         (0..self.data().raw().outputs().len())
-            .map(|x| packed::OutPoint::new(h.clone(), x as u32))
+            .map(|x| packed::OutPoint::new(self.hash(), x as u32))
             .collect()
     }
 
@@ -233,7 +232,7 @@ impl TransactionView {
     }
 
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
-        packed::ProposalShortId::from_tx_hash(&self.hash().unpack())
+        packed::ProposalShortId::from_tx_hash(&self.hash())
     }
 
     pub fn serialized_size(&self) -> usize {
@@ -249,6 +248,14 @@ macro_rules! define_header_unpacked_inner_getter {
     }
 }
 
+macro_rules! define_header_packed_inner_getter {
+    ($field:ident, $type:ident) => {
+        pub fn $field(&self) -> packed::$type {
+            self.data().raw().$field()
+        }
+    }
+}
+
 impl HeaderView {
     define_simple_getter!(data, Header);
     define_simple_getter!(hash, Byte32);
@@ -257,13 +264,14 @@ impl HeaderView {
     define_header_unpacked_inner_getter!(number, BlockNumber);
     define_header_unpacked_inner_getter!(difficulty, U256);
     define_header_unpacked_inner_getter!(timestamp, u64);
-    define_header_unpacked_inner_getter!(parent_hash, H256);
-    define_header_unpacked_inner_getter!(transactions_root, H256);
-    define_header_unpacked_inner_getter!(witnesses_root, H256);
-    define_header_unpacked_inner_getter!(proposals_hash, H256);
-    define_header_unpacked_inner_getter!(uncles_hash, H256);
     define_header_unpacked_inner_getter!(uncles_count, u32);
     define_header_unpacked_inner_getter!(epoch, EpochNumber);
+
+    define_header_packed_inner_getter!(parent_hash, Byte32);
+    define_header_packed_inner_getter!(transactions_root, Byte32);
+    define_header_packed_inner_getter!(witnesses_root, Byte32);
+    define_header_packed_inner_getter!(proposals_hash, Byte32);
+    define_header_packed_inner_getter!(uncles_hash, Byte32);
 
     pub fn dao(&self) -> Bytes {
         self.data().raw().dao().raw_data()
@@ -291,6 +299,14 @@ macro_rules! define_uncle_unpacked_inner_getter {
     }
 }
 
+macro_rules! define_uncle_packed_inner_getter {
+    ($field:ident, $type:ident) => {
+        pub fn $field(&self) -> packed::$type {
+            self.data().header().raw().$field()
+        }
+    }
+}
+
 impl UncleBlockView {
     define_simple_getter!(data, UncleBlock);
     define_simple_getter!(hash, Byte32);
@@ -299,13 +315,14 @@ impl UncleBlockView {
     define_uncle_unpacked_inner_getter!(number, BlockNumber);
     define_uncle_unpacked_inner_getter!(difficulty, U256);
     define_uncle_unpacked_inner_getter!(timestamp, u64);
-    define_uncle_unpacked_inner_getter!(parent_hash, H256);
-    define_uncle_unpacked_inner_getter!(transactions_root, H256);
-    define_uncle_unpacked_inner_getter!(witnesses_root, H256);
-    define_uncle_unpacked_inner_getter!(proposals_hash, H256);
-    define_uncle_unpacked_inner_getter!(uncles_hash, H256);
     define_uncle_unpacked_inner_getter!(uncles_count, u32);
     define_uncle_unpacked_inner_getter!(epoch, EpochNumber);
+
+    define_uncle_packed_inner_getter!(parent_hash, Byte32);
+    define_uncle_packed_inner_getter!(transactions_root, Byte32);
+    define_uncle_packed_inner_getter!(witnesses_root, Byte32);
+    define_uncle_packed_inner_getter!(proposals_hash, Byte32);
+    define_uncle_packed_inner_getter!(uncles_hash, Byte32);
 
     pub fn dao(&self) -> Bytes {
         self.data().header().raw().dao().raw_data()
@@ -327,7 +344,7 @@ impl UncleBlockView {
         self
     }
 
-    pub fn calc_proposals_hash(&self) -> H256 {
+    pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         self.data().as_reader().calc_proposals_hash()
     }
 }
@@ -391,6 +408,14 @@ macro_rules! define_block_unpacked_inner_getter {
     }
 }
 
+macro_rules! define_block_packed_inner_getter {
+    ($field:ident, $type:ident) => {
+        pub fn $field(&self) -> packed::$type {
+            self.data().header().raw().$field()
+        }
+    }
+}
+
 impl BlockView {
     define_simple_getter!(data, Block);
     define_simple_getter!(hash, Byte32);
@@ -403,13 +428,14 @@ impl BlockView {
     define_block_unpacked_inner_getter!(number, BlockNumber);
     define_block_unpacked_inner_getter!(difficulty, U256);
     define_block_unpacked_inner_getter!(timestamp, u64);
-    define_block_unpacked_inner_getter!(parent_hash, H256);
-    define_block_unpacked_inner_getter!(transactions_root, H256);
-    define_block_unpacked_inner_getter!(witnesses_root, H256);
-    define_block_unpacked_inner_getter!(proposals_hash, H256);
-    define_block_unpacked_inner_getter!(uncles_hash, H256);
     define_block_unpacked_inner_getter!(uncles_count, u32);
     define_block_unpacked_inner_getter!(epoch, EpochNumber);
+
+    define_block_packed_inner_getter!(parent_hash, Byte32);
+    define_block_packed_inner_getter!(transactions_root, Byte32);
+    define_block_packed_inner_getter!(witnesses_root, Byte32);
+    define_block_packed_inner_getter!(proposals_hash, Byte32);
+    define_block_packed_inner_getter!(uncles_hash, Byte32);
 
     pub fn dao(&self) -> Bytes {
         self.data().header().raw().dao().raw_data()
@@ -495,30 +521,20 @@ impl BlockView {
         self.number() == 0
     }
 
-    pub fn calc_uncles_hash(&self) -> H256 {
+    pub fn calc_uncles_hash(&self) -> packed::Byte32 {
         self.data().as_reader().calc_uncles_hash()
     }
 
-    pub fn calc_proposals_hash(&self) -> H256 {
+    pub fn calc_proposals_hash(&self) -> packed::Byte32 {
         self.data().as_reader().calc_proposals_hash()
     }
 
-    pub fn calc_transactions_root(&self) -> H256 {
-        let tx_hashes = self
-            .tx_hashes()
-            .iter()
-            .map(|x| x.unpack())
-            .collect::<Vec<H256>>();
-        merkle_root(&tx_hashes[..])
+    pub fn calc_transactions_root(&self) -> packed::Byte32 {
+        merkle_root(&self.tx_hashes[..])
     }
 
-    pub fn calc_witnesses_root(&self) -> H256 {
-        let tx_witness_hashes = self
-            .tx_witness_hashes()
-            .iter()
-            .map(|x| x.unpack())
-            .collect::<Vec<H256>>();
-        merkle_root(&tx_witness_hashes[..])
+    pub fn calc_witnesses_root(&self) -> packed::Byte32 {
+        merkle_root(&self.tx_witness_hashes[..])
     }
 
     pub fn serialized_size(&self) -> usize {
@@ -587,8 +603,8 @@ impl BlockView {
 
 impl packed::Transaction {
     pub fn into_view(self) -> TransactionView {
-        let hash = self.calc_tx_hash().pack();
-        let witness_hash = self.calc_witness_hash().pack();
+        let hash = self.calc_tx_hash();
+        let witness_hash = self.calc_witness_hash();
         TransactionView {
             data: self,
             hash,
@@ -599,14 +615,14 @@ impl packed::Transaction {
 
 impl packed::Header {
     pub fn into_view(self) -> HeaderView {
-        let hash = self.calc_header_hash().pack();
+        let hash = self.calc_header_hash();
         HeaderView { data: self, hash }
     }
 }
 
 impl packed::UncleBlock {
     pub fn into_view(self) -> UncleBlockView {
-        let hash = self.calc_header_hash().pack();
+        let hash = self.calc_header_hash();
         UncleBlockView { data: self, hash }
     }
 }
@@ -615,30 +631,28 @@ impl packed::Block {
     pub fn into_view_without_reset_header(self) -> BlockView {
         let tx_hashes = self.calc_tx_hashes();
         let tx_witness_hashes = self.calc_tx_witness_hashes();
-        Self::block_into_view_internal(self, &tx_hashes[..], &tx_witness_hashes[..])
+        Self::block_into_view_internal(self, tx_hashes, tx_witness_hashes)
     }
 
     pub fn into_view(self) -> BlockView {
         let tx_hashes = self.calc_tx_hashes();
         let tx_witness_hashes = self.calc_tx_witness_hashes();
         let block = self.reset_header_with_hashes(&tx_hashes[..], &tx_witness_hashes[..]);
-        Self::block_into_view_internal(block, &tx_hashes[..], &tx_witness_hashes[..])
+        Self::block_into_view_internal(block, tx_hashes, tx_witness_hashes)
     }
 
     fn block_into_view_internal(
         block: packed::Block,
-        tx_hashes: &[H256],
-        tx_witness_hashes: &[H256],
+        tx_hashes: Vec<packed::Byte32>,
+        tx_witness_hashes: Vec<packed::Byte32>,
     ) -> BlockView {
-        let hash = block.as_reader().calc_header_hash().pack();
+        let hash = block.as_reader().calc_header_hash();
         let uncle_hashes = block
             .as_reader()
             .uncles()
             .iter()
-            .map(|uncle| uncle.calc_header_hash().pack())
+            .map(|uncle| uncle.calc_header_hash())
             .pack();
-        let tx_hashes = tx_hashes.iter().map(Pack::pack).collect::<Vec<_>>();
-        let tx_witness_hashes = tx_witness_hashes.iter().map(Pack::pack).collect::<Vec<_>>();
         BlockView {
             data: block,
             hash,

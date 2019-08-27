@@ -1,6 +1,6 @@
 use crate::{assert_regex_match, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
-use ckb_types::{core::BlockNumber, prelude::*};
+use ckb_types::core::BlockNumber;
 use log::info;
 
 const MATURITY: BlockNumber = 5;
@@ -18,7 +18,7 @@ impl Spec for CellbaseMaturity {
 
         info!("Use generated block's cellbase as tx input");
         let tip_block = node.get_tip_block();
-        let tx = node.new_transaction(tip_block.transactions()[0].hash().to_owned().unpack());
+        let tx = node.new_transaction(tip_block.transactions()[0].hash());
 
         (0..MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is not maturity in N + {} block", i);
@@ -32,7 +32,7 @@ impl Spec for CellbaseMaturity {
             MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0
         );
         let tx_hash = node.rpc_client().send_transaction(tx.clone().data().into());
-        assert_eq!(tx_hash, tx.hash().to_owned().unpack());
+        assert_eq!(tx_hash, tx.hash());
         node.assert_tx_pool_size(1, 0);
 
         info!(

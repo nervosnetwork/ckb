@@ -37,7 +37,7 @@ pub(crate) fn create_always_success_tx() -> TransactionView {
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+
 // invocations, let's stick to this way till this becomes a real problem
 pub(crate) fn create_always_success_out_point() -> OutPoint {
-    OutPoint::new(create_always_success_tx().hash().unpack(), 0)
+    OutPoint::new(create_always_success_tx().hash(), 0)
 }
 
 pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, HeaderView) {
@@ -163,7 +163,7 @@ pub(crate) fn create_multi_outputs_transaction(
 }
 
 pub(crate) fn create_transaction(parent: &Byte32, unique_data: u8) -> TransactionView {
-    create_transaction_with_out_point(OutPoint::new(parent.unpack(), 0), unique_data)
+    create_transaction_with_out_point(OutPoint::new(parent.clone(), 0), unique_data)
 }
 
 pub(crate) fn create_transaction_with_out_point(

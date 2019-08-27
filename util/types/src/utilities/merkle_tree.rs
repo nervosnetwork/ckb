@@ -1,0 +1,25 @@
+use ckb_hash::new_blake2b;
+use merkle_cbt::{merkle_tree::Merge, CBMT as ExCBMT};
+
+use crate::{packed::Byte32, prelude::*};
+
+pub struct MergeByte32;
+
+impl Merge for MergeByte32 {
+    type Item = Byte32;
+    fn merge(left: &Self::Item, right: &Self::Item) -> Self::Item {
+        let mut ret = [0u8; 32];
+        let mut blake2b = new_blake2b();
+
+        blake2b.update(left.as_slice());
+        blake2b.update(right.as_slice());
+        blake2b.finalize(&mut ret);
+        ret.pack()
+    }
+}
+
+pub type CBMT = ExCBMT<Byte32, MergeByte32>;
+
+pub fn merkle_root(leaves: &[Byte32]) -> Byte32 {
+    CBMT::build_merkle_root(leaves)
+}

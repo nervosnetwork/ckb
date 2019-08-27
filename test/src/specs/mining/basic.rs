@@ -1,6 +1,6 @@
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::BlockTemplate;
-use ckb_types::{core::BlockView, packed::ProposalShortId, prelude::*, H256};
+use ckb_types::{core::BlockView, packed::ProposalShortId, prelude::*};
 use log::info;
 use std::convert::Into;
 use std::thread::sleep;
@@ -42,7 +42,7 @@ impl MiningBasic {
         assert!(block3
             .transactions()
             .into_iter()
-            .any(|tx| transaction_hash.eq(&tx.hash().unpack())));
+            .any(|tx| transaction_hash.eq(&tx.hash())));
     }
 
     pub fn test_block_template_cache(&self, node: &Node) {
@@ -63,30 +63,26 @@ impl MiningBasic {
 
         // Expect block1.hash() > block2.hash(), so that when we submit block2 after block1,
         // block2 will replace block1 as tip block
-        let block_hash1: H256 = block1.header().hash().unpack();
-        let block_hash2: H256 = block2.header().hash().unpack();
-        if block_hash1 < block_hash2 {
+        if block1.hash() < block2.hash() {
             std::mem::swap(&mut block1, &mut block2);
         }
-        let block_hash1: H256 = block1.header().hash().unpack();
         let rpc_client = node.rpc_client();
-        assert_eq!(block_hash1, node.submit_block(&block1.data()));
-        assert_eq!(block_hash1, rpc_client.get_tip_header().hash);
+        assert_eq!(block1.hash(), node.submit_block(&block1.data()));
+        assert_eq!(block1.hash(), rpc_client.get_tip_header().hash.pack());
 
         let template1 = rpc_client.get_block_template(None, None, None);
         sleep(Duration::new(0, 200));
         let template2 = rpc_client.get_block_template(None, None, None);
-        assert_eq!(block_hash1, template1.parent_hash);
+        assert_eq!(block1.hash(), template1.parent_hash.pack());
         assert!(
             is_block_template_equal(&template1, &template2),
             "templates keep same since block template cache",
         );
 
-        let block_hash2: H256 = block2.header().hash().clone().unpack();
-        assert_eq!(block_hash2, node.submit_block(&block2.data()));
-        assert_eq!(block_hash2, rpc_client.get_tip_header().hash);
+        assert_eq!(block2.hash(), node.submit_block(&block2.data()));
+        assert_eq!(block2.hash(), rpc_client.get_tip_header().hash.pack());
         let template3 = rpc_client.get_block_template(None, None, None);
-        assert_eq!(block_hash2, template3.parent_hash);
+        assert_eq!(block2.hash(), template3.parent_hash.pack());
         assert!(
             template3.current_time.0 > template1.current_time.0,
             "New tip block, new template",

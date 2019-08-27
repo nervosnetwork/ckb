@@ -10,7 +10,7 @@ use ckb_types::{
         TransactionView,
     },
     h256,
-    packed::{CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
+    packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
     H256,
 };
@@ -47,7 +47,7 @@ fn create_cellbase_transaction() -> TransactionView {
 
 fn create_normal_transaction() -> TransactionView {
     TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::new(h256!("0x1"), 0), 0))
+        .input(CellInput::new(OutPoint::new(h256!("0x1").pack(), 0), 0))
         .output(
             CellOutputBuilder::default()
                 .capacity(capacity_bytes!(100).pack())
@@ -159,7 +159,7 @@ pub fn test_block_with_duplicated_proposals() {
 pub fn test_transaction_root() {
     let header = HeaderBuilder::default()
         .number(2u64.pack())
-        .transactions_root(H256::zero().pack())
+        .transactions_root(Byte32::zero())
         .build();
     let block = BlockBuilder::default()
         .header(header)

@@ -44,7 +44,7 @@ impl<'a> TransactionsProcess<'a> {
 
             relay_txs
                 .iter()
-                .map(|tx| (tx.transaction().calc_tx_hash().pack(), tx))
+                .map(|tx| (tx.transaction().calc_tx_hash(), tx))
                 .filter(|(hash, _)| !tx_filter.contains(&hash))
                 .map(|(hash, tx)| (hash, tx.to_entity()))
                 .collect()

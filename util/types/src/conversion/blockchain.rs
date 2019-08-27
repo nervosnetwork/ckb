@@ -45,6 +45,20 @@ impl<'r> Unpack<H256> for packed::Byte32Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(H256, Byte32);
 
+impl Pack<packed::Byte32> for [u8; 32] {
+    fn pack(&self) -> packed::Byte32 {
+        packed::Byte32::from_slice(&self[..]).expect("impossible: fail to pack [u8; 32]")
+    }
+}
+
+impl<'r> Unpack<[u8; 32]> for packed::Byte32Reader<'r> {
+    fn unpack(&self) -> [u8; 32] {
+        let ptr = self.as_slice().as_ptr() as *const [u8; 32];
+        unsafe { *ptr }
+    }
+}
+impl_conversion_for_entity_unpack!([u8; 32], Byte32);
+
 impl Pack<packed::ProposalShortId> for [u8; 10] {
     fn pack(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_slice(&self[..])
