@@ -18,6 +18,7 @@ impl RpcServer {
             ]))
             .threads(config.threads.unwrap_or_else(num_cpus::get))
             .max_request_body_size(config.max_request_body_size)
+            .health_api(("/ping", "ping"))
             .start_http(
                 &config
                     .listen_address

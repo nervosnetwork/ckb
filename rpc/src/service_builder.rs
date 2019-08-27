@@ -148,6 +148,9 @@ impl<'a> ServiceBuilder<'a> {
     }
 
     pub fn build(self) -> IoHandler {
-        self.io_handler
+        let mut io_handler = self.io_handler;
+        io_handler.add_method("ping", |_| futures::future::ok("pong".into()));
+
+        io_handler
     }
 }
