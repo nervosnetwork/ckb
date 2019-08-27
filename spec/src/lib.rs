@@ -438,10 +438,18 @@ pub mod test {
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct DepGroups {
+        pub included_cells: Vec<String>,
+        pub tx_hash: H256,
+        pub index: usize,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     struct SpecHashes {
         pub genesis: H256,
         pub cellbase: H256,
         pub system_cells: Vec<SystemCell>,
+        pub dep_groups: Vec<DepGroups>,
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
@@ -480,6 +488,7 @@ pub mod test {
 
             assert_eq!(spec_hashes.cellbase, cellbase_hash);
 
+            let mut system_cells = HashMap::new();
             for (index_minus_one, (cell, (output, data))) in spec_hashes
                 .system_cells
                 .iter()
@@ -500,6 +509,53 @@ pub mod test {
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
                 assert_eq!(cell.data_hash, data_hash, "{}", bundled_spec_err);
                 assert_eq!(cell.type_hash, type_hash, "{}", bundled_spec_err);
+                system_cells.insert(cell.index, cell.path.as_str());
+            }
+
+            // dep group tx should be the first tx except cellbase
+            let dep_group_tx = block.transaction(1).unwrap();
+
+            // all dep groups should be in the spec file
+            assert_eq!(
+                dep_group_tx.outputs_data().len(),
+                spec_hashes.dep_groups.len(),
+                "{}",
+                bundled_spec_err
+            );
+
+            for (i, output_data) in dep_group_tx.outputs_data().into_iter().enumerate() {
+                let dep_group = &spec_hashes.dep_groups[i];
+
+                // check the tx hashes of dep groups in spec file
+                let tx_hash = dep_group.tx_hash.pack();
+                assert_eq!(tx_hash, dep_group_tx.hash(), "{}", bundled_spec_err);
+
+                let out_point_vec =
+                    packed::OutPointVec::from_slice(&output_data.raw_data()).unwrap();
+
+                // all cells included by a dep group should be list in the spec file
+                assert_eq!(
+                    out_point_vec.len(),
+                    dep_group.included_cells.len(),
+                    "{}",
+                    bundled_spec_err
+                );
+
+                for (j, out_point) in out_point_vec.into_iter().enumerate() {
+                    let dep_path = &dep_group.included_cells[j];
+
+                    // dep groups out_point should point to cellbase
+                    assert_eq!(cellbase.hash(), out_point.tx_hash(), "{}", bundled_spec_err);
+
+                    let index_in_cellbase: usize = out_point.index().unpack();
+
+                    // check index for included cells in dep groups
+                    assert_eq!(
+                        system_cells[&index_in_cellbase], dep_path,
+                        "{}",
+                        bundled_spec_err
+                    );
+                }
             }
         }
     }
