@@ -4,6 +4,7 @@ use ckb_app_config::CKBAppConfig;
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
     h256,
+    packed::Byte32,
     prelude::*,
     H256,
 };
@@ -517,19 +518,19 @@ impl Spec for ForksContainSameTransactions {
         target_node.connect(node0);
         target_node.waiting_for_sync(node0, 41);
         target_node.disconnect(node0);
-        is_transaction_existed(target_node, transaction.hash().unpack());
+        is_transaction_existed(target_node, transaction.hash());
 
         // `target_node` switch to `chain2` as the main chain
         target_node.connect(node2);
         target_node.waiting_for_sync(node2, 51);
         target_node.disconnect(node2);
-        is_transaction_existed(target_node, transaction.hash().unpack());
+        is_transaction_existed(target_node, transaction.hash());
 
         // `target_node` switch to `chain1` as the main chain
         target_node.connect(node1);
         target_node.waiting_for_sync(node1, 61);
         target_node.disconnect(node1);
-        is_transaction_existed(target_node, transaction.hash().unpack());
+        is_transaction_existed(target_node, transaction.hash());
     }
 }
 
@@ -549,7 +550,7 @@ where
         .build()
 }
 
-fn is_transaction_existed(node: &Node, tx_hash: H256) {
+fn is_transaction_existed(node: &Node, tx_hash: Byte32) {
     let tx_status = node
         .rpc_client()
         .get_transaction(tx_hash)
