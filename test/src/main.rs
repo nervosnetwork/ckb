@@ -179,6 +179,7 @@ fn all_specs() -> SpecMap {
         Box::new(BlockSyncForks),
         Box::new(BlockSyncDuplicatedAndReconnect),
         Box::new(BlockSyncOrphanBlocks),
+        Box::new(BlockSyncWithUncle),
         Box::new(SyncTimeout),
         Box::new(ChainContainsInvalidBlock),
         Box::new(ForkContainsInvalidBlock),

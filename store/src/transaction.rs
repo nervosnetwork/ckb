@@ -147,9 +147,8 @@ impl StoreTransaction {
         let block_number: packed::Uint64 = block.number().pack();
         self.insert_raw(COLUMN_INDEX, block_number.as_slice(), block_hash.as_slice())?;
         for uncle in block.uncles().into_iter() {
-            self.insert_raw(COLUMN_UNCLES, &uncle.hash().as_slice(), &[])?;
             self.insert_raw(
-                COLUMN_BLOCK_HEADER,
+                COLUMN_UNCLES,
                 &uncle.hash().as_slice(),
                 &uncle.header().pack().as_slice(),
             )?;
