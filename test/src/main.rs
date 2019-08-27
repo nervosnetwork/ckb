@@ -7,6 +7,7 @@ use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::collections::HashMap;
 use std::env;
+use std::fs::read_to_string;
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -60,10 +61,21 @@ fn main() {
             spec_name
         );
         let now = Instant::now();
+        let net = spec.setup_net(&binary, start_port);
+        let net_dir = net.working_dir().to_owned();
+        let node_dirs: Vec<_> = net
+            .nodes
+            .iter()
+            .map(|node| node.working_dir().to_owned())
+            .collect();
         let result = panic::catch_unwind(panic::AssertUnwindSafe(move || {
-            let net = spec.setup_net(&binary, start_port);
             spec.run(net);
         }));
+
+        info!("Started Net with working dir: {}", net_dir);
+        node_dirs.iter().enumerate().for_each(|(i, node_dir)| {
+            info!("Started Node.{} with working dir: {}", i, node_dir);
+        });
         info!(
             "{}/{} -------------> Completed {} in {} seconds",
             index + 1,
@@ -72,14 +84,18 @@ fn main() {
             now.elapsed().as_secs()
         );
 
+        // Tail nodes' logs when fails
         panic_error = result.err();
-        if panic_error.is_some() {
+        if panic_error.is_some() || nodes_panicked(&node_dirs) {
+            tail_node_logs(node_dirs);
             rerun_specs.push(spec_name);
             break;
         }
+
         if start_time.elapsed().as_secs() > max_time.unwrap_or_else(u64::max_value) {
             error!(
-                "Exit ckb-test, because total running time exeedes {} seconds",
+                "Exit ckb-test, because total running time({} seconds) exceeds limit({} seconds)",
+                start_time.elapsed().as_secs(),
                 max_time.unwrap_or_default()
             );
             break;
@@ -239,4 +255,45 @@ fn all_specs() -> SpecMap {
         Box::new(IBDProcess),
     ];
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
+}
+
+// grep "panicked at" $node_log_path
+fn nodes_panicked(node_dirs: &[String]) -> bool {
+    node_dirs.iter().any(|node_dir| {
+        read_to_string(&node_log(&node_dir))
+            .expect("failed to read node's log")
+            .contains("panicked at")
+    })
+}
+
+// tail -n 2000 $node_log_path
+fn tail_node_logs(node_dirs: Vec<String>) {
+    let tail_n: usize = env::var("CKB_TEST_TAIL_N")
+        .unwrap_or_default()
+        .parse()
+        .unwrap_or(2000);
+
+    for (i, node_dir) in node_dirs.into_iter().enumerate() {
+        let node_log = node_log(&node_dir);
+        let content = read_to_string(&node_log).expect("failed to read node's log");
+        let skip = content.lines().count().saturating_sub(tail_n);
+
+        println!(
+            "\n************** (Node.{}) tail -n {} {}",
+            i,
+            tail_n,
+            node_log.display()
+        );
+        for log in content.lines().skip(skip) {
+            println!("{}", log);
+        }
+    }
+}
+
+// node_log=$node_dir/data/logs/run.log
+fn node_log(node_dir: &str) -> PathBuf {
+    PathBuf::from(node_dir)
+        .join("data")
+        .join("logs")
+        .join("run.log")
 }

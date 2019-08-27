@@ -333,7 +333,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         );
         node.generate_blocks(6);
 
-        let consensus = node.consensus.as_ref().unwrap();
+        let consensus = node.consensus();
         let mock_store = MockStore::default();
         for i in 0..=node.get_tip_block_number() {
             mock_store.insert_block(&node.get_block_by_number(i), consensus.genesis_epoch_ext());
