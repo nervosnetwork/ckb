@@ -30,6 +30,7 @@ members = [
     "util/occupied-capacity",
     "util/types",
     "util/jsonrpc-types",
+    "util/merkle-mountain-range",
     "script/data-loader",
     "db",
     "resource",
