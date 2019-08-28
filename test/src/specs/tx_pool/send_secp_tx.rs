@@ -17,7 +17,7 @@ use ckb_types::{
 use log::info;
 
 const TX_2_IN_2_OUT_SIZE: usize = 673;
-const TX_2_IN_2_OUT_CYCLES: Cycle = 13290092;
+const TX_2_IN_2_OUT_CYCLES: Cycle = 13_290_092;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type
@@ -115,9 +115,15 @@ pub struct CheckTypical2In2OutTx {
     lock_arg: Bytes,
 }
 
+impl Default for CheckTypical2In2OutTx {
+    fn default() -> Self {
+        Self::new(42)
+    }
+}
+
 impl CheckTypical2In2OutTx {
-    pub fn new() -> Self {
-        let mut generator = Generator::non_crypto_safe_prng(42);
+    pub fn new(seed: u64) -> Self {
+        let mut generator = Generator::non_crypto_safe_prng(seed);
         let privkey = generator.gen_privkey();
         let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
         let lock_arg = Bytes::from(&blake2b_256(&pubkey_data)[0..20]);
@@ -189,7 +195,7 @@ impl Spec for CheckTypical2In2OutTx {
         let serialized_size = tx.data().as_slice().len();
         assert_eq!(
             serialized_size, TX_2_IN_2_OUT_SIZE,
-            "2 in 2 out tx serialized size changed"
+            "2 in 2 out tx serialized size changed, PLEASE UPDATE consensus"
         );
 
         info!("Check 2 in 2 out tx cycles");
@@ -200,7 +206,7 @@ impl Spec for CheckTypical2In2OutTx {
             .0;
         assert_eq!(
             cycles, TX_2_IN_2_OUT_CYCLES,
-            "2 in 2 out tx serialized size changed"
+            "2 in 2 out tx cycles changed, PLEASE UPDATE consensus"
         );
 
         info!("Send 1 secp tx use dep group");

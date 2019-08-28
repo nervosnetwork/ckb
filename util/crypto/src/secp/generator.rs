@@ -8,6 +8,12 @@ pub struct Generator {
     rng: Box<dyn rand::RngCore>,
 }
 
+impl Default for Generator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Generator {
     pub fn new() -> Self {
         let rng = rand::thread_rng();

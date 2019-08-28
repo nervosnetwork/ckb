@@ -249,7 +249,7 @@ fn all_specs() -> SpecMap {
             "send_secp_tx_use_dep_group_type_hash",
             ScriptHashType::Type,
         )),
-        Box::new(CheckTypical2In2OutTx::new()),
+        Box::new(CheckTypical2In2OutTx::default()),
         Box::new(AlertPropagation::default()),
         Box::new(IndexerBasic),
         Box::new(GenesisIssuedCells),

@@ -36,7 +36,9 @@ pub(crate) const GENESIS_ORPHAN_COUNT: u64 = GENESIS_EPOCH_LENGTH / 20;
 
 const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
-const TWO_IN_TWO_OUT_CYCLES: Cycle = 2_580_000;
+const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_300_000;
+const TWO_IN_TWO_OUT_BYTES: u64 = 673;
+const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
 pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 pub(crate) const MILLISECONDS_IN_A_SECOND: u64 = 1000;
 pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
@@ -46,8 +48,8 @@ pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTER
 // can divide DEFAULT_EPOCH_REWARD and can be divided by ORPHAN_RATE_TARGET_RECIP.
 pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 
-pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
-pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * 200 * 8;
+pub(crate) const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
+pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
 pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 

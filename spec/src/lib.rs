@@ -52,6 +52,7 @@ pub struct ChainSpec {
 pub struct Params {
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
+    #[serde(default)]
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: BlockNumber,
 }
