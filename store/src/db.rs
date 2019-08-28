@@ -11,7 +11,6 @@ use ckb_types::{
     core::{BlockExt, TransactionMeta},
     packed,
     prelude::*,
-    H256,
 };
 
 pub struct ChainDB {
@@ -87,7 +86,7 @@ impl ChainDB {
 
         let block_number = genesis.number();
         let epoch_number = genesis.epoch();
-        let block_hash: H256 = genesis.hash().unpack();
+        let block_hash = genesis.hash();
 
         for tx in genesis.transactions().iter() {
             let outputs_len = tx.outputs().len();
@@ -111,7 +110,7 @@ impl ChainDB {
             db_txn.update_cell_set(&tx.hash(), &tx_meta.pack())?;
         }
 
-        let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch().pack();
+        let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         db_txn.insert_block(genesis)?;
         db_txn.insert_block_ext(&genesis_hash, &ext)?;

@@ -19,7 +19,7 @@ fn test_veirifer() {
     let hash = raw_alert.calc_alert_hash();
     let signatures = keypairs
         .iter()
-        .map(|(privkey, _)| privkey.sign_recoverable(&hash))
+        .map(|(privkey, _)| privkey.sign_recoverable(&hash.unpack()))
         .collect::<Result<Vec<_>, _>>()
         .expect("sign alert")
         .iter()

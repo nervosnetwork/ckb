@@ -117,12 +117,11 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{Capacity, TransactionBuilder, TransactionView},
-        packed::{CellInput, CellOutput, OutPoint},
+        packed::{Byte32, CellInput, CellOutput, OutPoint},
         prelude::*,
-        H256,
     };
 
-    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> TransactionView {
+    fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
         TransactionBuilder::default()
             .inputs(
                 inputs
@@ -144,20 +143,20 @@ mod tests {
     fn test_orphan_pool_remove_by_ancestor1() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
-        let tx1_hash: H256 = tx1.hash().unpack();
+        let tx1 = build_tx(vec![(&Byte32::zero(), 0)], 1);
+        let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
-        let tx2_hash: H256 = tx2.hash().unpack();
+        let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(&tx2_hash, 0)], 1);
-        let tx3_hash: H256 = tx3.hash().unpack();
+        let tx3_hash = tx3.hash();
 
         let tx4 = build_tx(vec![(&tx3_hash, 0)], 1);
 
         // the tx5 and its descendants(tx6) conflict with tx1
-        let tx5 = build_tx(vec![(&H256::zero(), 0)], 2);
-        let tx5_hash: H256 = tx5.hash().unpack();
+        let tx5 = build_tx(vec![(&Byte32::zero(), 0)], 2);
+        let tx5_hash = tx5.hash();
 
         let tx6 = build_tx(vec![(&tx5_hash, 0)], 1);
 
@@ -194,14 +193,14 @@ mod tests {
     fn test_orphan_pool_remove_by_ancestor2() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
-        let tx1_hash: H256 = tx1.hash().unpack();
+        let tx1 = build_tx(vec![(&Byte32::zero(), 0)], 1);
+        let tx1_hash = tx1.hash();
 
-        let tx2 = build_tx(vec![(&H256::zero(), 1)], 1);
-        let tx2_hash: H256 = tx2.hash().unpack();
+        let tx2 = build_tx(vec![(&Byte32::zero(), 1)], 1);
+        let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(&tx1_hash, 0), (&tx2_hash, 1)], 1);
-        let tx3_hash: H256 = tx3.hash().unpack();
+        let tx3_hash = tx3.hash();
 
         let tx4 = build_tx(vec![(&tx3_hash, 0)], 1);
 
@@ -233,14 +232,14 @@ mod tests {
     fn test_orphan_pool_recursion_remove() {
         let mut pool = OrphanPool::new();
 
-        let tx1 = build_tx(vec![(&H256::zero(), 0)], 1);
-        let tx1_hash: H256 = tx1.hash().unpack();
+        let tx1 = build_tx(vec![(&Byte32::zero(), 0)], 1);
+        let tx1_hash = tx1.hash();
 
         let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
-        let tx2_hash: H256 = tx2.hash().unpack();
+        let tx2_hash = tx2.hash();
 
         let tx3 = build_tx(vec![(&tx2_hash, 0)], 1);
-        let tx3_hash: H256 = tx3.hash().unpack();
+        let tx3_hash = tx3.hash();
 
         let tx4 = build_tx(vec![(&tx3_hash, 0)], 1);
 

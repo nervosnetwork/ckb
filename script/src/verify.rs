@@ -17,7 +17,6 @@ use ckb_types::{
     },
     packed::{Byte32, Byte32Vec, CellInputVec, CellOutput, OutPoint, Script, WitnessVec},
     prelude::*,
-    H256,
 };
 use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
@@ -55,7 +54,7 @@ impl ScriptGroup {
 // future, we might refactor this to share buffer to achive zero-copy
 pub struct TransactionScriptsVerifier<'a, DL> {
     data_loader: &'a DL,
-    debug_printer: Option<Box<dyn Fn(&H256, &str)>>,
+    debug_printer: Option<Box<dyn Fn(&Byte32, &str)>>,
 
     outputs: Vec<CellMeta>,
     rtx: &'a ResolvedTransaction<'a>,
@@ -90,7 +89,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                     .tx_hash(tx_hash.clone())
                     .index(index.pack())
                     .build();
-                let data_hash = CellOutput::calc_data_hash(&data).pack();
+                let data_hash = CellOutput::calc_data_hash(&data);
                 CellMeta {
                     cell_output,
                     out_point,
@@ -108,7 +107,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             binaries_by_data_hash.insert(data_hash, data.to_owned());
             if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
                 binaries_by_type_hash
-                    .entry(t.calc_script_hash().pack())
+                    .entry(t.calc_script_hash())
                     .and_modify(|e| e.1 = true)
                     .or_insert((data.to_owned(), false));
             }
@@ -121,12 +120,12 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             // each input has correct script setup.
             let output = &cell_meta.cell_output;
             let lock_group_entry = lock_groups
-                .entry(output.calc_lock_hash().pack())
+                .entry(output.calc_lock_hash())
                 .or_insert_with(|| ScriptGroup::new(&output.lock()));
             lock_group_entry.input_indices.push(i);
             if let Some(t) = &output.type_().to_opt() {
                 let type_group_entry = type_groups
-                    .entry(t.calc_script_hash().pack())
+                    .entry(t.calc_script_hash())
                     .or_insert_with(|| ScriptGroup::new(&t));
                 type_group_entry.input_indices.push(i);
             }
@@ -134,7 +133,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         for (i, output) in rtx.transaction.outputs().into_iter().enumerate() {
             if let Some(t) = &output.type_().to_opt() {
                 let type_group_entry = type_groups
-                    .entry(t.calc_script_hash().pack())
+                    .entry(t.calc_script_hash())
                     .or_insert_with(|| ScriptGroup::new(&t));
                 type_group_entry.output_indices.push(i);
             }
@@ -153,7 +152,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         }
     }
 
-    pub fn set_debug_printer<F: Fn(&H256, &str) + 'static>(&mut self, func: F) {
+    pub fn set_debug_printer<F: Fn(&Byte32, &str) + 'static>(&mut self, func: F) {
         self.debug_printer = Some(Box::new(func));
     }
 
@@ -224,7 +223,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         LoadInput::new(self.inputs(), group_inputs)
     }
 
-    fn build_load_script_hash(&'a self, hash: &'a [u8]) -> LoadScriptHash<'a> {
+    fn build_load_script_hash(&self, hash: Byte32) -> LoadScriptHash {
         LoadScriptHash::new(hash)
     }
 
@@ -272,7 +271,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
         // Now run each script group
         for group in self.lock_groups.values().chain(self.type_groups.values()) {
-            let result = if Unpack::<H256>::unpack(&group.script.code_hash()) == TYPE_ID_CODE_HASH
+            let result = if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
                 && group.script.hash_type().unpack() == ScriptHashType::Type
             {
                 let verifier = TypeIdSystemScript {
@@ -287,7 +286,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             };
             let cycle = result.map_err(|e| {
                 info!(
-                    "Error validating script group {:x} of transaction {}: {:?}",
+                    "Error validating script group {} of transaction {}: {:?}",
                     group.script.calc_script_hash(),
                     self.hash(),
                     e
@@ -313,7 +312,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
         let current_script_hash = script_group.script.calc_script_hash();
-        let prefix = format!("script group: {:x}", current_script_hash);
+        let prefix = format!("script group: {}", current_script_hash);
         let debug_printer = |message: &str| {
             if let Some(ref printer) = self.debug_printer {
                 printer(&current_script_hash, message);
@@ -321,7 +320,6 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 debug!("{} DEBUG OUTPUT: {}", prefix, message);
             };
         };
-        let current_script_hash_bytes = current_script_hash.as_bytes();
         let mut args = vec!["verify".into()];
         args.extend(
             script_group
@@ -336,7 +334,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
                     .instruction_cycle_func(Box::new(instruction_cycles))
                     .syscall(Box::new(
-                        self.build_load_script_hash(current_script_hash_bytes),
+                        self.build_load_script_hash(current_script_hash.clone()),
                     ))
                     .syscall(Box::new(self.build_load_tx_hash()))
                     .syscall(Box::new(self.build_load_cell(
@@ -371,7 +369,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 >::new(core_machine)
                 .instruction_cycle_func(Box::new(instruction_cycles))
                 .syscall(Box::new(
-                    self.build_load_script_hash(current_script_hash_bytes),
+                    self.build_load_script_hash(current_script_hash.clone()),
                 ))
                 .syscall(Box::new(self.build_load_tx_hash()))
                 .syscall(Box::new(self.build_load_cell(
@@ -414,7 +412,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         max_cycles: Cycle,
     ) -> Result<Cycle, ScriptError> {
         let current_script_hash = script_group.script.calc_script_hash();
-        let prefix = format!("script group: {:x}", current_script_hash);
+        let prefix = format!("script group: {}", current_script_hash);
         let debug_printer = |message: &str| {
             if let Some(ref printer) = self.debug_printer {
                 printer(&current_script_hash, message);
@@ -422,7 +420,6 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 debug!("{} DEBUG OUTPUT: {}", prefix, message);
             };
         };
-        let current_script_hash_bytes = current_script_hash.as_bytes();
         let mut args = vec!["verify".into()];
         args.extend(
             script_group
@@ -440,7 +437,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         >::new(core_machine)
         .instruction_cycle_func(Box::new(instruction_cycles))
         .syscall(Box::new(
-            self.build_load_script_hash(current_script_hash_bytes),
+            self.build_load_script_hash(current_script_hash.clone()),
         ))
         .syscall(Box::new(self.build_load_tx_hash()))
         .syscall(Box::new(self.build_load_cell(
@@ -490,8 +487,8 @@ mod tests {
         },
         h256,
         packed::{
-            CellDep, CellInput, CellOutputBuilder, OutPoint, Script, TransactionInfoBuilder,
-            TransactionKeyBuilder,
+            Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, Script,
+            TransactionInfoBuilder, TransactionKeyBuilder,
         },
         H256,
     };
@@ -549,7 +546,7 @@ mod tests {
             .block_epoch(0u64.pack())
             .key(
                 TransactionKeyBuilder::default()
-                    .block_hash(H256::zero().pack())
+                    .block_hash(Byte32::zero())
                     .index(1u32.pack())
                     .build(),
             )
@@ -609,8 +606,8 @@ mod tests {
         args.push(Bytes::from(to_hex_pubkey(&pubkey)));
         args.push(Bytes::from(to_hex_signature(&signature)));
 
-        let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let code_hash = blake2b_256(&buffer);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -692,8 +689,8 @@ mod tests {
         args.push(Bytes::from(to_hex_pubkey(&pubkey)));
         args.push(Bytes::from(to_hex_signature(&signature)));
 
-        let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let code_hash = blake2b_256(&buffer);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -759,7 +756,7 @@ mod tests {
         args.push(Bytes::from(to_hex_pubkey(&pubkey)));
         args.push(Bytes::from(to_hex_signature(&signature)));
 
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -776,7 +773,7 @@ mod tests {
                 .pack(),
             )
             .build();
-        let type_hash: H256 = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
+        let type_hash = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data)
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point.clone())
@@ -784,7 +781,7 @@ mod tests {
 
         let script = Script::new_builder()
             .args(args.pack())
-            .code_hash(type_hash.pack())
+            .code_hash(type_hash)
             .hash_type(ScriptHashType::Type.pack())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
@@ -833,7 +830,7 @@ mod tests {
         args.push(Bytes::from(to_hex_pubkey(&pubkey)));
         args.push(Bytes::from(to_hex_signature(&signature)));
 
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -849,13 +846,13 @@ mod tests {
                 .pack(),
             )
             .build();
-        let type_hash: H256 = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
+        let type_hash = output.type_().to_opt().as_ref().unwrap().calc_script_hash();
         let dep_cell = CellMetaBuilder::from_cell_output(output, data.clone())
             .transaction_info(default_transaction_info())
             .out_point(dep_out_point.clone())
             .build();
 
-        let dep_out_point2 = OutPoint::new(h256!("0x1234"), 8);
+        let dep_out_point2 = OutPoint::new(h256!("0x1234").pack(), 8);
         let cell_dep2 = CellDep::new_builder()
             .out_point(dep_out_point2.clone())
             .build();
@@ -878,7 +875,7 @@ mod tests {
 
         let script = Script::new_builder()
             .args(args.pack())
-            .code_hash(type_hash.pack())
+            .code_hash(type_hash)
             .hash_type(ScriptHashType::Type.pack())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
@@ -944,8 +941,8 @@ mod tests {
         hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
         args.push(Bytes::from(hex_signature));
 
-        let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let code_hash = blake2b_256(&buffer);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -1012,8 +1009,8 @@ mod tests {
         args.push(Bytes::from(to_hex_pubkey(&pubkey)));
         args.push(Bytes::from(to_hex_signature(&signature)));
 
-        let code_hash: H256 = (&blake2b_256(&buffer)).into();
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let code_hash = blake2b_256(&buffer);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -1077,15 +1074,14 @@ mod tests {
         args.push(Bytes::from(to_hex_pubkey(&pubkey)));
         args.push(Bytes::from(to_hex_signature(&signature)));
 
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
 
-        let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let script = Script::new_builder()
             .args(args.pack())
-            .code_hash(code_hash.pack())
+            .code_hash(blake2b_256(&buffer).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let input = CellInput::new(OutPoint::null(), 0);
@@ -1154,7 +1150,7 @@ mod tests {
 
         let script = Script::new_builder()
             .args(args.pack())
-            .code_hash(H256::from(blake2b_256(&buffer)).pack())
+            .code_hash(blake2b_256(&buffer).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let output_data = Bytes::default();
@@ -1167,7 +1163,7 @@ mod tests {
             .type_(Some(script).pack())
             .build();
 
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -1240,14 +1236,14 @@ mod tests {
 
         let script = Script::new_builder()
             .args(args.pack())
-            .code_hash(H256::from(blake2b_256(&buffer)).pack())
+            .code_hash(blake2b_256(&buffer).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let output = CellOutputBuilder::default()
             .type_(Some(script).pack())
             .build();
 
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -1303,14 +1299,13 @@ mod tests {
         args.push(Bytes::from(to_hex_pubkey(&pubkey)));
         args.push(Bytes::from(to_hex_signature(&signature)));
 
-        let code_hash: H256 = (&blake2b_256(&buffer)).into();
         let script = Script::new_builder()
             .args(args.pack())
-            .code_hash(code_hash.to_owned().pack())
+            .code_hash(blake2b_256(&buffer).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
 
-        let dep_out_point = OutPoint::new(h256!("0x123"), 8);
+        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
             .out_point(dep_out_point.clone())
             .build();
@@ -1359,15 +1354,15 @@ mod tests {
     fn check_type_id_one_in_one_out() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
         let type_id_script = Script::new_builder()
-            .args(vec![Bytes::from(&h256!("0x1111")[..])].pack())
+            .args(vec![Bytes::from(h256!("0x1111").as_ref())].pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
 
-        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000).pack())
             .lock(always_success_script.clone())
@@ -1422,15 +1417,15 @@ mod tests {
     fn check_type_id_one_in_one_out_not_enough_cycles() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
         let type_id_script = Script::new_builder()
-            .args(vec![Bytes::from(&h256!("0x1111")[..])].pack())
+            .args(vec![Bytes::from(h256!("0x1111").as_ref())].pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
 
-        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000).pack())
             .lock(always_success_script.clone())
@@ -1488,9 +1483,9 @@ mod tests {
     fn check_type_id_creation() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
-        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000).pack())
             .lock(always_success_script.clone())
@@ -1559,15 +1554,15 @@ mod tests {
     fn check_type_id_termination() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
         let type_id_script = Script::new_builder()
-            .args(vec![Bytes::from(&h256!("0x1111")[..])].pack())
+            .args(vec![Bytes::from(h256!("0x1111").as_ref())].pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
 
-        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000).pack())
             .lock(always_success_script.clone())
@@ -1621,9 +1616,9 @@ mod tests {
     fn check_type_id_invalid_creation() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
-        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000).pack())
             .lock(always_success_script.clone())
@@ -1701,9 +1696,9 @@ mod tests {
     fn check_type_id_invalid_creation_length() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
-        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(1000).pack())
             .lock(always_success_script.clone())
@@ -1784,15 +1779,15 @@ mod tests {
     fn check_type_id_one_in_two_out() {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
-        let always_success_out_point = OutPoint::new(h256!("0x11"), 0);
+        let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
         let type_id_script = Script::new_builder()
-            .args(vec![Bytes::from(&h256!("0x1111")[..])].pack())
+            .args(vec![Bytes::from(h256!("0x1111").as_ref())].pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
 
-        let input = CellInput::new(OutPoint::new(h256!("0x1234"), 8), 0);
+        let input = CellInput::new(OutPoint::new(h256!("0x1234").pack(), 8), 0);
         let input_cell = CellOutputBuilder::default()
             .capacity(capacity_bytes!(2000).pack())
             .lock(always_success_script.clone())

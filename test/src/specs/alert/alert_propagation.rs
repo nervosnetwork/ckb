@@ -44,7 +44,7 @@ impl Spec for AlertPropagation {
             .message(warning1.pack())
             .notice_until(notice_until.pack())
             .build();
-        let msg: Message = raw_alert.calc_alert_hash();
+        let msg: Message = raw_alert.calc_alert_hash().unpack();
         let signatures = self
             .privkeys
             .iter()
@@ -85,7 +85,7 @@ impl Spec for AlertPropagation {
             .message(warning2.pack())
             .notice_until(notice_until.pack())
             .build();
-        let msg: Message = raw_alert2.calc_alert_hash();
+        let msg: Message = raw_alert2.calc_alert_hash().unpack();
         let signatures = self
             .privkeys
             .iter()

@@ -7,7 +7,6 @@ use ckb_types::{
     core::BlockView,
     packed::{self, SyncMessage},
     prelude::*,
-    H256,
 };
 use std::collections::HashSet;
 use std::thread::sleep;
@@ -94,10 +93,7 @@ impl Spec for BlockSyncWithUncle {
         target.waiting_for_sync(node1, 3);
 
         // check whether node panic
-        assert!(target
-            .rpc_client()
-            .get_block(uncle.hash().unpack())
-            .is_none());
+        assert!(target.rpc_client().get_block(uncle.hash()).is_none());
     }
 }
 
@@ -190,8 +186,8 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         assert_eq!(
             message.to_enum().item_name(),
             packed::GetBlocks::NAME,
-            "Node should send back GetBlocks message for the block {:x}",
-            Unpack::<H256>::unpack(&block.header().hash()),
+            "Node should send back GetBlocks message for the block {}",
+            block.hash()
         );
 
         // Sync duplicated header again, `node` should discard the duplicated one.
@@ -223,8 +219,8 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         assert_eq!(
             message.to_enum().item_name(),
             packed::GetBlocks::NAME,
-            "Node should send back GetBlocks message for the block {:x}",
-            Unpack::<H256>::unpack(&block.header().hash()),
+            "Node should send back GetBlocks message for the block {}",
+            block.hash()
         );
 
         // Sync corresponding block entity, `node` should accept the block as tip block

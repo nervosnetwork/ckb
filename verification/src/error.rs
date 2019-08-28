@@ -1,6 +1,6 @@
 use ckb_occupied_capacity::Error as CapacityError;
 use ckb_script::ScriptError;
-use ckb_types::{core::BlockNumber, H256, U256};
+use ckb_types::{core::BlockNumber, packed::Byte32, U256};
 use std::error::Error as StdError;
 use std::fmt;
 
@@ -37,7 +37,7 @@ pub enum Error {
     /// The merkle tree witness hash of committed transactions does not match the one in header.
     WitnessesMerkleRoot,
     /// The parent of the block is unknown.
-    UnknownParent(H256),
+    UnknownParent(Byte32),
     /// Uncles does not meet the consensus requirements.
     Uncles(UnclesError),
     /// Cellbase transaction is invalid.
@@ -71,7 +71,7 @@ impl StdError for Error {}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::UnknownParent(h) => write!(f, "UnknownParent({:#x})", h),
+            Error::UnknownParent(h) => write!(f, "UnknownParent({})", h),
             _ => fmt::Debug::fmt(&self, f),
         }
     }
@@ -112,8 +112,8 @@ pub enum UnclesError {
         actual: BlockNumber,
     },
     InvalidHash {
-        expected: H256,
-        actual: H256,
+        expected: Byte32,
+        actual: Byte32,
     },
     InvalidNumber,
     InvalidDifficulty,
@@ -121,8 +121,8 @@ pub enum UnclesError {
     InvalidNonce,
     ProposalsHash,
     ProposalDuplicate,
-    Duplicate(H256),
-    DoubleInclusion(H256),
+    Duplicate(Byte32),
+    DoubleInclusion(Byte32),
     InvalidCellbase,
     DescendantLimit,
     ExceededMaximumProposalsLimit,

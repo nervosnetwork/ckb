@@ -3,9 +3,8 @@ use crate::{Net, Spec, TestProtocol};
 use ckb_sync::NetworkProtocol;
 use ckb_types::{
     core::{BlockView, TransactionBuilder},
-    packed::{self, SyncMessage},
+    packed::{self, Byte32, SyncMessage},
     prelude::*,
-    H256,
 };
 use std::time::Duration;
 
@@ -110,10 +109,10 @@ impl Spec for ForkContainsInvalidBlock {
                 .map(|i| bad_node.get_block_by_number(i))
                 .collect()
         };
-        let bad_hashes: Vec<H256> = bad_chain
+        let bad_hashes: Vec<Byte32> = bad_chain
             .iter()
             .skip(invalid_number - 1)
-            .map(|b| b.header().hash().to_owned().unpack())
+            .map(|b| b.hash())
             .collect();
 
         // Sync headers of bad forks
@@ -135,14 +134,11 @@ impl Spec for ForkContainsInvalidBlock {
         bad_chain1
             .iter()
             .for_each(|block| net.send(NetworkProtocol::SYNC.into(), pi, build_block(block)));
-        let last_hash = bad_chain1
-            .last()
-            .map(|b| b.header().hash().to_owned())
-            .unwrap();
+        let last_hash = bad_chain1.last().map(|b| b.hash()).unwrap();
         assert!(
             wait_until(10, || good_node
                 .rpc_client()
-                .get_block(last_hash.clone().unpack())
+                .get_block(last_hash.clone())
                 .is_some()),
             "good_node should store the fork blocks even it contains invalid blocks",
         );
@@ -153,14 +149,11 @@ impl Spec for ForkContainsInvalidBlock {
         bad_chain2
             .iter()
             .for_each(|block| net.send(NetworkProtocol::SYNC.into(), pi, build_block(block)));
-        let last_hash = bad_chain2
-            .last()
-            .map(|b| b.header().hash().to_owned())
-            .unwrap();
+        let last_hash = bad_chain2.last().map(|b| b.hash()).unwrap();
         assert!(
             !wait_until(10, || good_node
                 .rpc_client()
-                .get_block(last_hash.clone().unpack())
+                .get_block(last_hash.clone())
                 .is_some()),
             "good_node should keep the good chain",
         );

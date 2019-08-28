@@ -4,13 +4,12 @@ use ckb_jsonrpc_types::{
 };
 use ckb_types::{
     core::BlockNumber,
-    packed::{self, CellOutput, OutPoint},
+    packed::{self, Byte32, CellOutput, OutPoint},
     prelude::*,
-    H256,
 };
 
 pub struct LockHashIndex {
-    pub lock_hash: H256,
+    pub lock_hash: Byte32,
     pub block_number: BlockNumber,
     pub out_point: OutPoint,
 }
@@ -27,14 +26,14 @@ pub struct CellTransaction {
 
 pub struct TransactionPoint {
     pub block_number: BlockNumber,
-    pub tx_hash: H256,
+    pub tx_hash: Byte32,
     // index of transaction outputs (create cell) or inputs (consume cell)
     pub index: u32,
 }
 
 #[derive(Clone)]
 pub struct LockHashCellOutput {
-    pub lock_hash: H256,
+    pub lock_hash: Byte32,
     pub block_number: BlockNumber,
     // Cache the `CellOutput` when `LiveCell` is deleted, it's required for fork switching.
     pub cell_output: Option<CellOutput>,
@@ -43,14 +42,14 @@ pub struct LockHashCellOutput {
 #[derive(Debug, Clone)]
 pub struct LockHashIndexState {
     pub block_number: BlockNumber,
-    pub block_hash: H256,
+    pub block_hash: Byte32,
 }
 
 impl Pack<packed::LockHashIndex> for LockHashIndex {
     fn pack(&self) -> packed::LockHashIndex {
         let index: u32 = self.out_point.index().unpack();
         packed::LockHashIndex::new_builder()
-            .lock_hash(self.lock_hash.pack())
+            .lock_hash(self.lock_hash.clone())
             .block_number(self.block_number.pack())
             .tx_hash(self.out_point.tx_hash())
             .index(index.pack())
@@ -62,7 +61,7 @@ impl Pack<packed::TransactionPoint> for TransactionPoint {
     fn pack(&self) -> packed::TransactionPoint {
         packed::TransactionPoint::new_builder()
             .block_number(self.block_number.pack())
-            .tx_hash(self.tx_hash.pack())
+            .tx_hash(self.tx_hash.clone())
             .index(self.index.pack())
             .build()
     }
@@ -74,7 +73,7 @@ impl Pack<packed::LockHashCellOutput> for LockHashCellOutput {
             .set(self.cell_output.clone())
             .build();
         packed::LockHashCellOutput::new_builder()
-            .lock_hash(self.lock_hash.pack())
+            .lock_hash(self.lock_hash.clone())
             .block_number(self.block_number.pack())
             .cell_output(cell_output_opt)
             .build()
@@ -85,14 +84,14 @@ impl Pack<packed::LockHashIndexState> for LockHashIndexState {
     fn pack(&self) -> packed::LockHashIndexState {
         packed::LockHashIndexState::new_builder()
             .block_number(self.block_number.pack())
-            .block_hash(self.block_hash.pack())
+            .block_hash(self.block_hash.clone())
             .build()
     }
 }
 
 impl LockHashIndex {
     pub(crate) fn from_packed(input: packed::LockHashIndexReader<'_>) -> Self {
-        let lock_hash = input.lock_hash().unpack();
+        let lock_hash = input.lock_hash().to_entity();
         let block_number = input.block_number().unpack();
         let index: u32 = input.index().unpack();
         let out_point = OutPoint::new_builder()
@@ -110,7 +109,7 @@ impl LockHashIndex {
 impl TransactionPoint {
     pub(crate) fn from_packed(input: packed::TransactionPointReader<'_>) -> Self {
         let block_number = input.block_number().unpack();
-        let tx_hash = input.tx_hash().unpack();
+        let tx_hash = input.tx_hash().to_entity();
         let index = input.index().unpack();
         TransactionPoint {
             block_number,
@@ -122,7 +121,7 @@ impl TransactionPoint {
 
 impl LockHashCellOutput {
     pub(crate) fn from_packed(input: packed::LockHashCellOutputReader<'_>) -> Self {
-        let lock_hash = input.lock_hash().unpack();
+        let lock_hash = input.lock_hash().to_entity();
         let block_number = input.block_number().unpack();
         let cell_output = input.cell_output().to_entity().to_opt();
         LockHashCellOutput {
@@ -136,7 +135,7 @@ impl LockHashCellOutput {
 impl LockHashIndexState {
     pub(crate) fn from_packed(input: packed::LockHashIndexStateReader<'_>) -> Self {
         let block_number = input.block_number().unpack();
-        let block_hash = input.block_hash().unpack();
+        let block_hash = input.block_hash().to_entity();
         LockHashIndexState {
             block_number,
             block_hash,
@@ -145,9 +144,9 @@ impl LockHashIndexState {
 }
 
 impl LockHashIndex {
-    pub fn new(lock_hash: H256, block_number: BlockNumber, tx_hash: H256, index: u32) -> Self {
+    pub fn new(lock_hash: Byte32, block_number: BlockNumber, tx_hash: Byte32, index: u32) -> Self {
         let out_point = OutPoint::new_builder()
-            .tx_hash(tx_hash.pack())
+            .tx_hash(tx_hash)
             .index(index.pack())
             .build();
         LockHashIndex {
@@ -162,7 +161,7 @@ impl From<LockHashIndex> for TransactionPoint {
     fn from(lock_hash_index: LockHashIndex) -> Self {
         TransactionPoint {
             block_number: lock_hash_index.block_number,
-            tx_hash: lock_hash_index.out_point.tx_hash().unpack(),
+            tx_hash: lock_hash_index.out_point.tx_hash(),
             index: lock_hash_index.out_point.index().unpack(),
         }
     }
@@ -203,7 +202,7 @@ impl From<TransactionPoint> for JsonTransactionPoint {
         } = transaction_point;
         JsonTransactionPoint {
             block_number: JsonBlockNumber(block_number),
-            tx_hash,
+            tx_hash: tx_hash.unpack(),
             index: Unsigned(u64::from(index)),
         }
     }

@@ -6,7 +6,6 @@ use ckb_types::{
     },
     packed::{OutPoint, ProposalShortId},
     prelude::*,
-    H256,
 };
 use std::collections::HashSet;
 
@@ -78,7 +77,7 @@ impl PendingQueue {
 
 impl CellProvider for PendingQueue {
     fn cell(&self, out_point: &OutPoint, _with_data: bool) -> CellStatus {
-        let tx_hash: H256 = out_point.tx_hash().unpack();
+        let tx_hash = out_point.tx_hash();
         if let Some(x) = self.inner.get(&ProposalShortId::from_tx_hash(&tx_hash)) {
             match x.transaction.output_with_data(out_point.index().unpack()) {
                 Some((output, data)) => CellStatus::live_cell(
@@ -100,10 +99,10 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{Capacity, Cycle, TransactionBuilder},
-        packed::{CellInput, CellOutputBuilder},
+        packed::{Byte32, CellInput, CellOutputBuilder},
     };
 
-    fn build_tx(inputs: Vec<(&H256, u32)>, outputs_len: usize) -> TransactionView {
+    fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
         TransactionBuilder::default()
             .inputs(
                 inputs
@@ -124,9 +123,9 @@ mod tests {
 
     #[test]
     fn test_sorted_by_tx_fee_rate() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1)], 1);
-        let tx2 = build_tx(vec![(&H256::zero(), 2)], 1);
-        let tx3 = build_tx(vec![(&H256::zero(), 3)], 1);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 1);
+        let tx2 = build_tx(vec![(&Byte32::zero(), 2)], 1);
+        let tx3 = build_tx(vec![(&Byte32::zero(), 3)], 1);
 
         let mut pool = PendingQueue::new();
 
@@ -163,12 +162,12 @@ mod tests {
 
     #[test]
     fn test_sorted_by_ancestors_score() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1)], 2);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 2);
         let tx1_hash = tx1.hash();
-        let tx2 = build_tx(vec![(&tx1_hash.unpack(), 1)], 1);
+        let tx2 = build_tx(vec![(&tx1_hash, 1)], 1);
         let tx2_hash = tx2.hash();
-        let tx3 = build_tx(vec![(&tx1_hash.unpack(), 2)], 1);
-        let tx4 = build_tx(vec![(&tx2_hash.unpack(), 1)], 1);
+        let tx3 = build_tx(vec![(&tx1_hash, 2)], 1);
+        let tx4 = build_tx(vec![(&tx2_hash, 1)], 1);
 
         let mut pool = PendingQueue::new();
 
@@ -213,19 +212,19 @@ mod tests {
 
     #[test]
     fn test_sorted_by_ancestors_score_competitive() {
-        let tx1 = build_tx(vec![(&H256::zero(), 1)], 2);
+        let tx1 = build_tx(vec![(&Byte32::zero(), 1)], 2);
         let tx1_hash = tx1.hash();
-        let tx2 = build_tx(vec![(&tx1_hash.unpack(), 0)], 1);
+        let tx2 = build_tx(vec![(&tx1_hash, 0)], 1);
         let tx2_hash = tx2.hash();
-        let tx3 = build_tx(vec![(&tx2_hash.unpack(), 0)], 1);
+        let tx3 = build_tx(vec![(&tx2_hash, 0)], 1);
 
-        let tx2_1 = build_tx(vec![(&H256::zero(), 2)], 2);
+        let tx2_1 = build_tx(vec![(&Byte32::zero(), 2)], 2);
         let tx2_1_hash = tx2_1.hash();
-        let tx2_2 = build_tx(vec![(&tx2_1_hash.unpack(), 0)], 1);
+        let tx2_2 = build_tx(vec![(&tx2_1_hash, 0)], 1);
         let tx2_2_hash = tx2_2.hash();
-        let tx2_3 = build_tx(vec![(&tx2_2_hash.unpack(), 0)], 1);
+        let tx2_3 = build_tx(vec![(&tx2_2_hash, 0)], 1);
         let tx2_3_hash = tx2_3.hash();
-        let tx2_4 = build_tx(vec![(&tx2_3_hash.unpack(), 0)], 1);
+        let tx2_4 = build_tx(vec![(&tx2_3_hash, 0)], 1);
 
         let mut pool = PendingQueue::new();
 

@@ -1,8 +1,6 @@
 //! Advanced builders for Transaction(View), Header(View) and Block(View).
 
-use ckb_merkle_tree::merkle_root;
-
-use crate::{constants, core, packed, prelude::*, H256, U256};
+use crate::{constants, core, packed, prelude::*, utilities::merkle_root, U256};
 
 /*
  * Definitions
@@ -187,8 +185,8 @@ impl TransactionBuilder {
             .raw(raw)
             .witnesses(witnesses.pack())
             .build();
-        let hash = tx.calc_tx_hash().pack();
-        let witness_hash = tx.calc_witness_hash().pack();
+        let hash = tx.calc_tx_hash();
+        let witness_hash = tx.calc_witness_hash();
         core::TransactionView {
             data: tx,
             hash,
@@ -247,7 +245,7 @@ impl HeaderBuilder {
             .dao(dao)
             .build();
         let header = packed::Header::new_builder().raw(raw).nonce(nonce).build();
-        let hash = header.calc_header_hash().pack();
+        let hash = header.calc_header_hash();
         core::HeaderView { data: header, hash }
     }
 }
@@ -343,21 +341,16 @@ impl BlockBuilder {
         let uncles = uncles.pack();
 
         let core::HeaderView { data, hash } = if reset_header {
-            let tx_hashes = tx_hashes.iter().map(|h| h.unpack()).collect::<Vec<H256>>();
-            let tx_witness_hashes = tx_witness_hashes
-                .iter()
-                .map(|h| h.unpack())
-                .collect::<Vec<H256>>();
             let transactions_root = merkle_root(&tx_hashes[..]);
             let witnesses_root = merkle_root(&tx_witness_hashes[..]);
             let proposals_hash = proposals.calc_proposals_hash();
             let uncles_hash = uncles.calc_uncles_hash();
             let uncles_count = uncles.len() as u32;
             header
-                .transactions_root(transactions_root.pack())
-                .witnesses_root(witnesses_root.pack())
-                .proposals_hash(proposals_hash.pack())
-                .uncles_hash(uncles_hash.pack())
+                .transactions_root(transactions_root)
+                .witnesses_root(witnesses_root)
+                .proposals_hash(proposals_hash)
+                .uncles_hash(uncles_hash)
                 .uncles_count(uncles_count.pack())
                 .build()
         } else {

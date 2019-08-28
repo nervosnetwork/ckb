@@ -26,6 +26,7 @@ use ckb_types::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity, HeaderView,
         TransactionBuilder, TransactionView,
     },
+    h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
     H256, U256,
@@ -53,7 +54,7 @@ const TARGET_HEIGHT: u64 = 1024;
 
 thread_local! {
     // We store a cellbase for constructing a new transaction later
-    static UNSPENT: RefCell<H256> = RefCell::new(H256::zero());
+    static UNSPENT: RefCell<H256> = RefCell::new(h256!("0x0"));
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -101,7 +102,7 @@ fn always_success_transaction() -> TransactionView {
 fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let epoch = {
         let last_epoch = shared
-            .get_block_epoch(&parent.hash().unpack())
+            .get_block_epoch(&parent.hash())
             .expect("current epoch exists");
         shared
             .next_epoch_ext(&last_epoch, parent)
@@ -273,24 +274,21 @@ fn load_cases_from_file() -> Vec<Value> {
 
 // Construct a transaction which use tip-cellbase as input cell
 fn construct_transaction() -> TransactionView {
-    let previous_output = OutPoint::new(UNSPENT.with(|unspent| unspent.borrow().clone()), 0);
+    let previous_output = OutPoint::new(UNSPENT.with(|unspent| unspent.borrow().clone()).pack(), 0);
     let input = CellInput::new(previous_output, 0);
     let output = CellOutputBuilder::default()
         .capacity(capacity_bytes!(1000).pack())
         .lock(always_success_cell().2.clone())
         .build();
     let cell_dep = CellDep::new_builder()
-        .out_point(OutPoint::new(
-            always_success_transaction().hash().unpack(),
-            0,
-        ))
+        .out_point(OutPoint::new(always_success_transaction().hash(), 0))
         .build();
     TransactionBuilder::default()
         .input(input)
         .output(output)
         .output_data(Default::default())
         .cell_dep(cell_dep)
-        .header_dep(always_success_consensus().genesis_hash().pack())
+        .header_dep(always_success_consensus().genesis_hash())
         .build()
 }
 
@@ -331,10 +329,12 @@ fn params_of(shared: &Shared, method: &str) -> Value {
     let tip_number = json!(tip.number().to_string());
     let tip_hash = json!(format!("{:#x}", Unpack::<H256>::unpack(&tip.hash())));
     let (_, _, always_success_script) = always_success_cell();
-    let always_success_script_hash =
-        json!(format!("{:#x}", always_success_script.calc_script_hash()));
+    let always_success_script_hash = {
+        let always_success_script_hash: H256 = always_success_script.calc_script_hash().unpack();
+        json!(format!("{:#x}", always_success_script_hash))
+    };
     let always_success_out_point = {
-        let out_point = OutPoint::new(always_success_transaction().hash().unpack(), 0);
+        let out_point = OutPoint::new(always_success_transaction().hash(), 0);
         let json_out_point: ckb_jsonrpc_types::OutPoint = out_point.into();
         json!(json_out_point)
     };
@@ -378,14 +378,8 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             vec![transaction]
         }
         "get_transaction" => vec![transaction_hash],
-        "index_lock_hash" => vec![
-            json!(format!("{:#x}", always_success_script.calc_script_hash())),
-            json!("1024"),
-        ],
-        "deindex_lock_hash" => vec![json!(format!(
-            "{:#x}",
-            always_success_script.calc_script_hash()
-        ))],
+        "index_lock_hash" => vec![json!(always_success_script_hash), json!("1024")],
+        "deindex_lock_hash" => vec![json!(always_success_script_hash)],
         "_compute_code_hash" => vec![json!("0x123456")],
         "_compute_script_hash" => {
             let script = always_success_script.clone();

@@ -5,9 +5,8 @@ use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockNumber, Capacity, ScriptHashType, TransactionBuilder, TransactionView},
-    packed::{self, CellDep, CellInput, CellOutput, OutPoint, Script},
+    packed::{self, Byte32, CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
-    H256,
 };
 
 const SYSTEM_CELL_ALWAYS_SUCCESS_INDEX: u32 = 1;
@@ -36,8 +35,8 @@ impl Spec for DepositDAO {
             // deposit dao transaction without `block_hash`
             let transaction = {
                 let out_point_without_block_hash = {
-                    let tx_hash = node0.get_tip_block().transactions()[0].hash().to_owned();
-                    OutPoint::new(tx_hash.unpack(), 0)
+                    let tx_hash = node0.get_tip_block().transactions()[0].hash();
+                    OutPoint::new(tx_hash, 0)
                 };
                 deposit_dao_transaction(node0)
                     .as_advanced_builder()
@@ -268,7 +267,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
 }
 
 // Send the given transaction and ensure it being committed
-fn ensure_committed(node: &Node, transaction: &TransactionView) -> (OutPoint, H256) {
+fn ensure_committed(node: &Node, transaction: &TransactionView) -> (OutPoint, Byte32) {
     // Ensure the transaction's cellbase-maturity and since-maturity
     node.generate_blocks(20);
 
@@ -285,57 +284,47 @@ fn ensure_committed(node: &Node, transaction: &TransactionView) -> (OutPoint, H2
         .expect("get sent transaction");
     assert!(
         is_committed(&tx_status),
-        "ensure_committed failed {:#x}",
+        "ensure_committed failed {}",
         tx_hash
     );
 
     let block_hash = tx_status.tx_status.block_hash.unwrap();
-    (OutPoint::new(tx_hash, 0), block_hash)
+    (OutPoint::new(tx_hash, 0), block_hash.pack())
 }
 
-fn tip_cellbase_input(node: &Node) -> (CellInput, H256, Capacity) {
+fn tip_cellbase_input(node: &Node) -> (CellInput, Byte32, Capacity) {
     let tip_block = node.get_tip_block();
     let cellbase = tip_block.transactions()[0].clone();
-    let block_hash = tip_block.header().hash().to_owned();
-    let tx_hash = cellbase.hash().to_owned();
-    let previous_out_point = OutPoint::new(tx_hash.unpack(), 0);
+    let block_hash = tip_block.hash();
+    let tx_hash = cellbase.hash();
+    let previous_out_point = OutPoint::new(tx_hash, 0);
     let capacity = cellbase.outputs_capacity().unwrap();
-    (
-        CellInput::new(previous_out_point, 0),
-        block_hash.unpack(),
-        capacity,
-    )
+    (CellInput::new(previous_out_point, 0), block_hash, capacity)
 }
 
 // deps = [always-success-cell, dao-cell]
-fn deposit_dao_deps(node: &Node) -> (Vec<CellDep>, Vec<H256>) {
+fn deposit_dao_deps(node: &Node) -> (Vec<CellDep>, Vec<Byte32>) {
     let genesis_block = node.get_block_by_number(0);
     let genesis_tx = &genesis_block.transactions()[0];
 
     // Reference to AlwaysSuccess lock_script, to unlock the cellbase
     let always_dep = CellDep::new_builder()
         .out_point(OutPoint::new(
-            genesis_tx.hash().unpack(),
+            genesis_tx.hash(),
             SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
         ))
         .build();
     // Reference to DAO type_script
     let dao_dep = CellDep::new_builder()
-        .out_point(OutPoint::new(
-            genesis_tx.hash().unpack(),
-            SYSTEM_CELL_DAO_INDEX,
-        ))
+        .out_point(OutPoint::new(genesis_tx.hash(), SYSTEM_CELL_DAO_INDEX))
         .build();
 
-    (
-        vec![always_dep, dao_dep],
-        vec![genesis_block.hash().unpack()],
-    )
+    (vec![always_dep, dao_dep], vec![genesis_block.hash()])
 }
 
 // cell deps = [always-success-cell, dao-cell]
 // header deps = [genesis-header-hash, withdraw-header-hash]
-fn withdraw_dao_deps(node: &Node, withdraw_header_hash: H256) -> (Vec<CellDep>, Vec<H256>) {
+fn withdraw_dao_deps(node: &Node, withdraw_header_hash: Byte32) -> (Vec<CellDep>, Vec<Byte32>) {
     let (cell_deps, mut header_deps) = deposit_dao_deps(node);
     header_deps.push(withdraw_header_hash);
     (cell_deps, header_deps)
@@ -384,7 +373,7 @@ fn deposit_dao_transaction(node: &Node) -> TransactionView {
     header_deps.push(block_hash);
     TransactionBuilder::default()
         .cell_deps(cell_deps)
-        .header_deps(header_deps.into_iter().map(|hash| hash.pack()).pack())
+        .header_deps(header_deps.into_iter())
         .input(input)
         .output(output)
         .output_data(output_data.pack())
@@ -393,8 +382,12 @@ fn deposit_dao_transaction(node: &Node) -> TransactionView {
 
 // Construct a withdraw dao transaction, which consumes the tip-cellbase and a given deposited cell
 // as the inputs, generates the output with always-success-script as lock script, none type script
-fn withdraw_dao_transaction(node: &Node, out_point: OutPoint, block_hash: H256) -> TransactionView {
-    let withdraw_header_hash: H256 = node.get_tip_block().hash().unpack();
+fn withdraw_dao_transaction(
+    node: &Node,
+    out_point: OutPoint,
+    block_hash: Byte32,
+) -> TransactionView {
+    let withdraw_header_hash = node.get_tip_block().hash();
     let deposited_input = {
         let minimal_since = absolute_minimal_since(node);
         CellInput::new(out_point.clone(), minimal_since)
@@ -415,7 +408,7 @@ fn withdraw_dao_transaction(node: &Node, out_point: OutPoint, block_hash: H256) 
     .pack();
     TransactionBuilder::default()
         .cell_deps(cell_deps)
-        .header_deps(header_deps.into_iter().map(|hash| hash.pack()).pack())
+        .header_deps(header_deps.into_iter())
         .input(deposited_input)
         .output(output)
         .output_data(output_data.pack())

@@ -107,10 +107,7 @@ pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> Transa
                 .build(),
         )
         .output_data(Bytes::new().pack())
-        .input(CellInput::new(
-            OutPoint::new(parent.hash().unpack(), index),
-            0,
-        ))
+        .input(CellInput::new(OutPoint::new(parent.hash(), index), 0))
         .cell_dep(
             CellDep::new_builder()
                 .out_point(always_success_out_point)

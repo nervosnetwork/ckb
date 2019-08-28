@@ -7,7 +7,6 @@ use ckb_types::{
     core::{cell::CellMeta, HeaderView},
     packed::Byte32Vec,
     prelude::*,
-    H256,
 };
 use ckb_vm::{
     registers::{A0, A3, A4, A7},
@@ -51,9 +50,9 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
             .header_deps
             .clone()
             .into_iter()
-            .any(|hash| &Unpack::<H256>::unpack(&hash) == block_hash)
+            .any(|hash| &hash == block_hash)
         {
-            self.data_loader.get_header(&block_hash.pack())
+            self.data_loader.get_header(&block_hash)
         } else {
             None
         }

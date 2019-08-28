@@ -1,0 +1,11 @@
+[package]
+name = "ckb-fixed-hash"
+version = "0.20.0-pre"
+license = "MIT"
+authors = ["Nervos <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+ckb-fixed-hash-core = { path = "core" }
+ckb-fixed-hash-hack = { path = "hack" }
+proc-macro-hack = "0.5"

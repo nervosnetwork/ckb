@@ -264,7 +264,7 @@ pub fn test_capacity_invalid() {
 
 #[test]
 pub fn test_duplicate_deps() {
-    let out_point = OutPoint::new(h256!("0x1"), 0);
+    let out_point = OutPoint::new(h256!("0x1").pack(), 0);
     let cell_dep = CellDep::new_builder().out_point(out_point).build();
     let transaction = TransactionBuilder::default()
         .cell_deps(vec![cell_dep.clone(), cell_dep])
@@ -293,7 +293,7 @@ where
         block_median_time_context,
         block_number,
         epoch_number,
-        parent_hash.as_ref().pack(),
+        parent_hash.as_ref().to_owned(),
     )
     .verify()
 }
@@ -328,7 +328,10 @@ fn test_since() {
 
 fn create_tx_with_lock(since: u64) -> TransactionView {
     TransactionBuilder::default()
-        .inputs(vec![CellInput::new(OutPoint::new(h256!("0x1"), 0), since)])
+        .inputs(vec![CellInput::new(
+            OutPoint::new(h256!("0x1").pack(), 0),
+            since,
+        )])
         .build()
 }
 
@@ -440,9 +443,9 @@ pub fn test_since_both() {
     let tx = TransactionBuilder::default()
         .inputs(vec![
             // absolute lock until epoch number 0xa
-            CellInput::new(OutPoint::new(h256!("0x1"), 0), 0x0000_0000_0000_000a),
+            CellInput::new(OutPoint::new(h256!("0x1").pack(), 0), 0x0000_0000_0000_000a),
             // relative lock until after 2 blocks
-            CellInput::new(OutPoint::new(h256!("0x1"), 0), 0xc000_0000_0000_0002),
+            CellInput::new(OutPoint::new(h256!("0x1").pack(), 0), 0xc000_0000_0000_0002),
         ])
         .build();
 

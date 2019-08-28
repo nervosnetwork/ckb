@@ -53,7 +53,7 @@ impl CellMetaBuilder {
         let mut builder = CellMetaBuilder::default();
         builder.cell_output = cell_output;
         builder.data_bytes = data.len().try_into().expect("u32");
-        let data_hash = CellOutput::calc_data_hash(&data).pack();
+        let data_hash = CellOutput::calc_data_hash(&data);
         builder.mem_cell_data = Some((data, data_hash));
         builder
     }
@@ -249,7 +249,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         .get(j)
                         .expect("must exists")
                         .raw_data();
-                    let data_hash = CellOutput::calc_data_hash(&data).pack();
+                    let data_hash = CellOutput::calc_data_hash(&data);
                     let header = self.block.header();
                     CellStatus::live_cell(CellMeta {
                         cell_output: output,
@@ -257,7 +257,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         transaction_info: Some(TransactionInfo {
                             block_number: header.number(),
                             block_epoch: header.epoch(),
-                            block_hash: self.block.hash().unpack(),
+                            block_hash: self.block.hash(),
                             index: *i,
                         }),
                         data_bytes: data.len() as u64,
@@ -496,7 +496,7 @@ mod tests {
     use crate::{
         core::{capacity_bytes, BlockBuilder, BlockView, Capacity, TransactionBuilder},
         h256,
-        packed::{CellDep, CellInput},
+        packed::{Byte32, CellDep, CellInput},
         H256,
     };
     use std::collections::HashMap;
@@ -538,12 +538,12 @@ mod tests {
         let cell_output = CellOutput::new_builder()
             .capacity(capacity_bytes!(2).pack())
             .build();
-        let data_hash = CellOutput::calc_data_hash(&data).pack();
+        let data_hash = CellOutput::calc_data_hash(&data);
         CellMeta {
             transaction_info: Some(TransactionInfo {
                 block_number: 1,
                 block_epoch: 1,
-                block_hash: H256::zero(),
+                block_hash: Byte32::zero(),
                 index: 1,
             }),
             cell_output,
@@ -573,9 +573,9 @@ mod tests {
     fn cell_provider_trait_works() {
         let mut db = CellMemoryDb::default();
 
-        let p1 = OutPoint::new(H256::zero(), 1);
-        let p2 = OutPoint::new(H256::zero(), 2);
-        let p3 = OutPoint::new(H256::zero(), 3);
+        let p1 = OutPoint::new(Byte32::zero(), 1);
+        let p2 = OutPoint::new(Byte32::zero(), 2);
+        let p3 = OutPoint::new(Byte32::zero(), 3);
         let o = generate_dummy_cell_meta();
 
         db.cells.insert(p1.clone(), Some(o.clone()));
@@ -591,10 +591,10 @@ mod tests {
         let mut cell_provider = CellMemoryDb::default();
         let header_checker = BlockHeadersChecker::default();
 
-        let op_dep = OutPoint::new(H256::zero(), 72);
-        let op_1 = OutPoint::new(h256!("0x13"), 1);
-        let op_2 = OutPoint::new(h256!("0x23"), 2);
-        let op_3 = OutPoint::new(h256!("0x33"), 3);
+        let op_dep = OutPoint::new(Byte32::zero(), 72);
+        let op_1 = OutPoint::new(h256!("0x13").pack(), 1);
+        let op_2 = OutPoint::new(h256!("0x23").pack(), 2);
+        let op_3 = OutPoint::new(h256!("0x33").pack(), 3);
 
         for op in &[&op_1, &op_2, &op_3] {
             cell_provider.cells.insert(
@@ -636,7 +636,7 @@ mod tests {
         let mut cell_provider = CellMemoryDb::default();
         let header_checker = BlockHeadersChecker::default();
 
-        let op_dep = OutPoint::new(H256::zero(), 72);
+        let op_dep = OutPoint::new(Byte32::zero(), 72);
         let cell_data = Bytes::from("this is invalid data");
         let dep_group_cell = generate_dummy_cell_meta_with_data(cell_data);
         cell_provider
@@ -667,8 +667,8 @@ mod tests {
         let mut cell_provider = CellMemoryDb::default();
         let header_checker = BlockHeadersChecker::default();
 
-        let op_unknown = OutPoint::new(h256!("0x45"), 5);
-        let op_dep = OutPoint::new(H256::zero(), 72);
+        let op_unknown = OutPoint::new(h256!("0x45").pack(), 5);
+        let op_dep = OutPoint::new(Byte32::zero(), 72);
         let cell_data = vec![op_unknown.clone()].pack().as_bytes();
         let dep_group_cell = generate_dummy_cell_meta_with_data(cell_data);
         cell_provider
@@ -752,7 +752,7 @@ mod tests {
 
     #[test]
     fn resolve_transaction_should_reject_incorrect_order_txs() {
-        let out_point = OutPoint::new(h256!("0x2"), 3);
+        let out_point = OutPoint::new(h256!("0x2").pack(), 3);
 
         let tx1 = TransactionBuilder::default()
             .input(CellInput::new(out_point.clone(), 0))
@@ -765,11 +765,11 @@ mod tests {
             .build();
 
         let tx2 = TransactionBuilder::default()
-            .input(CellInput::new(OutPoint::new(tx1.hash().unpack(), 0), 0))
+            .input(CellInput::new(OutPoint::new(tx1.hash(), 0), 0))
             .build();
 
         let dep = CellDep::new_builder()
-            .out_point(OutPoint::new(tx1.hash().unpack(), 0))
+            .out_point(OutPoint::new(tx1.hash(), 0))
             .build();
         let tx3 = TransactionBuilder::default().cell_dep(dep).build();
 
@@ -789,10 +789,7 @@ mod tests {
 
             assert_eq!(
                 provider.err(),
-                Some(UnresolvableError::OutOfOrder(OutPoint::new(
-                    tx1.hash().unpack(),
-                    0
-                )))
+                Some(UnresolvableError::OutOfOrder(OutPoint::new(tx1.hash(), 0)))
             );
         }
 
@@ -813,10 +810,7 @@ mod tests {
 
             assert_eq!(
                 provider.err(),
-                Some(UnresolvableError::OutOfOrder(OutPoint::new(
-                    tx1.hash().unpack(),
-                    0
-                )))
+                Some(UnresolvableError::OutOfOrder(OutPoint::new(tx1.hash(), 0)))
             );
         }
     }
@@ -826,7 +820,7 @@ mod tests {
         let mut cell_provider = CellMemoryDb::default();
         let header_checker = BlockHeadersChecker::default();
 
-        let out_point = OutPoint::new(h256!("0x2"), 3);
+        let out_point = OutPoint::new(h256!("0x2").pack(), 3);
 
         let dummy_cell_meta = generate_dummy_cell_meta();
         cell_provider
@@ -851,7 +845,7 @@ mod tests {
         let mut cell_provider = CellMemoryDb::default();
         let header_checker = BlockHeadersChecker::default();
 
-        let out_point = OutPoint::new(h256!("0x2"), 3);
+        let out_point = OutPoint::new(h256!("0x2").pack(), 3);
 
         cell_provider
             .cells

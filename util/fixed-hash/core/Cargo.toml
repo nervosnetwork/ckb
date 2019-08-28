@@ -1,0 +1,11 @@
+[package]
+name = "ckb-fixed-hash-core"
+version = "0.20.0-pre"
+license = "MIT"
+authors = ["Nervos <dev@nervos.org>"]
+edition = "2018"
+
+[dependencies]
+failure = "0.1.5"
+serde = "1.0"
+faster-hex = "0.3"

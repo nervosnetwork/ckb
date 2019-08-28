@@ -79,7 +79,7 @@ impl IntegrationTestRpc for IntegrationTestRpcImpl {
             error!("Broadcast transaction failed: {:?}", err);
             Err(RPCError::custom(RPCError::Invalid, err.to_string()))
         } else {
-            Ok(hash)
+            Ok(hash.unpack())
         }
     }
 }

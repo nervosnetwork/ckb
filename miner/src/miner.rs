@@ -4,7 +4,11 @@ use crate::worker::{start_worker, WorkerController, WorkerMessage};
 use crate::Work;
 use ckb_logger::{debug, error, info};
 use ckb_pow::PowEngine;
-use ckb_types::{packed::Header, prelude::*, utilities::difficulty_to_target, H256};
+use ckb_types::{
+    packed::{Byte32, Header},
+    prelude::*,
+    utilities::difficulty_to_target,
+};
 use crossbeam_channel::{select, unbounded, Receiver};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use lru_cache::LruCache;
@@ -16,10 +20,10 @@ const WORK_CACHE_SIZE: usize = 32;
 pub struct Miner {
     pub pow: Arc<dyn PowEngine>,
     pub client: Client,
-    pub works: LruCache<H256, Work>,
+    pub works: LruCache<Byte32, Work>,
     pub worker_controllers: Vec<WorkerController>,
     pub work_rx: Receiver<Work>,
-    pub nonce_rx: Receiver<(H256, u64)>,
+    pub nonce_rx: Receiver<(Byte32, u64)>,
     pub pb: ProgressBar,
     pub nonces_found: u64,
     pub stderr_is_tty: bool,
@@ -69,7 +73,7 @@ impl Miner {
             select! {
                 recv(self.work_rx) -> msg => match msg {
                     Ok(work) => {
-                        let pow_hash = work.block.header().calc_pow_hash();
+                        let pow_hash= work.block.header().calc_pow_hash();
                         let target = difficulty_to_target(&work.block.header().raw().difficulty().unpack());
                         self.works.insert(pow_hash.clone(), work);
                         self.notify_workers(WorkerMessage::NewWork{pow_hash, target});
@@ -90,7 +94,7 @@ impl Miner {
         }
     }
 
-    fn submit_nonce(&mut self, pow_hash: H256, nonce: u64) {
+    fn submit_nonce(&mut self, pow_hash: Byte32, nonce: u64) {
         if let Some(work) = self.works.get_refresh(&pow_hash).cloned() {
             self.notify_workers(WorkerMessage::Stop);
             let raw_header = work.block.header().raw();
@@ -99,11 +103,11 @@ impl Miner {
                 .nonce(nonce.pack())
                 .build();
             let block = work.block.as_builder().header(header).build().into_view();
-            let block_hash: H256 = block.hash().unpack();
+            let block_hash = block.hash();
             if self.stderr_is_tty {
-                debug!("Found! #{} {:#x}", block.number(), block_hash);
+                debug!("Found! #{} {}", block.number(), block_hash);
             } else {
-                info!("Found! #{} {:#x}", block.number(), block_hash);
+                info!("Found! #{} {}", block.number(), block_hash);
             }
 
             // submit block and poll new work
@@ -118,7 +122,7 @@ impl Miner {
             {
                 self.nonces_found += 1;
                 self.pb
-                    .println(format!("Found! #{} {:#x}", block.number(), block_hash));
+                    .println(format!("Found! #{} {}", block.number(), block_hash));
                 self.pb
                     .set_message(&format!("Total nonces found: {:>3}", self.nonces_found));
                 self.pb.inc(1);

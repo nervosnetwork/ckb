@@ -7,7 +7,6 @@ use ckb_types::{
     core::{cell::ResolvedTransaction, BlockNumber, Capacity, EpochExt, HeaderView},
     packed::{Byte32, CellOutput, OutPoint},
     prelude::*,
-    H256,
 };
 use failure::Error as FailureError;
 use std::cmp::max;
@@ -191,14 +190,14 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                     if output
                         .type_()
                         .to_opt()
-                        .map(|t| Unpack::<H256>::unpack(&t.code_hash()) == CODE_HASH_DAO)
+                        .map(|t| t.code_hash() == CODE_HASH_DAO.pack())
                         .unwrap_or(false)
                     {
                         let deposit_header_hash = cell_meta
                             .transaction_info
                             .as_ref()
                             .map(|info| &info.block_hash)
-                            .filter(|hash| header_deps.contains(&hash.pack()))
+                            .filter(|hash| header_deps.contains(&hash))
                             .ok_or(Error::InvalidOutPoint)?;
                         let withdraw_header_hash = rtx
                             .transaction
@@ -223,7 +222,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                         self.calculate_maximum_withdraw(
                             &output,
                             Capacity::bytes(cell_meta.data_bytes as usize)?,
-                            &deposit_header_hash.pack(),
+                            &deposit_header_hash,
                             &withdraw_header_hash,
                         )
                     } else {
@@ -341,7 +340,7 @@ mod tests {
                     Capacity::shannons(50_000_000_000),
                     Capacity::shannons(1_000_128),
                     U256::one(),
-                    h256!("0x1"),
+                    h256!("0x1").pack(),
                     target_epoch_start,
                     2091,
                     U256::from(1u64),
@@ -594,7 +593,7 @@ mod tests {
             .transaction(tx.clone())
             .build();
 
-        let out_point = OutPoint::new(tx.hash().unpack(), 0);
+        let out_point = OutPoint::new(tx.hash(), 0);
 
         let withdraw_header = HeaderBuilder::default()
             .number(200.pack())
@@ -641,7 +640,7 @@ mod tests {
             .transaction(tx.clone())
             .build();
 
-        let out_point = OutPoint::new(tx.hash().unpack(), 0);
+        let out_point = OutPoint::new(tx.hash(), 0);
 
         let withdraw_header = HeaderBuilder::default()
             .number(200.pack())

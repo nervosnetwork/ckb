@@ -2,7 +2,7 @@ use crate::{
     core::{BlockNumber, Capacity, EpochNumber},
     packed,
     prelude::*,
-    H256, U256,
+    U256,
 };
 use failure::Error as FailureError;
 
@@ -18,7 +18,7 @@ pub struct BlockExt {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct TransactionInfo {
     // Block hash
-    pub block_hash: H256,
+    pub block_hash: packed::Byte32,
     pub block_number: BlockNumber,
     pub block_epoch: EpochNumber,
     // Index in the block
@@ -28,7 +28,7 @@ pub struct TransactionInfo {
 impl TransactionInfo {
     pub fn key(&self) -> packed::TransactionKey {
         packed::TransactionKey::new_builder()
-            .block_hash(self.block_hash.pack())
+            .block_hash(self.block_hash.clone())
             .index(self.index.pack())
             .build()
     }
@@ -36,7 +36,7 @@ impl TransactionInfo {
     pub fn new(
         block_number: BlockNumber,
         block_epoch: EpochNumber,
-        block_hash: H256,
+        block_hash: packed::Byte32,
         index: usize,
     ) -> Self {
         TransactionInfo {
@@ -58,7 +58,7 @@ pub struct EpochExt {
     pub(crate) block_reward: Capacity,
     pub(crate) remainder_reward: Capacity,
     pub(crate) previous_epoch_hash_rate: U256,
-    pub(crate) last_block_hash_in_previous_epoch: H256,
+    pub(crate) last_block_hash_in_previous_epoch: packed::Byte32,
     pub(crate) start_number: BlockNumber,
     pub(crate) length: BlockNumber,
     pub(crate) difficulty: U256,
@@ -113,8 +113,8 @@ impl EpochExt {
         &self.remainder_reward
     }
 
-    pub fn last_block_hash_in_previous_epoch(&self) -> &H256 {
-        &self.last_block_hash_in_previous_epoch
+    pub fn last_block_hash_in_previous_epoch(&self) -> packed::Byte32 {
+        self.last_block_hash_in_previous_epoch.clone()
     }
 
     pub fn previous_epoch_hash_rate(&self) -> &U256 {
@@ -131,7 +131,7 @@ impl EpochExt {
         block_reward: Capacity,
         remainder_reward: Capacity,
         previous_epoch_hash_rate: U256,
-        last_block_hash_in_previous_epoch: H256,
+        last_block_hash_in_previous_epoch: packed::Byte32,
         start_number: BlockNumber,
         length: BlockNumber,
         difficulty: U256,
@@ -155,7 +155,7 @@ impl EpochExt {
         Capacity,
         Capacity,
         U256,
-        H256,
+        packed::Byte32,
         BlockNumber,
         BlockNumber,
         U256,

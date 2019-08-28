@@ -3,7 +3,6 @@ use ckb_types::{
     core::{BlockNumber, EpochNumber, TransactionInfo},
     packed::Byte32,
     prelude::*,
-    H256,
 };
 
 pub struct MockMedianTime {
@@ -17,14 +16,14 @@ impl BlockMedianTimeContext for MockMedianTime {
 
     fn timestamp_and_parent(&self, block_hash: &Byte32) -> (u64, BlockNumber, Byte32) {
         for i in 0..self.timestamps.len() {
-            if Self::get_block_hash(i as u64) == block_hash.unpack() {
+            if &Self::get_block_hash(i as u64) == block_hash {
                 if i == 0 {
-                    return (self.timestamps[i], i as u64, H256::zero().pack());
+                    return (self.timestamps[i], i as u64, Byte32::zero());
                 } else {
                     return (
                         self.timestamps[i],
                         i as u64,
-                        Self::get_block_hash(i as u64 - 1).pack(),
+                        Self::get_block_hash(i as u64 - 1),
                     );
                 }
             }
@@ -38,9 +37,9 @@ impl MockMedianTime {
         Self { timestamps }
     }
 
-    pub fn get_block_hash(block_number: BlockNumber) -> H256 {
+    pub fn get_block_hash(block_number: BlockNumber) -> Byte32 {
         let vec: Vec<u8> = (0..32).map(|_| block_number as u8).collect();
-        H256::from_slice(vec.as_slice()).unwrap()
+        Byte32::from_slice(vec.as_slice()).unwrap()
     }
 
     pub fn get_transaction_info(

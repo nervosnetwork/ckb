@@ -18,7 +18,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
-    H256, U256,
+    U256,
 };
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -300,9 +300,9 @@ impl ChainService {
 
         db_txn.insert_block_epoch_index(
             &block.header().hash(),
-            &epoch.last_block_hash_in_previous_epoch().pack(),
+            &epoch.last_block_hash_in_previous_epoch(),
         )?;
-        db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch().pack(), &epoch)?;
+        db_txn.insert_epoch_ext(&epoch.last_block_hash_in_previous_epoch(), &epoch)?;
 
         let shared_snapshot = Arc::clone(&self.shared.snapshot());
         let mut cell_set = shared_snapshot.cell_set().clone();
@@ -315,10 +315,9 @@ impl ChainService {
             current_total_difficulty, cannon_total_difficulty,
         );
 
-        let block_hash: H256 = block.hash().unpack();
-        let tip_hash: H256 = current_tip_header.hash().unpack();
         let new_best_block = (cannon_total_difficulty > current_total_difficulty)
-            || ((current_total_difficulty == cannon_total_difficulty) && (block_hash < tip_hash));
+            || ((current_total_difficulty == cannon_total_difficulty)
+                && (block.hash() < current_tip_header.hash()));
 
         if new_best_block {
             debug!(

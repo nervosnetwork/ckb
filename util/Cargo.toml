@@ -10,4 +10,4 @@ parking_lot = {version = "=0.7.1", features = ["deadlock_detection"]}
 linked-hash-map = { git = "https://github.com/nervosnetwork/linked-hash-map", rev = "df27f21" }
 
 [dev-dependencies]
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
+ckb-fixed-hash = { path = "fixed-hash" }

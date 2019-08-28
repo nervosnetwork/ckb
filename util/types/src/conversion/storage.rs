@@ -91,7 +91,7 @@ impl Pack<packed::EpochExt> for core::EpochExt {
             .block_reward(self.base_block_reward().pack())
             .remainder_reward(self.remainder_reward().pack())
             .previous_epoch_hash_rate(self.previous_epoch_hash_rate().pack())
-            .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch().pack())
+            .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch().clone())
             .start_number(self.start_number().pack())
             .length(self.length().pack())
             .difficulty(self.difficulty().pack())
@@ -106,7 +106,7 @@ impl<'r> Unpack<core::EpochExt> for packed::EpochExtReader<'r> {
             block_reward: self.block_reward().unpack(),
             remainder_reward: self.remainder_reward().unpack(),
             previous_epoch_hash_rate: self.previous_epoch_hash_rate().unpack(),
-            last_block_hash_in_previous_epoch: self.last_block_hash_in_previous_epoch().unpack(),
+            last_block_hash_in_previous_epoch: self.last_block_hash_in_previous_epoch().to_entity(),
             start_number: self.start_number().unpack(),
             length: self.length().unpack(),
             difficulty: self.difficulty().unpack(),
@@ -118,7 +118,7 @@ impl_conversion_for_entity_unpack!(core::EpochExt, EpochExt);
 impl Pack<packed::TransactionInfo> for core::TransactionInfo {
     fn pack(&self) -> packed::TransactionInfo {
         let key = packed::TransactionKey::new_builder()
-            .block_hash(self.block_hash.pack())
+            .block_hash(self.block_hash.clone())
             .index(self.index.pack())
             .build();
         packed::TransactionInfo::new_builder()
@@ -132,7 +132,7 @@ impl Pack<packed::TransactionInfo> for core::TransactionInfo {
 impl<'r> Unpack<core::TransactionInfo> for packed::TransactionInfoReader<'r> {
     fn unpack(&self) -> core::TransactionInfo {
         core::TransactionInfo {
-            block_hash: self.key().block_hash().unpack(),
+            block_hash: self.key().block_hash().to_entity(),
             index: self.key().index().unpack(),
             block_number: self.block_number().unpack(),
             block_epoch: self.block_epoch().unpack(),
@@ -148,7 +148,7 @@ impl Pack<packed::TransactionMeta> for core::TransactionMeta {
         packed::TransactionMeta::new_builder()
             .block_number(self.block_number.pack())
             .epoch_number(self.epoch_number.pack())
-            .block_hash(self.block_hash.pack())
+            .block_hash(self.block_hash.clone())
             .cellbase(self.cellbase.pack())
             .bits(bits.pack())
             .len(len.pack())
@@ -161,7 +161,7 @@ impl<'r> Unpack<core::TransactionMeta> for packed::TransactionMetaReader<'r> {
         core::TransactionMetaBuilder::default()
             .block_number(self.block_number().unpack())
             .epoch_number(self.epoch_number().unpack())
-            .block_hash(self.block_hash().unpack())
+            .block_hash(self.block_hash().to_entity())
             .cellbase(self.cellbase().unpack())
             .bits(self.bits().unpack())
             .len(self.len().unpack())

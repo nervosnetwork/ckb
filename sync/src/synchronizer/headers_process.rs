@@ -123,7 +123,7 @@ impl<'a> HeadersProcess<'a> {
             if let [parent, header] = &window {
                 if header.data().raw().parent_hash() != parent.hash() {
                     debug!(
-                        "header.parent_hash {:x} parent.hash {}",
+                        "header.parent_hash {} parent.hash {}",
                         header.parent_hash(),
                         parent.hash()
                     );

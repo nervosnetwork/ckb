@@ -9,9 +9,8 @@ use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::{self, BlockNumber},
-    packed::{self, CellOutput, OutPoint},
+    packed::{self, Byte32, CellOutput, OutPoint},
     prelude::*,
-    H256,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -25,7 +24,7 @@ const COLUMNS: u32 = 4;
 /// +---------------------------------+---------------+--------------------------+
 /// |             Column              |      Key      |          Value           |
 /// +---------------------------------+---------------+--------------------------+
-/// | COLUMN_LOCK_HASH_INDEX_STATE    | H256          | LockHashIndexState       |
+/// | COLUMN_LOCK_HASH_INDEX_STATE    | Byte32        | LockHashIndexState       |
 /// | COLUMN_LOCK_HASH_LIVE_CELL      | LockHashIndex | CellOutput               |
 /// | COLUMN_LOCK_HASH_TRANSACTION    | LockHashIndex | Option<TransactionPoint> |
 /// | COLUMN_OUT_POINT_LOCK_HASH      | OutPoint      | LockHashCellOutput       |
@@ -39,7 +38,7 @@ const COLUMN_OUT_POINT_LOCK_HASH: Col = "3";
 pub trait IndexerStore: Sync + Send {
     fn get_live_cells(
         &self,
-        lock_hash: &H256,
+        lock_hash: &Byte32,
         skip_num: usize,
         take_num: usize,
         reverse_order: bool,
@@ -47,21 +46,21 @@ pub trait IndexerStore: Sync + Send {
 
     fn get_transactions(
         &self,
-        lock_hash: &H256,
+        lock_hash: &Byte32,
         skip_num: usize,
         take_num: usize,
         reverse_order: bool,
     ) -> Vec<CellTransaction>;
 
-    fn get_lock_hash_index_states(&self) -> HashMap<H256, LockHashIndexState>;
+    fn get_lock_hash_index_states(&self) -> HashMap<Byte32, LockHashIndexState>;
 
     fn insert_lock_hash(
         &self,
-        lock_hash: &H256,
+        lock_hash: &Byte32,
         index_from: Option<BlockNumber>,
     ) -> LockHashIndexState;
 
-    fn remove_lock_hash(&self, lock_hash: &H256);
+    fn remove_lock_hash(&self, lock_hash: &Byte32);
 }
 
 #[derive(Clone)]
@@ -73,12 +72,12 @@ pub struct DefaultIndexerStore {
 impl IndexerStore for DefaultIndexerStore {
     fn get_live_cells(
         &self,
-        lock_hash: &H256,
+        lock_hash: &Byte32,
         skip_num: usize,
         take_num: usize,
         reverse_order: bool,
     ) -> Vec<LiveCell> {
-        let mut from_key = lock_hash.to_vec();
+        let mut from_key = lock_hash.as_slice().to_owned();
         let iter = if reverse_order {
             from_key.extend_from_slice(&BlockNumber::max_value().to_be_bytes());
             self.db
@@ -90,7 +89,7 @@ impl IndexerStore for DefaultIndexerStore {
         iter.expect("indexer db iter should be ok")
             .skip(skip_num)
             .take(take_num)
-            .take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
+            .take_while(|(key, _)| key.starts_with(lock_hash.as_slice()))
             .map(|(key, value)| {
                 let cell_output = CellOutput::from_slice(&value)
                     .expect("verify CellOutput in storage should be ok");
@@ -107,12 +106,12 @@ impl IndexerStore for DefaultIndexerStore {
 
     fn get_transactions(
         &self,
-        lock_hash: &H256,
+        lock_hash: &Byte32,
         skip_num: usize,
         take_num: usize,
         reverse_order: bool,
     ) -> Vec<CellTransaction> {
-        let mut from_key = lock_hash.to_vec();
+        let mut from_key = lock_hash.as_slice().to_owned();
         let iter = if reverse_order {
             from_key.extend_from_slice(&BlockNumber::max_value().to_be_bytes());
             self.db
@@ -124,7 +123,7 @@ impl IndexerStore for DefaultIndexerStore {
         iter.expect("indexer db iter should be ok")
             .skip(skip_num)
             .take(take_num)
-            .take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
+            .take_while(|(key, _)| key.starts_with(lock_hash.as_slice()))
             .map(|(key, value)| {
                 let consumed_by = packed::TransactionPointOptReader::from_slice(&value)
                     .expect("verify TransactionPointOpt in storage should be ok")
@@ -141,13 +140,13 @@ impl IndexerStore for DefaultIndexerStore {
             .collect()
     }
 
-    fn get_lock_hash_index_states(&self) -> HashMap<H256, LockHashIndexState> {
+    fn get_lock_hash_index_states(&self) -> HashMap<Byte32, LockHashIndexState> {
         self.db
             .iter(COLUMN_LOCK_HASH_INDEX_STATE, &[], Direction::Forward)
             .expect("indexer db iter should be ok")
             .map(|(key, value)| {
                 (
-                    H256::from_slice(&key).expect("db safe access"),
+                    Byte32::from_slice(&key).expect("db safe access"),
                     LockHashIndexState::from_packed(
                         packed::LockHashIndexStateReader::from_slice(&value)
                             .expect("verify LockHashIndexState in storage should be ok"),
@@ -159,7 +158,7 @@ impl IndexerStore for DefaultIndexerStore {
 
     fn insert_lock_hash(
         &self,
-        lock_hash: &H256,
+        lock_hash: &Byte32,
         index_from: Option<BlockNumber>,
     ) -> LockHashIndexState {
         let index_state = {
@@ -176,8 +175,7 @@ impl IndexerStore for DefaultIndexerStore {
                     .shared
                     .store()
                     .get_block_hash(block_number)
-                    .expect("block exists")
-                    .unpack(),
+                    .expect("block exists"),
             }
         };
         self.commit_txn(|txn| {
@@ -186,18 +184,18 @@ impl IndexerStore for DefaultIndexerStore {
         index_state
     }
 
-    fn remove_lock_hash(&self, lock_hash: &H256) {
+    fn remove_lock_hash(&self, lock_hash: &Byte32) {
         self.commit_txn(|txn| {
             let iter = self
                 .db
                 .iter(
                     COLUMN_LOCK_HASH_LIVE_CELL,
-                    lock_hash.as_bytes(),
+                    lock_hash.as_slice(),
                     Direction::Forward,
                 )
                 .expect("indexer db iter should be ok");
 
-            iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
+            iter.take_while(|(key, _)| key.starts_with(lock_hash.as_slice()))
                 .for_each(|(key, _)| {
                     let lock_hash_index = LockHashIndex::from_packed(
                         packed::LockHashIndexReader::from_slice(&key).unwrap(),
@@ -210,12 +208,12 @@ impl IndexerStore for DefaultIndexerStore {
                 .db
                 .iter(
                     COLUMN_LOCK_HASH_TRANSACTION,
-                    lock_hash.as_bytes(),
+                    lock_hash.as_slice(),
                     Direction::Forward,
                 )
                 .expect("indexer db iter should be ok");
 
-            iter.take_while(|(key, _)| key.starts_with(lock_hash.as_bytes()))
+            iter.take_while(|(key, _)| key.starts_with(lock_hash.as_slice()))
                 .for_each(|(key, _)| {
                     let lock_hash_index = LockHashIndex::from_packed(
                         packed::LockHashIndexReader::from_slice(&key).unwrap(),
@@ -273,7 +271,7 @@ impl DefaultIndexerStore {
         lock_hash_index_states.retain(|_, index_state| {
             self.shared
                 .store()
-                .get_block_number(&index_state.block_hash.pack())
+                .get_block_number(&index_state.block_hash.clone())
                 != Some(index_state.block_number)
         });
         lock_hash_index_states
@@ -285,7 +283,7 @@ impl DefaultIndexerStore {
                 let mut block = self
                     .shared
                     .store()
-                    .get_block(&index_state.block_hash.pack())
+                    .get_block(&index_state.block_hash.clone())
                     .expect("block exists");
                 // detach blocks until reach a block on main chain
                 self.commit_txn(|txn| {
@@ -357,7 +355,7 @@ impl DefaultIndexerStore {
                     self.attach_block(txn, &index_lock_hashes, &block);
                     let index_state = LockHashIndexState {
                         block_number,
-                        block_hash: block.hash().unpack(),
+                        block_hash: block.hash(),
                     };
                     index_lock_hashes.into_iter().for_each(|lock_hash| {
                         lock_hash_index_states.insert(lock_hash, index_state.clone());
@@ -377,7 +375,7 @@ impl DefaultIndexerStore {
     fn detach_block(
         &self,
         txn: &IndexerStoreTransaction,
-        index_lock_hashes: &HashSet<H256>,
+        index_lock_hashes: &HashSet<Byte32>,
         block: &core::BlockView,
     ) {
         trace!("detach block {}", block.header().hash());
@@ -392,7 +390,7 @@ impl DefaultIndexerStore {
                     let lock_hash = output.calc_lock_hash();
                     if index_lock_hashes.contains(&lock_hash) {
                         let lock_hash_index =
-                            LockHashIndex::new(lock_hash, block_number, tx_hash.unpack(), index);
+                            LockHashIndex::new(lock_hash, block_number, tx_hash.clone(), index);
                         txn.delete_lock_hash_live_cell(&lock_hash_index);
                         txn.delete_lock_hash_transaction(&lock_hash_index);
                         txn.delete_cell_out_point_lock_hash(&lock_hash_index.out_point);
@@ -408,7 +406,7 @@ impl DefaultIndexerStore {
                                 let lock_hash_index = LockHashIndex::new(
                                     lock_hash_cell_output.lock_hash.clone(),
                                     lock_hash_cell_output.block_number,
-                                    out_point.tx_hash().unpack(),
+                                    out_point.tx_hash(),
                                     out_point.index().unpack(),
                                 );
                                 txn.generate_live_cell(lock_hash_index, cell_output);
@@ -423,7 +421,7 @@ impl DefaultIndexerStore {
     fn attach_block(
         &self,
         txn: &IndexerStoreTransaction,
-        index_lock_hashes: &HashSet<H256>,
+        index_lock_hashes: &HashSet<Byte32>,
         block: &core::BlockView,
     ) {
         trace!("attach block {}", block.hash());
@@ -444,12 +442,12 @@ impl DefaultIndexerStore {
                                 let lock_hash_index = LockHashIndex::new(
                                     lock_hash_cell_output.lock_hash,
                                     lock_hash_cell_output.block_number,
-                                    out_point.tx_hash().unpack(),
+                                    out_point.tx_hash(),
                                     out_point.index().unpack(),
                                 );
                                 let consumed_by = TransactionPoint {
                                     block_number,
-                                    tx_hash: tx_hash.unpack(),
+                                    tx_hash: tx_hash.clone(),
                                     index,
                                 };
                                 txn.consume_live_cell(lock_hash_index, consumed_by);
@@ -466,7 +464,7 @@ impl DefaultIndexerStore {
                     let lock_hash = output.calc_lock_hash();
                     if index_lock_hashes.contains(&lock_hash) {
                         let lock_hash_index =
-                            LockHashIndex::new(lock_hash, block_number, tx_hash.unpack(), index);
+                            LockHashIndex::new(lock_hash, block_number, tx_hash.clone(), index);
                         txn.generate_live_cell(lock_hash_index, output.clone());
                     }
                 });
@@ -517,12 +515,12 @@ impl IndexerStoreTransaction {
         }
     }
 
-    fn insert_lock_hash_index_state(&self, lock_hash: &H256, index_state: &LockHashIndexState) {
+    fn insert_lock_hash_index_state(&self, lock_hash: &Byte32, index_state: &LockHashIndexState) {
         let value = index_state.pack();
         self.txn
             .put(
                 COLUMN_LOCK_HASH_INDEX_STATE,
-                lock_hash.as_bytes(),
+                lock_hash.as_slice(),
                 value.as_slice(),
             )
             .expect("txn insert COLUMN_LOCK_HASH_INDEX_STATE failed");
@@ -575,9 +573,9 @@ impl IndexerStoreTransaction {
             .expect("txn insert COLUMN_OUT_POINT_LOCK_HASH failed");
     }
 
-    fn delete_lock_hash_index_state(&self, lock_hash: &H256) {
+    fn delete_lock_hash_index_state(&self, lock_hash: &Byte32) {
         self.txn
-            .delete(COLUMN_LOCK_HASH_INDEX_STATE, lock_hash.as_bytes())
+            .delete(COLUMN_LOCK_HASH_INDEX_STATE, lock_hash.as_slice())
             .expect("txn delete COLUMN_LOCK_HASH_INDEX_STATE failed");
     }
 
@@ -639,8 +637,8 @@ mod tests {
             capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, ScriptHashType,
             TransactionBuilder,
         },
-        packed::{CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
-        H256, U256,
+        packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, Script, ScriptBuilder},
+        U256,
     };
     use std::sync::Arc;
     use tempfile;
@@ -667,12 +665,12 @@ mod tests {
     #[test]
     fn lock_hash_index() {
         let (store, _, _) = setup("lock_hash_index");
-        store.insert_lock_hash(&CODE_HASH_DAO, None);
-        store.insert_lock_hash(&H256::zero(), None);
+        store.insert_lock_hash(&CODE_HASH_DAO.pack(), None);
+        store.insert_lock_hash(&Byte32::zero(), None);
 
         assert_eq!(2, store.get_lock_hash_index_states().len());
 
-        store.remove_lock_hash(&CODE_HASH_DAO);
+        store.remove_lock_hash(&CODE_HASH_DAO.pack());
         assert_eq!(1, store.get_lock_hash_index_states().len());
     }
 
@@ -714,7 +712,7 @@ mod tests {
                 HeaderBuilder::default()
                     .difficulty(U256::from(1u64).pack())
                     .number(1.pack())
-                    .parent_hash(shared.genesis_hash().to_owned().pack())
+                    .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();
@@ -752,10 +750,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx11.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000).pack())
@@ -766,10 +761,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx12.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000).pack())
@@ -891,7 +883,7 @@ mod tests {
                 HeaderBuilder::default()
                     .difficulty(U256::from(1u64).pack())
                     .number(1.pack())
-                    .parent_hash(shared.genesis_hash().to_owned().pack())
+                    .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();
@@ -929,10 +921,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx11.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000).pack())
@@ -943,10 +932,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx12.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000).pack())
@@ -974,68 +960,38 @@ mod tests {
 
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx11.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx21.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx11.hash(), transactions[0].created_by.tx_hash);
+        assert_eq!(tx21.hash(), transactions[1].created_by.tx_hash);
 
         // test reverse order
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, true);
         assert_eq!(2, transactions.len());
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx21.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx11.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx21.hash(), transactions[0].created_by.tx_hash);
+        assert_eq!(tx11.hash(), transactions[1].created_by.tx_hash);
 
         let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx12.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx22.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx12.hash(), transactions[0].created_by.tx_hash);
+        assert_eq!(tx22.hash(), transactions[1].created_by.tx_hash);
 
         chain.process_block(Arc::new(block2_fork), false).unwrap();
         store.sync_index_states();
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
+        assert_eq!(tx11.hash(), transactions[0].created_by.tx_hash);
         assert_eq!(
-            Unpack::<H256>::unpack(&tx11.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Some(tx31.hash().to_owned().unpack()),
+            Some(tx31.hash()),
             transactions[0]
                 .consumed_by
                 .as_ref()
                 .map(|transaction_point| transaction_point.tx_hash.clone())
         );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx31.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx31.hash(), transactions[1].created_by.tx_hash);
 
         let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx12.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx32.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx12.hash(), transactions[0].created_by.tx_hash);
+        assert_eq!(tx32.hash(), transactions[1].created_by.tx_hash);
 
         // remove script1's lock hash should remove its indexed data also
         store.remove_lock_hash(&script1.calc_script_hash());
@@ -1083,7 +1039,7 @@ mod tests {
                 HeaderBuilder::default()
                     .difficulty(U256::from(1u64).pack())
                     .number(1.pack())
-                    .parent_hash(shared.genesis_hash().to_owned().pack())
+                    .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();
@@ -1121,10 +1077,7 @@ mod tests {
             .build();
 
         let tx31 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx11.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(5000).pack())
@@ -1135,10 +1088,7 @@ mod tests {
             .build();
 
         let tx32 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx12.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(6000).pack())
@@ -1177,25 +1127,13 @@ mod tests {
 
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx11.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx21.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx11.hash(), transactions[0].created_by.tx_hash);
+        assert_eq!(tx21.hash(), transactions[1].created_by.tx_hash);
 
         let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx12.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx22.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx12.hash(), transactions[0].created_by.tx_hash);
+        assert_eq!(tx22.hash(), transactions[1].created_by.tx_hash);
 
         chain.process_block(Arc::new(block2_fork), false).unwrap();
         chain.process_block(Arc::new(block3), false).unwrap();
@@ -1203,32 +1141,20 @@ mod tests {
         store.sync_index_states();
         let transactions = store.get_transactions(&script1.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
+        assert_eq!(tx11.hash(), transactions[0].created_by.tx_hash);
         assert_eq!(
-            Unpack::<H256>::unpack(&tx11.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Some(tx31.hash().to_owned().unpack()),
+            Some(tx31.hash()),
             transactions[0]
                 .consumed_by
                 .as_ref()
                 .map(|transaction_point| transaction_point.tx_hash.clone())
         );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx31.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx31.hash(), transactions[1].created_by.tx_hash);
 
         let transactions = store.get_transactions(&script2.calc_script_hash(), 0, 100, false);
         assert_eq!(2, transactions.len());
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx12.hash()),
-            transactions[0].created_by.tx_hash
-        );
-        assert_eq!(
-            Unpack::<H256>::unpack(&tx32.hash()),
-            transactions[1].created_by.tx_hash
-        );
+        assert_eq!(tx12.hash(), transactions[0].created_by.tx_hash);
+        assert_eq!(tx32.hash(), transactions[1].created_by.tx_hash);
     }
 
     #[test]
@@ -1254,10 +1180,7 @@ mod tests {
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx11.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(900).pack())
@@ -1268,10 +1191,7 @@ mod tests {
             .build();
 
         let tx13 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx12.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(800).pack())
@@ -1289,7 +1209,7 @@ mod tests {
                 HeaderBuilder::default()
                     .difficulty(U256::from(1u64).pack())
                     .number(1.pack())
-                    .parent_hash(shared.genesis_hash().to_owned().pack())
+                    .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();
@@ -1299,7 +1219,7 @@ mod tests {
                 HeaderBuilder::default()
                     .difficulty(U256::from(20u64).pack())
                     .number(1.pack())
-                    .parent_hash(shared.genesis_hash().to_owned().pack())
+                    .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();
@@ -1342,10 +1262,7 @@ mod tests {
             .build();
 
         let tx12 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx11.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx11.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(900).pack())
@@ -1356,10 +1273,7 @@ mod tests {
             .build();
 
         let tx21 = TransactionBuilder::default()
-            .input(CellInput::new(
-                OutPoint::new(tx12.hash().to_owned().unpack(), 0),
-                0,
-            ))
+            .input(CellInput::new(OutPoint::new(tx12.hash(), 0), 0))
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity_bytes!(800).pack())
@@ -1376,7 +1290,7 @@ mod tests {
                 HeaderBuilder::default()
                     .difficulty(U256::from(1u64).pack())
                     .number(1.pack())
-                    .parent_hash(shared.genesis_hash().to_owned().pack())
+                    .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();
@@ -1387,7 +1301,7 @@ mod tests {
                 HeaderBuilder::default()
                     .difficulty(U256::from(2u64).pack())
                     .number(2.pack())
-                    .parent_hash(block1.header().hash().to_owned())
+                    .parent_hash(block1.hash())
                     .build(),
             )
             .build();
@@ -1397,7 +1311,7 @@ mod tests {
                 HeaderBuilder::default()
                     .difficulty(U256::from(20u64).pack())
                     .number(1.pack())
-                    .parent_hash(shared.genesis_hash().to_owned().pack())
+                    .parent_hash(shared.genesis_hash())
                     .build(),
             )
             .build();

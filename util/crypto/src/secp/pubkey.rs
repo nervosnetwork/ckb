@@ -2,7 +2,7 @@ use super::error::Error;
 use super::signature::Signature;
 use super::Message;
 use super::SECP256K1;
-use numext_fixed_hash::H512;
+use ckb_fixed_hash::H512;
 use secp256k1::key;
 use secp256k1::Message as SecpMessage;
 use std::{fmt, ops};

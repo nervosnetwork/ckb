@@ -120,7 +120,7 @@ pub fn gen_always_success_block(
     shared: &Shared,
 ) -> BlockView {
     let tx = create_always_success_tx();
-    let always_success_out_point = OutPoint::new(tx.hash().unpack(), 0);
+    let always_success_out_point = OutPoint::new(tx.hash(), 0);
     let (_, _, always_success_script) = always_success_cell();
     let (number, timestamp, difficulty) = (
         p_block.header().number() + 1,
@@ -141,7 +141,7 @@ pub fn gen_always_success_block(
             .skip(1)
             .map(|tx| {
                 create_transaction(
-                    &tx.hash().unpack(),
+                    &tx.hash(),
                     always_success_script.clone(),
                     always_success_out_point.clone(),
                 )
@@ -157,7 +157,7 @@ pub fn gen_always_success_block(
         .skip(1)
         .map(|tx| {
             create_transaction(
-                &tx.hash().unpack(),
+                &tx.hash(),
                 always_success_script.clone(),
                 always_success_out_point.clone(),
             )
@@ -211,7 +211,7 @@ lazy_static! {
             .build();
 
         let script = Script::new_builder()
-            .code_hash(CellOutput::calc_data_hash(&data).pack())
+            .code_hash(CellOutput::calc_data_hash(&data))
             .args(vec![Bytes::from(PUBKEY_HASH.as_bytes()).pack()].pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -316,10 +316,10 @@ pub fn gen_secp_block(
     let tx = create_secp_tx();
     let secp_cell_deps = vec![
         CellDep::new_builder()
-            .out_point(OutPoint::new(tx.hash().unpack(), 0))
+            .out_point(OutPoint::new(tx.hash(), 0))
             .build(),
         CellDep::new_builder()
-            .out_point(OutPoint::new(tx.hash().unpack(), 1))
+            .out_point(OutPoint::new(tx.hash(), 1))
             .build(),
     ];
     let (_, _, secp_script) = secp_cell();
@@ -382,7 +382,7 @@ pub fn gen_secp_block(
     block
 }
 
-fn create_transaction(parent_hash: &H256, lock: Script, dep: OutPoint) -> TransactionView {
+fn create_transaction(parent_hash: &Byte32, lock: Script, dep: OutPoint) -> TransactionView {
     let data: Bytes = (0..255).collect();
     TransactionBuilder::default()
         .output(

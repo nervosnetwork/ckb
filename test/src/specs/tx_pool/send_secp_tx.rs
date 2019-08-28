@@ -47,7 +47,7 @@ impl Spec for SendSecpTxUseDepGroup {
 
         let secp_out_point = OutPoint::new(node.dep_group_tx_hash().clone(), 0);
         let block = node.get_tip_block();
-        let cellbase_hash: H256 = block.transactions()[0].hash().to_owned().unpack();
+        let cellbase_hash = block.transactions()[0].hash();
 
         let cell_dep = CellDep::new_builder()
             .out_point(secp_out_point)
@@ -65,8 +65,8 @@ impl Spec for SendSecpTxUseDepGroup {
             .output_data(Default::default())
             .build();
 
-        let tx_hash: H256 = tx.hash().unpack();
-        let message = H256::from(blake2b_256(&tx_hash));
+        let tx_hash = tx.hash();
+        let message = H256::from(blake2b_256(tx_hash.as_slice()));
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
         let witness = vec![Bytes::from(sig.serialize()).pack()].pack();
         let tx = TransactionBuilder::default()
@@ -87,7 +87,7 @@ impl Spec for SendSecpTxUseDepGroup {
             .expect("get sent transaction");
         assert!(
             is_committed(&tx_status),
-            "ensure_committed failed {:#x}",
+            "ensure_committed failed {}",
             tx_hash
         );
     }
@@ -120,6 +120,7 @@ impl Spec for SendSecpTxUseDepGroup {
                     .args(vec![script_arg].pack())
                     .build()
                     .calc_script_hash()
+                    .unpack()
             };
             let block_assembler = BlockAssemblerConfig {
                 code_hash,
