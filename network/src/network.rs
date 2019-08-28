@@ -76,12 +76,16 @@ pub struct SessionInfo {
 pub struct NetworkState {
     pub(crate) peer_registry: RwLock<PeerRegistry>,
     pub(crate) peer_store: Mutex<Box<dyn PeerStore>>,
-    pub(crate) original_listened_addresses: RwLock<Vec<Multiaddr>>,
+    /// Node listened addresses
+    pub(crate) listened_addrs: RwLock<Vec<Multiaddr>>,
     dialing_addrs: RwLock<HashMap<PeerId, Instant>>,
 
     pub(crate) protocol_ids: RwLock<HashSet<ProtocolId>>,
-    listened_addresses: RwLock<HashMap<Multiaddr, u8>>,
-    // Send disconnect message but not disconnected yet
+    /// Node public addresses,
+    /// includes manualy public addrs and remote peer observed addrs
+    public_addrs: RwLock<HashMap<Multiaddr, u8>>,
+    pending_observed_addrs: RwLock<HashSet<Multiaddr>>,
+    /// Send disconnect message but not disconnected yet
     disconnecting_sessions: RwLock<HashSet<SessionId>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
@@ -93,7 +97,7 @@ impl NetworkState {
         config.create_dir_if_not_exists()?;
         let local_private_key = config.fetch_private_key()?;
         // set max score to public addresses
-        let listened_addresses: HashMap<Multiaddr, u8> = config
+        let public_addrs: HashMap<Multiaddr, u8> = config
             .listen_addresses
             .iter()
             .chain(config.public_addresses.iter())
@@ -126,8 +130,9 @@ impl NetworkState {
             config,
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
-            listened_addresses: RwLock::new(listened_addresses),
-            original_listened_addresses: RwLock::new(Vec::new()),
+            public_addrs: RwLock::new(public_addrs),
+            listened_addrs: RwLock::new(Vec::new()),
+            pending_observed_addrs: RwLock::new(HashSet::default()),
             disconnecting_sessions: RwLock::new(HashSet::default()),
             local_private_key: local_private_key.clone(),
             local_peer_id: local_private_key.to_public_key().peer_id(),
@@ -282,8 +287,8 @@ impl NetworkState {
         self.local_private_key().to_peer_id().to_base58()
     }
 
-    pub(crate) fn listened_addresses(&self, count: usize) -> Vec<(Multiaddr, u8)> {
-        self.listened_addresses
+    pub(crate) fn public_addrs(&self, count: usize) -> Vec<(Multiaddr, u8)> {
+        self.public_addrs
             .read()
             .iter()
             .take(count)
@@ -291,20 +296,22 @@ impl NetworkState {
             .collect()
     }
 
+    pub(crate) fn vote_listened_addr(&self, addr: Multiaddr, votes: u8) {
+        let mut public_addrs = self.public_addrs.write();
+        let score = public_addrs.entry(addr).or_default();
+        *score = score.saturating_add(votes);
+    }
+
     pub(crate) fn connection_status(&self) -> ConnectionStatus {
         self.peer_registry.read().connection_status()
     }
 
-    pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
-        let original_listened_addresses = self.original_listened_addresses.read();
-        self.listened_addresses(max_urls.saturating_sub(original_listened_addresses.len()))
+    pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
+        let listened_addrs = self.listened_addrs.read();
+        self.public_addrs(max_urls.saturating_sub(listened_addrs.len()))
             .into_iter()
-            .filter(|(addr, _)| !original_listened_addresses.contains(addr))
-            .chain(
-                original_listened_addresses
-                    .iter()
-                    .map(|addr| (addr.to_owned(), 1)),
-            )
+            .filter(|(addr, _)| !listened_addrs.contains(addr))
+            .chain(listened_addrs.iter().map(|addr| (addr.to_owned(), 1)))
             .map(|(addr, score)| (self.to_external_url(&addr), score))
             .collect()
     }
@@ -331,12 +338,17 @@ impl NetworkState {
             .collect::<Vec<_>>()
     }
 
-    pub(crate) fn can_dial(&self, peer_id: &PeerId, addr: &Multiaddr) -> bool {
-        if self.local_peer_id() == peer_id {
+    pub(crate) fn can_dial(
+        &self,
+        peer_id: &PeerId,
+        addr: &Multiaddr,
+        allow_dial_to_self: bool,
+    ) -> bool {
+        if !allow_dial_to_self && self.local_peer_id() == peer_id {
             trace!("Do not dial self: {:?}, {}", peer_id, addr);
             return false;
         }
-        if self.listened_addresses.read().contains_key(&addr) {
+        if self.public_addrs.read().contains_key(&addr) {
             trace!(
                 "Do not dial listened address(self): {:?}, {}",
                 peer_id,
@@ -396,56 +408,94 @@ impl NetworkState {
 
     /// Dial
     /// return value indicates the dialing is actually sent or denied.
-    pub fn dial(
+    fn dial_inner(
         &self,
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
         mut addr: Multiaddr,
         target: DialProtocol,
-    ) -> bool {
-        if self.can_dial(peer_id, &addr) {
-            match Multihash::from_bytes(peer_id.as_bytes().to_vec()) {
-                Ok(peer_id_hash) => {
-                    addr.push(multiaddr::Protocol::P2p(peer_id_hash));
-                    debug!("dialing {} with {:?}", addr, target);
-                    if let Err(err) = p2p_control.dial(addr.clone(), target) {
-                        debug!("dial failed: {:?}", err);
-                    } else {
-                        self.dialing_addrs
-                            .write()
-                            .insert(peer_id.to_owned(), Instant::now());
-                        return true;
-                    }
-                }
-                Err(err) => {
-                    error!("failed to convert peer_id to addr: {}", err);
-                }
-            }
+        allow_dial_to_self: bool,
+    ) -> Result<(), Error> {
+        if !self.can_dial(peer_id, &addr, allow_dial_to_self) {
+            return Err(Error::Dial(format!(
+                "ignore dialing peer_id {:?}, addr {}",
+                peer_id, addr
+            )));
         }
-        false
+
+        let peer_id_hash = Multihash::from_bytes(peer_id.as_bytes().to_vec())
+            .map_err(|err| Error::Addr(format!("peer_id is not valid: {}", err)))?;
+        addr.push(multiaddr::Protocol::P2p(peer_id_hash));
+        debug!("dialing {} with {:?}", addr, target);
+        p2p_control.dial(addr.clone(), target)?;
+        self.dialing_addrs
+            .write()
+            .insert(peer_id.to_owned(), Instant::now());
+        Ok(())
     }
 
     /// Dial just identify protocol
     pub fn dial_identify(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
-        self.dial(
+        if let Err(err) = self.dial_inner(
             p2p_control,
             peer_id,
             addr,
             DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
-        );
+            false,
+        ) {
+            debug!("dial_identify error: {}", err);
+        }
     }
 
     /// Dial just feeler protocol
     pub fn dial_feeler(&self, p2p_control: &ServiceControl, peer_id: &PeerId, addr: Multiaddr) {
-        if self.dial(
+        if let Err(err) = self.dial_inner(
             p2p_control,
             peer_id,
             addr,
             DialProtocol::Single(FEELER_PROTOCOL_ID.into()),
+            false,
         ) {
+            debug!("dial_feeler error {}", err);
+        } else {
             self.with_peer_registry_mut(|reg| {
                 reg.add_feeler(peer_id.clone());
             });
+        }
+    }
+
+    /// this method is intent to check observed addr by dial to self
+    pub(crate) fn try_dial_observed_addrs(&self, p2p_control: &ServiceControl) {
+        let mut pending_observed_addrs = self.pending_observed_addrs.write();
+        for addr in pending_observed_addrs.drain() {
+            trace!("try dial observed addr: {:?}", addr);
+            if let Err(err) = self.dial_inner(
+                p2p_control,
+                self.local_peer_id(),
+                addr,
+                DialProtocol::Single(IDENTIFY_PROTOCOL_ID.into()),
+                true,
+            ) {
+                debug!("try_dial_observed_addrs error {}", err);
+            }
+        }
+    }
+
+    pub fn add_observed_addrs(&self, iter: impl Iterator<Item = Multiaddr>) {
+        let mut public_addrs = self.public_addrs.write();
+        let mut pending_observed_addrs = self.pending_observed_addrs.write();
+        for addr in iter {
+            if let Some(score) = public_addrs.get_mut(&addr) {
+                *score = score.saturating_add(1);
+                trace!(
+                    "increase score for exists observed addr: {:?} {}",
+                    addr,
+                    score
+                );
+            } else {
+                trace!("pending observed addr: {:?}", addr,);
+                pending_observed_addrs.insert(addr);
+            }
         }
     }
 }
@@ -498,7 +548,7 @@ impl ServiceHandle for EventHandler {
             } => {
                 debug!("DialerError({}) {}", address, error);
                 if error == &P2pError::ConnectSelf {
-                    debug!("add self address: {:?}", address);
+                    debug!("dial observed address success: {:?}", address);
                     let addr = address
                         .iter()
                         .filter(|proto| match proto {
@@ -506,10 +556,7 @@ impl ServiceHandle for EventHandler {
                             _ => true,
                         })
                         .collect();
-                    self.network_state
-                        .listened_addresses
-                        .write()
-                        .insert(addr, std::u8::MAX);
+                    self.network_state.vote_listened_addr(addr, 1);
                 }
                 let peer_id = extract_peer_id(address).expect("Secio must enabled");
                 self.network_state.dial_failed(peer_id);
@@ -892,7 +939,7 @@ impl NetworkService {
                         self.network_state.to_external_url(&listen_address)
                     );
                     self.network_state
-                        .original_listened_addresses
+                        .listened_addrs
                         .write()
                         .push(listen_address.clone())
                 }
@@ -1001,8 +1048,8 @@ pub struct NetworkController {
 }
 
 impl NetworkController {
-    pub fn external_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
-        self.network_state.external_urls(max_urls)
+    pub fn public_urls(&self, max_urls: usize) -> Vec<(String, u8)> {
+        self.network_state.public_urls(max_urls)
     }
 
     pub fn node_version(&self) -> &Version {
