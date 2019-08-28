@@ -282,11 +282,18 @@ impl Spec for ChainFork5 {
         info!("Generate 1 blocks (D) on node1");
         node1.generate_blocks(1);
         info!("Generate 1 blocks (E) with transaction on node1");
-        let block = node1
-            .new_block(None, None, None)
-            .as_advanced_builder()
-            .transaction(transaction.clone())
-            .build();
+        let block = {
+            let block = node1.new_block(None, None, None);
+            // transaction may be broadcasted to node1 already
+            if block.transactions().contains(&transaction) {
+                block
+            } else {
+                block
+                    .as_advanced_builder()
+                    .transaction(transaction.clone())
+                    .build()
+            }
+        };
         node1.submit_block(&block.data());
         assert_eq!(4, node1.rpc_client().get_tip_block_number());
         info!("Generate 1 blocks (F) with spent transaction on node1");

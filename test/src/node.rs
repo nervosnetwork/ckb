@@ -175,7 +175,7 @@ impl Node {
 
         let result = wait_until(10, || {
             let banned_addresses = rpc_client.get_banned_addresses();
-            let result = banned_addresses.is_empty();
+            let result = !banned_addresses.is_empty();
             banned_addresses.into_iter().for_each(|ban_address| {
                 rpc_client.set_ban(ban_address.address, "delete".to_owned(), None, None, None)
             });
