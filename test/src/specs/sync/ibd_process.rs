@@ -25,21 +25,59 @@ impl Spec for IBDProcess {
         node0.connect(node2);
         node0.connect(node3);
         node0.connect(node4);
+        // The node's outbound connection does not retain the peer which in the ibd state
+        node0.generate_blocks(1);
         // will never connect
         node0.connect_uncheck(node5);
         node0.connect_uncheck(node6);
-        node0.generate_blocks(1);
 
         sleep(Duration::from_secs(5));
 
-        let rpc_client = node0.rpc_client();
-        let ret = wait_until(10, || {
-            let peers = rpc_client.get_peers();
+        let rpc_client0 = node0.rpc_client();
+        let is_connect_peer_num_eq_4 = wait_until(10, || {
+            let peers = rpc_client0.get_peers();
             peers.len() == 4
         });
 
-        if !ret {
+        if !is_connect_peer_num_eq_4 {
             panic!("refuse to connect fail");
         }
+
+        // IBD only with outbound/whitelist node
+        let rpc_client1 = node1.rpc_client();
+        let rpc_client2 = node2.rpc_client();
+        let rpc_client3 = node3.rpc_client();
+        let rpc_client4 = node4.rpc_client();
+        let rpc_client5 = node5.rpc_client();
+        let rpc_client6 = node6.rpc_client();
+
+        let is_nodes_ibd_sync = wait_until(10, || {
+            let header1 = rpc_client1.get_tip_header();
+            let header2 = rpc_client2.get_tip_header();
+            let header3 = rpc_client3.get_tip_header();
+            let header4 = rpc_client4.get_tip_header();
+            let header5 = rpc_client5.get_tip_header();
+            let header6 = rpc_client6.get_tip_header();
+
+            header1.inner.number.0 == 0
+                && header1 == header6
+                && header1 == header5
+                && header1 == header4
+                && header1 == header3
+                && header1 == header2
+        });
+
+        assert!(is_nodes_ibd_sync, "node 1-6 must not sync with node0");
+
+        node5.connect(node0);
+        node6.connect(node0);
+
+        let is_node_sync = wait_until(10, || {
+            let header5 = rpc_client5.get_tip_header();
+            let header6 = rpc_client6.get_tip_header();
+            header5 == header6 && header5.inner.number.0 == 1
+        });
+
+        assert!(is_node_sync, "node 5-6 must sync with node0");
     }
 }

@@ -223,8 +223,7 @@ fn all_specs() -> SpecMap {
         // FIXME: There is a probability of failure on low resouce CI server
         // Box::new(TransactionRelayMultiple),
         Box::new(Discovery),
-        // TODO enable this after p2p lib resolve close timeout issue
-        // Box::new(Disconnect),
+        Box::new(Disconnect),
         Box::new(MalformedMessage),
         Box::new(DepentTxInSameBlock),
         // TODO enable these after proposed/pending pool tip verfiry logic changing
