@@ -61,6 +61,10 @@ static SQLITE_FINGERPRINT: &[Cow<'static, str>] = &[
 ];
 
 fn before_send(mut event: Event<'static>) -> Option<Event<'static>> {
+    if let Some(name) = std::thread::current().name() {
+        event.extra.insert("thread.name".to_string(), name.into());
+    }
+
     let ex = match event
         .exception
         .values

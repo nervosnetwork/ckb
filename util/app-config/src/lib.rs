@@ -59,7 +59,11 @@ impl Setup {
         // Initialization of logger must do before sentry, since `logger::init()` and
         // `sentry_config::init()` both registers custom panic hooks, but `logger::init()`
         // replaces all hooks previously registered.
-        let logger_guard = ckb_logger::init(self.config.logger().to_owned())?;
+        let mut logger_config = self.config.logger().to_owned();
+        if logger_config.emit_sentry_breadcrumbs.is_none() {
+            logger_config.emit_sentry_breadcrumbs = Some(self.is_sentry_enabled);
+        }
+        let logger_guard = ckb_logger::init(logger_config)?;
 
         let sentry_guard = if self.is_sentry_enabled {
             let sentry_config = self.config.sentry();
