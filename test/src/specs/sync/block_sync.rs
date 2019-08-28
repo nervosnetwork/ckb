@@ -93,10 +93,7 @@ impl Spec for BlockSyncWithUncle {
         target.waiting_for_sync(node1, 3);
 
         // check whether node panic
-        assert!(target
-            .rpc_client()
-            .get_block(uncle.hash().unpack())
-            .is_none());
+        assert!(target.rpc_client().get_block(uncle.hash()).is_none());
     }
 }
 
