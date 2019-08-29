@@ -43,12 +43,12 @@ table Script {
     args:           BytesVec,
 }
 
-table OutPoint {
+struct OutPoint {
     tx_hash:        Byte32,
     index:          Uint32,
 }
 
-table CellInput {
+struct CellInput {
     previous_output: OutPoint,
     since:           Uint64,
 }
@@ -59,7 +59,7 @@ table CellOutput {
     type_:          ScriptOpt,
 }
 
-table CellDep {
+struct CellDep {
     out_point:      OutPoint,
     dep_type:       DepType,
 }
@@ -80,7 +80,7 @@ table Transaction {
     witnesses:      WitnessVec,
 }
 
-table RawHeader {
+struct RawHeader {
     version:                Uint32,
     parent_hash:            Byte32,
     timestamp:              Uint64,
@@ -95,7 +95,7 @@ table RawHeader {
     dao:                    Byte32,
 }
 
-table Header {
+struct Header {
     raw:                    RawHeader,
     nonce:                  Uint64,
 }
