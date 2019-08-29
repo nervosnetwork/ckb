@@ -44,6 +44,7 @@ const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
 pub struct ChainSpec {
     pub name: String,
     pub genesis: Genesis,
+    #[serde(default)]
     pub params: Params,
     pub pow: Pow,
 }
@@ -54,6 +55,21 @@ pub struct Params {
     pub secondary_epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: BlockNumber,
+}
+
+impl Default for Params {
+    fn default() -> Self {
+        use crate::consensus::{
+            CELLBASE_MATURITY, DEFAULT_EPOCH_REWARD, DEFAULT_SECONDARY_EPOCH_REWARD,
+            MAX_BLOCK_CYCLES,
+        };
+        Params {
+            epoch_reward: DEFAULT_EPOCH_REWARD,
+            secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
+            max_block_cycles: MAX_BLOCK_CYCLES,
+            cellbase_maturity: CELLBASE_MATURITY,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
