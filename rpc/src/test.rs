@@ -8,6 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
+use ckb_merkle_mountain_range::{util::MemStore, MMRBatch, MMR};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -22,11 +23,13 @@ use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::{
-        capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity, HeaderView,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, cell::resolve_transaction, header_digest::HeaderDigest, BlockBuilder,
+        BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
     },
     h256,
-    packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
+    packed::{
+        AlertBuilder, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder,
+    },
     prelude::*,
     H256, U256,
 };
@@ -99,7 +102,7 @@ fn always_success_transaction() -> TransactionView {
 }
 
 // Construct the next block based the given `parent`
-fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
+fn next_block(shared: &Shared, parent: &HeaderView, chain_root: Byte32) -> BlockView {
     let epoch = {
         let last_epoch = shared
             .get_block_epoch(&parent.hash())
@@ -134,6 +137,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         .timestamp((parent.timestamp() + 1).pack())
         .difficulty(epoch.difficulty().pack())
         .dao(dao)
+        .chain_root(chain_root)
         .build()
 }
 
@@ -147,15 +151,22 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         let notify = NotifyService::default().start::<&str>(None);
         ChainService::new(shared.clone(), table, notify).start::<&str>(None)
     };
+    let mmr_store = MemStore::<HeaderDigest>::default();
+    let mut mmr_batch = MMRBatch::new(&mmr_store);
+    let mut mmr = MMR::new(0, &mut mmr_batch);
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
+    mmr.push(parent.header().into()).expect("push block to mmr");
+
     for _ in 0..height {
-        let block = next_block(&shared, &parent.header());
+        let chain_root = mmr.get_root().expect("get root").data().hash();
+        let block = next_block(&shared, &parent.header(), chain_root);
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("processing new block should be ok");
         parent = block;
+        mmr.push(parent.header().into()).expect("push block to mmr");
     }
 
     // Start network services

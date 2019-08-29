@@ -36,3 +36,4 @@ ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 rand = "0.6"
 ckb-dao = { path = "../util/dao" }
 ckb-dao-utils = { path = "../util/dao/utils" }
+ckb-merkle-mountain-range = { path = "../util/merkle-mountain-range" }

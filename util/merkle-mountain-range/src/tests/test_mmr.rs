@@ -1,25 +1,47 @@
-use crate::{
-    leaf_index_to_pos,
-    tests_util::{MemStore, NumberHash},
-    MMRBatch, MMR,
-};
+use super::new_blake2b;
+use crate::{leaf_index_to_pos, util::MemStore, Error, MMRBatch, MerkleElem, Result, MMR};
+use bytes::Bytes;
 use faster_hex::hex_string;
 use lazy_static::lazy_static;
 use proptest::prelude::*;
 use std::convert::TryFrom;
 
+#[derive(Eq, PartialEq, Clone, Debug, Default)]
+struct NumberHash(pub Bytes);
+impl TryFrom<u32> for NumberHash {
+    type Error = Error;
+    fn try_from(num: u32) -> Result<Self> {
+        let mut hasher = new_blake2b();
+        let mut hash = [0u8; 32];
+        hasher.update(&num.to_le_bytes());
+        hasher.finalize(&mut hash);
+        Ok(NumberHash(hash.to_vec().into()))
+    }
+}
+
+impl MerkleElem for NumberHash {
+    fn merge(lhs: &Self, rhs: &Self) -> Result<Self> {
+        let mut hasher = new_blake2b();
+        let mut hash = [0u8; 32];
+        hasher.update(&lhs.0);
+        hasher.update(&rhs.0);
+        hasher.finalize(&mut hash);
+        Ok(NumberHash(hash.to_vec().into()))
+    }
+}
+
 fn test_mmr(count: u32, proof_elem: u32) {
     let store = MemStore::default();
-    let mut batch = MMRBatch::new(store);
+    let mut batch = MMRBatch::new(&store);
     let mut mmr = MMR::new(0, &mut batch);
     let positions: Vec<u64> = (0u32..count)
         .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
         .collect();
-    let root = mmr.get_root().expect("get root").unwrap();
+    let root = mmr.get_root().expect("get root");
     let proof = mmr
         .gen_proof(positions[proof_elem as usize])
         .expect("gen proof");
-    batch.commit().expect("write changes");
+    batch.commit().expect("commit changes");
     let result = proof
         .verify(
             root,
@@ -33,17 +55,25 @@ fn test_mmr(count: u32, proof_elem: u32) {
 #[test]
 fn test_mmr_root() {
     let store = MemStore::default();
-    let mut batch = MMRBatch::new(store);
+    let mut batch = MMRBatch::new(&store);
     let mut mmr = MMR::new(0, &mut batch);
     (0u32..11).for_each(|i| {
         mmr.push(NumberHash::try_from(i).unwrap()).unwrap();
     });
-    let root = mmr.get_root().expect("get root").unwrap();
+    let root = mmr.get_root().expect("get root");
     let hex_root = hex_string(&root.0).unwrap();
     assert_eq!(
-        "d4aa7a8acce692f046d3b968650723b627b1a0431a659f190823a3bf4c918f0b",
+        "f6794677f37a57df6a5ec36ce61036e43a36c1a009d05c81c9aa685dde1fd6e3",
         hex_root
     );
+}
+
+#[test]
+fn test_empty_mmr_root() {
+    let store = MemStore::<NumberHash>::default();
+    let mut batch = MMRBatch::new(&store);
+    let mmr = MMR::new(0, &mut batch);
+    assert_eq!(Err(Error::GetRootOnEmpty), mmr.get_root());
 }
 
 #[test]
@@ -90,9 +120,10 @@ prop_compose! {
     }
 }
 lazy_static! {
+    /// Positions of 0..100_000 elem
     static ref POSITIONS: Vec<u64> = {
         let store = MemStore::default();
-        let mut batch = MMRBatch::new(store);
+        let mut batch = MMRBatch::new(&store);
         let mut mmr = MMR::new(0, &mut batch);
         (0u32..100_000)
             .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())

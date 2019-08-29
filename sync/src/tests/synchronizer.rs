@@ -8,6 +8,7 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_merkle_mountain_range::util::MemMMR;
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -19,7 +20,9 @@ use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
-    core::{cell::resolve_transaction, BlockBuilder, TransactionBuilder},
+    core::{
+        cell::resolve_transaction, header_digest::HeaderDigest, BlockBuilder, TransactionBuilder,
+    },
     packed::{self, CellInput, CellOutputBuilder, OutPoint},
     U256,
 };
@@ -112,6 +115,10 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
     let chain_service = ChainService::new(shared.clone(), table, notify);
     let chain_controller = chain_service.start::<&str>(None);
 
+    let mut mmr = MemMMR::<HeaderDigest>::default();
+
+    mmr.push(block.header().into()).expect("push block to mmr");
+
     for _i in 0..height {
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
@@ -147,6 +154,8 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
                 .unwrap()
         };
 
+        let chain_root = mmr.get_root().expect("get root").data().hash();
+
         block = BlockBuilder::default()
             .transaction(cellbase)
             .parent_hash(block.header().hash().to_owned())
@@ -155,11 +164,13 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
             .timestamp(timestamp.pack())
             .difficulty(epoch.difficulty().pack())
             .dao(dao)
+            .chain_root(chain_root)
             .build();
 
         chain_controller
             .process_block(Arc::new(block.clone()), false)
             .expect("process block should be OK");
+        mmr.push(block.header().into()).expect("push block to mmr");
     }
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));

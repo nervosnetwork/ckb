@@ -2,6 +2,7 @@ use crate::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, util::MemStore, MMRBatch, MMR};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
@@ -15,6 +16,7 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
+        header_digest::HeaderDigest,
         BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
@@ -197,15 +199,52 @@ pub struct MockChain<'a> {
     blocks: Vec<BlockView>,
     parent: HeaderView,
     consensus: &'a Consensus,
+    mmr_store: MemStore<HeaderDigest>,
 }
 
 impl<'a> MockChain<'a> {
-    pub fn new(parent: HeaderView, consensus: &'a Consensus) -> Self {
+    pub fn new(
+        parent: HeaderView,
+        consensus: &'a Consensus,
+        mmr_store: MemStore<HeaderDigest>,
+    ) -> Self {
+        if parent.number() == 0 {
+            let mut batch = MMRBatch::new(&mmr_store);
+            let mut mmr = MMR::new(0, &mut batch);
+            mmr.push(parent.clone().into()).expect("push block to mmr");
+            batch.commit().expect("commit mmr batch");
+        }
         Self {
             blocks: vec![],
             parent,
             consensus,
+            mmr_store,
         }
+    }
+
+    fn chain_root(&self) -> Byte32 {
+        let mut batch = MMRBatch::new(&self.mmr_store);
+        let mmr = MMR::new(
+            leaf_index_to_mmr_size(self.tip_header().number()),
+            &mut batch,
+        );
+        mmr.get_root().expect("get root").data().hash()
+    }
+
+    fn commit_block(&mut self, store: &MockStore, block: BlockView) {
+        let mut batch = MMRBatch::new(&self.mmr_store);
+        let mut mmr = MMR::new(
+            leaf_index_to_mmr_size(self.tip_header().number()),
+            &mut batch,
+        );
+        mmr.push(block.header().into()).expect("push block to mmr");
+        batch.commit().expect("commit mmr batch");
+        store.insert_block(&block, self.consensus.genesis_epoch_ext());
+        self.blocks.push(block);
+    }
+
+    pub fn mmr_store(&self) -> &MemStore<HeaderDigest> {
+        &self.mmr_store
     }
 
     pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<TransactionView>, store: &MockStore) {
@@ -218,12 +257,12 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(100u64)).pack())
             .dao(dao)
+            .chain_root(self.chain_root())
             .transaction(cellbase)
             .proposals(txs.iter().map(TransactionView::proposal_short_id))
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn gen_empty_block_with_difficulty(&mut self, difficulty: u64, store: &MockStore) {
@@ -236,11 +275,11 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty(U256::from(difficulty).pack())
             .dao(dao)
+            .chain_root(self.chain_root())
             .transaction(cellbase)
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn gen_empty_block_with_nonce(&mut self, nonce: u64, store: &MockStore) {
@@ -255,11 +294,11 @@ impl<'a> MockChain<'a> {
             .difficulty(difficulty.pack())
             .nonce(nonce.pack())
             .dao(dao)
+            .chain_root(self.chain_root())
             .transaction(cellbase)
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn gen_empty_block(&mut self, diff: u64, store: &MockStore) {
@@ -273,11 +312,11 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(diff)).pack())
             .dao(dao)
+            .chain_root(self.chain_root())
             .transaction(cellbase)
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn gen_block_with_commit_txs(
@@ -304,12 +343,12 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(100u64)).pack())
             .dao(dao)
+            .chain_root(self.chain_root())
             .transaction(cellbase)
             .transactions(txs)
             .build();
 
-        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
-        self.blocks.push(new_block);
+        self.commit_block(store, new_block)
     }
 
     pub fn tip_header(&self) -> HeaderView {

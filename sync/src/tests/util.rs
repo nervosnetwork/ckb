@@ -2,6 +2,7 @@ use crate::SyncSharedState;
 use ckb_chain::chain::{ChainController, ChainService};
 
 use ckb_dao::DaoCalculator;
+use ckb_merkle_mountain_range::util::MemMMR;
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -12,45 +13,54 @@ use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
 use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
-    core::{cell::resolve_transaction, BlockBuilder, BlockNumber, TransactionView},
+    core::{
+        cell::resolve_transaction, header_digest::HeaderDigest, BlockBuilder, BlockNumber,
+        TransactionView,
+    },
     packed::Byte32,
 };
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController) {
+pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController, MemMMR<HeaderDigest>) {
     let (shared, table) = SharedBuilder::default()
         .consensus(always_success_consensus())
         .build()
+        .unwrap();
+    let mut mmr = MemMMR::<HeaderDigest>::default();
+    mmr.push(shared.consensus().genesis_block().header().into())
         .unwrap();
     let chain_controller = {
         let notify_controller = NotifyService::default().start::<&str>(None);
         let chain_service = ChainService::new(shared.clone(), table, notify_controller);
         chain_service.start::<&str>(None)
     };
-    generate_blocks(&shared, &chain_controller, tip);
+    generate_blocks(&shared, &chain_controller, tip, &mut mmr);
     let sync_shared_state = SyncSharedState::new(shared);
-    (sync_shared_state, chain_controller)
+    (sync_shared_state, chain_controller, mmr)
 }
 
 pub fn generate_blocks(
     shared: &Shared,
     chain_controller: &ChainController,
     target_tip: BlockNumber,
+    mmr: &mut MemMMR<HeaderDigest>,
 ) {
     let snapshot = shared.snapshot();
     let parent_number = snapshot.tip_number();
     let mut parent_hash = snapshot.tip_header().hash().clone();
     for _block_number in parent_number + 1..=target_tip {
-        let block = inherit_block(shared, &parent_hash).build();
+        let chain_root = mmr.get_root().unwrap().data().hash();
+        let block = inherit_block(shared, &parent_hash, chain_root).build();
         parent_hash = block.header().hash().to_owned();
+        mmr.push(block.header().into()).expect("push block to mmr");
         chain_controller
             .process_block(Arc::new(block), false)
             .expect("processing block should be ok");
     }
 }
 
-pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
+pub fn inherit_block(shared: &Shared, parent_hash: &Byte32, chain_root: Byte32) -> BlockBuilder {
     let parent = shared.store().get_block(parent_hash).unwrap();
     let parent_epoch = shared.store().get_block_epoch(parent_hash).unwrap();
     let parent_number = parent.header().number();
@@ -77,6 +87,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .epoch(epoch.number().pack())
         .difficulty(epoch.difficulty().pack())
         .dao(dao)
+        .chain_root(chain_root)
         .transaction(inherit_cellbase(shared, parent_number))
 }
 

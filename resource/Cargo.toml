@@ -13,10 +13,10 @@ tempfile = "3.0"
 serde = "1.0"
 serde_derive = "1.0"
 ckb-types = { path = "../util/types" }
-ckb-system-scripts = "= 0.3.2-alpha.2"
+ckb-system-scripts = "= 0.3.2-alpha.4"
 
 [build-dependencies]
 includedir_codegen = "0.5.0"
 walkdir = "2.1.4"
 ckb-types = { path = "../util/types" }
-ckb-system-scripts = "= 0.3.2-alpha.2"
+ckb-system-scripts = "= 0.3.2-alpha.4"

@@ -411,6 +411,7 @@ pub struct Header {
     pub uncles_hash: H256,
     pub uncles_count: Unsigned,
     pub dao: Byte32,
+    pub chain_root: Byte32,
     pub nonce: Unsigned,
 }
 
@@ -438,6 +439,7 @@ impl From<packed::Header> for Header {
             uncles_hash: raw.uncles_hash().unpack(),
             uncles_count: Unsigned(u64::from(uncles_count)),
             dao: raw.dao().into(),
+            chain_root: raw.chain_root().into(),
             nonce: Unsigned(input.nonce().unpack()),
         }
     }
@@ -474,6 +476,7 @@ impl From<Header> for packed::Header {
             uncles_hash,
             uncles_count,
             dao,
+            chain_root,
             nonce,
         } = json;
         let raw = packed::RawHeader::new_builder()
@@ -489,6 +492,7 @@ impl From<Header> for packed::Header {
             .uncles_hash(uncles_hash.pack())
             .uncles_count((uncles_count.0 as u32).pack())
             .dao(dao.into())
+            .chain_root(chain_root.into())
             .build();
         packed::Header::new_builder()
             .raw(raw)

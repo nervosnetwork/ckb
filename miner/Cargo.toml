@@ -31,9 +31,11 @@ console = "0.8.0"
 ckb-dao = { path = "../util/dao" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
 eaglesong = "0.1"
+ckb-merkle-mountain-range = { path = "../util/merkle-mountain-range" }
 
 [dev-dependencies]
 proptest = "0.9"
+lazy_static = "1.4"
 ckb-chain = { path = "../chain" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }

@@ -16,8 +16,8 @@ pub use crate::block_verifier::{BlockVerifier, HeaderResolverWrapper};
 pub use crate::contextual_block_verifier::{ContextualBlockVerifier, VerifyContext};
 pub use crate::error::{
     BlockError, BlockErrorKind, BlockTransactionsError, CellbaseError, CommitError, EpochError,
-    HeaderError, HeaderErrorKind, InvalidParentError, NumberError, PowError, TimestampError,
-    TransactionError, UnclesError, UnknownParentError,
+    HeaderError, HeaderErrorKind, InvalidChainRootError, InvalidParentError, NumberError, PowError,
+    TimestampError, TransactionError, UnclesError, UnknownParentError,
 };
 pub use crate::header_verifier::{HeaderResolver, HeaderVerifier};
 pub use crate::transaction_verifier::{

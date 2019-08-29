@@ -118,6 +118,7 @@ pub fn gen_always_success_block(
     blocks: &mut Vec<BlockView>,
     p_block: &BlockView,
     shared: &Shared,
+    chain_root: Byte32,
 ) -> BlockView {
     let tx = create_always_success_tx();
     let always_success_out_point = OutPoint::new(tx.hash(), 0);
@@ -179,6 +180,7 @@ pub fn gen_always_success_block(
         .difficulty(difficulty.pack())
         .nonce(random::<u64>().pack())
         .dao(dao)
+        .chain_root(chain_root)
         .build();
 
     blocks.push(block.clone());
@@ -312,6 +314,7 @@ pub fn gen_secp_block(
     blocks: &mut Vec<BlockView>,
     p_block: &BlockView,
     shared: &Shared,
+    chain_root: Byte32,
 ) -> BlockView {
     let tx = create_secp_tx();
     let secp_cell_deps = vec![
@@ -376,6 +379,7 @@ pub fn gen_secp_block(
         .difficulty(difficulty.pack())
         .nonce(random::<u64>().pack())
         .dao(dao)
+        .chain_root(chain_root)
         .build();
 
     blocks.push(block.clone());

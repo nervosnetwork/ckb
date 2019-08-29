@@ -1,8 +1,8 @@
+use super::new_blake2b;
 use crate::{
-    leaf_index_to_pos, tests_util::MemStore, MMRBatch, MerkleElem, MerkleProof, Result, MMR,
+    leaf_index_to_pos, util::MemStore, MMRBatch, MMRStore, MerkleElem, MerkleProof, Result, MMR,
 };
 use bytes::Bytes;
-use ckb_hash::new_blake2b;
 use std::fmt::{self, Debug};
 
 #[derive(Clone)]
@@ -46,7 +46,7 @@ impl HashWithTD {
     fn serialize(&self) -> Result<Bytes> {
         let mut data = self.hash.clone();
         data.extend(&self.td.to_le_bytes());
-        Ok(data.into())
+        Ok(data)
     }
 
     fn deserialize(mut data: Bytes) -> Result<Self> {
@@ -89,23 +89,24 @@ impl MerkleElem for HashWithTD {
 struct Prover {
     headers: Vec<(Header, u64)>,
     positions: Vec<u64>,
-    batch: MMRBatch<HashWithTD, MemStore<HashWithTD>>,
+    store: MemStore<HashWithTD>,
 }
 
 impl Prover {
     fn new() -> Prover {
         let store = MemStore::default();
-        let batch = MMRBatch::new(store);
         Prover {
             headers: Vec::new(),
             positions: Vec::new(),
-            batch,
+            store,
         }
     }
 
     fn gen_blocks(&mut self, count: u64) -> Result<()> {
+        let mut batch = MMRBatch::new(&self.store);
+        // get previous element
         let mut previous = if let Some(pos) = self.positions.last() {
-            self.batch.get_elem(*pos)?.expect("exists")
+            batch.get_elem(*pos)?.expect("exists")
         } else {
             let genesis = Header::default();
 
@@ -114,19 +115,19 @@ impl Prover {
                 td: genesis.difficulty,
             };
             self.headers.push((genesis, previous.td));
-            let mut mmr = MMR::new(self.positions.len() as u64, &mut self.batch);
+            let mut mmr = MMR::new(self.positions.len() as u64, &mut batch);
             let pos = mmr.push(previous.clone())?;
             self.positions.push(pos);
             previous
         };
-        let mut mmr = MMR::new(self.positions.len() as u64, &mut self.batch);
+        let mut mmr = MMR::new(self.positions.len() as u64, &mut batch);
         let last_number = self.headers.last().unwrap().0.number;
         for i in (last_number + 1)..=(last_number + count) {
             let block = Header {
                 number: i,
                 parent_hash: previous.hash.clone(),
                 difficulty: i,
-                chain_root: mmr.get_root()?.unwrap().serialize()?,
+                chain_root: mmr.get_root()?.serialize()?,
             };
             previous = HashWithTD {
                 hash: block.hash(),
@@ -136,7 +137,7 @@ impl Prover {
             self.positions.push(pos);
             self.headers.push((block, previous.td));
         }
-        Ok(())
+        batch.commit()
     }
 
     fn get_header(&self, number: u64) -> (Header, u64) {
@@ -148,9 +149,10 @@ impl Prover {
         assert!(number < later_number);
         let pos = self.positions[number as usize];
         let later_pos = self.positions[later_number as usize];
-        let mmr = MMR::new(later_pos, &mut self.batch);
+        let mut batch = MMRBatch::new(&self.store);
+        let mmr = MMR::new(later_pos, &mut batch);
         assert_eq!(
-            mmr.get_root()?.unwrap().serialize()?,
+            mmr.get_root()?.serialize()?,
             self.headers[later_number as usize].0.chain_root
         );
         mmr.gen_proof(pos)
@@ -178,7 +180,7 @@ fn test_insert_header() {
     };
     let root = {
         let (later_header, _later_td) = prover.get_header(h2);
-        HashWithTD::deserialize(later_header.chain_root.into()).expect("deserialize")
+        HashWithTD::deserialize(later_header.chain_root).expect("deserialize")
     };
     // gen proof,  blocks are in the same chain
     let proof = prover.gen_proof(h1, h2).expect("gen proof");
@@ -186,7 +188,7 @@ fn test_insert_header() {
     assert_eq!(pos, prover.get_pos(h1));
     assert_eq!(
         prove_elem,
-        prover.batch.get_elem(pos).expect("get elem").unwrap()
+        (&prover.store).get_elem(pos).expect("get elem").unwrap()
     );
     let result = proof.verify(root, pos, prove_elem).expect("verify");
     assert!(result);

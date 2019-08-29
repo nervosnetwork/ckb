@@ -5,6 +5,8 @@ use ckb_db::{
     Col, DBPinnableSlice,
 };
 use ckb_error::Error;
+use ckb_logger::error;
+use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreSnapshot};
 use ckb_traits::BlockMedianTimeContext;
@@ -12,6 +14,7 @@ use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellProvider, CellStatus, HeaderChecker},
+        header_digest::HeaderDigest,
         BlockNumber, EpochExt, HeaderView, TransactionMeta,
     },
     packed::{Byte32, OutPoint},
@@ -127,6 +130,16 @@ impl<'a> ChainStore<'a> for Snapshot {
 
     fn get_current_epoch_ext(&'a self) -> Option<EpochExt> {
         Some(self.epoch_ext.clone())
+    }
+}
+
+impl MMRStore<HeaderDigest> for &Snapshot {
+    fn get_elem(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
+        self.store.get_elem(pos)
+    }
+    fn append(&mut self, _pos: u64, _elems: Vec<HeaderDigest>) -> MMRResult<()> {
+        error!("Failed to append to MMR, snapshot MMR is readonly");
+        Err(MMRError::InconsistentStore)
     }
 }
 

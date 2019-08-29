@@ -1,14 +1,13 @@
 [package]
 name = "ckb-merkle-mountain-range"
-version = "0.17.0-pre"
+version = "0.20.0-pre"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2018"
 license = "MIT"
+description = "A generalized merkle mountain range implementation"
 
 [dependencies]
-bytes = "0.4"
-ckb-hash = { path = "../hash" }
-ckb-merkle-mountain-range-core = { path = "core" }
+failure = "0.1.5"
 
 [dev-dependencies]
 faster-hex = "0.3"
@@ -16,6 +15,8 @@ criterion = "0.2"
 rand = "0.6"
 proptest = "0.9.4"
 lazy_static = "1.3.0"
+bytes = "0.4"
+blake2b-rs = "0.1.4"
 
 [[bench]]
 name = "mmr_benchmark"

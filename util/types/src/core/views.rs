@@ -272,6 +272,7 @@ impl HeaderView {
     define_header_packed_inner_getter!(witnesses_root, Byte32);
     define_header_packed_inner_getter!(proposals_hash, Byte32);
     define_header_packed_inner_getter!(uncles_hash, Byte32);
+    define_header_packed_inner_getter!(chain_root, Byte32);
 
     pub fn dao(&self) -> packed::Byte32 {
         self.data().raw().dao()

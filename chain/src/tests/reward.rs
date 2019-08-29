@@ -4,17 +4,18 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_merkle_mountain_range::util::MemMMR;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionView, UncleBlockView,
+        capacity_bytes, header_digest::HeaderDigest, BlockBuilder, BlockView, Capacity, HeaderView,
+        ScriptHashType, TransactionBuilder, TransactionView, UncleBlockView,
     },
     packed::{
-        self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
+        self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
         ScriptBuilder,
     },
     U256,
@@ -55,6 +56,7 @@ pub(crate) fn gen_block(
     miner_lock: Script,
     reward_lock: Script,
     reward: Option<Capacity>,
+    chain_root: Byte32,
     consensus: &Consensus,
     store: &MockStore,
 ) -> BlockView {
@@ -78,6 +80,7 @@ pub(crate) fn gen_block(
         .number(number.pack())
         .difficulty(parent_header.difficulty().pack())
         .dao(dao)
+        .chain_root(chain_root)
         .transactions(txs)
         .uncles(uncles)
         .proposals(proposals)
@@ -148,6 +151,9 @@ fn finalize_reward() {
 
     let mock_store = MockStore::new(&parent, shared.store());
 
+    let mut mmr = MemMMR::<HeaderDigest>::default();
+    mmr.push(parent.clone().into()).expect("push block to mmr");
+
     let mut txs = Vec::with_capacity(16);
     let mut tx_parent = tx;
     for _i in 0..16 {
@@ -195,6 +201,7 @@ fn finalize_reward() {
             vec![]
         };
 
+        let chain_root = mmr.get_root().expect("get root").data().hash();
         let block = gen_block(
             &parent,
             block_txs,
@@ -203,6 +210,7 @@ fn finalize_reward() {
             miner_lock,
             always_success_script.clone(),
             None,
+            chain_root,
             shared.consensus(),
             &mock_store,
         );
@@ -212,6 +220,7 @@ fn finalize_reward() {
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("process block ok");
+        mmr.push(block.header().into()).expect("push block to mmr");
         blocks.push(block);
     }
 
@@ -230,6 +239,7 @@ fn finalize_reward() {
         .unwrap();
     assert_eq!(reward.total, bob_reward,);
 
+    let chain_root = mmr.get_root().expect("get root").data().hash();
     let block = gen_block(
         &parent,
         txs.iter().skip(12).cloned().collect(),
@@ -238,6 +248,7 @@ fn finalize_reward() {
         always_success_script.clone(),
         target,
         Some(bob_reward),
+        chain_root,
         shared.consensus(),
         &mock_store,
     );
@@ -247,6 +258,7 @@ fn finalize_reward() {
     chain_controller
         .process_block(Arc::new(block.clone()), true)
         .expect("process block ok");
+    mmr.push(block.header().into()).expect("push block to mmr");
 
     let (target, reward) = shared.finalize_block_reward(&block.header()).unwrap();
     assert_eq!(target, alice);
@@ -264,6 +276,7 @@ fn finalize_reward() {
         .unwrap();
     assert_eq!(reward.total, alice_reward);
 
+    let chain_root = mmr.get_root().expect("get root").data().hash();
     let block = gen_block(
         &parent,
         vec![],
@@ -272,6 +285,7 @@ fn finalize_reward() {
         always_success_script.clone(),
         target,
         Some(alice_reward),
+        chain_root,
         shared.consensus(),
         &mock_store,
     );

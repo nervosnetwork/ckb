@@ -7,7 +7,7 @@
 use crate::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset};
 use crate::mmr_store::{MMRBatch, MMRStore};
 use crate::MerkleElem;
-use crate::Result;
+use crate::{Error, Result};
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::fmt::Debug;
@@ -28,18 +28,24 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
         }
     }
 
-    // get data from memory hashes
+    // find internal MMR elem, the pos must exists, otherwise a error will return
     fn find_elem<'b>(&self, pos: u64, hashes: &'b [Elem]) -> Result<Cow<'b, Elem>> {
         let pos_offset = pos.checked_sub(self.mmr_size);
         if let Some(elem) = pos_offset.and_then(|i| hashes.get(i as usize)) {
             return Ok(Cow::Borrowed(elem));
         }
-        Ok(Cow::Owned(self.batch.get_elem(pos)?.expect("must exists")))
+        let elem = self.batch.get_elem(pos)?.ok_or(Error::InconsistentStore)?;
+        Ok(Cow::Owned(elem))
     }
 
     pub fn mmr_size(&self) -> u64 {
         self.mmr_size
     }
+
+    pub fn empty(&self) -> bool {
+        self.mmr_size == 0
+    }
+
     // push a element and return position
     pub fn push(&mut self, elem: Elem) -> Result<u64> {
         let mut elems: Vec<Elem> = Vec::new();
@@ -52,7 +58,7 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
         while pos_height_in_tree(pos + 1) > u64::from(height) {
             pos += 1;
             let left_pos = pos - parent_offset(height);
-            let right_pos = left_pos + sibling_offset(height.try_into()?);
+            let right_pos = left_pos + sibling_offset(height.try_into().expect("u32"));
             let left_elem = self.find_elem(left_pos, &elems)?;
             let right_elem = self.find_elem(right_pos, &elems)?;
             let parent_elem = Elem::merge(&left_elem, &right_elem)?;
@@ -67,14 +73,15 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
     }
 
     /// get_root
-    pub fn get_root(&self) -> Result<Option<Elem>> {
+    pub fn get_root(&self) -> Result<Elem> {
         if self.mmr_size == 0 {
-            return Ok(None);
+            return Err(Error::GetRootOnEmpty);
         } else if self.mmr_size == 1 {
-            return self.batch.get_elem(0);
+            return self.batch.get_elem(0)?.ok_or(Error::InconsistentStore);
         }
         let peaks = get_peaks(self.mmr_size);
-        self.bag_rhs_peaks(0, &peaks)
+        self.bag_rhs_peaks(0, &peaks)?
+            .ok_or(Error::InconsistentStore)
     }
 
     fn bag_rhs_peaks(&self, skip_peak_pos: u64, peaks: &[u64]) -> Result<Option<Elem>> {
@@ -83,7 +90,7 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
             .filter(|&&p| p > skip_peak_pos)
             .map(|&p| self.batch.get_elem(p))
             .collect::<Result<Option<_>>>()?
-            .expect("data must exists");
+            .ok_or(Error::InconsistentStore)?;
         while rhs_peak_elems.len() > 1 {
             let right_peak = rhs_peak_elems.pop().expect("pop");
             let left_peak = rhs_peak_elems.pop().expect("pop");
@@ -104,7 +111,11 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
                 if sib_pos > self.mmr_size - 1 {
                     break;
                 }
-                proof.push(self.batch.get_elem(sib_pos)?.expect("must exists"));
+                proof.push(
+                    self.batch
+                        .get_elem(sib_pos)?
+                        .ok_or(Error::InconsistentStore)?,
+                );
                 // go to next pos
                 pos += 1;
             } else {
@@ -113,7 +124,11 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
                 if sib_pos > self.mmr_size - 1 {
                     break;
                 }
-                proof.push(self.batch.get_elem(sib_pos)?.expect("must exists"));
+                proof.push(
+                    self.batch
+                        .get_elem(sib_pos)?
+                        .ok_or(Error::InconsistentStore)?,
+                );
                 pos += parent_offset(height);
             }
             height += 1;
@@ -131,7 +146,7 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
             .map(|&p| self.batch.get_elem(p))
             .rev()
             .collect::<Result<Option<_>>>()?
-            .expect("must exists");
+            .ok_or(Error::InconsistentStore)?;
         proof.extend(lhs_peaks);
         Ok(MerkleProof::new(self.mmr_size, proof))
     }
@@ -157,7 +172,7 @@ impl<Elem: MerkleElem + PartialEq + Debug> MerkleProof<Elem> {
                 sum_elem = if Some(&pos) == peaks.last() {
                     Elem::merge(&sum_elem, &proof)?
                 } else {
-                    pos = *peaks.last().expect("must exists");
+                    pos = *peaks.last().expect("must exists at least one peak");
                     Elem::merge(proof, &sum_elem)?
                 };
                 continue;
