@@ -613,7 +613,7 @@ mod tests {
         // This just make sure we can generate a valid block template,
         // the actual DAO validation logic will be ensured in other
         // tests
-        let dao = genesis_dao_data(&cellbase).unwrap();
+        let dao = genesis_dao_data(vec![&cellbase]).unwrap();
         let header = HeaderBuilder::default()
             .parent_hash(parent_header.hash())
             .timestamp((parent_header.timestamp() + 10).pack())

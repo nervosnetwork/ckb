@@ -41,7 +41,7 @@ impl Chains {
 pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
     let (_, _, always_success_script) = always_success_cell();
     let tx = create_always_success_tx();
-    let dao = genesis_dao_data(&tx).unwrap();
+    let dao = genesis_dao_data(vec![&tx]).unwrap();
 
     // create genesis block with N txs
     let transactions: Vec<TransactionView> = (0..txs_size)
@@ -244,7 +244,7 @@ pub fn create_secp_tx() -> TransactionView {
 pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
     let (_, _, secp_script) = secp_cell();
     let tx = create_secp_tx();
-    let dao = genesis_dao_data(&tx).unwrap();
+    let dao = genesis_dao_data(vec![&tx]).unwrap();
 
     // create genesis block with N txs
     let transactions: Vec<TransactionView> = (0..txs_size)

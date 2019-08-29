@@ -91,7 +91,7 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
         .output_data(always_success_cell_data.pack())
         .build();
 
-    let dao = genesis_dao_data(&always_success_tx).unwrap();
+    let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
 
     let mut block = BlockBuilder::default()
         .timestamp(unix_time_as_millis().pack())

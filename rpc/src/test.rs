@@ -71,7 +71,7 @@ pub struct JsonResponse {
 // genesis timestamp.
 fn always_success_consensus() -> Consensus {
     let always_success_tx = always_success_transaction();
-    let dao = genesis_dao_data(&always_success_tx).unwrap();
+    let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
         .timestamp(GENESIS_TIMESTAMP.pack())
         .difficulty(U256::from(GENESIS_DIFFICULTY).pack())

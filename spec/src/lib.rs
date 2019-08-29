@@ -202,8 +202,9 @@ impl ChainSpec {
 impl Genesis {
     fn build_block(&self) -> Result<BlockView, Box<dyn Error>> {
         let cellbase_transaction = self.build_cellbase_transaction()?;
-        let dao = genesis_dao_data(&cellbase_transaction)?;
+        // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
+        let dao = genesis_dao_data(vec![&cellbase_transaction, &dep_group_transaction])?;
 
         let block = BlockBuilder::default()
             .version(self.version.pack())

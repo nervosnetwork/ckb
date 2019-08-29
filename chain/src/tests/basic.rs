@@ -71,16 +71,17 @@ fn test_genesis_transaction_spend() {
         ])
         .outputs_data(vec![Bytes::new(); 100].pack())
         .build();
+    let always_success_tx = create_always_success_tx();
 
     let mut root_hash = tx.hash().to_owned();
 
     let genesis_tx_hash = root_hash.clone();
 
-    let dao = genesis_dao_data(&tx).unwrap();
+    let dao = genesis_dao_data(vec![&tx, &always_success_tx]).unwrap();
 
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
-        .transaction(create_always_success_tx())
+        .transaction(always_success_tx)
         .difficulty(U256::from(1000u64).pack())
         .dao(dao)
         .build();
@@ -620,7 +621,7 @@ fn test_epoch_hash_rate_dampening() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
-    let dao = genesis_dao_data(&cellbase).unwrap();
+    let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
         .transaction(cellbase)
@@ -706,7 +707,7 @@ fn test_orphan_rate_estimation_overflow() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
-    let dao = genesis_dao_data(&cellbase).unwrap();
+    let dao = genesis_dao_data(vec![&cellbase]).unwrap();
 
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
@@ -759,7 +760,7 @@ fn test_next_epoch_ext() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
-    let dao = genesis_dao_data(&cellbase).unwrap();
+    let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
         .transaction(cellbase)
