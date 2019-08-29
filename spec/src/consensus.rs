@@ -552,3 +552,108 @@ impl Consensus {
 fn u256_low_u64(u: U256) -> u64 {
     u.0[0]
 }
+
+#[cfg(test)]
+pub mod test {
+    use crate::consensus::{Consensus, DEFAULT_EPOCH_REWARD, MIN_BLOCK_INTERVAL};
+    use ckb_dao_utils::genesis_dao_data;
+    use ckb_types::{
+        core::{BlockBuilder, HeaderBuilder, HeaderView, TransactionBuilder},
+        h256,
+        packed::{Byte32, CellInput, Script},
+        prelude::*,
+        H256, U256,
+    };
+    use faketime::unix_time_as_millis;
+    use rand::{thread_rng, Rng};
+    use std::collections::HashMap;
+    const GENESIS_DIFFICULTY: H256 = h256!("0x1000000");
+
+    #[derive(Default, Clone)]
+    pub struct FakeStore {
+        headers: HashMap<Byte32, HeaderView>,
+        total_uncles_count: HashMap<Byte32, u64>,
+    }
+
+    impl FakeStore {
+        fn insert(&mut self, header: HeaderView) {
+            let before_total_uncles_count = self
+                .total_uncles_count
+                .get(&header.parent_hash())
+                .cloned()
+                .unwrap_or(0u64);
+            self.total_uncles_count.insert(
+                header.hash(),
+                before_total_uncles_count + header.uncles_count() as u64,
+            );
+            self.headers.insert(header.hash(), header);
+        }
+
+        pub(crate) fn get_block_header(&self, hash: &Byte32) -> Option<HeaderView> {
+            self.headers.get(hash).cloned()
+        }
+
+        pub(crate) fn total_uncles_count(&self, hash: &Byte32) -> Option<u64> {
+            self.total_uncles_count.get(hash).cloned()
+        }
+    }
+
+    fn gen_empty_header(parent: &HeaderView) -> HeaderView {
+        let mut rng = thread_rng();
+        let uncles_count: u32 = rng.gen_range(0, 2);
+        HeaderBuilder::default()
+            .parent_hash(parent.hash().to_owned())
+            .number((parent.number() + 1).pack())
+            .difficulty(parent.difficulty().pack())
+            .uncles_count(uncles_count.pack())
+            .timestamp((parent.timestamp() + MIN_BLOCK_INTERVAL).pack())
+            .build()
+    }
+
+    #[test]
+    fn test_next_epoch_ext_overflow() {
+        let now = unix_time_as_millis();
+        let header = HeaderBuilder::default()
+            .difficulty(GENESIS_DIFFICULTY.pack())
+            .timestamp(now.pack())
+            .build();
+
+        let input = CellInput::new_cellbase_input(0);
+        let witness = Script::default().into_witness();
+        let cellbase = TransactionBuilder::default()
+            .input(input)
+            .witness(witness)
+            .build();
+        let dao = genesis_dao_data(&cellbase).unwrap();
+        let genesis_block = BlockBuilder::default()
+            .difficulty(U256::one().pack())
+            .dao(dao)
+            .transaction(cellbase)
+            .header(header)
+            .build();
+
+        let mut parent = genesis_block.header().clone();
+        let consensus = Consensus::new(genesis_block, DEFAULT_EPOCH_REWARD);
+        let genesis_epoch_ext = consensus.genesis_epoch_ext().clone();
+
+        let mut store = FakeStore::default();
+
+        store.insert(parent.clone());
+        for _ in 1..genesis_epoch_ext.length() {
+            parent = gen_empty_header(&parent);
+            store.insert(parent.clone());
+        }
+
+        let get_block_header = |hash: &Byte32| store.get_block_header(hash);
+
+        let total_uncles_count = |hash: &Byte32| store.total_uncles_count(hash);
+
+        let epoch = consensus.next_epoch_ext(
+            &genesis_epoch_ext,
+            &parent,
+            get_block_header,
+            total_uncles_count,
+        );
+        assert!(epoch.is_some());
+    }
+}
