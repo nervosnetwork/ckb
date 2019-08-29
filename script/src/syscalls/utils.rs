@@ -1,3 +1,4 @@
+use byteorder::{ByteOrder, LittleEndian};
 use ckb_vm::{
     registers::{A0, A1, A2},
     Error as VMError, Memory, Register, SupportMachine,
@@ -20,4 +21,11 @@ pub fn store_data<Mac: SupportMachine>(machine: &mut Mac, data: &[u8]) -> Result
         .memory_mut()
         .store_bytes(addr, &data[offset as usize..(offset + real_size) as usize])?;
     Ok(real_size)
+}
+
+pub fn store_u64<Mac: SupportMachine>(machine: &mut Mac, v: u64) -> Result<u64, VMError> {
+    let mut buffer = [0u8; 8];
+    LittleEndian::write_u64(&mut buffer, v);
+    store_data(machine, &buffer)?;
+    Ok(8)
 }
