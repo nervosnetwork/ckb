@@ -258,6 +258,8 @@ impl BlockAssembler {
             )
             .build();
         let occupied = block.as_slice().len();
+        // Uncomment this line to get the correct BASIC_BLOCK_SIZE in block_assember tests.
+        // dbg!(occupied);
         let bytes_limit = bytes_limit as usize;
         bytes_limit
             .checked_sub(occupied)
@@ -553,7 +555,7 @@ mod tests {
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use std::sync::Arc;
 
-    const BASIC_BLOCK_SIZE: u64 = 646;
+    const BASIC_BLOCK_SIZE: u64 = 550;
 
     fn start_chain(
         consensus: Option<Consensus>,
