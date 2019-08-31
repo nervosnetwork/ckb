@@ -66,3 +66,7 @@ overflow-checks = true
 
 [target.'cfg(unix)'.dependencies]
 jemallocator = { version = "0.3.0" }
+
+# Uncomment to test ckb-system-scripts locally
+# [patch.crates-io]
+# ckb-system-scripts = { path = "../ckb-system-scripts" }

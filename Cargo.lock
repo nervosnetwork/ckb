@@ -362,7 +362,7 @@ dependencies = [
  "ckb-pow 0.20.0-pre",
  "ckb-shared 0.20.0-pre",
  "ckb-store 0.20.0-pre",
- "ckb-system-scripts 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-system-scripts 0.3.2-alpha.2+refactor-schema (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-test-chain-utils 0.20.0-pre",
  "ckb-traits 0.20.0-pre",
  "ckb-types 0.20.0-pre",
@@ -778,7 +778,7 @@ dependencies = [
 name = "ckb-resource"
 version = "0.20.0-pre"
 dependencies = [
- "ckb-system-scripts 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-system-scripts 0.3.2-alpha.3+alignment-bench",
  "ckb-types 0.20.0-pre",
  "includedir 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "includedir_codegen 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -966,8 +966,19 @@ dependencies = [
 
 [[package]]
 name = "ckb-system-scripts"
-version = "0.3.1"
+version = "0.3.2-alpha.2+refactor-schema"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "blake2b-rs 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "includedir 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "includedir_codegen 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "phf 0.7.24 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ckb-system-scripts"
+version = "0.3.2-alpha.3+alignment-bench"
 dependencies = [
  "blake2b-rs 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3990,7 +4001,7 @@ dependencies = [
 "checksum cexpr 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "a7fa24eb00d5ffab90eaeaf1092ac85c04c64aaf358ea6f84505b8116d24c6af"
 "checksum cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "11d43355396e872eefb45ce6342e4374ed7bc2b3a502d1b28e36d6e23c05d1f4"
 "checksum chrono 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)" = "77d81f58b7301084de3b958691458a53c3f7e0b1d702f77e550b6a88e3a88abe"
-"checksum ckb-system-scripts 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "81a1f8f5b76c84f28da4d35260601b0119f12f80e0d4694c332c546b014aa672"
+"checksum ckb-system-scripts 0.3.2-alpha.2+refactor-schema (registry+https://github.com/rust-lang/crates.io-index)" = "956a5e5323071dfdd0ea1f9d073c8ebb8fb29ba05d57f0fff217d1ccd7c3c20f"
 "checksum ckb-vm 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f089b008f8fa02e44b409b2c24ee9a9f65216f24cebeccc598162d3a44a675ad"
 "checksum ckb-vm-definitions 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fd297669e4783ddca472fa00e7d2117b2d1dcb67cca814d5dd222852b8dba088"
 "checksum clang-sys 0.28.1 (registry+https://github.com/rust-lang/crates.io-index)" = "81de550971c976f176130da4b2978d3b524eaa0fd9ac31f3ceb5ae1231fb4853"
