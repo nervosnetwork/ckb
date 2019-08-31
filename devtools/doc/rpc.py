@@ -98,6 +98,7 @@ def main():
     filepath = sys.argv[1]
     with open(filepath) as f:
         cases = json.load(f)
+        cases.sort(key=lambda case: "{}-{}".format(case["module"], case["method"]))
 
     print("# CKB JSON-RPC Protocols")
     newline(2)
