@@ -90,7 +90,7 @@ fn withdraw_dao_deps(node: &Node, withdraw_header_hash: Byte32) -> (Vec<CellDep>
 fn deposit_dao_script(dao_type_hash: Byte32) -> Script {
     Script::new_builder()
         .code_hash(dao_type_hash)
-        .hash_type(ScriptHashType::Type.pack())
+        .hash_type(ScriptHashType::Type.into())
         .build()
 }
 

@@ -680,7 +680,7 @@ mod tests {
         // Transaction use dep group
         let dep = CellDep::new_builder()
             .out_point(tx2_out_point.clone())
-            .dep_type(DepType::DepGroup.pack())
+            .dep_type(DepType::DepGroup.into())
             .build();
         let tx3 = TransactionBuilder::default()
             .cell_dep(dep)

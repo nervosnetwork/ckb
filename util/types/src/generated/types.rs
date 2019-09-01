@@ -4688,322 +4688,6 @@ impl ProposalShortIdBuilder {
     }
 }
 #[derive(Clone)]
-pub struct ScriptHashType(molecule::bytes::Bytes);
-#[derive(Clone, Copy)]
-pub struct ScriptHashTypeReader<'r>(&'r [u8]);
-impl ::std::fmt::Debug for ScriptHashType {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl<'r> ::std::fmt::Debug for ScriptHashTypeReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl ::std::fmt::Display for ScriptHashType {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(&self.raw_data()).unwrap()
-        )
-    }
-}
-impl<'r> ::std::fmt::Display for ScriptHashTypeReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(&self.raw_data()).unwrap()
-        )
-    }
-}
-pub struct ScriptHashTypeBuilder(pub(crate) [u8; 1]);
-impl ::std::fmt::Debug for ScriptHashTypeBuilder {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{}({:?})", Self::NAME, &self.0[..])
-    }
-}
-impl ::std::default::Default for ScriptHashTypeBuilder {
-    fn default() -> Self {
-        ScriptHashTypeBuilder([0; 1])
-    }
-}
-impl molecule::prelude::Entity for ScriptHashType {
-    type Builder = ScriptHashTypeBuilder;
-    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        ScriptHashType(data)
-    }
-    fn as_bytes(&self) -> molecule::bytes::Bytes {
-        self.0.clone()
-    }
-    fn as_slice(&self) -> &[u8] {
-        &self.0[..]
-    }
-    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        ScriptHashTypeReader::from_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        ScriptHashTypeReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn new_builder() -> Self::Builder {
-        ::std::default::Default::default()
-    }
-    fn as_builder(self) -> Self::Builder {
-        Self::new_builder().set([self.nth0()])
-    }
-}
-impl ::std::default::Default for ScriptHashType {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![0];
-        ScriptHashType::new_unchecked(v.into())
-    }
-}
-impl ScriptHashType {
-    pub const NAME: &'static str = "ScriptHashType";
-    pub fn as_reader<'r>(&'r self) -> ScriptHashTypeReader<'r> {
-        ScriptHashTypeReader::new_unchecked(self.as_slice())
-    }
-    pub const TOTAL_SIZE: usize = 1;
-    pub const ITEM_SIZE: usize = 1;
-    pub const ITEM_COUNT: usize = 1;
-    pub fn raw_data(&self) -> molecule::bytes::Bytes {
-        self.as_bytes()
-    }
-    pub fn nth0(&self) -> u8 {
-        self.0[0]
-    }
-}
-impl<'r> molecule::prelude::Reader<'r> for ScriptHashTypeReader<'r> {
-    type Entity = ScriptHashType;
-    fn to_entity(&self) -> Self::Entity {
-        ScriptHashType::new_unchecked(self.as_slice().into())
-    }
-    fn new_unchecked(slice: &'r [u8]) -> Self {
-        ScriptHashTypeReader(slice)
-    }
-    fn as_slice(&self) -> &'r [u8] {
-        self.0
-    }
-    fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
-        use molecule::error::VerificationError;
-        if slice.len() != 1 {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 1, slice.len());
-            Err(err)?;
-        }
-        Ok(())
-    }
-}
-impl<'r> ScriptHashTypeReader<'r> {
-    pub const NAME: &'r str = "ScriptHashTypeReader";
-    pub const TOTAL_SIZE: usize = 1;
-    pub const ITEM_SIZE: usize = 1;
-    pub const ITEM_COUNT: usize = 1;
-    pub fn raw_data(&self) -> &'r [u8] {
-        self.as_slice()
-    }
-    pub fn nth0(&self) -> u8 {
-        self.0[0]
-    }
-}
-impl molecule::prelude::Builder for ScriptHashTypeBuilder {
-    type Entity = ScriptHashType;
-    fn expected_length(&self) -> usize {
-        1
-    }
-    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        writer.write_all(&self.0)?;
-        Ok(())
-    }
-    fn build(&self) -> Self::Entity {
-        let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner).expect("write vector should be ok");
-        ScriptHashType::new_unchecked(inner.into())
-    }
-}
-impl ScriptHashTypeBuilder {
-    pub const NAME: &'static str = "ScriptHashTypeBuilder";
-    pub fn set(mut self, v: [u8; 1]) -> Self {
-        self.0 = v;
-        self
-    }
-    pub fn nth0(mut self, v: u8) -> Self {
-        self.0[0] = v;
-        self
-    }
-}
-#[derive(Clone)]
-pub struct DepType(molecule::bytes::Bytes);
-#[derive(Clone, Copy)]
-pub struct DepTypeReader<'r>(&'r [u8]);
-impl ::std::fmt::Debug for DepType {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl<'r> ::std::fmt::Debug for DepTypeReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(self.as_slice()).unwrap()
-        )
-    }
-}
-impl ::std::fmt::Display for DepType {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(&self.raw_data()).unwrap()
-        )
-    }
-}
-impl<'r> ::std::fmt::Display for DepTypeReader<'r> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(
-            f,
-            "{}(0x{})",
-            Self::NAME,
-            hex_string(&self.raw_data()).unwrap()
-        )
-    }
-}
-pub struct DepTypeBuilder(pub(crate) [u8; 1]);
-impl ::std::fmt::Debug for DepTypeBuilder {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{}({:?})", Self::NAME, &self.0[..])
-    }
-}
-impl ::std::default::Default for DepTypeBuilder {
-    fn default() -> Self {
-        DepTypeBuilder([0; 1])
-    }
-}
-impl molecule::prelude::Entity for DepType {
-    type Builder = DepTypeBuilder;
-    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
-        DepType(data)
-    }
-    fn as_bytes(&self) -> molecule::bytes::Bytes {
-        self.0.clone()
-    }
-    fn as_slice(&self) -> &[u8] {
-        &self.0[..]
-    }
-    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        DepTypeReader::from_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
-        DepTypeReader::from_compatible_slice(slice).map(|reader| reader.to_entity())
-    }
-    fn new_builder() -> Self::Builder {
-        ::std::default::Default::default()
-    }
-    fn as_builder(self) -> Self::Builder {
-        Self::new_builder().set([self.nth0()])
-    }
-}
-impl ::std::default::Default for DepType {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![0];
-        DepType::new_unchecked(v.into())
-    }
-}
-impl DepType {
-    pub const NAME: &'static str = "DepType";
-    pub fn as_reader<'r>(&'r self) -> DepTypeReader<'r> {
-        DepTypeReader::new_unchecked(self.as_slice())
-    }
-    pub const TOTAL_SIZE: usize = 1;
-    pub const ITEM_SIZE: usize = 1;
-    pub const ITEM_COUNT: usize = 1;
-    pub fn raw_data(&self) -> molecule::bytes::Bytes {
-        self.as_bytes()
-    }
-    pub fn nth0(&self) -> u8 {
-        self.0[0]
-    }
-}
-impl<'r> molecule::prelude::Reader<'r> for DepTypeReader<'r> {
-    type Entity = DepType;
-    fn to_entity(&self) -> Self::Entity {
-        DepType::new_unchecked(self.as_slice().into())
-    }
-    fn new_unchecked(slice: &'r [u8]) -> Self {
-        DepTypeReader(slice)
-    }
-    fn as_slice(&self) -> &'r [u8] {
-        self.0
-    }
-    fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
-        use molecule::error::VerificationError;
-        if slice.len() != 1 {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 1, slice.len());
-            Err(err)?;
-        }
-        Ok(())
-    }
-}
-impl<'r> DepTypeReader<'r> {
-    pub const NAME: &'r str = "DepTypeReader";
-    pub const TOTAL_SIZE: usize = 1;
-    pub const ITEM_SIZE: usize = 1;
-    pub const ITEM_COUNT: usize = 1;
-    pub fn raw_data(&self) -> &'r [u8] {
-        self.as_slice()
-    }
-    pub fn nth0(&self) -> u8 {
-        self.0[0]
-    }
-}
-impl molecule::prelude::Builder for DepTypeBuilder {
-    type Entity = DepType;
-    fn expected_length(&self) -> usize {
-        1
-    }
-    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        writer.write_all(&self.0)?;
-        Ok(())
-    }
-    fn build(&self) -> Self::Entity {
-        let mut inner = Vec::with_capacity(self.expected_length());
-        self.write(&mut inner).expect("write vector should be ok");
-        DepType::new_unchecked(inner.into())
-    }
-}
-impl DepTypeBuilder {
-    pub const NAME: &'static str = "DepTypeBuilder";
-    pub fn set(mut self, v: [u8; 1]) -> Self {
-        self.0 = v;
-        self
-    }
-    pub fn nth0(mut self, v: u8) -> Self {
-        self.0[0] = v;
-        self
-    }
-}
-#[derive(Clone)]
 pub struct HeaderVec(molecule::bytes::Bytes);
 #[derive(Clone, Copy)]
 pub struct HeaderVecReader<'r>(&'r [u8]);
@@ -7270,7 +6954,7 @@ impl<'r> ::std::fmt::Display for ScriptReader<'r> {
 #[derive(Debug, Default)]
 pub struct ScriptBuilder {
     pub(crate) code_hash: Byte32,
-    pub(crate) hash_type: ScriptHashType,
+    pub(crate) hash_type: u8,
     pub(crate) args: Bytes,
 }
 impl ::std::default::Default for Script {
@@ -7332,11 +7016,10 @@ impl Script {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn hash_type(&self) -> ScriptHashType {
+    pub fn hash_type(&self) -> u8 {
         let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        let end = u32::from_le(offsets[1 + 1]) as usize;
-        ScriptHashType::new_unchecked(self.0.slice(start, end))
+        let offset = u32::from_le(offsets[1]) as usize;
+        self.0[offset]
     }
     pub fn args(&self) -> Bytes {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -7428,7 +7111,10 @@ impl<'r> molecule::prelude::Reader<'r> for ScriptReader<'r> {
             Err(err)?;
         }
         Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
-        ScriptHashTypeReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
+        if offsets[1] + 1 != offsets[2] {
+            let err = VerificationError::FieldIsBroken(Self::NAME.to_owned(), 1);
+            Err(err)?;
+        }
         BytesReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Ok(())
     }
@@ -7453,11 +7139,10 @@ impl<'r> ScriptReader<'r> {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn hash_type(&self) -> ScriptHashTypeReader<'r> {
+    pub fn hash_type(&self) -> u8 {
         let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        let end = u32::from_le(offsets[1 + 1]) as usize;
-        ScriptHashTypeReader::new_unchecked(&self.as_slice()[start..end])
+        let offset = u32::from_le(offsets[1]) as usize;
+        self.0[offset]
     }
     pub fn args(&self) -> BytesReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -7474,10 +7159,7 @@ impl molecule::prelude::Builder for ScriptBuilder {
     type Entity = Script;
     fn expected_length(&self) -> usize {
         let len_header = 4 + 3 * 4;
-        len_header
-            + self.code_hash.as_slice().len()
-            + self.hash_type.as_slice().len()
-            + self.args.as_slice().len()
+        len_header + self.code_hash.as_slice().len() + 1 + self.args.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
@@ -7491,7 +7173,7 @@ impl molecule::prelude::Builder for ScriptBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.hash_type.as_slice().len();
+            offset += 1;
         }
         {
             let tmp = (offset as u32).to_le_bytes();
@@ -7500,7 +7182,7 @@ impl molecule::prelude::Builder for ScriptBuilder {
         }
         let _ = offset;
         writer.write_all(self.code_hash.as_slice())?;
-        writer.write_all(self.hash_type.as_slice())?;
+        writer.write_all(&[self.hash_type])?;
         writer.write_all(self.args.as_slice())?;
         Ok(())
     }
@@ -7516,7 +7198,7 @@ impl ScriptBuilder {
         self.code_hash = v;
         self
     }
-    pub fn hash_type(mut self, v: ScriptHashType) -> Self {
+    pub fn hash_type(mut self, v: u8) -> Self {
         self.hash_type = v;
         self
     }
@@ -8189,7 +7871,7 @@ impl<'r> ::std::fmt::Display for CellDepReader<'r> {
 #[derive(Debug, Default)]
 pub struct CellDepBuilder {
     pub(crate) out_point: OutPoint,
-    pub(crate) dep_type: DepType,
+    pub(crate) dep_type: u8,
 }
 impl molecule::prelude::Entity for CellDep {
     type Builder = CellDepBuilder;
@@ -8237,8 +7919,8 @@ impl CellDep {
     pub fn out_point(&self) -> OutPoint {
         OutPoint::new_unchecked(self.0.slice(0, 36))
     }
-    pub fn dep_type(&self) -> DepType {
-        DepType::new_unchecked(self.0.slice(36, 37))
+    pub fn dep_type(&self) -> u8 {
+        self.0[36]
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for CellDepReader<'r> {
@@ -8259,7 +7941,6 @@ impl<'r> molecule::prelude::Reader<'r> for CellDepReader<'r> {
             Err(err)?;
         }
         OutPointReader::verify(&slice[0..36], _compatible)?;
-        DepTypeReader::verify(&slice[36..37], _compatible)?;
         Ok(())
     }
 }
@@ -8271,8 +7952,8 @@ impl<'r> CellDepReader<'r> {
     pub fn out_point(&self) -> OutPointReader<'r> {
         OutPointReader::new_unchecked(&self.as_slice()[0..36])
     }
-    pub fn dep_type(&self) -> DepTypeReader<'r> {
-        DepTypeReader::new_unchecked(&self.as_slice()[36..37])
+    pub fn dep_type(&self) -> u8 {
+        self.0[36]
     }
 }
 impl molecule::prelude::Builder for CellDepBuilder {
@@ -8282,7 +7963,7 @@ impl molecule::prelude::Builder for CellDepBuilder {
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         writer.write_all(self.out_point.as_slice())?;
-        writer.write_all(self.dep_type.as_slice())?;
+        writer.write_all(&[self.dep_type])?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -8297,7 +7978,7 @@ impl CellDepBuilder {
         self.out_point = v;
         self
     }
-    pub fn dep_type(mut self, v: DepType) -> Self {
+    pub fn dep_type(mut self, v: u8) -> Self {
         self.dep_type = v;
         self
     }

@@ -51,7 +51,7 @@ impl Spec for SendSecpTxUseDepGroup {
 
         let cell_dep = CellDep::new_builder()
             .out_point(secp_out_point)
-            .dep_type(DepType::DepGroup.pack())
+            .dep_type(DepType::DepGroup.into())
             .build();
         let output = CellOutput::new_builder()
             .capacity(capacity_bytes!(100).pack())
@@ -132,8 +132,6 @@ impl Spec for CheckTypical2In2OutTx {
     crate::name!("check_typical_2_in_2_out_tx");
 
     fn run(&self, net: &mut Net) {
-        let hash_type = ScriptHashType::Type;
-
         let node = &net.nodes[0];
 
         info!("Generate 20 block on node");
@@ -143,7 +141,7 @@ impl Spec for CheckTypical2In2OutTx {
 
         let cell_dep = CellDep::new_builder()
             .out_point(secp_out_point)
-            .dep_type(DepType::DepGroup.pack())
+            .dep_type(DepType::DepGroup.into())
             .build();
         let input1 = {
             let block = node.get_tip_block();
@@ -159,7 +157,7 @@ impl Spec for CheckTypical2In2OutTx {
         let lock = Script::new_builder()
             .args(self.lock_arg.pack())
             .code_hash(type_lock_script_code_hash().pack())
-            .hash_type(hash_type.pack())
+            .hash_type(ScriptHashType::Type.into())
             .build();
         let output1 = CellOutput::new_builder()
             .capacity(capacity_bytes!(100).pack())

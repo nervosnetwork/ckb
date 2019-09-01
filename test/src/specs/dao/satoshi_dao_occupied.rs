@@ -107,7 +107,7 @@ impl Spec for SpendSatoshiCell {
         let secp_out_point = OutPoint::new(node0.dep_group_tx_hash().clone(), 1);
         let cell_dep = CellDep::new_builder()
             .out_point(secp_out_point)
-            .dep_type(DepType::DepGroup.pack())
+            .dep_type(DepType::DepGroup.into())
             .build();
         let output = CellOutput::new_builder()
             .capacity(satoshi_cell_occupied.pack())
@@ -177,7 +177,7 @@ fn issue_satoshi_cell(satoshi_pubkey_hash: H160) -> IssuedCell {
     let lock = Script::new_builder()
         .args(Bytes::from(&satoshi_pubkey_hash.0[..]).pack())
         .code_hash(type_lock_script_code_hash().pack())
-        .hash_type(ScriptHashType::Type.pack())
+        .hash_type(ScriptHashType::Type.into())
         .build();
     IssuedCell {
         capacity: SATOSHI_CELL_CAPACITY,
