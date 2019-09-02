@@ -6,7 +6,6 @@ use ckb_db::{db::RocksDB, Col, DBConfig, DBIterator, Direction, RocksDBTransacti
 use ckb_logger::{debug, error, trace};
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::{self, BlockNumber},
     packed::{self, Byte32, CellOutput, OutPoint},
@@ -162,20 +161,15 @@ impl IndexerStore for DefaultIndexerStore {
         index_from: Option<BlockNumber>,
     ) -> LockHashIndexState {
         let index_state = {
-            let tip_number = self
-                .shared
-                .store()
+            let snapshot = self.shared.snapshot();
+            let tip_number = snapshot
                 .get_tip_header()
                 .expect("tip header exists")
                 .number();
             let block_number = index_from.unwrap_or_else(|| tip_number).min(tip_number);
             LockHashIndexState {
                 block_number,
-                block_hash: self
-                    .shared
-                    .store()
-                    .get_block_hash(block_number)
-                    .expect("block exists"),
+                block_hash: snapshot.get_block_hash(block_number).expect("block exists"),
             }
         };
         self.commit_txn(|txn| {
@@ -266,12 +260,10 @@ impl DefaultIndexerStore {
         if lock_hash_index_states.is_empty() {
             return;
         }
-
+        let snapshot = self.shared.snapshot();
         // retains the lock hashes on fork chain and detach blocks
         lock_hash_index_states.retain(|_, index_state| {
-            self.shared
-                .store()
-                .get_block_number(&index_state.block_hash.clone())
+            snapshot.get_block_number(&index_state.block_hash.clone())
                 != Some(index_state.block_number)
         });
         lock_hash_index_states
@@ -280,23 +272,16 @@ impl DefaultIndexerStore {
                 let mut index_lock_hashes = HashSet::new();
                 index_lock_hashes.insert(lock_hash.to_owned());
 
-                let mut block = self
-                    .shared
-                    .store()
+                let mut block = snapshot
                     .get_block(&index_state.block_hash.clone())
                     .expect("block exists");
                 // detach blocks until reach a block on main chain
                 self.commit_txn(|txn| {
                     self.detach_block(txn, &index_lock_hashes, &block);
-                    while self
-                        .shared
-                        .store()
-                        .get_block_hash(block.header().number() - 1)
+                    while snapshot.get_block_hash(block.header().number() - 1)
                         != Some(block.data().header().raw().parent_hash())
                     {
-                        block = self
-                            .shared
-                            .store()
+                        block = snapshot
                             .get_block(&block.data().header().raw().parent_hash())
                             .expect("block exists");
                         self.detach_block(txn, &index_lock_hashes, &block);
@@ -328,14 +313,10 @@ impl DefaultIndexerStore {
             min_block_number + 1
         };
 
-        let (tip_number, tip_hash) = {
-            let tip_header = self
-                .shared
-                .store()
-                .get_tip_header()
-                .expect("tip header exists");
-            (tip_header.number(), tip_header.hash().to_owned())
-        };
+        let tip_number = snapshot
+            .get_tip_header()
+            .expect("tip header exists")
+            .number();
         self.commit_txn(|txn| {
             (start_number..=tip_number)
                 .take(TXN_ATTACH_BLOCK_NUMS)
@@ -346,11 +327,10 @@ impl DefaultIndexerStore {
                         .map(|(lock_hash, _)| lock_hash)
                         .cloned()
                         .collect();
-                    let block = self
-                        .shared
-                        .store()
-                        .get_ancestor(&tip_hash, block_number)
-                        .and_then(|header| self.shared.store().get_block(&header.hash()))
+                    let block = snapshot
+                        .get_block_hash(block_number)
+                        .as_ref()
+                        .and_then(|hash| snapshot.get_block(hash))
                         .expect("block exists");
                     self.attach_block(txn, &index_lock_hashes, &block);
                     let index_state = LockHashIndexState {
@@ -632,6 +612,7 @@ mod tests {
     use ckb_notify::NotifyService;
     use ckb_resource::CODE_HASH_DAO;
     use ckb_shared::shared::{Shared, SharedBuilder};
+    use ckb_traits::chain_provider::ChainProvider;
     use ckb_types::{
         core::{
             capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, ScriptHashType,
