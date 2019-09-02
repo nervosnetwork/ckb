@@ -2,13 +2,12 @@ use crate::tests::util::{
     create_cellbase, create_multi_outputs_transaction, create_transaction,
     create_transaction_with_out_point, dao_data, start_chain, MockChain, MockStore,
 };
-use ckb_shared::error::SharedError;
-use ckb_core::error::OutPointError;
-use ckb_traits::ChainProvider;
-use ckb_types::prelude::*;
 use ckb_error::assert_error_eq;
+use ckb_traits::ChainProvider;
+use ckb_types::core::error::OutPointError;
+use ckb_types::prelude::*;
 use ckb_types::{
-    core::{cell::UnresolvableError, BlockBuilder, BlockView},
+    core::{BlockBuilder, BlockView},
     packed::OutPoint,
     U256,
 };

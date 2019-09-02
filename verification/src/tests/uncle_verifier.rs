@@ -3,11 +3,11 @@ use crate::uncles_verifier::UnclesVerifier;
 use crate::UnclesError;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::assert_error_eq;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_traits::ChainProvider;
-use ckb_error::assert_error_eq;
 use ckb_types::{
     core::{
         BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView, TransactionBuilder,
@@ -189,7 +189,7 @@ fn test_invalid_uncle_hash_case1() {
         verifier.verify().err(),
         Some(
             UnclesError::UnmatchedUnclesHash {
-                expected: H256::zero(),
+                expected: Byte32::zero(),
                 actual: block.calc_uncles_hash(),
             }
             .into(),
@@ -251,7 +251,10 @@ fn test_double_inclusion() {
 
     assert_error_eq(
         verifier.verify().err(),
-        Some(UnclesError::DoubleInclusion(block.uncles()[0].header().hash().to_owned()).into()),
+        Some(
+            UnclesError::DoubleInclusion(block.uncles().get(0).unwrap().header().hash().to_owned())
+                .into(),
+        ),
     );
 }
 
@@ -414,7 +417,12 @@ fn test_duplicated_uncles() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
         verifier.verify().err(),
-        Some(UnclesError::DuplicatedUncles(block.uncles()[1].header().hash().to_owned()).into()),
+        Some(
+            UnclesError::DuplicatedUncles(
+                block.uncles().get(1).unwrap().header().hash().to_owned(),
+            )
+            .into(),
+        ),
     );
 }
 
@@ -637,6 +645,6 @@ fn test_uncle_with_uncle_descendant() {
         let dummy_context = dummy_context(&shared);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch18);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &new_block);
-        assert_eq!(verifier.verify(), Ok(()));
+        assert!(verifier.verify().is_ok());
     }
 }

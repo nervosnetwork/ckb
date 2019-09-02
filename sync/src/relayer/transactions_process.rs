@@ -169,7 +169,8 @@ impl<'a> TransactionsProcess<'a> {
 
 fn is_bad_tx(error: &Error) -> bool {
     match error.kind() {
-        ErrorKind::Transaction => TryInto::<&TransactionError>::try_into(error)
+        ErrorKind::Transaction => error
+            .downcast_ref::<TransactionError>()
             .expect("error kind checked")
             .is_bad_tx(),
         ErrorKind::Script => true,

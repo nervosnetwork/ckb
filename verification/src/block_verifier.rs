@@ -1,12 +1,12 @@
 use crate::header_verifier::HeaderResolver;
 use crate::{BlockErrorKind, CellbaseError, Verifier};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::Error;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockView, EpochExt, HeaderView},
     packed::{CellInput, Script},
 };
-use ckb_error::Error;
 use std::collections::HashSet;
 
 //TODO: cellbase, witness

@@ -7,9 +7,7 @@ use ckb_db::{
     iter::{DBIterator, DBIteratorItem},
     Col, DBPinnableSlice, Direction, RocksDB,
 };
-use ckb_error::{Error, InternalError, InternalErrorKind};
-use ckb_protos as protos;
-use std::convert::TryInto;
+use ckb_error::Error;
 use ckb_types::{
     core::{BlockExt, TransactionMeta},
     packed,

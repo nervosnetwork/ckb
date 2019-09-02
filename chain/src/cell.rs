@@ -1,10 +1,10 @@
+use ckb_error::Error;
 use ckb_store::{ChainStore, StoreTransaction};
 use ckb_types::{
     core::{BlockView, TransactionMeta},
     packed::Byte32,
     prelude::*,
 };
-use failure::Error as FailureError;
 use im::hashmap as hamt;
 use im::hashmap::HashMap as HamtMap;
 
@@ -12,7 +12,7 @@ pub fn attach_block_cell(
     txn: &StoreTransaction,
     block: &BlockView,
     cell_set: &mut HamtMap<Byte32, TransactionMeta>,
-) -> Result<(), FailureError> {
+) -> Result<(), Error> {
     for tx in block.transactions() {
         for cell in tx.input_pts_iter() {
             if let hamt::Entry::Occupied(mut o) = cell_set.entry(cell.tx_hash().clone()) {
@@ -54,7 +54,7 @@ pub fn detach_block_cell(
     txn: &StoreTransaction,
     block: &BlockView,
     cell_set: &mut HamtMap<Byte32, TransactionMeta>,
-) -> Result<(), FailureError> {
+) -> Result<(), Error> {
     for tx in block.transactions().iter().rev() {
         txn.delete_cell_set(&tx.hash())?;
         cell_set.remove(&tx.hash());

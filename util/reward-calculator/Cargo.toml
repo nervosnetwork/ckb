@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 ckb-types = { path = "../types" }
 ckb-store = { path = "../../store" }
-failure = "0.1.5"
 ckb-dao = { path = "../dao" }
 ckb-logger = { path = "../logger" }
 ckb-chain-spec = {path = "../../spec"}

@@ -3,8 +3,8 @@ use super::super::transaction_verifier::{
     Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
 use crate::TransactionError;
-use ckb_resource::CODE_HASH_DAO;
 use ckb_error::{assert_error_eq, Error};
+use ckb_resource::CODE_HASH_DAO;
 use ckb_test_chain_utils::MockMedianTime;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
@@ -153,7 +153,7 @@ pub fn test_inputs_cellbase_maturity() {
     let cellbase_maturity = 100;
     let verifier1 = MaturityVerifier::new(&rtx, tip_number, cellbase_maturity);
 
-    assert_eq!(
+    assert_error_eq(
         verifier1.verify().err(),
         Some(TransactionError::ImmatureCellbase.into()),
     );
@@ -484,35 +484,12 @@ pub fn test_outputs_data_length_mismatch() {
 
     assert_error_eq(
         verifier.verify().err(),
-        Some(TransactionError::UnmatchedOutputsDataLength.into()),
+        Some(TransactionError::UnmatchedOutputsDataLength),
     );
 
     let transaction = TransactionBuilder::default()
         .output(Default::default())
         .output_data(Default::default())
-        .build();
-    let verifier = OutputsDataVerifier::new(&transaction);
-
-    assert!(verifier.verify().is_ok());
-}
-
-#[test]
-pub fn test_outputs_data_hash_mismatch() {
-    let data: Bytes = Bytes::from(&b"Hello Wrold"[..]);
-    let transaction = TransactionBuilder::default()
-        .output(Default::default())
-        .output_data(data.clone())
-        .build();
-    let verifier = OutputsDataVerifier::new(&transaction);
-
-    assert_error_eq(
-        verifier.verify().err(),
-        Some(TransactionError::UnmatchedOutputsDataHashes.into()),
-    );
-
-    let transaction = TransactionBuilder::default()
-        .output(CellOutputBuilder::from_data(&data).build())
-        .output_data(data)
         .build();
     let verifier = OutputsDataVerifier::new(&transaction);
 

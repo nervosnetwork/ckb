@@ -30,7 +30,6 @@ rand = "0.6"
 log = "0.4"
 env_logger = "0.6"
 crossbeam-channel = "0.3"
-regex = "1"
 faketime = "0.2"
 failure = "0.1.5"
 

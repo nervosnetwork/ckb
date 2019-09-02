@@ -4,7 +4,6 @@ use super::super::block_verifier::{
 };
 use crate::{BlockErrorKind, CellbaseError};
 use ckb_error::assert_error_eq;
-use super::super::error::{CellbaseError, Error as VerifyError};
 use ckb_types::{
     bytes::Bytes,
     core::{

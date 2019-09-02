@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 byteorder = "1.3.1"
 ckb-types = { path = "../types" }
-failure = "0.1.5"
 ckb-chain-spec = { path = "../../spec" }
 ckb-resource = { path = "../../resource" }
 ckb-store = { path = "../../store" }

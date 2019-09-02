@@ -1,6 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_dao_utils::{extract_dao_data, pack_dao_data, Error};
+use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
+use ckb_error::Error;
 use ckb_resource::CODE_HASH_DAO;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
@@ -8,7 +9,6 @@ use ckb_types::{
     packed::{Byte32, CellOutput, OutPoint},
     prelude::*,
 };
-use ckb_error::Error;
 use std::cmp::max;
 use std::collections::HashSet;
 
@@ -182,10 +182,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         rtx.resolved_inputs
             .iter()
             .enumerate()
-            .try_fold(
-                Capacity::zero(),
-                |capacities, (i, cell_meta)| {
-                    let capacity: Result<Capacity, Error> = {
+            .try_fold(Capacity::zero(), |capacities, (i, cell_meta)| {
+                let capacity: Result<Capacity, Error> = {
                     let output = &cell_meta.cell_output;
                     if output
                         .type_()
@@ -204,7 +202,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .witnesses()
                             .get(i)
                             .and_then(|witness| witness.get(1))
-                            .ok_or(Error::InvalidOutPoint)
+                            .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
                                 if witness_data.raw_data().len() != 8 {
                                     Err(DaoError::InvalidDaoFormat)

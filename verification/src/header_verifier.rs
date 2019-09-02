@@ -4,9 +4,9 @@ use crate::{
     ALLOWED_FUTURE_BLOCKTIME,
 };
 use ckb_error::Error;
-use crate::ALLOWED_FUTURE_BLOCKTIME;
 use ckb_pow::PowEngine;
 use ckb_traits::BlockMedianTimeContext;
+use ckb_types::prelude::*;
 use ckb_types::{
     constants::HEADER_VERSION,
     core::{EpochExt, HeaderView},
@@ -152,8 +152,8 @@ impl<T: HeaderResolver> EpochVerifier<T> {
         let actual_difficulty = target.header().difficulty();
         if epoch.difficulty() != &actual_difficulty {
             Err(EpochError::UnmatchedDifficulty {
-                expected: epoch.difficulty().clone(),
-                actual: actual_difficulty.clone(),
+                expected: epoch.difficulty().pack(),
+                actual: actual_difficulty.pack(),
             })?;
         }
         Ok(())

@@ -3,15 +3,12 @@
 
 use crate::tx_pool::get_transaction_virtual_bytes;
 use ckb_types::{
-    core::{cell::UnresolvableError, Capacity, Cycle, TransactionView},
+    core::{Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
 };
-use ckb_verification::TransactionError;
-use failure::Fail;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::fmt;
 use std::hash::{Hash, Hasher};
 
 /// Transaction pool configuration

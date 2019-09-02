@@ -1,13 +1,12 @@
-use crate::{
-    BlockErrorKind, EpochError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME,
-};
 use crate::header_verifier::{
     EpochVerifier, HeaderResolver, NumberVerifier, PowVerifier, TimestampVerifier, VersionVerifier,
 };
-use crate::ALLOWED_FUTURE_BLOCKTIME;
+use crate::{
+    BlockErrorKind, EpochError, NumberError, PowError, TimestampError, ALLOWED_FUTURE_BLOCKTIME,
+};
+use ckb_error::assert_error_eq;
 use ckb_pow::PowEngine;
 use ckb_test_chain_utils::MockMedianTime;
-use ckb_error::Error;
 use ckb_types::{
     constants::HEADER_VERSION,
     core::{EpochExt, HeaderBuilder, HeaderView},
@@ -180,8 +179,8 @@ fn test_epoch_difficulty() {
         EpochVerifier::verify(&fake_header_resolver).err(),
         Some(
             EpochError::UnmatchedDifficulty {
-                expected: U256::from(1u64),
-                actual: U256::from(2u64),
+                expected: U256::from(1u64).pack(),
+                actual: U256::from(2u64).pack(),
             }
             .into(),
         ),

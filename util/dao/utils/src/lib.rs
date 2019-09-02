@@ -4,14 +4,13 @@ extern crate enum_display_derive;
 mod error;
 
 use byteorder::{ByteOrder, LittleEndian};
+use ckb_error::Error;
 use ckb_types::{
     core::{Capacity, TransactionView},
     packed::{Byte32, OutPoint},
     prelude::*,
 };
-use failure::{Error as FailureError, Fail};
 use std::collections::HashSet;
-use ckb_error::Error;
 
 pub use crate::error::DaoError;
 
@@ -22,24 +21,12 @@ pub const DAO_VERSION: u8 = 1;
 
 pub const DAO_SIZE: usize = 32;
 
-#[derive(Debug, PartialEq, Clone, Eq, Fail)]
-pub enum Error {
-    #[fail(display = "Unknown")]
-    Unknown,
-    #[fail(display = "InvalidHeader")]
-    InvalidHeader,
-    #[fail(display = "InvalidOutPoint")]
-    InvalidOutPoint,
-    #[fail(display = "Format")]
-    Format,
-}
-
 pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
     let dead_cells = txs
         .iter()
         .flat_map(|tx| tx.inputs().into_iter().map(|input| input.previous_output()))
         .collect::<HashSet<_>>();
-    let statistics_outputs = |tx: &TransactionView| -> Result<_, FailureError> {
+    let statistics_outputs = |tx: &TransactionView| -> Result<_, Error> {
         let c = tx
             .data()
             .raw()
@@ -65,7 +52,7 @@ pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
         Ok((c, u))
     };
 
-    let result: Result<_, FailureError> =
+    let result: Result<_, Error> =
         txs.into_iter()
             .try_fold((Capacity::zero(), Capacity::zero()), |(c, u), tx| {
                 let (tx_c, tx_u) = statistics_outputs(tx)?;

@@ -84,8 +84,7 @@ impl TxPoolExecutor {
                 } else {
                     match tx_pool.resolve_tx_from_pending_and_proposed(tx) {
                         Ok(resolved_tx) => resolved_txs.push((tx.hash(), resolved_tx)),
-                        Err(err) => unresolvable_txs
-                            .push((tx.hash(), err)),
+                        Err(err) => unresolvable_txs.push((tx.hash(), err)),
                     }
                 }
             }
@@ -184,18 +183,15 @@ mod tests {
     use super::*;
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_core::error::OutPointError;
-    use ckb_error::assert_error_eq;
+    use ckb_error::{assert_error_eq, InternalError, InternalErrorKind};
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
     use ckb_test_chain_utils::always_success_cell;
     use ckb_traits::ChainProvider;
+    use ckb_types::core::error::OutPointError;
     use ckb_types::{
         bytes::Bytes,
-        core::{
-            capacity_bytes, cell::UnresolvableError, BlockBuilder, Capacity, DepType,
-            TransactionBuilder,
-        },
+        core::{capacity_bytes, BlockBuilder, Capacity, DepType, TransactionBuilder},
         packed::{CellDep, CellInput, CellOutput, OutPoint},
         prelude::*,
         U256,
@@ -338,39 +334,36 @@ mod tests {
         assert_eq!(result, vec![12; 5]);
         // spent conflict cell
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[10..15].to_vec());
-        assert_eq!(
-            result,
-            Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
-                txs[10].inputs().get(0).unwrap().previous_output()
-            )))
         assert_error_eq(
             result.err(),
-            Some(OutPointError::DeadCell(txs[10].inputs()[0].previous_output.to_owned()).into()),
+            Some(
+                OutPointError::DeadCell(txs[10].inputs().get(0).unwrap().previous_output()).into(),
+            ),
         );
         // spent half available half conflict cells
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[6..=15].to_vec());
-        assert_eq!(
-            result,
-            Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
-                txs[10].inputs().get(0).unwrap().previous_output()
-            )))
         assert_error_eq(
             result.err(),
-            Some(OutPointError::DeadCell(txs[10].inputs()[0].previous_output.to_owned()).into()),
+            Some(
+                OutPointError::DeadCell(txs[10].inputs().get(0).unwrap().previous_output()).into(),
+            ),
         );
         // spent one duplicate cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[1].to_owned());
-        assert_eq!(result.err(), Some(PoolError::Duplicate));
+        assert_error_eq(
+            result.err(),
+            Some(
+                InternalError::new(InternalErrorKind::DuplicatedPoolTransaction, txs[1].hash())
+                    .into(),
+            ),
+        );
         // spent one conflict cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[13].to_owned());
         assert_error_eq(
             result.err(),
-            Some(OutPointError::DeadCell(txs[13].inputs()[0].previous_output.to_owned()).into()),
-        assert_eq!(
-            result,
-            Err(PoolError::UnresolvableTransaction(UnresolvableError::Dead(
-                txs[13].inputs().get(0).unwrap().previous_output()
-            )))
+            Some(
+                OutPointError::DeadCell(txs[13].inputs().get(0).unwrap().previous_output()).into(),
+            ),
         );
     }
 

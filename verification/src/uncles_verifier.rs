@@ -1,5 +1,6 @@
-use ckb_error::Error;
+use crate::{PowError, UnclesError};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::Error;
 use ckb_types::{
     core::{BlockNumber, BlockView, EpochExt, HeaderView},
     packed::Byte32,
@@ -105,11 +106,11 @@ where
             }
 
             if included.contains_key(&uncle.hash()) {
-                Err(UnclesError::DuplicatedUncles(uncle_hash.clone()))?;
+                Err(UnclesError::DuplicatedUncles(uncle.hash()))?;
             }
 
             if self.provider.double_inclusion(&uncle.hash()) {
-                return Err(Error::Uncles(UnclesError::DoubleInclusion(uncle.hash())));
+                Err(UnclesError::DoubleInclusion(uncle.hash()))?;
             }
 
             if uncle.data().proposals().len()
@@ -138,7 +139,7 @@ where
                 .pow_engine()
                 .verify(&uncle.data().header())
             {
-                Err(PowError::InvalidProof)?;
+                Err(PowError::InvalidNonce)?;
             }
 
             included.insert(uncle.hash(), uncle.number());

@@ -1,6 +1,7 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
 use crate::MAX_HEADERS_LEN;
+use ckb_error::{Error, ErrorKind};
 use ckb_logger::{debug, log_enabled, warn, Level};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_traits::BlockMedianTimeContext;
@@ -9,7 +10,6 @@ use ckb_types::{
     packed::{self, Byte32},
     prelude::*,
 };
-use ckb_error::Error;
 use ckb_verification::{HeaderError, HeaderErrorKind, HeaderResolver, HeaderVerifier, Verifier};
 use failure::Error as FailureError;
 use std::sync::Arc;
@@ -369,14 +369,18 @@ where
                 self.header.number(),
                 error
             );
-            match TryInto::<&HeaderError>::try_into(&error) {
-                Ok(header_error) => match header_error.kind() {
+            if error.kind() == &ErrorKind::Header {
+                let header_error = error
+                    .downcast_ref::<HeaderError>()
+                    .expect("error kind checked");
+                match header_error.kind() {
                     HeaderErrorKind::Pow | HeaderErrorKind::Epoch => {
                         state.dos(Some(ValidationError::Verify(error)), 100)
                     }
                     _ => state.invalid(Some(ValidationError::Verify(error))),
-                },
-                Err(_) => state.invalid(Some(ValidationError::Verify(error))),
+                }
+            } else {
+                state.invalid(Some(ValidationError::Verify(error)));
             }
         })
     }

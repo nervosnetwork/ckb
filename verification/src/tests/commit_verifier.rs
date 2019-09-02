@@ -2,12 +2,12 @@ use super::super::contextual_block_verifier::{CommitVerifier, VerifyContext};
 use crate::CommitError;
 use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::assert_error_eq;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
-use ckb_error::assert_error_eq;
 use ckb_types::{
     bytes::Bytes,
     core::{

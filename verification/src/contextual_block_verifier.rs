@@ -39,7 +39,7 @@ impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
         }
     }
 
-    fn finalize_block_reward(&self, parent: &Header) -> Result<(Script, BlockReward), Error> {
+    fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
         RewardCalculator::new(self.consensus, self.store).block_reward(parent)
     }
 
@@ -435,7 +435,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             .store
             .get_block_header(&parent_hash)
             .ok_or_else(|| UnknownParentError {
-                parent_hash,
+                parent_hash: parent_hash.clone(),
             })?;
 
         let epoch_ext = if block.is_genesis() {

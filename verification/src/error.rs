@@ -1,5 +1,5 @@
-use ckb_types::{core::BlockNumber, packed::Byte32, U256};
 use ckb_error::Error;
+use ckb_types::packed::Byte32;
 use failure::{Backtrace, Context, Fail};
 use std::fmt::{self, Display};
 
@@ -43,8 +43,6 @@ pub enum TransactionError {
 
     /// The transaction version is mismatched with the system can hold
     MismatchedVersion,
-use std::fmt::{self, Display};
-use failure::{Backtrace, Context, Fail};
 
     /// The transaction size is too large
     // NOTE: the original name is ExceededMaximumBlockBytes
@@ -110,9 +108,9 @@ pub enum BlockErrorKind {
     BlockTransactions,
 
     /// The parent of the block is unknown.
-    UnknownParent(Byte32),
+    UnknownParent,
 
-/// Uncles does not meet the consensus requirements.
+    /// Uncles does not meet the consensus requirements.
     Uncles,
 
     /// Cellbase transaction is invalid.
@@ -148,9 +146,9 @@ pub struct BlockTransactionsError {
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
-#[fail(display = "parent_hash: {:#x}", parent_hash)]
+#[fail(display = "parent_hash: {}", parent_hash)]
 pub struct UnknownParentError {
-    pub parent_hash: H256,
+    pub parent_hash: Byte32,
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
@@ -197,10 +195,10 @@ pub enum UnclesError {
 
     // NOTE: the original name is InvalidHash
     #[fail(
-        display = "UnmatchedUnclesHash{{expected: {:#x}, actual: {:#x}}}",
+        display = "UnmatchedUnclesHash{{expected: {}, actual: {}}}",
         expected, actual
     )]
-    UnmatchedUnclesHash { expected: H256, actual: H256 },
+    UnmatchedUnclesHash { expected: Byte32, actual: Byte32 },
 
     // NOTE: the original name is InvalidNumber
     #[fail(display = "UnmatchedBlockNumber")]
@@ -222,11 +220,11 @@ pub enum UnclesError {
     DuplicatedProposalTransactions,
 
     // NOTE: the original name is Duplicate
-    #[fail(display = "DuplicatedUncles({:#x})", _0)]
-    DuplicatedUncles(H256),
+    #[fail(display = "DuplicatedUncles({})", _0)]
+    DuplicatedUncles(Byte32),
 
-    #[fail(display = "DoubleInclusion({:#x})", _0)]
-    DoubleInclusion(H256),
+    #[fail(display = "DoubleInclusion({})", _0)]
+    DoubleInclusion(Byte32),
 
     #[fail(display = "DescendantLimit")]
     DescendantLimit,
@@ -237,21 +235,18 @@ pub enum UnclesError {
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
-#[fail(display = "parent_hash: {:#x}", parent_hash)]
+#[fail(display = "parent_hash: {}", parent_hash)]
 pub struct InvalidParentError {
-    pub parent_hash: H256,
+    pub parent_hash: Byte32,
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum PowError {
-    #[fail(
-        display = "Boundary{{expected: {:#x}, actual: {:#x}}}",
-        expected, actual
-    )]
-    Boundary { expected: U256, actual: U256 },
+    #[fail(display = "Boundary{{expected: {}, actual: {}}}", expected, actual)]
+    Boundary { expected: Byte32, actual: Byte32 },
 
-    #[fail(display = "InvalidProof")]
-    InvalidProof,
+    #[fail(display = "InvalidNonce")]
+    InvalidNonce,
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
@@ -274,10 +269,10 @@ pub struct NumberError {
 pub enum EpochError {
     // NOTE: the original name is DifficultyMismatch
     #[fail(
-        display = "UnmatchedDifficulty{{expected: {:#x}, actual: {:#x}}}",
+        display = "UnmatchedDifficulty{{expected: {}, actual: {}}}",
         expected, actual
     )]
-    UnmatchedDifficulty { expected: U256, actual: U256 },
+    UnmatchedDifficulty { expected: Byte32, actual: Byte32 },
 
     // NOTE: the original name is NumberMismatch
     #[fail(

@@ -1,13 +1,11 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
+use ckb_error::{Error, InternalError, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalTable;
-use ckb_shared::error::SharedError;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_store::{ChainStore, StoreTransaction};
-use ckb_error::Error;
-use ckb_verification::InvalidParentError;
 use ckb_traits::ChainProvider;
 use ckb_types::{
     core::{
@@ -22,6 +20,7 @@ use ckb_types::{
     prelude::*,
     U256,
 };
+use ckb_verification::InvalidParentError;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use faketime::unix_time_as_millis;
@@ -45,13 +44,10 @@ impl Drop for ChainController {
 }
 
 impl ChainController {
-    pub fn process_block(
-        &self,
-        block: Arc<BlockView>,
-        need_verify: bool,
-    ) -> Result<bool, Error> {
-        Request::call(&self.process_block_sender, (block, need_verify))
-            .unwrap_or_else(|| Err(failure::err_msg("Chain service has gone")))
+    pub fn process_block(&self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, Error> {
+        Request::call(&self.process_block_sender, (block, need_verify)).unwrap_or_else(|| {
+            Err(InternalError::new(InternalErrorKind::System, "Chain service has gone").into())
+        })
     }
 }
 
@@ -240,11 +236,7 @@ impl ChainService {
         })
     }
 
-    fn insert_block(
-        &mut self,
-        block: Arc<BlockView>,
-        need_verify: bool,
-    ) -> Result<bool, Error> {
+    fn insert_block(&mut self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, Error> {
         let db_txn = self.shared.store().begin_transaction();
         let txn_snapshot = db_txn.get_snapshot();
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);

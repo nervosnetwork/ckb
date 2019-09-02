@@ -29,6 +29,12 @@ pub enum InternalErrorKind {
 
     /// VM internal error
     VM,
+
+    /// The transaction already exist in pool
+    DuplicatedPoolTransaction,
+
+    /// Unknown system error
+    System,
 }
 
 impl From<InternalError> for Error {

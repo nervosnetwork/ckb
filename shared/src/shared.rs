@@ -2,10 +2,11 @@ use crate::tx_pool::{TxPool, TxPoolConfig};
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::SpecError;
 use ckb_db::{DBConfig, RocksDB};
+use ckb_error::{Error, InternalError, InternalErrorKind};
 use ckb_logger::info_target;
 use ckb_proposal_table::{ProposalTable, ProposalView};
-use ckb_error::Error;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainDB;
@@ -18,7 +19,6 @@ use ckb_types::{
     U256,
 };
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
-use failure::Error as FailureError;
 use im::hashmap::HashMap as HamtMap;
 use lru_cache::LruCache;
 use std::collections::HashSet;
@@ -44,7 +44,9 @@ impl Shared {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
-            .ok_or_else(|| SharedError::InvalidData("failed to get block_ext".to_owned()))?
+            .ok_or_else(|| {
+                InternalError::new(InternalErrorKind::Database, "failed to get tip's block_ext")
+            })?
             .total_difficulty;
         let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
         let cell_set = Self::init_cell_set(&store)?;
@@ -81,7 +83,7 @@ impl Shared {
 
     pub(crate) fn init_cell_set(
         store: &ChainDB,
-    ) -> Result<HamtMap<Byte32, TransactionMeta>, SharedError> {
+    ) -> Result<HamtMap<Byte32, TransactionMeta>, Error> {
         let mut cell_set = HamtMap::new();
         let mut count = 0;
         info_target!(crate::LOG_TARGET_CHAIN, "Start: loading live cells ...");
@@ -98,7 +100,12 @@ impl Shared {
                 }
                 Ok(())
             })
-            .map_err(|e| SharedError::InvalidData(format!("failed to init cell set {:?}", e)))?;
+            .map_err(|err| {
+                InternalError::new(
+                    InternalErrorKind::Database,
+                    format!("failed to init cell set: {:?}", err),
+                )
+            })?;
         info_target!(
             crate::LOG_TARGET_CHAIN,
             "Done: total {} transactions.",
@@ -139,7 +146,7 @@ impl Shared {
     pub(crate) fn init_store(
         store: &ChainDB,
         consensus: &Consensus,
-    ) -> Result<(HeaderView, EpochExt), SharedError> {
+    ) -> Result<(HeaderView, EpochExt), Error> {
         match store
             .get_tip_header()
             .and_then(|header| store.get_current_epoch_ext().map(|epoch| (header, epoch)))
@@ -150,28 +157,26 @@ impl Shared {
                     if genesis_hash == expect_genesis_hash {
                         Ok((tip_header, epoch))
                     } else {
-                        Err(SharedError::InvalidData(format!(
-                            "mismatch genesis hash, expect {} but {} in database",
-                            expect_genesis_hash, genesis_hash
-                        )))
+                        Err(SpecError::UnmatchedGenesis {
+                            expected: expect_genesis_hash,
+                            actual: genesis_hash,
+                        }
+                        .into())
                     }
                 } else {
-                    Err(SharedError::InvalidData(
-                        "the genesis hash was not found".to_owned(),
-                    ))
+                    Err(InternalError::new(
+                        InternalErrorKind::Database,
+                        "genesis does not exist in database",
+                    )
+                    .into())
                 }
             }
-            None => store
-                .init(&consensus)
-                .map_err(|e| {
-                    SharedError::InvalidData(format!("failed to init genesis block {:?}", e))
-                })
-                .map(|_| {
-                    (
-                        consensus.genesis_block().header().to_owned(),
-                        consensus.genesis_epoch_ext().to_owned(),
-                    )
-                }),
+            None => store.init(&consensus).map(|_| {
+                (
+                    consensus.genesis_block().header().to_owned(),
+                    consensus.genesis_epoch_ext().to_owned(),
+                )
+            }),
         }
     }
 
@@ -245,10 +250,7 @@ impl ChainProvider for Shared {
         )
     }
 
-    fn finalize_block_reward(
-        &self,
-        parent: &HeaderView,
-    ) -> Result<(Script, BlockReward), Error> {
+    fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
         RewardCalculator::new(self.consensus(), self.store()).block_reward(parent)
     }
 

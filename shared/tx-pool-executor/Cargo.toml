@@ -11,9 +11,6 @@ ckb-types = { path = "../../util/types" }
 ckb-store = { path = "../../store" }
 ckb-traits = { path = "../../traits" }
 ckb-verification = { path = "../../verification" }
-
-numext-fixed-hash = { version = "0.1", features = ["support_rand", "support_heapsize", "support_serde"] }
-fnv = "1.0.3"
 ckb-error = { path = "../../error" }
 
 [dev-dependencies]

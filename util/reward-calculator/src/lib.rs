@@ -6,20 +6,11 @@ use ckb_error::Error;
 use ckb_logger::debug;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{BlockNumber, BlockReward, Capacity, HeaderView},
+    core::{BlockReward, Capacity, HeaderView},
     packed::{Byte32, ProposalShortId, Script},
 };
-use failure::{Error as FailureError, Fail};
 use std::cmp;
 use std::collections::HashSet;
-
-#[derive(Debug, PartialEq, Clone, Eq, Fail)]
-pub enum Error {
-    #[fail(display = "Can't resolve finalize target: {}", _0)]
-    Target(BlockNumber),
-    #[fail(display = "Can't parse Script from target witness: {}", _0)]
-    Script(Byte32),
-}
 
 pub struct RewardCalculator<'a, CS> {
     pub consensus: &'a Consensus,

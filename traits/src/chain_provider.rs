@@ -1,11 +1,11 @@
 use ckb_chain_spec::consensus::Consensus;
+use ckb_error::Error;
 use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockReward, EpochExt, HeaderView},
     packed::{Byte32, Script},
 };
-use ckb_error::Error;
 
 pub trait ChainProvider: Sync + Send {
     type Store: ChainStore<'static>;
@@ -20,10 +20,7 @@ pub trait ChainProvider: Sync + Send {
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt>;
 
-    fn finalize_block_reward(
-        &self,
-        parent: &HeaderView,
-    ) -> Result<(Script, BlockReward), Error>;
+    fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error>;
 
     fn consensus(&self) -> &Consensus;
 }

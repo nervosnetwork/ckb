@@ -10,12 +10,13 @@ use ckb_error::assert_error_eq;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
+use ckb_types::core::error::OutPointError;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
         capacity_bytes,
-        cell::{CellMeta, CellProvider, CellStatus, UnresolvableError},
+        cell::{CellMeta, CellProvider, CellStatus},
         BlockBuilder, BlockView, Capacity, EpochExt, HeaderView, TransactionBuilder,
         TransactionInfo,
     },
@@ -222,7 +223,7 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_error_eq(
-        Err(OutPointError::DeadCell(OutPoint::new_cell(tx1_hash.to_owned(), 0)).into()),
+        Err(OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)).into()),
         chain_controller.process_block(Arc::new(chain.blocks()[3].clone()), true),
     );
 }
@@ -257,7 +258,7 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_error_eq(
-        Err(OutPointError::DeadCell(OutPoint::new_cell(tx1_hash.to_owned(), 0)).into()),
+        Err(OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)).into()),
         chain_controller.process_block(Arc::new(chain.blocks()[4].clone()), true),
     );
 }
@@ -289,7 +290,7 @@ fn test_invalid_out_point_index_in_same_block() {
             .expect("process block ok");
     }
     assert_error_eq(
-        Err(OutPointError::UnknownCells(vec![OutPoint::new_cell(tx1_hash.to_owned(), 1)]).into()),
+        Err(OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]).into()),
         chain_controller.process_block(Arc::new(chain.blocks()[3].clone()), true),
     );
 }
@@ -323,7 +324,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     assert_error_eq(
-        Err(OutPointError::UnknownCells(vec![OutPoint::new_cell(tx1_hash.to_owned(), 1)]).into()),
+        Err(OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]).into()),
         chain_controller.process_block(Arc::new(chain.blocks()[4].clone()), true),
     );
 }
