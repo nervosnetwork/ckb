@@ -81,7 +81,7 @@ fn bench(c: &mut Criterion) {
                         .input(input)
                         .witness(witness)
                         .build();
-                    let dao = genesis_dao_data(&cellbase).unwrap();
+                    let dao = genesis_dao_data(vec![&cellbase]).unwrap();
                     let genesis_block = BlockBuilder::default()
                         .difficulty(U256::one().pack())
                         .dao(dao)

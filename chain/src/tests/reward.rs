@@ -119,6 +119,7 @@ pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> Transa
 #[test]
 fn finalize_reward() {
     let (_, _, always_success_script) = always_success_cell();
+    let always_success_tx = create_always_success_tx();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
@@ -130,10 +131,10 @@ fn finalize_reward() {
         .output_data(Bytes::new().pack())
         .build();
 
-    let dao = genesis_dao_data(&tx).unwrap();
+    let dao = genesis_dao_data(vec![&always_success_tx, &tx]).unwrap();
 
     let genesis_block = BlockBuilder::default()
-        .transaction(create_always_success_tx())
+        .transaction(always_success_tx)
         .transaction(tx.clone())
         .difficulty(U256::one().pack())
         .dao(dao)
