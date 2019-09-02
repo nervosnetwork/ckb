@@ -12,6 +12,7 @@ use ckb_types::{
     packed::{self, Byte32, CellOutput, OutPoint},
     prelude::*,
 };
+use ckb_util::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::thread;
@@ -67,6 +68,7 @@ pub trait IndexerStore: Sync + Send {
 pub struct DefaultIndexerStore {
     db: Arc<RocksDB>,
     shared: Shared,
+    sync_lock: Arc<Mutex<()>>,
 }
 
 impl IndexerStore for DefaultIndexerStore {
@@ -178,13 +180,16 @@ impl IndexerStore for DefaultIndexerStore {
                     .expect("block exists"),
             }
         };
+        let sync_lock = self.sync_lock.lock();
         self.commit_txn(|txn| {
             txn.insert_lock_hash_index_state(lock_hash, &index_state);
         });
+        drop(sync_lock);
         index_state
     }
 
     fn remove_lock_hash(&self, lock_hash: &Byte32) {
+        let sync_lock = self.sync_lock.lock();
         self.commit_txn(|txn| {
             let iter = self
                 .db
@@ -223,6 +228,7 @@ impl IndexerStore for DefaultIndexerStore {
 
             txn.delete_lock_hash_index_state(&lock_hash);
         });
+        drop(sync_lock);
     }
 }
 
@@ -232,6 +238,7 @@ impl DefaultIndexerStore {
         DefaultIndexerStore {
             db: Arc::new(db),
             shared,
+            sync_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -261,6 +268,7 @@ impl DefaultIndexerStore {
     }
 
     pub fn sync_index_states(&self) {
+        let sync_lock = self.sync_lock.lock();
         debug!("Start sync index states with chain store");
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
         if lock_hash_index_states.is_empty() {
@@ -310,11 +318,8 @@ impl DefaultIndexerStore {
             });
 
         // attach blocks until reach tip or txn limit
-        // need to check empty again because `remove_lock_hash` may be called during detach
         let mut lock_hash_index_states = self.get_lock_hash_index_states();
-        if lock_hash_index_states.is_empty() {
-            return;
-        }
+
         let min_block_number: BlockNumber = lock_hash_index_states
             .values()
             .min_by_key(|index_state| index_state.block_number)
@@ -369,6 +374,7 @@ impl DefaultIndexerStore {
                 })
         });
 
+        drop(sync_lock);
         debug!("End sync index states with chain store");
     }
 
