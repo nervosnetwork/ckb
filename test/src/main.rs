@@ -196,6 +196,7 @@ fn all_specs() -> SpecMap {
         Box::new(BlockSyncDuplicatedAndReconnect),
         Box::new(BlockSyncOrphanBlocks),
         Box::new(BlockSyncWithUncle),
+        Box::new(BlockSyncNonAncestorBestBlocks),
         Box::new(SyncTimeout),
         Box::new(ChainContainsInvalidBlock),
         Box::new(ForkContainsInvalidBlock),

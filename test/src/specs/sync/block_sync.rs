@@ -284,6 +284,57 @@ impl Spec for BlockSyncOrphanBlocks {
     }
 }
 
+pub struct BlockSyncNonAncestorBestBlocks;
+
+impl Spec for BlockSyncNonAncestorBestBlocks {
+    crate::name!("block_sync_non_ancestor_best_blocks");
+
+    crate::setup!(
+        num_nodes: 2,
+        connect_all: false,
+        protocols: vec![TestProtocol::sync()],
+    );
+
+    fn run(&self, net: Net) {
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        net.exit_ibd_mode();
+
+        // By picking blocks this way, we ensure that block a and b has
+        // the same difficulty, but block a has a lower block hash. So
+        // later when we sync the header of block a with node0, node0's
+        // global shared best header will be updated, but the tip will stay
+        // unchanged. Then we can connect node0 with node1, node1 will provide
+        // a better chain that is not the known best's ancestor.
+        let (a, b) = (
+            node0.new_block(None, None, None),
+            node1.new_block(None, None, None),
+        );
+        let (a, b) = if a.hash() < b.hash() { (a, b) } else { (b, a) };
+        node1.submit_block(&b.data());
+
+        net.connect(node0);
+        let (peer_id, _, _) = net
+            .receive_timeout(Duration::new(10, 0))
+            .expect("net receive timeout");
+        // With a header synced to node0, node0 should have a new best header
+        // but tip is not updated yet.
+        sync_header(&net, peer_id, &a);
+
+        node1.connect(node0);
+        let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
+        let ret = wait_until(10, || {
+            let header0 = rpc_client0.get_tip_header();
+            let header1 = rpc_client1.get_tip_header();
+            header0 == header1 && header0.inner.number.0 == 2
+        });
+        assert!(
+            ret,
+            "Node0 and node1 should sync with each other until same tip chain",
+        );
+    }
+}
+
 fn build_forks(node: &Node, offsets: &[u64]) {
     let rpc_client = node.rpc_client();
     for offset in offsets.iter() {
