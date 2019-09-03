@@ -49,11 +49,8 @@ impl ChainDB {
     {
         self.db
             .traverse(COLUMN_CELL_SET, |hash_slice, tx_meta_bytes| {
-                let tx_hash = packed::Byte32Reader::from_slice(hash_slice)
-                    .should_be_ok()
-                    .to_entity();
-                let tx_meta = packed::TransactionMetaReader::from_slice(tx_meta_bytes)
-                    .should_be_ok()
+                let tx_hash = packed::Byte32Reader::from_slice_should_be_ok(hash_slice).to_entity();
+                let tx_meta = packed::TransactionMetaReader::from_slice_should_be_ok(tx_meta_bytes)
                     .to_entity();
                 callback(tx_hash, tx_meta)
             })
