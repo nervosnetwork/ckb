@@ -84,9 +84,7 @@ impl StoreTransaction {
             .get_for_update(COLUMN_META, META_TIP_HEADER_KEY, snapshot)
             .expect("db operation should be ok")
             .map(|slice| {
-                packed::Byte32Reader::from_slice(&slice.as_ref()[..])
-                    .should_be_ok()
-                    .to_entity()
+                packed::Byte32Reader::from_slice_should_be_ok(&slice.as_ref()[..]).to_entity()
             })
     }
 
