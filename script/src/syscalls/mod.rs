@@ -35,6 +35,7 @@ pub const LOAD_HEADER_SYSCALL_NUMBER: u64 = 2072;
 pub const LOAD_INPUT_SYSCALL_NUMBER: u64 = 2073;
 pub const LOAD_WITNESS_SYSCALL_NUMBER: u64 = 2074;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
+pub const LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER: u64 = 2082;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
 pub const LOAD_CELL_DATA_AS_CODE_SYSCALL_NUMBER: u64 = 2091;
 pub const LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
@@ -61,6 +62,28 @@ impl CellField {
             4 => Ok(CellField::Type),
             5 => Ok(CellField::TypeHash),
             6 => Ok(CellField::OccupiedCapacity),
+            _ => Err(Error::ParseError),
+        }
+    }
+}
+
+// While all fields here share the same prefix for now, later
+// we might add other fields from the header which won't have
+// this prefix.
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+enum HeaderField {
+    EpochNumber = 0,
+    EpochStartBlockNumber = 1,
+    EpochLength = 2,
+}
+
+impl HeaderField {
+    fn parse_from_u64(i: u64) -> Result<HeaderField, Error> {
+        match i {
+            0 => Ok(HeaderField::EpochNumber),
+            1 => Ok(HeaderField::EpochStartBlockNumber),
+            2 => Ok(HeaderField::EpochLength),
             _ => Err(Error::ParseError),
         }
     }
@@ -149,15 +172,18 @@ impl Source {
 mod tests {
     use super::*;
     use crate::DataLoader;
-    use byteorder::{LittleEndian, WriteBytesExt};
+    use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
     use ckb_db::RocksDB;
     use ckb_hash::blake2b_256;
     use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainDB, COLUMNS};
     use ckb_types::{
         bytes::Bytes,
-        core::{cell::CellMeta, BlockExt, Capacity, HeaderBuilder, HeaderView, ScriptHashType},
+        core::{
+            cell::CellMeta, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
+        },
         packed::{Byte32, CellOutput, OutPoint, Script, Witness},
         prelude::*,
+        H256, U256,
     };
     use ckb_vm::machine::DefaultCoreMachine;
     use ckb_vm::{
@@ -526,6 +552,26 @@ mod tests {
         }
     }
 
+    struct MockDataLoader {
+        headers: HashMap<Byte32, HeaderView>,
+        epoches: HashMap<Byte32, EpochExt>,
+    }
+
+    impl DataLoader for MockDataLoader {
+        fn load_cell_data(&self, _cell: &CellMeta) -> Option<(Bytes, Byte32)> {
+            None
+        }
+        fn get_block_ext(&self, _block_hash: &Byte32) -> Option<BlockExt> {
+            None
+        }
+        fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
+            self.headers.get(block_hash).cloned()
+        }
+        fn get_block_epoch(&self, block_hash: &Byte32) -> Option<EpochExt> {
+            self.epoches.get(block_hash).cloned()
+        }
+    }
+
     fn _test_load_header(data: &[u8]) -> Result<(), TestCaseError> {
         let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
         let size_addr: u64 = 0;
@@ -546,23 +592,12 @@ mod tests {
         let header_correct_bytes = header.data();
         let header_correct_data = header_correct_bytes.as_slice();
 
-        struct MockDataLoader {
-            headers: HashMap<Byte32, HeaderView>,
-        }
-        impl DataLoader for MockDataLoader {
-            fn load_cell_data(&self, _cell: &CellMeta) -> Option<(Bytes, Byte32)> {
-                None
-            }
-            fn get_block_ext(&self, _block_hash: &Byte32) -> Option<BlockExt> {
-                None
-            }
-            fn get_header(&self, block_hash: &Byte32) -> Option<HeaderView> {
-                self.headers.get(block_hash).cloned()
-            }
-        }
         let mut headers = HashMap::default();
         headers.insert(header.hash().clone(), header.clone());
-        let data_loader = MockDataLoader { headers };
+        let data_loader = MockDataLoader {
+            headers,
+            epoches: HashMap::default(),
+        };
         let header_deps = vec![header.hash().clone()];
         let resolved_inputs = vec![];
         let resolved_cell_deps = vec![];
@@ -601,6 +636,83 @@ mod tests {
         #[test]
         fn test_load_header(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
             _test_load_header(data)?;
+        }
+    }
+
+    fn _test_load_epoch_number(data: &[u8]) -> Result<(), TestCaseError> {
+        let mut machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::default();
+        let size_addr: u64 = 0;
+        let addr: u64 = 100;
+
+        machine.set_register(A0, addr); // addr
+        machine.set_register(A1, size_addr); // size_addr
+        machine.set_register(A2, 0); // offset
+        machine.set_register(A3, 0); //index
+        machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::HeaderDep))); //source: 4 header
+        machine.set_register(A7, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER); // syscall number
+
+        let data_hash: H256 = blake2b_256(&data).into();
+        let header = HeaderBuilder::default()
+            .transactions_root(data_hash.pack())
+            .build();
+
+        let epoch = EpochExt::new(
+            u64::from(data[0]),
+            Capacity::bytes(100).unwrap(),
+            Capacity::bytes(100).unwrap(),
+            U256::one(),
+            Byte32::default(),
+            1234,
+            1000,
+            U256::one(),
+        );
+
+        let mut correct_data = [0u8; 8];
+        LittleEndian::write_u64(&mut correct_data, epoch.number());
+
+        let mut headers = HashMap::default();
+        headers.insert(header.hash().clone(), header.clone());
+        let mut epoches = HashMap::default();
+        epoches.insert(header.hash().clone(), epoch.clone());
+        let data_loader = MockDataLoader { headers, epoches };
+        let header_deps = vec![header.hash().clone()];
+        let resolved_inputs = vec![];
+        let resolved_cell_deps = vec![];
+        let group_inputs = vec![];
+        let mut load_header = LoadHeader::new(
+            &data_loader,
+            header_deps.pack(),
+            &resolved_inputs,
+            &resolved_cell_deps,
+            &group_inputs,
+        );
+
+        prop_assert!(machine
+            .memory_mut()
+            .store64(&size_addr, &(correct_data.len() as u64 + 20))
+            .is_ok());
+
+        prop_assert!(load_header.ecall(&mut machine).is_ok());
+        prop_assert_eq!(machine.registers()[A0], u64::from(SUCCESS));
+
+        prop_assert_eq!(
+            machine.memory_mut().load64(&size_addr),
+            Ok(correct_data.len() as u64)
+        );
+
+        for (i, addr) in (addr..addr + correct_data.len() as u64).enumerate() {
+            prop_assert_eq!(
+                machine.memory_mut().load8(&addr),
+                Ok(u64::from(correct_data[i]))
+            );
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn test_load_epoch_number(ref data in any_with::<Vec<u8>>(size_range(1000).lift())) {
+            _test_load_epoch_number(data)?;
         }
     }
 
