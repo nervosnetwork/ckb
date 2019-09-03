@@ -556,6 +556,7 @@ dependencies = [
  "ckb-store 0.20.0-pre",
  "ckb-traits 0.20.0-pre",
  "ckb-types 0.20.0-pre",
+ "ckb-util 0.20.0-pre",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
