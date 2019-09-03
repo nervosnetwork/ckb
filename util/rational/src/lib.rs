@@ -2,6 +2,7 @@
 mod tests;
 
 use numext_fixed_uint::U256;
+use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 
 #[derive(Clone, Debug)]
@@ -10,6 +11,12 @@ pub struct RationalU256 {
     numer: U256,
     /// Denominator.
     denom: U256,
+}
+
+impl fmt::Display for RationalU256 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}/{}", self.numer, self.denom)
+    }
 }
 
 impl RationalU256 {

@@ -721,7 +721,7 @@ fn test_orphan_rate_estimation_overflow() {
     // last_difficulty 1000
     // last_epoch_length 400
     // epoch_duration_target 14400
-    // orphan_rate_target 1/20
+    // orphan_rate_target 1/40
     // last_duration 798000
     // last_uncles_count 150
     let (_chain_controller, shared, _genesis, _last_epoch) =
@@ -744,10 +744,10 @@ fn test_orphan_rate_estimation_overflow() {
 
         // orphan_rate_estimation (22/399 - 1) overflow
         // max((400 + 150) * 1000 / 798000, 1)  last_epoch_hash_rate 1
-        // 14400 * 20 / (21 * 480)
+        // 14400 * 40 / (41 * 480)
         assert_eq!(
             epoch.difficulty(),
-            &U256::from(28u64),
+            &U256::from(29u64),
             "epoch difficulty {}",
             epoch.difficulty()
         );
@@ -773,10 +773,10 @@ fn test_next_epoch_ext() {
     // last_difficulty 1000
     // last_epoch_length 400
     // epoch_duration_target 14400
-    // orphan_rate_target 1/20
+    // orphan_rate_target 1/40
     // last_duration 7980
     let (_chain_controller, shared, _genesis, _last_epoch) =
-        prepare_context_chain(consensus.clone(), 26, 20_000);
+        prepare_context_chain(consensus.clone(), 13, 20_000);
     {
         let snapshot = shared.snapshot();
         let tip = snapshot.tip_header().clone();
@@ -784,33 +784,33 @@ fn test_next_epoch_ext() {
             .get_block_ext(&tip.hash())
             .unwrap()
             .total_uncles_count;
-        assert_eq!(total_uncles_count, 25);
+        assert_eq!(total_uncles_count, 12);
 
         let epoch = snapshot
             .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
-        // last_uncles_count 25
+        // last_uncles_count 12
         // HPS  = dampen(last_difficulty * (last_epoch_length + last_uncles_count) / last_duration)
         assert_eq!(
             epoch.previous_epoch_hash_rate(),
-            &U256::from(53u64),
+            &U256::from(51u64),
             "previous_epoch_hash_rate {}",
             epoch.previous_epoch_hash_rate()
         );
 
         // C_i+1,m = (o_ideal * (1 + o_i ) * L_ideal × C_i,m) / (o_i * (1 + o_ideal ) * L_i)
-        // (1/20 * (1+ 25/400) * 14400 * 400) / (25 / 400 * ( 1+ 1/20) * 7980)
-        // (425 * 14400 * 400) / (25 * 21 * 7980)
-        assert_eq!(epoch.length(), 584, "epoch length {}", epoch.length());
+        // (1/40 * (1+ 12/400) * 14400 * 400) / (12 / 400 * ( 1+ 1/40) * 7980)
+        // (412 * 14400 * 400) / (12 * 41 * 7980)
+        assert_eq!(epoch.length(), 604, "epoch length {}", epoch.length());
 
         // None of the edge cases is triggered
         // Diff_i+1 = (HPS_i · L_ideal) / (1 + 0_i+1 ) * C_i+1,m
-        // (53 * 14400) / ((1 + 1/20) * 584)
-        // (20 * 53 * 14400) / (21 * 584)
+        // (51 * 14400) / ((1 + 1/20) * 604)
+        // (40 * 51 * 14400) / (41 * 604)
         assert_eq!(
             epoch.difficulty(),
-            &U256::from(1244u64),
+            &U256::from(1186u64),
             "epoch difficulty {}",
             epoch.difficulty()
         );
@@ -836,7 +836,7 @@ fn test_next_epoch_ext() {
     }
 
     let (_chain_controller, shared, _genesis, _last_epoch) =
-        prepare_context_chain(consensus.clone(), 11, 20_000);
+        prepare_context_chain(consensus.clone(), 6, 20_000);
     {
         let snapshot = shared.snapshot();
         let tip = snapshot.tip_header().clone();
@@ -844,29 +844,29 @@ fn test_next_epoch_ext() {
             .get_block_ext(&tip.hash())
             .unwrap()
             .total_uncles_count;
-        assert_eq!(total_uncles_count, 10);
+        assert_eq!(total_uncles_count, 5);
 
         let epoch = snapshot
             .next_epoch_ext(shared.consensus(), snapshot.epoch_ext(), &tip)
             .unwrap();
 
-        // last_uncles_count 10
+        // last_uncles_count 5
         // last_epoch_length 400
         // epoch_duration_target 14400
         // last_duration 7980
 
         // C_i+1,m = (o_ideal * (1 + o_i ) * L_ideal × C_i,m) / (o_i * (1 + o_ideal ) * L_i)
-        // (1/20 * (1+ 10/400) * 14400 * 400) / (10 / 400 * ( 1+ 1/20) * 7980)
-        // (410 * 14400 * 400) / (21 * 10 * 7980) = 1409
+        // (1/40 * (1 + 5 / 400) * 14400 * 400) / (5 / 400 * ( 1+ 1/40) * 7980)
+        // (405 * 14400 * 400) / (41 * 5 * 7980) = 1426
         // upper bound trigger
         assert_eq!(epoch.length(), 800, "epoch length {}", epoch.length());
 
-        // orphan_rate_estimation = 1 / ( (1 + o_i ) * L_ideal * C_i,m / (o_i * L_i * C_i+1,m) − 1) = 133 / 4787
+        // orphan_rate_estimation = 1 / ( (1 + o_i ) * L_ideal * C_i,m / (o_i * L_i * C_i+1,m) − 1) = 133 / 9587
         // Diff_i+1 = (HPS_i · L_ideal) / (1 + orphan_rate_estimation ) * C_i+1,m
-        // 51 * 14400 * 4787 / ((133 + 4787) * 800)
+        // 50 * 14400 * 9587 / ((133 + 9587) * 800)
         assert_eq!(
             epoch.difficulty(),
-            &U256::from(893u64),
+            &U256::from(887u64),
             "epoch difficulty {}",
             epoch.difficulty()
         );
@@ -892,7 +892,7 @@ fn test_next_epoch_ext() {
             .unwrap();
 
         // C_i+1,m = (o_ideal * (1 + o_i ) * L_ideal × C_i,m) / (o_i * (1 + o_ideal ) * L_i)
-        // ((150 + 400) * 14400 * 400) / ((20 + 1) * 150 * 7980) = 126
+        // ((150 + 400) * 14400 * 400) / ((40 + 1) * 150 * 7980) = 64
         // lower bound trigger
         assert_eq!(epoch.length(), 480, "epoch length {}", epoch.length());
 
