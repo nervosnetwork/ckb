@@ -44,7 +44,7 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
     let builder = SharedBuilder::default();
     let consensus = consensus.unwrap_or_else(|| {
         let tx = create_always_success_tx();
-        let dao = genesis_dao_data(&tx).unwrap();
+        let dao = genesis_dao_data(vec![&tx]).unwrap();
         let genesis_block = BlockBuilder::default()
             .dao(dao)
             .difficulty(U256::one().pack())

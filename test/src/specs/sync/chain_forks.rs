@@ -553,7 +553,7 @@ where
     transactions[transaction_index] = modify_transaction(transactions[transaction_index].clone());
     block
         .as_advanced_builder()
-        .transactions(transactions)
+        .set_transactions(transactions)
         .build()
 }
 

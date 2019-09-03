@@ -51,7 +51,7 @@ pub fn always_success_consensus() -> Consensus {
         .output_data(always_success_cell_data.pack())
         .witness(always_success_script.clone().into_witness())
         .build();
-    let dao = genesis_dao_data(&always_success_tx).unwrap();
+    let dao = genesis_dao_data(vec![&always_success_tx]).unwrap();
     let genesis = BlockBuilder::default()
         .timestamp(unix_time_as_millis().pack())
         .difficulty(U256::from(1000u64).pack())

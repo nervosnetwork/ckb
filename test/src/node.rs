@@ -430,7 +430,7 @@ impl Node {
         let rpc_port = format!("{}", self.rpc_port).to_string();
         let p2p_port = format!("{}", self.p2p_port).to_string();
 
-        let init_exit_status = Command::new(self.binary.to_owned())
+        let init_output = Command::new(self.binary.to_owned())
             .args(&[
                 "-C",
                 self.working_dir(),
@@ -442,10 +442,10 @@ impl Node {
                 "--p2p-port",
                 &p2p_port,
             ])
-            .stdout(Stdio::null())
-            .status()?;
+            .output()?;
 
-        if !init_exit_status.success() {
+        if !init_output.status.success() {
+            log::error!("{}", String::from_utf8_lossy(init_output.stderr.as_slice()));
             return Err(failure::err_msg("Fail to execute ckb init"));
         }
 

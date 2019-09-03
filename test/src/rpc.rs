@@ -220,6 +220,14 @@ impl RpcClient {
         self.inner.lock().send_transaction(tx).call()
     }
 
+    pub fn dry_run_transaction(&self, tx: Transaction) -> DryRunResult {
+        self.inner
+            .lock()
+            .dry_run_transaction(tx)
+            .call()
+            .expect("rpc call dry_run_transaction")
+    }
+
     pub fn send_alert(&self, alert: Alert) {
         self.inner
             .lock()

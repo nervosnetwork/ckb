@@ -18,38 +18,45 @@ use std::sync::Arc;
 // TODO: add secondary reward for miner
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(600_000);
 pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
-pub(crate) const MAX_UNCLE_NUM: usize = 2;
-pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
+const MAX_UNCLE_NUM: usize = 2;
+const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // Cellbase outputs are "locked" and require 4 * MAX_EPOCH_LENGTH(1800) confirmations(approximately 16 hours)
 // before they mature sufficiently to be spendable,
 // This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
 pub(crate) const CELLBASE_MATURITY: BlockNumber = 4 * MAX_EPOCH_LENGTH;
 // TODO: should adjust this value based on CKB average block time
-pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
+const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
 // dampening factor
-pub(crate) const TAU: u64 = 2;
+const TAU: u64 = 2;
 
 // o_ideal = 1/20 = 5%
-pub(crate) const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("20"));
-pub(crate) const GENESIS_ORPHAN_COUNT: u64 = GENESIS_EPOCH_LENGTH / 20;
+const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("20"));
+const GENESIS_ORPHAN_COUNT: u64 = GENESIS_EPOCH_LENGTH / 20;
 
 const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
-const TWO_IN_TWO_OUT_CYCLES: Cycle = 2_580_000;
-pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
-pub(crate) const MILLISECONDS_IN_A_SECOND: u64 = 1000;
-pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
-pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
+
+// cycles of a typical two-in-two-out tx
+const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_300_000;
+// bytes of a typical two-in-two-out tx
+const TWO_IN_TWO_OUT_BYTES: u64 = 673;
+// count of two-in-two-out txs a block should capable to package
+// approximately equal to 50_000_000_000 / TWO_IN_TWO_OUT_CYCLES
+const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
+const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
+const MILLISECONDS_IN_A_SECOND: u64 = 1000;
+const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
+const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
 
 // We choose 1_000 because it is largest number between MIN_EPOCH_LENGTH and MAX_EPOCH_LENGTH that
 // can divide DEFAULT_EPOCH_REWARD and can be divided by ORPHAN_RATE_TARGET_RECIP.
-pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
+const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 
-pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
-pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * 200 * 8;
-pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
-pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
+const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
+pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
+const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
+const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
@@ -125,7 +132,7 @@ impl Default for Consensus {
             .input(input)
             .witness(witness)
             .build();
-        let dao = genesis_dao_data(&cellbase).unwrap();
+        let dao = genesis_dao_data(vec![&cellbase]).unwrap();
         let genesis_block = BlockBuilder::default()
             .difficulty(U256::one().pack())
             .dao(dao)
