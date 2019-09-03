@@ -32,7 +32,6 @@ ckb-crypto = { path = "../util/crypto" }
 faketime = "0.2.0"
 ckb-miner = { path = "../miner" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-verification = { path = "../verification" }
 
 [[bench]]
