@@ -397,7 +397,7 @@ fn create_transaction(parent_hash: &Byte32, lock: Script, dep: OutPoint) -> Tran
         .build()
 }
 
-fn create_2out_transaction(
+pub fn create_2out_transaction(
     inputs: Vec<OutPoint>,
     lock: Script,
     cell_deps: Vec<CellDep>,
