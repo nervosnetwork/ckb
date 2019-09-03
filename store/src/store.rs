@@ -437,26 +437,4 @@ pub trait ChainStore<'a>: Send + Sync {
             |hash| self.get_block_ext(&hash).map(|ext| ext.total_uncles_count),
         )
     }
-
-    fn get_ancestor(&'a self, base: &packed::Byte32, number: BlockNumber) -> Option<HeaderView> {
-        if let Some(header) = self.get_block_header(base) {
-            let mut n_number: BlockNumber = header.data().raw().number().unpack();
-            let mut index_walk = header;
-            if number > n_number {
-                return None;
-            }
-
-            while n_number > number {
-                if let Some(header) = self.get_block_header(&index_walk.data().raw().parent_hash())
-                {
-                    index_walk = header;
-                    n_number -= 1;
-                } else {
-                    return None;
-                }
-            }
-            return Some(index_walk);
-        }
-        None
-    }
 }

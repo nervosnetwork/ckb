@@ -74,7 +74,8 @@ pub(crate) fn calculate_reward(
 ) -> Capacity {
     let number = parent.number() + 1;
     let target_number = consensus.finalize_target(number).unwrap();
-    let target = store.0.get_ancestor(&parent.hash(), target_number).unwrap();
+    let target_hash = store.0.get_block_hash(target_number).unwrap();
+    let target = store.0.get_block_header(&target_hash).unwrap();
     let calculator = DaoCalculator::new(consensus, store.store());
     calculator
         .primary_block_reward(&target)
