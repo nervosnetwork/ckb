@@ -113,7 +113,7 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
         let field = HeaderField::parse_from_u64(machine.registers()[A5].to_u64())?;
         let epoch = match self.data_loader.get_block_epoch(&header.hash()) {
             Some(epoch) => epoch,
-            None => return Ok((ITEM_MISSING, 8)),
+            None => return Ok((ITEM_MISSING, 0)),
         };
 
         let result = match field {
