@@ -380,7 +380,7 @@ impl BlockAssembler {
         let chain_root = {
             let mut batch = MMRBatch::new(snapshot);
             let mmr = MMR::new(leaf_index_to_mmr_size(tip_header.number()), &mut batch);
-            mmr.get_root()?.data().hash()
+            mmr.get_root()?.hash()
         };
 
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)

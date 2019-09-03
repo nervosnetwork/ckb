@@ -13,8 +13,8 @@ use ckb_error::Error;
 use ckb_logger::error;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
-    core::{header_digest::HeaderDigest, BlockExt, BlockView, EpochExt, HeaderView},
-    packed,
+    core::{BlockExt, BlockView, EpochExt, HeaderView},
+    packed::{self, HeaderDigest},
     prelude::*,
 };
 
@@ -207,7 +207,7 @@ impl MMRStore<HeaderDigest> for &StoreTransaction {
             .get(COLUMN_CHAIN_ROOT_MMR, &pos.to_le_bytes()[..])
             .map(|slice| {
                 let reader = packed::HeaderDigestReader::from_slice(&slice.as_ref()).should_be_ok();
-                reader.to_entity().into()
+                reader.to_entity()
             }))
     }
 
@@ -217,7 +217,7 @@ impl MMRStore<HeaderDigest> for &StoreTransaction {
             self.insert_raw(
                 COLUMN_CHAIN_ROOT_MMR,
                 &pos.to_le_bytes()[..],
-                &elem.data().as_slice(),
+                &elem.as_slice(),
             )
             .map_err(|err| {
                 error!("Failed to append to MMR, DB error {}", err);

@@ -20,10 +20,8 @@ use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
-    core::{
-        cell::resolve_transaction, header_digest::HeaderDigest, BlockBuilder, TransactionBuilder,
-    },
-    packed::{self, CellInput, CellOutputBuilder, OutPoint},
+    core::{cell::resolve_transaction, BlockBuilder, TransactionBuilder},
+    packed::{self, CellInput, CellOutputBuilder, HeaderDigest, OutPoint},
     U256,
 };
 use ckb_util::RwLock;
@@ -154,7 +152,7 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
                 .unwrap()
         };
 
-        let chain_root = mmr.get_root().expect("get root").data().hash();
+        let chain_root = mmr.get_root().expect("get root").hash();
 
         block = BlockBuilder::default()
             .transaction(cellbase)

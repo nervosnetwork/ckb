@@ -9,11 +9,10 @@ use ckb_test_chain_utils::MockStore;
 use ckb_types::{
     core::{
         cell::{resolve_transaction, ResolvedTransaction},
-        header_digest::HeaderDigest,
         BlockBuilder, HeaderBuilder, HeaderView, TransactionBuilder,
     },
     h256,
-    packed::{self, CellInput, GetHeaders, RelayMessage, SyncMessage},
+    packed::{self, CellInput, GetHeaders, HeaderDigest, RelayMessage, SyncMessage},
     prelude::*,
     H256,
 };
@@ -404,7 +403,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let dao = DaoCalculator::new(&consensus, mock_store.store())
             .dao_field(&rtxs, &parent.header())
             .unwrap();
-        let chain_root = mmr.get_root().expect("get root").data().hash();
+        let chain_root = mmr.get_root().expect("get root").hash();
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header(

@@ -5,7 +5,7 @@ use ckb_db::{
 };
 use ckb_logger::error;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
-use ckb_types::{core::header_digest::HeaderDigest, packed, prelude::*};
+use ckb_types::{packed, prelude::*};
 
 pub struct StoreSnapshot {
     pub inner: RocksDBSnapshot,
@@ -32,19 +32,19 @@ impl<'a> ChainStore<'a> for StoreSnapshot {
     }
 }
 
-impl MMRStore<HeaderDigest> for StoreSnapshot {
-    fn get_elem(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
+impl MMRStore<packed::HeaderDigest> for StoreSnapshot {
+    fn get_elem(&self, pos: u64) -> MMRResult<Option<packed::HeaderDigest>> {
         use crate::COLUMN_CHAIN_ROOT_MMR;
         Ok(self
             .get(COLUMN_CHAIN_ROOT_MMR, &pos.to_le_bytes()[..])
             .map(|slice| {
                 let reader = packed::HeaderDigestReader::from_slice(&slice.as_ref()).should_be_ok();
-                reader.to_entity().into()
+                reader.to_entity()
             }))
     }
 
     /// snapshot MMR is readonly
-    fn append(&mut self, _pos: u64, _elems: Vec<HeaderDigest>) -> MMRResult<()> {
+    fn append(&mut self, _pos: u64, _elems: Vec<packed::HeaderDigest>) -> MMRResult<()> {
         error!("Failed to append to MMR, snapshot MMR is readonly");
         Err(MMRError::InconsistentStore)
     }

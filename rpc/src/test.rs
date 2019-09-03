@@ -23,12 +23,13 @@ use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::{
-        capacity_bytes, cell::resolve_transaction, header_digest::HeaderDigest, BlockBuilder,
-        BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
+        capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity, HeaderView,
+        TransactionBuilder, TransactionView,
     },
     h256,
     packed::{
-        AlertBuilder, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder,
+        AlertBuilder, Byte32, CellDep, CellInput, CellOutputBuilder, HeaderDigest, OutPoint,
+        RawAlertBuilder,
     },
     prelude::*,
     H256, U256,
@@ -160,7 +161,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     mmr.push(parent.header().into()).expect("push block to mmr");
 
     for _ in 0..height {
-        let chain_root = mmr.get_root().expect("get root").data().hash();
+        let chain_root = mmr.get_root().expect("get root").hash();
         let block = next_block(&shared, &parent.header(), chain_root);
         chain_controller
             .process_block(Arc::new(block.clone()), true)

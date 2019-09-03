@@ -14,10 +14,9 @@ use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
         cell::{CellProvider, CellStatus, HeaderChecker},
-        header_digest::HeaderDigest,
         BlockNumber, EpochExt, HeaderView, TransactionMeta,
     },
-    packed::{Byte32, OutPoint},
+    packed::{Byte32, HeaderDigest, OutPoint},
     prelude::*,
     U256,
 };

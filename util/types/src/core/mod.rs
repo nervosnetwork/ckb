@@ -4,7 +4,6 @@
 
 pub mod cell;
 pub mod error;
-pub mod header_digest;
 pub mod service;
 
 mod advanced_builders;

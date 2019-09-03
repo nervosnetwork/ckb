@@ -16,10 +16,9 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
-        header_digest::HeaderDigest,
         BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
     },
-    packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
+    packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, HeaderDigest, OutPoint},
     U256,
 };
 use std::collections::HashSet;
@@ -228,7 +227,7 @@ impl<'a> MockChain<'a> {
             leaf_index_to_mmr_size(self.tip_header().number()),
             &mut batch,
         );
-        mmr.get_root().expect("get root").data().hash()
+        mmr.get_root().expect("get root").hash()
     }
 
     fn commit_block(&mut self, store: &MockStore, block: BlockView) {

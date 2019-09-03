@@ -516,12 +516,12 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::resolve_transaction, header_digest::HeaderDigest, BlockBuilder, BlockNumber,
-            BlockView, EpochExt, HeaderBuilder, HeaderView as CoreHeaderView, TransactionBuilder,
-            TransactionView,
+            cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt,
+            HeaderBuilder, HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
         },
         packed::{
-            Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
+            Byte32, CellInput, CellOutputBuilder, HeaderDigest, Script, SendBlockBuilder,
+            SendHeadersBuilder,
         },
         U256,
     };
@@ -644,7 +644,7 @@ mod tests {
         ];
 
         for i in 1..num {
-            let chain_root = mmr.get_root().expect("get root").data().hash();
+            let chain_root = mmr.get_root().expect("get root").hash();
             let block = insert_block(&chain_controller, &shared, i, i, chain_root);
             mmr.push(block.header().into()).unwrap();
         }
@@ -682,13 +682,13 @@ mod tests {
             .unwrap();
 
         for i in 1..num {
-            let chain_root = mmr1.get_root().expect("get root").data().hash();
+            let chain_root = mmr1.get_root().expect("get root").hash();
             let block = insert_block(&chain_controller1, &shared1, i, i, chain_root);
             mmr1.push(block.header().into()).unwrap();
         }
 
         for i in 1..num {
-            let chain_root = mmr2.get_root().expect("get root").data().hash();
+            let chain_root = mmr2.get_root().expect("get root").hash();
             let block = insert_block(&chain_controller2, &shared2, i + 1, i, chain_root);
             mmr2.push(block.header().into()).unwrap();
         }
@@ -715,7 +715,7 @@ mod tests {
 
         for i in 1..num {
             let j = if i > 192 { i + 1 } else { i };
-            let chain_root = mmr3.get_root().expect("get root").data().hash();
+            let chain_root = mmr3.get_root().expect("get root").hash();
             let block = insert_block(&chain_controller3, &shared3, j, i, chain_root);
             mmr3.push(block.header().into()).unwrap();
         }
@@ -748,7 +748,7 @@ mod tests {
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let chain_root = mmr1.get_root().unwrap().data().hash();
+            let chain_root = mmr1.get_root().unwrap().hash();
             let new_block = gen_block(&shared1, &parent, &epoch, i, chain_root);
             blocks.push(new_block.clone());
 
@@ -770,7 +770,7 @@ mod tests {
             let epoch = shared2
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let chain_root = mmr2.get_root().unwrap().data().hash();
+            let chain_root = mmr2.get_root().unwrap().hash();
             let new_block = gen_block(&shared2, &parent, &epoch, i + 100, chain_root);
 
             chain_controller2
@@ -816,7 +816,7 @@ mod tests {
             .unwrap();
 
         for i in 1..num {
-            let chain_root = mmr.get_root().unwrap().data().hash();
+            let chain_root = mmr.get_root().unwrap().hash();
             let block = insert_block(&chain_controller, &shared, i, i, chain_root);
             mmr.push(block.header().into()).unwrap();
         }
@@ -866,7 +866,7 @@ mod tests {
             .get_block_header(&shared1.store().get_block_hash(0).unwrap())
             .unwrap();
         for i in 1..block_number {
-            let chain_root = mmr1.get_root().unwrap().data().hash();
+            let chain_root = mmr1.get_root().unwrap().hash();
             let parent_epoch = shared1.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
@@ -906,7 +906,7 @@ mod tests {
             .unwrap();
         mmr.push(parent.clone().into()).unwrap();
         for i in 1..=block_number {
-            let chain_root = mmr.get_root().unwrap().data().hash();
+            let chain_root = mmr.get_root().unwrap().hash();
             let parent_epoch = shared.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared
                 .next_epoch_ext(&parent_epoch, &parent)
@@ -1073,7 +1073,7 @@ mod tests {
             .unwrap();
 
         for i in 1..num {
-            let chain_root = mmr1.get_root().unwrap().data().hash();
+            let chain_root = mmr1.get_root().unwrap().hash();
             let block = insert_block(&chain_controller1, &shared1, i, i, chain_root);
             mmr1.push(block.header().into()).unwrap();
         }
@@ -1086,7 +1086,7 @@ mod tests {
 
         for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
-            let chain_root = mmr2.get_root().unwrap().data().hash();
+            let chain_root = mmr2.get_root().unwrap().hash();
             let block = insert_block(&chain_controller2, &shared2, j, i, chain_root);
             mmr2.push(block.header().into()).unwrap();
         }

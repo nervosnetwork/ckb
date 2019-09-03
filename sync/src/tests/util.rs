@@ -13,11 +13,8 @@ use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
 use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
-    core::{
-        cell::resolve_transaction, header_digest::HeaderDigest, BlockBuilder, BlockNumber,
-        TransactionView,
-    },
-    packed::Byte32,
+    core::{cell::resolve_transaction, BlockBuilder, BlockNumber, TransactionView},
+    packed::{Byte32, HeaderDigest},
 };
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -50,7 +47,7 @@ pub fn generate_blocks(
     let parent_number = snapshot.tip_number();
     let mut parent_hash = snapshot.tip_header().hash().clone();
     for _block_number in parent_number + 1..=target_tip {
-        let chain_root = mmr.get_root().unwrap().data().hash();
+        let chain_root = mmr.get_root().unwrap().hash();
         let block = inherit_block(shared, &parent_hash, chain_root).build();
         parent_hash = block.header().hash().to_owned();
         mmr.push(block.header().into()).expect("push block to mmr");

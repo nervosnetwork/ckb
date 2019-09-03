@@ -11,12 +11,12 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        capacity_bytes, header_digest::HeaderDigest, BlockBuilder, BlockView, Capacity, HeaderView,
-        ScriptHashType, TransactionBuilder, TransactionView, UncleBlockView,
+        capacity_bytes, BlockBuilder, BlockView, Capacity, HeaderView, ScriptHashType,
+        TransactionBuilder, TransactionView, UncleBlockView,
     },
     packed::{
-        self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
-        ScriptBuilder,
+        self, Byte32, CellDep, CellInput, CellOutputBuilder, HeaderDigest, OutPoint,
+        ProposalShortId, Script, ScriptBuilder,
     },
     U256,
 };
@@ -201,7 +201,7 @@ fn finalize_reward() {
             vec![]
         };
 
-        let chain_root = mmr.get_root().expect("get root").data().hash();
+        let chain_root = mmr.get_root().expect("get root").hash();
         let block = gen_block(
             &parent,
             block_txs,
@@ -239,7 +239,7 @@ fn finalize_reward() {
         .unwrap();
     assert_eq!(reward.total, bob_reward,);
 
-    let chain_root = mmr.get_root().expect("get root").data().hash();
+    let chain_root = mmr.get_root().expect("get root").hash();
     let block = gen_block(
         &parent,
         txs.iter().skip(12).cloned().collect(),
@@ -276,7 +276,7 @@ fn finalize_reward() {
         .unwrap();
     assert_eq!(reward.total, alice_reward);
 
-    let chain_root = mmr.get_root().expect("get root").data().hash();
+    let chain_root = mmr.get_root().expect("get root").hash();
     let block = gen_block(
         &parent,
         vec![],

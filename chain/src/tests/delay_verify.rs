@@ -7,8 +7,8 @@ use ckb_traits::ChainProvider;
 use ckb_types::core::error::OutPointError;
 use ckb_types::prelude::*;
 use ckb_types::{
-    core::{header_digest::HeaderDigest, BlockBuilder, BlockView},
-    packed::OutPoint,
+    core::{BlockBuilder, BlockView},
+    packed::{HeaderDigest, OutPoint},
     U256,
 };
 use std::sync::Arc;
@@ -277,7 +277,7 @@ fn test_full_dead_transaction() {
         .number((parent.number() + 1).pack())
         .difficulty((difficulty + U256::from(100u64)).pack())
         .dao(dao)
-        .chain_root(chain1_mmr.get_root().expect("get root").data().hash())
+        .chain_root(chain1_mmr.get_root().expect("get root").hash())
         .transaction(cellbase_tx)
         .build();
 
@@ -296,7 +296,7 @@ fn test_full_dead_transaction() {
     parent = block.header().to_owned();
     for i in 2..switch_fork_number {
         let difficulty = parent.difficulty().to_owned();
-        let chain_root = chain1_mmr.get_root().expect("get root").data().hash();
+        let chain_root = chain1_mmr.get_root().expect("get root").hash();
         let new_block = if i == proposal_number {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
@@ -370,7 +370,7 @@ fn test_full_dead_transaction() {
 
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
-        let chain_root = chain1_mmr.get_root().expect("get root").data().hash();
+        let chain_root = chain1_mmr.get_root().expect("get root").hash();
         let new_block = if i == final_number - 3 {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(
@@ -440,7 +440,7 @@ fn test_full_dead_transaction() {
     parent = chain2.last().unwrap().header().clone();
     for i in switch_fork_number..final_number {
         let difficulty = parent.difficulty().to_owned();
-        let chain_root = chain2_mmr.get_root().expect("get root").data().hash();
+        let chain_root = chain2_mmr.get_root().expect("get root").hash();
         let new_block = if i == final_number - 3 {
             let transactions = vec![create_cellbase(&mock_store, shared.consensus(), &parent)];
             let dao = dao_data(

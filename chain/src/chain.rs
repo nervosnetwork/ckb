@@ -679,7 +679,7 @@ impl ChainService {
         let root = mmr
             .get_root()
             .map_err(|e| InternalErrorKind::MMR.cause(e))?;
-        let root_hash = root.data().hash();
+        let root_hash = root.hash();
         // check first block chain_root
         if need_verify && root_hash != block.header().chain_root() {
             Err(InvalidChainRootError {
@@ -695,7 +695,7 @@ impl ChainService {
             let root = mmr
                 .get_root()
                 .map_err(|e| InternalErrorKind::MMR.cause(e))?;
-            let root_hash = root.data().hash();
+            let root_hash = root.hash();
 
             if need_verify && root_hash != block.header().chain_root() {
                 Err(InvalidChainRootError {
