@@ -119,13 +119,13 @@ impl Pack<packed::Bytes> for Bytes {
 
 impl<'r> Unpack<Bytes> for packed::BytesReader<'r> {
     fn unpack(&self) -> Bytes {
-        Bytes::from(&self.as_slice()[4..])
+        Bytes::from(self.raw_data())
     }
 }
 
 impl Unpack<Bytes> for packed::Bytes {
     fn unpack(&self) -> Bytes {
-        self.as_bytes().slice_from(4)
+        self.raw_data()
     }
 }
 
