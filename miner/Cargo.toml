@@ -27,7 +27,7 @@ ckb-traits = { path = "../traits" }
 failure = "0.1.5"
 ckb-verification = { path = "../verification" }
 indicatif = "0.11"
-console = "0.7.5"
+console = "0.8.0"
 ckb-dao = { path = "../util/dao" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
 eaglesong = "0.1"
