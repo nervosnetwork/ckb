@@ -4192,7 +4192,7 @@ impl molecule::prelude::Entity for HeaderVec {
 }
 impl ::std::default::Default for HeaderVec {
     fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
+        let v: Vec<u8> = vec![0, 0, 0, 0];
         HeaderVec::new_unchecked(v.into())
     }
 }
@@ -4201,41 +4201,25 @@ impl HeaderVec {
     pub fn as_reader<'r>(&'r self) -> HeaderVecReader<'r> {
         HeaderVecReader::new_unchecked(self.as_slice())
     }
-    pub fn offsets(&self) -> (usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        (bytes_len, &ptr[1..])
-    }
+    pub const ITEM_SIZE: usize = 264;
     pub fn len(&self) -> usize {
-        let (bytes_len, offsets) = self.offsets();
-        if bytes_len == 4 {
-            0
-        } else {
-            let first = u32::from_le(offsets[0]) as usize;
-            (first - 4) / 4
-        }
+        let le = self.as_slice().as_ptr() as *const u32;
+        u32::from_le(unsafe { *le }) as usize
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, idx: usize) -> Option<Header> {
-        let len = self.len();
-        if idx >= len {
+        if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> Header {
-        let len = self.len();
-        let (_, offsets) = self.offsets();
-        let start = u32::from_le(offsets[idx]) as usize;
-        if idx == len - 1 {
-            Header::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[idx + 1]) as usize;
-            Header::new_unchecked(self.0.slice(start, end))
-        }
+        let start = 4 + idx * 264;
+        let end = start + 264;
+        Header::new_unchecked(self.0.slice(start, end))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for HeaderVecReader<'r> {
@@ -4257,45 +4241,15 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderVecReader<'r> {
             Err(err)?;
         }
         let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
+        let item_count = u32::from_le(ptr[0]) as usize;
+        let expected = 4 + 264 * item_count;
+        if len != expected {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), expected, len);
             Err(err)?;
         }
-        if total_size == 4 {
-            return Ok(());
-        }
-        if total_size < 4 + 4 {
-            let err = VerificationError::DataIsShort(Self::NAME.to_owned(), 8, total_size);
-            Err(err)?;
-        }
-        let offset_first = u32::from_le(ptr[1]) as usize;
-        if offset_first % 4 != 0 {
-            let err = VerificationError::FirstOffsetIsBroken(Self::NAME.to_owned(), offset_first);
-            Err(err)?;
-        }
-        if offset_first < 4 + 4 {
-            let err = VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), 8, offset_first);
-            Err(err)?;
-        }
-        let item_count = offset_first / 4 - 1;
-        let expected = 4 + 4 * item_count;
-        if total_size < expected {
-            let err = VerificationError::DataIsShort(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..(item_count + 1)]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        for i in 0..=(offsets.len() - 2) {
-            let start = offsets[i];
-            let end = offsets[i + 1];
+        for i in 0..item_count {
+            let start = 264 * i;
+            let end = start + 264;
             HeaderReader::verify(&slice[start..end])?;
         }
         Ok(())
@@ -4303,63 +4257,35 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderVecReader<'r> {
 }
 impl<'r> HeaderVecReader<'r> {
     pub const NAME: &'r str = "HeaderVecReader";
-    pub fn offsets(&self) -> (usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        (bytes_len, &ptr[1..])
-    }
+    pub const ITEM_SIZE: usize = 264;
     pub fn len(&self) -> usize {
-        let (bytes_len, offsets) = self.offsets();
-        if bytes_len == 4 {
-            0
-        } else {
-            let first = u32::from_le(offsets[0]) as usize;
-            (first - 4) / 4
-        }
+        let le = self.as_slice().as_ptr() as *const u32;
+        u32::from_le(unsafe { *le }) as usize
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, idx: usize) -> Option<HeaderReader<'r>> {
-        let len = self.len();
-        if idx >= len {
+        if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> HeaderReader<'r> {
-        let len = self.len();
-        let (_, offsets) = self.offsets();
-        let start = u32::from_le(offsets[idx]) as usize;
-        if idx == len - 1 {
-            HeaderReader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[idx + 1]) as usize;
-            HeaderReader::new_unchecked(&self.as_slice()[start..end])
-        }
+        let start = 4 + idx * 264;
+        let end = start + 264;
+        HeaderReader::new_unchecked(&self.as_slice()[start..end])
     }
 }
 impl molecule::prelude::Builder for HeaderVecBuilder {
     type Entity = HeaderVec;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 4 * self.0.len();
-        len_header
-            + self
-                .0
-                .iter()
-                .map(|inner| inner.as_slice().len())
-                .sum::<usize>()
+        4 + 264 * self.0.len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 4 * self.0.len();
-        for inner in &self.0[..] {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += inner.as_slice().len();
-        }
+        let len = (self.0.len() as u32).to_le_bytes();
+        writer.write_all(&len)?;
         for inner in &self.0[..] {
             writer.write_all(inner.as_slice())?;
         }
@@ -5398,7 +5324,7 @@ impl molecule::prelude::Entity for OutPointVec {
 }
 impl ::std::default::Default for OutPointVec {
     fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
+        let v: Vec<u8> = vec![0, 0, 0, 0];
         OutPointVec::new_unchecked(v.into())
     }
 }
@@ -5407,41 +5333,25 @@ impl OutPointVec {
     pub fn as_reader<'r>(&'r self) -> OutPointVecReader<'r> {
         OutPointVecReader::new_unchecked(self.as_slice())
     }
-    pub fn offsets(&self) -> (usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        (bytes_len, &ptr[1..])
-    }
+    pub const ITEM_SIZE: usize = 36;
     pub fn len(&self) -> usize {
-        let (bytes_len, offsets) = self.offsets();
-        if bytes_len == 4 {
-            0
-        } else {
-            let first = u32::from_le(offsets[0]) as usize;
-            (first - 4) / 4
-        }
+        let le = self.as_slice().as_ptr() as *const u32;
+        u32::from_le(unsafe { *le }) as usize
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, idx: usize) -> Option<OutPoint> {
-        let len = self.len();
-        if idx >= len {
+        if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> OutPoint {
-        let len = self.len();
-        let (_, offsets) = self.offsets();
-        let start = u32::from_le(offsets[idx]) as usize;
-        if idx == len - 1 {
-            OutPoint::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[idx + 1]) as usize;
-            OutPoint::new_unchecked(self.0.slice(start, end))
-        }
+        let start = 4 + idx * 36;
+        let end = start + 36;
+        OutPoint::new_unchecked(self.0.slice(start, end))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for OutPointVecReader<'r> {
@@ -5463,45 +5373,15 @@ impl<'r> molecule::prelude::Reader<'r> for OutPointVecReader<'r> {
             Err(err)?;
         }
         let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
+        let item_count = u32::from_le(ptr[0]) as usize;
+        let expected = 4 + 36 * item_count;
+        if len != expected {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), expected, len);
             Err(err)?;
         }
-        if total_size == 4 {
-            return Ok(());
-        }
-        if total_size < 4 + 4 {
-            let err = VerificationError::DataIsShort(Self::NAME.to_owned(), 8, total_size);
-            Err(err)?;
-        }
-        let offset_first = u32::from_le(ptr[1]) as usize;
-        if offset_first % 4 != 0 {
-            let err = VerificationError::FirstOffsetIsBroken(Self::NAME.to_owned(), offset_first);
-            Err(err)?;
-        }
-        if offset_first < 4 + 4 {
-            let err = VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), 8, offset_first);
-            Err(err)?;
-        }
-        let item_count = offset_first / 4 - 1;
-        let expected = 4 + 4 * item_count;
-        if total_size < expected {
-            let err = VerificationError::DataIsShort(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..(item_count + 1)]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        for i in 0..=(offsets.len() - 2) {
-            let start = offsets[i];
-            let end = offsets[i + 1];
+        for i in 0..item_count {
+            let start = 36 * i;
+            let end = start + 36;
             OutPointReader::verify(&slice[start..end])?;
         }
         Ok(())
@@ -5509,63 +5389,35 @@ impl<'r> molecule::prelude::Reader<'r> for OutPointVecReader<'r> {
 }
 impl<'r> OutPointVecReader<'r> {
     pub const NAME: &'r str = "OutPointVecReader";
-    pub fn offsets(&self) -> (usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        (bytes_len, &ptr[1..])
-    }
+    pub const ITEM_SIZE: usize = 36;
     pub fn len(&self) -> usize {
-        let (bytes_len, offsets) = self.offsets();
-        if bytes_len == 4 {
-            0
-        } else {
-            let first = u32::from_le(offsets[0]) as usize;
-            (first - 4) / 4
-        }
+        let le = self.as_slice().as_ptr() as *const u32;
+        u32::from_le(unsafe { *le }) as usize
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, idx: usize) -> Option<OutPointReader<'r>> {
-        let len = self.len();
-        if idx >= len {
+        if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> OutPointReader<'r> {
-        let len = self.len();
-        let (_, offsets) = self.offsets();
-        let start = u32::from_le(offsets[idx]) as usize;
-        if idx == len - 1 {
-            OutPointReader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[idx + 1]) as usize;
-            OutPointReader::new_unchecked(&self.as_slice()[start..end])
-        }
+        let start = 4 + idx * 36;
+        let end = start + 36;
+        OutPointReader::new_unchecked(&self.as_slice()[start..end])
     }
 }
 impl molecule::prelude::Builder for OutPointVecBuilder {
     type Entity = OutPointVec;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 4 * self.0.len();
-        len_header
-            + self
-                .0
-                .iter()
-                .map(|inner| inner.as_slice().len())
-                .sum::<usize>()
+        4 + 36 * self.0.len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 4 * self.0.len();
-        for inner in &self.0[..] {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += inner.as_slice().len();
-        }
+        let len = (self.0.len() as u32).to_le_bytes();
+        writer.write_all(&len)?;
         for inner in &self.0[..] {
             writer.write_all(inner.as_slice())?;
         }
@@ -5718,7 +5570,7 @@ impl molecule::prelude::Entity for CellDepVec {
 }
 impl ::std::default::Default for CellDepVec {
     fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
+        let v: Vec<u8> = vec![0, 0, 0, 0];
         CellDepVec::new_unchecked(v.into())
     }
 }
@@ -5727,41 +5579,25 @@ impl CellDepVec {
     pub fn as_reader<'r>(&'r self) -> CellDepVecReader<'r> {
         CellDepVecReader::new_unchecked(self.as_slice())
     }
-    pub fn offsets(&self) -> (usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        (bytes_len, &ptr[1..])
-    }
+    pub const ITEM_SIZE: usize = 37;
     pub fn len(&self) -> usize {
-        let (bytes_len, offsets) = self.offsets();
-        if bytes_len == 4 {
-            0
-        } else {
-            let first = u32::from_le(offsets[0]) as usize;
-            (first - 4) / 4
-        }
+        let le = self.as_slice().as_ptr() as *const u32;
+        u32::from_le(unsafe { *le }) as usize
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, idx: usize) -> Option<CellDep> {
-        let len = self.len();
-        if idx >= len {
+        if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> CellDep {
-        let len = self.len();
-        let (_, offsets) = self.offsets();
-        let start = u32::from_le(offsets[idx]) as usize;
-        if idx == len - 1 {
-            CellDep::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[idx + 1]) as usize;
-            CellDep::new_unchecked(self.0.slice(start, end))
-        }
+        let start = 4 + idx * 37;
+        let end = start + 37;
+        CellDep::new_unchecked(self.0.slice(start, end))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for CellDepVecReader<'r> {
@@ -5783,45 +5619,15 @@ impl<'r> molecule::prelude::Reader<'r> for CellDepVecReader<'r> {
             Err(err)?;
         }
         let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
+        let item_count = u32::from_le(ptr[0]) as usize;
+        let expected = 4 + 37 * item_count;
+        if len != expected {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), expected, len);
             Err(err)?;
         }
-        if total_size == 4 {
-            return Ok(());
-        }
-        if total_size < 4 + 4 {
-            let err = VerificationError::DataIsShort(Self::NAME.to_owned(), 8, total_size);
-            Err(err)?;
-        }
-        let offset_first = u32::from_le(ptr[1]) as usize;
-        if offset_first % 4 != 0 {
-            let err = VerificationError::FirstOffsetIsBroken(Self::NAME.to_owned(), offset_first);
-            Err(err)?;
-        }
-        if offset_first < 4 + 4 {
-            let err = VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), 8, offset_first);
-            Err(err)?;
-        }
-        let item_count = offset_first / 4 - 1;
-        let expected = 4 + 4 * item_count;
-        if total_size < expected {
-            let err = VerificationError::DataIsShort(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..(item_count + 1)]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        for i in 0..=(offsets.len() - 2) {
-            let start = offsets[i];
-            let end = offsets[i + 1];
+        for i in 0..item_count {
+            let start = 37 * i;
+            let end = start + 37;
             CellDepReader::verify(&slice[start..end])?;
         }
         Ok(())
@@ -5829,63 +5635,35 @@ impl<'r> molecule::prelude::Reader<'r> for CellDepVecReader<'r> {
 }
 impl<'r> CellDepVecReader<'r> {
     pub const NAME: &'r str = "CellDepVecReader";
-    pub fn offsets(&self) -> (usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        (bytes_len, &ptr[1..])
-    }
+    pub const ITEM_SIZE: usize = 37;
     pub fn len(&self) -> usize {
-        let (bytes_len, offsets) = self.offsets();
-        if bytes_len == 4 {
-            0
-        } else {
-            let first = u32::from_le(offsets[0]) as usize;
-            (first - 4) / 4
-        }
+        let le = self.as_slice().as_ptr() as *const u32;
+        u32::from_le(unsafe { *le }) as usize
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, idx: usize) -> Option<CellDepReader<'r>> {
-        let len = self.len();
-        if idx >= len {
+        if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> CellDepReader<'r> {
-        let len = self.len();
-        let (_, offsets) = self.offsets();
-        let start = u32::from_le(offsets[idx]) as usize;
-        if idx == len - 1 {
-            CellDepReader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[idx + 1]) as usize;
-            CellDepReader::new_unchecked(&self.as_slice()[start..end])
-        }
+        let start = 4 + idx * 37;
+        let end = start + 37;
+        CellDepReader::new_unchecked(&self.as_slice()[start..end])
     }
 }
 impl molecule::prelude::Builder for CellDepVecBuilder {
     type Entity = CellDepVec;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 4 * self.0.len();
-        len_header
-            + self
-                .0
-                .iter()
-                .map(|inner| inner.as_slice().len())
-                .sum::<usize>()
+        4 + 37 * self.0.len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 4 * self.0.len();
-        for inner in &self.0[..] {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += inner.as_slice().len();
-        }
+        let len = (self.0.len() as u32).to_le_bytes();
+        writer.write_all(&len)?;
         for inner in &self.0[..] {
             writer.write_all(inner.as_slice())?;
         }
@@ -6038,7 +5816,7 @@ impl molecule::prelude::Entity for CellInputVec {
 }
 impl ::std::default::Default for CellInputVec {
     fn default() -> Self {
-        let v: Vec<u8> = vec![4, 0, 0, 0];
+        let v: Vec<u8> = vec![0, 0, 0, 0];
         CellInputVec::new_unchecked(v.into())
     }
 }
@@ -6047,41 +5825,25 @@ impl CellInputVec {
     pub fn as_reader<'r>(&'r self) -> CellInputVecReader<'r> {
         CellInputVecReader::new_unchecked(self.as_slice())
     }
-    pub fn offsets(&self) -> (usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        (bytes_len, &ptr[1..])
-    }
+    pub const ITEM_SIZE: usize = 44;
     pub fn len(&self) -> usize {
-        let (bytes_len, offsets) = self.offsets();
-        if bytes_len == 4 {
-            0
-        } else {
-            let first = u32::from_le(offsets[0]) as usize;
-            (first - 4) / 4
-        }
+        let le = self.as_slice().as_ptr() as *const u32;
+        u32::from_le(unsafe { *le }) as usize
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, idx: usize) -> Option<CellInput> {
-        let len = self.len();
-        if idx >= len {
+        if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> CellInput {
-        let len = self.len();
-        let (_, offsets) = self.offsets();
-        let start = u32::from_le(offsets[idx]) as usize;
-        if idx == len - 1 {
-            CellInput::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[idx + 1]) as usize;
-            CellInput::new_unchecked(self.0.slice(start, end))
-        }
+        let start = 4 + idx * 44;
+        let end = start + 44;
+        CellInput::new_unchecked(self.0.slice(start, end))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for CellInputVecReader<'r> {
@@ -6103,45 +5865,15 @@ impl<'r> molecule::prelude::Reader<'r> for CellInputVecReader<'r> {
             Err(err)?;
         }
         let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
+        let item_count = u32::from_le(ptr[0]) as usize;
+        let expected = 4 + 44 * item_count;
+        if len != expected {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), expected, len);
             Err(err)?;
         }
-        if total_size == 4 {
-            return Ok(());
-        }
-        if total_size < 4 + 4 {
-            let err = VerificationError::DataIsShort(Self::NAME.to_owned(), 8, total_size);
-            Err(err)?;
-        }
-        let offset_first = u32::from_le(ptr[1]) as usize;
-        if offset_first % 4 != 0 {
-            let err = VerificationError::FirstOffsetIsBroken(Self::NAME.to_owned(), offset_first);
-            Err(err)?;
-        }
-        if offset_first < 4 + 4 {
-            let err = VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), 8, offset_first);
-            Err(err)?;
-        }
-        let item_count = offset_first / 4 - 1;
-        let expected = 4 + 4 * item_count;
-        if total_size < expected {
-            let err = VerificationError::DataIsShort(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..(item_count + 1)]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        for i in 0..=(offsets.len() - 2) {
-            let start = offsets[i];
-            let end = offsets[i + 1];
+        for i in 0..item_count {
+            let start = 44 * i;
+            let end = start + 44;
             CellInputReader::verify(&slice[start..end])?;
         }
         Ok(())
@@ -6149,63 +5881,35 @@ impl<'r> molecule::prelude::Reader<'r> for CellInputVecReader<'r> {
 }
 impl<'r> CellInputVecReader<'r> {
     pub const NAME: &'r str = "CellInputVecReader";
-    pub fn offsets(&self) -> (usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        (bytes_len, &ptr[1..])
-    }
+    pub const ITEM_SIZE: usize = 44;
     pub fn len(&self) -> usize {
-        let (bytes_len, offsets) = self.offsets();
-        if bytes_len == 4 {
-            0
-        } else {
-            let first = u32::from_le(offsets[0]) as usize;
-            (first - 4) / 4
-        }
+        let le = self.as_slice().as_ptr() as *const u32;
+        u32::from_le(unsafe { *le }) as usize
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn get(&self, idx: usize) -> Option<CellInputReader<'r>> {
-        let len = self.len();
-        if idx >= len {
+        if idx >= self.len() {
             None
         } else {
             Some(self.get_unchecked(idx))
         }
     }
     pub fn get_unchecked(&self, idx: usize) -> CellInputReader<'r> {
-        let len = self.len();
-        let (_, offsets) = self.offsets();
-        let start = u32::from_le(offsets[idx]) as usize;
-        if idx == len - 1 {
-            CellInputReader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[idx + 1]) as usize;
-            CellInputReader::new_unchecked(&self.as_slice()[start..end])
-        }
+        let start = 4 + idx * 44;
+        let end = start + 44;
+        CellInputReader::new_unchecked(&self.as_slice()[start..end])
     }
 }
 impl molecule::prelude::Builder for CellInputVecBuilder {
     type Entity = CellInputVec;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 4 * self.0.len();
-        len_header
-            + self
-                .0
-                .iter()
-                .map(|inner| inner.as_slice().len())
-                .sum::<usize>()
+        4 + 44 * self.0.len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 4 * self.0.len();
-        for inner in &self.0[..] {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += inner.as_slice().len();
-        }
+        let len = (self.0.len() as u32).to_le_bytes();
+        writer.write_all(&len)?;
         for inner in &self.0[..] {
             writer.write_all(inner.as_slice())?;
         }
@@ -7218,10 +6922,6 @@ impl ::std::fmt::Display for OutPoint {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "tx_hash", self.tx_hash())?;
         write!(f, ", {}: {}", "index", self.index())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
         write!(f, " }}")
     }
 }
@@ -7230,10 +6930,6 @@ impl<'r> ::std::fmt::Display for OutPointReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "tx_hash", self.tx_hash())?;
         write!(f, ", {}: {}", "index", self.index())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
         write!(f, " }}")
     }
 }
@@ -7241,15 +6937,6 @@ impl<'r> ::std::fmt::Display for OutPointReader<'r> {
 pub struct OutPointBuilder {
     pub(crate) tx_hash: Byte32,
     pub(crate) index: Uint32,
-}
-impl ::std::default::Default for OutPoint {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![
-            48, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        OutPoint::new_unchecked(v.into())
-    }
 }
 impl molecule::prelude::Entity for OutPoint {
     type Builder = OutPointBuilder;
@@ -7274,34 +6961,28 @@ impl molecule::prelude::Entity for OutPoint {
             .index(self.index())
     }
 }
+impl ::std::default::Default for OutPoint {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0,
+        ];
+        OutPoint::new_unchecked(v.into())
+    }
+}
 impl OutPoint {
     pub const NAME: &'static str = "OutPoint";
     pub fn as_reader<'r>(&'r self) -> OutPointReader<'r> {
         OutPointReader::new_unchecked(self.as_slice())
     }
+    pub const TOTAL_SIZE: usize = 36;
     pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
+    pub const FIELDS_SIZE: [usize; 2] = [32, 4];
     pub fn tx_hash(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
+        Byte32::new_unchecked(self.0.slice(0, 32))
     }
     pub fn index(&self) -> Uint32 {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            Uint32::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            Uint32::new_unchecked(self.0.slice(start, end))
-        }
+        Uint32::new_unchecked(self.0.slice(32, 36))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for OutPointReader<'r> {
@@ -7317,93 +6998,33 @@ impl<'r> molecule::prelude::Reader<'r> for OutPointReader<'r> {
     }
     fn verify(slice: &[u8]) -> molecule::error::VerificationResult<()> {
         use molecule::error::VerificationError;
-        let len = slice.len();
-        if len < 4 {
-            let err = VerificationError::HeaderIsBroken(Self::NAME.to_owned(), 4, len);
+        if slice.len() != 36 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 36, slice.len());
             Err(err)?;
         }
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
-            Err(err)?;
-        }
-        if 2 == 0 && total_size == 4 {
-            return Ok(());
-        }
-        let expected = 4 + 4 * 2;
-        if total_size < expected {
-            let err =
-                VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..=2]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        if offsets[0] != expected {
-            let err =
-                VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), expected, offsets[0]);
-            Err(err)?;
-        }
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        Uint32Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        Byte32Reader::verify(&slice[0..32])?;
+        Uint32Reader::verify(&slice[32..36])?;
         Ok(())
     }
 }
 impl<'r> OutPointReader<'r> {
     pub const NAME: &'r str = "OutPointReader";
+    pub const TOTAL_SIZE: usize = 36;
     pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
+    pub const FIELDS_SIZE: [usize; 2] = [32, 4];
     pub fn tx_hash(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[0..32])
     }
     pub fn index(&self) -> Uint32Reader<'r> {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            Uint32Reader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            Uint32Reader::new_unchecked(&self.as_slice()[start..end])
-        }
+        Uint32Reader::new_unchecked(&self.as_slice()[32..36])
     }
 }
 impl molecule::prelude::Builder for OutPointBuilder {
     type Entity = OutPoint;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 2 * 4;
-        len_header + self.tx_hash.as_slice().len() + self.index.as_slice().len()
+        36
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 2 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.tx_hash.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.index.as_slice().len();
-        }
-        let _ = offset;
         writer.write_all(self.tx_hash.as_slice())?;
         writer.write_all(self.index.as_slice())?;
         Ok(())
@@ -7452,41 +7073,23 @@ impl<'r> ::std::fmt::Debug for CellInputReader<'r> {
 impl ::std::fmt::Display for CellInput {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "previous_output", self.previous_output())?;
-        write!(f, ", {}: {}", "since", self.since())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
+        write!(f, "{}: {}", "since", self.since())?;
+        write!(f, ", {}: {}", "previous_output", self.previous_output())?;
         write!(f, " }}")
     }
 }
 impl<'r> ::std::fmt::Display for CellInputReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "previous_output", self.previous_output())?;
-        write!(f, ", {}: {}", "since", self.since())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
+        write!(f, "{}: {}", "since", self.since())?;
+        write!(f, ", {}: {}", "previous_output", self.previous_output())?;
         write!(f, " }}")
     }
 }
 #[derive(Debug, Default)]
 pub struct CellInputBuilder {
-    pub(crate) previous_output: OutPoint,
     pub(crate) since: Uint64,
-}
-impl ::std::default::Default for CellInput {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![
-            68, 0, 0, 0, 12, 0, 0, 0, 60, 0, 0, 0, 48, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        CellInput::new_unchecked(v.into())
-    }
+    pub(crate) previous_output: OutPoint,
 }
 impl molecule::prelude::Entity for CellInput {
     type Builder = CellInputBuilder;
@@ -7507,8 +7110,17 @@ impl molecule::prelude::Entity for CellInput {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .previous_output(self.previous_output())
             .since(self.since())
+            .previous_output(self.previous_output())
+    }
+}
+impl ::std::default::Default for CellInput {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        CellInput::new_unchecked(v.into())
     }
 }
 impl CellInput {
@@ -7516,29 +7128,14 @@ impl CellInput {
     pub fn as_reader<'r>(&'r self) -> CellInputReader<'r> {
         CellInputReader::new_unchecked(self.as_slice())
     }
+    pub const TOTAL_SIZE: usize = 44;
     pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
+    pub const FIELDS_SIZE: [usize; 2] = [8, 36];
+    pub fn since(&self) -> Uint64 {
+        Uint64::new_unchecked(self.0.slice(0, 8))
     }
     pub fn previous_output(&self) -> OutPoint {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        OutPoint::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn since(&self) -> Uint64 {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            Uint64::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            Uint64::new_unchecked(self.0.slice(start, end))
-        }
+        OutPoint::new_unchecked(self.0.slice(8, 44))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for CellInputReader<'r> {
@@ -7554,95 +7151,35 @@ impl<'r> molecule::prelude::Reader<'r> for CellInputReader<'r> {
     }
     fn verify(slice: &[u8]) -> molecule::error::VerificationResult<()> {
         use molecule::error::VerificationError;
-        let len = slice.len();
-        if len < 4 {
-            let err = VerificationError::HeaderIsBroken(Self::NAME.to_owned(), 4, len);
+        if slice.len() != 44 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 44, slice.len());
             Err(err)?;
         }
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
-            Err(err)?;
-        }
-        if 2 == 0 && total_size == 4 {
-            return Ok(());
-        }
-        let expected = 4 + 4 * 2;
-        if total_size < expected {
-            let err =
-                VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..=2]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        if offsets[0] != expected {
-            let err =
-                VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), expected, offsets[0]);
-            Err(err)?;
-        }
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        OutPointReader::verify(&slice[offsets[0]..offsets[1]])?;
-        Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        Uint64Reader::verify(&slice[0..8])?;
+        OutPointReader::verify(&slice[8..44])?;
         Ok(())
     }
 }
 impl<'r> CellInputReader<'r> {
     pub const NAME: &'r str = "CellInputReader";
+    pub const TOTAL_SIZE: usize = 44;
     pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
+    pub const FIELDS_SIZE: [usize; 2] = [8, 36];
+    pub fn since(&self) -> Uint64Reader<'r> {
+        Uint64Reader::new_unchecked(&self.as_slice()[0..8])
     }
     pub fn previous_output(&self) -> OutPointReader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        OutPointReader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn since(&self) -> Uint64Reader<'r> {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            Uint64Reader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-        }
+        OutPointReader::new_unchecked(&self.as_slice()[8..44])
     }
 }
 impl molecule::prelude::Builder for CellInputBuilder {
     type Entity = CellInput;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 2 * 4;
-        len_header + self.previous_output.as_slice().len() + self.since.as_slice().len()
+        44
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 2 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.previous_output.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.since.as_slice().len();
-        }
-        let _ = offset;
-        writer.write_all(self.previous_output.as_slice())?;
         writer.write_all(self.since.as_slice())?;
+        writer.write_all(self.previous_output.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -7653,12 +7190,12 @@ impl molecule::prelude::Builder for CellInputBuilder {
 }
 impl CellInputBuilder {
     pub const NAME: &'static str = "CellInputBuilder";
-    pub fn previous_output(mut self, v: OutPoint) -> Self {
-        self.previous_output = v;
-        self
-    }
     pub fn since(mut self, v: Uint64) -> Self {
         self.since = v;
+        self
+    }
+    pub fn previous_output(mut self, v: OutPoint) -> Self {
+        self.previous_output = v;
         self
     }
 }
@@ -7958,10 +7495,6 @@ impl ::std::fmt::Display for CellDep {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "out_point", self.out_point())?;
         write!(f, ", {}: {}", "dep_type", self.dep_type())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
         write!(f, " }}")
     }
 }
@@ -7970,10 +7503,6 @@ impl<'r> ::std::fmt::Display for CellDepReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "out_point", self.out_point())?;
         write!(f, ", {}: {}", "dep_type", self.dep_type())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
         write!(f, " }}")
     }
 }
@@ -7981,16 +7510,6 @@ impl<'r> ::std::fmt::Display for CellDepReader<'r> {
 pub struct CellDepBuilder {
     pub(crate) out_point: OutPoint,
     pub(crate) dep_type: DepType,
-}
-impl ::std::default::Default for CellDep {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![
-            61, 0, 0, 0, 12, 0, 0, 0, 60, 0, 0, 0, 48, 0, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0,
-        ];
-        CellDep::new_unchecked(v.into())
-    }
 }
 impl molecule::prelude::Entity for CellDep {
     type Builder = CellDepBuilder;
@@ -8015,34 +7534,28 @@ impl molecule::prelude::Entity for CellDep {
             .dep_type(self.dep_type())
     }
 }
+impl ::std::default::Default for CellDep {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        CellDep::new_unchecked(v.into())
+    }
+}
 impl CellDep {
     pub const NAME: &'static str = "CellDep";
     pub fn as_reader<'r>(&'r self) -> CellDepReader<'r> {
         CellDepReader::new_unchecked(self.as_slice())
     }
+    pub const TOTAL_SIZE: usize = 37;
     pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
+    pub const FIELDS_SIZE: [usize; 2] = [36, 1];
     pub fn out_point(&self) -> OutPoint {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        OutPoint::new_unchecked(self.0.slice(start, end))
+        OutPoint::new_unchecked(self.0.slice(0, 36))
     }
     pub fn dep_type(&self) -> DepType {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            DepType::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            DepType::new_unchecked(self.0.slice(start, end))
-        }
+        DepType::new_unchecked(self.0.slice(36, 37))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for CellDepReader<'r> {
@@ -8058,93 +7571,33 @@ impl<'r> molecule::prelude::Reader<'r> for CellDepReader<'r> {
     }
     fn verify(slice: &[u8]) -> molecule::error::VerificationResult<()> {
         use molecule::error::VerificationError;
-        let len = slice.len();
-        if len < 4 {
-            let err = VerificationError::HeaderIsBroken(Self::NAME.to_owned(), 4, len);
+        if slice.len() != 37 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 37, slice.len());
             Err(err)?;
         }
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
-            Err(err)?;
-        }
-        if 2 == 0 && total_size == 4 {
-            return Ok(());
-        }
-        let expected = 4 + 4 * 2;
-        if total_size < expected {
-            let err =
-                VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..=2]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        if offsets[0] != expected {
-            let err =
-                VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), expected, offsets[0]);
-            Err(err)?;
-        }
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        OutPointReader::verify(&slice[offsets[0]..offsets[1]])?;
-        DepTypeReader::verify(&slice[offsets[1]..offsets[2]])?;
+        OutPointReader::verify(&slice[0..36])?;
+        DepTypeReader::verify(&slice[36..37])?;
         Ok(())
     }
 }
 impl<'r> CellDepReader<'r> {
     pub const NAME: &'r str = "CellDepReader";
+    pub const TOTAL_SIZE: usize = 37;
     pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
+    pub const FIELDS_SIZE: [usize; 2] = [36, 1];
     pub fn out_point(&self) -> OutPointReader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        OutPointReader::new_unchecked(&self.as_slice()[start..end])
+        OutPointReader::new_unchecked(&self.as_slice()[0..36])
     }
     pub fn dep_type(&self) -> DepTypeReader<'r> {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            DepTypeReader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            DepTypeReader::new_unchecked(&self.as_slice()[start..end])
-        }
+        DepTypeReader::new_unchecked(&self.as_slice()[36..37])
     }
 }
 impl molecule::prelude::Builder for CellDepBuilder {
     type Entity = CellDep;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 2 * 4;
-        len_header + self.out_point.as_slice().len() + self.dep_type.as_slice().len()
+        37
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 2 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.out_point.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.dep_type.as_slice().len();
-        }
-        let _ = offset;
         writer.write_all(self.out_point.as_slice())?;
         writer.write_all(self.dep_type.as_slice())?;
         Ok(())
@@ -8555,7 +8008,7 @@ impl ::std::default::Default for RawTransaction {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 48, 0, 0,
-            0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
         ];
         RawTransaction::new_unchecked(v.into())
     }
@@ -8893,7 +8346,7 @@ impl ::std::default::Default for Transaction {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             68, 0, 0, 0, 12, 0, 0, 0, 64, 0, 0, 0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0,
-            0, 40, 0, 0, 0, 44, 0, 0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0,
+            0, 40, 0, 0, 0, 44, 0, 0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
         ];
         Transaction::new_unchecked(v.into())
@@ -9101,21 +8554,17 @@ impl ::std::fmt::Display for RawHeader {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "version", self.version())?;
-        write!(f, ", {}: {}", "parent_hash", self.parent_hash())?;
+        write!(f, ", {}: {}", "uncles_count", self.uncles_count())?;
         write!(f, ", {}: {}", "timestamp", self.timestamp())?;
         write!(f, ", {}: {}", "number", self.number())?;
+        write!(f, ", {}: {}", "epoch", self.epoch())?;
+        write!(f, ", {}: {}", "parent_hash", self.parent_hash())?;
         write!(f, ", {}: {}", "transactions_root", self.transactions_root())?;
         write!(f, ", {}: {}", "witnesses_root", self.witnesses_root())?;
         write!(f, ", {}: {}", "proposals_hash", self.proposals_hash())?;
         write!(f, ", {}: {}", "difficulty", self.difficulty())?;
         write!(f, ", {}: {}", "uncles_hash", self.uncles_hash())?;
-        write!(f, ", {}: {}", "uncles_count", self.uncles_count())?;
-        write!(f, ", {}: {}", "epoch", self.epoch())?;
         write!(f, ", {}: {}", "dao", self.dao())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 12 {
-            write!(f, ", ..")?;
-        }
         write!(f, " }}")
     }
 }
@@ -9123,56 +8572,34 @@ impl<'r> ::std::fmt::Display for RawHeaderReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "version", self.version())?;
-        write!(f, ", {}: {}", "parent_hash", self.parent_hash())?;
+        write!(f, ", {}: {}", "uncles_count", self.uncles_count())?;
         write!(f, ", {}: {}", "timestamp", self.timestamp())?;
         write!(f, ", {}: {}", "number", self.number())?;
+        write!(f, ", {}: {}", "epoch", self.epoch())?;
+        write!(f, ", {}: {}", "parent_hash", self.parent_hash())?;
         write!(f, ", {}: {}", "transactions_root", self.transactions_root())?;
         write!(f, ", {}: {}", "witnesses_root", self.witnesses_root())?;
         write!(f, ", {}: {}", "proposals_hash", self.proposals_hash())?;
         write!(f, ", {}: {}", "difficulty", self.difficulty())?;
         write!(f, ", {}: {}", "uncles_hash", self.uncles_hash())?;
-        write!(f, ", {}: {}", "uncles_count", self.uncles_count())?;
-        write!(f, ", {}: {}", "epoch", self.epoch())?;
         write!(f, ", {}: {}", "dao", self.dao())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 12 {
-            write!(f, ", ..")?;
-        }
         write!(f, " }}")
     }
 }
 #[derive(Debug, Default)]
 pub struct RawHeaderBuilder {
     pub(crate) version: Uint32,
-    pub(crate) parent_hash: Byte32,
+    pub(crate) uncles_count: Uint32,
     pub(crate) timestamp: Uint64,
     pub(crate) number: Uint64,
+    pub(crate) epoch: Uint64,
+    pub(crate) parent_hash: Byte32,
     pub(crate) transactions_root: Byte32,
     pub(crate) witnesses_root: Byte32,
     pub(crate) proposals_hash: Byte32,
     pub(crate) difficulty: Byte32,
     pub(crate) uncles_hash: Byte32,
-    pub(crate) uncles_count: Uint32,
-    pub(crate) epoch: Uint64,
     pub(crate) dao: Byte32,
-}
-impl ::std::default::Default for RawHeader {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![
-            52, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0,
-            0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        RawHeader::new_unchecked(v.into())
-    }
 }
 impl molecule::prelude::Entity for RawHeader {
     type Builder = RawHeaderBuilder;
@@ -9194,17 +8621,33 @@ impl molecule::prelude::Entity for RawHeader {
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
             .version(self.version())
-            .parent_hash(self.parent_hash())
+            .uncles_count(self.uncles_count())
             .timestamp(self.timestamp())
             .number(self.number())
+            .epoch(self.epoch())
+            .parent_hash(self.parent_hash())
             .transactions_root(self.transactions_root())
             .witnesses_root(self.witnesses_root())
             .proposals_hash(self.proposals_hash())
             .difficulty(self.difficulty())
             .uncles_hash(self.uncles_hash())
-            .uncles_count(self.uncles_count())
-            .epoch(self.epoch())
             .dao(self.dao())
+    }
+}
+impl ::std::default::Default for RawHeader {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        RawHeader::new_unchecked(v.into())
     }
 }
 impl RawHeader {
@@ -9212,89 +8655,44 @@ impl RawHeader {
     pub fn as_reader<'r>(&'r self) -> RawHeaderReader<'r> {
         RawHeaderReader::new_unchecked(self.as_slice())
     }
+    pub const TOTAL_SIZE: usize = 256;
     pub const FIELD_COUNT: usize = 12;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
+    pub const FIELDS_SIZE: [usize; 12] = [4, 4, 8, 8, 8, 32, 32, 32, 32, 32, 32, 32];
     pub fn version(&self) -> Uint32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint32::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn parent_hash(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        let end = u32::from_le(offsets[1 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn timestamp(&self) -> Uint64 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[2]) as usize;
-        let end = u32::from_le(offsets[2 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn number(&self) -> Uint64 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[3]) as usize;
-        let end = u32::from_le(offsets[3 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn transactions_root(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[4]) as usize;
-        let end = u32::from_le(offsets[4 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn witnesses_root(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[5]) as usize;
-        let end = u32::from_le(offsets[5 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn proposals_hash(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[6]) as usize;
-        let end = u32::from_le(offsets[6 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn difficulty(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[7]) as usize;
-        let end = u32::from_le(offsets[7 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn uncles_hash(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[8]) as usize;
-        let end = u32::from_le(offsets[8 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
+        Uint32::new_unchecked(self.0.slice(0, 4))
     }
     pub fn uncles_count(&self) -> Uint32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[9]) as usize;
-        let end = u32::from_le(offsets[9 + 1]) as usize;
-        Uint32::new_unchecked(self.0.slice(start, end))
+        Uint32::new_unchecked(self.0.slice(4, 8))
+    }
+    pub fn timestamp(&self) -> Uint64 {
+        Uint64::new_unchecked(self.0.slice(8, 16))
+    }
+    pub fn number(&self) -> Uint64 {
+        Uint64::new_unchecked(self.0.slice(16, 24))
     }
     pub fn epoch(&self) -> Uint64 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[10]) as usize;
-        let end = u32::from_le(offsets[10 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
+        Uint64::new_unchecked(self.0.slice(24, 32))
+    }
+    pub fn parent_hash(&self) -> Byte32 {
+        Byte32::new_unchecked(self.0.slice(32, 64))
+    }
+    pub fn transactions_root(&self) -> Byte32 {
+        Byte32::new_unchecked(self.0.slice(64, 96))
+    }
+    pub fn witnesses_root(&self) -> Byte32 {
+        Byte32::new_unchecked(self.0.slice(96, 128))
+    }
+    pub fn proposals_hash(&self) -> Byte32 {
+        Byte32::new_unchecked(self.0.slice(128, 160))
+    }
+    pub fn difficulty(&self) -> Byte32 {
+        Byte32::new_unchecked(self.0.slice(160, 192))
+    }
+    pub fn uncles_hash(&self) -> Byte32 {
+        Byte32::new_unchecked(self.0.slice(192, 224))
     }
     pub fn dao(&self) -> Byte32 {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[11]) as usize;
-        if count == 12 {
-            Byte32::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[11 + 1]) as usize;
-            Byte32::new_unchecked(self.0.slice(start, end))
-        }
+        Byte32::new_unchecked(self.0.slice(224, 256))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for RawHeaderReader<'r> {
@@ -9310,236 +8708,84 @@ impl<'r> molecule::prelude::Reader<'r> for RawHeaderReader<'r> {
     }
     fn verify(slice: &[u8]) -> molecule::error::VerificationResult<()> {
         use molecule::error::VerificationError;
-        let len = slice.len();
-        if len < 4 {
-            let err = VerificationError::HeaderIsBroken(Self::NAME.to_owned(), 4, len);
+        if slice.len() != 256 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 256, slice.len());
             Err(err)?;
         }
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
-            Err(err)?;
-        }
-        if 12 == 0 && total_size == 4 {
-            return Ok(());
-        }
-        let expected = 4 + 4 * 12;
-        if total_size < expected {
-            let err =
-                VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..=12]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        if offsets[0] != expected {
-            let err =
-                VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), expected, offsets[0]);
-            Err(err)?;
-        }
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        Uint32Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        Byte32Reader::verify(&slice[offsets[1]..offsets[2]])?;
-        Uint64Reader::verify(&slice[offsets[2]..offsets[3]])?;
-        Uint64Reader::verify(&slice[offsets[3]..offsets[4]])?;
-        Byte32Reader::verify(&slice[offsets[4]..offsets[5]])?;
-        Byte32Reader::verify(&slice[offsets[5]..offsets[6]])?;
-        Byte32Reader::verify(&slice[offsets[6]..offsets[7]])?;
-        Byte32Reader::verify(&slice[offsets[7]..offsets[8]])?;
-        Byte32Reader::verify(&slice[offsets[8]..offsets[9]])?;
-        Uint32Reader::verify(&slice[offsets[9]..offsets[10]])?;
-        Uint64Reader::verify(&slice[offsets[10]..offsets[11]])?;
-        Byte32Reader::verify(&slice[offsets[11]..offsets[12]])?;
+        Uint32Reader::verify(&slice[0..4])?;
+        Uint32Reader::verify(&slice[4..8])?;
+        Uint64Reader::verify(&slice[8..16])?;
+        Uint64Reader::verify(&slice[16..24])?;
+        Uint64Reader::verify(&slice[24..32])?;
+        Byte32Reader::verify(&slice[32..64])?;
+        Byte32Reader::verify(&slice[64..96])?;
+        Byte32Reader::verify(&slice[96..128])?;
+        Byte32Reader::verify(&slice[128..160])?;
+        Byte32Reader::verify(&slice[160..192])?;
+        Byte32Reader::verify(&slice[192..224])?;
+        Byte32Reader::verify(&slice[224..256])?;
         Ok(())
     }
 }
 impl<'r> RawHeaderReader<'r> {
     pub const NAME: &'r str = "RawHeaderReader";
+    pub const TOTAL_SIZE: usize = 256;
     pub const FIELD_COUNT: usize = 12;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
+    pub const FIELDS_SIZE: [usize; 12] = [4, 4, 8, 8, 8, 32, 32, 32, 32, 32, 32, 32];
     pub fn version(&self) -> Uint32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint32Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn parent_hash(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        let end = u32::from_le(offsets[1 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn timestamp(&self) -> Uint64Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[2]) as usize;
-        let end = u32::from_le(offsets[2 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn number(&self) -> Uint64Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[3]) as usize;
-        let end = u32::from_le(offsets[3 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn transactions_root(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[4]) as usize;
-        let end = u32::from_le(offsets[4 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn witnesses_root(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[5]) as usize;
-        let end = u32::from_le(offsets[5 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn proposals_hash(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[6]) as usize;
-        let end = u32::from_le(offsets[6 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn difficulty(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[7]) as usize;
-        let end = u32::from_le(offsets[7 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn uncles_hash(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[8]) as usize;
-        let end = u32::from_le(offsets[8 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint32Reader::new_unchecked(&self.as_slice()[0..4])
     }
     pub fn uncles_count(&self) -> Uint32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[9]) as usize;
-        let end = u32::from_le(offsets[9 + 1]) as usize;
-        Uint32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint32Reader::new_unchecked(&self.as_slice()[4..8])
+    }
+    pub fn timestamp(&self) -> Uint64Reader<'r> {
+        Uint64Reader::new_unchecked(&self.as_slice()[8..16])
+    }
+    pub fn number(&self) -> Uint64Reader<'r> {
+        Uint64Reader::new_unchecked(&self.as_slice()[16..24])
     }
     pub fn epoch(&self) -> Uint64Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[10]) as usize;
-        let end = u32::from_le(offsets[10 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[24..32])
+    }
+    pub fn parent_hash(&self) -> Byte32Reader<'r> {
+        Byte32Reader::new_unchecked(&self.as_slice()[32..64])
+    }
+    pub fn transactions_root(&self) -> Byte32Reader<'r> {
+        Byte32Reader::new_unchecked(&self.as_slice()[64..96])
+    }
+    pub fn witnesses_root(&self) -> Byte32Reader<'r> {
+        Byte32Reader::new_unchecked(&self.as_slice()[96..128])
+    }
+    pub fn proposals_hash(&self) -> Byte32Reader<'r> {
+        Byte32Reader::new_unchecked(&self.as_slice()[128..160])
+    }
+    pub fn difficulty(&self) -> Byte32Reader<'r> {
+        Byte32Reader::new_unchecked(&self.as_slice()[160..192])
+    }
+    pub fn uncles_hash(&self) -> Byte32Reader<'r> {
+        Byte32Reader::new_unchecked(&self.as_slice()[192..224])
     }
     pub fn dao(&self) -> Byte32Reader<'r> {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[11]) as usize;
-        if count == 12 {
-            Byte32Reader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[11 + 1]) as usize;
-            Byte32Reader::new_unchecked(&self.as_slice()[start..end])
-        }
+        Byte32Reader::new_unchecked(&self.as_slice()[224..256])
     }
 }
 impl molecule::prelude::Builder for RawHeaderBuilder {
     type Entity = RawHeader;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 12 * 4;
-        len_header
-            + self.version.as_slice().len()
-            + self.parent_hash.as_slice().len()
-            + self.timestamp.as_slice().len()
-            + self.number.as_slice().len()
-            + self.transactions_root.as_slice().len()
-            + self.witnesses_root.as_slice().len()
-            + self.proposals_hash.as_slice().len()
-            + self.difficulty.as_slice().len()
-            + self.uncles_hash.as_slice().len()
-            + self.uncles_count.as_slice().len()
-            + self.epoch.as_slice().len()
-            + self.dao.as_slice().len()
+        256
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 12 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.version.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.parent_hash.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.timestamp.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.number.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.transactions_root.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.witnesses_root.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.proposals_hash.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.difficulty.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.uncles_hash.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.uncles_count.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.epoch.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.dao.as_slice().len();
-        }
-        let _ = offset;
         writer.write_all(self.version.as_slice())?;
-        writer.write_all(self.parent_hash.as_slice())?;
+        writer.write_all(self.uncles_count.as_slice())?;
         writer.write_all(self.timestamp.as_slice())?;
         writer.write_all(self.number.as_slice())?;
+        writer.write_all(self.epoch.as_slice())?;
+        writer.write_all(self.parent_hash.as_slice())?;
         writer.write_all(self.transactions_root.as_slice())?;
         writer.write_all(self.witnesses_root.as_slice())?;
         writer.write_all(self.proposals_hash.as_slice())?;
         writer.write_all(self.difficulty.as_slice())?;
         writer.write_all(self.uncles_hash.as_slice())?;
-        writer.write_all(self.uncles_count.as_slice())?;
-        writer.write_all(self.epoch.as_slice())?;
         writer.write_all(self.dao.as_slice())?;
         Ok(())
     }
@@ -9555,8 +8801,8 @@ impl RawHeaderBuilder {
         self.version = v;
         self
     }
-    pub fn parent_hash(mut self, v: Byte32) -> Self {
-        self.parent_hash = v;
+    pub fn uncles_count(mut self, v: Uint32) -> Self {
+        self.uncles_count = v;
         self
     }
     pub fn timestamp(mut self, v: Uint64) -> Self {
@@ -9565,6 +8811,14 @@ impl RawHeaderBuilder {
     }
     pub fn number(mut self, v: Uint64) -> Self {
         self.number = v;
+        self
+    }
+    pub fn epoch(mut self, v: Uint64) -> Self {
+        self.epoch = v;
+        self
+    }
+    pub fn parent_hash(mut self, v: Byte32) -> Self {
+        self.parent_hash = v;
         self
     }
     pub fn transactions_root(mut self, v: Byte32) -> Self {
@@ -9585,14 +8839,6 @@ impl RawHeaderBuilder {
     }
     pub fn uncles_hash(mut self, v: Byte32) -> Self {
         self.uncles_hash = v;
-        self
-    }
-    pub fn uncles_count(mut self, v: Uint32) -> Self {
-        self.uncles_count = v;
-        self
-    }
-    pub fn epoch(mut self, v: Uint64) -> Self {
-        self.epoch = v;
         self
     }
     pub fn dao(mut self, v: Byte32) -> Self {
@@ -9629,10 +8875,6 @@ impl ::std::fmt::Display for Header {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "raw", self.raw())?;
         write!(f, ", {}: {}", "nonce", self.nonce())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
         write!(f, " }}")
     }
 }
@@ -9641,10 +8883,6 @@ impl<'r> ::std::fmt::Display for HeaderReader<'r> {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "raw", self.raw())?;
         write!(f, ", {}: {}", "nonce", self.nonce())?;
-        let (_, count, _) = Self::field_offsets(&self);
-        if count != 2 {
-            write!(f, ", ..")?;
-        }
         write!(f, " }}")
     }
 }
@@ -9652,25 +8890,6 @@ impl<'r> ::std::fmt::Display for HeaderReader<'r> {
 pub struct HeaderBuilder {
     pub(crate) raw: RawHeader,
     pub(crate) nonce: Uint64,
-}
-impl ::std::default::Default for Header {
-    fn default() -> Self {
-        let v: Vec<u8> = vec![
-            72, 1, 0, 0, 12, 0, 0, 0, 64, 1, 0, 0, 52, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0,
-            0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0,
-            8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        Header::new_unchecked(v.into())
-    }
 }
 impl molecule::prelude::Entity for Header {
     type Builder = HeaderBuilder;
@@ -9693,34 +8912,36 @@ impl molecule::prelude::Entity for Header {
         Self::new_builder().raw(self.raw()).nonce(self.nonce())
     }
 }
+impl ::std::default::Default for Header {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
+        ];
+        Header::new_unchecked(v.into())
+    }
+}
 impl Header {
     pub const NAME: &'static str = "Header";
     pub fn as_reader<'r>(&'r self) -> HeaderReader<'r> {
         HeaderReader::new_unchecked(self.as_slice())
     }
+    pub const TOTAL_SIZE: usize = 264;
     pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
+    pub const FIELDS_SIZE: [usize; 2] = [256, 8];
     pub fn raw(&self) -> RawHeader {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        RawHeader::new_unchecked(self.0.slice(start, end))
+        RawHeader::new_unchecked(self.0.slice(0, 256))
     }
     pub fn nonce(&self) -> Uint64 {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            Uint64::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            Uint64::new_unchecked(self.0.slice(start, end))
-        }
+        Uint64::new_unchecked(self.0.slice(256, 264))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for HeaderReader<'r> {
@@ -9736,93 +8957,33 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderReader<'r> {
     }
     fn verify(slice: &[u8]) -> molecule::error::VerificationResult<()> {
         use molecule::error::VerificationError;
-        let len = slice.len();
-        if len < 4 {
-            let err = VerificationError::HeaderIsBroken(Self::NAME.to_owned(), 4, len);
+        if slice.len() != 264 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 264, slice.len());
             Err(err)?;
         }
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(slice) };
-        let total_size = u32::from_le(ptr[0]) as usize;
-        if total_size != len {
-            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), total_size, len);
-            Err(err)?;
-        }
-        if 2 == 0 && total_size == 4 {
-            return Ok(());
-        }
-        let expected = 4 + 4 * 2;
-        if total_size < expected {
-            let err =
-                VerificationError::HeaderIsBroken(Self::NAME.to_owned(), expected, total_size);
-            Err(err)?;
-        }
-        let mut offsets: Vec<usize> = ptr[1..=2]
-            .iter()
-            .map(|x| u32::from_le(*x) as usize)
-            .collect();
-        if offsets[0] != expected {
-            let err =
-                VerificationError::FirstOffsetIsShort(Self::NAME.to_owned(), expected, offsets[0]);
-            Err(err)?;
-        }
-        offsets.push(total_size);
-        if offsets.windows(2).any(|i| i[0] > i[1]) {
-            let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
-            Err(err)?;
-        }
-        RawHeaderReader::verify(&slice[offsets[0]..offsets[1]])?;
-        Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        RawHeaderReader::verify(&slice[0..256])?;
+        Uint64Reader::verify(&slice[256..264])?;
         Ok(())
     }
 }
 impl<'r> HeaderReader<'r> {
     pub const NAME: &'r str = "HeaderReader";
+    pub const TOTAL_SIZE: usize = 264;
     pub const FIELD_COUNT: usize = 2;
-    pub fn field_offsets(&self) -> (usize, usize, &[u32]) {
-        let ptr: &[u32] = unsafe { ::std::mem::transmute(self.as_slice()) };
-        let bytes_len = u32::from_le(ptr[0]) as usize;
-        let first = u32::from_le(ptr[1]) as usize;
-        let count = (first - 4) / 4;
-        (bytes_len, count, &ptr[1..])
-    }
+    pub const FIELDS_SIZE: [usize; 2] = [256, 8];
     pub fn raw(&self) -> RawHeaderReader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[0]) as usize;
-        let end = u32::from_le(offsets[0 + 1]) as usize;
-        RawHeaderReader::new_unchecked(&self.as_slice()[start..end])
+        RawHeaderReader::new_unchecked(&self.as_slice()[0..256])
     }
     pub fn nonce(&self) -> Uint64Reader<'r> {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        if count == 2 {
-            Uint64Reader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[1 + 1]) as usize;
-            Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-        }
+        Uint64Reader::new_unchecked(&self.as_slice()[256..264])
     }
 }
 impl molecule::prelude::Builder for HeaderBuilder {
     type Entity = Header;
     fn expected_length(&self) -> usize {
-        let len_header = 4 + 2 * 4;
-        len_header + self.raw.as_slice().len() + self.nonce.as_slice().len()
+        264
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        let len = (self.expected_length() as u32).to_le_bytes();
-        writer.write_all(&len[..])?;
-        let mut offset = 4 + 2 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.raw.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.nonce.as_slice().len();
-        }
-        let _ = offset;
         writer.write_all(self.raw.as_slice())?;
         writer.write_all(self.nonce.as_slice())?;
         Ok(())
@@ -9900,9 +9061,7 @@ pub struct UncleBlockBuilder {
 impl ::std::default::Default for UncleBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            88, 1, 0, 0, 12, 0, 0, 0, 84, 1, 0, 0, 72, 1, 0, 0, 12, 0, 0, 0, 64, 1, 0, 0, 52, 1, 0,
-            0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168,
-            0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0,
+            24, 1, 0, 0, 12, 0, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -9911,8 +9070,7 @@ impl ::std::default::Default for UncleBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         UncleBlock::new_unchecked(v.into())
     }
@@ -10153,10 +9311,7 @@ pub struct BlockBuilder {
 impl ::std::default::Default for Block {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            104, 1, 0, 0, 20, 0, 0, 0, 92, 1, 0, 0, 96, 1, 0, 0, 100, 1, 0, 0, 72, 1, 0, 0, 12, 0,
-            0, 0, 64, 1, 0, 0, 52, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0,
-            104, 0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12,
-            1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            40, 1, 0, 0, 20, 0, 0, 0, 28, 1, 0, 0, 32, 1, 0, 0, 36, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -10165,7 +9320,8 @@ impl ::std::default::Default for Block {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+            4, 0, 0, 0, 0, 0, 0, 0,
         ];
         Block::new_unchecked(v.into())
     }
@@ -10423,8 +9579,8 @@ impl<'r> ::std::fmt::Debug for HeaderViewReader<'r> {
 impl ::std::fmt::Display for HeaderView {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "data", self.data())?;
-        write!(f, ", {}: {}", "hash", self.hash())?;
+        write!(f, "{}: {}", "hash", self.hash())?;
+        write!(f, ", {}: {}", "data", self.data())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -10435,8 +9591,8 @@ impl ::std::fmt::Display for HeaderView {
 impl<'r> ::std::fmt::Display for HeaderViewReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "data", self.data())?;
-        write!(f, ", {}: {}", "hash", self.hash())?;
+        write!(f, "{}: {}", "hash", self.hash())?;
+        write!(f, ", {}: {}", "data", self.data())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -10446,15 +9602,13 @@ impl<'r> ::std::fmt::Display for HeaderViewReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct HeaderViewBuilder {
-    pub(crate) data: Header,
     pub(crate) hash: Byte32,
+    pub(crate) data: Header,
 }
 impl ::std::default::Default for HeaderView {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            116, 1, 0, 0, 12, 0, 0, 0, 84, 1, 0, 0, 72, 1, 0, 0, 12, 0, 0, 0, 64, 1, 0, 0, 52, 1,
-            0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0,
-            168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0,
+            52, 1, 0, 0, 12, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -10464,8 +9618,7 @@ impl ::std::default::Default for HeaderView {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         HeaderView::new_unchecked(v.into())
     }
@@ -10488,7 +9641,7 @@ impl molecule::prelude::Entity for HeaderView {
         ::std::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder().data(self.data()).hash(self.hash())
+        Self::new_builder().hash(self.hash()).data(self.data())
     }
 }
 impl HeaderView {
@@ -10504,20 +9657,20 @@ impl HeaderView {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn data(&self) -> Header {
+    pub fn hash(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Header::new_unchecked(self.0.slice(start, end))
+        Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn hash(&self) -> Byte32 {
+    pub fn data(&self) -> Header {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            Byte32::new_unchecked(self.0.slice_from(start))
+            Header::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            Byte32::new_unchecked(self.0.slice(start, end))
+            Header::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -10568,8 +9721,8 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderViewReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        HeaderReader::verify(&slice[offsets[0]..offsets[1]])?;
-        Byte32Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
+        HeaderReader::verify(&slice[offsets[1]..offsets[2]])?;
         Ok(())
     }
 }
@@ -10583,20 +9736,20 @@ impl<'r> HeaderViewReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn data(&self) -> HeaderReader<'r> {
+    pub fn hash(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        HeaderReader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn hash(&self) -> Byte32Reader<'r> {
+    pub fn data(&self) -> HeaderReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            Byte32Reader::new_unchecked(&self.as_slice()[start..])
+            HeaderReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+            HeaderReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -10604,7 +9757,7 @@ impl molecule::prelude::Builder for HeaderViewBuilder {
     type Entity = HeaderView;
     fn expected_length(&self) -> usize {
         let len_header = 4 + 2 * 4;
-        len_header + self.data.as_slice().len() + self.hash.as_slice().len()
+        len_header + self.hash.as_slice().len() + self.data.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
@@ -10613,16 +9766,16 @@ impl molecule::prelude::Builder for HeaderViewBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.data.as_slice().len();
+            offset += self.hash.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.hash.as_slice().len();
+            offset += self.data.as_slice().len();
         }
         let _ = offset;
-        writer.write_all(self.data.as_slice())?;
         writer.write_all(self.hash.as_slice())?;
+        writer.write_all(self.data.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -10633,12 +9786,12 @@ impl molecule::prelude::Builder for HeaderViewBuilder {
 }
 impl HeaderViewBuilder {
     pub const NAME: &'static str = "HeaderViewBuilder";
-    pub fn data(mut self, v: Header) -> Self {
-        self.data = v;
-        self
-    }
     pub fn hash(mut self, v: Byte32) -> Self {
         self.hash = v;
+        self
+    }
+    pub fn data(mut self, v: Header) -> Self {
+        self.data = v;
         self
     }
 }
@@ -10669,8 +9822,8 @@ impl<'r> ::std::fmt::Debug for UncleBlockVecViewReader<'r> {
 impl ::std::fmt::Display for UncleBlockVecView {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "data", self.data())?;
-        write!(f, ", {}: {}", "hashes", self.hashes())?;
+        write!(f, "{}: {}", "hashes", self.hashes())?;
+        write!(f, ", {}: {}", "data", self.data())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -10681,8 +9834,8 @@ impl ::std::fmt::Display for UncleBlockVecView {
 impl<'r> ::std::fmt::Display for UncleBlockVecViewReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "data", self.data())?;
-        write!(f, ", {}: {}", "hashes", self.hashes())?;
+        write!(f, "{}: {}", "hashes", self.hashes())?;
+        write!(f, ", {}: {}", "data", self.data())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 2 {
             write!(f, ", ..")?;
@@ -10692,13 +9845,13 @@ impl<'r> ::std::fmt::Display for UncleBlockVecViewReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct UncleBlockVecViewBuilder {
-    pub(crate) data: UncleBlockVec,
     pub(crate) hashes: Byte32Vec,
+    pub(crate) data: UncleBlockVec,
 }
 impl ::std::default::Default for UncleBlockVecView {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            20, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
+            20, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
         ];
         UncleBlockVecView::new_unchecked(v.into())
     }
@@ -10721,7 +9874,7 @@ impl molecule::prelude::Entity for UncleBlockVecView {
         ::std::default::Default::default()
     }
     fn as_builder(self) -> Self::Builder {
-        Self::new_builder().data(self.data()).hashes(self.hashes())
+        Self::new_builder().hashes(self.hashes()).data(self.data())
     }
 }
 impl UncleBlockVecView {
@@ -10737,20 +9890,20 @@ impl UncleBlockVecView {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn data(&self) -> UncleBlockVec {
+    pub fn hashes(&self) -> Byte32Vec {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        UncleBlockVec::new_unchecked(self.0.slice(start, end))
+        Byte32Vec::new_unchecked(self.0.slice(start, end))
     }
-    pub fn hashes(&self) -> Byte32Vec {
+    pub fn data(&self) -> UncleBlockVec {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            Byte32Vec::new_unchecked(self.0.slice_from(start))
+            UncleBlockVec::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            Byte32Vec::new_unchecked(self.0.slice(start, end))
+            UncleBlockVec::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -10801,8 +9954,8 @@ impl<'r> molecule::prelude::Reader<'r> for UncleBlockVecViewReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        UncleBlockVecReader::verify(&slice[offsets[0]..offsets[1]])?;
-        Byte32VecReader::verify(&slice[offsets[1]..offsets[2]])?;
+        Byte32VecReader::verify(&slice[offsets[0]..offsets[1]])?;
+        UncleBlockVecReader::verify(&slice[offsets[1]..offsets[2]])?;
         Ok(())
     }
 }
@@ -10816,20 +9969,20 @@ impl<'r> UncleBlockVecViewReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn data(&self) -> UncleBlockVecReader<'r> {
+    pub fn hashes(&self) -> Byte32VecReader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        UncleBlockVecReader::new_unchecked(&self.as_slice()[start..end])
+        Byte32VecReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn hashes(&self) -> Byte32VecReader<'r> {
+    pub fn data(&self) -> UncleBlockVecReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         if count == 2 {
-            Byte32VecReader::new_unchecked(&self.as_slice()[start..])
+            UncleBlockVecReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[1 + 1]) as usize;
-            Byte32VecReader::new_unchecked(&self.as_slice()[start..end])
+            UncleBlockVecReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -10837,7 +9990,7 @@ impl molecule::prelude::Builder for UncleBlockVecViewBuilder {
     type Entity = UncleBlockVecView;
     fn expected_length(&self) -> usize {
         let len_header = 4 + 2 * 4;
-        len_header + self.data.as_slice().len() + self.hashes.as_slice().len()
+        len_header + self.hashes.as_slice().len() + self.data.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
@@ -10846,16 +9999,16 @@ impl molecule::prelude::Builder for UncleBlockVecViewBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.data.as_slice().len();
+            offset += self.hashes.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.hashes.as_slice().len();
+            offset += self.data.as_slice().len();
         }
         let _ = offset;
-        writer.write_all(self.data.as_slice())?;
         writer.write_all(self.hashes.as_slice())?;
+        writer.write_all(self.data.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -10866,12 +10019,12 @@ impl molecule::prelude::Builder for UncleBlockVecViewBuilder {
 }
 impl UncleBlockVecViewBuilder {
     pub const NAME: &'static str = "UncleBlockVecViewBuilder";
-    pub fn data(mut self, v: UncleBlockVec) -> Self {
-        self.data = v;
-        self
-    }
     pub fn hashes(mut self, v: Byte32Vec) -> Self {
         self.hashes = v;
+        self
+    }
+    pub fn data(mut self, v: UncleBlockVec) -> Self {
+        self.data = v;
         self
     }
 }
@@ -10902,9 +10055,9 @@ impl<'r> ::std::fmt::Debug for TransactionViewReader<'r> {
 impl ::std::fmt::Display for TransactionView {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "data", self.data())?;
-        write!(f, ", {}: {}", "hash", self.hash())?;
+        write!(f, "{}: {}", "hash", self.hash())?;
         write!(f, ", {}: {}", "witness_hash", self.witness_hash())?;
+        write!(f, ", {}: {}", "data", self.data())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
             write!(f, ", ..")?;
@@ -10915,9 +10068,9 @@ impl ::std::fmt::Display for TransactionView {
 impl<'r> ::std::fmt::Display for TransactionViewReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "data", self.data())?;
-        write!(f, ", {}: {}", "hash", self.hash())?;
+        write!(f, "{}: {}", "hash", self.hash())?;
         write!(f, ", {}: {}", "witness_hash", self.witness_hash())?;
+        write!(f, ", {}: {}", "data", self.data())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
             write!(f, ", ..")?;
@@ -10927,19 +10080,19 @@ impl<'r> ::std::fmt::Display for TransactionViewReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct TransactionViewBuilder {
-    pub(crate) data: Transaction,
     pub(crate) hash: Byte32,
     pub(crate) witness_hash: Byte32,
+    pub(crate) data: Transaction,
 }
 impl ::std::default::Default for TransactionView {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            148, 0, 0, 0, 16, 0, 0, 0, 84, 0, 0, 0, 116, 0, 0, 0, 68, 0, 0, 0, 12, 0, 0, 0, 64, 0,
-            0, 0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 48,
-            0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0,
+            148, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 0,
+            12, 0, 0, 0, 64, 0, 0, 0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0,
+            0, 44, 0, 0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0,
+            0, 4, 0, 0, 0, 4, 0, 0, 0,
         ];
         TransactionView::new_unchecked(v.into())
     }
@@ -10963,9 +10116,9 @@ impl molecule::prelude::Entity for TransactionView {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .data(self.data())
             .hash(self.hash())
             .witness_hash(self.witness_hash())
+            .data(self.data())
     }
 }
 impl TransactionView {
@@ -10981,26 +10134,26 @@ impl TransactionView {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn data(&self) -> Transaction {
+    pub fn hash(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Transaction::new_unchecked(self.0.slice(start, end))
+        Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn hash(&self) -> Byte32 {
+    pub fn witness_hash(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn witness_hash(&self) -> Byte32 {
+    pub fn data(&self) -> Transaction {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         if count == 3 {
-            Byte32::new_unchecked(self.0.slice_from(start))
+            Transaction::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[2 + 1]) as usize;
-            Byte32::new_unchecked(self.0.slice(start, end))
+            Transaction::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -11051,9 +10204,9 @@ impl<'r> molecule::prelude::Reader<'r> for TransactionViewReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        TransactionReader::verify(&slice[offsets[0]..offsets[1]])?;
+        Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
         Byte32Reader::verify(&slice[offsets[1]..offsets[2]])?;
-        Byte32Reader::verify(&slice[offsets[2]..offsets[3]])?;
+        TransactionReader::verify(&slice[offsets[2]..offsets[3]])?;
         Ok(())
     }
 }
@@ -11067,26 +10220,26 @@ impl<'r> TransactionViewReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn data(&self) -> TransactionReader<'r> {
+    pub fn hash(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        TransactionReader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn hash(&self) -> Byte32Reader<'r> {
+    pub fn witness_hash(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn witness_hash(&self) -> Byte32Reader<'r> {
+    pub fn data(&self) -> TransactionReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         if count == 3 {
-            Byte32Reader::new_unchecked(&self.as_slice()[start..])
+            TransactionReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[2 + 1]) as usize;
-            Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+            TransactionReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -11095,19 +10248,14 @@ impl molecule::prelude::Builder for TransactionViewBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 3 * 4;
         len_header
-            + self.data.as_slice().len()
             + self.hash.as_slice().len()
             + self.witness_hash.as_slice().len()
+            + self.data.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
         let mut offset = 4 + 3 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.data.as_slice().len();
-        }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
@@ -11118,10 +10266,15 @@ impl molecule::prelude::Builder for TransactionViewBuilder {
             writer.write_all(&tmp[..])?;
             offset += self.witness_hash.as_slice().len();
         }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.data.as_slice().len();
+        }
         let _ = offset;
-        writer.write_all(self.data.as_slice())?;
         writer.write_all(self.hash.as_slice())?;
         writer.write_all(self.witness_hash.as_slice())?;
+        writer.write_all(self.data.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -11132,16 +10285,16 @@ impl molecule::prelude::Builder for TransactionViewBuilder {
 }
 impl TransactionViewBuilder {
     pub const NAME: &'static str = "TransactionViewBuilder";
-    pub fn data(mut self, v: Transaction) -> Self {
-        self.data = v;
-        self
-    }
     pub fn hash(mut self, v: Byte32) -> Self {
         self.hash = v;
         self
     }
     pub fn witness_hash(mut self, v: Byte32) -> Self {
         self.witness_hash = v;
+        self
+    }
+    pub fn data(mut self, v: Transaction) -> Self {
+        self.data = v;
         self
     }
 }
@@ -11172,16 +10325,16 @@ impl<'r> ::std::fmt::Debug for BlockExtReader<'r> {
 impl ::std::fmt::Display for BlockExt {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "received_at", self.received_at())?;
-        write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
+        write!(f, "{}: {}", "total_difficulty", self.total_difficulty())?;
         write!(
             f,
             ", {}: {}",
             "total_uncles_count",
             self.total_uncles_count()
         )?;
-        write!(f, ", {}: {}", "verified", self.verified())?;
+        write!(f, ", {}: {}", "received_at", self.received_at())?;
         write!(f, ", {}: {}", "txs_fees", self.txs_fees())?;
+        write!(f, ", {}: {}", "verified", self.verified())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 5 {
             write!(f, ", ..")?;
@@ -11192,16 +10345,16 @@ impl ::std::fmt::Display for BlockExt {
 impl<'r> ::std::fmt::Display for BlockExtReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "received_at", self.received_at())?;
-        write!(f, ", {}: {}", "total_difficulty", self.total_difficulty())?;
+        write!(f, "{}: {}", "total_difficulty", self.total_difficulty())?;
         write!(
             f,
             ", {}: {}",
             "total_uncles_count",
             self.total_uncles_count()
         )?;
-        write!(f, ", {}: {}", "verified", self.verified())?;
+        write!(f, ", {}: {}", "received_at", self.received_at())?;
         write!(f, ", {}: {}", "txs_fees", self.txs_fees())?;
+        write!(f, ", {}: {}", "verified", self.verified())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 5 {
             write!(f, ", ..")?;
@@ -11211,16 +10364,16 @@ impl<'r> ::std::fmt::Display for BlockExtReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct BlockExtBuilder {
-    pub(crate) received_at: Uint64,
     pub(crate) total_difficulty: Byte32,
     pub(crate) total_uncles_count: Uint64,
-    pub(crate) verified: BoolOpt,
+    pub(crate) received_at: Uint64,
     pub(crate) txs_fees: Uint64Vec,
+    pub(crate) verified: BoolOpt,
 }
 impl ::std::default::Default for BlockExt {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            76, 0, 0, 0, 24, 0, 0, 0, 32, 0, 0, 0, 64, 0, 0, 0, 72, 0, 0, 0, 72, 0, 0, 0, 0, 0, 0,
+            76, 0, 0, 0, 24, 0, 0, 0, 56, 0, 0, 0, 64, 0, 0, 0, 72, 0, 0, 0, 76, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
@@ -11246,11 +10399,11 @@ impl molecule::prelude::Entity for BlockExt {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .received_at(self.received_at())
             .total_difficulty(self.total_difficulty())
             .total_uncles_count(self.total_uncles_count())
-            .verified(self.verified())
+            .received_at(self.received_at())
             .txs_fees(self.txs_fees())
+            .verified(self.verified())
     }
 }
 impl BlockExt {
@@ -11266,38 +10419,38 @@ impl BlockExt {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn received_at(&self) -> Uint64 {
+    pub fn total_difficulty(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn total_difficulty(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        let end = u32::from_le(offsets[1 + 1]) as usize;
         Byte32::new_unchecked(self.0.slice(start, end))
     }
     pub fn total_uncles_count(&self) -> Uint64 {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[1]) as usize;
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        Uint64::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn received_at(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         let end = u32::from_le(offsets[2 + 1]) as usize;
         Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn verified(&self) -> BoolOpt {
+    pub fn txs_fees(&self) -> Uint64Vec {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[3]) as usize;
         let end = u32::from_le(offsets[3 + 1]) as usize;
-        BoolOpt::new_unchecked(self.0.slice(start, end))
+        Uint64Vec::new_unchecked(self.0.slice(start, end))
     }
-    pub fn txs_fees(&self) -> Uint64Vec {
+    pub fn verified(&self) -> BoolOpt {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[4]) as usize;
         if count == 5 {
-            Uint64Vec::new_unchecked(self.0.slice_from(start))
+            BoolOpt::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[4 + 1]) as usize;
-            Uint64Vec::new_unchecked(self.0.slice(start, end))
+            BoolOpt::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -11348,11 +10501,11 @@ impl<'r> molecule::prelude::Reader<'r> for BlockExtReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        Byte32Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
+        Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
         Uint64Reader::verify(&slice[offsets[2]..offsets[3]])?;
-        BoolOptReader::verify(&slice[offsets[3]..offsets[4]])?;
-        Uint64VecReader::verify(&slice[offsets[4]..offsets[5]])?;
+        Uint64VecReader::verify(&slice[offsets[3]..offsets[4]])?;
+        BoolOptReader::verify(&slice[offsets[4]..offsets[5]])?;
         Ok(())
     }
 }
@@ -11366,38 +10519,38 @@ impl<'r> BlockExtReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn received_at(&self) -> Uint64Reader<'r> {
+    pub fn total_difficulty(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn total_difficulty(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        let end = u32::from_le(offsets[1 + 1]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn total_uncles_count(&self) -> Uint64Reader<'r> {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[1]) as usize;
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn received_at(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         let end = u32::from_le(offsets[2 + 1]) as usize;
         Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn verified(&self) -> BoolOptReader<'r> {
+    pub fn txs_fees(&self) -> Uint64VecReader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[3]) as usize;
         let end = u32::from_le(offsets[3 + 1]) as usize;
-        BoolOptReader::new_unchecked(&self.as_slice()[start..end])
+        Uint64VecReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn txs_fees(&self) -> Uint64VecReader<'r> {
+    pub fn verified(&self) -> BoolOptReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[4]) as usize;
         if count == 5 {
-            Uint64VecReader::new_unchecked(&self.as_slice()[start..])
+            BoolOptReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[4 + 1]) as usize;
-            Uint64VecReader::new_unchecked(&self.as_slice()[start..end])
+            BoolOptReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -11406,21 +10559,16 @@ impl molecule::prelude::Builder for BlockExtBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 5 * 4;
         len_header
-            + self.received_at.as_slice().len()
             + self.total_difficulty.as_slice().len()
             + self.total_uncles_count.as_slice().len()
-            + self.verified.as_slice().len()
+            + self.received_at.as_slice().len()
             + self.txs_fees.as_slice().len()
+            + self.verified.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
         let mut offset = 4 + 5 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.received_at.as_slice().len();
-        }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
@@ -11434,19 +10582,24 @@ impl molecule::prelude::Builder for BlockExtBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.verified.as_slice().len();
+            offset += self.received_at.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
             offset += self.txs_fees.as_slice().len();
         }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.verified.as_slice().len();
+        }
         let _ = offset;
-        writer.write_all(self.received_at.as_slice())?;
         writer.write_all(self.total_difficulty.as_slice())?;
         writer.write_all(self.total_uncles_count.as_slice())?;
-        writer.write_all(self.verified.as_slice())?;
+        writer.write_all(self.received_at.as_slice())?;
         writer.write_all(self.txs_fees.as_slice())?;
+        writer.write_all(self.verified.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -11457,10 +10610,6 @@ impl molecule::prelude::Builder for BlockExtBuilder {
 }
 impl BlockExtBuilder {
     pub const NAME: &'static str = "BlockExtBuilder";
-    pub fn received_at(mut self, v: Uint64) -> Self {
-        self.received_at = v;
-        self
-    }
     pub fn total_difficulty(mut self, v: Byte32) -> Self {
         self.total_difficulty = v;
         self
@@ -11469,12 +10618,16 @@ impl BlockExtBuilder {
         self.total_uncles_count = v;
         self
     }
-    pub fn verified(mut self, v: BoolOpt) -> Self {
-        self.verified = v;
+    pub fn received_at(mut self, v: Uint64) -> Self {
+        self.received_at = v;
         self
     }
     pub fn txs_fees(mut self, v: Uint64Vec) -> Self {
         self.txs_fees = v;
+        self
+    }
+    pub fn verified(mut self, v: BoolOpt) -> Self {
+        self.verified = v;
         self
     }
 }
@@ -11505,12 +10658,9 @@ impl<'r> ::std::fmt::Debug for EpochExtReader<'r> {
 impl ::std::fmt::Display for EpochExt {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "number", self.number())?;
-        write!(f, ", {}: {}", "block_reward", self.block_reward())?;
-        write!(f, ", {}: {}", "remainder_reward", self.remainder_reward())?;
         write!(
             f,
-            ", {}: {}",
+            "{}: {}",
             "previous_epoch_hash_rate",
             self.previous_epoch_hash_rate()
         )?;
@@ -11520,9 +10670,12 @@ impl ::std::fmt::Display for EpochExt {
             "last_block_hash_in_previous_epoch",
             self.last_block_hash_in_previous_epoch()
         )?;
+        write!(f, ", {}: {}", "difficulty", self.difficulty())?;
+        write!(f, ", {}: {}", "number", self.number())?;
+        write!(f, ", {}: {}", "block_reward", self.block_reward())?;
+        write!(f, ", {}: {}", "remainder_reward", self.remainder_reward())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
         write!(f, ", {}: {}", "length", self.length())?;
-        write!(f, ", {}: {}", "difficulty", self.difficulty())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 8 {
             write!(f, ", ..")?;
@@ -11533,12 +10686,9 @@ impl ::std::fmt::Display for EpochExt {
 impl<'r> ::std::fmt::Display for EpochExtReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "number", self.number())?;
-        write!(f, ", {}: {}", "block_reward", self.block_reward())?;
-        write!(f, ", {}: {}", "remainder_reward", self.remainder_reward())?;
         write!(
             f,
-            ", {}: {}",
+            "{}: {}",
             "previous_epoch_hash_rate",
             self.previous_epoch_hash_rate()
         )?;
@@ -11548,9 +10698,12 @@ impl<'r> ::std::fmt::Display for EpochExtReader<'r> {
             "last_block_hash_in_previous_epoch",
             self.last_block_hash_in_previous_epoch()
         )?;
+        write!(f, ", {}: {}", "difficulty", self.difficulty())?;
+        write!(f, ", {}: {}", "number", self.number())?;
+        write!(f, ", {}: {}", "block_reward", self.block_reward())?;
+        write!(f, ", {}: {}", "remainder_reward", self.remainder_reward())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
         write!(f, ", {}: {}", "length", self.length())?;
-        write!(f, ", {}: {}", "difficulty", self.difficulty())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 8 {
             write!(f, ", ..")?;
@@ -11560,25 +10713,25 @@ impl<'r> ::std::fmt::Display for EpochExtReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct EpochExtBuilder {
+    pub(crate) previous_epoch_hash_rate: Byte32,
+    pub(crate) last_block_hash_in_previous_epoch: Byte32,
+    pub(crate) difficulty: Byte32,
     pub(crate) number: Uint64,
     pub(crate) block_reward: Uint64,
     pub(crate) remainder_reward: Uint64,
-    pub(crate) previous_epoch_hash_rate: Byte32,
-    pub(crate) last_block_hash_in_previous_epoch: Byte32,
     pub(crate) start_number: Uint64,
     pub(crate) length: Uint64,
-    pub(crate) difficulty: Byte32,
 }
 impl ::std::default::Default for EpochExt {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            172, 0, 0, 0, 36, 0, 0, 0, 44, 0, 0, 0, 52, 0, 0, 0, 60, 0, 0, 0, 92, 0, 0, 0, 124, 0,
-            0, 0, 132, 0, 0, 0, 140, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            172, 0, 0, 0, 36, 0, 0, 0, 68, 0, 0, 0, 100, 0, 0, 0, 132, 0, 0, 0, 140, 0, 0, 0, 148,
+            0, 0, 0, 156, 0, 0, 0, 164, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0,
+            0, 0, 0,
         ];
         EpochExt::new_unchecked(v.into())
     }
@@ -11602,14 +10755,14 @@ impl molecule::prelude::Entity for EpochExt {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
+            .previous_epoch_hash_rate(self.previous_epoch_hash_rate())
+            .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch())
+            .difficulty(self.difficulty())
             .number(self.number())
             .block_reward(self.block_reward())
             .remainder_reward(self.remainder_reward())
-            .previous_epoch_hash_rate(self.previous_epoch_hash_rate())
-            .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch())
             .start_number(self.start_number())
             .length(self.length())
-            .difficulty(self.difficulty())
     }
 }
 impl EpochExt {
@@ -11625,56 +10778,56 @@ impl EpochExt {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn number(&self) -> Uint64 {
+    pub fn previous_epoch_hash_rate(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn block_reward(&self) -> Uint64 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        let end = u32::from_le(offsets[1 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn remainder_reward(&self) -> Uint64 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[2]) as usize;
-        let end = u32::from_le(offsets[2 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn previous_epoch_hash_rate(&self) -> Byte32 {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[3]) as usize;
-        let end = u32::from_le(offsets[3 + 1]) as usize;
         Byte32::new_unchecked(self.0.slice(start, end))
     }
     pub fn last_block_hash_in_previous_epoch(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[4]) as usize;
-        let end = u32::from_le(offsets[4 + 1]) as usize;
+        let start = u32::from_le(offsets[1]) as usize;
+        let end = u32::from_le(offsets[1 + 1]) as usize;
         Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn start_number(&self) -> Uint64 {
+    pub fn difficulty(&self) -> Byte32 {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[2]) as usize;
+        let end = u32::from_le(offsets[2 + 1]) as usize;
+        Byte32::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn number(&self) -> Uint64 {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[3]) as usize;
+        let end = u32::from_le(offsets[3 + 1]) as usize;
+        Uint64::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn block_reward(&self) -> Uint64 {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[4]) as usize;
+        let end = u32::from_le(offsets[4 + 1]) as usize;
+        Uint64::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn remainder_reward(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[5]) as usize;
         let end = u32::from_le(offsets[5 + 1]) as usize;
         Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn length(&self) -> Uint64 {
+    pub fn start_number(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[6]) as usize;
         let end = u32::from_le(offsets[6 + 1]) as usize;
         Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn difficulty(&self) -> Byte32 {
+    pub fn length(&self) -> Uint64 {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[7]) as usize;
         if count == 8 {
-            Byte32::new_unchecked(self.0.slice_from(start))
+            Uint64::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[7 + 1]) as usize;
-            Byte32::new_unchecked(self.0.slice(start, end))
+            Uint64::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -11725,14 +10878,14 @@ impl<'r> molecule::prelude::Reader<'r> for EpochExtReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
-        Uint64Reader::verify(&slice[offsets[2]..offsets[3]])?;
-        Byte32Reader::verify(&slice[offsets[3]..offsets[4]])?;
-        Byte32Reader::verify(&slice[offsets[4]..offsets[5]])?;
+        Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
+        Byte32Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        Byte32Reader::verify(&slice[offsets[2]..offsets[3]])?;
+        Uint64Reader::verify(&slice[offsets[3]..offsets[4]])?;
+        Uint64Reader::verify(&slice[offsets[4]..offsets[5]])?;
         Uint64Reader::verify(&slice[offsets[5]..offsets[6]])?;
         Uint64Reader::verify(&slice[offsets[6]..offsets[7]])?;
-        Byte32Reader::verify(&slice[offsets[7]..offsets[8]])?;
+        Uint64Reader::verify(&slice[offsets[7]..offsets[8]])?;
         Ok(())
     }
 }
@@ -11746,56 +10899,56 @@ impl<'r> EpochExtReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn number(&self) -> Uint64Reader<'r> {
+    pub fn previous_epoch_hash_rate(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn block_reward(&self) -> Uint64Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[1]) as usize;
-        let end = u32::from_le(offsets[1 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn remainder_reward(&self) -> Uint64Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[2]) as usize;
-        let end = u32::from_le(offsets[2 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn previous_epoch_hash_rate(&self) -> Byte32Reader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[3]) as usize;
-        let end = u32::from_le(offsets[3 + 1]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn last_block_hash_in_previous_epoch(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[4]) as usize;
-        let end = u32::from_le(offsets[4 + 1]) as usize;
+        let start = u32::from_le(offsets[1]) as usize;
+        let end = u32::from_le(offsets[1 + 1]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn start_number(&self) -> Uint64Reader<'r> {
+    pub fn difficulty(&self) -> Byte32Reader<'r> {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[2]) as usize;
+        let end = u32::from_le(offsets[2 + 1]) as usize;
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn number(&self) -> Uint64Reader<'r> {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[3]) as usize;
+        let end = u32::from_le(offsets[3 + 1]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn block_reward(&self) -> Uint64Reader<'r> {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[4]) as usize;
+        let end = u32::from_le(offsets[4 + 1]) as usize;
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn remainder_reward(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[5]) as usize;
         let end = u32::from_le(offsets[5 + 1]) as usize;
         Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn length(&self) -> Uint64Reader<'r> {
+    pub fn start_number(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[6]) as usize;
         let end = u32::from_le(offsets[6 + 1]) as usize;
         Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn difficulty(&self) -> Byte32Reader<'r> {
+    pub fn length(&self) -> Uint64Reader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[7]) as usize;
         if count == 8 {
-            Byte32Reader::new_unchecked(&self.as_slice()[start..])
+            Uint64Reader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[7 + 1]) as usize;
-            Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+            Uint64Reader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -11804,19 +10957,34 @@ impl molecule::prelude::Builder for EpochExtBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 8 * 4;
         len_header
+            + self.previous_epoch_hash_rate.as_slice().len()
+            + self.last_block_hash_in_previous_epoch.as_slice().len()
+            + self.difficulty.as_slice().len()
             + self.number.as_slice().len()
             + self.block_reward.as_slice().len()
             + self.remainder_reward.as_slice().len()
-            + self.previous_epoch_hash_rate.as_slice().len()
-            + self.last_block_hash_in_previous_epoch.as_slice().len()
             + self.start_number.as_slice().len()
             + self.length.as_slice().len()
-            + self.difficulty.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
         let mut offset = 4 + 8 * 4;
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.previous_epoch_hash_rate.as_slice().len();
+        }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.last_block_hash_in_previous_epoch.as_slice().len();
+        }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.difficulty.as_slice().len();
+        }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
@@ -11835,16 +11003,6 @@ impl molecule::prelude::Builder for EpochExtBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.previous_epoch_hash_rate.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.last_block_hash_in_previous_epoch.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
             offset += self.start_number.as_slice().len();
         }
         {
@@ -11852,20 +11010,15 @@ impl molecule::prelude::Builder for EpochExtBuilder {
             writer.write_all(&tmp[..])?;
             offset += self.length.as_slice().len();
         }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.difficulty.as_slice().len();
-        }
         let _ = offset;
+        writer.write_all(self.previous_epoch_hash_rate.as_slice())?;
+        writer.write_all(self.last_block_hash_in_previous_epoch.as_slice())?;
+        writer.write_all(self.difficulty.as_slice())?;
         writer.write_all(self.number.as_slice())?;
         writer.write_all(self.block_reward.as_slice())?;
         writer.write_all(self.remainder_reward.as_slice())?;
-        writer.write_all(self.previous_epoch_hash_rate.as_slice())?;
-        writer.write_all(self.last_block_hash_in_previous_epoch.as_slice())?;
         writer.write_all(self.start_number.as_slice())?;
         writer.write_all(self.length.as_slice())?;
-        writer.write_all(self.difficulty.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -11876,6 +11029,18 @@ impl molecule::prelude::Builder for EpochExtBuilder {
 }
 impl EpochExtBuilder {
     pub const NAME: &'static str = "EpochExtBuilder";
+    pub fn previous_epoch_hash_rate(mut self, v: Byte32) -> Self {
+        self.previous_epoch_hash_rate = v;
+        self
+    }
+    pub fn last_block_hash_in_previous_epoch(mut self, v: Byte32) -> Self {
+        self.last_block_hash_in_previous_epoch = v;
+        self
+    }
+    pub fn difficulty(mut self, v: Byte32) -> Self {
+        self.difficulty = v;
+        self
+    }
     pub fn number(mut self, v: Uint64) -> Self {
         self.number = v;
         self
@@ -11888,24 +11053,12 @@ impl EpochExtBuilder {
         self.remainder_reward = v;
         self
     }
-    pub fn previous_epoch_hash_rate(mut self, v: Byte32) -> Self {
-        self.previous_epoch_hash_rate = v;
-        self
-    }
-    pub fn last_block_hash_in_previous_epoch(mut self, v: Byte32) -> Self {
-        self.last_block_hash_in_previous_epoch = v;
-        self
-    }
     pub fn start_number(mut self, v: Uint64) -> Self {
         self.start_number = v;
         self
     }
     pub fn length(mut self, v: Uint64) -> Self {
         self.length = v;
-        self
-    }
-    pub fn difficulty(mut self, v: Byte32) -> Self {
-        self.difficulty = v;
         self
     }
 }
@@ -12089,9 +11242,9 @@ impl<'r> ::std::fmt::Debug for TransactionInfoReader<'r> {
 impl ::std::fmt::Display for TransactionInfo {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "key", self.key())?;
-        write!(f, ", {}: {}", "block_number", self.block_number())?;
+        write!(f, "{}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "block_epoch", self.block_epoch())?;
+        write!(f, ", {}: {}", "key", self.key())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
             write!(f, ", ..")?;
@@ -12102,9 +11255,9 @@ impl ::std::fmt::Display for TransactionInfo {
 impl<'r> ::std::fmt::Display for TransactionInfoReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "key", self.key())?;
-        write!(f, ", {}: {}", "block_number", self.block_number())?;
+        write!(f, "{}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "block_epoch", self.block_epoch())?;
+        write!(f, ", {}: {}", "key", self.key())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
             write!(f, ", ..")?;
@@ -12114,14 +11267,14 @@ impl<'r> ::std::fmt::Display for TransactionInfoReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct TransactionInfoBuilder {
-    pub(crate) key: TransactionKey,
     pub(crate) block_number: Uint64,
     pub(crate) block_epoch: Uint64,
+    pub(crate) key: TransactionKey,
 }
 impl ::std::default::Default for TransactionInfo {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            68, 0, 0, 0, 16, 0, 0, 0, 52, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            68, 0, 0, 0, 16, 0, 0, 0, 24, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
@@ -12147,9 +11300,9 @@ impl molecule::prelude::Entity for TransactionInfo {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .key(self.key())
             .block_number(self.block_number())
             .block_epoch(self.block_epoch())
+            .key(self.key())
     }
 }
 impl TransactionInfo {
@@ -12165,26 +11318,26 @@ impl TransactionInfo {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn key(&self) -> TransactionKey {
+    pub fn block_number(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        TransactionKey::new_unchecked(self.0.slice(start, end))
+        Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn block_number(&self) -> Uint64 {
+    pub fn block_epoch(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn block_epoch(&self) -> Uint64 {
+    pub fn key(&self) -> TransactionKey {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         if count == 3 {
-            Uint64::new_unchecked(self.0.slice_from(start))
+            TransactionKey::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[2 + 1]) as usize;
-            Uint64::new_unchecked(self.0.slice(start, end))
+            TransactionKey::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -12235,9 +11388,9 @@ impl<'r> molecule::prelude::Reader<'r> for TransactionInfoReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        TransactionKeyReader::verify(&slice[offsets[0]..offsets[1]])?;
+        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
         Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
-        Uint64Reader::verify(&slice[offsets[2]..offsets[3]])?;
+        TransactionKeyReader::verify(&slice[offsets[2]..offsets[3]])?;
         Ok(())
     }
 }
@@ -12251,26 +11404,26 @@ impl<'r> TransactionInfoReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn key(&self) -> TransactionKeyReader<'r> {
+    pub fn block_number(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        TransactionKeyReader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn block_number(&self) -> Uint64Reader<'r> {
+    pub fn block_epoch(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn block_epoch(&self) -> Uint64Reader<'r> {
+    pub fn key(&self) -> TransactionKeyReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         if count == 3 {
-            Uint64Reader::new_unchecked(&self.as_slice()[start..])
+            TransactionKeyReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[2 + 1]) as usize;
-            Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+            TransactionKeyReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -12279,19 +11432,14 @@ impl molecule::prelude::Builder for TransactionInfoBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 3 * 4;
         len_header
-            + self.key.as_slice().len()
             + self.block_number.as_slice().len()
             + self.block_epoch.as_slice().len()
+            + self.key.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
         let mut offset = 4 + 3 * 4;
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.key.as_slice().len();
-        }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
@@ -12302,10 +11450,15 @@ impl molecule::prelude::Builder for TransactionInfoBuilder {
             writer.write_all(&tmp[..])?;
             offset += self.block_epoch.as_slice().len();
         }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.key.as_slice().len();
+        }
         let _ = offset;
-        writer.write_all(self.key.as_slice())?;
         writer.write_all(self.block_number.as_slice())?;
         writer.write_all(self.block_epoch.as_slice())?;
+        writer.write_all(self.key.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -12316,16 +11469,16 @@ impl molecule::prelude::Builder for TransactionInfoBuilder {
 }
 impl TransactionInfoBuilder {
     pub const NAME: &'static str = "TransactionInfoBuilder";
-    pub fn key(mut self, v: TransactionKey) -> Self {
-        self.key = v;
-        self
-    }
     pub fn block_number(mut self, v: Uint64) -> Self {
         self.block_number = v;
         self
     }
     pub fn block_epoch(mut self, v: Uint64) -> Self {
         self.block_epoch = v;
+        self
+    }
+    pub fn key(mut self, v: TransactionKey) -> Self {
+        self.key = v;
         self
     }
 }
@@ -12356,9 +11509,9 @@ impl<'r> ::std::fmt::Debug for TransactionMetaReader<'r> {
 impl ::std::fmt::Display for TransactionMeta {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "block_number", self.block_number())?;
+        write!(f, "{}: {}", "block_hash", self.block_hash())?;
+        write!(f, ", {}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "epoch_number", self.epoch_number())?;
-        write!(f, ", {}: {}", "block_hash", self.block_hash())?;
         write!(f, ", {}: {}", "len", self.len())?;
         write!(f, ", {}: {}", "bits", self.bits())?;
         write!(f, ", {}: {}", "cellbase", self.cellbase())?;
@@ -12372,9 +11525,9 @@ impl ::std::fmt::Display for TransactionMeta {
 impl<'r> ::std::fmt::Display for TransactionMetaReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "block_number", self.block_number())?;
+        write!(f, "{}: {}", "block_hash", self.block_hash())?;
+        write!(f, ", {}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "epoch_number", self.epoch_number())?;
-        write!(f, ", {}: {}", "block_hash", self.block_hash())?;
         write!(f, ", {}: {}", "len", self.len())?;
         write!(f, ", {}: {}", "bits", self.bits())?;
         write!(f, ", {}: {}", "cellbase", self.cellbase())?;
@@ -12387,9 +11540,9 @@ impl<'r> ::std::fmt::Display for TransactionMetaReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct TransactionMetaBuilder {
+    pub(crate) block_hash: Byte32,
     pub(crate) block_number: Uint64,
     pub(crate) epoch_number: Uint64,
-    pub(crate) block_hash: Byte32,
     pub(crate) len: Uint32,
     pub(crate) bits: Bytes,
     pub(crate) cellbase: Bool,
@@ -12397,7 +11550,7 @@ pub struct TransactionMetaBuilder {
 impl ::std::default::Default for TransactionMeta {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            85, 0, 0, 0, 28, 0, 0, 0, 36, 0, 0, 0, 44, 0, 0, 0, 76, 0, 0, 0, 80, 0, 0, 0, 84, 0, 0,
+            85, 0, 0, 0, 28, 0, 0, 0, 60, 0, 0, 0, 68, 0, 0, 0, 76, 0, 0, 0, 80, 0, 0, 0, 84, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
@@ -12423,9 +11576,9 @@ impl molecule::prelude::Entity for TransactionMeta {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
+            .block_hash(self.block_hash())
             .block_number(self.block_number())
             .epoch_number(self.epoch_number())
-            .block_hash(self.block_hash())
             .len(self.len())
             .bits(self.bits())
             .cellbase(self.cellbase())
@@ -12444,23 +11597,23 @@ impl TransactionMeta {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn block_number(&self) -> Uint64 {
+    pub fn block_hash(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
+        Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn epoch_number(&self) -> Uint64 {
+    pub fn block_number(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn block_hash(&self) -> Byte32 {
+    pub fn epoch_number(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         let end = u32::from_le(offsets[2 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
+        Uint64::new_unchecked(self.0.slice(start, end))
     }
     pub fn len(&self) -> Uint32 {
         let (_, _, offsets) = Self::field_offsets(self);
@@ -12532,9 +11685,9 @@ impl<'r> molecule::prelude::Reader<'r> for TransactionMetaReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
+        Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
         Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
-        Byte32Reader::verify(&slice[offsets[2]..offsets[3]])?;
+        Uint64Reader::verify(&slice[offsets[2]..offsets[3]])?;
         Uint32Reader::verify(&slice[offsets[3]..offsets[4]])?;
         BytesReader::verify(&slice[offsets[4]..offsets[5]])?;
         BoolReader::verify(&slice[offsets[5]..offsets[6]])?;
@@ -12551,23 +11704,23 @@ impl<'r> TransactionMetaReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn block_number(&self) -> Uint64Reader<'r> {
+    pub fn block_hash(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn epoch_number(&self) -> Uint64Reader<'r> {
+    pub fn block_number(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn block_hash(&self) -> Byte32Reader<'r> {
+    pub fn epoch_number(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         let end = u32::from_le(offsets[2 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn len(&self) -> Uint32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
@@ -12597,9 +11750,9 @@ impl molecule::prelude::Builder for TransactionMetaBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 6 * 4;
         len_header
+            + self.block_hash.as_slice().len()
             + self.block_number.as_slice().len()
             + self.epoch_number.as_slice().len()
-            + self.block_hash.as_slice().len()
             + self.len.as_slice().len()
             + self.bits.as_slice().len()
             + self.cellbase.as_slice().len()
@@ -12611,17 +11764,17 @@ impl molecule::prelude::Builder for TransactionMetaBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
+            offset += self.block_hash.as_slice().len();
+        }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
             offset += self.block_number.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
             offset += self.epoch_number.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.block_hash.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
@@ -12639,9 +11792,9 @@ impl molecule::prelude::Builder for TransactionMetaBuilder {
             offset += self.cellbase.as_slice().len();
         }
         let _ = offset;
+        writer.write_all(self.block_hash.as_slice())?;
         writer.write_all(self.block_number.as_slice())?;
         writer.write_all(self.epoch_number.as_slice())?;
-        writer.write_all(self.block_hash.as_slice())?;
         writer.write_all(self.len.as_slice())?;
         writer.write_all(self.bits.as_slice())?;
         writer.write_all(self.cellbase.as_slice())?;
@@ -12655,16 +11808,16 @@ impl molecule::prelude::Builder for TransactionMetaBuilder {
 }
 impl TransactionMetaBuilder {
     pub const NAME: &'static str = "TransactionMetaBuilder";
+    pub fn block_hash(mut self, v: Byte32) -> Self {
+        self.block_hash = v;
+        self
+    }
     pub fn block_number(mut self, v: Uint64) -> Self {
         self.block_number = v;
         self
     }
     pub fn epoch_number(mut self, v: Uint64) -> Self {
         self.epoch_number = v;
-        self
-    }
-    pub fn block_hash(mut self, v: Byte32) -> Self {
-        self.block_hash = v;
         self
     }
     pub fn len(mut self, v: Uint32) -> Self {
@@ -12707,23 +11860,23 @@ impl<'r> ::std::fmt::Debug for CellMetaReader<'r> {
 impl ::std::fmt::Display for CellMeta {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "capacity", self.capacity())?;
-        write!(f, ", {}: {}", "data_hash", self.data_hash())?;
+        write!(f, "{}: {}", "data_hash", self.data_hash())?;
+        write!(f, ", {}: {}", "capacity", self.capacity())?;
         write!(f, " }}")
     }
 }
 impl<'r> ::std::fmt::Display for CellMetaReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "capacity", self.capacity())?;
-        write!(f, ", {}: {}", "data_hash", self.data_hash())?;
+        write!(f, "{}: {}", "data_hash", self.data_hash())?;
+        write!(f, ", {}: {}", "capacity", self.capacity())?;
         write!(f, " }}")
     }
 }
 #[derive(Debug, Default)]
 pub struct CellMetaBuilder {
-    pub(crate) capacity: Uint64,
     pub(crate) data_hash: Byte32,
+    pub(crate) capacity: Uint64,
 }
 impl molecule::prelude::Entity for CellMeta {
     type Builder = CellMetaBuilder;
@@ -12744,8 +11897,8 @@ impl molecule::prelude::Entity for CellMeta {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .capacity(self.capacity())
             .data_hash(self.data_hash())
+            .capacity(self.capacity())
     }
 }
 impl ::std::default::Default for CellMeta {
@@ -12764,12 +11917,12 @@ impl CellMeta {
     }
     pub const TOTAL_SIZE: usize = 40;
     pub const FIELD_COUNT: usize = 2;
-    pub const FIELDS_SIZE: [usize; 2] = [8, 32];
-    pub fn capacity(&self) -> Uint64 {
-        Uint64::new_unchecked(self.0.slice(0, 8))
-    }
+    pub const FIELDS_SIZE: [usize; 2] = [32, 8];
     pub fn data_hash(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(8, 40))
+        Byte32::new_unchecked(self.0.slice(0, 32))
+    }
+    pub fn capacity(&self) -> Uint64 {
+        Uint64::new_unchecked(self.0.slice(32, 40))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for CellMetaReader<'r> {
@@ -12789,8 +11942,8 @@ impl<'r> molecule::prelude::Reader<'r> for CellMetaReader<'r> {
             let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 40, slice.len());
             Err(err)?;
         }
-        Uint64Reader::verify(&slice[0..8])?;
-        Byte32Reader::verify(&slice[8..40])?;
+        Byte32Reader::verify(&slice[0..32])?;
+        Uint64Reader::verify(&slice[32..40])?;
         Ok(())
     }
 }
@@ -12798,12 +11951,12 @@ impl<'r> CellMetaReader<'r> {
     pub const NAME: &'r str = "CellMetaReader";
     pub const TOTAL_SIZE: usize = 40;
     pub const FIELD_COUNT: usize = 2;
-    pub const FIELDS_SIZE: [usize; 2] = [8, 32];
-    pub fn capacity(&self) -> Uint64Reader<'r> {
-        Uint64Reader::new_unchecked(&self.as_slice()[0..8])
-    }
+    pub const FIELDS_SIZE: [usize; 2] = [32, 8];
     pub fn data_hash(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[8..40])
+        Byte32Reader::new_unchecked(&self.as_slice()[0..32])
+    }
+    pub fn capacity(&self) -> Uint64Reader<'r> {
+        Uint64Reader::new_unchecked(&self.as_slice()[32..40])
     }
 }
 impl molecule::prelude::Builder for CellMetaBuilder {
@@ -12812,8 +11965,8 @@ impl molecule::prelude::Builder for CellMetaBuilder {
         40
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
-        writer.write_all(self.capacity.as_slice())?;
         writer.write_all(self.data_hash.as_slice())?;
+        writer.write_all(self.capacity.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -12824,12 +11977,12 @@ impl molecule::prelude::Builder for CellMetaBuilder {
 }
 impl CellMetaBuilder {
     pub const NAME: &'static str = "CellMetaBuilder";
-    pub fn capacity(mut self, v: Uint64) -> Self {
-        self.capacity = v;
-        self
-    }
     pub fn data_hash(mut self, v: Byte32) -> Self {
         self.data_hash = v;
+        self
+    }
+    pub fn capacity(mut self, v: Uint64) -> Self {
+        self.capacity = v;
         self
     }
 }
@@ -12860,8 +12013,8 @@ impl<'r> ::std::fmt::Debug for TransactionPointReader<'r> {
 impl ::std::fmt::Display for TransactionPoint {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "block_number", self.block_number())?;
-        write!(f, ", {}: {}", "tx_hash", self.tx_hash())?;
+        write!(f, "{}: {}", "tx_hash", self.tx_hash())?;
+        write!(f, ", {}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "index", self.index())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
@@ -12873,8 +12026,8 @@ impl ::std::fmt::Display for TransactionPoint {
 impl<'r> ::std::fmt::Display for TransactionPointReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "block_number", self.block_number())?;
-        write!(f, ", {}: {}", "tx_hash", self.tx_hash())?;
+        write!(f, "{}: {}", "tx_hash", self.tx_hash())?;
+        write!(f, ", {}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "index", self.index())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
@@ -12885,14 +12038,14 @@ impl<'r> ::std::fmt::Display for TransactionPointReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct TransactionPointBuilder {
-    pub(crate) block_number: Uint64,
     pub(crate) tx_hash: Byte32,
+    pub(crate) block_number: Uint64,
     pub(crate) index: Uint32,
 }
 impl ::std::default::Default for TransactionPoint {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            60, 0, 0, 0, 16, 0, 0, 0, 24, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            60, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0,
         ];
@@ -12918,8 +12071,8 @@ impl molecule::prelude::Entity for TransactionPoint {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .block_number(self.block_number())
             .tx_hash(self.tx_hash())
+            .block_number(self.block_number())
             .index(self.index())
     }
 }
@@ -12936,17 +12089,17 @@ impl TransactionPoint {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn block_number(&self) -> Uint64 {
+    pub fn tx_hash(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
+        Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn tx_hash(&self) -> Byte32 {
+    pub fn block_number(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
+        Uint64::new_unchecked(self.0.slice(start, end))
     }
     pub fn index(&self) -> Uint32 {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -13006,8 +12159,8 @@ impl<'r> molecule::prelude::Reader<'r> for TransactionPointReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        Byte32Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
+        Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
         Uint32Reader::verify(&slice[offsets[2]..offsets[3]])?;
         Ok(())
     }
@@ -13022,17 +12175,17 @@ impl<'r> TransactionPointReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn block_number(&self) -> Uint64Reader<'r> {
+    pub fn tx_hash(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn tx_hash(&self) -> Byte32Reader<'r> {
+    pub fn block_number(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn index(&self) -> Uint32Reader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -13050,8 +12203,8 @@ impl molecule::prelude::Builder for TransactionPointBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 3 * 4;
         len_header
-            + self.block_number.as_slice().len()
             + self.tx_hash.as_slice().len()
+            + self.block_number.as_slice().len()
             + self.index.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
@@ -13061,12 +12214,12 @@ impl molecule::prelude::Builder for TransactionPointBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.block_number.as_slice().len();
+            offset += self.tx_hash.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.tx_hash.as_slice().len();
+            offset += self.block_number.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
@@ -13074,8 +12227,8 @@ impl molecule::prelude::Builder for TransactionPointBuilder {
             offset += self.index.as_slice().len();
         }
         let _ = offset;
-        writer.write_all(self.block_number.as_slice())?;
         writer.write_all(self.tx_hash.as_slice())?;
+        writer.write_all(self.block_number.as_slice())?;
         writer.write_all(self.index.as_slice())?;
         Ok(())
     }
@@ -13087,12 +12240,12 @@ impl molecule::prelude::Builder for TransactionPointBuilder {
 }
 impl TransactionPointBuilder {
     pub const NAME: &'static str = "TransactionPointBuilder";
-    pub fn block_number(mut self, v: Uint64) -> Self {
-        self.block_number = v;
-        self
-    }
     pub fn tx_hash(mut self, v: Byte32) -> Self {
         self.tx_hash = v;
+        self
+    }
+    pub fn block_number(mut self, v: Uint64) -> Self {
+        self.block_number = v;
         self
     }
     pub fn index(mut self, v: Uint32) -> Self {
@@ -13284,8 +12437,8 @@ impl<'r> ::std::fmt::Debug for LockHashCellOutputReader<'r> {
 impl ::std::fmt::Display for LockHashCellOutput {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "block_number", self.block_number())?;
-        write!(f, ", {}: {}", "lock_hash", self.lock_hash())?;
+        write!(f, "{}: {}", "lock_hash", self.lock_hash())?;
+        write!(f, ", {}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "cell_output", self.cell_output())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
@@ -13297,8 +12450,8 @@ impl ::std::fmt::Display for LockHashCellOutput {
 impl<'r> ::std::fmt::Display for LockHashCellOutputReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "block_number", self.block_number())?;
-        write!(f, ", {}: {}", "lock_hash", self.lock_hash())?;
+        write!(f, "{}: {}", "lock_hash", self.lock_hash())?;
+        write!(f, ", {}: {}", "block_number", self.block_number())?;
         write!(f, ", {}: {}", "cell_output", self.cell_output())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
@@ -13309,14 +12462,14 @@ impl<'r> ::std::fmt::Display for LockHashCellOutputReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct LockHashCellOutputBuilder {
-    pub(crate) block_number: Uint64,
     pub(crate) lock_hash: Byte32,
+    pub(crate) block_number: Uint64,
     pub(crate) cell_output: CellOutputOpt,
 }
 impl ::std::default::Default for LockHashCellOutput {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            56, 0, 0, 0, 16, 0, 0, 0, 24, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            56, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         LockHashCellOutput::new_unchecked(v.into())
@@ -13341,8 +12494,8 @@ impl molecule::prelude::Entity for LockHashCellOutput {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .block_number(self.block_number())
             .lock_hash(self.lock_hash())
+            .block_number(self.block_number())
             .cell_output(self.cell_output())
     }
 }
@@ -13359,17 +12512,17 @@ impl LockHashCellOutput {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn block_number(&self) -> Uint64 {
+    pub fn lock_hash(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
+        Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn lock_hash(&self) -> Byte32 {
+    pub fn block_number(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
+        Uint64::new_unchecked(self.0.slice(start, end))
     }
     pub fn cell_output(&self) -> CellOutputOpt {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -13429,8 +12582,8 @@ impl<'r> molecule::prelude::Reader<'r> for LockHashCellOutputReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        Byte32Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        Byte32Reader::verify(&slice[offsets[0]..offsets[1]])?;
+        Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
         CellOutputOptReader::verify(&slice[offsets[2]..offsets[3]])?;
         Ok(())
     }
@@ -13445,17 +12598,17 @@ impl<'r> LockHashCellOutputReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn block_number(&self) -> Uint64Reader<'r> {
+    pub fn lock_hash(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn lock_hash(&self) -> Byte32Reader<'r> {
+    pub fn block_number(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn cell_output(&self) -> CellOutputOptReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -13473,8 +12626,8 @@ impl molecule::prelude::Builder for LockHashCellOutputBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 3 * 4;
         len_header
-            + self.block_number.as_slice().len()
             + self.lock_hash.as_slice().len()
+            + self.block_number.as_slice().len()
             + self.cell_output.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
@@ -13484,12 +12637,12 @@ impl molecule::prelude::Builder for LockHashCellOutputBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.block_number.as_slice().len();
+            offset += self.lock_hash.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.lock_hash.as_slice().len();
+            offset += self.block_number.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
@@ -13497,8 +12650,8 @@ impl molecule::prelude::Builder for LockHashCellOutputBuilder {
             offset += self.cell_output.as_slice().len();
         }
         let _ = offset;
-        writer.write_all(self.block_number.as_slice())?;
         writer.write_all(self.lock_hash.as_slice())?;
+        writer.write_all(self.block_number.as_slice())?;
         writer.write_all(self.cell_output.as_slice())?;
         Ok(())
     }
@@ -13510,12 +12663,12 @@ impl molecule::prelude::Builder for LockHashCellOutputBuilder {
 }
 impl LockHashCellOutputBuilder {
     pub const NAME: &'static str = "LockHashCellOutputBuilder";
-    pub fn block_number(mut self, v: Uint64) -> Self {
-        self.block_number = v;
-        self
-    }
     pub fn lock_hash(mut self, v: Byte32) -> Self {
         self.lock_hash = v;
+        self
+    }
+    pub fn block_number(mut self, v: Uint64) -> Self {
+        self.block_number = v;
         self
     }
     pub fn cell_output(mut self, v: CellOutputOpt) -> Self {
@@ -14534,10 +13687,7 @@ pub struct CompactBlockBuilder {
 impl ::std::default::Default for CompactBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            112, 1, 0, 0, 24, 0, 0, 0, 96, 1, 0, 0, 100, 1, 0, 0, 104, 1, 0, 0, 108, 1, 0, 0, 72,
-            1, 0, 0, 12, 0, 0, 0, 64, 1, 0, 0, 52, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0,
-            96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8,
-            1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            48, 1, 0, 0, 24, 0, 0, 0, 32, 1, 0, 0, 36, 1, 0, 0, 40, 1, 0, 0, 44, 1, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -14546,8 +13696,8 @@ impl ::std::default::Default for CompactBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0,
-            0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
         ];
         CompactBlock::new_unchecked(v.into())
     }
@@ -14861,7 +14011,7 @@ impl ::std::default::Default for RelayTransaction {
         let v: Vec<u8> = vec![
             88, 0, 0, 0, 12, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 0, 12, 0, 0,
             0, 64, 0, 0, 0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0,
-            0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0,
+            0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0,
             0, 4, 0, 0, 0,
         ];
         RelayTransaction::new_unchecked(v.into())
@@ -16954,7 +16104,7 @@ impl ::std::default::Default for IndexTransaction {
         let v: Vec<u8> = vec![
             84, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 0, 12, 0, 0, 0, 64, 0, 0,
             0, 52, 0, 0, 0, 28, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 48, 0,
-            0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0,
             0,
         ];
         IndexTransaction::new_unchecked(v.into())
@@ -18485,7 +17635,7 @@ pub struct SendHeadersBuilder {
 }
 impl ::std::default::Default for SendHeaders {
     fn default() -> Self {
-        let v: Vec<u8> = vec![12, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0];
+        let v: Vec<u8> = vec![12, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
         SendHeaders::new_unchecked(v.into())
     }
 }
@@ -18691,10 +17841,7 @@ pub struct SendBlockBuilder {
 impl ::std::default::Default for SendBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            112, 1, 0, 0, 8, 0, 0, 0, 104, 1, 0, 0, 20, 0, 0, 0, 92, 1, 0, 0, 96, 1, 0, 0, 100, 1,
-            0, 0, 72, 1, 0, 0, 12, 0, 0, 0, 64, 1, 0, 0, 52, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88,
-            0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0, 136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0,
-            0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            48, 1, 0, 0, 8, 0, 0, 0, 40, 1, 0, 0, 20, 0, 0, 0, 28, 1, 0, 0, 32, 1, 0, 0, 36, 1, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -18703,8 +17850,8 @@ impl ::std::default::Default for SendBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
-            0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0,
         ];
         SendBlock::new_unchecked(v.into())
     }
@@ -18886,8 +18033,8 @@ impl ::std::fmt::Display for SetFilter {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "hash_seed", self.hash_seed())?;
-        write!(f, ", {}: {}", "num_hashes", self.num_hashes())?;
         write!(f, ", {}: {}", "filter", self.filter())?;
+        write!(f, ", {}: {}", "num_hashes", self.num_hashes())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
             write!(f, ", ..")?;
@@ -18899,8 +18046,8 @@ impl<'r> ::std::fmt::Display for SetFilterReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
         write!(f, "{}: {}", "hash_seed", self.hash_seed())?;
-        write!(f, ", {}: {}", "num_hashes", self.num_hashes())?;
         write!(f, ", {}: {}", "filter", self.filter())?;
+        write!(f, ", {}: {}", "num_hashes", self.num_hashes())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
             write!(f, ", ..")?;
@@ -18911,13 +18058,13 @@ impl<'r> ::std::fmt::Display for SetFilterReader<'r> {
 #[derive(Debug, Default)]
 pub struct SetFilterBuilder {
     pub(crate) hash_seed: Uint32,
-    pub(crate) num_hashes: u8,
     pub(crate) filter: Bytes,
+    pub(crate) num_hashes: u8,
 }
 impl ::std::default::Default for SetFilter {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            25, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            25, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         SetFilter::new_unchecked(v.into())
     }
@@ -18942,8 +18089,8 @@ impl molecule::prelude::Entity for SetFilter {
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
             .hash_seed(self.hash_seed())
-            .num_hashes(self.num_hashes())
             .filter(self.filter())
+            .num_hashes(self.num_hashes())
     }
 }
 impl SetFilter {
@@ -18965,20 +18112,16 @@ impl SetFilter {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         Uint32::new_unchecked(self.0.slice(start, end))
     }
+    pub fn filter(&self) -> Bytes {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[1]) as usize;
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        Bytes::new_unchecked(self.0.slice(start, end))
+    }
     pub fn num_hashes(&self) -> u8 {
         let (_, _, offsets) = Self::field_offsets(self);
-        let offset = u32::from_le(offsets[1]) as usize;
+        let offset = u32::from_le(offsets[2]) as usize;
         self.0[offset]
-    }
-    pub fn filter(&self) -> Bytes {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[2]) as usize;
-        if count == 3 {
-            Bytes::new_unchecked(self.0.slice_from(start))
-        } else {
-            let end = u32::from_le(offsets[2 + 1]) as usize;
-            Bytes::new_unchecked(self.0.slice(start, end))
-        }
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for SetFilterReader<'r> {
@@ -19029,11 +18172,11 @@ impl<'r> molecule::prelude::Reader<'r> for SetFilterReader<'r> {
             Err(err)?;
         }
         Uint32Reader::verify(&slice[offsets[0]..offsets[1]])?;
-        if offsets[1] + 1 != offsets[2] {
-            let err = VerificationError::FieldIsBroken(Self::NAME.to_owned(), 1);
+        BytesReader::verify(&slice[offsets[1]..offsets[2]])?;
+        if offsets[2] + 1 != offsets[3] {
+            let err = VerificationError::FieldIsBroken(Self::NAME.to_owned(), 2);
             Err(err)?;
         }
-        BytesReader::verify(&slice[offsets[2]..offsets[3]])?;
         Ok(())
     }
 }
@@ -19053,27 +18196,23 @@ impl<'r> SetFilterReader<'r> {
         let end = u32::from_le(offsets[0 + 1]) as usize;
         Uint32Reader::new_unchecked(&self.as_slice()[start..end])
     }
+    pub fn filter(&self) -> BytesReader<'r> {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[1]) as usize;
+        let end = u32::from_le(offsets[1 + 1]) as usize;
+        BytesReader::new_unchecked(&self.as_slice()[start..end])
+    }
     pub fn num_hashes(&self) -> u8 {
         let (_, _, offsets) = Self::field_offsets(self);
-        let offset = u32::from_le(offsets[1]) as usize;
+        let offset = u32::from_le(offsets[2]) as usize;
         self.0[offset]
-    }
-    pub fn filter(&self) -> BytesReader<'r> {
-        let (_, count, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[2]) as usize;
-        if count == 3 {
-            BytesReader::new_unchecked(&self.as_slice()[start..])
-        } else {
-            let end = u32::from_le(offsets[2 + 1]) as usize;
-            BytesReader::new_unchecked(&self.as_slice()[start..end])
-        }
     }
 }
 impl molecule::prelude::Builder for SetFilterBuilder {
     type Entity = SetFilter;
     fn expected_length(&self) -> usize {
         let len_header = 4 + 3 * 4;
-        len_header + self.hash_seed.as_slice().len() + 1 + self.filter.as_slice().len()
+        len_header + self.hash_seed.as_slice().len() + self.filter.as_slice().len() + 1
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
@@ -19087,17 +18226,17 @@ impl molecule::prelude::Builder for SetFilterBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += 1;
+            offset += self.filter.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.filter.as_slice().len();
+            offset += 1;
         }
         let _ = offset;
         writer.write_all(self.hash_seed.as_slice())?;
-        writer.write_all(&[self.num_hashes])?;
         writer.write_all(self.filter.as_slice())?;
+        writer.write_all(&[self.num_hashes])?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -19112,12 +18251,12 @@ impl SetFilterBuilder {
         self.hash_seed = v;
         self
     }
-    pub fn num_hashes(mut self, v: u8) -> Self {
-        self.num_hashes = v;
-        self
-    }
     pub fn filter(mut self, v: Bytes) -> Self {
         self.filter = v;
+        self
+    }
+    pub fn num_hashes(mut self, v: u8) -> Self {
+        self.num_hashes = v;
         self
     }
 }
@@ -19552,9 +18691,7 @@ pub struct FilteredBlockBuilder {
 impl ::std::default::Default for FilteredBlock {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            112, 1, 0, 0, 16, 0, 0, 0, 88, 1, 0, 0, 92, 1, 0, 0, 72, 1, 0, 0, 12, 0, 0, 0, 64, 1,
-            0, 0, 52, 1, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 88, 0, 0, 0, 96, 0, 0, 0, 104, 0, 0, 0,
-            136, 0, 0, 0, 168, 0, 0, 0, 200, 0, 0, 0, 232, 0, 0, 0, 8, 1, 0, 0, 12, 1, 0, 0, 20, 1,
+            48, 1, 0, 0, 16, 0, 0, 0, 24, 1, 0, 0, 28, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -19563,9 +18700,8 @@ impl ::std::default::Default for FilteredBlock {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 4, 0, 0, 0, 20, 0, 0, 0, 12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 20, 0, 0, 0,
+            12, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         FilteredBlock::new_unchecked(v.into())
     }
@@ -20405,13 +19541,13 @@ impl<'r> ::std::fmt::Debug for RawAlertReader<'r> {
 impl ::std::fmt::Display for RawAlert {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "id", self.id())?;
+        write!(f, "{}: {}", "notice_until", self.notice_until())?;
+        write!(f, ", {}: {}", "id", self.id())?;
         write!(f, ", {}: {}", "cancel", self.cancel())?;
+        write!(f, ", {}: {}", "priority", self.priority())?;
+        write!(f, ", {}: {}", "message", self.message())?;
         write!(f, ", {}: {}", "min_version", self.min_version())?;
         write!(f, ", {}: {}", "max_version", self.max_version())?;
-        write!(f, ", {}: {}", "priority", self.priority())?;
-        write!(f, ", {}: {}", "notice_until", self.notice_until())?;
-        write!(f, ", {}: {}", "message", self.message())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 7 {
             write!(f, ", ..")?;
@@ -20422,13 +19558,13 @@ impl ::std::fmt::Display for RawAlert {
 impl<'r> ::std::fmt::Display for RawAlertReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "id", self.id())?;
+        write!(f, "{}: {}", "notice_until", self.notice_until())?;
+        write!(f, ", {}: {}", "id", self.id())?;
         write!(f, ", {}: {}", "cancel", self.cancel())?;
+        write!(f, ", {}: {}", "priority", self.priority())?;
+        write!(f, ", {}: {}", "message", self.message())?;
         write!(f, ", {}: {}", "min_version", self.min_version())?;
         write!(f, ", {}: {}", "max_version", self.max_version())?;
-        write!(f, ", {}: {}", "priority", self.priority())?;
-        write!(f, ", {}: {}", "notice_until", self.notice_until())?;
-        write!(f, ", {}: {}", "message", self.message())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 7 {
             write!(f, ", ..")?;
@@ -20438,19 +19574,19 @@ impl<'r> ::std::fmt::Display for RawAlertReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct RawAlertBuilder {
+    pub(crate) notice_until: Uint64,
     pub(crate) id: Uint32,
     pub(crate) cancel: Uint32,
+    pub(crate) priority: Uint32,
+    pub(crate) message: Bytes,
     pub(crate) min_version: BytesOpt,
     pub(crate) max_version: BytesOpt,
-    pub(crate) priority: Uint32,
-    pub(crate) notice_until: Uint64,
-    pub(crate) message: Bytes,
 }
 impl ::std::default::Default for RawAlert {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            56, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0, 0, 40, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0,
-            0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            56, 0, 0, 0, 32, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 48, 0, 0, 0, 52, 0, 0, 0, 56, 0, 0,
+            0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         RawAlert::new_unchecked(v.into())
     }
@@ -20474,13 +19610,13 @@ impl molecule::prelude::Entity for RawAlert {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
+            .notice_until(self.notice_until())
             .id(self.id())
             .cancel(self.cancel())
+            .priority(self.priority())
+            .message(self.message())
             .min_version(self.min_version())
             .max_version(self.max_version())
-            .priority(self.priority())
-            .notice_until(self.notice_until())
-            .message(self.message())
     }
 }
 impl RawAlert {
@@ -20496,50 +19632,50 @@ impl RawAlert {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn id(&self) -> Uint32 {
+    pub fn notice_until(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint32::new_unchecked(self.0.slice(start, end))
+        Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn cancel(&self) -> Uint32 {
+    pub fn id(&self) -> Uint32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Uint32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn min_version(&self) -> BytesOpt {
+    pub fn cancel(&self) -> Uint32 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         let end = u32::from_le(offsets[2 + 1]) as usize;
-        BytesOpt::new_unchecked(self.0.slice(start, end))
-    }
-    pub fn max_version(&self) -> BytesOpt {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[3]) as usize;
-        let end = u32::from_le(offsets[3 + 1]) as usize;
-        BytesOpt::new_unchecked(self.0.slice(start, end))
+        Uint32::new_unchecked(self.0.slice(start, end))
     }
     pub fn priority(&self) -> Uint32 {
         let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[4]) as usize;
-        let end = u32::from_le(offsets[4 + 1]) as usize;
+        let start = u32::from_le(offsets[3]) as usize;
+        let end = u32::from_le(offsets[3 + 1]) as usize;
         Uint32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn notice_until(&self) -> Uint64 {
+    pub fn message(&self) -> Bytes {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[4]) as usize;
+        let end = u32::from_le(offsets[4 + 1]) as usize;
+        Bytes::new_unchecked(self.0.slice(start, end))
+    }
+    pub fn min_version(&self) -> BytesOpt {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[5]) as usize;
         let end = u32::from_le(offsets[5 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
+        BytesOpt::new_unchecked(self.0.slice(start, end))
     }
-    pub fn message(&self) -> Bytes {
+    pub fn max_version(&self) -> BytesOpt {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[6]) as usize;
         if count == 7 {
-            Bytes::new_unchecked(self.0.slice_from(start))
+            BytesOpt::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[6 + 1]) as usize;
-            Bytes::new_unchecked(self.0.slice(start, end))
+            BytesOpt::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -20590,13 +19726,13 @@ impl<'r> molecule::prelude::Reader<'r> for RawAlertReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        Uint32Reader::verify(&slice[offsets[0]..offsets[1]])?;
+        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
         Uint32Reader::verify(&slice[offsets[1]..offsets[2]])?;
-        BytesOptReader::verify(&slice[offsets[2]..offsets[3]])?;
-        BytesOptReader::verify(&slice[offsets[3]..offsets[4]])?;
-        Uint32Reader::verify(&slice[offsets[4]..offsets[5]])?;
-        Uint64Reader::verify(&slice[offsets[5]..offsets[6]])?;
-        BytesReader::verify(&slice[offsets[6]..offsets[7]])?;
+        Uint32Reader::verify(&slice[offsets[2]..offsets[3]])?;
+        Uint32Reader::verify(&slice[offsets[3]..offsets[4]])?;
+        BytesReader::verify(&slice[offsets[4]..offsets[5]])?;
+        BytesOptReader::verify(&slice[offsets[5]..offsets[6]])?;
+        BytesOptReader::verify(&slice[offsets[6]..offsets[7]])?;
         Ok(())
     }
 }
@@ -20610,50 +19746,50 @@ impl<'r> RawAlertReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn id(&self) -> Uint32Reader<'r> {
+    pub fn notice_until(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Uint32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn cancel(&self) -> Uint32Reader<'r> {
+    pub fn id(&self) -> Uint32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Uint32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn min_version(&self) -> BytesOptReader<'r> {
+    pub fn cancel(&self) -> Uint32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         let end = u32::from_le(offsets[2 + 1]) as usize;
-        BytesOptReader::new_unchecked(&self.as_slice()[start..end])
-    }
-    pub fn max_version(&self) -> BytesOptReader<'r> {
-        let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[3]) as usize;
-        let end = u32::from_le(offsets[3 + 1]) as usize;
-        BytesOptReader::new_unchecked(&self.as_slice()[start..end])
+        Uint32Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn priority(&self) -> Uint32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
-        let start = u32::from_le(offsets[4]) as usize;
-        let end = u32::from_le(offsets[4 + 1]) as usize;
+        let start = u32::from_le(offsets[3]) as usize;
+        let end = u32::from_le(offsets[3 + 1]) as usize;
         Uint32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn notice_until(&self) -> Uint64Reader<'r> {
+    pub fn message(&self) -> BytesReader<'r> {
+        let (_, _, offsets) = Self::field_offsets(self);
+        let start = u32::from_le(offsets[4]) as usize;
+        let end = u32::from_le(offsets[4 + 1]) as usize;
+        BytesReader::new_unchecked(&self.as_slice()[start..end])
+    }
+    pub fn min_version(&self) -> BytesOptReader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[5]) as usize;
         let end = u32::from_le(offsets[5 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        BytesOptReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn message(&self) -> BytesReader<'r> {
+    pub fn max_version(&self) -> BytesOptReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[6]) as usize;
         if count == 7 {
-            BytesReader::new_unchecked(&self.as_slice()[start..])
+            BytesOptReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[6 + 1]) as usize;
-            BytesReader::new_unchecked(&self.as_slice()[start..end])
+            BytesOptReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -20662,18 +19798,23 @@ impl molecule::prelude::Builder for RawAlertBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 7 * 4;
         len_header
+            + self.notice_until.as_slice().len()
             + self.id.as_slice().len()
             + self.cancel.as_slice().len()
+            + self.priority.as_slice().len()
+            + self.message.as_slice().len()
             + self.min_version.as_slice().len()
             + self.max_version.as_slice().len()
-            + self.priority.as_slice().len()
-            + self.notice_until.as_slice().len()
-            + self.message.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
         let len = (self.expected_length() as u32).to_le_bytes();
         writer.write_all(&len[..])?;
         let mut offset = 4 + 7 * 4;
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.notice_until.as_slice().len();
+        }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
@@ -20687,6 +19828,16 @@ impl molecule::prelude::Builder for RawAlertBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
+            offset += self.priority.as_slice().len();
+        }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
+            offset += self.message.as_slice().len();
+        }
+        {
+            let tmp = (offset as u32).to_le_bytes();
+            writer.write_all(&tmp[..])?;
             offset += self.min_version.as_slice().len();
         }
         {
@@ -20694,29 +19845,14 @@ impl molecule::prelude::Builder for RawAlertBuilder {
             writer.write_all(&tmp[..])?;
             offset += self.max_version.as_slice().len();
         }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.priority.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.notice_until.as_slice().len();
-        }
-        {
-            let tmp = (offset as u32).to_le_bytes();
-            writer.write_all(&tmp[..])?;
-            offset += self.message.as_slice().len();
-        }
         let _ = offset;
+        writer.write_all(self.notice_until.as_slice())?;
         writer.write_all(self.id.as_slice())?;
         writer.write_all(self.cancel.as_slice())?;
+        writer.write_all(self.priority.as_slice())?;
+        writer.write_all(self.message.as_slice())?;
         writer.write_all(self.min_version.as_slice())?;
         writer.write_all(self.max_version.as_slice())?;
-        writer.write_all(self.priority.as_slice())?;
-        writer.write_all(self.notice_until.as_slice())?;
-        writer.write_all(self.message.as_slice())?;
         Ok(())
     }
     fn build(&self) -> Self::Entity {
@@ -20727,6 +19863,10 @@ impl molecule::prelude::Builder for RawAlertBuilder {
 }
 impl RawAlertBuilder {
     pub const NAME: &'static str = "RawAlertBuilder";
+    pub fn notice_until(mut self, v: Uint64) -> Self {
+        self.notice_until = v;
+        self
+    }
     pub fn id(mut self, v: Uint32) -> Self {
         self.id = v;
         self
@@ -20735,24 +19875,20 @@ impl RawAlertBuilder {
         self.cancel = v;
         self
     }
+    pub fn priority(mut self, v: Uint32) -> Self {
+        self.priority = v;
+        self
+    }
+    pub fn message(mut self, v: Bytes) -> Self {
+        self.message = v;
+        self
+    }
     pub fn min_version(mut self, v: BytesOpt) -> Self {
         self.min_version = v;
         self
     }
     pub fn max_version(mut self, v: BytesOpt) -> Self {
         self.max_version = v;
-        self
-    }
-    pub fn priority(mut self, v: Uint32) -> Self {
-        self.priority = v;
-        self
-    }
-    pub fn notice_until(mut self, v: Uint64) -> Self {
-        self.notice_until = v;
-        self
-    }
-    pub fn message(mut self, v: Bytes) -> Self {
-        self.message = v;
         self
     }
 }
@@ -20812,8 +19948,8 @@ pub struct AlertBuilder {
 impl ::std::default::Default for Alert {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            72, 0, 0, 0, 12, 0, 0, 0, 68, 0, 0, 0, 56, 0, 0, 0, 32, 0, 0, 0, 36, 0, 0, 0, 40, 0, 0,
-            0, 40, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            72, 0, 0, 0, 12, 0, 0, 0, 68, 0, 0, 0, 56, 0, 0, 0, 32, 0, 0, 0, 40, 0, 0, 0, 44, 0, 0,
+            0, 48, 0, 0, 0, 52, 0, 0, 0, 56, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
         ];
         Alert::new_unchecked(v.into())
@@ -21020,8 +20156,8 @@ impl<'r> ::std::fmt::Debug for IdentifyReader<'r> {
 impl ::std::fmt::Display for Identify {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "name", self.name())?;
-        write!(f, ", {}: {}", "flag", self.flag())?;
+        write!(f, "{}: {}", "flag", self.flag())?;
+        write!(f, ", {}: {}", "name", self.name())?;
         write!(f, ", {}: {}", "client_version", self.client_version())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
@@ -21033,8 +20169,8 @@ impl ::std::fmt::Display for Identify {
 impl<'r> ::std::fmt::Display for IdentifyReader<'r> {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "{} {{ ", Self::NAME)?;
-        write!(f, "{}: {}", "name", self.name())?;
-        write!(f, ", {}: {}", "flag", self.flag())?;
+        write!(f, "{}: {}", "flag", self.flag())?;
+        write!(f, ", {}: {}", "name", self.name())?;
         write!(f, ", {}: {}", "client_version", self.client_version())?;
         let (_, count, _) = Self::field_offsets(&self);
         if count != 3 {
@@ -21045,14 +20181,14 @@ impl<'r> ::std::fmt::Display for IdentifyReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct IdentifyBuilder {
-    pub(crate) name: Bytes,
     pub(crate) flag: Uint64,
+    pub(crate) name: Bytes,
     pub(crate) client_version: Bytes,
 }
 impl ::std::default::Default for Identify {
     fn default() -> Self {
         let v: Vec<u8> = vec![
-            32, 0, 0, 0, 16, 0, 0, 0, 20, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            32, 0, 0, 0, 16, 0, 0, 0, 24, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0,
         ];
         Identify::new_unchecked(v.into())
@@ -21077,8 +20213,8 @@ impl molecule::prelude::Entity for Identify {
     }
     fn as_builder(self) -> Self::Builder {
         Self::new_builder()
-            .name(self.name())
             .flag(self.flag())
+            .name(self.name())
             .client_version(self.client_version())
     }
 }
@@ -21095,17 +20231,17 @@ impl Identify {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn name(&self) -> Bytes {
+    pub fn flag(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Bytes::new_unchecked(self.0.slice(start, end))
+        Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn flag(&self) -> Uint64 {
+    pub fn name(&self) -> Bytes {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        Uint64::new_unchecked(self.0.slice(start, end))
+        Bytes::new_unchecked(self.0.slice(start, end))
     }
     pub fn client_version(&self) -> Bytes {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -21165,8 +20301,8 @@ impl<'r> molecule::prelude::Reader<'r> for IdentifyReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        BytesReader::verify(&slice[offsets[0]..offsets[1]])?;
-        Uint64Reader::verify(&slice[offsets[1]..offsets[2]])?;
+        Uint64Reader::verify(&slice[offsets[0]..offsets[1]])?;
+        BytesReader::verify(&slice[offsets[1]..offsets[2]])?;
         BytesReader::verify(&slice[offsets[2]..offsets[3]])?;
         Ok(())
     }
@@ -21181,17 +20317,17 @@ impl<'r> IdentifyReader<'r> {
         let count = (first - 4) / 4;
         (bytes_len, count, &ptr[1..])
     }
-    pub fn name(&self) -> BytesReader<'r> {
+    pub fn flag(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        BytesReader::new_unchecked(&self.as_slice()[start..end])
+        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn flag(&self) -> Uint64Reader<'r> {
+    pub fn name(&self) -> BytesReader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[1]) as usize;
         let end = u32::from_le(offsets[1 + 1]) as usize;
-        Uint64Reader::new_unchecked(&self.as_slice()[start..end])
+        BytesReader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn client_version(&self) -> BytesReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
@@ -21209,8 +20345,8 @@ impl molecule::prelude::Builder for IdentifyBuilder {
     fn expected_length(&self) -> usize {
         let len_header = 4 + 3 * 4;
         len_header
-            + self.name.as_slice().len()
             + self.flag.as_slice().len()
+            + self.name.as_slice().len()
             + self.client_version.as_slice().len()
     }
     fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
@@ -21220,12 +20356,12 @@ impl molecule::prelude::Builder for IdentifyBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.name.as_slice().len();
+            offset += self.flag.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.flag.as_slice().len();
+            offset += self.name.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
@@ -21233,8 +20369,8 @@ impl molecule::prelude::Builder for IdentifyBuilder {
             offset += self.client_version.as_slice().len();
         }
         let _ = offset;
-        writer.write_all(self.name.as_slice())?;
         writer.write_all(self.flag.as_slice())?;
+        writer.write_all(self.name.as_slice())?;
         writer.write_all(self.client_version.as_slice())?;
         Ok(())
     }
@@ -21246,12 +20382,12 @@ impl molecule::prelude::Builder for IdentifyBuilder {
 }
 impl IdentifyBuilder {
     pub const NAME: &'static str = "IdentifyBuilder";
-    pub fn name(mut self, v: Bytes) -> Self {
-        self.name = v;
-        self
-    }
     pub fn flag(mut self, v: Uint64) -> Self {
         self.flag = v;
+        self
+    }
+    pub fn name(mut self, v: Bytes) -> Self {
+        self.name = v;
         self
     }
     pub fn client_version(mut self, v: Bytes) -> Self {
