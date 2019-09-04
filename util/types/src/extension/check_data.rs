@@ -56,7 +56,9 @@ impl<'r> packed::CellDepVecReader<'r> {
 
 impl<'r> packed::RawTransactionReader<'r> {
     pub fn check_data(&self) -> bool {
-        self.cell_deps().check_data() && self.outputs().check_data()
+        self.outputs().len() == self.outputs_data().len()
+            && self.cell_deps().check_data()
+            && self.outputs().check_data()
     }
 }
 
@@ -118,18 +120,24 @@ mod tests {
 
     fn create_transaction(
         outputs: &[&packed::CellOutput],
+        outputs_data: &[&[u8]],
         cell_deps: &[&packed::CellDep],
     ) -> packed::Transaction {
         let outputs = outputs
             .iter()
             .map(|d| d.to_owned().to_owned())
             .collect::<Vec<packed::CellOutput>>();
+        let outputs_data = outputs_data
+            .iter()
+            .map(|d| d.to_owned().to_owned().pack())
+            .collect::<Vec<packed::Bytes>>();
         let cell_deps = cell_deps
             .iter()
             .map(|d| d.to_owned().to_owned())
             .collect::<Vec<packed::CellDep>>();
         let raw = packed::RawTransaction::new_builder()
             .outputs(outputs.into_iter().pack())
+            .outputs_data(outputs_data.into_iter().pack())
             .cell_deps(cell_deps.into_iter().pack())
             .build();
         packed::Transaction::new_builder().raw(raw).build()
@@ -138,9 +146,10 @@ mod tests {
     fn test_check_data_via_transaction(
         expected: bool,
         outputs: &[&packed::CellOutput],
+        outputs_data: &[&[u8]],
         cell_deps: &[&packed::CellDep],
     ) {
-        let tx = create_transaction(outputs, cell_deps);
+        let tx = create_transaction(outputs, outputs_data, cell_deps);
         assert_eq!(tx.as_reader().check_data(), expected);
     }
 
@@ -193,18 +202,19 @@ mod tests {
             .dep_type(dt_error.clone())
             .build();
 
-        test_check_data_via_transaction(true, &[], &[]);
-        test_check_data_via_transaction(true, &[&output_right1], &[&cell_dep_right]);
+        test_check_data_via_transaction(true, &[], &[], &[]);
+        test_check_data_via_transaction(true, &[&output_right1], &[&[]], &[&cell_dep_right]);
         test_check_data_via_transaction(
             true,
             &[&output_right1, &output_right2],
+            &[&[], &[]],
             &[&cell_dep_right, &cell_dep_right],
         );
-        test_check_data_via_transaction(false, &[&output_error1], &[]);
-        test_check_data_via_transaction(false, &[&output_error2], &[]);
-        test_check_data_via_transaction(false, &[&output_error3], &[]);
-        test_check_data_via_transaction(false, &[&output_error4], &[]);
-        test_check_data_via_transaction(false, &[], &[&cell_dep_error]);
+        test_check_data_via_transaction(false, &[&output_error1], &[&[]], &[]);
+        test_check_data_via_transaction(false, &[&output_error2], &[&[]], &[]);
+        test_check_data_via_transaction(false, &[&output_error3], &[&[]], &[]);
+        test_check_data_via_transaction(false, &[&output_error4], &[&[]], &[]);
+        test_check_data_via_transaction(false, &[], &[], &[&cell_dep_error]);
         test_check_data_via_transaction(
             false,
             &[
@@ -215,7 +225,10 @@ mod tests {
                 &output_error3,
                 &output_error4,
             ],
+            &[&[], &[], &[], &[], &[], &[]],
             &[&cell_dep_right, &cell_dep_error],
         );
+        test_check_data_via_transaction(false, &[&output_right1], &[], &[&cell_dep_right]);
+        test_check_data_via_transaction(false, &[], &[&[]], &[&cell_dep_right]);
     }
 }
