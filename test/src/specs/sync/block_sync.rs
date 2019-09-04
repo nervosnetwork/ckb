@@ -323,7 +323,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
 
         node1.connect(node0);
         let (rpc_client0, rpc_client1) = (node0.rpc_client(), node1.rpc_client());
-        let ret = wait_until(10, || {
+        let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();
             header0 == header1 && header0.inner.number.0 == 2
