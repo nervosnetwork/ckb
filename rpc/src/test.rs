@@ -366,7 +366,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         | "get_transactions_by_lock_hash" => {
             vec![always_success_script_hash, json!("0"), json!("2")]
         }
-        "get_live_cell" => vec![always_success_out_point],
+        "get_live_cell" => vec![always_success_out_point, json!(true)],
         "set_ban" => vec![
             json!("192.168.0.2"),
             json!("insert"),
