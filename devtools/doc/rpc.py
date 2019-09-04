@@ -8,6 +8,9 @@ def newline(n):
         print("")
 
 
+def sort_cases_by_module(cases):
+    return sorted(cases, key=lambda case: case["module"])
+
 def print_title(case):
     print("### `{}`".format(case["method"]))
     newline(1)
@@ -97,7 +100,7 @@ def main():
 
     filepath = sys.argv[1]
     with open(filepath) as f:
-        cases = json.load(f)
+        cases = sort_cases_by_module(json.load(f))
 
     print("# CKB JSON-RPC Protocols")
     newline(2)
