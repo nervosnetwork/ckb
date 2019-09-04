@@ -78,7 +78,7 @@ lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
 lock.hash_type = "type"
 
 [params]
-epoch_reward = 1_917_808_21917808
+initial_primary_epoch_reward = 1_917_808_21917808
 secondary_epoch_reward = 613_698_63013698
 max_block_cycles = 10_000_000_000
 cellbase_maturity = 10

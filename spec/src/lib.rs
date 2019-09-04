@@ -63,7 +63,7 @@ pub struct ChainSpec {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Params {
-    pub epoch_reward: Capacity,
+    pub initial_primary_epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: u64,
@@ -72,11 +72,11 @@ pub struct Params {
 impl Default for Params {
     fn default() -> Self {
         use crate::consensus::{
-            CELLBASE_MATURITY, DEFAULT_EPOCH_REWARD, DEFAULT_SECONDARY_EPOCH_REWARD,
+            CELLBASE_MATURITY, DEFAULT_SECONDARY_EPOCH_REWARD, INITIAL_PRIMARY_EPOCH_REWARD,
             MAX_BLOCK_CYCLES,
         };
         Params {
-            epoch_reward: DEFAULT_EPOCH_REWARD,
+            initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
             max_block_cycles: MAX_BLOCK_CYCLES,
             cellbase_maturity: CELLBASE_MATURITY.full_value(),
@@ -220,7 +220,7 @@ impl ChainSpec {
         self.verify_genesis_hash(&genesis_block)?;
 
         let consensus =
-            ConsensusBuilder::new(genesis_block, self.params.epoch_reward, genesis_epoch_ext)
+            ConsensusBuilder::new(genesis_block, self.params.initial_primary_epoch_reward)
                 .id(self.name.clone())
                 .cellbase_maturity(EpochNumberWithFraction::from_full_value(
                     self.params.cellbase_maturity,

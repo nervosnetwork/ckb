@@ -24,10 +24,9 @@ use ckb_types::{
 use std::cmp;
 use std::sync::Arc;
 
-// 1.344 billion per year
+// TODO: add secondary reward for miner
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = Capacity::shannons(613_698_63013698);
-// 4.2 billion per year
-pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
+pub(crate) const INITIAL_PRIMARY_EPOCH_REWARD: Capacity = Capacity::shannons(1_917_808_21917808);
 const MAX_UNCLE_NUM: usize = 2;
 pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // Cellbase outputs are "locked" and require 4 epoch confirmations (approximately 16 hours) before
@@ -59,6 +58,9 @@ const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 const MILLISECONDS_IN_A_SECOND: u64 = 1000;
 const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
 const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
+const PRIMARY_EPOCH_REWARD_HALF_DURATION_IN_SECONDS: u64 = 4 * 365 * 24 * 60 * 60; // every 4 years
+const PRIMARY_EPOCH_REWARD_HALF_DURATION_IN_EPOCHS: u64 =
+    PRIMARY_EPOCH_REWARD_HALF_DURATION_IN_SECONDS / EPOCH_DURATION_TARGET;
 
 const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 
@@ -112,7 +114,7 @@ pub struct ConsensusBuilder {
     id: String,
     genesis_block: BlockView,
     genesis_hash: Byte32,
-    epoch_reward: Capacity,
+    initial_primary_epoch_reward: Capacity,
     secondary_epoch_reward: Capacity,
     max_uncles_num: usize,
     orphan_rate_target: RationalU256,
@@ -156,7 +158,7 @@ impl Default for ConsensusBuilder {
             .transaction(cellbase)
             .build();
 
-        ConsensusBuilder::new(genesis_block, DEFAULT_EPOCH_REWARD, epoch_ext)
+        ConsensusBuilder::new(genesis_block, INITIAL_PRIMARY_EPOCH_REWARD)
     }
 }
 
@@ -216,11 +218,7 @@ pub fn build_genesis_dao_data(
 }
 
 impl ConsensusBuilder {
-    pub fn new(
-        genesis_block: BlockView,
-        epoch_reward: Capacity,
-        genesis_epoch_ext: EpochExt,
-    ) -> Self {
+    pub fn new(genesis_block: BlockView, initial_primary_epoch_reward: Capacity) -> Self {
         debug_assert!(
             genesis_block.difficulty() > U256::zero(),
             "genesis difficulty should greater than zero"
@@ -233,13 +231,32 @@ impl ConsensusBuilder {
         );
 
         let genesis_header = genesis_block.header();
+        let block_reward =
+            Capacity::shannons(initial_primary_epoch_reward.as_u64() / GENESIS_EPOCH_LENGTH);
+        let remainder_reward =
+            Capacity::shannons(initial_primary_epoch_reward.as_u64() % GENESIS_EPOCH_LENGTH);
+
+        let genesis_hash_rate = genesis_block.header().difficulty()
+            * (GENESIS_EPOCH_LENGTH + GENESIS_ORPHAN_COUNT)
+            / EPOCH_DURATION_TARGET;
+
+        let genesis_epoch_ext = EpochExt::new_builder()
+            .number(0)
+            .base_block_reward(block_reward)
+            .remainder_reward(remainder_reward)
+            .previous_epoch_hash_rate(genesis_hash_rate)
+            .last_block_hash_in_previous_epoch(Byte32::zero())
+            .start_number(0)
+            .length(GENESIS_EPOCH_LENGTH)
+            .difficulty(genesis_header.difficulty())
+            .build();
 
         ConsensusBuilder {
             genesis_hash: genesis_header.hash(),
             genesis_block,
             id: "main".to_owned(),
             max_uncles_num: MAX_UNCLE_NUM,
-            epoch_reward,
+            initial_primary_epoch_reward,
             orphan_rate_target: ORPHAN_RATE_TARGET,
             epoch_duration_target: EPOCH_DURATION_TARGET,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
@@ -264,7 +281,7 @@ impl ConsensusBuilder {
             genesis_block,
             id,
             max_uncles_num,
-            epoch_reward,
+            initial_primary_epoch_reward,
             orphan_rate_target,
             epoch_duration_target,
             secondary_epoch_reward,
@@ -303,7 +320,7 @@ impl ConsensusBuilder {
             genesis_block,
             id,
             max_uncles_num,
-            epoch_reward,
+            initial_primary_epoch_reward,
             orphan_rate_target,
             epoch_duration_target,
             secondary_epoch_reward,
@@ -351,8 +368,8 @@ impl ConsensusBuilder {
         self
     }
 
-    pub fn epoch_reward(mut self, epoch_reward: Capacity) -> Self {
-        self.epoch_reward = epoch_reward;
+    pub fn initial_primary_epoch_reward(mut self, initial_primary_epoch_reward: Capacity) -> Self {
+        self.initial_primary_epoch_reward = initial_primary_epoch_reward;
         self
     }
 
@@ -403,7 +420,7 @@ pub struct Consensus {
     pub dao_type_hash: Option<Byte32>,
     pub secp_blake160_type_hash: Option<Byte32>,
     pub secp_ripemd160_type_hash: Option<Byte32>,
-    pub epoch_reward: Capacity,
+    pub initial_primary_epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_uncles_num: usize,
     pub orphan_rate_target: RationalU256,
@@ -485,8 +502,13 @@ impl Consensus {
         self.genesis_block.difficulty()
     }
 
-    pub fn epoch_reward(&self) -> Capacity {
-        self.epoch_reward
+    pub fn initial_primary_epoch_reward(&self) -> Capacity {
+        self.initial_primary_epoch_reward
+    }
+
+    pub fn primary_epoch_reward(&self, epoch_number: u64) -> Capacity {
+        let halfed_times = epoch_number / PRIMARY_EPOCH_REWARD_HALF_DURATION_IN_EPOCHS;
+        Capacity::shannons(self.initial_primary_epoch_reward.as_u64() >> halfed_times)
     }
 
     pub fn epoch_duration_target(&self) -> u64 {
@@ -697,8 +719,9 @@ impl Consensus {
             "next_epoch_diff should greater than one"
         );
 
-        let block_reward = Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
-        let remainder_reward = Capacity::shannons(self.epoch_reward().as_u64() % next_epoch_length);
+        let primary_epoch_reward = primary_epoch_reward_of_next_epoch(last_epoch).as_u64();
+        let block_reward = Capacity::shannons(primary_epoch_reward / next_epoch_length);
+        let remainder_reward = Capacity::shannons(primary_epoch_reward % next_epoch_length);
 
         let epoch_ext = EpochExt::new_builder()
             .number(last_epoch.number() + 1)
@@ -745,6 +768,14 @@ fn u256_low_u64(u: U256) -> u64 {
     u.0[0]
 }
 
+fn primary_epoch_reward_of_next_epoch(epoch: &EpochExt) -> Capacity {
+    if epoch.number() + 1 % PRIMARY_EPOCH_REWARD_HALF_DURATION_IN_EPOCHS != 0 {
+        epoch.primary_reward()
+    } else {
+        Capacity::shannons(epoch.primary_reward().as_u64() / 2)
+    }
+}
+
 #[cfg(test)]
 pub mod test {
     use super::*;
@@ -757,8 +788,7 @@ pub mod test {
             .witness(Bytes::default())
             .build();
         let genesis = BlockBuilder::default().transaction(cellbase).build();
-        let epoch_ext = build_genesis_epoch_ext(capacity_bytes!(100), DIFF_TWO);
-        let consensus = ConsensusBuilder::new(genesis, capacity_bytes!(100), epoch_ext).build();
-        assert_eq!(capacity_bytes!(100), consensus.epoch_reward);
+        let consensus = ConsensusBuilder::new(genesis, capacity_bytes!(100));
+        assert_eq!(capacity_bytes!(100), consensus.initial_primary_epoch_reward);
     }
 }
