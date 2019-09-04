@@ -816,22 +816,18 @@ fn test_next_epoch_ext() {
         );
 
         let consensus = shared.consensus();
-        let epoch_reward = consensus.epoch_reward();
+        let epoch_reward = consensus.primary_epoch_reward(epoch.number());
         let block_reward = Capacity::shannons(epoch_reward.as_u64() / epoch.length());
-        let block_reward1 = block_reward.safe_add(Capacity::one()).unwrap();
+        let block_reward_plus_one = Capacity::shannons(block_reward.as_u64() + 1);
         let bound = 400 + epoch.remainder_reward().as_u64();
 
         // block_reward 428082191780
         // remainder_reward 960
+        assert_eq!(epoch.block_reward(400).unwrap(), block_reward_plus_one);
         assert_eq!(
-            epoch.block_reward(400).unwrap(),
-            block_reward1,
-            "block_reward {:?}, remainder_reward{:?}",
-            block_reward,
-            epoch.remainder_reward()
+            epoch.block_reward(bound - 1).unwrap(),
+            block_reward_plus_one
         );
-
-        assert_eq!(epoch.block_reward(bound - 1).unwrap(), block_reward1);
         assert_eq!(epoch.block_reward(bound).unwrap(), block_reward);
     }
 
