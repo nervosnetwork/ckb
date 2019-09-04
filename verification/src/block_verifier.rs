@@ -65,6 +65,11 @@ impl CellbaseVerifier {
             return Err(Error::Cellbase(CellbaseError::InvalidPosition));
         }
 
+        // cellbase outputs len must eq 1
+        if cellbase_transaction.outputs().len() != 1 {
+            return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
+        }
+
         if cellbase_transaction
             .witnesses()
             .get(0)
