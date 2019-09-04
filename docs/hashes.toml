@@ -2,128 +2,128 @@
 
 # Spec: ckb_dev
 [ckb_dev]
-genesis = "0x3261417a6ca13c10f2ed95f3497c53ee67d6a7b32dfb4fbbe1a422b72d3c0b93"
-cellbase = "0x225601d4eeba6f37f610c5d36448f59670e68a5670dae0e103be5125fcadab06"
+genesis = "0x215161c11f568b7d9e70fea3d46c4e12f662533d85d2c7493ec90cb218c982ca"
+cellbase = "0xfd0df58a2beaf470ea50ef6f7218acba481e278a3df55bf807fe9a5885036d37"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
-tx_hash = "0x225601d4eeba6f37f610c5d36448f59670e68a5670dae0e103be5125fcadab06"
+tx_hash = "0xfd0df58a2beaf470ea50ef6f7218acba481e278a3df55bf807fe9a5885036d37"
 index = 1
 data_hash = "0xa656f172b6b45c245307aeb5a7a37a176f002f6f22e92582c58bf7ba362e4176"
 type_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/dao)"
-tx_hash = "0x225601d4eeba6f37f610c5d36448f59670e68a5670dae0e103be5125fcadab06"
+tx_hash = "0xfd0df58a2beaf470ea50ef6f7218acba481e278a3df55bf807fe9a5885036d37"
 index = 2
 data_hash = "0x64dce4af48b54197a188b2deb6c3ad99347dd680ffe0d0c85061a92012d7665b"
 type_hash = "0xa20df8e80518e9b2eabc1a0efb0ebe1de83f8df9c867edf99d0c5895654fcde1"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/secp256k1_data)"
-tx_hash = "0x225601d4eeba6f37f610c5d36448f59670e68a5670dae0e103be5125fcadab06"
+tx_hash = "0xfd0df58a2beaf470ea50ef6f7218acba481e278a3df55bf807fe9a5885036d37"
 index = 3
 data_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
 
 [[ckb_dev.system_cells]]
 path = "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"
-tx_hash = "0x225601d4eeba6f37f610c5d36448f59670e68a5670dae0e103be5125fcadab06"
+tx_hash = "0xfd0df58a2beaf470ea50ef6f7218acba481e278a3df55bf807fe9a5885036d37"
 index = 4
 data_hash = "0x88fce31aa68db1bb2d5bde7a731b7e6b2429e7aa6fdf60203f397eb8e2147794"
 type_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
 
 [[ckb_dev.dep_groups]]
 included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_sighash_all)"]
-tx_hash = "0x1dc45c88b8a5c7aff0f16afe99240e52d9862f76d5b6d9a26ebaf59719c646b7"
+tx_hash = "0x74e34a76d68f5ed864c0ad139a82461ee809e981939cd9cfcd92ac0fdbb1114b"
 index = 0
 
 [[ckb_dev.dep_groups]]
 included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"]
-tx_hash = "0x1dc45c88b8a5c7aff0f16afe99240e52d9862f76d5b6d9a26ebaf59719c646b7"
+tx_hash = "0x74e34a76d68f5ed864c0ad139a82461ee809e981939cd9cfcd92ac0fdbb1114b"
 index = 1
 
 
 # Spec: ckb_testnet
 [ckb_testnet]
-genesis = "0x6b4c7e35fc8bdd9ee8b90a8d373ab2079e0973603c8241c166626058414ecc02"
-cellbase = "0xb61bbe623732377dccc2cf990b867d0ba1b15e85bfbd96c5eda56c9c93ac1371"
+genesis = "0xed0757c519395aa0e674d08d0fac0a87222e98a55dfcf7c7e57e4fe14440107d"
+cellbase = "0x537f44f9c405b095c6c08c98c39179cda1b0e2bb3525698ffc778835fb37d29d"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
-tx_hash = "0xb61bbe623732377dccc2cf990b867d0ba1b15e85bfbd96c5eda56c9c93ac1371"
+tx_hash = "0x537f44f9c405b095c6c08c98c39179cda1b0e2bb3525698ffc778835fb37d29d"
 index = 1
 data_hash = "0xa656f172b6b45c245307aeb5a7a37a176f002f6f22e92582c58bf7ba362e4176"
 type_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/dao)"
-tx_hash = "0xb61bbe623732377dccc2cf990b867d0ba1b15e85bfbd96c5eda56c9c93ac1371"
+tx_hash = "0x537f44f9c405b095c6c08c98c39179cda1b0e2bb3525698ffc778835fb37d29d"
 index = 2
 data_hash = "0x64dce4af48b54197a188b2deb6c3ad99347dd680ffe0d0c85061a92012d7665b"
 type_hash = "0xa20df8e80518e9b2eabc1a0efb0ebe1de83f8df9c867edf99d0c5895654fcde1"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_data)"
-tx_hash = "0xb61bbe623732377dccc2cf990b867d0ba1b15e85bfbd96c5eda56c9c93ac1371"
+tx_hash = "0x537f44f9c405b095c6c08c98c39179cda1b0e2bb3525698ffc778835fb37d29d"
 index = 3
 data_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
 
 [[ckb_testnet.system_cells]]
 path = "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"
-tx_hash = "0xb61bbe623732377dccc2cf990b867d0ba1b15e85bfbd96c5eda56c9c93ac1371"
+tx_hash = "0x537f44f9c405b095c6c08c98c39179cda1b0e2bb3525698ffc778835fb37d29d"
 index = 4
 data_hash = "0x88fce31aa68db1bb2d5bde7a731b7e6b2429e7aa6fdf60203f397eb8e2147794"
 type_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
 
 [[ckb_testnet.dep_groups]]
 included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_sighash_all)"]
-tx_hash = "0xbaffa683af85c922b3625d0dc2fa08a04b2aa967ee2e90582a3cd0ef36503697"
+tx_hash = "0xb51e0213092d95335583fcf8f5bc1539df2debee58f1398083208186bb4b12cd"
 index = 0
 
 [[ckb_testnet.dep_groups]]
 included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"]
-tx_hash = "0xbaffa683af85c922b3625d0dc2fa08a04b2aa967ee2e90582a3cd0ef36503697"
+tx_hash = "0xb51e0213092d95335583fcf8f5bc1539df2debee58f1398083208186bb4b12cd"
 index = 1
 
 
 # Spec: ckb_staging
 [ckb_staging]
-genesis = "0xb872aa41b9eb8afac4d4155d48c4ed565f10159f2093451f5c6b7c5c0c04580b"
-cellbase = "0x844e5add1cd674381ae0c989793c093763b906115387336cefa9b896d1f6c3fa"
+genesis = "0x0377c0a5516edddb802b13eed99632cf835b5e3eb19fe0dc1737d5f50962eb17"
+cellbase = "0x66568403d26a19edbbee75c917896fb8b618f119aaefe3997209039a18020dfe"
 
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/secp256k1_blake160_sighash_all)"
-tx_hash = "0x844e5add1cd674381ae0c989793c093763b906115387336cefa9b896d1f6c3fa"
+tx_hash = "0x66568403d26a19edbbee75c917896fb8b618f119aaefe3997209039a18020dfe"
 index = 1
 data_hash = "0xa656f172b6b45c245307aeb5a7a37a176f002f6f22e92582c58bf7ba362e4176"
 type_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/dao)"
-tx_hash = "0x844e5add1cd674381ae0c989793c093763b906115387336cefa9b896d1f6c3fa"
+tx_hash = "0x66568403d26a19edbbee75c917896fb8b618f119aaefe3997209039a18020dfe"
 index = 2
 data_hash = "0x64dce4af48b54197a188b2deb6c3ad99347dd680ffe0d0c85061a92012d7665b"
 type_hash = "0xa20df8e80518e9b2eabc1a0efb0ebe1de83f8df9c867edf99d0c5895654fcde1"
 
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/secp256k1_data)"
-tx_hash = "0x844e5add1cd674381ae0c989793c093763b906115387336cefa9b896d1f6c3fa"
+tx_hash = "0x66568403d26a19edbbee75c917896fb8b618f119aaefe3997209039a18020dfe"
 index = 3
 data_hash = "0x9799bee251b975b82c45a02154ce28cec89c5853ecc14d12b7b8cccfc19e0af4"
 
 [[ckb_staging.system_cells]]
 path = "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"
-tx_hash = "0x844e5add1cd674381ae0c989793c093763b906115387336cefa9b896d1f6c3fa"
+tx_hash = "0x66568403d26a19edbbee75c917896fb8b618f119aaefe3997209039a18020dfe"
 index = 4
 data_hash = "0x88fce31aa68db1bb2d5bde7a731b7e6b2429e7aa6fdf60203f397eb8e2147794"
 type_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
 
 [[ckb_staging.dep_groups]]
 included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_blake160_sighash_all)"]
-tx_hash = "0x434074f5fe31804495ab9917687a7eb914ab36bccbc4460edf432864b089a4b0"
+tx_hash = "0x4980582ac482d904b0f8a6d8d9f989161833a96dcc37bdd46296bafbf3dfcde9"
 index = 0
 
 [[ckb_staging.dep_groups]]
 included_cells = ["Bundled(specs/cells/secp256k1_data)", "Bundled(specs/cells/secp256k1_ripemd160_sha256_sighash_all)"]
-tx_hash = "0x434074f5fe31804495ab9917687a7eb914ab36bccbc4460edf432864b089a4b0"
+tx_hash = "0x4980582ac482d904b0f8a6d8d9f989161833a96dcc37bdd46296bafbf3dfcde9"
 index = 1
