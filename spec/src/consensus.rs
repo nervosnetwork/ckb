@@ -30,9 +30,9 @@ const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 // dampening factor
 const TAU: u64 = 2;
 
-// o_ideal = 1/20 = 5%
-const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("20"));
-const GENESIS_ORPHAN_COUNT: u64 = GENESIS_EPOCH_LENGTH / 20;
+// o_ideal = 1/40 = 2.5%
+const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("40"));
+const GENESIS_ORPHAN_COUNT: u64 = GENESIS_EPOCH_LENGTH / 40;
 
 const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
