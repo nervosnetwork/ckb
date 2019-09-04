@@ -80,7 +80,7 @@ fn always_success_consensus() -> Consensus {
         .build();
     ConsensusBuilder::default()
         .genesis_block(genesis)
-        .epoch_reward(Capacity::shannons(EPOCH_REWARD))
+        .initial_primary_epoch_reward(Capacity::shannons(EPOCH_REWARD))
         .cellbase_maturity(EpochNumberWithFraction::from_full_value(CELLBASE_MATURITY))
         .build()
 }
