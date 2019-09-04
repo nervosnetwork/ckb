@@ -112,58 +112,81 @@ impl<'de> serde::Deserialize<'de> for JsonBytes {
 #[cfg(test)]
 mod test {
     use super::JsonBytes;
+    use regex::Regex;
     use serde_derive::{Deserialize, Serialize};
     use serde_json;
 
     #[test]
-    fn test_toml_de_error() {
+    fn test_de_error() {
         #[derive(Deserialize, Serialize, Debug)]
         struct Test {
             bytes: JsonBytes,
         }
 
-        let invalid_prefixed = r#"{"bytes": "2143"}"#;
-        let e = serde_json::from_str::<Test>(invalid_prefixed);
-        assert_eq!(
-            "invalid value: string \"2143\", \
-             expected a 0x-prefixed hex string at line 1 column 16",
-            format!("{}", e.unwrap_err())
-        );
+        #[allow(clippy::enum_variant_names)]
+        #[derive(Debug, Clone, Copy)]
+        enum ErrorKind {
+            InvalidValue,
+            InvalidLength,
+            InvalidCharacter,
+        }
 
-        let invalid_prefixed = r#"{"bytes": "换个行会死吗"}"#;
-        let e = serde_json::from_str::<Test>(invalid_prefixed);
-        assert_eq!(
-            "invalid value: string \"换个行会死吗\", \
-             expected a 0x-prefixed hex string at line 1 column 30",
-            format!("{}", e.unwrap_err())
-        );
+        fn format_error_pattern(kind: ErrorKind, input: &str) -> String {
+            let num_pattern = "[1-9][0-9]*";
+            match kind {
+                ErrorKind::InvalidValue => format!(
+                    "invalid value: string \"{}\", \
+                     expected a 0x-prefixed hex string at line {} column {}",
+                    input, num_pattern, num_pattern
+                ),
+                ErrorKind::InvalidLength => format!(
+                    "invalid length {}, \
+                     expected even length at line {} column {}",
+                    num_pattern, num_pattern, num_pattern
+                ),
+                ErrorKind::InvalidCharacter => format!(
+                    "Invalid character at line {} column {}",
+                    num_pattern, num_pattern
+                ),
+            }
+        }
 
-        let invalid_length = r#"{"bytes" : "0x0"}"#;
-        let e = serde_json::from_str::<Test>(invalid_length);
-        assert_eq!(
-            r#"invalid length 3, expected even length at line 1 column 16"#,
-            format!("{}", e.unwrap_err())
-        );
+        fn test_de_error_for(kind: ErrorKind, input: &str) {
+            let full_string = format!(r#"{{"bytes": "{}"}}"#, input);
+            let full_error_pattern = format_error_pattern(kind, input);
+            let error = serde_json::from_str::<Test>(&full_string)
+                .unwrap_err()
+                .to_string();
+            let re = Regex::new(&full_error_pattern).unwrap();
+            assert!(
+                re.is_match(&error),
+                "kind = {:?}, input = {}, error = {}",
+                kind,
+                input,
+                error
+            );
+        }
 
-        let invalid_length = r#"{"bytes":"0x这个测试写的真垃圾，需要用正则重写"}"#;
-        let e = serde_json::from_str::<Test>(invalid_length);
-        assert_eq!(
-            r#"invalid length 53, expected even length at line 1 column 64"#,
-            format!("{}", e.unwrap_err())
-        );
+        let testcases = vec![
+            (ErrorKind::InvalidValue, "1234"),
+            (
+                ErrorKind::InvalidValue,
+                "测试非 ASCII 字符不会 panic",
+            ),
+            (ErrorKind::InvalidLength, "0x0"),
+            (
+                ErrorKind::InvalidLength,
+                "0x测试非 ASCII 字符不会 panic~",
+            ),
+            (ErrorKind::InvalidCharacter, "0x0z"),
+            (
+                ErrorKind::InvalidCharacter,
+                "0x测试非 ASCII 字符不会 panic",
+            ),
+        ];
 
-        let illegal_char = r#"{"bytes":"0xgh"}"#;
-        let e = serde_json::from_str::<Test>(illegal_char);
-        assert_eq!(
-            r#"Invalid character at line 1 column 15"#,
-            format!("{}", e.unwrap_err())
-        );
-
-        let illegal_char = r#"{"bytes":"0x一二三四"}"#;
-        let e = serde_json::from_str::<Test>(illegal_char);
-        assert_eq!(
-            r#"Invalid character at line 1 column 25"#,
-            format!("{}", e.unwrap_err())
-        );
+        for (kind, input) in testcases.into_iter() {
+            test_de_error_for(kind, input);
+        }
     }
 }
