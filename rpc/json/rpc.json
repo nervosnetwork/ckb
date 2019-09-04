@@ -270,156 +270,6 @@
         ]
     },
     {
-        "description": "Returns the information about a transaction requested by transaction hash.",
-        "method": "get_transaction",
-        "module": "chain",
-        "params": [
-            "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece"
-        ],
-        "result": {
-            "transaction": {
-                "cell_deps": [
-                    {
-                        "dep_type": "code",
-                        "out_point": {
-                            "index": "0",
-                            "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
-                        }
-                    }
-                ],
-                "hash": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece",
-                "header_deps": [
-                    "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
-                ],
-                "inputs": [
-                    {
-                        "previous_output": {
-                            "index": "0",
-                            "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
-                        },
-                        "since": "0"
-                    }
-                ],
-                "outputs": [
-                    {
-                        "capacity": "100000000000",
-                        "lock": {
-                            "args": [],
-                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "data"
-                        },
-                        "type": null
-                    }
-                ],
-                "outputs_data": [
-                    "0x"
-                ],
-                "version": "0",
-                "witnesses": []
-            },
-            "tx_status": {
-                "block_hash": null,
-                "status": "pending"
-            }
-        },
-        "types": [
-            {
-                "hash": "Hash of a transaction"
-            }
-        ]
-    },
-    {
-        "description": "Returns each component of the created CKB in this block's cellbase, which is issued to a block N - 1 - ProposalWindow.farthest, where this block's height is N.",
-        "method": "get_cellbase_output_capacity_details",
-        "module": "chain",
-        "params": [
-            "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb"
-        ],
-        "result": {
-            "primary": "69444444445",
-            "proposal_reward": "0",
-            "secondary": "748753061",
-            "total": "70193197506",
-            "tx_fee": "0"
-        },
-        "types": [
-            {
-                "hash": "Block hash"
-            }
-        ]
-    },
-    {
-        "description": "Get block by number",
-        "method": "get_block_by_number",
-        "module": "chain",
-        "params": [
-            "1024"
-        ],
-        "result": {
-            "header": {
-                "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
-                "difficulty": "0x7a1200",
-                "epoch": "1",
-                "hash": "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb",
-                "nonce": "0",
-                "number": "1024",
-                "parent_hash": "0x186a255dd4bd3789ef1aa51b5a3f6e291bd1da360f71d483bdba1e20c02a702f",
-                "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "timestamp": "1557311767",
-                "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-                "uncles_count": "0",
-                "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                "version": "0",
-                "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
-            },
-            "proposals": [],
-            "transactions": [
-                {
-                    "cell_deps": [],
-                    "hash": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-                    "header_deps": [],
-                    "inputs": [
-                        {
-                            "previous_output": {
-                                "index": "4294967295",
-                                "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-                            },
-                            "since": "1024"
-                        }
-                    ],
-                    "outputs": [
-                        {
-                            "capacity": "70193197506",
-                            "lock": {
-                                "args": [],
-                                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                                "hash_type": "data"
-                            },
-                            "type": null
-                        }
-                    ],
-                    "outputs_data": [
-                        "0x"
-                    ],
-                    "version": "0",
-                    "witnesses": [
-                        {
-                            "data": [
-                                "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a500"
-                            ]
-                        }
-                    ]
-                }
-            ],
-            "uncles": []
-        },
-        "types": [
-            {
-                "block_number": "Number of a block"
-            }
-        ]
-    },
-    {
         "description": "Returns the local node information.",
         "method": "local_node_info",
         "module": "net",
@@ -558,6 +408,125 @@
         "skip": true
     },
     {
+        "description": "Dry run transaction and return the execution cycles.\n\nThis method will not check the transaction validity, but only run the lock script\nand type script and then return the execution cycles.\nUsed to debug transaction scripts and query how many cycles the scripts consume",
+        "method": "dry_run_transaction",
+        "module": "experiment",
+        "params": [
+            {
+                "cell_deps": [
+                    {
+                        "dep_type": "code",
+                        "out_point": {
+                            "index": "0",
+                            "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
+                        }
+                    }
+                ],
+                "header_deps": [
+                    "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+                ],
+                "inputs": [
+                    {
+                        "previous_output": {
+                            "index": "0",
+                            "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
+                        },
+                        "since": "0"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "capacity": "100000000000",
+                        "lock": {
+                            "args": [],
+                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                            "hash_type": "data"
+                        },
+                        "type": null
+                    }
+                ],
+                "outputs_data": [
+                    "0x"
+                ],
+                "version": "0",
+                "witnesses": []
+            }
+        ],
+        "result": {
+            "cycles": "12"
+        }
+    },
+    {
+        "description": "Return the transaction hash\n\n**Deprecated**: will be removed in a later version",
+        "method": "_compute_transaction_hash",
+        "module": "experiment",
+        "params": [
+            {
+                "cell_deps": [
+                    {
+                        "dep_type": "code",
+                        "out_point": {
+                            "index": "0",
+                            "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
+                        }
+                    }
+                ],
+                "header_deps": [
+                    "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+                ],
+                "inputs": [
+                    {
+                        "previous_output": {
+                            "index": "0",
+                            "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
+                        },
+                        "since": "0"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "capacity": "100000000000",
+                        "lock": {
+                            "args": [],
+                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                            "hash_type": "data"
+                        },
+                        "type": null
+                    }
+                ],
+                "outputs_data": [
+                    "0x"
+                ],
+                "version": "0",
+                "witnesses": []
+            }
+        ],
+        "result": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece",
+        "types": [
+            {
+                "transaction": "The transaction object"
+            },
+            {
+                "version": "Transaction version"
+            },
+            {
+                "cell_deps": "Cell dependencies"
+            },
+            {
+                "header_deps": "Header dependencies"
+            },
+            {
+                "inputs": "Transaction inputs"
+            },
+            {
+                "outputs": "Transaction outputs"
+            },
+            {
+                "witnesses": "Witnesses"
+            }
+        ]
+    },
+    {
         "description": "Send new transaction into transaction pool\n\nIf <block_hash> of <previsous_output> is not specified, loads the corresponding input cell. If <block_hash> is specified, load the corresponding input cell only if the corresponding block exist and contain this cell as output.",
         "method": "send_transaction",
         "module": "pool",
@@ -628,6 +597,85 @@
         ]
     },
     {
+        "description": "Returns the information about a transaction requested by transaction hash.",
+        "method": "get_transaction",
+        "module": "chain",
+        "params": [
+            "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece"
+        ],
+        "result": {
+            "transaction": {
+                "cell_deps": [
+                    {
+                        "dep_type": "code",
+                        "out_point": {
+                            "index": "0",
+                            "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
+                        }
+                    }
+                ],
+                "hash": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece",
+                "header_deps": [
+                    "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+                ],
+                "inputs": [
+                    {
+                        "previous_output": {
+                            "index": "0",
+                            "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
+                        },
+                        "since": "0"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "capacity": "100000000000",
+                        "lock": {
+                            "args": [],
+                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                            "hash_type": "data"
+                        },
+                        "type": null
+                    }
+                ],
+                "outputs_data": [
+                    "0x"
+                ],
+                "version": "0",
+                "witnesses": []
+            },
+            "tx_status": {
+                "block_hash": null,
+                "status": "pending"
+            }
+        },
+        "types": [
+            {
+                "hash": "Hash of a transaction"
+            }
+        ]
+    },
+    {
+        "description": "Returns each component of the created CKB in this block's cellbase, which is issued to a block N - 1 - ProposalWindow.farthest, where this block's height is N.",
+        "method": "get_cellbase_output_capacity_details",
+        "module": "chain",
+        "params": [
+            "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb"
+        ],
+        "result": {
+            "primary": "69444444445",
+            "proposal_reward": "0",
+            "secondary": "748753061",
+            "total": "70193197506",
+            "tx_fee": "0"
+        },
+        "types": [
+            {
+                "hash": "Block hash"
+            }
+        ]
+    },
+    {
         "description": "Return the transaction pool information",
         "method": "tx_pool_info",
         "module": "pool",
@@ -640,6 +688,77 @@
             "total_tx_cycles": "12",
             "total_tx_size": "274"
         }
+    },
+    {
+        "description": "Get block by number",
+        "method": "get_block_by_number",
+        "module": "chain",
+        "params": [
+            "1024"
+        ],
+        "result": {
+            "header": {
+                "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
+                "difficulty": "0x7a1200",
+                "epoch": "1",
+                "hash": "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb",
+                "nonce": "0",
+                "number": "1024",
+                "parent_hash": "0x186a255dd4bd3789ef1aa51b5a3f6e291bd1da360f71d483bdba1e20c02a702f",
+                "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "timestamp": "1557311767",
+                "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
+                "uncles_count": "0",
+                "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "version": "0",
+                "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
+            },
+            "proposals": [],
+            "transactions": [
+                {
+                    "cell_deps": [],
+                    "hash": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
+                    "header_deps": [],
+                    "inputs": [
+                        {
+                            "previous_output": {
+                                "index": "4294967295",
+                                "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                            },
+                            "since": "1024"
+                        }
+                    ],
+                    "outputs": [
+                        {
+                            "capacity": "70193197506",
+                            "lock": {
+                                "args": [],
+                                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                                "hash_type": "data"
+                            },
+                            "type": null
+                        }
+                    ],
+                    "outputs_data": [
+                        "0x"
+                    ],
+                    "version": "0",
+                    "witnesses": [
+                        {
+                            "data": [
+                                "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a500"
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "uncles": []
+        },
+        "types": [
+            {
+                "block_number": "Number of a block"
+            }
+        ]
     },
     {
         "description": "Create index for live cells and transactions by the hash of lock script.",
@@ -791,55 +910,6 @@
         ]
     },
     {
-        "description": "Dry run transaction and return the execution cycles.\n\nThis method will not check the transaction validity, but only run the lock script\nand type script and then return the execution cycles.\nUsed to debug transaction scripts and query how many cycles the scripts consume",
-        "method": "dry_run_transaction",
-        "module": "experiment",
-        "params": [
-            {
-                "cell_deps": [
-                    {
-                        "dep_type": "code",
-                        "out_point": {
-                            "index": "0",
-                            "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
-                        }
-                    }
-                ],
-                "header_deps": [
-                    "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
-                ],
-                "inputs": [
-                    {
-                        "previous_output": {
-                            "index": "0",
-                            "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
-                        },
-                        "since": "0"
-                    }
-                ],
-                "outputs": [
-                    {
-                        "capacity": "100000000000",
-                        "lock": {
-                            "args": [],
-                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "data"
-                        },
-                        "type": null
-                    }
-                ],
-                "outputs_data": [
-                    "0x"
-                ],
-                "version": "0",
-                "witnesses": []
-            }
-        ],
-        "result": {
-            "cycles": "12"
-        }
-    },
-    {
         "description": "Returns script hash of given transaction script\n\n**Deprecated**: will be removed in a later version",
         "method": "_compute_script_hash",
         "module": "experiment",
@@ -860,76 +930,6 @@
             },
             {
                 "hash_type": "data: code_hash matches against dep cell data hash; type: code_hash matches against dep cell type hash."
-            }
-        ]
-    },
-    {
-        "description": "Return the transaction hash\n\n**Deprecated**: will be removed in a later version",
-        "method": "_compute_transaction_hash",
-        "module": "experiment",
-        "params": [
-            {
-                "cell_deps": [
-                    {
-                        "dep_type": "code",
-                        "out_point": {
-                            "index": "0",
-                            "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
-                        }
-                    }
-                ],
-                "header_deps": [
-                    "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
-                ],
-                "inputs": [
-                    {
-                        "previous_output": {
-                            "index": "0",
-                            "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
-                        },
-                        "since": "0"
-                    }
-                ],
-                "outputs": [
-                    {
-                        "capacity": "100000000000",
-                        "lock": {
-                            "args": [],
-                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "data"
-                        },
-                        "type": null
-                    }
-                ],
-                "outputs_data": [
-                    "0x"
-                ],
-                "version": "0",
-                "witnesses": []
-            }
-        ],
-        "result": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece",
-        "types": [
-            {
-                "transaction": "The transaction object"
-            },
-            {
-                "version": "Transaction version"
-            },
-            {
-                "cell_deps": "Cell dependencies"
-            },
-            {
-                "header_deps": "Header dependencies"
-            },
-            {
-                "inputs": "Transaction inputs"
-            },
-            {
-                "outputs": "Transaction outputs"
-            },
-            {
-                "witnesses": "Witnesses"
             }
         ]
     }

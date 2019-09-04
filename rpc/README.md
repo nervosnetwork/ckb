@@ -12,9 +12,6 @@
     *   [`get_header_by_number`](#get_header_by_number)
     *   [`get_cells_by_lock_hash`](#get_cells_by_lock_hash)
     *   [`get_live_cell`](#get_live_cell)
-    *   [`get_transaction`](#get_transaction)
-    *   [`get_cellbase_output_capacity_details`](#get_cellbase_output_capacity_details)
-    *   [`get_block_by_number`](#get_block_by_number)
 *   [`Net`](#net)
     *   [`local_node_info`](#local_node_info)
     *   [`get_peers`](#get_peers)
@@ -23,9 +20,18 @@
 *   [`Stats`](#stats)
     *   [`get_blockchain_info`](#get_blockchain_info)
     *   [`get_peers_state`](#get_peers_state)
+*   [`Experiment`](#experiment)
+    *   [`dry_run_transaction`](#dry_run_transaction)
+    *   [`_compute_transaction_hash`](#_compute_transaction_hash)
 *   [`Pool`](#pool)
     *   [`send_transaction`](#send_transaction)
+*   [`Chain`](#chain)
+    *   [`get_transaction`](#get_transaction)
+    *   [`get_cellbase_output_capacity_details`](#get_cellbase_output_capacity_details)
+*   [`Pool`](#pool)
     *   [`tx_pool_info`](#tx_pool_info)
+*   [`Chain`](#chain)
+    *   [`get_block_by_number`](#get_block_by_number)
 *   [`Indexer`](#indexer)
     *   [`index_lock_hash`](#index_lock_hash)
     *   [`get_lock_hash_index_states`](#get_lock_hash_index_states)
@@ -33,9 +39,7 @@
     *   [`get_transactions_by_lock_hash`](#get_transactions_by_lock_hash)
     *   [`deindex_lock_hash`](#deindex_lock_hash)
 *   [`Experiment`](#experiment)
-    *   [`dry_run_transaction`](#dry_run_transaction)
     *   [`_compute_script_hash`](#_compute_script_hash)
-    *   [`_compute_transaction_hash`](#_compute_transaction_hash)
 
 ## Chain
 
@@ -495,210 +499,6 @@ http://localhost:8114
 }
 ```
 
-### `get_transaction`
-
-Returns the information about a transaction requested by transaction hash.
-
-#### Parameters
-
-    hash - Hash of a transaction
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "get_transaction",
-    "params": [
-        "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": {
-        "transaction": {
-            "cell_deps": [
-                {
-                    "dep_type": "code",
-                    "out_point": {
-                        "index": "0",
-                        "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
-                    }
-                }
-            ],
-            "hash": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece",
-            "header_deps": [
-                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
-            ],
-            "inputs": [
-                {
-                    "previous_output": {
-                        "index": "0",
-                        "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
-                    },
-                    "since": "0"
-                }
-            ],
-            "outputs": [
-                {
-                    "capacity": "100000000000",
-                    "lock": {
-                        "args": [],
-                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "data"
-                    },
-                    "type": null
-                }
-            ],
-            "outputs_data": [
-                "0x"
-            ],
-            "version": "0",
-            "witnesses": []
-        },
-        "tx_status": {
-            "block_hash": null,
-            "status": "pending"
-        }
-    }
-}
-```
-
-### `get_cellbase_output_capacity_details`
-
-Returns each component of the created CKB in this block's cellbase, which is issued to a block N - 1 - ProposalWindow.farthest, where this block's height is N.
-
-#### Parameters
-
-    hash - Block hash
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "get_cellbase_output_capacity_details",
-    "params": [
-        "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": {
-        "primary": "69444444445",
-        "proposal_reward": "0",
-        "secondary": "748753061",
-        "total": "70193197506",
-        "tx_fee": "0"
-    }
-}
-```
-
-### `get_block_by_number`
-
-Get block by number
-
-#### Parameters
-
-    block_number - Number of a block
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "get_block_by_number",
-    "params": [
-        "1024"
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": {
-        "header": {
-            "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
-            "difficulty": "0x7a1200",
-            "epoch": "1",
-            "hash": "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb",
-            "nonce": "0",
-            "number": "1024",
-            "parent_hash": "0x186a255dd4bd3789ef1aa51b5a3f6e291bd1da360f71d483bdba1e20c02a702f",
-            "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "timestamp": "1557311767",
-            "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-            "uncles_count": "0",
-            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "version": "0",
-            "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
-        },
-        "proposals": [],
-        "transactions": [
-            {
-                "cell_deps": [],
-                "hash": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-                "header_deps": [],
-                "inputs": [
-                    {
-                        "previous_output": {
-                            "index": "4294967295",
-                            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-                        },
-                        "since": "1024"
-                    }
-                ],
-                "outputs": [
-                    {
-                        "capacity": "70193197506",
-                        "lock": {
-                            "args": [],
-                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                            "hash_type": "data"
-                        },
-                        "type": null
-                    }
-                ],
-                "outputs_data": [
-                    "0x"
-                ],
-                "version": "0",
-                "witnesses": [
-                    {
-                        "data": [
-                            "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a500"
-                        ]
-                    }
-                ]
-            }
-        ],
-        "uncles": []
-    }
-}
-```
-
 ## Net
 
 ### `local_node_info`
@@ -947,6 +747,159 @@ http://localhost:8114
 }
 ```
 
+## Experiment
+
+### `dry_run_transaction`
+
+Dry run transaction and return the execution cycles.
+
+This method will not check the transaction validity, but only run the lock script
+and type script and then return the execution cycles.
+Used to debug transaction scripts and query how many cycles the scripts consume
+
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "dry_run_transaction",
+    "params": [
+        {
+            "cell_deps": [
+                {
+                    "dep_type": "code",
+                    "out_point": {
+                        "index": "0",
+                        "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
+                    }
+                }
+            ],
+            "header_deps": [
+                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+            ],
+            "inputs": [
+                {
+                    "previous_output": {
+                        "index": "0",
+                        "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
+                    },
+                    "since": "0"
+                }
+            ],
+            "outputs": [
+                {
+                    "capacity": "100000000000",
+                    "lock": {
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                        "hash_type": "data"
+                    },
+                    "type": null
+                }
+            ],
+            "outputs_data": [
+                "0x"
+            ],
+            "version": "0",
+            "witnesses": []
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "cycles": "12"
+    }
+}
+```
+
+### `_compute_transaction_hash`
+
+Return the transaction hash
+
+**Deprecated**: will be removed in a later version
+
+#### Parameters
+
+    transaction - The transaction object
+    version - Transaction version
+    cell_deps - Cell dependencies
+    header_deps - Header dependencies
+    inputs - Transaction inputs
+    outputs - Transaction outputs
+    witnesses - Witnesses
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "_compute_transaction_hash",
+    "params": [
+        {
+            "cell_deps": [
+                {
+                    "dep_type": "code",
+                    "out_point": {
+                        "index": "0",
+                        "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
+                    }
+                }
+            ],
+            "header_deps": [
+                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+            ],
+            "inputs": [
+                {
+                    "previous_output": {
+                        "index": "0",
+                        "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
+                    },
+                    "since": "0"
+                }
+            ],
+            "outputs": [
+                {
+                    "capacity": "100000000000",
+                    "lock": {
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                        "hash_type": "data"
+                    },
+                    "type": null
+                }
+            ],
+            "outputs_data": [
+                "0x"
+            ],
+            "version": "0",
+            "witnesses": []
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece"
+}
+```
+
 ## Pool
 
 ### `send_transaction`
@@ -1027,6 +980,125 @@ http://localhost:8114
 }
 ```
 
+## Chain
+
+### `get_transaction`
+
+Returns the information about a transaction requested by transaction hash.
+
+#### Parameters
+
+    hash - Hash of a transaction
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_transaction",
+    "params": [
+        "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "transaction": {
+            "cell_deps": [
+                {
+                    "dep_type": "code",
+                    "out_point": {
+                        "index": "0",
+                        "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
+                    }
+                }
+            ],
+            "hash": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece",
+            "header_deps": [
+                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+            ],
+            "inputs": [
+                {
+                    "previous_output": {
+                        "index": "0",
+                        "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
+                    },
+                    "since": "0"
+                }
+            ],
+            "outputs": [
+                {
+                    "capacity": "100000000000",
+                    "lock": {
+                        "args": [],
+                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                        "hash_type": "data"
+                    },
+                    "type": null
+                }
+            ],
+            "outputs_data": [
+                "0x"
+            ],
+            "version": "0",
+            "witnesses": []
+        },
+        "tx_status": {
+            "block_hash": null,
+            "status": "pending"
+        }
+    }
+}
+```
+
+### `get_cellbase_output_capacity_details`
+
+Returns each component of the created CKB in this block's cellbase, which is issued to a block N - 1 - ProposalWindow.farthest, where this block's height is N.
+
+#### Parameters
+
+    hash - Block hash
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_cellbase_output_capacity_details",
+    "params": [
+        "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "primary": "69444444445",
+        "proposal_reward": "0",
+        "secondary": "748753061",
+        "total": "70193197506",
+        "tx_fee": "0"
+    }
+}
+```
+
+## Pool
+
 ### `tx_pool_info`
 
 Return the transaction pool information
@@ -1057,6 +1129,97 @@ http://localhost:8114
         "proposed": "0",
         "total_tx_cycles": "12",
         "total_tx_size": "274"
+    }
+}
+```
+
+## Chain
+
+### `get_block_by_number`
+
+Get block by number
+
+#### Parameters
+
+    block_number - Number of a block
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_block_by_number",
+    "params": [
+        "1024"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+        "header": {
+            "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
+            "difficulty": "0x7a1200",
+            "epoch": "1",
+            "hash": "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb",
+            "nonce": "0",
+            "number": "1024",
+            "parent_hash": "0x186a255dd4bd3789ef1aa51b5a3f6e291bd1da360f71d483bdba1e20c02a702f",
+            "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "timestamp": "1557311767",
+            "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
+            "uncles_count": "0",
+            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "version": "0",
+            "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
+        },
+        "proposals": [],
+        "transactions": [
+            {
+                "cell_deps": [],
+                "hash": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
+                "header_deps": [],
+                "inputs": [
+                    {
+                        "previous_output": {
+                            "index": "4294967295",
+                            "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                        },
+                        "since": "1024"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "capacity": "70193197506",
+                        "lock": {
+                            "args": [],
+                            "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                            "hash_type": "data"
+                        },
+                        "type": null
+                    }
+                ],
+                "outputs_data": [
+                    "0x"
+                ],
+                "version": "0",
+                "witnesses": [
+                    {
+                        "data": [
+                            "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a500"
+                        ]
+                    }
+                ]
+            }
+        ],
+        "uncles": []
     }
 }
 ```
@@ -1292,79 +1455,6 @@ http://localhost:8114
 
 ## Experiment
 
-### `dry_run_transaction`
-
-Dry run transaction and return the execution cycles.
-
-This method will not check the transaction validity, but only run the lock script
-and type script and then return the execution cycles.
-Used to debug transaction scripts and query how many cycles the scripts consume
-
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "dry_run_transaction",
-    "params": [
-        {
-            "cell_deps": [
-                {
-                    "dep_type": "code",
-                    "out_point": {
-                        "index": "0",
-                        "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
-                    }
-                }
-            ],
-            "header_deps": [
-                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
-            ],
-            "inputs": [
-                {
-                    "previous_output": {
-                        "index": "0",
-                        "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
-                    },
-                    "since": "0"
-                }
-            ],
-            "outputs": [
-                {
-                    "capacity": "100000000000",
-                    "lock": {
-                        "args": [],
-                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "data"
-                    },
-                    "type": null
-                }
-            ],
-            "outputs_data": [
-                "0x"
-            ],
-            "version": "0",
-            "witnesses": []
-        }
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": {
-        "cycles": "12"
-    }
-}
-```
-
 ### `_compute_script_hash`
 
 Returns script hash of given transaction script
@@ -1402,83 +1492,5 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
-}
-```
-
-### `_compute_transaction_hash`
-
-Return the transaction hash
-
-**Deprecated**: will be removed in a later version
-
-#### Parameters
-
-    transaction - The transaction object
-    version - Transaction version
-    cell_deps - Cell dependencies
-    header_deps - Header dependencies
-    inputs - Transaction inputs
-    outputs - Transaction outputs
-    witnesses - Witnesses
-
-#### Examples
-
-```bash
-echo '{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "method": "_compute_transaction_hash",
-    "params": [
-        {
-            "cell_deps": [
-                {
-                    "dep_type": "code",
-                    "out_point": {
-                        "index": "0",
-                        "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
-                    }
-                }
-            ],
-            "header_deps": [
-                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
-            ],
-            "inputs": [
-                {
-                    "previous_output": {
-                        "index": "0",
-                        "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
-                    },
-                    "since": "0"
-                }
-            ],
-            "outputs": [
-                {
-                    "capacity": "100000000000",
-                    "lock": {
-                        "args": [],
-                        "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
-                        "hash_type": "data"
-                    },
-                    "type": null
-                }
-            ],
-            "outputs_data": [
-                "0x"
-            ],
-            "version": "0",
-            "witnesses": []
-        }
-    ]
-}' \
-| tr -d '\n' \
-| curl -H 'content-type: application/json' -d @- \
-http://localhost:8114
-```
-
-```json
-{
-    "id": 2,
-    "jsonrpc": "2.0",
-    "result": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece"
 }
 ```
