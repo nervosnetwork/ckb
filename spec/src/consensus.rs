@@ -165,16 +165,16 @@ impl Consensus {
             * (GENESIS_EPOCH_LENGTH + GENESIS_ORPHAN_COUNT)
             / EPOCH_DURATION_TARGET;
 
-        let genesis_epoch_ext = EpochExt::new(
-            0,                // number
-            block_reward,     // block_reward
-            remainder_reward, // remainder_reward
-            genesis_hash_rate,
-            Byte32::zero(),
-            0,                           // start
-            GENESIS_EPOCH_LENGTH,        // length
-            genesis_header.difficulty(), // difficulty,
-        );
+        let genesis_epoch_ext = EpochExt::new_builder()
+            .number(0)
+            .base_block_reward(block_reward)
+            .remainder_reward(remainder_reward)
+            .previous_epoch_hash_rate(genesis_hash_rate)
+            .last_block_hash_in_previous_epoch(Byte32::zero())
+            .start_number(0)
+            .length(GENESIS_EPOCH_LENGTH)
+            .difficulty(genesis_header.difficulty())
+            .build();
 
         Consensus {
             genesis_hash: genesis_header.hash(),
@@ -508,16 +508,16 @@ impl Consensus {
         let block_reward = Capacity::shannons(self.epoch_reward().as_u64() / next_epoch_length);
         let remainder_reward = Capacity::shannons(self.epoch_reward().as_u64() % next_epoch_length);
 
-        let epoch_ext = EpochExt::new(
-            last_epoch.number() + 1, // number
-            block_reward,
-            remainder_reward, // remainder_reward
-            adjusted_last_epoch_hash_rate,
-            header.hash(),     // last_block_hash_in_previous_epoch
-            header_number + 1, // start
-            next_epoch_length, // length
-            next_epoch_diff,   // difficulty,
-        );
+        let epoch_ext = EpochExt::new_builder()
+            .number(last_epoch.number() + 1)
+            .base_block_reward(block_reward)
+            .remainder_reward(remainder_reward)
+            .previous_epoch_hash_rate(adjusted_last_epoch_hash_rate)
+            .last_block_hash_in_previous_epoch(header.hash())
+            .start_number(header_number + 1)
+            .length(next_epoch_length)
+            .difficulty(next_epoch_diff)
+            .build();
 
         Some(epoch_ext)
     }

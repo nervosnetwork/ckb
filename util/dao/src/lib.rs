@@ -335,16 +335,16 @@ mod tests {
                 .build();
             // TODO: should make it simple after refactor get_ancestor
             for number in target_epoch_start..parent.number() {
-                let epoch_ext = EpochExt::new(
-                    number,
-                    Capacity::shannons(50_000_000_000),
-                    Capacity::shannons(1_000_128),
-                    U256::one(),
-                    h256!("0x1").pack(),
-                    target_epoch_start,
-                    2091,
-                    U256::from(1u64),
-                );
+                let epoch_ext = EpochExt::new_builder()
+                    .number(number)
+                    .base_block_reward(Capacity::shannons(50_000_000_000))
+                    .remainder_reward(Capacity::shannons(1_000_128))
+                    .previous_epoch_hash_rate(U256::one())
+                    .last_block_hash_in_previous_epoch(h256!("0x1").pack())
+                    .start_number(target_epoch_start)
+                    .length(2091)
+                    .difficulty(U256::one())
+                    .build();
 
                 let header = HeaderBuilder::default()
                     .number(number.pack())
