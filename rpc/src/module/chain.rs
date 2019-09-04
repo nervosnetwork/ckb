@@ -44,7 +44,7 @@ pub trait ChainRpc {
     ) -> Result<Vec<CellOutputWithOutPoint>>;
 
     #[rpc(name = "get_live_cell")]
-    fn get_live_cell(&self, _out_point: OutPoint) -> Result<CellWithStatus>;
+    fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool) -> Result<CellWithStatus>;
 
     #[rpc(name = "get_tip_block_number")]
     fn get_tip_block_number(&self) -> Result<BlockNumber>;
@@ -216,11 +216,11 @@ impl ChainRpc for ChainRpcImpl {
         Ok(result)
     }
 
-    fn get_live_cell(&self, out_point: OutPoint) -> Result<CellWithStatus> {
+    fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> Result<CellWithStatus> {
         let cell_status = self
             .shared
             .snapshot()
-            .cell(&out_point.clone().into(), false);
+            .cell(&out_point.clone().into(), with_data);
         Ok(cell_status.into())
     }
 

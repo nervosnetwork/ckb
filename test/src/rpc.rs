@@ -102,10 +102,10 @@ impl RpcClient {
             .expect("rpc call get_cells_by_lock_hash")
     }
 
-    pub fn get_live_cell(&self, out_point: OutPoint) -> CellWithStatus {
+    pub fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> CellWithStatus {
         self.inner
             .lock()
-            .get_live_cell(out_point)
+            .get_live_cell(out_point, with_data)
             .call()
             .expect("rpc call get_live_cell")
     }
@@ -363,7 +363,7 @@ jsonrpc_client!(pub struct Inner {
         _from: BlockNumber,
         _to: BlockNumber
     ) -> RpcRequest<Vec<CellOutputWithOutPoint>>;
-    pub fn get_live_cell(&mut self, _out_point: OutPoint) -> RpcRequest<CellWithStatus>;
+    pub fn get_live_cell(&mut self, _out_point: OutPoint, _with_data: bool) -> RpcRequest<CellWithStatus>;
     pub fn get_tip_block_number(&mut self) -> RpcRequest<BlockNumber>;
     pub fn get_current_epoch(&mut self) -> RpcRequest<EpochView>;
     pub fn get_epoch_by_number(&mut self, number: EpochNumber) -> RpcRequest<Option<EpochView>>;
