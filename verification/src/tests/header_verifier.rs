@@ -31,8 +31,8 @@ pub fn test_version() {
     let verifier = VersionVerifier::new(&header);
 
     assert_error_eq(
-        verifier.verify().err(),
-        Some(BlockErrorKind::MismatchedVersion.into()),
+        verifier.verify().unwrap_err(),
+        BlockErrorKind::MismatchedVersion,
     );
 }
 
@@ -69,14 +69,11 @@ fn test_timestamp_too_old() {
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
 
     assert_error_eq(
-        timestamp_verifier.verify().err(),
-        Some(
-            TimestampError::BlockTimeTooOld {
-                min,
-                actual: timestamp,
-            }
-            .into(),
-        ),
+        timestamp_verifier.verify().unwrap_err(),
+        TimestampError::BlockTimeTooOld {
+            min,
+            actual: timestamp,
+        },
     );
 }
 
@@ -95,14 +92,11 @@ fn test_timestamp_too_new() {
         .build();
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
     assert_error_eq(
-        timestamp_verifier.verify().err(),
-        Some(
-            TimestampError::BlockTimeTooNew {
-                max,
-                actual: timestamp,
-            }
-            .into(),
-        ),
+        timestamp_verifier.verify().unwrap_err(),
+        TimestampError::BlockTimeTooNew {
+            max,
+            actual: timestamp,
+        },
     );
 }
 
@@ -113,14 +107,11 @@ fn test_number() {
 
     let verifier = NumberVerifier::new(&parent, &header);
     assert_error_eq(
-        verifier.verify().err(),
-        Some(
-            NumberError {
-                expected: 11,
-                actual: 10,
-            }
-            .into(),
-        ),
+        verifier.verify().unwrap_err(),
+        NumberError {
+            expected: 11,
+            actual: 10,
+        },
     );
 }
 
@@ -155,14 +146,11 @@ fn test_epoch_number() {
     let fake_header_resolver = FakeHeaderResolver::new(header, EpochExt::default());
 
     assert_error_eq(
-        EpochVerifier::verify(&fake_header_resolver).err(),
-        Some(
-            EpochError::UnmatchedNumber {
-                expected: 0,
-                actual: 2,
-            }
-            .into(),
-        ),
+        EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
+        EpochError::UnmatchedNumber {
+            expected: 0,
+            actual: 2,
+        },
     )
 }
 
@@ -176,14 +164,11 @@ fn test_epoch_difficulty() {
     let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
     assert_error_eq(
-        EpochVerifier::verify(&fake_header_resolver).err(),
-        Some(
-            EpochError::UnmatchedDifficulty {
-                expected: U256::from(1u64).pack(),
-                actual: U256::from(2u64).pack(),
-            }
-            .into(),
-        ),
+        EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
+        EpochError::UnmatchedDifficulty {
+            expected: U256::from(1u64).pack(),
+            actual: U256::from(2u64).pack(),
+        },
     );
 }
 
@@ -201,5 +186,5 @@ fn test_pow_verifier() {
     let fake_pow_engine: Arc<dyn PowEngine> = Arc::new(FakePowEngine);
     let verifier = PowVerifier::new(&header, &fake_pow_engine);
 
-    assert_error_eq(verifier.verify().err(), Some(PowError::InvalidNonce.into()));
+    assert_error_eq(verifier.verify().unwrap_err(), PowError::InvalidNonce);
 }

@@ -111,8 +111,8 @@ pub fn test_block_without_cellbase() {
         .build();
     let verifier = CellbaseVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(CellbaseError::InvalidQuantity.into()),
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidQuantity,
     );
 }
 
@@ -150,8 +150,8 @@ pub fn test_block_with_incorrect_cellbase_number() {
 
     let verifier = CellbaseVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(CellbaseError::InvalidInput.into()),
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidInput,
     );
 }
 
@@ -165,8 +165,8 @@ pub fn test_block_with_one_cellbase_at_last() {
 
     let verifier = CellbaseVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(CellbaseError::InvalidPosition.into()),
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidPosition,
     );
 }
 
@@ -220,8 +220,8 @@ pub fn test_block_with_duplicated_txs() {
 
     let verifier = DuplicateVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(BlockErrorKind::DuplicatedCommittedTransactions.into()),
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::DuplicatedCommittedTransactions,
     );
 }
 
@@ -235,8 +235,8 @@ pub fn test_block_with_duplicated_proposals() {
 
     let verifier = DuplicateVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(BlockErrorKind::DuplicatedProposalTransactions.into()),
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::DuplicatedProposalTransactions,
     );
 }
 
@@ -253,8 +253,8 @@ pub fn test_transaction_root() {
 
     let verifier = MerkleRootVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(BlockErrorKind::UnmatchedCommittedRoot.into()),
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::UnmatchedCommittedRoot,
     );
 }
 
@@ -271,8 +271,8 @@ pub fn test_proposals_root() {
 
     let verifier = MerkleRootVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(BlockErrorKind::UnmatchedCommittedRoot.into()),
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::UnmatchedCommittedRoot,
     );
 }
 
@@ -289,8 +289,8 @@ pub fn test_witnesses_root() {
 
     let verifier = MerkleRootVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(BlockErrorKind::UnmatchedWitnessesRoot.into()),
+        verifier.verify(&block).unwrap_err(),
+        BlockErrorKind::UnmatchedWitnessesRoot,
     );
 }
 
@@ -304,8 +304,8 @@ pub fn test_block_with_two_cellbases() {
 
     let verifier = CellbaseVerifier::new();
     assert_error_eq(
-        verifier.verify(&block).err(),
-        Some(CellbaseError::InvalidQuantity.into()),
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidQuantity,
     );
 }
 
@@ -367,8 +367,8 @@ pub fn test_max_block_bytes_verifier() {
     {
         let verifier = BlockBytesVerifier::new(block.serialized_size() as u64 - 1);
         assert_error_eq(
-            verifier.verify(&block).err(),
-            Some(BlockErrorKind::TooLargeSize.into()),
+            verifier.verify(&block).unwrap_err(),
+            BlockErrorKind::TooLargeSize,
         );
     }
 }
@@ -387,8 +387,8 @@ pub fn test_max_proposals_limit_verifier() {
     {
         let verifier = BlockProposalsLimitVerifier::new(0);
         assert_error_eq(
-            verifier.verify(&block).err(),
-            Some(BlockErrorKind::TooManyProposals.into()),
+            verifier.verify(&block).unwrap_err(),
+            BlockErrorKind::TooManyProposals,
         );
     }
 }

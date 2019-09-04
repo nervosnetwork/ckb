@@ -335,35 +335,26 @@ mod tests {
         // spent conflict cell
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[10..15].to_vec());
         assert_error_eq(
-            result.err(),
-            Some(
-                OutPointError::DeadCell(txs[10].inputs().get(0).unwrap().previous_output()).into(),
-            ),
+            result.unwrap_err(),
+            OutPointError::DeadCell(txs[10].inputs().get(0).unwrap().previous_output()),
         );
         // spent half available half conflict cells
         let result = tx_pool_executor.verify_and_add_txs_to_pool(txs[6..=15].to_vec());
         assert_error_eq(
-            result.err(),
-            Some(
-                OutPointError::DeadCell(txs[10].inputs().get(0).unwrap().previous_output()).into(),
-            ),
+            result.unwrap_err(),
+            OutPointError::DeadCell(txs[10].inputs().get(0).unwrap().previous_output()),
         );
         // spent one duplicate cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[1].to_owned());
         assert_error_eq(
-            result.err(),
-            Some(
-                InternalError::new(InternalErrorKind::DuplicatedPoolTransaction, txs[1].hash())
-                    .into(),
-            ),
+            result.unwrap_err(),
+            InternalError::new(InternalErrorKind::DuplicatedPoolTransaction, txs[1].hash()),
         );
         // spent one conflict cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[13].to_owned());
         assert_error_eq(
-            result.err(),
-            Some(
-                OutPointError::DeadCell(txs[13].inputs().get(0).unwrap().previous_output()).into(),
-            ),
+            result.unwrap_err(),
+            OutPointError::DeadCell(txs[13].inputs().get(0).unwrap().previous_output()),
         );
     }
 
@@ -424,8 +415,8 @@ mod tests {
         assert_error_eq(
             tx_pool_executor
                 .verify_and_add_tx_to_pool(transactions[3].clone())
-                .err(),
-            Some(TransactionError::ImmatureTransaction.into()),
+                .unwrap_err(),
+            TransactionError::ImmatureTransaction,
         );
     }
 }

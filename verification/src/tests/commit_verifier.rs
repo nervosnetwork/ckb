@@ -176,8 +176,8 @@ fn test_proposal() {
     for _ in (proposed + 1)..(proposed + proposal_window.closest()) {
         let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         assert_error_eq(
-            CommitVerifier::new(&context, &block).verify().err(),
-            Some(CommitError::NotInProposalWindow.into()),
+            CommitVerifier::new(&context, &block).verify().unwrap_err(),
+            CommitError::NotInProposalWindow,
         );
 
         //test chain forward
@@ -256,8 +256,8 @@ fn test_uncle_proposal() {
         let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = CommitVerifier::new(&context, &block);
         assert_error_eq(
-            verifier.verify().err(),
-            Some(CommitError::NotInProposalWindow.into()),
+            verifier.verify().unwrap_err(),
+            CommitError::NotInProposalWindow,
         );
 
         //test chain forward

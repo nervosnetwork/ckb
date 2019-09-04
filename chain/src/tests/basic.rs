@@ -223,8 +223,10 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_error_eq(
-        Err(OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)).into()),
-        chain_controller.process_block(Arc::new(chain.blocks()[3].clone()), true),
+        OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)),
+        chain_controller
+            .process_block(Arc::new(chain.blocks()[3].clone()), true)
+            .unwrap_err(),
     );
 }
 
@@ -258,8 +260,10 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_error_eq(
-        Err(OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)).into()),
-        chain_controller.process_block(Arc::new(chain.blocks()[4].clone()), true),
+        OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)),
+        chain_controller
+            .process_block(Arc::new(chain.blocks()[4].clone()), true)
+            .unwrap_err(),
     );
 }
 
@@ -290,8 +294,10 @@ fn test_invalid_out_point_index_in_same_block() {
             .expect("process block ok");
     }
     assert_error_eq(
-        Err(OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]).into()),
-        chain_controller.process_block(Arc::new(chain.blocks()[3].clone()), true),
+        OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
+        chain_controller
+            .process_block(Arc::new(chain.blocks()[3].clone()), true)
+            .unwrap_err(),
     );
 }
 
@@ -324,8 +330,10 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     assert_error_eq(
-        Err(OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]).into()),
-        chain_controller.process_block(Arc::new(chain.blocks()[4].clone()), true),
+        OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
+        chain_controller
+            .process_block(Arc::new(chain.blocks()[4].clone()), true)
+            .unwrap_err(),
     );
 }
 

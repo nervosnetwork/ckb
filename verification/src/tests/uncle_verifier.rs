@@ -154,14 +154,11 @@ fn test_uncle_count() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
     assert_error_eq(
-        verifier.verify().err(),
-        Some(
-            UnclesError::UnmatchedCount {
-                expected: 0,
-                actual: 1,
-            }
-            .into(),
-        ),
+        verifier.verify().unwrap_err(),
+        UnclesError::UnmatchedCount {
+            expected: 0,
+            actual: 1,
+        },
     );
 }
 
@@ -186,14 +183,11 @@ fn test_invalid_uncle_hash_case1() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
     assert_error_eq(
-        verifier.verify().err(),
-        Some(
-            UnclesError::UnmatchedUnclesHash {
-                expected: Byte32::zero(),
-                actual: block.calc_uncles_hash(),
-            }
-            .into(),
-        ),
+        verifier.verify().unwrap_err(),
+        UnclesError::UnmatchedUnclesHash {
+            expected: Byte32::zero(),
+            actual: block.calc_uncles_hash(),
+        },
     );
 }
 
@@ -219,14 +213,11 @@ fn test_invalid_uncle_hash_case2() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
     assert_error_eq(
-        verifier.verify().err(),
-        Some(
-            UnclesError::UnmatchedUnclesHash {
-                expected: uncles_hash,
-                actual: Byte32::zero(),
-            }
-            .into(),
-        ),
+        verifier.verify().unwrap_err(),
+        UnclesError::UnmatchedUnclesHash {
+            expected: uncles_hash,
+            actual: Byte32::zero(),
+        },
     );
 }
 
@@ -250,11 +241,8 @@ fn test_double_inclusion() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
     assert_error_eq(
-        verifier.verify().err(),
-        Some(
-            UnclesError::DoubleInclusion(block.uncles().get(0).unwrap().header().hash().to_owned())
-                .into(),
-        ),
+        verifier.verify().unwrap_err(),
+        UnclesError::DoubleInclusion(block.uncles().get(0).unwrap().header().hash().to_owned()),
     );
 }
 
@@ -281,8 +269,8 @@ fn test_invalid_difficulty() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
-        verifier.verify().err(),
-        Some(UnclesError::UnmatchedDifficulty.into()),
+        verifier.verify().unwrap_err(),
+        UnclesError::UnmatchedDifficulty,
     );
 }
 // Uncle.epoch != block.epoch
@@ -311,8 +299,8 @@ fn test_invalid_epoch() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
 
     assert_error_eq(
-        verifier.verify().err(),
-        Some(UnclesError::UnmatchedEpochNumber.into()),
+        verifier.verify().unwrap_err(),
+        UnclesError::UnmatchedEpochNumber,
     );
 }
 
@@ -335,8 +323,8 @@ fn test_invalid_number() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
-        verifier.verify().err(),
-        Some(UnclesError::UnmatchedBlockNumber.into()),
+        verifier.verify().unwrap_err(),
+        UnclesError::UnmatchedBlockNumber,
     );
 }
 
@@ -364,8 +352,8 @@ fn test_uncle_proposals_hash() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
-        verifier.verify().err(),
-        Some(UnclesError::UnmatchedProposalRoot.into()),
+        verifier.verify().unwrap_err(),
+        UnclesError::UnmatchedProposalRoot,
     );
 }
 
@@ -392,8 +380,8 @@ fn test_uncle_duplicated_proposals() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
-        verifier.verify().err(),
-        Some(UnclesError::DuplicatedProposalTransactions.into()),
+        verifier.verify().unwrap_err(),
+        UnclesError::DuplicatedProposalTransactions,
     );
 }
 
@@ -416,13 +404,8 @@ fn test_duplicated_uncles() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
-        verifier.verify().err(),
-        Some(
-            UnclesError::DuplicatedUncles(
-                block.uncles().get(1).unwrap().header().hash().to_owned(),
-            )
-            .into(),
-        ),
+        verifier.verify().unwrap_err(),
+        UnclesError::DuplicatedUncles(block.uncles().get(1).unwrap().header().hash().to_owned()),
     );
 }
 
@@ -449,14 +432,11 @@ fn test_uncle_over_count() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
-        verifier.verify().err(),
-        Some(
-            UnclesError::TooManyUncles {
-                max: max_uncles_num as u32,
-                actual: max_uncles_num as u32 + 1,
-            }
-            .into(),
-        ),
+        verifier.verify().unwrap_err(),
+        UnclesError::TooManyUncles {
+            max: max_uncles_num as u32,
+            actual: max_uncles_num as u32 + 1,
+        },
     );
 }
 
@@ -483,8 +463,8 @@ fn test_exceeded_maximum_proposals_limit() {
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
-        verifier.verify().err(),
-        Some(UnclesError::TooManyProposals.into()),
+        verifier.verify().unwrap_err(),
+        UnclesError::TooManyProposals,
     );
 }
 
@@ -504,10 +484,7 @@ fn test_descendant_limit() {
         let epoch = epoch(&shared, &chain2, 17);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_error_eq(
-            verifier.verify().err(),
-            Some(UnclesError::DescendantLimit.into()),
-        );
+        assert_error_eq(verifier.verify().unwrap_err(), UnclesError::DescendantLimit);
     }
 
     // embedded should be ok
@@ -559,10 +536,7 @@ fn test_descendant_continuity() {
         let epoch = epoch(&shared, &chain2, 17);
         let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-        assert_error_eq(
-            verifier.verify().err(),
-            Some(UnclesError::DescendantLimit.into()),
-        );
+        assert_error_eq(verifier.verify().unwrap_err(), UnclesError::DescendantLimit);
     }
 }
 

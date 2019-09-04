@@ -648,10 +648,7 @@ mod tests {
             &cell_provider,
             &header_checker,
         );
-        assert_error_eq(
-            result.unwrap_err(),
-            OutPointError::InvalidDepGroup(op_dep).into(),
-        );
+        assert_error_eq(result.unwrap_err(), OutPointError::InvalidDepGroup(op_dep));
     }
 
     #[test]
@@ -682,7 +679,7 @@ mod tests {
         );
         assert_error_eq(
             result.unwrap_err(),
-            OutPointError::UnknownCells(vec![op_unknown]).into(),
+            OutPointError::UnknownCells(vec![op_unknown]),
         );
     }
 
@@ -737,8 +734,8 @@ mod tests {
         );
 
         assert_error_eq(
-            result.err(),
-            Some(OutPointError::InvalidHeaderDep(invalid_block_hash).into()),
+            result.unwrap_err(),
+            OutPointError::InvalidHeaderDep(invalid_block_hash),
         );
     }
 
@@ -780,8 +777,8 @@ mod tests {
             let provider = BlockCellProvider::new(&block);
 
             assert_error_eq(
-                provider.err(),
-                Some(OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)).into()),
+                provider.err().unwrap(),
+                OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)),
             );
         }
 
@@ -801,8 +798,8 @@ mod tests {
             let provider = BlockCellProvider::new(&block);
 
             assert_error_eq(
-                provider.err(),
-                Some(OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)).into()),
+                provider.err().unwrap(),
+                OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)),
             );
         }
     }
@@ -884,8 +881,8 @@ mod tests {
                 resolve_transaction(&tx2, &mut seen_inputs, &cell_provider, &header_checker);
 
             assert_error_eq(
-                result2.err(),
-                Some(OutPointError::DeadCell(out_point.clone()).into()),
+                result2.unwrap_err(),
+                OutPointError::DeadCell(out_point.clone()),
             );
         }
     }

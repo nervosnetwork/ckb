@@ -59,11 +59,13 @@ fn test_dead_cell_in_same_block() {
     }
 
     assert_error_eq(
-        Err(OutPointError::DeadCell(OutPoint::new(tx1_hash, 0)).into()),
-        chain_controller.process_block(
-            Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
-            true,
-        ),
+        OutPointError::DeadCell(OutPoint::new(tx1_hash, 0)),
+        chain_controller
+            .process_block(
+                Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
+                true,
+            )
+            .unwrap_err(),
     )
 }
 
@@ -112,13 +114,13 @@ fn test_dead_cell_in_different_block() {
     }
 
     assert_error_eq(
-        Some(OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)).into()),
+        OutPointError::DeadCell(OutPoint::new(tx1_hash.to_owned(), 0)),
         chain_controller
             .process_block(
                 Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
                 true,
             )
-            .err(),
+            .unwrap_err(),
     );
 }
 
@@ -168,11 +170,13 @@ fn test_invalid_out_point_index_in_same_block() {
     }
 
     assert_error_eq(
-        Err(OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash, 1)]).into()),
-        chain_controller.process_block(
-            Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
-            true,
-        ),
+        OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash, 1)]),
+        chain_controller
+            .process_block(
+                Arc::new(chain2.blocks()[switch_fork_number + 1].clone()),
+                true,
+            )
+            .unwrap_err(),
     )
 }
 
@@ -223,11 +227,13 @@ fn test_invalid_out_point_index_in_different_blocks() {
     }
 
     assert_error_eq(
-        Err(OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]).into()),
-        chain_controller.process_block(
-            Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
-            true,
-        ),
+        OutPointError::UnknownCells(vec![OutPoint::new(tx1_hash.to_owned(), 1)]),
+        chain_controller
+            .process_block(
+                Arc::new(chain2.blocks()[switch_fork_number + 2].clone()),
+                true,
+            )
+            .unwrap_err(),
     );
 }
 
