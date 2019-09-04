@@ -1,5 +1,4 @@
 use crate::error::SharedError;
-use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{DBConfig, RocksDB};
@@ -7,6 +6,7 @@ use ckb_logger::info_target;
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_script::ScriptConfig;
+use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
@@ -64,6 +64,7 @@ impl Shared {
             proposal_view,
             Arc::clone(&consensus),
         ));
+        let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
 
         let tx_pool_builer = TxPoolServiceBuiler::new(
             tx_pool_config,
@@ -71,10 +72,10 @@ impl Shared {
             script_config.clone(),
             block_assembler_config,
             txs_verify_cache.clone(),
+            Arc::clone(&snapshot_mgr),
         );
 
         let tx_pool_controller = tx_pool_builer.start();
-        let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
 
         let shared = Shared {
             store,

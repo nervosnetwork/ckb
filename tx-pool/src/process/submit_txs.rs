@@ -1,7 +1,6 @@
 use crate::component::entry::TxEntry;
 use crate::error::PoolError;
 use crate::pool::TxPool;
-use crate::service::SubmitTxsResult;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
@@ -14,7 +13,6 @@ use ckb_types::{
 };
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use futures::future::Future;
-use lru_cache::LruCache;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use tokio::prelude::{Async, Poll};

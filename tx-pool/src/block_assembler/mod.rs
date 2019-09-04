@@ -1,9 +1,9 @@
 mod candidate_uncles;
 
-use crate::block_assembler::candidate_uncles::CandidateUncles;
 use crate::component::entry::TxEntry;
 use crate::config::BlockAssemblerConfig;
 use crate::error::BlockAssemblerError as Error;
+pub use candidate_uncles::CandidateUncles;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_jsonrpc_types::{
     BlockTemplate, CellbaseTemplate, Cycle as JsonCycle, TransactionTemplate, UncleTemplate,
@@ -18,20 +18,21 @@ use ckb_types::{
         BlockNumber, Cycle, EpochExt, HeaderView, TransactionBuilder, TransactionView,
         UncleBlockView, Version,
     },
-    packed::{self, CellInput, CellOutput, ProposalShortId, Script, Transaction},
+    packed::{self, Byte32, CellInput, CellOutput, ProposalShortId, Script, Transaction},
     prelude::*,
-    H256,
 };
 use ckb_verification::TransactionError;
 use failure::Error as FailureError;
 use lru_cache::LruCache;
 use std::collections::HashSet;
-use std::sync::{atomic::AtomicU64, atomic::AtomicUsize, atomic::Ordering};
+use std::sync::Arc;
+use std::sync::{atomic::AtomicU64, atomic::AtomicUsize};
+use tokio::sync::lock::Lock;
 
 const BLOCK_TEMPLATE_TIMEOUT: u64 = 3000;
 const TEMPLATE_CACHE_SIZE: usize = 10;
 
-pub(crate) struct TemplateCache {
+pub struct TemplateCache {
     pub time: u64,
     pub uncles_updated_at: u64,
     pub txs_updated_at: u64,
@@ -39,41 +40,39 @@ pub(crate) struct TemplateCache {
 }
 
 impl TemplateCache {
-    pub(crate) fn is_outdate(&self, current_time: u64) -> bool {
+    pub fn is_outdate(&self, current_time: u64) -> bool {
         current_time.saturating_sub(self.time) > BLOCK_TEMPLATE_TIMEOUT
     }
 
-    pub(crate) fn is_modified(
-        &self,
-        last_uncles_updated_at: u64,
-        last_txs_updated_at: u64,
-    ) -> bool {
+    pub fn is_modified(&self, last_uncles_updated_at: u64, last_txs_updated_at: u64) -> bool {
         last_uncles_updated_at != self.uncles_updated_at
             || last_txs_updated_at != self.txs_updated_at
     }
 }
 
+pub type BlockTemplateCacheKey = (Byte32, Cycle, u64, Version);
+
+#[derive(Clone)]
 pub struct BlockAssembler {
-    pub(crate) config: BlockAssemblerConfig,
-    pub(crate) work_id: AtomicUsize,
-    pub(crate) last_uncles_updated_at: AtomicU64,
-    pub(crate) template_caches: LruCache<(H256, Cycle, u64, Version), TemplateCache>,
-    pub(crate) candidate_uncles: CandidateUncles,
+    pub(crate) config: Arc<BlockAssemblerConfig>,
+    pub(crate) work_id: Arc<AtomicUsize>,
+    pub(crate) last_uncles_updated_at: Arc<AtomicU64>,
+    pub(crate) template_caches: Lock<LruCache<BlockTemplateCacheKey, TemplateCache>>,
+    pub(crate) candidate_uncles: Lock<CandidateUncles>,
 }
 
 impl BlockAssembler {
     pub fn new(config: BlockAssemblerConfig) -> Self {
         Self {
-            config,
-            work_id: AtomicUsize::new(0),
-            last_uncles_updated_at: AtomicU64::new(0),
-            template_caches: LruCache::new(TEMPLATE_CACHE_SIZE),
-            candidate_uncles: CandidateUncles::new(),
+            config: Arc::new(config),
+            work_id: Arc::new(AtomicUsize::new(0)),
+            last_uncles_updated_at: Arc::new(AtomicU64::new(0)),
+            template_caches: Lock::new(LruCache::new(TEMPLATE_CACHE_SIZE)),
+            candidate_uncles: Lock::new(CandidateUncles::new()),
         }
     }
 
     pub(crate) fn transform_params(
-        &self,
         consensus: &Consensus,
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
@@ -92,11 +91,7 @@ impl BlockAssembler {
         (bytes_limit, proposals_limit, version)
     }
 
-    pub(crate) fn load_last_uncles_updated_at(&self) -> u64 {
-        self.last_uncles_updated_at.load(Ordering::SeqCst)
-    }
-
-    pub(crate) fn transform_uncle(uncle: UncleBlockView) -> UncleTemplate {
+    pub(crate) fn transform_uncle(uncle: &UncleBlockView) -> UncleTemplate {
         UncleTemplate {
             hash: uncle.hash().unpack(),
             required: false,
@@ -136,7 +131,6 @@ impl BlockAssembler {
     }
 
     pub(crate) fn calculate_txs_size_limit(
-        &self,
         bytes_limit: u64,
         cellbase: Transaction,
         uncles: &[UncleBlockView],
@@ -169,7 +163,7 @@ impl BlockAssembler {
     /// The cellbase have only one output,
     /// miner should collect the block reward for finalize target H(max(0, c - w_far - 1))
     pub(crate) fn build_cellbase(
-        &self,
+        config: &BlockAssemblerConfig,
         snapshot: &Snapshot,
         tip: &HeaderView,
         lock: Script,
@@ -203,17 +197,17 @@ impl BlockAssembler {
     // (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
     // and (4) B2 is the first block in its chain to refer to B1.
     pub(crate) fn prepare_uncles(
-        &mut self,
         snapshot: &Snapshot,
         candidate_number: BlockNumber,
         current_epoch_ext: &EpochExt,
+        candidate_uncles: &mut CandidateUncles,
     ) -> Vec<UncleBlockView> {
         let epoch_number = current_epoch_ext.number();
         let max_uncles_num = snapshot.consensus().max_uncles_num();
         let mut uncles: Vec<UncleBlockView> = Vec::with_capacity(max_uncles_num);
         let mut removed = Vec::new();
 
-        for uncle in self.candidate_uncles.values() {
+        for uncle in candidate_uncles.values() {
             if uncles.len() == max_uncles_num {
                 break;
             }
@@ -234,7 +228,7 @@ impl BlockAssembler {
         }
 
         for r in removed {
-            self.candidate_uncles.remove(&r);
+            candidate_uncles.remove(&r);
         }
         uncles
     }

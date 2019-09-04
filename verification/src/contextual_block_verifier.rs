@@ -21,7 +21,6 @@ use futures::future::Future;
 use lru_cache::LruCache;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
-use tokio::prelude::{Async, Poll};
 use tokio::sync::lock::Lock;
 
 pub struct VerifyContext<'a, CS> {

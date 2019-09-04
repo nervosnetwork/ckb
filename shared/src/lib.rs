@@ -9,8 +9,7 @@
 
 pub mod error;
 pub mod shared;
-mod snapshot;
 
-pub use crate::snapshot::{Snapshot, SnapshotMgr};
+pub use ckb_snapshot::Snapshot;
 
 pub(crate) const LOG_TARGET_CHAIN: &str = "ckb-chain";

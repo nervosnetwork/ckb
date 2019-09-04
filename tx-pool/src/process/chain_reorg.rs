@@ -1,5 +1,4 @@
 use crate::pool::TxPool;
-use crate::process::util::MaybeAcquired;
 use ckb_logger::debug_target;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
@@ -10,7 +9,6 @@ use ckb_types::{
 };
 use ckb_util::LinkedHashSet;
 use futures::future::Future;
-use lru_cache::LruCache;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;

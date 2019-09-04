@@ -3,7 +3,6 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::JsonBytes;
-use ckb_miner::{BlockAssembler, BlockAssemblerConfig, BlockAssemblerController};
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -11,7 +10,7 @@ use ckb_shared::{
 };
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
-use ckb_tx_pool_executor::TxPoolExecutor;
+use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -24,6 +23,7 @@ use ckb_types::{
 };
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use criterion::{criterion_group, Criterion};
+use futures::future::Future;
 use rand::random;
 use std::sync::Arc;
 
@@ -49,14 +49,7 @@ fn block_assembler_config() -> BlockAssemblerConfig {
     }
 }
 
-pub fn setup_chain(
-    txs_size: usize,
-) -> (
-    Shared,
-    ChainController,
-    BlockAssemblerController,
-    TxPoolExecutor,
-) {
+pub fn setup_chain(txs_size: usize) -> (Shared, ChainController) {
     let (_, _, secp_script) = secp_cell();
     let tx = create_secp_tx();
     let dao = genesis_dao_data(vec![&tx]).unwrap();
@@ -93,17 +86,13 @@ pub fn setup_chain(
 
     let (shared, table) = SharedBuilder::default()
         .consensus(consensus.clone())
+        .block_assembler_config(Some(block_assembler_config()))
         .build()
         .unwrap();
-    let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), table, notify.clone());
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start(Some("ChainService"));
 
-    let block_assembler = BlockAssembler::new(shared.clone(), block_assembler_config())
-        .start(Some("MinerAgent"), &notify);
-    let tx_pool_executor = TxPoolExecutor::new(shared.clone());
-
-    (shared, chain_controller, block_assembler, tx_pool_executor)
+    (shared, chain_controller)
 }
 
 pub fn gen_txs_from_block(block: &BlockView) -> Vec<TransactionView> {
@@ -142,21 +131,24 @@ fn bench(c: &mut Criterion) {
         |b, txs_size| {
             b.iter_with_setup(
                 || setup_chain(**txs_size),
-                |(shared, chain, block_assembler, tx_pool_executor)| {
+                |(shared, chain)| {
                     let mut i = 10;
                     while i > 0 {
                         let snapshot: &Snapshot = &shared.snapshot();
                         let tip_hash = snapshot.tip_hash();
                         let block = snapshot.get_block(&tip_hash).expect("tip exist");
                         let txs = gen_txs_from_block(&block);
+
+                        let tx_pool = shared.tx_pool_controller();
                         if !txs.is_empty() {
-                            tx_pool_executor
-                                .verify_and_add_txs_to_pool(txs)
-                                .expect("submit txs");
+                            tx_pool.submit_txs(txs).unwrap().wait().unwrap();
                         }
-                        let block_template = block_assembler
+                        let block_template = tx_pool
                             .get_block_template(None, None, None)
-                            .expect("get_block_template");
+                            .unwrap()
+                            .wait()
+                            .unwrap()
+                            .unwrap();
                         let raw_block: Block = block_template.into();
                         let raw_header = raw_block.header().raw();
                         let header = Header::new_builder()

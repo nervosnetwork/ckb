@@ -4,14 +4,15 @@ use crate::config::TxPoolConfig;
 use crate::error::{BlockAssemblerError, PoolError};
 use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::{
-    BlockTemplateProcess, ChainReorgProcess, FetchCache, FetchTxRPCProcess, FetchTxsProcess,
-    FetchTxsWithCyclesProcess, FreshProposalsFilterProcess, NewUncleProcess, SubmitTxsProcess,
-    TxPoolInfoProcess, UpdateCache,
+    BlockTemplateBuilder, BlockTemplateCacheProcess, BuildCellbaseProcess, ChainReorgProcess,
+    FetchCache, FetchTxRPCProcess, FetchTxsProcess, FetchTxsWithCyclesProcess,
+    FreshProposalsFilterProcess, NewUncleProcess, PackageTxsProcess, PrepareUnclesProcess,
+    SubmitTxsProcess, TxPoolInfoProcess, UpdateBlockTemplateCache, UpdateCache,
 };
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
 use ckb_script::ScriptConfig;
-use ckb_snapshot::Snapshot;
+use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_stop_handler::{SignalSender, StopHandler};
 use ckb_types::{
     core::{
@@ -25,7 +26,10 @@ use futures::stream::Stream;
 use futures::sync::{mpsc, oneshot};
 use lru_cache::LruCache;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64},
+    Arc,
+};
 use std::thread;
 use tokio::sync::lock::Lock;
 
@@ -229,8 +233,15 @@ impl TxPoolServiceBuiler {
         script_config: ScriptConfig,
         block_assembler_config: Option<BlockAssemblerConfig>,
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        snapshot_mgr: Arc<SnapshotMgr>,
     ) -> TxPoolServiceBuiler {
-        let tx_pool = TxPool::new(tx_pool_config, snapshot, script_config);
+        let last_txs_updated_at = Arc::new(AtomicU64::new(0));
+        let tx_pool = TxPool::new(
+            tx_pool_config,
+            snapshot,
+            script_config,
+            Arc::clone(&last_txs_updated_at),
+        );
         let block_assembler = block_assembler_config.map(BlockAssembler::new);
 
         TxPoolServiceBuiler {
@@ -238,6 +249,8 @@ impl TxPoolServiceBuiler {
                 tx_pool,
                 block_assembler,
                 txs_verify_cache,
+                last_txs_updated_at,
+                snapshot_mgr,
             )),
         }
     }
@@ -273,8 +286,10 @@ impl TxPoolServiceBuiler {
 #[derive(Clone)]
 pub struct TxPoolService {
     tx_pool: Lock<TxPool>,
-    block_assembler: Option<Lock<BlockAssembler>>,
+    block_assembler: Option<BlockAssembler>,
     txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+    last_txs_updated_at: Arc<AtomicU64>,
+    snapshot_mgr: Arc<SnapshotMgr>,
 }
 
 impl TxPoolService {
@@ -282,12 +297,20 @@ impl TxPoolService {
         tx_pool: TxPool,
         block_assembler: Option<BlockAssembler>,
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
+        last_txs_updated_at: Arc<AtomicU64>,
+        snapshot_mgr: Arc<SnapshotMgr>,
     ) -> Self {
         Self {
             tx_pool: Lock::new(tx_pool),
-            block_assembler: block_assembler.map(Lock::new),
+            block_assembler: block_assembler,
             txs_verify_cache,
+            last_txs_updated_at,
+            snapshot_mgr,
         }
+    }
+
+    fn snapshot(&self) -> Arc<Snapshot> {
+        Arc::clone(&self.snapshot_mgr.load())
     }
 
     fn process(&self, message: Message) -> Box<dyn Future<Item = (), Error = ()> + 'static + Send> {
@@ -301,13 +324,12 @@ impl TxPoolService {
                     .map_err(|_| error!("responder send tx_pool_info failed"));
                 future::ok(())
             })),
-
             Message::BlockTemplate(Request {
                 responder,
                 arguments: (bytes_limit, proposals_limit, max_version),
             }) => Box::new(
                 self.get_block_template(bytes_limit, proposals_limit, max_version)
-                    .and_then(|block_template_result| {
+                    .then(|block_template_result| {
                         responder
                             .send(block_template_result)
                             .map_err(|_| error!("responder send block_template_result failed"));
@@ -384,17 +406,88 @@ impl TxPoolService {
         bytes_limit: Option<u64>,
         proposals_limit: Option<u64>,
         max_version: Option<Version>,
-    ) -> impl Future<Item = BlockTemplateResult, Error = ()> {
+    ) -> impl Future<Item = BlockTemplate, Error = FailureError> {
         if self.block_assembler.is_none() {
-            future::Either::A(future::ok(Err(BlockAssemblerError::Disabled.into())))
+            future::Either::A(future::err(BlockAssemblerError::Disabled.into()))
         } else {
-            future::Either::B(BlockTemplateProcess::new(
-                self.tx_pool.clone(),
-                self.block_assembler.clone().unwrap(),
+            let block_assembler = self.block_assembler.clone().unwrap();
+            let snapshot = self.snapshot();
+            let consensus = snapshot.consensus();
+            let cycles_limit = consensus.max_block_cycles();
+            let args = BlockAssembler::transform_params(
+                consensus,
                 bytes_limit,
                 proposals_limit,
                 max_version,
-            ))
+            );
+            let (bytes_limit, proposals_limit, version) = args;
+
+            let cache = BlockTemplateCacheProcess::new(
+                block_assembler.template_caches.clone(),
+                Arc::clone(&self.last_txs_updated_at),
+                Arc::clone(&block_assembler.last_uncles_updated_at),
+                Arc::clone(&snapshot),
+                args,
+            );
+
+            let build_cellbase = BuildCellbaseProcess::new(
+                Arc::clone(&snapshot),
+                Arc::clone(&block_assembler.config),
+            );
+            let prepare_uncle = PrepareUnclesProcess {
+                snapshot: Arc::clone(&snapshot),
+                last_uncles_updated_at: Arc::clone(&block_assembler.last_uncles_updated_at),
+                candidate_uncles: block_assembler.candidate_uncles.clone(),
+            };
+
+            let tx_pool = self.tx_pool.clone();
+            let last_txs_updated_at = Arc::clone(&self.last_txs_updated_at);
+
+            let template_caches = block_assembler.template_caches.clone();
+            let tip_hash = snapshot.tip_hash();
+
+            let process = cache.or_else(move |_| {
+                build_cellbase
+                    .and_then(move |cellbase| {
+                        prepare_uncle.and_then(move |(uncles, current_epoch, uncles_updated_at)| {
+                            let package_txs = PackageTxsProcess {
+                                tx_pool,
+                                bytes_limit,
+                                proposals_limit,
+                                max_block_cycles: cycles_limit,
+                                last_txs_updated_at,
+                                cellbase: cellbase.clone(),
+                                uncles: uncles.clone(),
+                            };
+                            package_txs.and_then(move |(proposals, entries, txs_updated_at)| {
+                                BlockTemplateBuilder {
+                                    snapshot: Arc::clone(&snapshot),
+                                    entries,
+                                    proposals,
+                                    cellbase,
+                                    work_id: Arc::clone(&block_assembler.work_id),
+                                    current_epoch,
+                                    uncles,
+                                    args,
+                                    uncles_updated_at,
+                                    txs_updated_at,
+                                }
+                            })
+                        })
+                    })
+                    .map(move |(template, uncles_updated_at, txs_updated_at)| {
+                        let update_cache = UpdateBlockTemplateCache::new(
+                            template_caches,
+                            (tip_hash, bytes_limit, proposals_limit, version),
+                            uncles_updated_at,
+                            txs_updated_at,
+                            template.clone(),
+                        );
+                        tokio::spawn(update_cache);
+                        template
+                    })
+            });
+            future::Either::B(process)
         }
     }
 
@@ -485,8 +578,10 @@ impl TxPoolService {
         if self.block_assembler.is_none() {
             future::Either::A(future::ok(()))
         } else {
+            let block_assembler = self.block_assembler.clone().unwrap();
             future::Either::B(NewUncleProcess::new(
-                self.block_assembler.clone().unwrap(),
+                block_assembler.candidate_uncles.clone(),
+                Arc::clone(&block_assembler.last_uncles_updated_at),
                 uncle,
             ))
         }

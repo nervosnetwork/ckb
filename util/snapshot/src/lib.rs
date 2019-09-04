@@ -1,3 +1,4 @@
+use arc_swap::{ArcSwap, Guard};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
     iter::{DBIteratorItem, Direction},
@@ -17,6 +18,26 @@ use ckb_types::{
 };
 use im::hashmap::HashMap as HamtMap;
 use std::sync::Arc;
+
+pub struct SnapshotMgr {
+    inner: ArcSwap<Snapshot>,
+}
+
+impl SnapshotMgr {
+    pub fn new(snapshot: Arc<Snapshot>) -> Self {
+        SnapshotMgr {
+            inner: ArcSwap::new(snapshot),
+        }
+    }
+
+    pub fn load(&self) -> Guard<Arc<Snapshot>> {
+        self.inner.load()
+    }
+
+    pub fn store(&self, snapshot: Arc<Snapshot>) {
+        self.inner.store(snapshot);
+    }
+}
 
 pub struct Snapshot {
     tip_header: HeaderView,

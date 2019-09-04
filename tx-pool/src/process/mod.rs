@@ -7,9 +7,12 @@ mod fresh_proposals_filter;
 mod new_uncle;
 mod submit_txs;
 mod tx_pool_info;
-mod util;
 
-pub use block_template::BlockTemplateProcess;
+pub use ckb_verification::txs_verify_cache::{FetchCache, UpdateCache};
+pub use block_template::{
+    BlockTemplateBuilder, BlockTemplateCacheProcess, BuildCellbaseProcess, PackageTxsProcess,
+    PrepareUnclesProcess, UpdateBlockTemplateCache,
+};
 pub use chain_reorg::ChainReorgProcess;
 pub use fetch_tx_for_rpc::FetchTxRPCProcess;
 pub use fetch_txs::FetchTxsProcess;
@@ -18,4 +21,3 @@ pub use fresh_proposals_filter::FreshProposalsFilterProcess;
 pub use new_uncle::NewUncleProcess;
 pub use submit_txs::SubmitTxsProcess;
 pub use tx_pool_info::TxPoolInfoProcess;
-pub use util::{FetchCache, UpdateCache};

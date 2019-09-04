@@ -13,21 +13,22 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         cell::{
-            get_related_dep_out_points, resolve_transaction, OverlayCellProvider,
+            resolve_transaction, OverlayCellProvider,
             ResolvedTransaction, UnresolvableError,
         },
-        BlockView, Capacity, Cycle, TransactionView,
+        Capacity, Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
-    prelude::*,
 };
-use ckb_util::LinkedHashSet;
 use ckb_verification::{ContextualTransactionVerifier, TransactionVerifier};
 use faketime::unix_time_as_millis;
 use lru_cache::LruCache;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 #[derive(Clone)]
 pub struct TxPool {
@@ -45,7 +46,7 @@ pub struct TxPool {
     /// cache for committed transactions hash
     pub(crate) committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
     /// last txs updated timestamp, used by getblocktemplate
-    pub(crate) last_txs_updated_at: u64,
+    pub(crate) last_txs_updated_at: Arc<AtomicU64>,
     // sum of all tx_pool tx's virtual sizes.
     pub(crate) total_tx_size: usize,
     // sum of all tx_pool tx's cycles.
@@ -69,10 +70,10 @@ impl TxPool {
         config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
         script_config: ScriptConfig,
+        last_txs_updated_at: Arc<AtomicU64>,
     ) -> TxPool {
         let conflict_cache_size = config.max_conflict_cache_size;
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
-        let last_txs_updated_at = 0u64;
 
         TxPool {
             config,
@@ -105,7 +106,7 @@ impl TxPool {
             orphan_size: self.proposed.size(),
             total_tx_size: self.total_tx_size,
             total_tx_cycles: self.total_tx_cycles,
-            last_txs_updated_at: self.last_txs_updated_at,
+            last_txs_updated_at: self.get_last_txs_updated_at(),
         }
     }
 
@@ -193,12 +194,13 @@ impl TxPool {
         self.orphan.add_tx(cycles, size, tx, unknowns.into_iter())
     }
 
-    pub(crate) fn touch_last_txs_updated_at(&mut self) {
-        self.last_txs_updated_at = unix_time_as_millis();
+    pub(crate) fn touch_last_txs_updated_at(&self) {
+        self.last_txs_updated_at
+            .store(unix_time_as_millis(), Ordering::SeqCst);
     }
 
     pub fn get_last_txs_updated_at(&self) -> u64 {
-        self.last_txs_updated_at
+        self.last_txs_updated_at.load(Ordering::SeqCst)
     }
 
     pub fn contains_proposal_id(&self, id: &ProposalShortId) -> bool {
