@@ -153,8 +153,8 @@ impl CellStatus {
 
 /// Transaction with resolved input cells.
 #[derive(Debug)]
-pub struct ResolvedTransaction<'a> {
-    pub transaction: &'a TransactionView,
+pub struct ResolvedTransaction {
+    pub transaction: TransactionView,
     pub resolved_cell_deps: Vec<CellMeta>,
     pub resolved_inputs: Vec<CellMeta>,
     pub resolved_dep_groups: Vec<CellMeta>,
@@ -389,12 +389,12 @@ fn resolve_dep_group<
     Ok(Some((*dep_group_cell, resolved_deps)))
 }
 
-pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
-    transaction: &'a TransactionView,
+pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
+    transaction: TransactionView,
     seen_inputs: &mut HashSet<OutPoint, S>,
     cell_provider: &CP,
     header_checker: &HC,
-) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+) -> Result<ResolvedTransaction, UnresolvableError> {
     let (
         mut unknown_out_points,
         mut resolved_inputs,
@@ -468,7 +468,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     }
 }
 
-impl<'a> ResolvedTransaction<'a> {
+impl ResolvedTransaction {
     // cellbase will be resolved with empty input cells, we can use low cost check here:
     pub fn is_cellbase(&self) -> bool {
         self.resolved_inputs.is_empty()

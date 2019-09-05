@@ -260,12 +260,16 @@ impl Future for BlockTemplateBuilder {
 
         let rtxs = txs
             .try_fold(vec![], |mut rtxs, tx| {
-                resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot).map(
-                    |rtx| {
-                        rtxs.push(rtx);
-                        rtxs
-                    },
+                resolve_transaction(
+                    tx.clone(),
+                    &mut seen_inputs,
+                    &overlay_cell_provider,
+                    snapshot,
                 )
+                .map(|rtx| {
+                    rtxs.push(rtx);
+                    rtxs
+                })
             })
             .map_err(|_| BlockAssemblerError::InvalidInput)?;
 

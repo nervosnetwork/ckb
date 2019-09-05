@@ -347,7 +347,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let transactions = parent.transactions();
         let rtxs: Vec<ResolvedTransaction> = transactions
             .iter()
-            .map(|tx| resolve_transaction(&tx, &mut seen_inputs, &mock_store, &mock_store).unwrap())
+            .map(|tx| resolve_transaction(tx.clone(), &mut seen_inputs, &mock_store, &mock_store).unwrap())
             .collect();
         let calculator = DaoCalculator::new(&consensus, mock_store.store());
         let dao = calculator
@@ -392,7 +392,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .build();
         let rtxs =
             vec![
-                resolve_transaction(&cellbase, &mut HashSet::new(), &mock_store, &mock_store)
+                resolve_transaction(cellbase.clone(), &mut HashSet::new(), &mock_store, &mock_store)
                     .unwrap(),
             ];
         let dao = DaoCalculator::new(&consensus, mock_store.store())

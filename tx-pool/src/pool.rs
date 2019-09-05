@@ -318,7 +318,7 @@ impl TxPool {
             return Err(PoolError::LimitReached);
         }
         let short_id = tx.proposal_short_id();
-        match self.resolve_tx_from_pending_and_proposed(&tx) {
+        match self.resolve_tx_from_pending_and_proposed(tx.clone()) {
             Ok(rtx) => self.verify_rtx(&rtx, Some(cycles)).and_then(|cycles| {
                 if self.reach_cycles_limit(cycles) {
                     return Err(PoolError::LimitReached);
@@ -351,10 +351,10 @@ impl TxPool {
         self.snapshot().proposals().contains_proposed(short_id)
     }
 
-    pub fn resolve_tx_from_pending_and_proposed<'a>(
+    pub fn resolve_tx_from_pending_and_proposed(
         &self,
-        tx: &'a TransactionView,
-    ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+        tx: TransactionView,
+    ) -> Result<ResolvedTransaction, UnresolvableError> {
         let snapshot = self.snapshot();
         let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let gap_and_proposed_provider = OverlayCellProvider::new(&self.gap, &proposed_provider);
@@ -369,10 +369,10 @@ impl TxPool {
         )
     }
 
-    pub fn resolve_tx_from_proposed<'a>(
+    pub fn resolve_tx_from_proposed(
         &self,
-        tx: &'a TransactionView,
-    ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+        tx: TransactionView,
+    ) -> Result<ResolvedTransaction, UnresolvableError> {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
@@ -555,7 +555,7 @@ impl TxPool {
         tx: TransactionView,
     ) -> Result<Cycle, PoolError> {
         let tx_result = self
-            .resolve_tx_from_pending_and_proposed(&tx)
+            .resolve_tx_from_pending_and_proposed(tx.clone())
             .map_err(PoolError::UnresolvableTransaction)
             .and_then(|rtx| {
                 self.verify_rtx(&rtx, cycles).and_then(|cycles| {
@@ -588,7 +588,7 @@ impl TxPool {
         tx: TransactionView,
     ) -> Result<Cycle, PoolError> {
         let tx_result = self
-            .resolve_tx_from_proposed(&tx)
+            .resolve_tx_from_proposed(tx.clone())
             .map_err(PoolError::UnresolvableTransaction)
             .and_then(|rtx| {
                 self.verify_rtx(&rtx, cycles).and_then(|cycles| {
@@ -618,7 +618,7 @@ impl TxPool {
         tx: TransactionView,
     ) -> Result<Cycle, PoolError> {
         let tx_result = self
-            .resolve_tx_from_pending_and_proposed(&tx)
+            .resolve_tx_from_pending_and_proposed(tx.clone())
             .map_err(PoolError::UnresolvableTransaction)
             .and_then(|rtx| {
                 self.verify_rtx(&rtx, cycles).and_then(|cycles| {

@@ -65,7 +65,7 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     debug_printer: Option<Box<dyn Fn(&Byte32, &str)>>,
 
     outputs: Vec<CellMeta>,
-    rtx: &'a ResolvedTransaction<'a>,
+    rtx: &'a ResolvedTransaction,
 
     binaries_by_data_hash: HashMap<Byte32, Bytes>,
     binaries_by_type_hash: HashMap<Byte32, (Bytes, bool)>,

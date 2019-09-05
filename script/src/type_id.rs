@@ -20,7 +20,7 @@ pub const ERROR_TOO_MANY_CELLS: i8 = -2;
 pub const ERROR_INVALID_INPUT_HASH: i8 = -3;
 
 pub struct TypeIdSystemScript<'a> {
-    pub rtx: &'a ResolvedTransaction<'a>,
+    pub rtx: &'a ResolvedTransaction,
     pub script_group: &'a ScriptGroup,
     pub max_cycles: Cycle,
 }

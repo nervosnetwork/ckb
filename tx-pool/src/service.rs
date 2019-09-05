@@ -6,8 +6,9 @@ use crate::pool::{TxPool, TxPoolInfo};
 use crate::process::{
     BlockTemplateBuilder, BlockTemplateCacheProcess, BuildCellbaseProcess, ChainReorgProcess,
     FetchCache, FetchTxRPCProcess, FetchTxsProcess, FetchTxsWithCyclesProcess,
-    FreshProposalsFilterProcess, NewUncleProcess, PackageTxsProcess, PrepareUnclesProcess,
-    SubmitTxsProcess, TxPoolInfoProcess, UpdateBlockTemplateCache, UpdateCache,
+    FreshProposalsFilterProcess, NewUncleProcess, PackageTxsProcess, PreResolveTxsProcess,
+    PrepareUnclesProcess, SubmitTxsProcess, TxPoolInfoProcess, UpdateBlockTemplateCache,
+    UpdateCache, VerifyTxsProcess,
 };
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::error;
@@ -249,7 +250,7 @@ impl TxPoolServiceBuiler {
         let tx_pool = TxPool::new(
             tx_pool_config,
             snapshot,
-            script_config,
+            script_config.clone(),
             Arc::clone(&last_txs_updated_at),
         );
         let block_assembler = block_assembler_config.map(BlockAssembler::new);
@@ -261,6 +262,7 @@ impl TxPoolServiceBuiler {
                 txs_verify_cache,
                 last_txs_updated_at,
                 snapshot_mgr,
+                script_config,
             )),
         }
     }
@@ -300,6 +302,7 @@ pub struct TxPoolService {
     txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
     last_txs_updated_at: Arc<AtomicU64>,
     snapshot_mgr: Arc<SnapshotMgr>,
+    script_config: ScriptConfig,
 }
 
 impl TxPoolService {
@@ -309,6 +312,7 @@ impl TxPoolService {
         txs_verify_cache: Lock<LruCache<Byte32, Cycle>>,
         last_txs_updated_at: Arc<AtomicU64>,
         snapshot_mgr: Arc<SnapshotMgr>,
+        script_config: ScriptConfig,
     ) -> Self {
         Self {
             tx_pool: Lock::new(tx_pool),
@@ -316,6 +320,7 @@ impl TxPoolService {
             txs_verify_cache,
             last_txs_updated_at,
             snapshot_mgr,
+            script_config,
         }
     }
 
@@ -349,7 +354,7 @@ impl TxPoolService {
             Message::SubmitTxs(Request {
                 responder,
                 arguments: txs,
-            }) => Box::new(self.process_txs(txs).and_then(|submit_txs_result| {
+            }) => Box::new(self.process_txs(txs).then(|submit_txs_result| {
                 responder
                     .send(submit_txs_result)
                     .map_err(|_| error!("responder send submit_txs_result failed"));
@@ -357,7 +362,7 @@ impl TxPoolService {
             })),
             Message::NotifyTxs(Notify {
                 arguments: (txs, callback),
-            }) => Box::new(self.process_txs(txs).and_then(|ret| {
+            }) => Box::new(self.process_txs(txs).then(|ret| {
                 future::lazy(|| {
                     callback.map(|call| call(ret));
                     future::ok(())
@@ -512,20 +517,33 @@ impl TxPoolService {
     fn process_txs(
         &self,
         txs: Vec<TransactionView>,
-    ) -> impl Future<Item = SubmitTxsResult, Error = ()> {
+    ) -> impl Future<Item = Vec<Cycle>, Error = PoolError> {
         let keys: Vec<Byte32> = txs.iter().map(|tx| tx.hash()).collect();
         let fetched_cache = FetchCache::new(self.txs_verify_cache.clone(), keys);
         let txs_verify_cache = self.txs_verify_cache.clone();
+        let script_config = self.script_config.clone();
 
+        let snapshot = self.snapshot();
         let tx_pool = self.tx_pool.clone();
-        fetched_cache
-            .and_then(move |cache| SubmitTxsProcess::new(tx_pool, cache, txs))
-            .map(move |ret| {
-                ret.map(|(map, cycles)| {
+
+        let pre_resolve = PreResolveTxsProcess::new(tx_pool.clone(), txs);
+
+        pre_resolve.and_then(move |(tip_hash, snapshot, rtxs, status)| {
+            fetched_cache
+                .then(move |cache| {
+                    VerifyTxsProcess::new(
+                        snapshot,
+                        cache.expect("fetched_cache never fail"),
+                        rtxs,
+                        script_config,
+                    )
+                })
+                .and_then(move |txs| SubmitTxsProcess::new(tx_pool, txs, tip_hash, status))
+                .map(move |(map, cycles)| {
                     tokio::spawn(UpdateCache::new(txs_verify_cache, map));
                     cycles
                 })
-            })
+        })
     }
 
     fn fresh_proposals_filter(

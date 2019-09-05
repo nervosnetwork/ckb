@@ -19,5 +19,5 @@ pub use fetch_txs::FetchTxsProcess;
 pub use fetch_txs_with_cycles::FetchTxsWithCyclesProcess;
 pub use fresh_proposals_filter::FreshProposalsFilterProcess;
 pub use new_uncle::NewUncleProcess;
-pub use submit_txs::SubmitTxsProcess;
+pub use submit_txs::{PreResolveTxsProcess, SubmitTxsProcess, VerifyTxsProcess};
 pub use tx_pool_info::TxPoolInfoProcess;

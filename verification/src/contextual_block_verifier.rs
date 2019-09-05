@@ -221,7 +221,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
 }
 
 pub struct RewardVerifier<'a, 'b, CS> {
-    resolved: &'a [ResolvedTransaction<'a>],
+    resolved: &'a [ResolvedTransaction],
     parent: &'b HeaderView,
     context: &'a VerifyContext<'a, CS>,
 }
@@ -272,7 +272,7 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
 
 struct DaoHeaderVerifier<'a, 'b, 'c, CS> {
     context: &'a VerifyContext<'a, CS>,
-    resolved: &'a [ResolvedTransaction<'a>],
+    resolved: &'a [ResolvedTransaction],
     parent: &'b HeaderView,
     header: &'c HeaderView,
 }
@@ -280,7 +280,7 @@ struct DaoHeaderVerifier<'a, 'b, 'c, CS> {
 impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
-        resolved: &'a [ResolvedTransaction<'a>],
+        resolved: &'a [ResolvedTransaction],
         parent: &'b HeaderView,
         header: &'c HeaderView,
     ) -> Self {
@@ -317,7 +317,7 @@ struct BlockTxsVerifier<'a, CS> {
     block_number: BlockNumber,
     epoch_number: EpochNumber,
     parent_hash: Byte32,
-    resolved: &'a [ResolvedTransaction<'a>],
+    resolved: &'a [ResolvedTransaction],
 }
 
 impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
@@ -327,7 +327,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         block_number: BlockNumber,
         epoch_number: EpochNumber,
         parent_hash: Byte32,
-        resolved: &'a [ResolvedTransaction<'a>],
+        resolved: &'a [ResolvedTransaction],
     ) -> Self {
         BlockTxsVerifier {
             context,

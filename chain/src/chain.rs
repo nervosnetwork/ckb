@@ -579,7 +579,7 @@ impl ChainService {
                             .iter()
                             .map(|x| {
                                 resolve_transaction(
-                                    x,
+                                    x.clone(),
                                     &mut seen_inputs,
                                     &cell_provider,
                                     &verify_context,
