@@ -88,7 +88,7 @@ impl Pack<packed::EpochExt> for core::EpochExt {
     fn pack(&self) -> packed::EpochExt {
         packed::EpochExt::new_builder()
             .number(self.number().pack())
-            .block_reward(self.base_block_reward().pack())
+            .base_block_reward(self.base_block_reward().pack())
             .remainder_reward(self.remainder_reward().pack())
             .previous_epoch_hash_rate(self.previous_epoch_hash_rate().pack())
             .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch().clone())
@@ -103,7 +103,7 @@ impl<'r> Unpack<core::EpochExt> for packed::EpochExtReader<'r> {
     fn unpack(&self) -> core::EpochExt {
         core::EpochExt {
             number: self.number().unpack(),
-            block_reward: self.block_reward().unpack(),
+            base_block_reward: self.base_block_reward().unpack(),
             remainder_reward: self.remainder_reward().unpack(),
             previous_epoch_hash_rate: self.previous_epoch_hash_rate().unpack(),
             last_block_hash_in_previous_epoch: self.last_block_hash_in_previous_epoch().to_entity(),

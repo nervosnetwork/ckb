@@ -10672,7 +10672,7 @@ impl ::std::fmt::Display for EpochExt {
         )?;
         write!(f, ", {}: {}", "difficulty", self.difficulty())?;
         write!(f, ", {}: {}", "number", self.number())?;
-        write!(f, ", {}: {}", "block_reward", self.block_reward())?;
+        write!(f, ", {}: {}", "base_block_reward", self.base_block_reward())?;
         write!(f, ", {}: {}", "remainder_reward", self.remainder_reward())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
         write!(f, ", {}: {}", "length", self.length())?;
@@ -10700,7 +10700,7 @@ impl<'r> ::std::fmt::Display for EpochExtReader<'r> {
         )?;
         write!(f, ", {}: {}", "difficulty", self.difficulty())?;
         write!(f, ", {}: {}", "number", self.number())?;
-        write!(f, ", {}: {}", "block_reward", self.block_reward())?;
+        write!(f, ", {}: {}", "base_block_reward", self.base_block_reward())?;
         write!(f, ", {}: {}", "remainder_reward", self.remainder_reward())?;
         write!(f, ", {}: {}", "start_number", self.start_number())?;
         write!(f, ", {}: {}", "length", self.length())?;
@@ -10717,7 +10717,7 @@ pub struct EpochExtBuilder {
     pub(crate) last_block_hash_in_previous_epoch: Byte32,
     pub(crate) difficulty: Byte32,
     pub(crate) number: Uint64,
-    pub(crate) block_reward: Uint64,
+    pub(crate) base_block_reward: Uint64,
     pub(crate) remainder_reward: Uint64,
     pub(crate) start_number: Uint64,
     pub(crate) length: Uint64,
@@ -10759,7 +10759,7 @@ impl molecule::prelude::Entity for EpochExt {
             .last_block_hash_in_previous_epoch(self.last_block_hash_in_previous_epoch())
             .difficulty(self.difficulty())
             .number(self.number())
-            .block_reward(self.block_reward())
+            .base_block_reward(self.base_block_reward())
             .remainder_reward(self.remainder_reward())
             .start_number(self.start_number())
             .length(self.length())
@@ -10802,7 +10802,7 @@ impl EpochExt {
         let end = u32::from_le(offsets[3 + 1]) as usize;
         Uint64::new_unchecked(self.0.slice(start, end))
     }
-    pub fn block_reward(&self) -> Uint64 {
+    pub fn base_block_reward(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[4]) as usize;
         let end = u32::from_le(offsets[4 + 1]) as usize;
@@ -10923,7 +10923,7 @@ impl<'r> EpochExtReader<'r> {
         let end = u32::from_le(offsets[3 + 1]) as usize;
         Uint64Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn block_reward(&self) -> Uint64Reader<'r> {
+    pub fn base_block_reward(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[4]) as usize;
         let end = u32::from_le(offsets[4 + 1]) as usize;
@@ -10961,7 +10961,7 @@ impl molecule::prelude::Builder for EpochExtBuilder {
             + self.last_block_hash_in_previous_epoch.as_slice().len()
             + self.difficulty.as_slice().len()
             + self.number.as_slice().len()
-            + self.block_reward.as_slice().len()
+            + self.base_block_reward.as_slice().len()
             + self.remainder_reward.as_slice().len()
             + self.start_number.as_slice().len()
             + self.length.as_slice().len()
@@ -10993,7 +10993,7 @@ impl molecule::prelude::Builder for EpochExtBuilder {
         {
             let tmp = (offset as u32).to_le_bytes();
             writer.write_all(&tmp[..])?;
-            offset += self.block_reward.as_slice().len();
+            offset += self.base_block_reward.as_slice().len();
         }
         {
             let tmp = (offset as u32).to_le_bytes();
@@ -11015,7 +11015,7 @@ impl molecule::prelude::Builder for EpochExtBuilder {
         writer.write_all(self.last_block_hash_in_previous_epoch.as_slice())?;
         writer.write_all(self.difficulty.as_slice())?;
         writer.write_all(self.number.as_slice())?;
-        writer.write_all(self.block_reward.as_slice())?;
+        writer.write_all(self.base_block_reward.as_slice())?;
         writer.write_all(self.remainder_reward.as_slice())?;
         writer.write_all(self.start_number.as_slice())?;
         writer.write_all(self.length.as_slice())?;
@@ -11045,8 +11045,8 @@ impl EpochExtBuilder {
         self.number = v;
         self
     }
-    pub fn block_reward(mut self, v: Uint64) -> Self {
-        self.block_reward = v;
+    pub fn base_block_reward(mut self, v: Uint64) -> Self {
+        self.base_block_reward = v;
         self
     }
     pub fn remainder_reward(mut self, v: Uint64) -> Self {
