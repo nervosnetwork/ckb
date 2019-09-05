@@ -477,54 +477,6 @@ fn test_chain_fork_by_hash() {
     );
 }
 
-#[test]
-fn test_chain_get_ancestor() {
-    let (chain_controller, shared, parent) = start_chain(None);
-    let final_number = 20;
-
-    let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
-    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
-
-    for _ in 1..final_number {
-        chain1.gen_empty_block(100u64, &mock_store);
-    }
-
-    for _ in 1..final_number {
-        chain2.gen_empty_block(90u64, &mock_store);
-    }
-
-    for block in chain1.blocks() {
-        chain_controller
-            .process_block(Arc::new(block.clone()), false)
-            .expect("process block ok");
-    }
-
-    for block in chain2.blocks() {
-        chain_controller
-            .process_block(Arc::new(block.clone()), false)
-            .expect("process block ok");
-    }
-
-    assert!(chain1.tip_header().hash() != chain2.tip_header().hash());
-
-    assert_eq!(
-        chain1.blocks()[9].header(),
-        shared
-            .store()
-            .get_ancestor(&chain1.tip_header().hash(), 10)
-            .unwrap()
-    );
-
-    assert_eq!(
-        chain2.blocks()[9].header(),
-        shared
-            .store()
-            .get_ancestor(&chain2.tip_header().hash(), 10)
-            .unwrap()
-    );
-}
-
 fn prepare_context_chain(
     consensus: Consensus,
     orphan_count: u64,

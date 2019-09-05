@@ -466,10 +466,8 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
 pub(crate) fn calculate_reward(shared: &Shared, parent: &HeaderView) -> Capacity {
     let number = parent.number() + 1;
     let target_number = shared.consensus().finalize_target(number).unwrap();
-    let target = shared
-        .store()
-        .get_ancestor(&parent.hash(), target_number)
-        .expect("calculate_reward get_ancestor");
+    let target_hash = shared.store().get_block_hash(target_number).unwrap();
+    let target = shared.store().get_block_header(&target_hash).unwrap();
     let calculator = DaoCalculator::new(shared.consensus(), shared.store());
     calculator
         .primary_block_reward(&target)
