@@ -11,7 +11,7 @@ pub enum SpecError {
     ChainNameNotAllowed(String),
 
     #[fail(
-        display = "GenesisMismatch{{expected: {}, actual: {}}}",
+        display = "GenesisMismatch(expected: {}, actual: {})",
         expected, actual
     )]
     GenesisMismatch { expected: Byte32, actual: Byte32 },

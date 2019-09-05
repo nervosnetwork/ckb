@@ -32,12 +32,12 @@ pub enum Misbehavior {
     #[fail(display = "CompactBlockError::InvalidTransactionRoot")]
     InvalidTransactionRoot,
     #[fail(
-        display = "InvalidBlockTransactionsLength{{expected: {}, actual: {}}}",
+        display = "InvalidBlockTransactionsLength(expected: {}, actual: {})",
         expected, actual
     )]
     InvalidBlockTransactionsLength { expected: usize, actual: usize },
     #[fail(
-        display = "InvalidBlockTransactions{{expected: {:#?}, actual: {:#?}}}",
+        display = "InvalidBlockTransactions(expected: {:#?}, actual: {:#?})",
         expected, actual
     )]
     InvalidBlockTransactions {

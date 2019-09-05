@@ -102,14 +102,14 @@ pub enum BlockErrorKind {
 }
 
 #[derive(Fail, Debug)]
-#[fail(display = "index: {}, error: {}", index, error)]
+#[fail(display = "BlockTransactionsError(index: {}, error: {})", index, error)]
 pub struct BlockTransactionsError {
     pub index: u32,
     pub error: Error,
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
-#[fail(display = "parent_hash: {}", parent_hash)]
+#[fail(display = "UnknownParentError(parent_hash: {})", parent_hash)]
 pub struct UnknownParentError {
     pub parent_hash: Byte32,
 }
@@ -134,22 +134,19 @@ pub enum CellbaseError {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum UnclesError {
-    #[fail(display = "OverCount{{max: {}, actual: {}}}", max, actual)]
+    #[fail(display = "OverCount(max: {}, actual: {})", max, actual)]
     OverCount { max: u32, actual: u32 },
 
-    #[fail(
-        display = "MissMatchCount{{expected: {}, actual: {}}}",
-        expected, actual
-    )]
+    #[fail(display = "MissMatchCount(expected: {}, actual: {})", expected, actual)]
     MissMatchCount { expected: u32, actual: u32 },
 
     #[fail(
-        display = "InvalidDepth{{min: {}, max: {}, actual: {}}}",
+        display = "InvalidDepth(min: {}, max: {}, actual: {})",
         min, max, actual
     )]
     InvalidDepth { max: u64, min: u64, actual: u64 },
 
-    #[fail(display = "InvalidHash{{expected: {}, actual: {}}}", expected, actual)]
+    #[fail(display = "InvalidHash(expected: {}, actual: {})", expected, actual)]
     InvalidHash { expected: Byte32, actual: Byte32 },
 
     #[fail(display = "InvalidNumber")]
@@ -181,14 +178,14 @@ pub enum UnclesError {
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
-#[fail(display = "parent_hash: {}", parent_hash)]
+#[fail(display = "InvalidParentError(parent_hash: {})gg '", parent_hash)]
 pub struct InvalidParentError {
     pub parent_hash: Byte32,
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum PowError {
-    #[fail(display = "Boundary{{expected: {}, actual: {}}}", expected, actual)]
+    #[fail(display = "Boundary(expected: {}, actual: {})", expected, actual)]
     Boundary { expected: Byte32, actual: Byte32 },
 
     #[fail(display = "InvalidNonce")]
@@ -197,15 +194,15 @@ pub enum PowError {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TimestampError {
-    #[fail(display = "BlockTimeTooOld{{min: {}, actual: {}}}", min, actual)]
+    #[fail(display = "BlockTimeTooOld(min: {}, actual: {})", min, actual)]
     BlockTimeTooOld { min: u64, actual: u64 },
 
-    #[fail(display = "BlockTimeTooNew{{max: {}, actual: {}}}", max, actual)]
+    #[fail(display = "BlockTimeTooNew(max: {}, actual: {})", max, actual)]
     BlockTimeTooNew { max: u64, actual: u64 },
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
-#[fail(display = "expected: {}, actual: {}", expected, actual)]
+#[fail(display = "NumberError(expected: {}, actual: {})", expected, actual)]
 pub struct NumberError {
     pub expected: u64,
     pub actual: u64,
@@ -214,15 +211,12 @@ pub struct NumberError {
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum EpochError {
     #[fail(
-        display = "DifficultyMismatch{{expected: {}, actual: {}}}",
+        display = "DifficultyMismatch(expected: {}, actual: {})",
         expected, actual
     )]
     DifficultyMismatch { expected: Byte32, actual: Byte32 },
 
-    #[fail(
-        display = "NumberMismatch{{expected: {}, actual: {}}}",
-        expected, actual
-    )]
+    #[fail(display = "NumberMismatch(expected: {}, actual: {})", expected, actual)]
     NumberMismatch { expected: u64, actual: u64 },
 
     #[fail(display = "AncestorNotFound")]
