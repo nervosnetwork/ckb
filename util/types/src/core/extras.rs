@@ -142,10 +142,13 @@ impl EpochExt {
 
     // Set length but keep the primary epoch rewards unchanged.
     pub fn set_length(&mut self, length: BlockNumber) {
-        let primary_reward = self.primary_reward().as_u64();
         self.length = length;
-        self.base_block_reward = Capacity::shannons(primary_reward / length);
-        self.remainder_reward = Capacity::shannons(primary_reward % length);
+    }
+
+    pub fn set_primary_reward(&mut self, primary_reward: Capacity) {
+        let primary_reward_u64 = primary_reward.as_u64();
+        self.base_block_reward = Capacity::shannons(primary_reward_u64 / self.length);
+        self.remainder_reward = Capacity::shannons(primary_reward_u64 % self.length);
     }
 
     pub fn set_difficulty(&mut self, difficulty: U256) {

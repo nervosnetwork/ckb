@@ -768,7 +768,11 @@ fn test_next_epoch_ext() {
         .build();
 
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+    let remember_primary_reward = consensus.genesis_epoch_ext.primary_reward();
     consensus.genesis_epoch_ext.set_length(400);
+    consensus
+        .genesis_epoch_ext
+        .set_primary_reward(remember_primary_reward);
 
     // last_difficulty 1000
     // last_epoch_length 400
