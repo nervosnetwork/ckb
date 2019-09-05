@@ -12,10 +12,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
-        cell::{
-            resolve_transaction, OverlayCellProvider,
-            ResolvedTransaction, UnresolvableError,
-        },
+        cell::{resolve_transaction, OverlayCellProvider, ResolvedTransaction, UnresolvableError},
         Capacity, Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},

@@ -8,12 +8,12 @@ mod new_uncle;
 mod submit_txs;
 mod tx_pool_info;
 
-pub use ckb_verification::txs_verify_cache::{FetchCache, UpdateCache};
 pub use block_template::{
     BlockTemplateBuilder, BlockTemplateCacheProcess, BuildCellbaseProcess, PackageTxsProcess,
     PrepareUnclesProcess, UpdateBlockTemplateCache,
 };
 pub use chain_reorg::ChainReorgProcess;
+pub use ckb_verification::txs_verify_cache::{FetchCache, UpdateCache};
 pub use fetch_tx_for_rpc::FetchTxRPCProcess;
 pub use fetch_txs::FetchTxsProcess;
 pub use fetch_txs_with_cycles::FetchTxsWithCyclesProcess;

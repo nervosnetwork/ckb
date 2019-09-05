@@ -985,6 +985,7 @@ dependencies = [
  "ckb-store 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
+ "ckb-tx-pool 0.1.0",
  "ckb-types 0.21.0-pre",
  "ckb-util 0.21.0-pre",
  "ckb-verification 0.21.0-pre",

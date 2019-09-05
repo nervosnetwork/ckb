@@ -2,7 +2,6 @@ use crate::relayer::Relayer;
 use ckb_logger::warn_target;
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
-use futures::future::Future;
 
 pub struct BlockProposalProcess<'a> {
     message: packed::BlockProposalReader<'a>,
@@ -52,14 +51,13 @@ impl<'a> BlockProposalProcess<'a> {
         }
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller();
-        if let Err(err) = tx_pool.submit_txs(asked_txs).unwrap().wait().unwrap() {
+        if let Err(err) = tx_pool.notify_txs(asked_txs, None) {
             warn_target!(
                 crate::LOG_TARGET_RELAY,
-                "BlockProposal submit_txs error: {:?}",
+                "BlockProposal notify_txs error: {:?}",
                 err,
             );
         }
-
         Ok(Status::Ok)
     }
 }

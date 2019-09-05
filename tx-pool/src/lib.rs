@@ -1,7 +1,7 @@
 mod block_assembler;
 mod component;
 mod config;
-mod error;
+pub mod error;
 pub mod pool;
 mod process;
 pub mod service;

@@ -1,4 +1,4 @@
-use crate::block_assembler::{CandidateUncles};
+use crate::block_assembler::CandidateUncles;
 use ckb_types::core::UncleBlockView;
 use faketime::unix_time_as_millis;
 use futures::future::Future;

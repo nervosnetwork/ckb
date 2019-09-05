@@ -3,7 +3,7 @@ use futures::Future;
 use lru_cache::LruCache;
 use std::collections::HashMap;
 use tokio::prelude::{Async, Poll};
-use tokio::sync::lock::{Lock};
+use tokio::sync::lock::Lock;
 
 pub struct FetchCache<K: IntoIterator<Item = Byte32>> {
     cache: Lock<LruCache<Byte32, Cycle>>,

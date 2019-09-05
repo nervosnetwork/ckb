@@ -26,10 +26,7 @@ use futures::stream::Stream;
 use futures::sync::{mpsc, oneshot};
 use lru_cache::LruCache;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{
-    atomic::{AtomicU64},
-    Arc,
-};
+use std::sync::{atomic::AtomicU64, Arc};
 use std::thread;
 use tokio::sync::lock::Lock;
 
@@ -60,8 +57,8 @@ impl<A> Notify<A> {
 pub type BlockTemplateResult = Result<BlockTemplate, FailureError>;
 type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 
-type SubmitTxsArgs = Vec<TransactionView>;
 pub type SubmitTxsResult = Result<Vec<Cycle>, PoolError>;
+type NotifyTxsCallback = Option<Box<FnOnce(SubmitTxsResult) + Send + Sync + 'static>>;
 
 type ChainReorgArgs = (
     VecDeque<BlockView>,
@@ -72,7 +69,8 @@ type ChainReorgArgs = (
 
 pub enum Message {
     BlockTemplate(Request<BlockTemplateArgs, BlockTemplateResult>),
-    SubmitTxs(Request<SubmitTxsArgs, SubmitTxsResult>),
+    SubmitTxs(Request<Vec<TransactionView>, SubmitTxsResult>),
+    NotifyTxs(Notify<(Vec<TransactionView>, NotifyTxsCallback)>),
     ChainReorg(Notify<ChainReorgArgs>),
     FreshProposalsFilter(Request<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(Request<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
@@ -142,6 +140,18 @@ impl TxPoolController {
         let request = Request::call(txs, responder);
         sender.try_send(Message::SubmitTxs(request))?;
         Ok(Box::new(response))
+    }
+
+    pub fn notify_txs(
+        &self,
+        txs: Vec<TransactionView>,
+        callback: NotifyTxsCallback,
+    ) -> Result<(), FailureError> {
+        let mut sender = self.sender.clone();
+        let notify = Notify::notify((txs, callback));
+        sender
+            .try_send(Message::NotifyTxs(notify))
+            .map_err(Into::into)
     }
 
     pub fn get_tx_pool_info(
@@ -339,11 +349,19 @@ impl TxPoolService {
             Message::SubmitTxs(Request {
                 responder,
                 arguments: txs,
-            }) => Box::new(self.submit_txs(txs).and_then(|submit_txs_result| {
+            }) => Box::new(self.process_txs(txs).and_then(|submit_txs_result| {
                 responder
                     .send(submit_txs_result)
                     .map_err(|_| error!("responder send submit_txs_result failed"));
                 future::ok(())
+            })),
+            Message::NotifyTxs(Notify {
+                arguments: (txs, callback),
+            }) => Box::new(self.process_txs(txs).and_then(|ret| {
+                future::lazy(|| {
+                    callback.map(|call| call(ret));
+                    future::ok(())
+                })
             })),
             Message::FreshProposalsFilter(Request {
                 responder,
@@ -491,7 +509,7 @@ impl TxPoolService {
         }
     }
 
-    fn submit_txs(
+    fn process_txs(
         &self,
         txs: Vec<TransactionView>,
     ) -> impl Future<Item = SubmitTxsResult, Error = ()> {
