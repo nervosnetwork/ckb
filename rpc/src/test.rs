@@ -386,6 +386,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             let json_script: ckb_jsonrpc_types::Script = script.into();
             vec![json!(json_script)]
         }
+        "calculate_dao_maximum_withdraw" => vec![json!(always_success_out_point), json!(tip_hash)],
         method => {
             panic!("Unknown method: {}", method);
         }

@@ -18,6 +18,7 @@
 *   [`Experiment`](#experiment)
     *   [`dry_run_transaction`](#dry_run_transaction)
     *   [`_compute_transaction_hash`](#_compute_transaction_hash)
+    *   [`calculate_dao_maximum_withdraw`](#calculate_dao_maximum_withdraw)
     *   [`_compute_script_hash`](#_compute_script_hash)
 *   [`Indexer`](#indexer)
     *   [`index_lock_hash`](#index_lock_hash)
@@ -856,6 +857,43 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece"
+}
+```
+
+### `calculate_dao_maximum_withdraw`
+
+Calculate the maximum withdraw one can get, given a referenced DAO cell, and a withdraw block hash
+
+#### Parameters
+
+    out_point - OutPoint object {"tx_hash": <tx_hash>, "index": <index>}.
+    withdraw_block_hash - Block hash
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "calculate_dao_maximum_withdraw",
+    "params": [
+        {
+            "index": "0",
+            "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
+        },
+        "0x779a50619171cd50648b65520edb59787ff5f707d1f510783c7859a2d65f6eeb"
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "20010297508"
 }
 ```
 
