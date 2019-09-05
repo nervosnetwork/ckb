@@ -769,7 +769,7 @@ fn u256_low_u64(u: U256) -> u64 {
 }
 
 fn primary_epoch_reward_of_next_epoch(epoch: &EpochExt) -> Capacity {
-    if epoch.number() + 1 % PRIMARY_EPOCH_REWARD_HALF_DURATION_IN_EPOCHS != 0 {
+    if (epoch.number() + 1) % PRIMARY_EPOCH_REWARD_HALF_DURATION_IN_EPOCHS != 0 {
         epoch.primary_reward()
     } else {
         Capacity::shannons(epoch.primary_reward().as_u64() / 2)
@@ -779,8 +779,7 @@ fn primary_epoch_reward_of_next_epoch(epoch: &EpochExt) -> Capacity {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use ckb_types::core::{capacity_bytes, BlockBuilder, TransactionBuilder};
-    use ckb_types::packed::Bytes;
+    use ckb_types::core::{BlockBuilder, HeaderBuilder, TransactionBuilder};
 
     #[test]
     fn test_init_epoch_reward() {
@@ -790,5 +789,125 @@ pub mod test {
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let consensus = ConsensusBuilder::new(genesis, capacity_bytes!(100));
         assert_eq!(capacity_bytes!(100), consensus.initial_primary_epoch_reward);
+    }
+
+    #[test]
+    fn test_half_epoch_reward() {
+        let cellbase = TransactionBuilder::default().witness(vec![].pack()).build();
+        let genesis = BlockBuilder::default().transaction(cellbase).build();
+        let consensus = ConsensusBuilder::new(genesis.clone(), capacity_bytes!(100)).build();
+        let genesis_epoch = consensus.genesis_epoch_ext();
+
+        let get_block_header = |_hash: &Byte32| Some(genesis.header().clone());
+        let total_uncles_count = |_hash: &Byte32| Some(0);
+        let header = |number: u64| HeaderBuilder::default().number(number.pack()).build();
+
+        let initial_primary_epoch_reward = genesis_epoch.primary_reward();
+
+        {
+            let epoch = consensus
+                .next_epoch_ext(
+                    &consensus.genesis_epoch_ext(),
+                    &header(genesis_epoch.length() - 1),
+                    get_block_header,
+                    total_uncles_count,
+                )
+                .expect("test: get next epoch");
+
+            assert_eq!(initial_primary_epoch_reward, epoch.primary_reward());
+        }
+
+        let first_half_epoch_number = PRIMARY_EPOCH_REWARD_HALF_DURATION_IN_EPOCHS;
+
+        // first_half_epoch_number - 2
+        let epoch = genesis_epoch
+            .clone()
+            .into_builder()
+            .number(first_half_epoch_number - 2)
+            .build();
+
+        // first_half_epoch_number - 1
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+        assert_eq!(initial_primary_epoch_reward, epoch.primary_reward());
+
+        // first_half_epoch_number
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+
+        assert_eq!(
+            initial_primary_epoch_reward.as_u64() / 2,
+            epoch.primary_reward().as_u64()
+        );
+
+        // first_half_epoch_number + 1
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+
+        assert_eq!(
+            initial_primary_epoch_reward.as_u64() / 2,
+            epoch.primary_reward().as_u64()
+        );
+
+        // first_half_epoch_number * 4 - 2
+        let epoch = genesis_epoch
+            .clone()
+            .into_builder()
+            .number(first_half_epoch_number * 4 - 2)
+            .base_block_reward(Capacity::shannons(
+                initial_primary_epoch_reward.as_u64() / 8 / genesis_epoch.length(),
+            ))
+            .remainder_reward(Capacity::shannons(
+                initial_primary_epoch_reward.as_u64() / 8 % genesis_epoch.length(),
+            ))
+            .build();
+
+        // first_half_epoch_number * 4 - 1
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+
+        assert_eq!(
+            initial_primary_epoch_reward.as_u64() / 8,
+            epoch.primary_reward().as_u64()
+        );
+
+        // first_half_epoch_number * 4
+        let epoch = consensus
+            .next_epoch_ext(
+                &epoch,
+                &header(epoch.start_number() + epoch.length() - 1),
+                get_block_header,
+                total_uncles_count,
+            )
+            .expect("test: get next epoch");
+
+        assert_eq!(
+            initial_primary_epoch_reward.as_u64() / 16,
+            epoch.primary_reward().as_u64()
+        );
     }
 }
