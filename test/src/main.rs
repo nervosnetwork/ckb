@@ -229,6 +229,7 @@ fn all_specs() -> SpecMap {
         Box::new(DepentTxInSameBlock),
         // TODO enable these after proposed/pending pool tip verfiry logic changing
         // Box::new(CellbaseMaturity),
+        Box::new(ReferenceHeaderMaturity),
         Box::new(ValidSince),
         Box::new(DifferentTxsWithSameInput),
         Box::new(CompactBlockEmpty),

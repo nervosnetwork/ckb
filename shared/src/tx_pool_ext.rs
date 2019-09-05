@@ -248,6 +248,7 @@ impl TxPool {
                     // OutOfOrder should only appear in BlockCellProvider
                     UnresolvableError::InvalidDepGroup(_)
                     | UnresolvableError::InvalidHeader(_)
+                    | UnresolvableError::ImmatureHeader(_)
                     | UnresolvableError::OutOfOrder(_) => {
                         self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                     }

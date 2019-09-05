@@ -10,10 +10,7 @@ use ckb_db::{
     Col, DBVector, Direction, Error, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use ckb_types::{
-    core::{
-        cell::{CellProvider, CellStatus, HeaderChecker},
-        BlockExt, BlockView, EpochExt, HeaderView,
-    },
+    core::{BlockExt, BlockView, EpochExt, HeaderView},
     packed,
     prelude::*,
 };
@@ -198,34 +195,5 @@ impl StoreTransaction {
 
     pub fn delete_cell_set(&self, tx_hash: &packed::Byte32) -> Result<(), Error> {
         self.delete(COLUMN_CELL_SET, tx_hash.as_slice())
-    }
-}
-
-impl CellProvider for StoreTransaction {
-    fn cell(&self, out_point: &packed::OutPoint, with_data: bool) -> CellStatus {
-        let tx_hash = out_point.tx_hash();
-        let index: u32 = out_point.index().unpack();
-        match self.get_tx_meta(&tx_hash) {
-            Some(tx_meta) => match tx_meta.is_dead(index as usize) {
-                Some(false) => {
-                    let mut cell_meta = self
-                        .get_cell_meta(&tx_hash, index)
-                        .expect("store should be consistent with cell_set");
-                    if with_data {
-                        cell_meta.mem_cell_data = self.get_cell_data(&tx_hash, index);
-                    }
-                    CellStatus::live_cell(cell_meta)
-                }
-                Some(true) => CellStatus::Dead,
-                None => CellStatus::Unknown,
-            },
-            None => CellStatus::Unknown,
-        }
-    }
-}
-
-impl HeaderChecker for StoreTransaction {
-    fn is_valid(&self, block_hash: &packed::Byte32) -> bool {
-        self.get_block_number(block_hash).is_some()
     }
 }

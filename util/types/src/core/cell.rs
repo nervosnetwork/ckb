@@ -302,13 +302,15 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
 
 pub trait HeaderChecker {
     /// Check if header in main chain
-    fn is_valid(&self, block_hash: &Byte32) -> bool;
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError>;
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UnresolvableError {
     /// The header is not in main chain
     InvalidHeader(Byte32),
+    /// The header is not yet matured
+    ImmatureHeader(Byte32),
     /// Invalid dep group cell data length
     InvalidDepGroup(OutPoint),
     Dead(OutPoint),
@@ -445,9 +447,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     }
 
     for block_hash in transaction.header_deps_iter() {
-        if !header_checker.is_valid(&block_hash) {
-            return Err(UnresolvableError::InvalidHeader(block_hash.clone()));
-        }
+        header_checker.check_valid(&block_hash)?;
     }
 
     if !unknown_out_points.is_empty() {
@@ -514,9 +514,14 @@ mod tests {
     }
 
     impl HeaderChecker for BlockHeadersChecker {
-        fn is_valid(&self, block_hash: &Byte32) -> bool {
-            !self.detached_indices.contains(block_hash)
+        fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError> {
+            if !self.detached_indices.contains(block_hash)
                 && self.attached_indices.contains(block_hash)
+            {
+                Ok(())
+            } else {
+                Err(UnresolvableError::InvalidHeader(block_hash.clone()))
+            }
         }
     }
 
