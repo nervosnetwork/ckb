@@ -69,7 +69,7 @@ impl CellbaseVerifier {
         if cellbase_transaction.outputs().len() != 1
             || cellbase_transaction.outputs_data().len() != 1
         {
-            return Err(Error::Cellbase(CellbaseError::InvalidQuantity));
+            Err(CellbaseError::InvalidQuantity)?;
         }
 
         // cellbase output data must empty
@@ -78,7 +78,7 @@ impl CellbaseVerifier {
             .get_unchecked(0)
             .is_empty()
         {
-            return Err(Error::Cellbase(CellbaseError::InvalidOutputData));
+            Err(CellbaseError::InvalidOutputData)?;
         }
 
         if cellbase_transaction
