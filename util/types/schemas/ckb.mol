@@ -169,11 +169,6 @@ table TransactionMeta {
     cellbase:       Bool,
 }
 
-struct CellMeta {
-    data_hash:      Byte32,
-    capacity:       Uint64,
-}
-
 /* Types for Indexer */
 
 table TransactionPoint {
