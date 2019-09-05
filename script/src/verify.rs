@@ -7,7 +7,7 @@ use crate::{
     type_id::TypeIdSystemScript,
     DataLoader, ScriptConfig, ScriptError,
 };
-use ckb_error::{Error, InternalError, InternalErrorKind};
+use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, info};
 use ckb_types::{
     bytes::Bytes,
@@ -505,7 +505,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 }
 
 fn internal_error(error: ckb_vm::Error) -> Error {
-    InternalError::new(InternalErrorKind::VM, format!("{:?}", error)).into()
+    InternalErrorKind::VM.cause(format!("{:?}", error)).into()
 }
 
 #[cfg(test)]

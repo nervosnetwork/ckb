@@ -2,7 +2,7 @@ use crate::snapshot::Snapshot;
 use crate::tx_pool::types::{DefectEntry, TxEntry};
 use crate::tx_pool::TxPool;
 use ckb_dao::DaoCalculator;
-use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
+use ckb_error::{Error, ErrorKind, InternalErrorKind};
 use ckb_logger::{debug_target, error_target, trace_target};
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -305,10 +305,9 @@ impl TxPool {
                 if tx_pool.add_gap(entry) {
                     Ok(())
                 } else {
-                    Err(
-                        InternalError::new(InternalErrorKind::DuplicatedPoolTransaction, tx_hash)
-                            .into(),
-                    )
+                    Err(InternalErrorKind::DuplicatedPoolTransaction
+                        .cause(tx_hash)
+                        .into())
                 }
             },
         )
@@ -367,10 +366,9 @@ impl TxPool {
                 if tx_pool.enqueue_tx(entry) {
                     Ok(())
                 } else {
-                    Err(
-                        InternalError::new(InternalErrorKind::DuplicatedPoolTransaction, tx_hash)
-                            .into(),
-                    )
+                    Err(InternalErrorKind::DuplicatedPoolTransaction
+                        .cause(tx_hash)
+                        .into())
                 }
             },
         )

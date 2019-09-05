@@ -183,7 +183,7 @@ mod tests {
     use super::*;
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_error::{assert_error_eq, InternalError, InternalErrorKind};
+    use ckb_error::{assert_error_eq, InternalErrorKind};
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
     use ckb_test_chain_utils::always_success_cell;
@@ -348,7 +348,7 @@ mod tests {
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[1].to_owned());
         assert_error_eq(
             result.unwrap_err(),
-            InternalError::new(InternalErrorKind::DuplicatedPoolTransaction, txs[1].hash()),
+            InternalErrorKind::DuplicatedPoolTransaction.cause(txs[1].hash()),
         );
         // spent one conflict cell
         let result = tx_pool_executor.verify_and_add_tx_to_pool(txs[13].to_owned());

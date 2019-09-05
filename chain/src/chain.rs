@@ -1,5 +1,5 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
-use ckb_error::{Error, InternalError, InternalErrorKind};
+use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalTable;
@@ -46,7 +46,9 @@ impl Drop for ChainController {
 impl ChainController {
     pub fn process_block(&self, block: Arc<BlockView>, need_verify: bool) -> Result<bool, Error> {
         Request::call(&self.process_block_sender, (block, need_verify)).unwrap_or_else(|| {
-            Err(InternalError::new(InternalErrorKind::System, "Chain service has gone").into())
+            Err(InternalErrorKind::System
+                .cause("Chain service has gone")
+                .into())
         })
     }
 }

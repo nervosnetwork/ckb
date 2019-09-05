@@ -64,14 +64,16 @@ impl From<InternalErrorKind> for Error {
     }
 }
 
-impl InternalError {
-    pub fn new<S: ToString>(kind: InternalErrorKind, cause: S) -> Self {
-        Self {
-            kind,
-            cause: Some(cause.to_string()),
+impl InternalErrorKind {
+    pub fn cause<S: ToString>(self, reason: S) -> InternalError {
+        InternalError {
+            kind: self,
+            cause: Some(reason.to_string()),
         }
     }
+}
 
+impl InternalError {
     pub fn kind(&self) -> &InternalErrorKind {
         &self.kind
     }

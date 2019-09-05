@@ -3,7 +3,7 @@
 //! This Library contains the `KeyValueDB` traits
 //! which provides key-value store interface
 
-use ckb_error::{Error, InternalError, InternalErrorKind};
+use ckb_error::{Error, InternalErrorKind};
 use std::result;
 
 pub mod config;
@@ -23,5 +23,5 @@ pub type Col = &'static str;
 pub type Result<T> = result::Result<T, Error>;
 
 fn internal_error<S: ToString>(cause: S) -> Error {
-    InternalError::new(InternalErrorKind::Database, cause.to_string()).into()
+    InternalErrorKind::Database.cause(cause).into()
 }

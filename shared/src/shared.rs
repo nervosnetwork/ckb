@@ -4,7 +4,7 @@ use arc_swap::Guard;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::SpecError;
 use ckb_db::{DBConfig, RocksDB};
-use ckb_error::{Error, InternalError, InternalErrorKind};
+use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info_target;
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_reward_calculator::RewardCalculator;
@@ -44,9 +44,7 @@ impl Shared {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
             .get_block_ext(&tip_header.hash())
-            .ok_or_else(|| {
-                InternalError::new(InternalErrorKind::Database, "failed to get tip's block_ext")
-            })?
+            .ok_or_else(|| InternalErrorKind::Database.cause("failed to get tip's block_ext"))?
             .total_difficulty;
         let (proposal_table, proposal_view) = Self::init_proposal_table(&store, &consensus);
         let cell_set = Self::init_cell_set(&store)?;
@@ -101,10 +99,7 @@ impl Shared {
                 Ok(())
             })
             .map_err(|err| {
-                InternalError::new(
-                    InternalErrorKind::Database,
-                    format!("failed to init cell set: {:?}", err),
-                )
+                InternalErrorKind::Database.cause(format!("failed to init cell set: {:?}", err))
             })?;
         info_target!(
             crate::LOG_TARGET_CHAIN,
@@ -164,11 +159,9 @@ impl Shared {
                         .into())
                     }
                 } else {
-                    Err(InternalError::new(
-                        InternalErrorKind::Database,
-                        "genesis does not exist in database",
-                    )
-                    .into())
+                    Err(InternalErrorKind::Database
+                        .cause("genesis does not exist in database")
+                        .into())
                 }
             }
             None => store.init(&consensus).map(|_| {
