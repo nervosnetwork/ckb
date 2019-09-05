@@ -15,16 +15,23 @@ use ckb_types::prelude::*;
 use ckb_types::{
     core::{cell::resolve_transaction, BlockBuilder, BlockNumber, TransactionView},
     packed::{Byte32, HeaderDigest},
+    utilities::MergeHeaderDigest,
 };
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController, MemMMR<HeaderDigest>) {
+pub fn build_chain(
+    tip: BlockNumber,
+) -> (
+    SyncSharedState,
+    ChainController,
+    MemMMR<HeaderDigest, MergeHeaderDigest>,
+) {
     let (shared, table) = SharedBuilder::default()
         .consensus(always_success_consensus())
         .build()
         .unwrap();
-    let mut mmr = MemMMR::<HeaderDigest>::default();
+    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
     mmr.push(shared.consensus().genesis_block().header().into())
         .unwrap();
     let chain_controller = {
@@ -41,7 +48,7 @@ pub fn generate_blocks(
     shared: &Shared,
     chain_controller: &ChainController,
     target_tip: BlockNumber,
-    mmr: &mut MemMMR<HeaderDigest>,
+    mmr: &mut MemMMR<HeaderDigest, MergeHeaderDigest>,
 ) {
     let snapshot = shared.snapshot();
     let parent_number = snapshot.tip_number();

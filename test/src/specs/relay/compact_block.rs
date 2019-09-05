@@ -14,6 +14,7 @@ use ckb_types::{
     h256,
     packed::{self, CellInput, GetHeaders, HeaderDigest, RelayMessage, SyncMessage},
     prelude::*,
+    utilities::MergeHeaderDigest,
     H256,
 };
 use std::collections::HashSet;
@@ -336,7 +337,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 
         let consensus = node.consensus();
         let mock_store = MockStore::default();
-        let mut mmr = MemMMR::<HeaderDigest>::default();
+        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         for i in 0..=node.get_tip_block_number() {
             let block = node.get_block_by_number(i);
             mock_store.insert_block(&block, consensus.genesis_epoch_ext());

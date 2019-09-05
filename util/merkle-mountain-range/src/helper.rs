@@ -39,7 +39,7 @@ pub fn leaf_index_to_mmr_size(index: u64) -> u64 {
 pub fn pos_height_in_tree(mut pos: u64) -> u64 {
     pos += 1;
     fn all_ones(num: u64) -> bool {
-        num.count_zeros() == num.leading_zeros()
+        num != 0 && num.count_zeros() == num.leading_zeros()
     }
     fn jump_left(pos: u64) -> u64 {
         let bit_length = 64 - pos.leading_zeros();

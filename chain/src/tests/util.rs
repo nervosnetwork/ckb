@@ -19,6 +19,7 @@ use ckb_types::{
         BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, HeaderDigest, OutPoint},
+    utilities::MergeHeaderDigest,
     U256,
 };
 use std::collections::HashSet;
@@ -209,7 +210,7 @@ impl<'a> MockChain<'a> {
     ) -> Self {
         if parent.number() == 0 {
             let mut batch = MMRBatch::new(&mmr_store);
-            let mut mmr = MMR::new(0, &mut batch);
+            let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(0, &mut batch);
             mmr.push(parent.clone().into()).expect("push block to mmr");
             batch.commit().expect("commit mmr batch");
         }
@@ -223,7 +224,7 @@ impl<'a> MockChain<'a> {
 
     fn chain_root(&self) -> Byte32 {
         let mut batch = MMRBatch::new(&self.mmr_store);
-        let mmr = MMR::new(
+        let mmr = MMR::<_, MergeHeaderDigest, _>::new(
             leaf_index_to_mmr_size(self.tip_header().number()),
             &mut batch,
         );
@@ -232,7 +233,7 @@ impl<'a> MockChain<'a> {
 
     fn commit_block(&mut self, store: &MockStore, block: BlockView) {
         let mut batch = MMRBatch::new(&self.mmr_store);
-        let mut mmr = MMR::new(
+        let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(
             leaf_index_to_mmr_size(self.tip_header().number()),
             &mut batch,
         );

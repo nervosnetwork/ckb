@@ -523,6 +523,7 @@ mod tests {
             Byte32, CellInput, CellOutputBuilder, HeaderDigest, Script, SendBlockBuilder,
             SendHeadersBuilder,
         },
+        utilities::MergeHeaderDigest,
         U256,
     };
     use ckb_util::Mutex;
@@ -633,7 +634,7 @@ mod tests {
     #[test]
     fn test_locator() {
         let (chain_controller, shared, _notify) = start_chain(None, None);
-        let mut mmr = MemMMR::<HeaderDigest>::default();
+        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
 
         mmr.push(shared.consensus().genesis_block().header().into())
             .unwrap();
@@ -673,11 +674,11 @@ mod tests {
         let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
         let num = 200;
 
-        let mut mmr1 = MemMMR::<HeaderDigest>::default();
+        let mut mmr1 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr1.push(shared1.consensus().genesis_block().header().into())
             .unwrap();
 
-        let mut mmr2 = MemMMR::<HeaderDigest>::default();
+        let mut mmr2 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr2.push(shared2.consensus().genesis_block().header().into())
             .unwrap();
 
@@ -709,7 +710,7 @@ mod tests {
 
         let (chain_controller3, shared3, _notify3) = start_chain(Some(consensus), None);
 
-        let mut mmr3 = MemMMR::<HeaderDigest>::default();
+        let mut mmr3 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr3.push(shared3.consensus().genesis_block().header().into())
             .unwrap();
 
@@ -738,9 +739,9 @@ mod tests {
         let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = consensus.genesis_block().header().to_owned();
 
-        let mut mmr1 = MemMMR::<HeaderDigest>::default();
+        let mut mmr1 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr1.push(parent.clone().into()).unwrap();
-        let mut mmr2 = MemMMR::<HeaderDigest>::default();
+        let mut mmr2 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr2.push(parent.clone().into()).unwrap();
 
         for i in 1..block_number {
@@ -811,7 +812,7 @@ mod tests {
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
         let num = 200;
 
-        let mut mmr = MemMMR::<HeaderDigest>::default();
+        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr.push(shared.consensus().genesis_block().header().into())
             .unwrap();
 
@@ -853,10 +854,10 @@ mod tests {
         let block_number = 2000;
         let peer: PeerIndex = 0.into();
 
-        let mut mmr1 = MemMMR::<HeaderDigest>::default();
+        let mut mmr1 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr1.push(shared1.consensus().genesis_block().header().into())
             .unwrap();
-        let mut mmr2 = MemMMR::<HeaderDigest>::default();
+        let mut mmr2 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr2.push(shared2.consensus().genesis_block().header().into())
             .unwrap();
 
@@ -897,7 +898,7 @@ mod tests {
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
         let block_number = 200;
 
-        let mut mmr = MemMMR::<HeaderDigest>::default();
+        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
 
         let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = shared
@@ -1065,10 +1066,10 @@ mod tests {
             start_chain(Some(consensus.clone()), Some(notify.clone()));
         let num = 200;
 
-        let mut mmr1 = MemMMR::<HeaderDigest>::default();
+        let mut mmr1 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr1.push(shared1.consensus().genesis_block().header().into())
             .unwrap();
-        let mut mmr2 = MemMMR::<HeaderDigest>::default();
+        let mut mmr2 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         mmr2.push(shared2.consensus().genesis_block().header().into())
             .unwrap();
 

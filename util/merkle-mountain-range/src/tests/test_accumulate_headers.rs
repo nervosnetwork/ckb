@@ -1,6 +1,6 @@
 use super::new_blake2b;
 use crate::{
-    leaf_index_to_pos, util::MemStore, MMRBatch, MMRStore, MerkleElem, MerkleProof, Result, MMR,
+    leaf_index_to_pos, util::MemStore, MMRBatch, MMRStore, Merge, MerkleProof, Result, MMR,
 };
 use bytes::Bytes;
 use std::fmt::{self, Debug};
@@ -70,8 +70,11 @@ impl Debug for HashWithTD {
     }
 }
 
-impl MerkleElem for HashWithTD {
-    fn merge(lhs: &Self, rhs: &Self) -> Result<Self> {
+struct MergeHashWithTD;
+
+impl Merge for MergeHashWithTD {
+    type Item = HashWithTD;
+    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> Result<Self::Item> {
         let mut hasher = new_blake2b();
         let mut hash = [0u8; 32];
         hasher.update(&lhs.serialize()?);
@@ -115,12 +118,13 @@ impl Prover {
                 td: genesis.difficulty,
             };
             self.headers.push((genesis, previous.td));
-            let mut mmr = MMR::new(self.positions.len() as u64, &mut batch);
+            let mut mmr =
+                MMR::<_, MergeHashWithTD, _>::new(self.positions.len() as u64, &mut batch);
             let pos = mmr.push(previous.clone())?;
             self.positions.push(pos);
             previous
         };
-        let mut mmr = MMR::new(self.positions.len() as u64, &mut batch);
+        let mut mmr = MMR::<_, MergeHashWithTD, _>::new(self.positions.len() as u64, &mut batch);
         let last_number = self.headers.last().unwrap().0.number;
         for i in (last_number + 1)..=(last_number + count) {
             let block = Header {
@@ -145,7 +149,11 @@ impl Prover {
     }
 
     // generate proof that headers are in same chain
-    fn gen_proof(&mut self, number: u64, later_number: u64) -> Result<MerkleProof<HashWithTD>> {
+    fn gen_proof(
+        &mut self,
+        number: u64,
+        later_number: u64,
+    ) -> Result<MerkleProof<HashWithTD, MergeHashWithTD>> {
         assert!(number < later_number);
         let pos = self.positions[number as usize];
         let later_pos = self.positions[later_number as usize];

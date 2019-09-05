@@ -12,6 +12,7 @@ use ckb_types::prelude::*;
 use ckb_types::{
     core::{BlockBuilder, BlockView, Capacity, TransactionBuilder},
     packed::Byte32,
+    utilities::MergeHeaderDigest,
 };
 use std::sync::Arc;
 
@@ -239,7 +240,10 @@ fn test_switch_valid_fork() {
     // the main chain. And `block_status_map` would mark the fork blocks as `BLOCK_STORED`
     let block_number = 1;
     let mut parent_hash = shared.store().get_block_hash(block_number).unwrap();
-    let mut mmr = MemMMR::new(leaf_index_to_mmr_size(block_number), mmr.store().clone());
+    let mut mmr = MemMMR::<_, MergeHeaderDigest>::new(
+        leaf_index_to_mmr_size(block_number),
+        mmr.store().clone(),
+    );
     let mut valid_fork = Vec::new();
     for _ in 2..shared.tip_header().number() {
         let chain_root = mmr.get_root().unwrap().hash();

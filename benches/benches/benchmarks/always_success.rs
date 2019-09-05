@@ -2,7 +2,7 @@ use crate::benchmarks::util::{gen_always_success_block, new_always_success_chain
 use ckb_merkle_mountain_range::util::MemMMR;
 use ckb_store::{self, ChainStore};
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_types::packed::HeaderDigest;
+use ckb_types::{packed::HeaderDigest, utilities::MergeHeaderDigest};
 use criterion::{criterion_group, Criterion};
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ fn bench(c: &mut Criterion) {
                     let chains = new_always_success_chain(**txs_size, 2);
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
-                    let mut mmr = MemMMR::<HeaderDigest>::default();
+                    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
                     let mut blocks =
                         vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
@@ -65,7 +65,7 @@ fn bench(c: &mut Criterion) {
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
                     let (ref chain3, ref shared3) = chains.0[2];
-                    let mut mmr = MemMMR::<HeaderDigest>::default();
+                    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
                     let mut blocks =
                         vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
@@ -87,7 +87,7 @@ fn bench(c: &mut Criterion) {
                     });
                     let mut parent = blocks[2].clone();
                     let mut mmr = {
-                        let mut mmr = MemMMR::<HeaderDigest>::default();
+                        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
                         for block in &blocks[0..=2] {
                             mmr.push(block.header().into()).unwrap();
                         }
@@ -140,7 +140,7 @@ fn bench(c: &mut Criterion) {
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
                     let (ref chain3, ref shared3) = chains.0[2];
-                    let mut mmr = MemMMR::<HeaderDigest>::default();
+                    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
                     let mut blocks =
                         vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
@@ -163,7 +163,7 @@ fn bench(c: &mut Criterion) {
                     });
                     let mut parent = blocks[2].clone();
                     let mut mmr = {
-                        let mut mmr = MemMMR::<HeaderDigest>::default();
+                        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
                         for block in &blocks[0..=2] {
                             mmr.push(block.header().into()).unwrap();
                         }

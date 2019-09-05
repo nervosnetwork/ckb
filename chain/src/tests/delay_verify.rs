@@ -9,6 +9,7 @@ use ckb_types::prelude::*;
 use ckb_types::{
     core::{BlockBuilder, BlockView},
     packed::{HeaderDigest, OutPoint},
+    utilities::MergeHeaderDigest,
     U256,
 };
 use std::sync::Arc;
@@ -249,12 +250,12 @@ fn test_full_dead_transaction() {
     let mut chain2: Vec<BlockView> = Vec::new();
 
     // initialize mmr for chain1 chain2
-    let mut chain1_mmr = MemMMR::<HeaderDigest>::default();
+    let mut chain1_mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
     chain1_mmr
         .push(parent.clone().into())
         .expect("push block to mmr");
 
-    let mut chain2_mmr = MemMMR::<HeaderDigest>::default();
+    let mut chain2_mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
     chain2_mmr
         .push(parent.clone().into())
         .expect("push block to mmr");

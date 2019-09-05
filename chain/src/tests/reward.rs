@@ -18,6 +18,7 @@ use ckb_types::{
         self, Byte32, CellDep, CellInput, CellOutputBuilder, HeaderDigest, OutPoint,
         ProposalShortId, Script, ScriptBuilder,
     },
+    utilities::MergeHeaderDigest,
     U256,
 };
 use std::sync::Arc;
@@ -151,7 +152,7 @@ fn finalize_reward() {
 
     let mock_store = MockStore::new(&parent, shared.store());
 
-    let mut mmr = MemMMR::<HeaderDigest>::default();
+    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
     mmr.push(parent.clone().into()).expect("push block to mmr");
 
     let mut txs = Vec::with_capacity(16);

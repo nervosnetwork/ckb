@@ -13,6 +13,7 @@ use ckb_types::{
     core::{BlockExt, TransactionMeta},
     packed,
     prelude::*,
+    utilities::MergeHeaderDigest,
 };
 
 pub struct ChainDB {
@@ -113,7 +114,7 @@ impl ChainDB {
 
         // Init MMR
         let mut batch = MMRBatch::new(&db_txn);
-        let mut mmr = MMR::new(0, &mut batch);
+        let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(0, &mut batch);
         mmr.push(genesis.header().into())
             .map_err(|e| InternalErrorKind::MMR.cause(e))?;
         batch

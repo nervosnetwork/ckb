@@ -6,30 +6,29 @@
 
 use crate::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset};
 use crate::mmr_store::{MMRBatch, MMRStore};
-use crate::MerkleElem;
-use crate::{Error, Result};
+use crate::{Error, Merge, Result};
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-pub struct MMR<'a, Elem: MerkleElem, Store: MMRStore<Elem>> {
+pub struct MMR<'a, T, M, S: MMRStore<T>> {
     mmr_size: u64,
-    batch: &'a mut MMRBatch<Elem, Store>,
-    merkle_elem: PhantomData<Elem>,
+    batch: &'a mut MMRBatch<T, S>,
+    merge: PhantomData<M>,
 }
 
-impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MMR<'a, Elem, Store> {
-    pub fn new(mmr_size: u64, batch: &'a mut MMRBatch<Elem, Store>) -> Self {
+impl<'a, T: Clone + PartialEq + Debug, M: Merge<Item = T>, S: MMRStore<T>> MMR<'a, T, M, S> {
+    pub fn new(mmr_size: u64, batch: &'a mut MMRBatch<T, S>) -> Self {
         MMR {
             mmr_size,
             batch,
-            merkle_elem: PhantomData,
+            merge: PhantomData,
         }
     }
 
     // find internal MMR elem, the pos must exists, otherwise a error will return
-    fn find_elem<'b>(&self, pos: u64, hashes: &'b [Elem]) -> Result<Cow<'b, Elem>> {
+    fn find_elem<'b>(&self, pos: u64, hashes: &'b [T]) -> Result<Cow<'b, T>> {
         let pos_offset = pos.checked_sub(self.mmr_size);
         if let Some(elem) = pos_offset.and_then(|i| hashes.get(i as usize)) {
             return Ok(Cow::Borrowed(elem));
@@ -47,8 +46,8 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
     }
 
     // push a element and return position
-    pub fn push(&mut self, elem: Elem) -> Result<u64> {
-        let mut elems: Vec<Elem> = Vec::new();
+    pub fn push(&mut self, elem: T) -> Result<u64> {
+        let mut elems: Vec<T> = Vec::new();
         // position of new elem
         let elem_pos = self.mmr_size;
         elems.push(elem);
@@ -61,7 +60,7 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
             let right_pos = left_pos + sibling_offset(height.try_into().expect("u32"));
             let left_elem = self.find_elem(left_pos, &elems)?;
             let right_elem = self.find_elem(right_pos, &elems)?;
-            let parent_elem = Elem::merge(&left_elem, &right_elem)?;
+            let parent_elem = M::merge(&left_elem, &right_elem)?;
             elems.push(parent_elem);
             height += 1
         }
@@ -73,7 +72,7 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
     }
 
     /// get_root
-    pub fn get_root(&self) -> Result<Elem> {
+    pub fn get_root(&self) -> Result<T> {
         if self.mmr_size == 0 {
             return Err(Error::GetRootOnEmpty);
         } else if self.mmr_size == 1 {
@@ -84,8 +83,8 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
             .ok_or(Error::InconsistentStore)
     }
 
-    fn bag_rhs_peaks(&self, skip_peak_pos: u64, peaks: &[u64]) -> Result<Option<Elem>> {
-        let mut rhs_peak_elems: Vec<Elem> = peaks
+    fn bag_rhs_peaks(&self, skip_peak_pos: u64, peaks: &[u64]) -> Result<Option<T>> {
+        let mut rhs_peak_elems: Vec<T> = peaks
             .iter()
             .filter(|&&p| p > skip_peak_pos)
             .map(|&p| self.batch.get_elem(p))
@@ -94,13 +93,13 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
         while rhs_peak_elems.len() > 1 {
             let right_peak = rhs_peak_elems.pop().expect("pop");
             let left_peak = rhs_peak_elems.pop().expect("pop");
-            rhs_peak_elems.push(Elem::merge(&right_peak, &left_peak)?);
+            rhs_peak_elems.push(M::merge(&right_peak, &left_peak)?);
         }
         Ok(rhs_peak_elems.pop())
     }
 
-    pub fn gen_proof(&self, mut pos: u64) -> Result<MerkleProof<Elem>> {
-        let mut proof: Vec<Elem> = Vec::new();
+    pub fn gen_proof(&self, mut pos: u64) -> Result<MerkleProof<T, M>> {
+        let mut proof: Vec<T> = Vec::new();
         let mut height = 0;
         while pos < self.mmr_size {
             let pos_height = pos_height_in_tree(pos);
@@ -153,27 +152,32 @@ impl<'a, Elem: MerkleElem + Clone + PartialEq + Debug, Store: MMRStore<Elem>> MM
 }
 
 #[derive(Debug)]
-pub struct MerkleProof<Elem> {
+pub struct MerkleProof<T, M> {
     mmr_size: u64,
-    proof: Vec<Elem>,
+    proof: Vec<T>,
+    merge: PhantomData<M>,
 }
 
-impl<Elem: MerkleElem + PartialEq + Debug> MerkleProof<Elem> {
-    pub fn new(mmr_size: u64, proof: Vec<Elem>) -> Self {
-        MerkleProof { mmr_size, proof }
+impl<T: PartialEq + Debug, M: Merge<Item = T>> MerkleProof<T, M> {
+    pub fn new(mmr_size: u64, proof: Vec<T>) -> Self {
+        MerkleProof {
+            mmr_size,
+            proof,
+            merge: PhantomData,
+        }
     }
 
-    pub fn verify(&self, root: Elem, mut pos: u64, elem: Elem) -> Result<bool> {
+    pub fn verify(&self, root: T, mut pos: u64, elem: T) -> Result<bool> {
         let peaks = get_peaks(self.mmr_size);
         let mut sum_elem = elem;
         let mut height = 0;
         for proof in &self.proof {
             if peaks.contains(&pos) {
                 sum_elem = if Some(&pos) == peaks.last() {
-                    Elem::merge(&sum_elem, &proof)?
+                    M::merge(&sum_elem, &proof)?
                 } else {
                     pos = *peaks.last().expect("must exists at least one peak");
-                    Elem::merge(proof, &sum_elem)?
+                    M::merge(proof, &sum_elem)?
                 };
                 continue;
             }
@@ -184,10 +188,10 @@ impl<Elem: MerkleElem + PartialEq + Debug> MerkleProof<Elem> {
             sum_elem = if next_height > pos_height {
                 // to next pos
                 pos += 1;
-                Elem::merge(proof, &sum_elem)?
+                M::merge(proof, &sum_elem)?
             } else {
                 pos += parent_offset(height);
-                Elem::merge(&sum_elem, proof)?
+                M::merge(&sum_elem, proof)?
             };
             height += 1
         }

@@ -1,13 +1,12 @@
-use crate::MerkleElem;
 use crate::Result;
 
 #[derive(Default)]
-pub struct MMRBatch<Elem: MerkleElem, Store: MMRStore<Elem>> {
+pub struct MMRBatch<Elem, Store: MMRStore<Elem>> {
     memory_batch: Vec<(u64, Vec<Elem>)>,
     store: Store,
 }
 
-impl<Elem: MerkleElem + Clone, Store: MMRStore<Elem>> MMRBatch<Elem, Store> {
+impl<Elem: Clone, Store: MMRStore<Elem>> MMRBatch<Elem, Store> {
     pub fn new(store: Store) -> Self {
         MMRBatch {
             memory_batch: Vec::new(),
@@ -19,6 +18,7 @@ impl<Elem: MerkleElem + Clone, Store: MMRStore<Elem>> MMRBatch<Elem, Store> {
         self.memory_batch.push((pos, elems));
         Ok(())
     }
+
     pub fn get_elem(&self, pos: u64) -> Result<Option<Elem>> {
         for (start_pos, elems) in self.memory_batch.iter().rev() {
             if pos < *start_pos {
@@ -44,7 +44,7 @@ impl<Elem: MerkleElem + Clone, Store: MMRStore<Elem>> MMRBatch<Elem, Store> {
     }
 }
 
-impl<Elem: MerkleElem, Store: MMRStore<Elem>> IntoIterator for MMRBatch<Elem, Store> {
+impl<Elem, Store: MMRStore<Elem>> IntoIterator for MMRBatch<Elem, Store> {
     type Item = (u64, Vec<Elem>);
     type IntoIter = ::std::vec::IntoIter<Self::Item>;
 
@@ -53,7 +53,7 @@ impl<Elem: MerkleElem, Store: MMRStore<Elem>> IntoIterator for MMRBatch<Elem, St
     }
 }
 
-pub trait MMRStore<Elem: MerkleElem> {
+pub trait MMRStore<Elem> {
     fn get_elem(&self, pos: u64) -> Result<Option<Elem>>;
     fn append(&mut self, pos: u64, elems: Vec<Elem>) -> Result<()>;
 }

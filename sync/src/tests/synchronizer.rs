@@ -22,6 +22,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{cell::resolve_transaction, BlockBuilder, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, HeaderDigest, OutPoint},
+    utilities::MergeHeaderDigest,
     U256,
 };
 use ckb_util::RwLock;
@@ -113,7 +114,7 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
     let chain_service = ChainService::new(shared.clone(), table, notify);
     let chain_controller = chain_service.start::<&str>(None);
 
-    let mut mmr = MemMMR::<HeaderDigest>::default();
+    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
 
     mmr.push(block.header().into()).expect("push block to mmr");
 

@@ -32,6 +32,7 @@ use ckb_types::{
         RawAlertBuilder,
     },
     prelude::*,
+    utilities::MergeHeaderDigest,
     H256, U256,
 };
 use jsonrpc_core::IoHandler;
@@ -154,7 +155,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     };
     let mmr_store = MemStore::<HeaderDigest>::default();
     let mut mmr_batch = MMRBatch::new(&mmr_store);
-    let mut mmr = MMR::new(0, &mut mmr_batch);
+    let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(0, &mut mmr_batch);
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;

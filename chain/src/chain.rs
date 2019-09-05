@@ -18,6 +18,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
+    utilities::MergeHeaderDigest,
     U256,
 };
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
@@ -679,7 +680,7 @@ impl ChainService {
         let mut batch = MMRBatch::new(txn);
         // calculate mmr_size and initialize MMR
         let mmr_size = leaf_index_to_mmr_size(start_block.header().number() - 1);
-        let mut mmr = MMR::new(mmr_size, &mut batch);
+        let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(mmr_size, &mut batch);
         // check blocks chain_root
         for block in attached_blocks {
             let root = mmr

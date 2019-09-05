@@ -29,6 +29,7 @@ use ckb_types::{
     },
     packed::{self, CellInput, CellOutput, ProposalShortId, Script, Transaction, UncleBlock},
     prelude::*,
+    utilities::MergeHeaderDigest,
     H256,
 };
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -379,7 +380,10 @@ impl BlockAssembler {
 
         let chain_root = {
             let mut batch = MMRBatch::new(snapshot);
-            let mmr = MMR::new(leaf_index_to_mmr_size(tip_header.number()), &mut batch);
+            let mmr = MMR::<_, MergeHeaderDigest, _>::new(
+                leaf_index_to_mmr_size(tip_header.number()),
+                &mut batch,
+            );
             mmr.get_root()?.hash()
         };
 
