@@ -8,10 +8,10 @@ difficulty = "0x4000000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x6b4c7e35fc8bdd9ee8b90a8d373ab2079e0973603c8241c166626058414ecc02"
+hash = "0x73737e145b7f10f4f7e96f9972a8a48d2725f7f30f421e664f8367509525dc6d"
 
 [genesis.genesis_cell]
-message = "rylai-v9"
+message = "rylai-v10"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
