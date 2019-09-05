@@ -30,10 +30,7 @@ pub fn test_version() {
         .build();
     let verifier = VersionVerifier::new(&header);
 
-    assert_error_eq(
-        verifier.verify().unwrap_err(),
-        BlockErrorKind::MismatchedVersion,
-    );
+    assert_error_eq(verifier.verify().unwrap_err(), BlockErrorKind::Version);
 }
 
 #[cfg(not(disable_faketime))]
@@ -70,7 +67,7 @@ fn test_timestamp_too_old() {
 
     assert_error_eq(
         timestamp_verifier.verify().unwrap_err(),
-        TimestampError::TooOldBlockTime {
+        TimestampError::BlockTimeTooOld {
             min,
             actual: timestamp,
         },
@@ -93,7 +90,7 @@ fn test_timestamp_too_new() {
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
     assert_error_eq(
         timestamp_verifier.verify().unwrap_err(),
-        TimestampError::TooNewBlockTime {
+        TimestampError::BlockTimeTooNew {
             max,
             actual: timestamp,
         },
@@ -147,7 +144,7 @@ fn test_epoch_number() {
 
     assert_error_eq(
         EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
-        EpochError::UnmatchedNumber {
+        EpochError::NumberMismatch {
             expected: 0,
             actual: 2,
         },
@@ -165,7 +162,7 @@ fn test_epoch_difficulty() {
 
     assert_error_eq(
         EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
-        EpochError::UnmatchedDifficulty {
+        EpochError::DifficultyMismatch {
             expected: U256::from(1u64).pack(),
             actual: U256::from(2u64).pack(),
         },

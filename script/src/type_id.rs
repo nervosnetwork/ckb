@@ -29,7 +29,7 @@ pub struct TypeIdSystemScript<'a> {
 impl<'a> TypeIdSystemScript<'a> {
     pub fn verify(&self) -> Result<Cycle, Error> {
         if self.max_cycles < TYPE_ID_CYCLES {
-            Err(ScriptError::TooMuchCycles)?;
+            Err(ScriptError::ExceededMaximumCycles)?;
         }
         // TYPE_ID script should only accept one argument,
         // which is the hash of all inputs when creating

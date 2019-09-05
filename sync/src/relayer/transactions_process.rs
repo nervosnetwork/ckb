@@ -179,7 +179,7 @@ fn is_malformed(error: &Error) -> bool {
                 .downcast_ref::<InternalError>()
                 .expect("error kind checked")
                 .kind()
-                == &InternalErrorKind::ArithmeticOverflowCapacity
+                == &InternalErrorKind::CapacityOverflow
         }
         _ => false,
     }

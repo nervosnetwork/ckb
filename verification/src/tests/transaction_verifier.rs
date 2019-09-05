@@ -28,10 +28,7 @@ pub fn test_empty() {
     let transaction = TransactionBuilder::default().build();
     let verifier = EmptyVerifier::new(&transaction);
 
-    assert_error_eq(
-        verifier.verify().unwrap_err(),
-        TransactionError::MissingInputsOrOutputs,
-    );
+    assert_error_eq(verifier.verify().unwrap_err(), TransactionError::Empty);
 }
 
 #[test]
@@ -63,7 +60,7 @@ pub fn test_exceeded_maximum_block_bytes() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        TransactionError::TooLargeSize,
+        TransactionError::ExceededMaximumBlockBytes,
     );
 }
 
@@ -95,7 +92,7 @@ pub fn test_capacity_outofbound() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        TransactionError::OccupiedOverflowCapacity,
+        TransactionError::InsufficientCellCapacity,
     );
 }
 
@@ -155,7 +152,7 @@ pub fn test_inputs_cellbase_maturity() {
 
     assert_error_eq(
         verifier1.verify().unwrap_err(),
-        TransactionError::ImmatureCellbase,
+        TransactionError::CellbaseImmaturity,
     );
 
     let tip_number = 130;
@@ -215,7 +212,7 @@ pub fn test_deps_cellbase_maturity() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        TransactionError::ImmatureCellbase,
+        TransactionError::CellbaseImmaturity,
     );
 
     let tip_number = 130;
@@ -265,7 +262,7 @@ pub fn test_capacity_invalid() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        TransactionError::OutputOverflowCapacity,
+        TransactionError::OutputsSumOverflow,
     );
 }
 
@@ -281,7 +278,7 @@ pub fn test_duplicate_deps() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        TransactionError::DuplicatedDeps,
+        TransactionError::DuplicateDeps,
     );
 }
 
@@ -371,7 +368,7 @@ fn test_invalid_since_verify() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::InvalidSinceFormat,
+        TransactionError::InvalidSince,
     );
 }
 
@@ -385,7 +382,7 @@ pub fn test_absolute_block_number_lock() {
 
     assert_error_eq(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::ImmatureTransaction,
+        TransactionError::Immature,
     );
     // spent after 10 height
     assert!(verify_since(&rtx, &median_time_context, 10, 1).is_ok());
@@ -401,7 +398,7 @@ pub fn test_absolute_epoch_number_lock() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq(
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
-        TransactionError::ImmatureTransaction,
+        TransactionError::Immature,
     );
     // spent after 10 epoch
     assert!(verify_since(&rtx, &median_time_context, 100, 10).is_ok());
@@ -417,7 +414,7 @@ pub fn test_relative_timestamp_lock() {
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::ImmatureTransaction,
+        TransactionError::Immature,
     );
 
     // spent after 1024 seconds
@@ -438,7 +435,7 @@ pub fn test_relative_epoch() {
 
     assert_error_eq(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::ImmatureTransaction,
+        TransactionError::Immature,
     );
 
     assert!(verify_since(&rtx, &median_time_context, 4, 2).is_ok());
@@ -465,7 +462,7 @@ pub fn test_since_both() {
 
     assert_error_eq(
         verify_since(&rtx, &median_time_context, 4, 1).unwrap_err(),
-        TransactionError::ImmatureTransaction,
+        TransactionError::Immature,
     );
     // spent after 1024 seconds and 10 blocks
     // fake median time: 1124
@@ -484,7 +481,7 @@ pub fn test_outputs_data_length_mismatch() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        TransactionError::UnmatchedOutputsDataLength,
+        TransactionError::OutputsDataLengthMismatch,
     );
 
     let transaction = TransactionBuilder::default()

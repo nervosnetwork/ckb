@@ -150,7 +150,7 @@ impl<'a> SizeVerifier<'a> {
         if size <= self.block_bytes_limit {
             Ok(())
         } else {
-            Err(TransactionError::TooLargeSize)?
+            Err(TransactionError::ExceededMaximumBlockBytes)?
         }
     }
 }
@@ -196,7 +196,7 @@ impl<'a> EmptyVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.transaction.is_empty() {
-            Err(TransactionError::MissingInputsOrOutputs)?
+            Err(TransactionError::Empty)?
         } else {
             Ok(())
         }
@@ -248,7 +248,7 @@ impl<'a> MaturityVerifier<'a> {
         };
 
         if input_immature_spend() || dep_immature_spend() {
-            Err(TransactionError::ImmatureCellbase)?
+            Err(TransactionError::CellbaseImmaturity)?
         } else {
             Ok(())
         }
@@ -278,7 +278,7 @@ impl<'a> DuplicateDepsVerifier<'a> {
         {
             Ok(())
         } else {
-            Err(TransactionError::DuplicatedDeps)?
+            Err(TransactionError::DuplicateDeps)?
         }
     }
 }
@@ -304,7 +304,7 @@ impl<'a> CapacityVerifier<'a> {
             let outputs_total = self.resolved_transaction.outputs_capacity()?;
 
             if inputs_total < outputs_total {
-                Err(TransactionError::OutputOverflowCapacity)?;
+                Err(TransactionError::OutputsSumOverflow)?;
             }
         }
 
@@ -314,7 +314,7 @@ impl<'a> CapacityVerifier<'a> {
             .outputs_with_data_iter()
         {
             if output.is_lack_of_capacity(Capacity::bytes(data.len())?)? {
-                Err(TransactionError::OccupiedOverflowCapacity)?;
+                Err(TransactionError::InsufficientCellCapacity)?;
             }
         }
 
@@ -436,22 +436,22 @@ where
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
                     if self.block_number < block_number {
-                        Err(TransactionError::ImmatureTransaction)?;
+                        Err(TransactionError::Immature)?;
                     }
                 }
                 Some(SinceMetric::EpochNumber(epoch_number)) => {
                     if self.epoch_number < epoch_number {
-                        Err(TransactionError::ImmatureTransaction)?;
+                        Err(TransactionError::Immature)?;
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
                     let tip_timestamp = self.block_median_time(&self.parent_hash);
                     if tip_timestamp < timestamp {
-                        Err(TransactionError::ImmatureTransaction)?;
+                        Err(TransactionError::Immature)?;
                     }
                 }
                 None => {
-                    Err(TransactionError::InvalidSinceFormat)?;
+                    Err(TransactionError::InvalidSince)?;
                 }
             }
         }
@@ -462,17 +462,17 @@ where
         if since.is_relative() {
             let info = match cell_meta.transaction_info {
                 Some(ref transaction_info) => transaction_info,
-                None => Err(TransactionError::ImmatureTransaction)?,
+                None => Err(TransactionError::Immature)?,
             };
             match since.extract_metric() {
                 Some(SinceMetric::BlockNumber(block_number)) => {
                     if self.block_number < info.block_number + block_number {
-                        Err(TransactionError::ImmatureTransaction)?;
+                        Err(TransactionError::Immature)?;
                     }
                 }
                 Some(SinceMetric::EpochNumber(epoch_number)) => {
                     if self.epoch_number < info.block_epoch + epoch_number {
-                        Err(TransactionError::ImmatureTransaction)?;
+                        Err(TransactionError::Immature)?;
                     }
                 }
                 Some(SinceMetric::Timestamp(timestamp)) => {
@@ -483,11 +483,11 @@ where
                     let cell_median_timestamp = self.parent_median_time(&info.block_hash);
                     let current_median_time = self.block_median_time(&self.parent_hash);
                     if current_median_time < cell_median_timestamp + timestamp {
-                        Err(TransactionError::ImmatureTransaction)?;
+                        Err(TransactionError::Immature)?;
                     }
                 }
                 None => {
-                    Err(TransactionError::InvalidSinceFormat)?;
+                    Err(TransactionError::InvalidSince)?;
                 }
             }
         }
@@ -509,7 +509,7 @@ where
             let since = Since(since);
             // check remain flags
             if !since.flags_is_valid() {
-                Err(TransactionError::InvalidSinceFormat)?;
+                Err(TransactionError::InvalidSince)?;
             }
 
             // verify time lock
@@ -531,7 +531,7 @@ impl<'a> OutputsDataVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), TransactionError> {
         if self.transaction.outputs().len() != self.transaction.outputs_data().len() {
-            Err(TransactionError::UnmatchedOutputsDataLength)?;
+            Err(TransactionError::OutputsDataLengthMismatch)?;
         }
         Ok(())
     }

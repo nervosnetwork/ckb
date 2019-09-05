@@ -29,13 +29,13 @@ impl TxPool {
     pub fn add_tx_to_pool(&mut self, tx: TransactionView, cycles: Cycle) -> Result<Cycle, Error> {
         let tx_size = tx.serialized_size();
         if self.reach_size_limit(tx_size) {
-            Err(InternalErrorKind::FullTransactionPool)?;
+            Err(InternalErrorKind::TransactionPoolFull)?;
         }
         let short_id = tx.proposal_short_id();
         match self.resolve_tx_from_pending_and_proposed(&tx) {
             Ok(rtx) => self.verify_rtx(&rtx, Some(cycles)).and_then(|cycles| {
                 if self.reach_cycles_limit(cycles) {
-                    Err(InternalErrorKind::FullTransactionPool)?;
+                    Err(InternalErrorKind::TransactionPoolFull)?;
                 }
                 if self.contains_proposed(&short_id) {
                     if let Err(e) = self.proposed_tx_and_descendants(Some(cycles), tx_size, tx) {
@@ -225,7 +225,7 @@ impl TxPool {
                             .downcast_ref::<OutPointError>()
                             .expect("error kind checked")
                         {
-                            OutPointError::DeadCell(_) => {
+                            OutPointError::Dead(_) => {
                                 if self
                                     .conflict
                                     .insert(short_id, DefectEntry::new(tx, 0, cycles, size))
@@ -235,7 +235,7 @@ impl TxPool {
                                 }
                             }
 
-                            OutPointError::UnknownCells(out_points) => {
+                            OutPointError::Unknown(out_points) => {
                                 if self
                                     .add_orphan(cycles, size, tx, out_points.to_owned())
                                     .is_some()
@@ -253,9 +253,9 @@ impl TxPool {
                             // OutOfOrder should only appear in BlockCellProvider
                             OutPointError::InvalidHeaderDep(_)
                             | OutPointError::InvalidDepGroup(_)
-                            | OutPointError::MissingInputCellAndHeader(_)
-                            | OutPointError::MissingInputCell(_)
-                            | OutPointError::ExclusiveInputCell(_)
+                            | OutPointError::Empty(_)
+                            | OutPointError::UnspecifiedInputCell(_)
+                            | OutPointError::InvalidHeader(_)
                             | OutPointError::OutOfOrder(_)
                             | OutPointError::UnknownHeader(_) => {
                                 self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
@@ -305,7 +305,7 @@ impl TxPool {
                 if tx_pool.add_gap(entry) {
                     Ok(())
                 } else {
-                    Err(InternalErrorKind::DuplicatedPoolTransaction
+                    Err(InternalErrorKind::PoolTransactionDuplicated
                         .cause(tx_hash)
                         .into())
                 }
@@ -366,7 +366,7 @@ impl TxPool {
                 if tx_pool.enqueue_tx(entry) {
                     Ok(())
                 } else {
-                    Err(InternalErrorKind::DuplicatedPoolTransaction
+                    Err(InternalErrorKind::PoolTransactionDuplicated
                         .cause(tx_hash)
                         .into())
                 }

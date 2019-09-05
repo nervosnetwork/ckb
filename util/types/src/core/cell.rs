@@ -393,12 +393,12 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     let mut resolve_cell =
         |out_point: &OutPoint, with_data: bool| -> Result<Option<Box<CellMeta>>, Error> {
             if seen_inputs.contains(out_point) {
-                Err(OutPointError::DeadCell(out_point.clone()))?;
+                Err(OutPointError::Dead(out_point.clone()))?;
             }
 
             let cell_status = cell_provider.cell(out_point, with_data);
             match cell_status {
-                CellStatus::Dead => Err(OutPointError::DeadCell(out_point.clone()).into()),
+                CellStatus::Dead => Err(OutPointError::Dead(out_point.clone()).into()),
                 CellStatus::Unknown => {
                     unknown_out_points.push(out_point.clone());
                     Ok(None)
@@ -411,7 +411,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
             if !current_inputs.insert(out_point.to_owned()) {
-                Err(OutPointError::DeadCell(out_point.clone()))?;
+                Err(OutPointError::Dead(out_point.clone()))?;
             }
             if let Some(cell_meta) = resolve_cell(&out_point, false)? {
                 resolved_inputs.push(*cell_meta);
@@ -437,7 +437,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     }
 
     if !unknown_out_points.is_empty() {
-        Err(OutPointError::UnknownCells(unknown_out_points).into())
+        Err(OutPointError::Unknown(unknown_out_points).into())
     } else {
         seen_inputs.extend(current_inputs);
         Ok(ResolvedTransaction {
@@ -679,7 +679,7 @@ mod tests {
         );
         assert_error_eq(
             result.unwrap_err(),
-            OutPointError::UnknownCells(vec![op_unknown]),
+            OutPointError::Unknown(vec![op_unknown]),
         );
     }
 
@@ -880,10 +880,7 @@ mod tests {
             let result2 =
                 resolve_transaction(&tx2, &mut seen_inputs, &cell_provider, &header_checker);
 
-            assert_error_eq(
-                result2.unwrap_err(),
-                OutPointError::DeadCell(out_point.clone()),
-            );
+            assert_error_eq(result2.unwrap_err(), OutPointError::Dead(out_point.clone()));
         }
     }
 }

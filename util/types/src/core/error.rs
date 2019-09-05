@@ -5,36 +5,31 @@ use failure::Fail;
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum OutPointError {
     /// The specified cell is already dead
-    // NOTE: the original name is Dead
-    #[fail(display = "DeadCell({:?})", _0)]
-    DeadCell(OutPoint),
+    #[fail(display = "Dead({:?})", _0)]
+    Dead(OutPoint),
 
     /// The specified cells is unknown in the chain
-    // NOTE: the original name is Unknown
-    #[fail(display = "UnknownCells({:?})", _0)]
-    UnknownCells(Vec<OutPoint>),
+    #[fail(display = "Unknown({:?})", _0)]
+    Unknown(Vec<OutPoint>),
 
     /// The specified input cell is not-found inside the specified header
-    // NOTE: the original name is InvalidHeader
-    #[fail(display = "ExclusiveInputCell({:?})", _0)]
-    ExclusiveInputCell(OutPoint),
+    #[fail(display = "InvalidHeader({:?})", _0)]
+    InvalidHeader(OutPoint),
 
     /// Use the out point as input but not specified the input cell
-    // NOTE: the original name is UnspecifiedInputCell
-    #[fail(display = "MissingInputCell({:?})", _0)]
-    MissingInputCell(OutPoint),
+    #[fail(display = "UnspecifiedInputCell({:?})", _0)]
+    UnspecifiedInputCell(OutPoint),
 
     /// Empty out point, missing the input cell and header
-    // NOTE: the original name is Empty
-    #[fail(display = "MissingInputCellAndHeader({:?})", _0)]
-    MissingInputCellAndHeader(OutPoint),
+    #[fail(display = "Empty({:?})", _0)]
+    Empty(OutPoint),
 
     /// Unknown the specified header
     #[fail(display = "UnknownHeader({:?})", _0)]
     UnknownHeader(OutPoint),
 
     /// Input or dep cell reference to a newer cell in the same block
-    // NOTE: Maybe replace with `UnknownInputCell`?
+    // TODO: Maybe replace with `UnknownInputCell`?
     #[fail(display = "OutOfOrder({:?})", _0)]
     OutOfOrder(OutPoint),
 

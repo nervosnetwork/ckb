@@ -23,7 +23,7 @@ impl Spec for CellbaseMaturity {
 
         (0..MATURITY - DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|i| {
             info!("Tx is not maturity in N + {} block", i);
-            assert_send_transaction_fail(node, &tx, "ImmatureCellbase");
+            assert_send_transaction_fail(node, &tx, "CellbaseImmaturity");
             node.generate_block();
         });
 

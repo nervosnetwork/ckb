@@ -291,9 +291,9 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             })?;
             let current_cycles = cycles
                 .checked_add(cycle)
-                .ok_or(ScriptError::TooMuchCycles)?;
+                .ok_or(ScriptError::ExceededMaximumCycles)?;
             if current_cycles > max_cycles {
-                Err(ScriptError::TooMuchCycles)?;
+                Err(ScriptError::ExceededMaximumCycles)?;
             }
             cycles = current_cycles;
         }
@@ -1514,7 +1514,7 @@ mod tests {
 
         assert_error_eq(
             verifier.verify(500_000).unwrap_err(),
-            ScriptError::TooMuchCycles,
+            ScriptError::ExceededMaximumCycles,
         );
     }
 

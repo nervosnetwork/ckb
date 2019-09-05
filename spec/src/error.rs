@@ -4,20 +4,17 @@ use failure::Fail;
 
 #[derive(Fail, Debug, Clone, Eq, PartialEq)]
 pub enum SpecError {
-    // NOTE: the original name is FileNotFound
-    #[fail(display = "NotFoundFile")]
-    NotFoundFile(String),
+    #[fail(display = "FileNotFound")]
+    FileNotFound(String),
 
-    // NOTE: the original name is ChainNameNotAllowed
-    #[fail(display = "NotAllowedChainName: {}", _0)]
-    NotAllowedChainName(String),
+    #[fail(display = "ChainNameNotAllowed: {}", _0)]
+    ChainNameNotAllowed(String),
 
-    // NOTE: the original name GenesisMismatch
     #[fail(
-        display = "UnmatchedGenesis{{expected: {}, actual: {}}}",
+        display = "GenesisMismatch{{expected: {}, actual: {}}}",
         expected, actual
     )]
-    UnmatchedGenesis { expected: Byte32, actual: Byte32 },
+    GenesisMismatch { expected: Byte32, actual: Byte32 },
 }
 
 impl From<SpecError> for Error {

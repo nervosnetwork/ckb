@@ -121,7 +121,7 @@ impl DuplicateVerifier {
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         let mut seen = HashSet::with_capacity(block.transactions().len());
         if !block.transactions().iter().all(|tx| seen.insert(tx.hash())) {
-            Err(BlockErrorKind::DuplicatedCommittedTransactions)?;
+            Err(BlockErrorKind::CommitTransactionDuplicate)?;
         }
 
         let mut seen = HashSet::with_capacity(block.data().proposals().len());
@@ -131,7 +131,7 @@ impl DuplicateVerifier {
             .into_iter()
             .all(|id| seen.insert(id))
         {
-            Err(BlockErrorKind::DuplicatedProposalTransactions)?;
+            Err(BlockErrorKind::ProposalTransactionDuplicate)?;
         }
         Ok(())
     }
@@ -147,15 +147,15 @@ impl MerkleRootVerifier {
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         if block.transactions_root() != block.calc_transactions_root() {
-            Err(BlockErrorKind::UnmatchedCommittedRoot)?;
+            Err(BlockErrorKind::CommitTransactionsRoot)?;
         }
 
         if block.witnesses_root() != block.calc_witnesses_root() {
-            Err(BlockErrorKind::UnmatchedWitnessesRoot)?;
+            Err(BlockErrorKind::WitnessesMerkleRoot)?;
         }
 
         if block.proposals_hash() != block.calc_proposals_hash() {
-            Err(BlockErrorKind::UnmatchedProposalRoot)?;
+            Err(BlockErrorKind::ProposalTransactionsRoot)?;
         }
 
         Ok(())
@@ -238,7 +238,7 @@ impl BlockProposalsLimitVerifier {
         if proposals_len <= self.block_proposals_limit {
             Ok(())
         } else {
-            Err(BlockErrorKind::TooManyProposals)?
+            Err(BlockErrorKind::ExceededMaximumProposalsLimit)?
         }
     }
 }
@@ -262,7 +262,7 @@ impl BlockBytesVerifier {
         if block_bytes <= self.block_bytes_limit {
             Ok(())
         } else {
-            Err(BlockErrorKind::TooLargeSize)?
+            Err(BlockErrorKind::ExceededMaximumBlockBytes)?
         }
     }
 }

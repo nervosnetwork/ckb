@@ -159,7 +159,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
             .context
             .store
             .get_block_hash(proposal_end)
-            .ok_or_else(|| CommitError::NonexistentAncestor)?;
+            .ok_or_else(|| CommitError::AncestorNotFound)?;
 
         let mut proposal_txs_ids = HashSet::new();
 
@@ -168,7 +168,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
                 .context
                 .store
                 .get_block_header(&block_hash)
-                .ok_or_else(|| CommitError::NonexistentAncestor)?;
+                .ok_or_else(|| CommitError::AncestorNotFound)?;
             if header.is_genesis() {
                 break;
             }
@@ -213,7 +213,7 @@ impl<'a, CS: ChainStore<'a>> CommitVerifier<'a, CS> {
             for proposal_txs_id in proposal_txs_ids.iter() {
                 error_target!(crate::LOG_TARGET, "    {:?}", proposal_txs_id);
             }
-            Err(CommitError::NotInProposalWindow)?;
+            Err(CommitError::Invalid)?;
         }
         Ok(())
     }
@@ -392,7 +392,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
         }
 
         if sum > self.context.consensus.max_block_cycles() {
-            Err(BlockErrorKind::TooMuchCycles)?
+            Err(BlockErrorKind::ExceededMaximumCycles)?
         } else {
             Ok(sum)
         }

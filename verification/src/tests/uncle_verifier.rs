@@ -155,7 +155,7 @@ fn test_uncle_count() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        UnclesError::UnmatchedCount {
+        UnclesError::MissMatchCount {
             expected: 0,
             actual: 1,
         },
@@ -184,7 +184,7 @@ fn test_invalid_uncle_hash_case1() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        UnclesError::UnmatchedUnclesHash {
+        UnclesError::InvalidHash {
             expected: Byte32::zero(),
             actual: block.calc_uncles_hash(),
         },
@@ -214,7 +214,7 @@ fn test_invalid_uncle_hash_case2() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        UnclesError::UnmatchedUnclesHash {
+        UnclesError::InvalidHash {
             expected: uncles_hash,
             actual: Byte32::zero(),
         },
@@ -300,7 +300,7 @@ fn test_invalid_epoch() {
 
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        UnclesError::UnmatchedEpochNumber,
+        UnclesError::InvalidDifficultyEpoch,
     );
 }
 
@@ -322,10 +322,7 @@ fn test_invalid_number() {
     let epoch = epoch(&shared, &chain2, 16);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(
-        verifier.verify().unwrap_err(),
-        UnclesError::UnmatchedBlockNumber,
-    );
+    assert_error_eq(verifier.verify().unwrap_err(), UnclesError::InvalidNumber);
 }
 
 // Uncle proposals_hash is invalid
@@ -351,10 +348,7 @@ fn test_uncle_proposals_hash() {
     let epoch = epoch(&shared, &chain2, block_number);
     let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch);
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-    assert_error_eq(
-        verifier.verify().unwrap_err(),
-        UnclesError::UnmatchedProposalRoot,
-    );
+    assert_error_eq(verifier.verify().unwrap_err(), UnclesError::ProposalsHash);
 }
 
 // Uncle contains duplicated proposals
@@ -381,7 +375,7 @@ fn test_uncle_duplicated_proposals() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        UnclesError::DuplicatedProposalTransactions,
+        UnclesError::ProposalDuplicate,
     );
 }
 
@@ -405,7 +399,7 @@ fn test_duplicated_uncles() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        UnclesError::DuplicatedUncles(block.uncles().get(1).unwrap().header().hash().to_owned()),
+        UnclesError::Duplicate(block.uncles().get(1).unwrap().header().hash().to_owned()),
     );
 }
 
@@ -433,7 +427,7 @@ fn test_uncle_over_count() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        UnclesError::TooManyUncles {
+        UnclesError::OverCount {
             max: max_uncles_num as u32,
             actual: max_uncles_num as u32 + 1,
         },
@@ -464,7 +458,7 @@ fn test_exceeded_maximum_proposals_limit() {
     let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
     assert_error_eq(
         verifier.verify().unwrap_err(),
-        UnclesError::TooManyProposals,
+        UnclesError::ExceededMaximumProposalsLimit,
     );
 }
 

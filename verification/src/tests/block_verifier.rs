@@ -221,7 +221,7 @@ pub fn test_block_with_duplicated_txs() {
     let verifier = DuplicateVerifier::new();
     assert_error_eq(
         verifier.verify(&block).unwrap_err(),
-        BlockErrorKind::DuplicatedCommittedTransactions,
+        BlockErrorKind::CommitTransactionDuplicate,
     );
 }
 
@@ -236,7 +236,7 @@ pub fn test_block_with_duplicated_proposals() {
     let verifier = DuplicateVerifier::new();
     assert_error_eq(
         verifier.verify(&block).unwrap_err(),
-        BlockErrorKind::DuplicatedProposalTransactions,
+        BlockErrorKind::ProposalTransactionDuplicate,
     );
 }
 
@@ -254,7 +254,7 @@ pub fn test_transaction_root() {
     let verifier = MerkleRootVerifier::new();
     assert_error_eq(
         verifier.verify(&block).unwrap_err(),
-        BlockErrorKind::UnmatchedCommittedRoot,
+        BlockErrorKind::CommitTransactionsRoot,
     );
 }
 
@@ -272,7 +272,7 @@ pub fn test_proposals_root() {
     let verifier = MerkleRootVerifier::new();
     assert_error_eq(
         verifier.verify(&block).unwrap_err(),
-        BlockErrorKind::UnmatchedCommittedRoot,
+        BlockErrorKind::CommitTransactionsRoot,
     );
 }
 
@@ -290,7 +290,7 @@ pub fn test_witnesses_root() {
     let verifier = MerkleRootVerifier::new();
     assert_error_eq(
         verifier.verify(&block).unwrap_err(),
-        BlockErrorKind::UnmatchedWitnessesRoot,
+        BlockErrorKind::WitnessesMerkleRoot,
     );
 }
 
@@ -368,7 +368,7 @@ pub fn test_max_block_bytes_verifier() {
         let verifier = BlockBytesVerifier::new(block.serialized_size() as u64 - 1);
         assert_error_eq(
             verifier.verify(&block).unwrap_err(),
-            BlockErrorKind::TooLargeSize,
+            BlockErrorKind::ExceededMaximumBlockBytes,
         );
     }
 }
@@ -388,7 +388,7 @@ pub fn test_max_proposals_limit_verifier() {
         let verifier = BlockProposalsLimitVerifier::new(0);
         assert_error_eq(
             verifier.verify(&block).unwrap_err(),
-            BlockErrorKind::TooManyProposals,
+            BlockErrorKind::ExceededMaximumProposalsLimit,
         );
     }
 }

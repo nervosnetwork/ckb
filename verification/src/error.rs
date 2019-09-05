@@ -6,64 +6,45 @@ use std::fmt::{self, Display};
 #[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
 pub enum TransactionError {
     /// output.occupied_capacity() > output.capacity()
-    // NOTE: the original name is InsufficientCellCapacity
-    OccupiedOverflowCapacity,
+    InsufficientCellCapacity,
 
     /// SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs])
-    // NOTE: the original name is OutputsSumOverflow
-    OutputOverflowCapacity,
+    OutputsSumOverflow,
 
     /// inputs.is_empty() || outputs.is_empty()
-    // NOTE: the original name is Empty
-    MissingInputsOrOutputs,
+    Empty,
 
     /// Duplicated dep-out-points within the same one transaction
-    // NOTE: the original name is DuplicateDeps
-    DuplicatedDeps,
+    DuplicateDeps,
 
     /// outputs.len() != outputs_data.len()
-    // NOTE: the original name is OutputsDataLengthMismatch
-    UnmatchedOutputsDataLength,
+    OutputsDataLengthMismatch,
 
     /// ANY([o.data_hash != d.data_hash() for (o, d) in ZIP(outputs, outputs_data)])
-    // NOTE: the original name is OutputDataHashMismatch
-    UnmatchedOutputsDataHashes,
+    OutputDataHashMismatch,
 
     /// The format of `transaction.since` is invalid
-    // NOTE: the original name is InvalidSince
-    InvalidSinceFormat,
+    InvalidSince,
 
     /// The transaction is not mature which is required by `transaction.since`
-    // NOTE: the original name is Immature
-    ImmatureTransaction,
+    Immature,
 
     /// The transaction is not mature which is required by cellbase maturity rule
-    // NOTE: the original name is CellbaseImmaturity
-    ImmatureCellbase,
+    CellbaseImmaturity,
 
     /// The transaction version is mismatched with the system can hold
     MismatchedVersion,
 
     /// The transaction size is too large
-    // NOTE: the original name is ExceededMaximumBlockBytes
-    TooLargeSize,
+    ExceededMaximumBlockBytes,
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
 pub enum HeaderErrorKind {
-    /// The parent of this header was marked as invalid
     InvalidParent,
-
-    /// The field pow in block header is invalid
     Pow,
-
-    /// The field timestamp in block header is invalid.
     Timestamp,
-
-    /// The field number in block header is invalid.
     Number,
-
-    /// The field difficulty in block header is invalid.
     Epoch,
 }
 
@@ -79,25 +60,19 @@ pub struct BlockError {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
 pub enum BlockErrorKind {
-    /// There are duplicate proposed transactions.
-    // NOTE: the original name is ProposalTransactionDuplicate
-    DuplicatedProposalTransactions,
+    ProposalTransactionDuplicate,
 
     /// There are duplicate committed transactions.
-    // NOTE: the original name is CommitTransactionDuplicate
-    DuplicatedCommittedTransactions,
+    CommitTransactionDuplicate,
 
     /// The merkle tree hash of proposed transactions does not match the one in header.
-    // NOTE: the original name is ProposalTransactionsRoot
-    UnmatchedProposalRoot,
+    ProposalTransactionsRoot,
 
     /// The merkle tree hash of committed transactions does not match the one in header.
-    // NOTE: the original name is CommitTransactionsRoot
-    UnmatchedCommittedRoot,
+    CommitTransactionsRoot,
 
     /// The merkle tree witness hash of committed transactions does not match the one in header.
-    // NOTE: the original name is WitnessesMerkleRoot
-    UnmatchedWitnessesRoot,
+    WitnessesMerkleRoot,
 
     /// Invalid data in DAO header field is invalid
     InvalidDAO,
@@ -107,35 +82,23 @@ pub enum BlockErrorKind {
     /// transaction index in the block and the second item is the transaction verification error.
     BlockTransactions,
 
-    /// The parent of the block is unknown.
     UnknownParent,
 
-    /// Uncles does not meet the consensus requirements.
     Uncles,
 
-    /// Cellbase transaction is invalid.
     Cellbase,
 
     /// This error is returned when the committed transactions does not meet the 2-phases
     /// propose-then-commit consensus rule.
     Commit,
 
-    /// Number of proposals exceeded the limit.
-    // NOTE: the original name is ExceededMaximumProposalsLimit
-    TooManyProposals,
+    ExceededMaximumProposalsLimit,
 
-    /// Cycles consumed by all scripts in all commit transactions of the block exceed
-    /// the maximum allowed cycles in consensus rules
-    // NOTE: the original name is ExceededMaximumCycles
-    TooMuchCycles,
+    ExceededMaximumCycles,
 
-    /// The size of the block exceeded the limit.
-    // NOTE: the original name is ExceededMaximumBlockBytes
-    TooLargeSize,
+    ExceededMaximumBlockBytes,
 
-    /// The field version in block header is not allowed.
-    // NOTE: the original name is Version
-    MismatchedVersion,
+    Version,
 }
 
 #[derive(Fail, Debug)]
@@ -153,13 +116,8 @@ pub struct UnknownParentError {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
 pub enum CommitError {
-    /// Ancestor not found, should not happen, we check header first and check ancestor.
-    // NOTE: the original name is AncestorNotFound
-    NonexistentAncestor,
-
-    /// Break propose-then-commit consensus rule.
-    // NOTE: the original name is Invalid
-    NotInProposalWindow,
+    AncestorNotFound,
+    Invalid,
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
@@ -176,16 +134,14 @@ pub enum CellbaseError {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum UnclesError {
-    // NOTE: the original name is OverCount
-    #[fail(display = "TooManyUncles{{max: {}, actual: {}}}", max, actual)]
-    TooManyUncles { max: u32, actual: u32 },
+    #[fail(display = "OverCount{{max: {}, actual: {}}}", max, actual)]
+    OverCount { max: u32, actual: u32 },
 
-    // NOTE: the original name is MissMatchCount
     #[fail(
-        display = "UnmatchedCount{{expected: {}, actual: {}}}",
+        display = "MissMatchCount{{expected: {}, actual: {}}}",
         expected, actual
     )]
-    UnmatchedCount { expected: u32, actual: u32 },
+    MissMatchCount { expected: u32, actual: u32 },
 
     #[fail(
         display = "InvalidDepth{{min: {}, max: {}, actual: {}}}",
@@ -193,35 +149,26 @@ pub enum UnclesError {
     )]
     InvalidDepth { max: u64, min: u64, actual: u64 },
 
-    // NOTE: the original name is InvalidHash
-    #[fail(
-        display = "UnmatchedUnclesHash{{expected: {}, actual: {}}}",
-        expected, actual
-    )]
-    UnmatchedUnclesHash { expected: Byte32, actual: Byte32 },
+    #[fail(display = "InvalidHash{{expected: {}, actual: {}}}", expected, actual)]
+    InvalidHash { expected: Byte32, actual: Byte32 },
 
-    // NOTE: the original name is InvalidNumber
-    #[fail(display = "UnmatchedBlockNumber")]
-    UnmatchedBlockNumber,
+    #[fail(display = "InvalidNumber")]
+    InvalidNumber,
 
     #[fail(display = "UnmatchedDifficulty")]
     UnmatchedDifficulty,
 
-    // NOTE: the original name is InvalidDifficultyEpoch
-    #[fail(display = "UnmatchedEpochNumber")]
-    UnmatchedEpochNumber,
+    #[fail(display = "InvalidDifficultyEpoch")]
+    InvalidDifficultyEpoch,
 
-    // NOTE: the original name is ProposalsHash
-    #[fail(display = "UnmatchedProposalRoot")]
-    UnmatchedProposalRoot,
+    #[fail(display = "ProposalsHash")]
+    ProposalsHash,
 
-    // NOTE: the original name is ProposalDuplicate
-    #[fail(display = "DuplicatedProposalTransactions")]
-    DuplicatedProposalTransactions,
+    #[fail(display = "ProposalDuplicate")]
+    ProposalDuplicate,
 
-    // NOTE: the original name is Duplicate
-    #[fail(display = "DuplicatedUncles({})", _0)]
-    DuplicatedUncles(Byte32),
+    #[fail(display = "Duplicate({})", _0)]
+    Duplicate(Byte32),
 
     #[fail(display = "DoubleInclusion({})", _0)]
     DoubleInclusion(Byte32),
@@ -229,9 +176,8 @@ pub enum UnclesError {
     #[fail(display = "DescendantLimit")]
     DescendantLimit,
 
-    // NOTE: the original name is ExceededMaximumProposalsLimit
-    #[fail(display = "TooManyProposals")]
-    TooManyProposals,
+    #[fail(display = "ExceededMaximumProposalsLimit")]
+    ExceededMaximumProposalsLimit,
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
@@ -251,11 +197,11 @@ pub enum PowError {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TimestampError {
-    #[fail(display = "TooOldBlockTime{{min: {}, actual: {}}}", min, actual)]
-    TooOldBlockTime { min: u64, actual: u64 },
+    #[fail(display = "BlockTimeTooOld{{min: {}, actual: {}}}", min, actual)]
+    BlockTimeTooOld { min: u64, actual: u64 },
 
-    #[fail(display = "TooNewBlockTime{{max: {}, actual: {}}}", max, actual)]
-    TooNewBlockTime { max: u64, actual: u64 },
+    #[fail(display = "BlockTimeTooNew{{max: {}, actual: {}}}", max, actual)]
+    BlockTimeTooNew { max: u64, actual: u64 },
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
@@ -267,39 +213,36 @@ pub struct NumberError {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum EpochError {
-    // NOTE: the original name is DifficultyMismatch
     #[fail(
-        display = "UnmatchedDifficulty{{expected: {}, actual: {}}}",
+        display = "DifficultyMismatch{{expected: {}, actual: {}}}",
         expected, actual
     )]
-    UnmatchedDifficulty { expected: Byte32, actual: Byte32 },
+    DifficultyMismatch { expected: Byte32, actual: Byte32 },
 
-    // NOTE: the original name is NumberMismatch
     #[fail(
-        display = "UnmatchedNumber{{expected: {}, actual: {}}}",
+        display = "NumberMismatch{{expected: {}, actual: {}}}",
         expected, actual
     )]
-    UnmatchedNumber { expected: u64, actual: u64 },
+    NumberMismatch { expected: u64, actual: u64 },
 
-    // NOTE: the original name is AncestorNotFound
-    #[fail(display = "MissingAncestor")]
-    MissingAncestor,
+    #[fail(display = "AncestorNotFound")]
+    AncestorNotFound,
 }
 
 impl TransactionError {
     pub fn is_malformed_tx(&self) -> bool {
         match self {
-            TransactionError::OutputOverflowCapacity
-            | TransactionError::DuplicatedDeps
-            | TransactionError::MissingInputsOrOutputs
-            | TransactionError::OccupiedOverflowCapacity
-            | TransactionError::InvalidSinceFormat
-            | TransactionError::TooLargeSize
-            | TransactionError::UnmatchedOutputsDataLength
-            | TransactionError::UnmatchedOutputsDataHashes => true,
+            TransactionError::OutputsSumOverflow
+            | TransactionError::DuplicateDeps
+            | TransactionError::Empty
+            | TransactionError::InsufficientCellCapacity
+            | TransactionError::InvalidSince
+            | TransactionError::ExceededMaximumBlockBytes
+            | TransactionError::OutputsDataLengthMismatch
+            | TransactionError::OutputDataHashMismatch => true,
 
-            TransactionError::ImmatureTransaction
-            | TransactionError::ImmatureCellbase
+            TransactionError::Immature
+            | TransactionError::CellbaseImmaturity
             | TransactionError::MismatchedVersion => false,
         }
     }

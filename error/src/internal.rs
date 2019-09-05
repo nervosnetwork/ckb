@@ -12,25 +12,22 @@ pub struct InternalError {
 pub enum InternalErrorKind {
     /// An arithmetic overflow occurs during capacity calculation,
     /// e.g. `Capacity::safe_add`
-    // NOTE: the original name is {Transaction,Block}::CapacityOverflow
-    ArithmeticOverflowCapacity,
+    CapacityOverflow,
 
     /// The transaction_pool is already full
-    // NOTE: the original name is LimitReached
-    FullTransactionPool,
+    TransactionPoolFull,
+
+    /// The transaction already exist in transaction_pool
+    PoolTransactionDuplicated,
 
     /// Persistent data had corrupted
-    CorruptedData,
+    DataCorrupted,
 
     /// Database exception
-    // NOTE: the original name is ckb_db::Error::DBError(String)
     Database,
 
     /// VM internal error
     VM,
-
-    /// The transaction already exist in pool
-    DuplicatedPoolTransaction,
 
     /// Unknown system error
     System,

@@ -152,7 +152,7 @@ impl Shared {
                     if genesis_hash == expect_genesis_hash {
                         Ok((tip_header, epoch))
                     } else {
-                        Err(SpecError::UnmatchedGenesis {
+                        Err(SpecError::GenesisMismatch {
                             expected: expect_genesis_hash,
                             actual: genesis_hash,
                         }

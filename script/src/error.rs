@@ -8,9 +8,8 @@ pub enum ScriptError {
     InvalidCodeHash,
 
     /// The script consumes too much cycles
-    // NOTE: the original name is ExceededMaximumCycles,
-    #[fail(display = "TooMuchCycles")]
-    TooMuchCycles,
+    #[fail(display = "ExceededMaximumCycles")]
+    ExceededMaximumCycles,
 
     /// `script.type_hash` hits multiple cells with different data
     #[fail(display = "MultipleMatches")]

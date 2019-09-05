@@ -45,7 +45,7 @@ where
         // verify uncles_count
         let uncles_count = self.block.data().uncles().len() as u32;
         if uncles_count != self.block.uncles_count() {
-            Err(UnclesError::UnmatchedCount {
+            Err(UnclesError::MissMatchCount {
                 expected: self.block.uncles_count(),
                 actual: uncles_count,
             })?;
@@ -54,7 +54,7 @@ where
         // verify uncles_hash
         let actual_uncles_hash = self.block.calc_uncles_hash();
         if actual_uncles_hash != self.block.uncles_hash() {
-            Err(UnclesError::UnmatchedUnclesHash {
+            Err(UnclesError::InvalidHash {
                 expected: self.block.uncles_hash(),
                 actual: actual_uncles_hash,
             })?;
@@ -67,7 +67,7 @@ where
 
         // if block is genesis, which is expected with zero uncles, return error
         if self.block.is_genesis() {
-            Err(UnclesError::TooManyUncles {
+            Err(UnclesError::OverCount {
                 max: 0,
                 actual: uncles_count,
             })?;
@@ -76,7 +76,7 @@ where
         // verify uncles length =< max_uncles_num
         let max_uncles_num = self.provider.consensus().max_uncles_num() as u32;
         if uncles_count > max_uncles_num {
-            Err(UnclesError::TooManyUncles {
+            Err(UnclesError::OverCount {
                 max: max_uncles_num,
                 actual: uncles_count,
             })?;
@@ -89,11 +89,11 @@ where
             }
 
             if self.provider.epoch().number() != uncle.epoch() {
-                Err(UnclesError::UnmatchedEpochNumber)?;
+                Err(UnclesError::InvalidDifficultyEpoch)?;
             }
 
             if uncle.number() >= self.block.number() {
-                Err(UnclesError::UnmatchedBlockNumber)?;
+                Err(UnclesError::InvalidNumber)?;
             }
 
             let embedded_descendant = included
@@ -106,7 +106,7 @@ where
             }
 
             if included.contains_key(&uncle.hash()) {
-                Err(UnclesError::DuplicatedUncles(uncle.hash()))?;
+                Err(UnclesError::Duplicate(uncle.hash()))?;
             }
 
             if self.provider.double_inclusion(&uncle.hash()) {
@@ -116,11 +116,11 @@ where
             if uncle.data().proposals().len()
                 > self.provider.consensus().max_block_proposals_limit() as usize
             {
-                Err(UnclesError::TooManyProposals)?;
+                Err(UnclesError::ExceededMaximumProposalsLimit)?;
             }
 
             if uncle.proposals_hash() != uncle.data().as_reader().calc_proposals_hash() {
-                Err(UnclesError::UnmatchedProposalRoot)?;
+                Err(UnclesError::ProposalsHash)?;
             }
 
             let mut seen = HashSet::with_capacity(uncle.data().proposals().len());
@@ -130,7 +130,7 @@ where
                 .into_iter()
                 .all(|id| seen.insert(id))
             {
-                Err(UnclesError::DuplicatedProposalTransactions)?;
+                Err(UnclesError::ProposalDuplicate)?;
             }
 
             if !self

@@ -67,7 +67,7 @@ impl<'a> VersionVerifier<'a> {
 
     pub fn verify(&self) -> Result<(), Error> {
         if self.header.version() != HEADER_VERSION {
-            Err(BlockErrorKind::MismatchedVersion)?;
+            Err(BlockErrorKind::Version)?;
         }
         Ok(())
     }
@@ -98,14 +98,14 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             .block_median_time_context
             .block_median_time(&self.header.data().raw().parent_hash());
         if self.header.timestamp() <= min {
-            Err(TimestampError::TooOldBlockTime {
+            Err(TimestampError::BlockTimeTooOld {
                 min,
                 actual: self.header.timestamp(),
             })?;
         }
         let max = self.now + ALLOWED_FUTURE_BLOCKTIME;
         if self.header.timestamp() > max {
-            Err(TimestampError::TooNewBlockTime {
+            Err(TimestampError::BlockTimeTooNew {
                 max,
                 actual: self.header.timestamp(),
             })?;
@@ -141,17 +141,17 @@ pub struct EpochVerifier<T> {
 
 impl<T: HeaderResolver> EpochVerifier<T> {
     pub fn verify(target: &T) -> Result<(), Error> {
-        let epoch = target.epoch().ok_or_else(|| EpochError::MissingAncestor)?;
+        let epoch = target.epoch().ok_or_else(|| EpochError::AncestorNotFound)?;
         let actual_epoch_number = target.header().epoch();
         if actual_epoch_number != epoch.number() {
-            Err(EpochError::UnmatchedNumber {
+            Err(EpochError::NumberMismatch {
                 expected: epoch.number(),
                 actual: actual_epoch_number,
             })?;
         }
         let actual_difficulty = target.header().difficulty();
         if epoch.difficulty() != &actual_difficulty {
-            Err(EpochError::UnmatchedDifficulty {
+            Err(EpochError::DifficultyMismatch {
                 expected: epoch.difficulty().pack(),
                 actual: actual_difficulty.pack(),
             })?;
