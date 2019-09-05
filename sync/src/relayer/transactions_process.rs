@@ -172,7 +172,7 @@ fn is_bad_tx(error: &Error) -> bool {
         ErrorKind::Transaction => error
             .downcast_ref::<TransactionError>()
             .expect("error kind checked")
-            .is_bad_tx(),
+            .is_malformed_tx(),
         ErrorKind::Script => true,
         _ => false,
     }

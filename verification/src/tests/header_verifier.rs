@@ -70,7 +70,7 @@ fn test_timestamp_too_old() {
 
     assert_error_eq(
         timestamp_verifier.verify().unwrap_err(),
-        TimestampError::BlockTimeTooOld {
+        TimestampError::TooOldBlockTime {
             min,
             actual: timestamp,
         },
@@ -93,7 +93,7 @@ fn test_timestamp_too_new() {
     let timestamp_verifier = TimestampVerifier::new(&fake_block_median_time_context, &header);
     assert_error_eq(
         timestamp_verifier.verify().unwrap_err(),
-        TimestampError::BlockTimeTooNew {
+        TimestampError::TooNewBlockTime {
             max,
             actual: timestamp,
         },

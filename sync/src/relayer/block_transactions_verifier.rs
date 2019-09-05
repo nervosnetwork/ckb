@@ -24,7 +24,7 @@ impl BlockTransactionsVerifier {
             return Err(Error::Misbehavior(
                 Misbehavior::InvalidBlockTransactionsLength {
                     expected: missing_short_ids.len(),
-                    got: transactions.len(),
+                    actual: transactions.len(),
                 },
             ));
         }
@@ -34,7 +34,7 @@ impl BlockTransactionsVerifier {
             if expected_short_id != short_id {
                 return Err(Error::Misbehavior(Misbehavior::InvalidBlockTransactions {
                     expected: expected_short_id,
-                    got: short_id,
+                    actual: short_id,
                 }));
             }
         }

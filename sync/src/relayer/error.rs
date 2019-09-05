@@ -33,16 +33,16 @@ pub enum Misbehavior {
     InvalidTransactionRoot,
     #[fail(
         display = "InvalidBlockTransactionsLength{{expected: {}, actual: {}}}",
-        expected, got
+        expected, actual
     )]
-    InvalidBlockTransactionsLength { expected: usize, got: usize },
+    InvalidBlockTransactionsLength { expected: usize, actual: usize },
     #[fail(
         display = "InvalidBlockTransactions{{expected: {:#?}, actual: {:#?}}}",
-        expected, got
+        expected, actual
     )]
     InvalidBlockTransactions {
         expected: ProposalShortId,
-        got: ProposalShortId,
+        actual: ProposalShortId,
     },
     #[fail(display = "BlockInvalid")]
     BlockInvalid,

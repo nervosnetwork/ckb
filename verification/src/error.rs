@@ -251,11 +251,11 @@ pub enum PowError {
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TimestampError {
-    #[fail(display = "BlockTimeTooOld{{min: {}, actual: {}}}", min, actual)]
-    BlockTimeTooOld { min: u64, actual: u64 },
+    #[fail(display = "TooOldBlockTime{{min: {}, actual: {}}}", min, actual)]
+    TooOldBlockTime { min: u64, actual: u64 },
 
-    #[fail(display = "BlockTimeTooNew{{max: {}, actual: {}}}", max, actual)]
-    BlockTimeTooNew { max: u64, actual: u64 },
+    #[fail(display = "TooNewBlockTime{{max: {}, actual: {}}}", max, actual)]
+    TooNewBlockTime { max: u64, actual: u64 },
 }
 
 #[derive(Fail, Debug, PartialEq, Eq, Clone)]
@@ -287,14 +287,20 @@ pub enum EpochError {
 }
 
 impl TransactionError {
-    pub fn is_bad_tx(&self) -> bool {
+    pub fn is_malformed_tx(&self) -> bool {
         match self {
             TransactionError::OutputOverflowCapacity
             | TransactionError::DuplicatedDeps
             | TransactionError::MissingInputsOrOutputs
             | TransactionError::OccupiedOverflowCapacity
-            | TransactionError::InvalidSinceFormat => true,
-            _ => false,
+            | TransactionError::InvalidSinceFormat
+            | TransactionError::TooLargeSize
+            | TransactionError::UnmatchedOutputsDataLength
+            | TransactionError::UnmatchedOutputsDataHashes => true,
+
+            TransactionError::ImmatureTransaction
+            | TransactionError::ImmatureCellbase
+            | TransactionError::MismatchedVersion => false,
         }
     }
 }

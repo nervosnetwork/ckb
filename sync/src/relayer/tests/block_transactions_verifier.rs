@@ -41,7 +41,7 @@ fn test_invalid() {
         Some(Error::Misbehavior(
             Misbehavior::InvalidBlockTransactionsLength {
                 expected: 3,
-                got: 2
+                actual: 2
             }
         ))
     );
@@ -53,7 +53,7 @@ fn test_invalid() {
         .collect();
 
     let expected = new_index_transaction(3).transaction().proposal_short_id();
-    let got = new_index_transaction(4).transaction().proposal_short_id();
+    let actual = new_index_transaction(4).transaction().proposal_short_id();
 
     let ret = BlockTransactionsVerifier::verify(&block, &indexes, &block_txs);
 
@@ -61,7 +61,7 @@ fn test_invalid() {
         ret.err(),
         Some(Error::Misbehavior(Misbehavior::InvalidBlockTransactions {
             expected,
-            got
+            actual
         }))
     );
 }

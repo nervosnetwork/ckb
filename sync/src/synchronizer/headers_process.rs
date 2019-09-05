@@ -374,9 +374,8 @@ where
                     .downcast_ref::<HeaderError>()
                     .expect("error kind checked");
                 match header_error.kind() {
-                    HeaderErrorKind::Pow | HeaderErrorKind::Epoch => {
-                        state.dos(Some(ValidationError::Verify(error)), 100)
-                    }
+                    HeaderErrorKind::Pow => state.dos(Some(ValidationError::Verify(error)), 100),
+                    HeaderErrorKind::Epoch => state.dos(Some(ValidationError::Verify(error)), 50),
                     _ => state.invalid(Some(ValidationError::Verify(error))),
                 }
             } else {

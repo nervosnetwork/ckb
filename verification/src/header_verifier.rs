@@ -98,14 +98,14 @@ impl<'a, M: BlockMedianTimeContext> TimestampVerifier<'a, M> {
             .block_median_time_context
             .block_median_time(&self.header.data().raw().parent_hash());
         if self.header.timestamp() <= min {
-            Err(TimestampError::BlockTimeTooOld {
+            Err(TimestampError::TooOldBlockTime {
                 min,
                 actual: self.header.timestamp(),
             })?;
         }
         let max = self.now + ALLOWED_FUTURE_BLOCKTIME;
         if self.header.timestamp() > max {
-            Err(TimestampError::BlockTimeTooNew {
+            Err(TimestampError::TooNewBlockTime {
                 max,
                 actual: self.header.timestamp(),
             })?;
