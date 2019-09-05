@@ -1,6 +1,5 @@
 use crate::{Error, ErrorKind};
-use failure::{format_err, Error as FailureError, Fail};
-use std::convert::TryFrom;
+use failure::Fail;
 use std::fmt::{self, Display};
 
 #[derive(Fail, Debug)]
@@ -37,21 +36,6 @@ pub enum InternalErrorKind {
     System,
 }
 
-impl From<InternalError> for Error {
-    fn from(error: InternalError) -> Self {
-        error.context(ErrorKind::Internal).into()
-    }
-}
-
-impl<'a> TryFrom<&'a Error> for &'a InternalError {
-    type Error = FailureError;
-    fn try_from(value: &'a Error) -> Result<Self, Self::Error> {
-        value
-            .downcast_ref::<InternalError>()
-            .ok_or_else(|| format_err!("failed to downcast ckb_error::Error to InternalError"))
-    }
-}
-
 impl fmt::Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(cause) = self.cause() {
@@ -59,6 +43,12 @@ impl fmt::Display for InternalError {
         } else {
             write!(f, "{}", self.kind())
         }
+    }
+}
+
+impl From<InternalError> for Error {
+    fn from(error: InternalError) -> Self {
+        error.context(ErrorKind::Internal).into()
     }
 }
 

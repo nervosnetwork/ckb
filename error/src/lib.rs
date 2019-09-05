@@ -3,7 +3,7 @@ extern crate enum_display_derive;
 
 mod convert;
 mod internal;
-mod util;
+pub mod util;
 
 use failure::{Backtrace, Context, Fail};
 pub use internal::{InternalError, InternalErrorKind};

@@ -13,3 +13,25 @@ where
         Into::<Error>::into(r).to_string(),
     );
 }
+
+#[macro_export]
+macro_rules! impl_error_conversion_with_kind {
+    ($source:ty, $kind:expr, $target:ty) => {
+        impl ::std::convert::From<$source> for $target {
+            fn from(error: $source) -> Self {
+                error.context($kind).into()
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_error_conversion_with_adaptor {
+    ($source:ty, $adaptor:ty, $target:ty) => {
+        impl ::std::convert::From<$source> for $target {
+            fn from(error: $source) -> Self {
+                ::std::convert::Into::<$adaptor>::into(error).into()
+            }
+        }
+    };
+}
