@@ -181,7 +181,7 @@ impl Consensus {
             genesis_block,
             id: "main".to_owned(),
             max_uncles_num: MAX_UNCLE_NUM,
-            epoch_reward: DEFAULT_EPOCH_REWARD,
+            epoch_reward,
             orphan_rate_target: ORPHAN_RATE_TARGET,
             epoch_duration_target: EPOCH_DURATION_TARGET,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
@@ -551,4 +551,18 @@ impl Consensus {
 // most simple and efficient way for now
 fn u256_low_u64(u: U256) -> u64 {
     u.0[0]
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use ckb_types::core::{BlockBuilder, TransactionBuilder};
+
+    #[test]
+    fn test_init_epoch_reward() {
+        let cellbase = TransactionBuilder::default().witness(vec![].pack()).build();
+        let genesis = BlockBuilder::default().transaction(cellbase).build();
+        let consensus = Consensus::new(genesis, capacity_bytes!(100));
+        assert_eq!(capacity_bytes!(100), consensus.epoch_reward);
+    }
 }
