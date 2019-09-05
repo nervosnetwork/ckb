@@ -28,7 +28,7 @@ use ckb_types::{
     H256, U256,
 };
 use serde_derive::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
@@ -217,7 +217,58 @@ impl Genesis {
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
             .build();
+
+        self.check_lock_scripts(&block)?;
         Ok(block)
+    }
+
+    fn check_lock_scripts(&self, block: &BlockView) -> Result<(), Box<dyn Error>> {
+        let mut data_hashes: HashSet<packed::Byte32> = HashSet::default();
+        let mut type_hashes: HashSet<packed::Byte32> = HashSet::default();
+        let genesis_cell_lock: packed::Script = self.genesis_cell.lock.clone().into();
+        for tx in block.transactions() {
+            data_hashes.extend(
+                tx.outputs_data()
+                    .into_iter()
+                    .map(|data| data.raw_data())
+                    .filter(|raw_data| !raw_data.is_empty())
+                    .map(|raw_data| packed::CellOutput::calc_data_hash(&raw_data)),
+            );
+            type_hashes.extend(
+                tx.outputs()
+                    .into_iter()
+                    .filter_map(|output| output.type_().to_opt())
+                    .map(|type_script| type_script.calc_script_hash()),
+            );
+        }
+        for lock_script in block
+            .transactions()
+            .into_iter()
+            .flat_map(|tx| tx.outputs().into_iter().map(|output| output.lock()))
+            .filter(|lock_script| lock_script != &genesis_cell_lock)
+        {
+            match lock_script.hash_type().unpack() {
+                ScriptHashType::Data => {
+                    if !data_hashes.contains(&lock_script.code_hash()) {
+                        return Err(format!(
+                            "Invalid lock script: code_hash={}, hash_type=data",
+                            lock_script.code_hash(),
+                        )
+                        .into());
+                    }
+                }
+                ScriptHashType::Type => {
+                    if !type_hashes.contains(&lock_script.code_hash()) {
+                        return Err(format!(
+                            "Invalid lock script: code_hash={}, hash_type=type",
+                            lock_script.code_hash(),
+                        )
+                        .into());
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn build_cellbase_transaction(&self) -> Result<TransactionView, Box<dyn Error>> {
