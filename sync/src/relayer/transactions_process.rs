@@ -1,5 +1,5 @@
 use crate::relayer::Relayer;
-use ckb_error::{Error, ErrorKind};
+use ckb_error::{Error, ErrorKind, InternalError, InternalErrorKind};
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{
@@ -114,7 +114,7 @@ impl<'a> TransactionsProcess<'a> {
                                 break;
                             }
                             Err(err) => {
-                                if is_bad_tx(&err) {
+                                if is_malformed(&err) {
                                     debug_target!(
                                         crate::LOG_TARGET_RELAY,
                                         "peer {} relay a invalid tx: {}, error: {:?}",
@@ -167,13 +167,20 @@ impl<'a> TransactionsProcess<'a> {
     }
 }
 
-fn is_bad_tx(error: &Error) -> bool {
+fn is_malformed(error: &Error) -> bool {
     match error.kind() {
         ErrorKind::Transaction => error
             .downcast_ref::<TransactionError>()
             .expect("error kind checked")
             .is_malformed_tx(),
         ErrorKind::Script => true,
+        ErrorKind::Internal => {
+            error
+                .downcast_ref::<InternalError>()
+                .expect("error kind checked")
+                .kind()
+                == &InternalErrorKind::ArithmeticOverflowCapacity
+        }
         _ => false,
     }
 }
