@@ -326,7 +326,11 @@ impl ChainService {
 
             self.rollback(&fork, &db_txn, &mut cell_set)?;
             // update and verify chain root
-            self.update_chain_root_merkle_tree(&db_txn, fork.attached_blocks.iter(), need_verify)?;
+            self.update_chain_root_merkle_tree(
+                &db_txn,
+                &fork.attached_blocks.iter().collect::<Vec<_>>(),
+                need_verify,
+            )?;
             // MUST update index before reconcile_main_chain
             self.reconcile_main_chain(&db_txn, &mut fork, need_verify, &mut cell_set)?;
 
@@ -664,32 +668,18 @@ impl ChainService {
     pub(crate) fn update_chain_root_merkle_tree<'a>(
         &'a self,
         txn: &StoreTransaction,
-        mut attached_blocks: impl Iterator<Item = &'a BlockView>,
+        attached_blocks: &[&'a BlockView],
         need_verify: bool,
     ) -> Result<(), Error> {
         use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMRBatch, MMR};
-        let block = match attached_blocks.next() {
+        let start_block = match attached_blocks.get(0) {
             Some(b) => b,
             None => return Ok(()),
         };
         let mut batch = MMRBatch::new(txn);
         // calculate mmr_size and initialize MMR
-        let mmr_size = leaf_index_to_mmr_size(block.header().number() - 1);
+        let mmr_size = leaf_index_to_mmr_size(start_block.header().number() - 1);
         let mut mmr = MMR::new(mmr_size, &mut batch);
-        let root = mmr
-            .get_root()
-            .map_err(|e| InternalErrorKind::MMR.cause(e))?;
-        let root_hash = root.hash();
-        // check first block chain_root
-        if need_verify && root_hash != block.header().chain_root() {
-            Err(InvalidChainRootError {
-                expected: root_hash,
-                actual: block.header().chain_root(),
-            })?;
-        }
-        // push to mmr
-        mmr.push(block.header().into())
-            .map_err(|e| InternalErrorKind::MMR.cause(e))?;
         // check blocks chain_root
         for block in attached_blocks {
             let root = mmr
