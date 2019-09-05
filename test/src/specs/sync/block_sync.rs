@@ -1,8 +1,11 @@
-use crate::utils::{build_block, build_header, new_block_with_template, wait_until};
+use crate::utils::{
+    build_block, build_get_blocks, build_header, new_block_with_template, wait_until,
+};
 use crate::{Net, Node, Spec, TestProtocol};
 use ckb_jsonrpc_types::{ChainInfo, Timestamp};
 use ckb_network::PeerIndex;
 use ckb_sync::NetworkProtocol;
+use ckb_types::packed::{Block, Byte32};
 use ckb_types::{
     core::BlockView,
     packed::{self, SyncMessage},
@@ -335,14 +338,89 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
     }
 }
 
-fn build_forks(node: &Node, offsets: &[u64]) {
+pub struct RequestUnverifiedBlocks;
+
+impl Spec for RequestUnverifiedBlocks {
+    crate::name!("request_unverified_blocks");
+
+    crate::setup!(num_nodes: 3, connect_all: false, protocols: vec![TestProtocol::sync()]);
+
+    // Case:
+    //   1. `target_node` maintains an unverified fork
+    //   2. Expect that when other peers request `target_node` for the blocks on the unverified
+    //      fork(referred to as fork-blocks), `target_node` should discard the request because
+    //     these fork-blocks are unverified yet or verified failed.
+    fn run(&self, net: Net) {
+        let target_node = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        let node2 = &net.nodes[2];
+        net.exit_ibd_mode();
+
+        let main_chain = build_forks(node1, &[0; 6]);
+        let fork_chain = build_forks(node2, &[1; 5]);
+        assert!(main_chain.len() > fork_chain.len());
+
+        // Submit `main_chain` before `fork_chain`, to make `target_node` marks `fork_chain`
+        // unverified because of delay-verify
+        main_chain.iter().for_each(|block| {
+            target_node.submit_block(block);
+        });
+        fork_chain.iter().for_each(|block| {
+            target_node.submit_block(block);
+        });
+        let main_hashes: Vec<_> = main_chain
+            .iter()
+            .map(|block| block.calc_header_hash())
+            .collect();
+        let fork_hashes: Vec<_> = fork_chain
+            .iter()
+            .map(|block| block.calc_header_hash())
+            .collect();
+
+        // Request for the blocks on `main_chain` and `fork_chain`. We should only receive the
+        // `main_chain` blocks
+        net.connect(target_node);
+        let (peer_id, _, _) = net
+            .receive_timeout(Duration::new(10, 0))
+            .expect("net receive timeout");
+        sync_get_blocks(&net, peer_id, &main_hashes);
+        sync_get_blocks(&net, peer_id, &fork_hashes);
+
+        let mut received = Vec::new();
+        while let Ok((_, _, data)) = net.receive_timeout(Duration::from_secs(10)) {
+            let message = SyncMessage::from_slice(&data).unwrap();
+            if let packed::SyncMessageUnionReader::SendBlock(reader) = message.as_reader().to_enum()
+            {
+                received.push(reader.block().calc_header_hash());
+            }
+        }
+        assert!(
+            main_hashes.iter().all(|hash| received.contains(hash)),
+            "Expect receiving all of the main_chain blocks: {:?}, actual: {:?}",
+            main_hashes,
+            received,
+        );
+        assert!(
+            fork_hashes.iter().all(|hash| !received.contains(hash)),
+            "Expect not receiving any of the fork_chain blocks: {:?}, actual: {:?}",
+            fork_hashes,
+            received,
+        );
+    }
+}
+
+fn build_forks(node: &Node, offsets: &[u64]) -> Vec<Block> {
     let rpc_client = node.rpc_client();
+    let mut blocks = Vec::with_capacity(offsets.len());
     for offset in offsets.iter() {
         let mut template = rpc_client.get_block_template(None, None, None);
         template.current_time = Timestamp(template.current_time.0 + offset);
         let block = new_block_with_template(template);
         node.submit_block(&block);
+
+        blocks.push(block);
     }
+    blocks
 }
 
 fn sync_header(net: &Net, peer_id: PeerIndex, block: &BlockView) {
@@ -355,4 +433,12 @@ fn sync_header(net: &Net, peer_id: PeerIndex, block: &BlockView) {
 
 fn sync_block(net: &Net, peer_id: PeerIndex, block: &BlockView) {
     net.send(NetworkProtocol::SYNC.into(), peer_id, build_block(block));
+}
+
+fn sync_get_blocks(net: &Net, peer_id: PeerIndex, hashes: &[Byte32]) {
+    net.send(
+        NetworkProtocol::SYNC.into(),
+        peer_id,
+        build_get_blocks(hashes),
+    );
 }
