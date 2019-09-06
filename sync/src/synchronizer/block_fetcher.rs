@@ -154,6 +154,8 @@ impl BlockFetcher {
                 if self
                     .synchronizer
                     .shared()
+                    // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
+                    // stopping synchronization even when orphan_pool maintains dirty items by bugs.
                     .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_STORED)
                 {
                     continue;
