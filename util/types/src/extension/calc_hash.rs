@@ -192,3 +192,53 @@ impl<'r> packed::AlertReader<'r> {
     }
 }
 impl_calc_special_hash_for_entity!(Alert, calc_alert_hash);
+
+#[cfg(test)]
+mod tests {
+    use crate::{h256, packed, prelude::*, H256};
+    use ckb_hash::blake2b_256;
+
+    #[test]
+    fn proposals_hash() {
+        let proposal1 = [1; 10].pack();
+        let proposal2 = [2; 10].pack();
+        let proposals = vec![proposal1, proposal2].pack();
+        let expect = h256!("0xd1670e45af1deb9cc00951d71c09ce80932e7ddf9fb151d744436bd04ac4a562");
+        assert_eq!(proposals.calc_proposals_hash(), expect.pack());
+    }
+
+    #[test]
+    fn empty_proposals_hash() {
+        let proposals = packed::ProposalShortIdVec::new_builder().build();
+        let expect = h256!("0x0");
+        assert_eq!(proposals.calc_proposals_hash(), expect.pack());
+    }
+
+    #[test]
+    fn empty_script_hash() {
+        let script = packed::Script::new_builder().build();
+        let expect = h256!("0xbd7e6000ffb8e983a6023809037e0c4cedbc983637c46d74621fd28e5f15fe4f");
+        assert_eq!(script.calc_script_hash(), expect.pack());
+    }
+
+    #[test]
+    fn always_success_script_hash() {
+        let always_success = include_bytes!("../../../../script/testdata/always_success");
+        let always_success_hash = blake2b_256(&always_success[..]);
+
+        let script = packed::Script::new_builder()
+            .code_hash(always_success_hash.pack())
+            .build();
+        let expect = h256!("0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9");
+        assert_eq!(script.calc_script_hash(), expect.pack());
+    }
+
+    #[test]
+    fn one_arg_script_hash() {
+        let script = packed::Script::new_builder()
+            .args(vec![vec![1].pack()].pack())
+            .build();
+        let expect = h256!("0x5a2b913dfb1b79136fc72a575fd8e93ae080b504463c0066fea086482bfc3a94");
+        assert_eq!(script.calc_script_hash(), expect.pack());
+    }
+}
