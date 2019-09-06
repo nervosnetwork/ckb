@@ -6,7 +6,7 @@ use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
-    core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
+    core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker, UnresolvableError},
     packed,
     prelude::*,
     H256,
@@ -90,11 +90,11 @@ impl<'a> CellProvider for DryRunner<'a> {
 }
 
 impl<'a> HeaderChecker for DryRunner<'a> {
-    fn is_valid(&self, block_hash: &packed::Byte32) -> bool {
-        self.shared
-            .snapshot()
-            .get_block_number(block_hash)
-            .is_some()
+    fn check_valid(
+        &self,
+        block_hash: &packed::Byte32,
+    ) -> std::result::Result<(), UnresolvableError> {
+        self.shared.snapshot().check_valid(block_hash)
     }
 }
 

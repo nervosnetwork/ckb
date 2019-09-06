@@ -9,7 +9,7 @@ use ckb_store::{ChainStore, StoreSnapshot};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
     core::{
-        cell::{CellProvider, CellStatus, HeaderChecker},
+        cell::{CellProvider, CellStatus, HeaderChecker, UnresolvableError},
         BlockNumber, EpochExt, HeaderView, TransactionMeta,
     },
     packed::{Byte32, OutPoint},
@@ -153,8 +153,17 @@ impl CellProvider for Snapshot {
 }
 
 impl HeaderChecker for Snapshot {
-    fn is_valid(&self, block_hash: &Byte32) -> bool {
-        self.get_block_number(block_hash).is_some()
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError> {
+        match self.get_block_number(block_hash) {
+            Some(block_number) => {
+                if self.tip_number() < block_number + self.consensus.cellbase_maturity() {
+                    Err(UnresolvableError::ImmatureHeader(block_hash.clone()))
+                } else {
+                    Ok(())
+                }
+            }
+            None => Err(UnresolvableError::InvalidHeader(block_hash.clone())),
+        }
     }
 }
 

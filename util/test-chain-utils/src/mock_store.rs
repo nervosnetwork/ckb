@@ -2,7 +2,7 @@ use ckb_db::RocksDB;
 use ckb_store::{ChainDB, ChainStore, COLUMNS};
 use ckb_types::{
     core::{
-        cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderChecker},
+        cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderChecker, UnresolvableError},
         BlockView, EpochExt, HeaderView,
     },
     packed::{Byte32, OutPoint},
@@ -77,7 +77,11 @@ impl CellProvider for MockStore {
 }
 
 impl HeaderChecker for MockStore {
-    fn is_valid(&self, block_hash: &Byte32) -> bool {
-        self.0.get_block_number(block_hash).is_some()
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError> {
+        if self.0.get_block_number(block_hash).is_some() {
+            Ok(())
+        } else {
+            Err(UnresolvableError::InvalidHeader(block_hash.clone()))
+        }
     }
 }

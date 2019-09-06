@@ -10,7 +10,7 @@ use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
     core::{
-        cell::{HeaderChecker, ResolvedTransaction},
+        cell::{HeaderChecker, ResolvedTransaction, UnresolvableError},
         BlockNumber, BlockReward, BlockView, Capacity, Cycle, EpochExt, EpochNumber, HeaderView,
         TransactionView,
     },
@@ -74,8 +74,19 @@ impl<'a, CS: ChainStore<'a>> BlockMedianTimeContext for VerifyContext<'a, CS> {
 }
 
 impl<'a, CS: ChainStore<'a>> HeaderChecker for VerifyContext<'a, CS> {
-    fn is_valid(&self, block_hash: &Byte32) -> bool {
-        self.store.get_block_number(block_hash).is_some()
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError> {
+        match self.store.get_block_number(block_hash) {
+            Some(block_number) => {
+                let tip_header = self.store.get_tip_header().expect("tip should exist");
+                let tip_block_number = tip_header.number();
+                if tip_block_number < block_number + self.consensus.cellbase_maturity() {
+                    Err(UnresolvableError::ImmatureHeader(block_hash.clone()))
+                } else {
+                    Ok(())
+                }
+            }
+            None => Err(UnresolvableError::InvalidHeader(block_hash.clone())),
+        }
     }
 }
 
