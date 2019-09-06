@@ -22,6 +22,7 @@ use ckb_vm::{
     DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
     WXorXMemory,
 };
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[cfg(all(unix, target_pointer_width = "64"))]
@@ -47,6 +48,13 @@ impl ScriptGroup {
             output_indices: vec![],
         }
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum ScriptGroupType {
+    Lock,
+    Type,
 }
 
 // This struct leverages CKB VM to verify transaction inputs.
@@ -271,20 +279,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
 
         // Now run each script group
         for group in self.lock_groups.values().chain(self.type_groups.values()) {
-            let result = if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
-                && group.script.hash_type().unpack() == ScriptHashType::Type
-            {
-                let verifier = TypeIdSystemScript {
-                    rtx: self.rtx,
-                    script_group: group,
-                    max_cycles,
-                };
-                verifier.verify()
-            } else {
-                let program = self.extract_script(&group.script)?;
-                self.run(&program, &group, max_cycles)
-            };
-            let cycle = result.map_err(|e| {
+            let cycle = self.verify_script_group(group, max_cycles).map_err(|e| {
                 info!(
                     "Error validating script group {} of transaction {}: {:?}",
                     group.script.calc_script_hash(),
@@ -302,6 +297,44 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             cycles = current_cycles;
         }
         Ok(cycles)
+    }
+
+    // Run a single script in current transaction, while this is not useful for
+    // CKB itself, it can be very helpful when building a CKB debugger.
+    pub fn verify_single(
+        &self,
+        script_group_type: &ScriptGroupType,
+        script_hash: &Byte32,
+        max_cycles: Cycle,
+    ) -> Result<Cycle, ScriptError> {
+        let group = match script_group_type {
+            ScriptGroupType::Lock => self.lock_groups.get(script_hash),
+            ScriptGroupType::Type => self.type_groups.get(script_hash),
+        };
+        match group {
+            Some(group) => self.verify_script_group(group, max_cycles),
+            None => Err(ScriptError::NoScript),
+        }
+    }
+
+    fn verify_script_group(
+        &self,
+        group: &ScriptGroup,
+        max_cycles: Cycle,
+    ) -> Result<Cycle, ScriptError> {
+        if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
+            && group.script.hash_type().unpack() == ScriptHashType::Type
+        {
+            let verifier = TypeIdSystemScript {
+                rtx: self.rtx,
+                script_group: group,
+                max_cycles,
+            };
+            verifier.verify()
+        } else {
+            let program = self.extract_script(&group.script)?;
+            self.run(&program, &group, max_cycles)
+        }
     }
 
     #[cfg(all(unix, target_pointer_width = "64"))]
