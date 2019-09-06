@@ -306,10 +306,13 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         // global shared best header will be updated, but the tip will stay
         // unchanged. Then we can connect node0 with node1, node1 will provide
         // a better chain that is not the known best's ancestor.
-        let (a, b) = (
-            node0.new_block(None, None, None),
-            node1.new_block(None, None, None),
-        );
+        let a = node0.new_block(None, None, None);
+        // This ensures a and b are different
+        let b = a
+            .data()
+            .as_advanced_builder()
+            .timestamp((a.timestamp() + 1).pack())
+            .build();
         let (a, b) = if a.hash() < b.hash() { (a, b) } else { (b, a) };
         node1.submit_block(&b.data());
 
