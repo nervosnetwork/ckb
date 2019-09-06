@@ -152,14 +152,6 @@ cellbase_cache_size        = 20
 #
 #     ckb init $(ckb cli secp256k1-lock <pubkey> --format cmd)
 #
-# Also, ckb allows the miners to add any data to the cellbase that they have dug out.
-# The data must be A 0x-prefixed hex string.
-#
-# note: The data field is optional.
-#
-# **WARNING**: if data is larger than the capacity value of the current cellbase,
-# it will be truncated
-#
 # # {{
 # _ => {block_assembler}
 # }}

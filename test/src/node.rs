@@ -3,7 +3,6 @@ use crate::utils::{temp_path, wait_until};
 use ckb_app_config::{BlockAssemblerConfig, CKBAppConfig};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_chain_spec::ChainSpec;
-use ckb_jsonrpc_types::JsonBytes;
 use ckb_types::{
     core::{
         self, capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, ScriptHashType,
@@ -405,7 +404,6 @@ impl Node {
         ckb_config.block_assembler = Some(BlockAssemblerConfig {
             code_hash: self.always_success_code_hash.unpack(),
             args: Default::default(),
-            data: JsonBytes::default(),
             hash_type: ScriptHashType::Data.into(),
         });
 

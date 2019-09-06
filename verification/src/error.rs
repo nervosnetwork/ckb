@@ -94,6 +94,7 @@ pub enum CellbaseError {
     InvalidTypeScript,
     InvalidQuantity,
     InvalidPosition,
+    InvalidOutputData,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]

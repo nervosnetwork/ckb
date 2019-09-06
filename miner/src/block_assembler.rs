@@ -23,14 +23,13 @@ use ckb_types::{
     core::{
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         service::{Request, DEFAULT_CHANNEL_SIZE, SIGNAL_CHANNEL_SIZE},
-        BlockNumber, Capacity, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionBuilder,
+        BlockNumber, Cycle, EpochExt, HeaderView, ScriptHashType, TransactionBuilder,
         TransactionView, Version,
     },
     packed::{self, CellInput, CellOutput, ProposalShortId, Script, Transaction, UncleBlock},
     prelude::*,
     H256,
 };
-use ckb_verification::TransactionError;
 use crossbeam_channel::{self, select, Receiver, Sender};
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -443,44 +442,16 @@ impl BlockAssembler {
                 .capacity(block_reward.total.pack())
                 .lock(target_lock)
                 .build();
-            let output_data = self.build_output_data(block_reward.total, &output)?;
 
             TransactionBuilder::default()
                 .input(input)
                 .output(output)
-                .output_data(output_data.pack())
+                .output_data(Bytes::default().pack())
                 .witness(witness)
                 .build()
         };
 
         Ok(tx)
-    }
-
-    fn build_output_data(
-        &self,
-        reward: Capacity,
-        output: &CellOutput,
-    ) -> Result<Bytes, FailureError> {
-        let mut data = self.config.data.clone().into_bytes();
-        let occupied_capacity = output.occupied_capacity(Capacity::bytes(data.len())?)?;
-
-        if reward < occupied_capacity {
-            return Err(TransactionError::InsufficientCellCapacity.into());
-        }
-
-        if !data.is_empty() {
-            let data_max_len = (reward.as_u64() - occupied_capacity.as_u64()) as usize;
-
-            // User-defined data has a risk of exceeding capacity
-            // just truncate it
-            if data.len() > data_max_len {
-                data.truncate(data_max_len);
-            }
-
-            Ok(data)
-        } else {
-            Ok(data)
-        }
     }
 
     // A block B1 is considered to be the uncle of another block B2 if all of the following conditions are met:
@@ -536,7 +507,7 @@ mod tests {
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_dao_utils::genesis_dao_data;
-    use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
+    use ckb_jsonrpc_types::ScriptHashType;
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
@@ -545,7 +516,7 @@ mod tests {
     use ckb_traits::ChainProvider;
     use ckb_types::{
         core::{
-            BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder, HeaderView,
+            BlockBuilder, BlockNumber, BlockView, Capacity, EpochExt, HeaderBuilder, HeaderView,
             TransactionBuilder, TransactionView,
         },
         h256,
@@ -583,7 +554,6 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: h256!("0x0"),
             args: vec![],
-            data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
         };
         let mut block_assembler = setup_block_assembler(shared.clone(), config);
@@ -655,7 +625,6 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: h256!("0x0"),
             args: vec![],
-            data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
@@ -770,7 +739,6 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: h256!("0x0"),
             args: vec![],
-            data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
@@ -905,7 +873,6 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: h256!("0x0"),
             args: vec![],
-            data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);
@@ -1034,7 +1001,6 @@ mod tests {
         let config = BlockAssemblerConfig {
             code_hash: h256!("0x0"),
             args: vec![],
-            data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
         };
         let block_assembler = setup_block_assembler(shared.clone(), config);

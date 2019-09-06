@@ -66,14 +66,6 @@ impl Spec for BootstrapCellbase {
                     .to_entity()
                     .lock()
                     == miner
-                && Unpack::<Bytes>::unpack(
-                    &blk.transactions()[0]
-                        .outputs_data()
-                        .as_reader()
-                        .get(0)
-                        .unwrap()
-                        .to_entity()
-                ) == Bytes::from(vec![1; 30])
         )
     }
 
@@ -96,7 +88,6 @@ impl Spec for BootstrapCellbase {
                     JsonBytes::from_bytes(Bytes::from(vec![2])),
                     JsonBytes::from_bytes(Bytes::from(vec![1])),
                 ],
-                data: JsonBytes::from_bytes(Bytes::from(vec![1; 30])),
                 hash_type: ScriptHashType::Data.into(),
             });
         })
