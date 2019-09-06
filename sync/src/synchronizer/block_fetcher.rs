@@ -154,7 +154,7 @@ impl BlockFetcher {
                 if self
                     .synchronizer
                     .shared()
-                    .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_RECEIVED)
+                    .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_STORED)
                 {
                     continue;
                 }
