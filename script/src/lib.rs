@@ -7,7 +7,7 @@ use ckb_vm::Error as VMInternalError;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
-pub use crate::verify::{ScriptGroup, TransactionScriptsVerifier};
+pub use crate::verify::{ScriptGroup, ScriptGroupType, TransactionScriptsVerifier};
 
 /// re-export DataLoader
 pub use ckb_script_data_loader::DataLoader;
