@@ -304,7 +304,7 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
 
 pub trait HeaderChecker {
     /// Check if header in main chain
-    fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError>;
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error>;
 }
 
 /// Gather all cell dep out points and resolved dep group out points
@@ -507,7 +507,7 @@ mod tests {
             {
                 Ok(())
             } else {
-                Err(OutPointError::InvalidHeaderDep(block_hash.clone()).into())
+                Err(OutPointError::InvalidHeader(block_hash.clone()).into())
             }
         }
     }
@@ -735,7 +735,7 @@ mod tests {
 
         assert_error_eq(
             result.unwrap_err(),
-            OutPointError::InvalidHeaderDep(invalid_block_hash),
+            OutPointError::InvalidHeader(invalid_block_hash),
         );
     }
 

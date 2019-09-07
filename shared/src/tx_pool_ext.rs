@@ -248,16 +248,13 @@ impl TxPool {
                             // just be discarded.
                             //
                             // To avoid mis-discarding error types added in the future, please don't
-                            // use `Some(_)` as the match arm.
+                            // use placeholder `_` as the match arm.
                             //
                             // OutOfOrder should only appear in BlockCellProvider
-                            OutPointError::InvalidHeaderDep(_)
-                            | OutPointError::InvalidDepGroup(_)
-                            | OutPointError::Empty(_)
-                            | OutPointError::UnspecifiedInputCell(_)
+                            OutPointError::ImmatureHeader(_)
                             | OutPointError::InvalidHeader(_)
-                            | OutPointError::OutOfOrder(_)
-                            | OutPointError::UnknownHeader(_) => {
+                            | OutPointError::InvalidDepGroup(_)
+                            | OutPointError::OutOfOrder(_) => {
                                 self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                             }
                         }

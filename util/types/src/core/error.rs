@@ -12,22 +12,6 @@ pub enum OutPointError {
     #[fail(display = "Unknown({:?})", _0)]
     Unknown(Vec<OutPoint>),
 
-    /// The specified input cell is not-found inside the specified header
-    #[fail(display = "InvalidHeader({:?})", _0)]
-    InvalidHeader(OutPoint),
-
-    /// Use the out point as input but not specified the input cell
-    #[fail(display = "UnspecifiedInputCell({:?})", _0)]
-    UnspecifiedInputCell(OutPoint),
-
-    /// Empty out point, missing the input cell and header
-    #[fail(display = "Empty({:?})", _0)]
-    Empty(OutPoint),
-
-    /// Unknown the specified header
-    #[fail(display = "UnknownHeader({:?})", _0)]
-    UnknownHeader(OutPoint),
-
     /// Input or dep cell reference to a newer cell in the same block
     // TODO: Maybe replace with `UnknownInputCell`?
     #[fail(display = "OutOfOrder({:?})", _0)]
@@ -38,10 +22,13 @@ pub enum OutPointError {
     #[fail(display = "InvalidDepGroup({:?})", _0)]
     InvalidDepGroup(OutPoint),
 
-    /// Invalid HeaderDep
-    #[fail(display = "InvalidHeaderDep({})", _0)]
     // TODO: This error should be move into HeaderError or TransactionError
-    InvalidHeaderDep(Byte32),
+    #[fail(display = "InvalidHeader({})", _0)]
+    InvalidHeader(Byte32),
+
+    // TODO: This error should be move into HeaderError or TransactionError
+    #[fail(display = "ImmatureHeader({})", _0)]
+    ImmatureHeader(Byte32),
 }
 
 impl From<OutPointError> for Error {

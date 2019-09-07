@@ -307,22 +307,18 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         script_group_type: &ScriptGroupType,
         script_hash: &Byte32,
         max_cycles: Cycle,
-    ) -> Result<Cycle, ScriptError> {
+    ) -> Result<Cycle, Error> {
         let group = match script_group_type {
             ScriptGroupType::Lock => self.lock_groups.get(script_hash),
             ScriptGroupType::Type => self.type_groups.get(script_hash),
         };
         match group {
             Some(group) => self.verify_script_group(group, max_cycles),
-            None => Err(ScriptError::NoScript),
+            None => Err(ScriptError::InvalidCodeHash.into()),
         }
     }
 
-    fn verify_script_group(
-        &self,
-        group: &ScriptGroup,
-        max_cycles: Cycle,
-    ) -> Result<Cycle, ScriptError> {
+    fn verify_script_group(&self, group: &ScriptGroup, max_cycles: Cycle) -> Result<Cycle, Error> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.pack()
             && group.script.hash_type().unpack() == ScriptHashType::Type
         {

@@ -1,4 +1,5 @@
-use crate::{assert_regex_match, utils::is_committed, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
+use crate::utils::assert_send_transaction_fail;
+use crate::{utils::is_committed, Net, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
 use ckb_types::core::BlockNumber;
 use log::info;
@@ -32,11 +33,7 @@ impl Spec for ReferenceHeaderMaturity {
 
         (0..MATURITY).for_each(|i| {
             info!("Tx is not matured in N + {} block", i);
-            let error = node
-                .rpc_client()
-                .send_transaction_result(tx.clone().data().into())
-                .unwrap_err();
-            assert_regex_match(&error.to_string(), r"ImmatureHeader");
+            assert_send_transaction_fail(node, &tx, "ImmatureHeader");
             node.generate_block();
         });
 

@@ -177,10 +177,10 @@ pub fn test_cellbase_with_non_empty_output_data() {
         .transaction(create_cellbase_transaction_with_non_empty_output_data())
         .build();
     let verifier = CellbaseVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidOutputData))
-    )
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidOutputData,
+    );
 }
 
 #[test]
@@ -190,9 +190,9 @@ pub fn test_cellbase_with_two_output() {
         .transaction(create_cellbase_transaction_with_two_output())
         .build();
     let verifier = CellbaseVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidQuantity,
     )
 }
 
@@ -203,9 +203,9 @@ pub fn test_cellbase_with_two_output_data() {
         .transaction(create_cellbase_transaction_with_two_output_data())
         .build();
     let verifier = CellbaseVerifier::new();
-    assert_eq!(
-        verifier.verify(&block),
-        Err(VerifyError::Cellbase(CellbaseError::InvalidQuantity))
+    assert_error_eq(
+        verifier.verify(&block).unwrap_err(),
+        CellbaseError::InvalidQuantity,
     )
 }
 
