@@ -8,7 +8,7 @@ use ckb_jsonrpc_types::{
     Unsigned, Version as JsonVersion,
 };
 use ckb_logger::{error, info};
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMRBatch, MMR};
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
 use ckb_notify::NotifyController;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{
@@ -379,10 +379,9 @@ impl BlockAssembler {
             DaoCalculator::new(self.shared.consensus(), snapshot).dao_field(&rtxs, &tip_header)?;
 
         let chain_root = {
-            let mut batch = MMRBatch::new(snapshot);
             let mmr = MMR::<_, MergeHeaderDigest, _>::new(
                 leaf_index_to_mmr_size(tip_header.number()),
-                &mut batch,
+                snapshot,
             );
             mmr.get_root()?.hash()
         };

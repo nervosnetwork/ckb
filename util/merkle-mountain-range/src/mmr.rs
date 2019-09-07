@@ -8,21 +8,20 @@ use crate::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset
 use crate::mmr_store::{MMRBatch, MMRStore};
 use crate::{Error, Merge, Result};
 use std::borrow::Cow;
-use std::convert::TryInto;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-pub struct MMR<'a, T, M, S: MMRStore<T>> {
+pub struct MMR<T, M, S: MMRStore<T>> {
     mmr_size: u64,
-    batch: &'a mut MMRBatch<T, S>,
+    batch: MMRBatch<T, S>,
     merge: PhantomData<M>,
 }
 
-impl<'a, T: Clone + PartialEq + Debug, M: Merge<Item = T>, S: MMRStore<T>> MMR<'a, T, M, S> {
-    pub fn new(mmr_size: u64, batch: &'a mut MMRBatch<T, S>) -> Self {
+impl<'a, T: Clone + PartialEq + Debug, M: Merge<Item = T>, S: MMRStore<T>> MMR<T, M, S> {
+    pub fn new(mmr_size: u64, store: S) -> Self {
         MMR {
             mmr_size,
-            batch,
+            batch: MMRBatch::new(store),
             merge: PhantomData,
         }
     }
@@ -41,7 +40,7 @@ impl<'a, T: Clone + PartialEq + Debug, M: Merge<Item = T>, S: MMRStore<T>> MMR<'
         self.mmr_size
     }
 
-    pub fn empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.mmr_size == 0
     }
 
@@ -54,18 +53,18 @@ impl<'a, T: Clone + PartialEq + Debug, M: Merge<Item = T>, S: MMRStore<T>> MMR<'
         let mut height = 0u32;
         let mut pos = elem_pos;
         // continue to merge tree node if next pos heigher than current
-        while pos_height_in_tree(pos + 1) > u64::from(height) {
+        while pos_height_in_tree(pos + 1) > height {
             pos += 1;
             let left_pos = pos - parent_offset(height);
-            let right_pos = left_pos + sibling_offset(height.try_into().expect("u32"));
+            let right_pos = left_pos + sibling_offset(height);
             let left_elem = self.find_elem(left_pos, &elems)?;
             let right_elem = self.find_elem(right_pos, &elems)?;
-            let parent_elem = M::merge(&left_elem, &right_elem)?;
+            let parent_elem = M::merge(&left_elem, &right_elem);
             elems.push(parent_elem);
             height += 1
         }
         // store hashes
-        self.batch.append(elem_pos, elems)?;
+        self.batch.append(elem_pos, elems);
         // update mmr_size
         self.mmr_size = pos + 1;
         Ok(elem_pos)
@@ -93,7 +92,7 @@ impl<'a, T: Clone + PartialEq + Debug, M: Merge<Item = T>, S: MMRStore<T>> MMR<'
         while rhs_peak_elems.len() > 1 {
             let right_peak = rhs_peak_elems.pop().expect("pop");
             let left_peak = rhs_peak_elems.pop().expect("pop");
-            rhs_peak_elems.push(M::merge(&right_peak, &left_peak)?);
+            rhs_peak_elems.push(M::merge(&right_peak, &left_peak));
         }
         Ok(rhs_peak_elems.pop())
     }
@@ -104,32 +103,24 @@ impl<'a, T: Clone + PartialEq + Debug, M: Merge<Item = T>, S: MMRStore<T>> MMR<'
         while pos < self.mmr_size {
             let pos_height = pos_height_in_tree(pos);
             let next_height = pos_height_in_tree(pos + 1);
-            if next_height > pos_height {
+            let (sib_pos, next_pos) = if next_height > pos_height {
                 // implies pos is right sibling
                 let sib_pos = pos - sibling_offset(height);
-                if sib_pos > self.mmr_size - 1 {
-                    break;
-                }
-                proof.push(
-                    self.batch
-                        .get_elem(sib_pos)?
-                        .ok_or(Error::InconsistentStore)?,
-                );
-                // go to next pos
-                pos += 1;
+                (sib_pos, pos + 1)
             } else {
                 // pos is left sibling
                 let sib_pos = pos + sibling_offset(height);
-                if sib_pos > self.mmr_size - 1 {
-                    break;
-                }
-                proof.push(
-                    self.batch
-                        .get_elem(sib_pos)?
-                        .ok_or(Error::InconsistentStore)?,
-                );
-                pos += parent_offset(height);
+                (sib_pos, pos + parent_offset(height))
+            };
+            if sib_pos > self.mmr_size - 1 {
+                break;
             }
+            proof.push(
+                self.batch
+                    .get_elem(sib_pos)?
+                    .ok_or(Error::InconsistentStore)?,
+            );
+            pos = next_pos;
             height += 1;
         }
         // now we get peak merkle proof
@@ -148,6 +139,10 @@ impl<'a, T: Clone + PartialEq + Debug, M: Merge<Item = T>, S: MMRStore<T>> MMR<'
             .ok_or(Error::InconsistentStore)?;
         proof.extend(lhs_peaks);
         Ok(MerkleProof::new(self.mmr_size, proof))
+    }
+
+    pub fn commit(self) -> Result<()> {
+        self.batch.commit()
     }
 }
 
@@ -174,10 +169,10 @@ impl<T: PartialEq + Debug, M: Merge<Item = T>> MerkleProof<T, M> {
         for proof in &self.proof {
             if peaks.contains(&pos) {
                 sum_elem = if Some(&pos) == peaks.last() {
-                    M::merge(&sum_elem, &proof)?
+                    M::merge(&sum_elem, &proof)
                 } else {
                     pos = *peaks.last().expect("must exists at least one peak");
-                    M::merge(proof, &sum_elem)?
+                    M::merge(proof, &sum_elem)
                 };
                 continue;
             }
@@ -188,10 +183,10 @@ impl<T: PartialEq + Debug, M: Merge<Item = T>> MerkleProof<T, M> {
             sum_elem = if next_height > pos_height {
                 // to next pos
                 pos += 1;
-                M::merge(proof, &sum_elem)?
+                M::merge(proof, &sum_elem)
             } else {
                 pos += parent_offset(height);
-                M::merge(&sum_elem, proof)?
+                M::merge(&sum_elem, proof)
             };
             height += 1
         }

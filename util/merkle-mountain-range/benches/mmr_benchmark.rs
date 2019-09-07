@@ -4,7 +4,7 @@ extern crate criterion;
 use criterion::Criterion;
 
 use bytes::Bytes;
-use ckb_merkle_mountain_range::{util::MemStore, Error, MMRBatch, MMRStore, Merge, Result, MMR};
+use ckb_merkle_mountain_range::{util::MemStore, Error, MMRStore, Merge, Result, MMR};
 use rand::{seq::SliceRandom, thread_rng};
 use std::convert::TryFrom;
 
@@ -31,25 +31,24 @@ struct MergeNumberHash;
 
 impl Merge for MergeNumberHash {
     type Item = NumberHash;
-    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> Result<Self::Item> {
+    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> Self::Item {
         let mut hasher = new_blake2b();
         let mut hash = [0u8; 32];
         hasher.update(&lhs.0);
         hasher.update(&rhs.0);
         hasher.finalize(&mut hash);
-        Ok(NumberHash(hash.to_vec().into()))
+        NumberHash(hash.to_vec().into())
     }
 }
 
 fn prepare_mmr(count: u32) -> (u64, MemStore<NumberHash>, Vec<u64>) {
     let store = MemStore::default();
-    let mut batch = MMRBatch::new(&store);
-    let mut mmr = MMR::<_, MergeNumberHash, _>::new(0, &mut batch);
+    let mut mmr = MMR::<_, MergeNumberHash, _>::new(0, &store);
     let positions: Vec<u64> = (0u32..count)
         .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
         .collect();
     let mmr_size = mmr.mmr_size();
-    batch.commit().expect("write to store");
+    mmr.commit().expect("write to store");
     (mmr_size, store, positions)
 }
 
@@ -64,16 +63,14 @@ fn bench(c: &mut Criterion) {
 
     c.bench_function("MMR gen proof", |b| {
         let (mmr_size, store, positions) = prepare_mmr(100_0000);
-        let mut batch = MMRBatch::new(&store);
-        let mmr = MMR::<_, MergeNumberHash, _>::new(mmr_size, &mut batch);
+        let mmr = MMR::<_, MergeNumberHash, _>::new(mmr_size, &store);
         let mut rng = thread_rng();
         b.iter(|| mmr.gen_proof(*positions.choose(&mut rng).unwrap()));
     });
 
     c.bench_function("MMR verify", |b| {
         let (mmr_size, store, positions) = prepare_mmr(100_0000);
-        let mut batch = MMRBatch::new(&store);
-        let mmr = MMR::<_, MergeNumberHash, _>::new(mmr_size, &mut batch);
+        let mmr = MMR::<_, MergeNumberHash, _>::new(mmr_size, &store);
         let mut rng = thread_rng();
         let root: NumberHash = mmr.get_root().unwrap();
         let proofs: Vec<_> = (0..10_000)

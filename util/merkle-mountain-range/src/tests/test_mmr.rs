@@ -1,5 +1,5 @@
 use super::new_blake2b;
-use crate::{leaf_index_to_pos, util::MemStore, Error, MMRBatch, Merge, Result, MMR};
+use crate::{leaf_index_to_pos, util::MemStore, Error, Merge, MMR};
 use bytes::Bytes;
 use faster_hex::hex_string;
 use lazy_static::lazy_static;
@@ -22,20 +22,19 @@ struct MergeNumberHash;
 
 impl Merge for MergeNumberHash {
     type Item = NumberHash;
-    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> Result<Self::Item> {
+    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> Self::Item {
         let mut hasher = new_blake2b();
         let mut hash = [0u8; 32];
         hasher.update(&lhs.0);
         hasher.update(&rhs.0);
         hasher.finalize(&mut hash);
-        Ok(NumberHash(hash.to_vec().into()))
+        NumberHash(hash.to_vec().into())
     }
 }
 
 fn test_mmr(count: u32, proof_elem: u32) {
     let store = MemStore::default();
-    let mut batch = MMRBatch::new(&store);
-    let mut mmr = MMR::<_, MergeNumberHash, _>::new(0, &mut batch);
+    let mut mmr = MMR::<_, MergeNumberHash, _>::new(0, &store);
     let positions: Vec<u64> = (0u32..count)
         .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
         .collect();
@@ -43,7 +42,7 @@ fn test_mmr(count: u32, proof_elem: u32) {
     let proof = mmr
         .gen_proof(positions[proof_elem as usize])
         .expect("gen proof");
-    batch.commit().expect("commit changes");
+    mmr.commit().expect("commit changes");
     let result = proof
         .verify(
             root,
@@ -57,8 +56,7 @@ fn test_mmr(count: u32, proof_elem: u32) {
 #[test]
 fn test_mmr_root() {
     let store = MemStore::default();
-    let mut batch = MMRBatch::new(&store);
-    let mut mmr = MMR::<_, MergeNumberHash, _>::new(0, &mut batch);
+    let mut mmr = MMR::<_, MergeNumberHash, _>::new(0, &store);
     (0u32..11).for_each(|i| {
         mmr.push(NumberHash::try_from(i).unwrap()).unwrap();
     });
@@ -73,8 +71,7 @@ fn test_mmr_root() {
 #[test]
 fn test_empty_mmr_root() {
     let store = MemStore::<NumberHash>::default();
-    let mut batch = MMRBatch::new(&store);
-    let mmr = MMR::<_, MergeNumberHash, _>::new(0, &mut batch);
+    let mmr = MMR::<_, MergeNumberHash, _>::new(0, &store);
     assert_eq!(Err(Error::GetRootOnEmpty), mmr.get_root());
 }
 
@@ -125,8 +122,7 @@ lazy_static! {
     /// Positions of 0..100_000 elem
     static ref POSITIONS: Vec<u64> = {
         let store = MemStore::default();
-        let mut batch = MMRBatch::new(&store);
-        let mut mmr = MMR::<_,MergeNumberHash,_>::new(0, &mut batch);
+        let mut mmr = MMR::<_,MergeNumberHash,_>::new(0, &store);
         (0u32..100_000)
             .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
             .collect()

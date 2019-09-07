@@ -14,9 +14,8 @@ impl<Elem: Clone, Store: MMRStore<Elem>> MMRBatch<Elem, Store> {
         }
     }
 
-    pub fn append(&mut self, pos: u64, elems: Vec<Elem>) -> Result<()> {
+    pub fn append(&mut self, pos: u64, elems: Vec<Elem>) {
         self.memory_batch.push((pos, elems));
-        Ok(())
     }
 
     pub fn get_elem(&self, pos: u64) -> Result<Option<Elem>> {
@@ -24,7 +23,7 @@ impl<Elem: Clone, Store: MMRStore<Elem>> MMRBatch<Elem, Store> {
             if pos < *start_pos {
                 continue;
             } else if pos < start_pos + elems.len() as u64 {
-                return Ok(elems.get((pos - start_pos) as usize).map(Clone::clone));
+                return Ok(elems.get((pos - start_pos) as usize).cloned());
             } else {
                 break;
             }

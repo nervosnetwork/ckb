@@ -8,7 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
-use ckb_merkle_mountain_range::{util::MemStore, MMRBatch, MMR};
+use ckb_merkle_mountain_range::{util::MemStore, MMR};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -154,8 +154,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         ChainService::new(shared.clone(), table, notify).start::<&str>(None)
     };
     let mmr_store = MemStore::<HeaderDigest>::default();
-    let mut mmr_batch = MMRBatch::new(&mmr_store);
-    let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(0, &mut mmr_batch);
+    let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(0, &mmr_store);
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;

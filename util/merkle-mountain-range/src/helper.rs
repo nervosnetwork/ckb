@@ -16,10 +16,11 @@ pub fn leaf_index_to_pos(index: u64) -> u64 {
         tree_node_count += sub_tree_node_count;
         leaves -= peak_leaves;
     }
-    if leaves > 0 {
-        // // add one pos for remain leaf
-        // let pos = tree_node_count - 1;
-        // pos + 1
+    // two leaves can construct a new peak, the only valid number of leaves is 0 or 1.
+    debug_assert!(leaves == 0 || leaves == 1, "remain leaves incorrect");
+    if leaves == 1 {
+        // add one pos for remain leaf
+        // is quals to `tree_node_count - 1 + 1`
         tree_node_count
     } else {
         let pos = tree_node_count - 1;
@@ -36,7 +37,7 @@ pub fn leaf_index_to_mmr_size(index: u64) -> u64 {
     pos + 1
 }
 
-pub fn pos_height_in_tree(mut pos: u64) -> u64 {
+pub fn pos_height_in_tree(mut pos: u64) -> u32 {
     pos += 1;
     fn all_ones(num: u64) -> bool {
         num != 0 && num.count_zeros() == num.leading_zeros()
@@ -51,7 +52,7 @@ pub fn pos_height_in_tree(mut pos: u64) -> u64 {
         pos = jump_left(pos)
     }
 
-    (64 - pos.leading_zeros() - 1).into()
+    64 - pos.leading_zeros() - 1
 }
 
 pub fn parent_offset(height: u32) -> u64 {

@@ -1,4 +1,4 @@
-use crate::{MMRBatch, MMRStore, Merge, Result, MMR};
+use crate::{MMRStore, Merge, Result, MMR};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -21,7 +21,7 @@ impl<T> MemStore<T> {
 
 impl<T: Clone> MMRStore<T> for &MemStore<T> {
     fn get_elem(&self, pos: u64) -> Result<Option<T>> {
-        Ok(self.0.borrow().get(&pos).map(Clone::clone))
+        Ok(self.0.borrow().get(&pos).cloned())
     }
 
     fn append(&mut self, pos: u64, elems: Vec<T>) -> Result<()> {
@@ -59,17 +59,17 @@ impl<T: Clone + Debug + PartialEq, M: Merge<Item = T>> MemMMR<T, M> {
     }
 
     pub fn get_root(&self) -> Result<T> {
-        let mut batch = MMRBatch::new(&self.store);
-        let mmr = MMR::<T, M, &MemStore<T>>::new(self.mmr_size, &mut batch);
+        // let mut batch = MMRBatch::new(&self.store);
+        let mmr = MMR::<T, M, &MemStore<T>>::new(self.mmr_size, &self.store);
         mmr.get_root()
     }
 
     pub fn push(&mut self, elem: T) -> Result<u64> {
-        let mut batch = MMRBatch::new(&self.store);
-        let mut mmr = MMR::<T, M, &MemStore<T>>::new(self.mmr_size, &mut batch);
+        // let mut batch = MMRBatch::new(&self.store);
+        let mut mmr = MMR::<T, M, &MemStore<T>>::new(self.mmr_size, &self.store);
         let pos = mmr.push(elem)?;
         self.mmr_size = mmr.mmr_size();
-        batch.commit()?;
+        mmr.commit()?;
         Ok(pos)
     }
 }

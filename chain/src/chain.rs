@@ -672,15 +672,14 @@ impl ChainService {
         attached_blocks: &[&'a BlockView],
         need_verify: bool,
     ) -> Result<(), Error> {
-        use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMRBatch, MMR};
+        use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
         let start_block = match attached_blocks.get(0) {
             Some(b) => b,
             None => return Ok(()),
         };
-        let mut batch = MMRBatch::new(txn);
         // calculate mmr_size and initialize MMR
         let mmr_size = leaf_index_to_mmr_size(start_block.header().number() - 1);
-        let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(mmr_size, &mut batch);
+        let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(mmr_size, txn);
         // check blocks chain_root
         for block in attached_blocks {
             let root = mmr
@@ -698,9 +697,7 @@ impl ChainService {
                 .map_err(|e| InternalErrorKind::MMR.cause(e))?;
         }
         // commit mmr changes
-        batch
-            .commit()
-            .map_err(|e| InternalErrorKind::MMR.cause(e))?;
+        mmr.commit().map_err(|e| InternalErrorKind::MMR.cause(e))?;
         Ok(())
     }
 
