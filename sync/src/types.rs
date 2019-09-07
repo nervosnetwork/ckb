@@ -848,12 +848,20 @@ impl SyncSharedState {
         let mut step = 1;
         let mut locator = Vec::with_capacity(32);
         let mut index = start.number();
-        let mut base = start.hash().to_owned();
+        let mut base = start.hash();
         loop {
-            let header = self
-                .get_ancestor(&base, index)
-                .expect("index calculated in get_locator");
-            locator.push(header.hash().to_owned());
+            let header = self.get_ancestor(&base, index).unwrap_or_else(|| {
+                panic!(
+                    "index calculated in get_locator: \
+                     start: {}, base: {}, step: {}, locators({}): {:?}.",
+                    start,
+                    base,
+                    step,
+                    locator.len(),
+                    locator,
+                );
+            });
+            locator.push(header.hash());
 
             if locator.len() >= 10 {
                 step <<= 1;
@@ -867,7 +875,7 @@ impl SyncSharedState {
                 break;
             }
             index -= step;
-            base = header.hash().to_owned();
+            base = header.hash();
         }
         locator
     }
