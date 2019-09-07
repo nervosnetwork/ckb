@@ -1,6 +1,6 @@
 use crate::utils::{
     assert_send_transaction_fail, since_from_absolute_block_number, since_from_absolute_timestamp,
-    since_from_relative_block_number, since_from_relative_timestamp, MEDIAN_TIME_BLOCK_COUNT,
+    since_from_relative_block_number, since_from_relative_timestamp,
 };
 use crate::{assert_regex_match, Net, Node, Spec, DEFAULT_TX_PROPOSAL_WINDOW};
 use ckb_chain_spec::ChainSpec;
@@ -112,19 +112,20 @@ impl ValidSince {
     }
 
     pub fn test_since_relative_median_time(&self, node: &Node) {
+        let median_time_block_count = node.consensus().median_time_block_count() as u64;
         node.generate_block();
         let cellbase = node.get_tip_block().transactions()[0].clone();
         let old_median_time = node.rpc_client().get_blockchain_info().median_time.0;
         sleep(Duration::from_secs(2));
 
-        let n = max(self.cellbase_maturity(), MEDIAN_TIME_BLOCK_COUNT);
+        let n = max(self.cellbase_maturity(), median_time_block_count);
         (0..n).for_each(|_| {
             node.generate_block();
         });
 
         // Calculate the current block median time
         let tip_number = node.rpc_client().get_tip_block_number();
-        let mut timestamps: Vec<u64> = (tip_number - MEDIAN_TIME_BLOCK_COUNT + 1..=tip_number)
+        let mut timestamps: Vec<u64> = (tip_number - median_time_block_count + 1..=tip_number)
             .map(|block_number| {
                 node.rpc_client()
                     .get_block_by_number(block_number)
@@ -161,16 +162,17 @@ impl ValidSince {
     }
 
     pub fn test_since_absolute_median_time(&self, node: &Node) {
+        let median_time_block_count = node.consensus().median_time_block_count() as u64;
         node.generate_block();
         let cellbase = node.get_tip_block().transactions()[0].clone();
-        let n = max(self.cellbase_maturity(), MEDIAN_TIME_BLOCK_COUNT);
+        let n = max(self.cellbase_maturity(), median_time_block_count);
         (0..n).for_each(|_| {
             node.generate_block();
         });
 
         // Calculate current block median time
         let tip_number = node.rpc_client().get_tip_block_number();
-        let mut timestamps: Vec<u64> = ((tip_number - MEDIAN_TIME_BLOCK_COUNT + 1)..=tip_number)
+        let mut timestamps: Vec<u64> = ((tip_number - median_time_block_count + 1)..=tip_number)
             .map(|block_number| {
                 node.rpc_client()
                     .get_block_by_number(block_number)
