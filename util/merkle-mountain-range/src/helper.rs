@@ -99,7 +99,7 @@ fn get_peak_pos_by_height(height: u32) -> u64 {
 }
 
 fn left_peak_height_pos(mmr_size: u64) -> (u32, u64) {
-    let mut height = 0;
+    let mut height = 1;
     let mut prev_pos = 0;
     let mut pos = get_peak_pos_by_height(height);
     while pos < mmr_size {

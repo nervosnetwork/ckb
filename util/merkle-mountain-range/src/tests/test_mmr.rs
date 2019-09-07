@@ -1,42 +1,13 @@
-use super::new_blake2b;
-use crate::{leaf_index_to_pos, util::MemStore, Error, Merge, MMR};
-use bytes::Bytes;
+use super::{MergeNumberHash, NumberHash};
+use crate::{util::MemStore, Error, MMR};
 use faster_hex::hex_string;
-use lazy_static::lazy_static;
 use proptest::prelude::*;
-use std::convert::TryFrom;
-
-#[derive(Eq, PartialEq, Clone, Debug, Default)]
-struct NumberHash(pub Bytes);
-impl From<u32> for NumberHash {
-    fn from(num: u32) -> Self {
-        let mut hasher = new_blake2b();
-        let mut hash = [0u8; 32];
-        hasher.update(&num.to_le_bytes());
-        hasher.finalize(&mut hash);
-        NumberHash(hash.to_vec().into())
-    }
-}
-
-struct MergeNumberHash;
-
-impl Merge for MergeNumberHash {
-    type Item = NumberHash;
-    fn merge(lhs: &Self::Item, rhs: &Self::Item) -> Self::Item {
-        let mut hasher = new_blake2b();
-        let mut hash = [0u8; 32];
-        hasher.update(&lhs.0);
-        hasher.update(&rhs.0);
-        hasher.finalize(&mut hash);
-        NumberHash(hash.to_vec().into())
-    }
-}
 
 fn test_mmr(count: u32, proof_elem: u32) {
     let store = MemStore::default();
     let mut mmr = MMR::<_, MergeNumberHash, _>::new(0, &store);
     let positions: Vec<u64> = (0u32..count)
-        .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
+        .map(|i| mmr.push(NumberHash::from(i)).unwrap())
         .collect();
     let root = mmr.get_root().expect("get root");
     let proof = mmr
@@ -47,7 +18,7 @@ fn test_mmr(count: u32, proof_elem: u32) {
         .verify(
             root,
             positions[proof_elem as usize],
-            NumberHash::try_from(proof_elem).unwrap(),
+            NumberHash::from(proof_elem),
         )
         .unwrap();
     assert!(result);
@@ -58,7 +29,7 @@ fn test_mmr_root() {
     let store = MemStore::default();
     let mut mmr = MMR::<_, MergeNumberHash, _>::new(0, &store);
     (0u32..11).for_each(|i| {
-        mmr.push(NumberHash::try_from(i).unwrap()).unwrap();
+        mmr.push(NumberHash::from(i)).unwrap();
     });
     let root = mmr.get_root().expect("get root");
     let hex_root = hex_string(&root.0).unwrap();
@@ -118,26 +89,10 @@ prop_compose! {
                     (count, elem)
     }
 }
-lazy_static! {
-    /// Positions of 0..100_000 elem
-    static ref POSITIONS: Vec<u64> = {
-        let store = MemStore::default();
-        let mut mmr = MMR::<_,MergeNumberHash,_>::new(0, &store);
-        (0u32..100_000)
-            .map(|i| mmr.push(NumberHash::try_from(i).unwrap()).unwrap())
-            .collect()
-    };
-}
 
 proptest! {
     #[test]
     fn test_random_mmr((count , elem) in count_elem(500)) {
         test_mmr(count, elem);
-    }
-
-    #[test]
-    fn test_leaf_index_to_pos(index in 0..POSITIONS.len()) {
-        let pos = leaf_index_to_pos(index as u64);
-        assert_eq!(pos, POSITIONS[index]);
     }
 }
