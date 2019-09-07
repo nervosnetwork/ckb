@@ -121,8 +121,10 @@ impl Synchronizer {
     ) -> Result<bool, FailureError> {
         let block_hash = block.hash();
         let status = self.shared().get_block_status(&block_hash);
-        if status.contains(BlockStatus::BLOCK_RECEIVED) {
-            debug!("block {} already received", block_hash);
+        // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
+        // stopping synchronization even when orphan_pool maintains dirty items by bugs.
+        if status.contains(BlockStatus::BLOCK_STORED) {
+            debug!("block {} already stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared()
