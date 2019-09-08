@@ -166,23 +166,14 @@ impl<T: PartialEq + Debug, M: Merge<Item = T>> MerkleProof<T, M> {
         let peaks = get_peaks(self.mmr_size);
         let mut sum_elem = elem;
         let mut height = 0;
-        for proof in &self.proof {
-            // start baging peaks, if pos reach peaks pos
-            if peaks.contains(&pos) {
-                // pos is last peak, baging with left peaks
-                sum_elem = if Some(&pos) == peaks.last() {
-                    M::merge(&sum_elem, &proof)
-                } else {
-                    // we are not in the last peak, so bag with right peaks first
-                    // notice the right peaks is already baging into one hash in proof,
-                    // so after this, the remain proofs are always left peaks.
-                    // we set the pos as last peak to make the if condition always true.
-                    pos = *peaks.last().expect("must exists at least one peak");
-                    M::merge(proof, &sum_elem)
-                };
-                continue;
-            }
-
+        let mut proof_iter = self.proof.iter();
+        // calculate peak's merkle root
+        // start bagging peaks if pos reach a peak pos
+        while !peaks.contains(&pos) {
+            let proof = match proof_iter.next() {
+                Some(proof) => proof,
+                None => break,
+            };
             // verify merkle path
             let pos_height = pos_height_in_tree(pos);
             let next_height = pos_height_in_tree(pos + 1);
@@ -195,6 +186,21 @@ impl<T: PartialEq + Debug, M: Merge<Item = T>> MerkleProof<T, M> {
                 M::merge(&sum_elem, proof)
             };
             height += 1
+        }
+
+        // bagging peaks
+        // bagging with left peaks if pos is last peak
+        let mut bagging_left = Some(&pos) == peaks.last();
+        for proof in &mut proof_iter {
+            sum_elem = if bagging_left {
+                M::merge(&sum_elem, &proof)
+            } else {
+                // we are not in the last peak, so bag with right peaks first
+                // notice the right peaks is already bagging into one hash in proof,
+                // so after this merge, the remain proofs are always left peaks.
+                bagging_left = true;
+                M::merge(&proof, &sum_elem)
+            };
         }
         Ok(root == sum_elem)
     }
