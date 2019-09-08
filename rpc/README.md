@@ -1490,7 +1490,7 @@ http://localhost:8114
         "difficulty": "0x7a1200",
         "epoch": "1",
         "is_initial_block_download": true,
-        "median_time": "1557311762"
+        "median_time": "1557311749"
     }
 }
 ```

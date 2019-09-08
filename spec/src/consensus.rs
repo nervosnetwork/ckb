@@ -25,7 +25,7 @@ const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
 pub(crate) const CELLBASE_MATURITY: BlockNumber = 4 * MAX_EPOCH_LENGTH;
 // TODO: should adjust this value based on CKB average block time
-const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
+const MEDIAN_TIME_BLOCK_COUNT: usize = 37;
 
 // dampening factor
 const TAU: u64 = 2;
