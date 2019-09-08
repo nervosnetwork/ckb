@@ -361,7 +361,12 @@ impl BlockAssembler {
 
         let rtxs = txs
             .try_fold(vec![], |mut rtxs, tx| {
-                match resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot) {
+                match resolve_transaction(
+                    tx.clone(),
+                    &mut seen_inputs,
+                    &overlay_cell_provider,
+                    snapshot,
+                ) {
                     Ok(rtx) => {
                         rtxs.push(rtx);
                         Ok(rtxs)

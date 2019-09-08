@@ -77,7 +77,7 @@ pub fn test_capacity_outofbound() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction: &transaction,
+        transaction,
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![CellMetaBuilder::from_cell_output(
             CellOutput::new_builder()
@@ -117,7 +117,7 @@ pub fn test_skip_dao_capacity_check() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction: &transaction,
+        transaction,
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![],
         resolved_dep_groups: vec![],
@@ -136,7 +136,7 @@ pub fn test_inputs_cellbase_maturity() {
         .build();
 
     let rtx = ResolvedTransaction {
-        transaction: &transaction,
+        transaction,
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
@@ -168,7 +168,7 @@ fn test_ignore_genesis_cellbase_maturity() {
         .build();
     // Transaction use genesis cellbase
     let rtx = ResolvedTransaction {
-        transaction: &transaction,
+        transaction,
         resolved_cell_deps: Vec::new(),
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
@@ -193,7 +193,7 @@ pub fn test_deps_cellbase_maturity() {
 
     // The 1st dep is cellbase, the 2nd one is not.
     let rtx = ResolvedTransaction {
-        transaction: &transaction,
+        transaction,
         resolved_cell_deps: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
                 .transaction_info(MockMedianTime::get_transaction_info(30, 0, 0))
@@ -238,7 +238,7 @@ pub fn test_capacity_invalid() {
     // The inputs capacity is 49 + 100 = 149,
     // is less than outputs capacity
     let rtx = ResolvedTransaction {
-        transaction: &transaction,
+        transaction,
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(
@@ -342,9 +342,9 @@ fn create_tx_with_lock(since: u64) -> TransactionView {
 fn create_resolve_tx_with_transaction_info(
     tx: &TransactionView,
     transaction_info: TransactionInfo,
-) -> ResolvedTransaction<'_> {
+) -> ResolvedTransaction {
     ResolvedTransaction {
-        transaction: &tx,
+        transaction: tx.clone(),
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![CellMetaBuilder::from_cell_output(
             CellOutput::new_builder()

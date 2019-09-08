@@ -589,6 +589,7 @@ impl ChainService {
                         let cell_provider = OverlayCellProvider::new(&block_cp, &wrapper);
                         transactions
                             .iter()
+                            .cloned()
                             .map(|x| {
                                 resolve_transaction(
                                     x,
