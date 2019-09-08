@@ -45,7 +45,8 @@ impl MMRStore<packed::HeaderDigest> for StoreSnapshot {
 
     /// snapshot MMR is readonly
     fn append(&mut self, _pos: u64, _elems: Vec<packed::HeaderDigest>) -> MMRResult<()> {
-        error!("Failed to append to MMR, snapshot MMR is readonly");
-        Err(MMRError::InconsistentStore)
+        Err(MMRError::StoreError(
+            "Failed to append to MMR, snapshot MMR is readonly".into(),
+        ))
     }
 }

@@ -7,4 +7,6 @@ pub enum Error {
     GetRootOnEmpty,
     #[fail(display = "Inconsistent store")]
     InconsistentStore,
+    #[fail(display = "Store error {}", _0)]
+    StoreError(String),
 }

@@ -137,8 +137,9 @@ impl MMRStore<HeaderDigest> for &Snapshot {
         self.store.get_elem(pos)
     }
     fn append(&mut self, _pos: u64, _elems: Vec<HeaderDigest>) -> MMRResult<()> {
-        error!("Failed to append to MMR, snapshot MMR is readonly");
-        Err(MMRError::InconsistentStore)
+        Err(MMRError::StoreError(
+            "Failed to append to MMR, snapshot MMR is readonly".into(),
+        ))
     }
 }
 

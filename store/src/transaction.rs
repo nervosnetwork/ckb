@@ -220,8 +220,7 @@ impl MMRStore<HeaderDigest> for &StoreTransaction {
                 &elem.as_slice(),
             )
             .map_err(|err| {
-                error!("Failed to append to MMR, DB error {}", err);
-                MMRError::InconsistentStore
+                MMRError::StoreError(format!("Failed to append to MMR, DB error {}", err))
             })?;
         }
         Ok(())
