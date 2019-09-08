@@ -1,9 +1,9 @@
 //! Top-level Pool type, methods, and tests
 use super::types::{DefectEntry, TxEntry, TxPoolConfig};
-use crate::snapshot::Snapshot;
 use crate::tx_pool::orphan::OrphanPool;
 use crate::tx_pool::pending::PendingQueue;
 use crate::tx_pool::proposed::ProposedPool;
+use crate::Snapshot;
 use ckb_logger::{error_target, trace_target};
 use ckb_types::{
     core::{Capacity, Cycle, TransactionView},

@@ -351,8 +351,8 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let mut seen_inputs = HashSet::new();
         let transactions = parent.transactions();
         let rtxs: Vec<ResolvedTransaction> = transactions
-            .iter()
-            .map(|tx| resolve_transaction(&tx, &mut seen_inputs, &mock_store, &mock_store).unwrap())
+            .into_iter()
+            .map(|tx| resolve_transaction(tx, &mut seen_inputs, &mock_store, &mock_store).unwrap())
             .collect();
         let calculator = DaoCalculator::new(&consensus, mock_store.store());
         let dao = calculator
@@ -396,11 +396,13 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .witness(fakebase.witnesses().as_reader().get(0).unwrap().to_entity())
             .input(CellInput::new_cellbase_input(parent.header().number() + 1))
             .build();
-        let rtxs =
-            vec![
-                resolve_transaction(&cellbase, &mut HashSet::new(), &mock_store, &mock_store)
-                    .unwrap(),
-            ];
+        let rtxs = vec![resolve_transaction(
+            cellbase.clone(),
+            &mut HashSet::new(),
+            &mock_store,
+            &mock_store,
+        )
+        .unwrap()];
         let dao = DaoCalculator::new(&consensus, mock_store.store())
             .dao_field(&rtxs, &parent.header())
             .unwrap();

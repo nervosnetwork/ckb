@@ -27,6 +27,7 @@ ckb-merkle-mountain-range = { path = "../util/merkle-mountain-range" }
 im = "~12.3"
 arc-swap = "0.4"
 ckb-error = { path = "../error" }
+ckb-snapshot = { path = "../util/snapshot" }
 
 [dev-dependencies]
 env_logger = "0.6"

@@ -942,6 +942,7 @@ dependencies = [
  "ckb-notify 0.21.0-pre",
  "ckb-proposal-table 0.21.0-pre",
  "ckb-reward-calculator 0.21.0-pre",
+ "ckb-snapshot 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
@@ -957,6 +958,21 @@ dependencies = [
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "ckb-snapshot"
+version = "0.21.0-pre"
+dependencies = [
+ "arc-swap 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-chain-spec 0.21.0-pre",
+ "ckb-db 0.21.0-pre",
+ "ckb-error 0.21.0-pre",
+ "ckb-proposal-table 0.21.0-pre",
+ "ckb-store 0.21.0-pre",
+ "ckb-traits 0.21.0-pre",
+ "ckb-types 0.21.0-pre",
+ "im 12.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

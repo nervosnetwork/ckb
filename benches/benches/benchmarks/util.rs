@@ -466,7 +466,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
     let transactions_provider = TransactionsProvider::new(txs.iter());
     let snapshot: &Snapshot = &shared.snapshot();
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
-    let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
+    let rtxs = txs.iter().cloned().try_fold(vec![], |mut rtxs, tx| {
         let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot);
         match rtx {
             Ok(rtx) => {

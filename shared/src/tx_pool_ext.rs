@@ -1,6 +1,6 @@
-use crate::snapshot::Snapshot;
 use crate::tx_pool::types::{DefectEntry, TxEntry};
 use crate::tx_pool::TxPool;
+use crate::Snapshot;
 use ckb_dao::DaoCalculator;
 use ckb_error::{Error, ErrorKind, InternalErrorKind};
 use ckb_logger::{debug_target, error_target, trace_target};
