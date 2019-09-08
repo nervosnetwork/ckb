@@ -167,10 +167,16 @@ impl<T: PartialEq + Debug, M: Merge<Item = T>> MerkleProof<T, M> {
         let mut sum_elem = elem;
         let mut height = 0;
         for proof in &self.proof {
+            // start baging peaks, if pos reach peaks pos
             if peaks.contains(&pos) {
+                // pos is last peak, baging with left peaks
                 sum_elem = if Some(&pos) == peaks.last() {
                     M::merge(&sum_elem, &proof)
                 } else {
+                    // we are not in the last peak, so bag with right peaks first
+                    // notice the right peaks is already baging into one hash in proof,
+                    // so after this, the remain proofs are always left peaks.
+                    // we set the pos as last peak to make the if condition always true.
                     pos = *peaks.last().expect("must exists at least one peak");
                     M::merge(proof, &sum_elem)
                 };
