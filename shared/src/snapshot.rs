@@ -5,7 +5,6 @@ use ckb_db::{
     Col, DBPinnableSlice,
 };
 use ckb_error::Error;
-use ckb_logger::error;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreSnapshot};

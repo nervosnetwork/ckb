@@ -8,7 +8,7 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_merkle_mountain_range::util::MemMMR;
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -21,7 +21,7 @@ use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
     core::{cell::resolve_transaction, BlockBuilder, TransactionBuilder},
-    packed::{self, CellInput, CellOutputBuilder, HeaderDigest, OutPoint},
+    packed::{self, CellInput, CellOutputBuilder, OutPoint},
     utilities::MergeHeaderDigest,
     U256,
 };
@@ -114,10 +114,6 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
     let chain_service = ChainService::new(shared.clone(), table, notify);
     let chain_controller = chain_service.start::<&str>(None);
 
-    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-
-    mmr.push(block.header().into()).expect("push block to mmr");
-
     for _i in 0..height {
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
@@ -153,7 +149,13 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
                 .unwrap()
         };
 
-        let chain_root = mmr.get_root().expect("get root").hash();
+        let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+            leaf_index_to_mmr_size(number - 1),
+            shared.snapshot().as_ref(),
+        )
+        .get_root()
+        .unwrap()
+        .hash();
 
         block = BlockBuilder::default()
             .transaction(cellbase)
@@ -169,7 +171,6 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
         chain_controller
             .process_block(Arc::new(block.clone()), false)
             .expect("process block should be OK");
-        mmr.push(block.header().into()).expect("push block to mmr");
     }
 
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));

@@ -3,6 +3,7 @@ use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -23,6 +24,7 @@ use ckb_types::{
     h160, h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script},
     prelude::*,
+    utilities::MergeHeaderDigest,
     H160, H256, U256,
 };
 use lazy_static::lazy_static;
@@ -118,7 +120,6 @@ pub fn gen_always_success_block(
     blocks: &mut Vec<BlockView>,
     p_block: &BlockView,
     shared: &Shared,
-    chain_root: Byte32,
 ) -> BlockView {
     let tx = create_always_success_tx();
     let always_success_out_point = OutPoint::new(tx.hash(), 0);
@@ -169,6 +170,13 @@ pub fn gen_always_success_block(
     let mut txs_to_resolve = vec![cellbase.clone()];
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
+    let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+        leaf_index_to_mmr_size(p_block.number()),
+        shared.snapshot().as_ref(),
+    )
+    .get_root()
+    .unwrap()
+    .hash();
 
     let block = BlockBuilder::default()
         .transaction(cellbase)
@@ -314,7 +322,6 @@ pub fn gen_secp_block(
     blocks: &mut Vec<BlockView>,
     p_block: &BlockView,
     shared: &Shared,
-    chain_root: Byte32,
 ) -> BlockView {
     let tx = create_secp_tx();
     let secp_cell_deps = vec![
@@ -368,6 +375,13 @@ pub fn gen_secp_block(
     let mut txs_to_resolve = vec![cellbase.clone()];
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
+    let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+        leaf_index_to_mmr_size(p_block.number()),
+        shared.snapshot().as_ref(),
+    )
+    .get_root()
+    .unwrap()
+    .hash();
 
     let block = BlockBuilder::default()
         .transaction(cellbase)

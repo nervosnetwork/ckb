@@ -1,8 +1,6 @@
 use crate::benchmarks::util::{gen_secp_block, new_secp_chain};
-use ckb_merkle_mountain_range::util::MemMMR;
 use ckb_store::{self, ChainStore};
 use ckb_traits::chain_provider::ChainProvider;
-use ckb_types::{packed::HeaderDigest, utilities::MergeHeaderDigest};
 use criterion::{criterion_group, Criterion};
 use std::sync::Arc;
 
@@ -23,19 +21,15 @@ fn bench(c: &mut Criterion) {
                     let chains = new_secp_chain(**txs_size, 2);
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
-                    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
                     let mut blocks =
                         vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
-                    mmr.push(parent.header().into()).unwrap();
                     (0..20).for_each(|_| {
-                        let chain_root = mmr.get_root().unwrap().hash();
-                        let block = gen_secp_block(&mut blocks, &parent, shared2, chain_root);
+                        let block = gen_secp_block(&mut blocks, &parent, shared2);
                         chain2
                             .process_block(Arc::new(block.clone()), false)
                             .expect("process block OK");
                         parent = block;
-                        mmr.push(parent.header().into()).unwrap();
                     });
                     (chain1.clone(), blocks)
                 },
@@ -64,14 +58,11 @@ fn bench(c: &mut Criterion) {
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
                     let (ref chain3, ref shared3) = chains.0[2];
-                    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
                     let mut blocks =
                         vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
-                    mmr.push(parent.header().into()).unwrap();
                     (0..5).for_each(|i| {
-                        let chain_root = mmr.get_root().unwrap().hash();
-                        let block = gen_secp_block(&mut blocks, &parent, &shared2, chain_root);
+                        let block = gen_secp_block(&mut blocks, &parent, &shared2);
                         chain2
                             .process_block(Arc::new(block.clone()), false)
                             .expect("process block OK");
@@ -81,17 +72,14 @@ fn bench(c: &mut Criterion) {
                                 .expect("process block OK");
                         }
                         parent = block;
-                        mmr.push(parent.header().into()).unwrap();
                     });
                     let mut parent = blocks[2].clone();
                     (0..2).for_each(|_| {
-                        let chain_root = mmr.get_root().unwrap().hash();
-                        let block = gen_secp_block(&mut blocks, &parent, &shared3, chain_root);
+                        let block = gen_secp_block(&mut blocks, &parent, &shared3);
                         chain3
                             .process_block(Arc::new(block.clone()), false)
                             .expect("process block OK");
                         parent = block;
-                        mmr.push(parent.header().into()).unwrap();
                     });
                     blocks
                         .clone()
@@ -130,14 +118,11 @@ fn bench(c: &mut Criterion) {
                     let (ref chain1, ref shared1) = chains.0[0];
                     let (ref chain2, ref shared2) = chains.0[1];
                     let (ref chain3, ref shared3) = chains.0[2];
-                    let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
                     let mut blocks =
                         vec![shared1.store().get_block(&shared1.genesis_hash()).unwrap()];
                     let mut parent = blocks[0].clone();
-                    mmr.push(parent.header().into()).unwrap();
                     (0..5).for_each(|i| {
-                        let chain_root = mmr.get_root().unwrap().hash();
-                        let block = gen_secp_block(&mut blocks, &parent, &shared2, chain_root);
+                        let block = gen_secp_block(&mut blocks, &parent, &shared2);
                         let arc_block = Arc::new(block.clone());
                         chain2
                             .process_block(Arc::clone(&arc_block), false)
@@ -148,24 +133,14 @@ fn bench(c: &mut Criterion) {
                                 .expect("process block OK");
                         }
                         parent = block;
-                        mmr.push(parent.header().into()).unwrap();
                     });
                     let mut parent = blocks[2].clone();
-                    let mut mmr = {
-                        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-                        for block in &blocks[0..=2] {
-                            mmr.push(block.header().into()).unwrap();
-                        }
-                        mmr
-                    };
                     (0..4).for_each(|_| {
-                        let chain_root = mmr.get_root().unwrap().hash();
-                        let block = gen_secp_block(&mut blocks, &parent, &shared3, chain_root);
+                        let block = gen_secp_block(&mut blocks, &parent, &shared3);
                         chain3
                             .process_block(Arc::new(block.clone()), false)
                             .expect("process block OK");
                         parent = block;
-                        mmr.push(parent.header().into()).unwrap();
                     });
                     blocks
                         .clone()

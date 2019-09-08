@@ -501,7 +501,7 @@ mod tests {
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_dao::DaoCalculator;
-    use ckb_merkle_mountain_range::util::MemMMR;
+    use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
         TargetSession,
@@ -520,8 +520,7 @@ mod tests {
             HeaderBuilder, HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
         },
         packed::{
-            Byte32, CellInput, CellOutputBuilder, HeaderDigest, Script, SendBlockBuilder,
-            SendHeadersBuilder,
+            Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
         },
         utilities::MergeHeaderDigest,
         U256,
@@ -580,11 +579,17 @@ mod tests {
         parent_header: &CoreHeaderView,
         epoch: &EpochExt,
         nonce: u64,
-        chain_root: Byte32,
     ) -> BlockView {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(shared, parent_header, number);
+        let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+            leaf_index_to_mmr_size(parent_header.number()),
+            shared.snapshot().as_ref(),
+        )
+        .get_root()
+        .unwrap()
+        .hash();
         let dao = {
             let snapshot: &Snapshot = &shared.snapshot();
             let resolved_cellbase =
@@ -612,8 +617,7 @@ mod tests {
         shared: &Shared,
         nonce: u64,
         number: BlockNumber,
-        chain_root: Byte32,
-    ) -> BlockView {
+    ) {
         let parent = shared
             .store()
             .get_block_header(&shared.store().get_block_hash(number - 1).unwrap())
@@ -623,21 +627,16 @@ mod tests {
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
 
-        let block = gen_block(shared, &parent, &epoch, nonce, chain_root);
+        let block = gen_block(shared, &parent, &epoch, nonce);
 
         chain_controller
-            .process_block(Arc::new(block.clone()), true)
+            .process_block(Arc::new(block), true)
             .expect("process block ok");
-        block
     }
 
     #[test]
     fn test_locator() {
         let (chain_controller, shared, _notify) = start_chain(None, None);
-        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-
-        mmr.push(shared.consensus().genesis_block().header().into())
-            .unwrap();
 
         let num = 200;
         let index = [
@@ -645,9 +644,7 @@ mod tests {
         ];
 
         for i in 1..num {
-            let chain_root = mmr.get_root().expect("get root").hash();
-            let block = insert_block(&chain_controller, &shared, i, i, chain_root);
-            mmr.push(block.header().into()).unwrap();
+            insert_block(&chain_controller, &shared, i, i);
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -674,24 +671,12 @@ mod tests {
         let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
         let num = 200;
 
-        let mut mmr1 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr1.push(shared1.consensus().genesis_block().header().into())
-            .unwrap();
-
-        let mut mmr2 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr2.push(shared2.consensus().genesis_block().header().into())
-            .unwrap();
-
         for i in 1..num {
-            let chain_root = mmr1.get_root().expect("get root").hash();
-            let block = insert_block(&chain_controller1, &shared1, i, i, chain_root);
-            mmr1.push(block.header().into()).unwrap();
+            insert_block(&chain_controller1, &shared1, i, i);
         }
 
         for i in 1..num {
-            let chain_root = mmr2.get_root().expect("get root").hash();
-            let block = insert_block(&chain_controller2, &shared2, i + 1, i, chain_root);
-            mmr2.push(block.header().into()).unwrap();
+            insert_block(&chain_controller2, &shared2, i + 1, i);
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -710,15 +695,9 @@ mod tests {
 
         let (chain_controller3, shared3, _notify3) = start_chain(Some(consensus), None);
 
-        let mut mmr3 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr3.push(shared3.consensus().genesis_block().header().into())
-            .unwrap();
-
         for i in 1..num {
             let j = if i > 192 { i + 1 } else { i };
-            let chain_root = mmr3.get_root().expect("get root").hash();
-            let block = insert_block(&chain_controller3, &shared3, j, i, chain_root);
-            mmr3.push(block.header().into()).unwrap();
+            insert_block(&chain_controller3, &shared3, j, i);
         }
 
         let synchronizer3 = gen_synchronizer(chain_controller3.clone(), shared3.clone());
@@ -739,28 +718,20 @@ mod tests {
         let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = consensus.genesis_block().header().to_owned();
 
-        let mut mmr1 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr1.push(parent.clone().into()).unwrap();
-        let mut mmr2 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr2.push(parent.clone().into()).unwrap();
-
         for i in 1..block_number {
             let parent_epoch = shared1.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let chain_root = mmr1.get_root().unwrap().hash();
-            let new_block = gen_block(&shared1, &parent, &epoch, i, chain_root);
+            let new_block = gen_block(&shared1, &parent, &epoch, i);
             blocks.push(new_block.clone());
 
             chain_controller1
                 .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
-            mmr1.push(new_block.header().into()).unwrap();
             chain_controller2
                 .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
-            mmr2.push(new_block.header().into()).unwrap();
             parent = new_block.header().to_owned();
         }
 
@@ -771,13 +742,11 @@ mod tests {
             let epoch = shared2
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let chain_root = mmr2.get_root().unwrap().hash();
-            let new_block = gen_block(&shared2, &parent, &epoch, i + 100, chain_root);
+            let new_block = gen_block(&shared2, &parent, &epoch, i + 100);
 
             chain_controller2
                 .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
-            mmr2.push(new_block.header().into()).unwrap();
             parent = new_block.header().to_owned();
         }
 
@@ -812,14 +781,8 @@ mod tests {
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
         let num = 200;
 
-        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr.push(shared.consensus().genesis_block().header().into())
-            .unwrap();
-
         for i in 1..num {
-            let chain_root = mmr.get_root().unwrap().hash();
-            let block = insert_block(&chain_controller, &shared, i, i, chain_root);
-            mmr.push(block.header().into()).unwrap();
+            insert_block(&chain_controller, &shared, i, i);
         }
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
@@ -854,30 +817,21 @@ mod tests {
         let block_number = 2000;
         let peer: PeerIndex = 0.into();
 
-        let mut mmr1 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr1.push(shared1.consensus().genesis_block().header().into())
-            .unwrap();
-        let mut mmr2 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr2.push(shared2.consensus().genesis_block().header().into())
-            .unwrap();
-
         let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = shared1
             .store()
             .get_block_header(&shared1.store().get_block_hash(0).unwrap())
             .unwrap();
         for i in 1..block_number {
-            let chain_root = mmr1.get_root().unwrap().hash();
             let parent_epoch = shared1.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&shared1, &parent, &epoch, i + 100, chain_root);
+            let new_block = gen_block(&shared1, &parent, &epoch, i + 100);
 
             chain_controller1
                 .process_block(Arc::new(new_block.clone()), false)
                 .expect("process block ok");
-            mmr1.push(new_block.header().into()).unwrap();
             parent = new_block.header().to_owned();
             blocks.push(new_block);
         }
@@ -898,23 +852,18 @@ mod tests {
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
         let block_number = 200;
 
-        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-
         let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = shared
             .store()
             .get_block_header(&shared.store().get_block_hash(0).unwrap())
             .unwrap();
-        mmr.push(parent.clone().into()).unwrap();
         for i in 1..=block_number {
-            let chain_root = mmr.get_root().unwrap().hash();
             let parent_epoch = shared.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared
                 .next_epoch_ext(&parent_epoch, &parent)
                 .unwrap_or(parent_epoch);
-            let new_block = gen_block(&shared, &parent, &epoch, i + 100, chain_root);
+            let new_block = gen_block(&shared, &parent, &epoch, i + 100);
             blocks.push(new_block.clone());
-            mmr.push(new_block.header().into()).unwrap();
 
             chain_controller
                 .process_block(Arc::new(new_block.clone()), false)
@@ -1066,17 +1015,8 @@ mod tests {
             start_chain(Some(consensus.clone()), Some(notify.clone()));
         let num = 200;
 
-        let mut mmr1 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr1.push(shared1.consensus().genesis_block().header().into())
-            .unwrap();
-        let mut mmr2 = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
-        mmr2.push(shared2.consensus().genesis_block().header().into())
-            .unwrap();
-
         for i in 1..num {
-            let chain_root = mmr1.get_root().unwrap().hash();
-            let block = insert_block(&chain_controller1, &shared1, i, i, chain_root);
-            mmr1.push(block.header().into()).unwrap();
+            insert_block(&chain_controller1, &shared1, i, i);
         }
 
         let synchronizer1 = gen_synchronizer(chain_controller1.clone(), shared1.clone());
@@ -1087,9 +1027,7 @@ mod tests {
 
         for i in 1..=num {
             let j = if i > 192 { i + 1 } else { i };
-            let chain_root = mmr2.get_root().unwrap().hash();
-            let block = insert_block(&chain_controller2, &shared2, j, i, chain_root);
-            mmr2.push(block.header().into()).unwrap();
+            insert_block(&chain_controller2, &shared2, j, i);
         }
 
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());

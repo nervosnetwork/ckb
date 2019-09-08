@@ -3,7 +3,6 @@ use ckb_db::{
     iter::{DBIterator, DBIteratorItem, Direction},
     Col, DBPinnableSlice, RocksDBSnapshot,
 };
-use ckb_logger::error;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{packed, prelude::*};
 

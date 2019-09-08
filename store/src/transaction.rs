@@ -10,7 +10,6 @@ use ckb_db::{
     Col, DBVector, Direction, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use ckb_error::Error;
-use ckb_logger::error;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
     core::{BlockExt, BlockView, EpochExt, HeaderView},

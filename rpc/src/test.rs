@@ -8,7 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
-use ckb_merkle_mountain_range::{util::MemStore, MMR};
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -27,10 +27,7 @@ use ckb_types::{
         TransactionBuilder, TransactionView,
     },
     h256,
-    packed::{
-        AlertBuilder, Byte32, CellDep, CellInput, CellOutputBuilder, HeaderDigest, OutPoint,
-        RawAlertBuilder,
-    },
+    packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
     utilities::MergeHeaderDigest,
     H256, U256,
@@ -104,7 +101,7 @@ fn always_success_transaction() -> TransactionView {
 }
 
 // Construct the next block based the given `parent`
-fn next_block(shared: &Shared, parent: &HeaderView, chain_root: Byte32) -> BlockView {
+fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let epoch = {
         let last_epoch = shared
             .get_block_epoch(&parent.hash())
@@ -122,6 +119,14 @@ fn next_block(shared: &Shared, parent: &HeaderView, chain_root: Byte32) -> Block
             *unspent.borrow_mut() = cellbase.hash().unpack();
         });
     }
+
+    let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+        leaf_index_to_mmr_size(parent.number()),
+        shared.snapshot().as_ref(),
+    )
+    .get_root()
+    .unwrap()
+    .hash();
 
     let dao = {
         let snapshot: &Snapshot = &shared.snapshot();
@@ -153,21 +158,16 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         let notify = NotifyService::default().start::<&str>(None);
         ChainService::new(shared.clone(), table, notify).start::<&str>(None)
     };
-    let mmr_store = MemStore::<HeaderDigest>::default();
-    let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(0, &mmr_store);
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
-    mmr.push(parent.header().into()).expect("push block to mmr");
 
     for _ in 0..height {
-        let chain_root = mmr.get_root().expect("get root").hash();
-        let block = next_block(&shared, &parent.header(), chain_root);
+        let block = next_block(&shared, &parent.header());
         chain_controller
             .process_block(Arc::new(block.clone()), true)
             .expect("processing new block should be ok");
         parent = block;
-        mmr.push(parent.header().into()).expect("push block to mmr");
     }
 
     // Start network services

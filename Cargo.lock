@@ -978,7 +978,6 @@ dependencies = [
  "ckb-chain-spec 0.21.0-pre",
  "ckb-db 0.21.0-pre",
  "ckb-error 0.21.0-pre",
- "ckb-logger 0.21.0-pre",
  "ckb-merkle-mountain-range 0.21.0-pre",
  "ckb-script-data-loader 0.21.0-pre",
  "ckb-types 0.21.0-pre",
