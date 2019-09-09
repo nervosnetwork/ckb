@@ -3,6 +3,7 @@ use ckb_jsonrpc_types::{
     BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint, CellWithStatus, EpochNumber,
     EpochView, HeaderView, OutPoint, TransactionWithStatus,
 };
+use ckb_logger::error;
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
 use ckb_traits::ChainProvider;
@@ -97,16 +98,20 @@ impl ChainRpc for ChainRpcImpl {
         let id = packed::ProposalShortId::from_tx_hash(&hash);
 
         let tx = {
-            let tx_pool = self.shared.try_lock_tx_pool();
-            tx_pool
-                .proposed()
-                .get(&id)
-                .map(|entry| TransactionWithStatus::with_proposed(entry.transaction.to_owned()))
-                .or_else(|| {
-                    tx_pool
-                        .get_tx_without_conflict(&id)
-                        .map(TransactionWithStatus::with_pending)
-                })
+            let tx_pool = self.shared.tx_pool_controller();
+            let fetch_tx_for_rpc = tx_pool.fetch_tx_for_rpc(id);
+            if let Err(e) = fetch_tx_for_rpc {
+                error!("send fetch_tx_for_rpc request error {}", e);
+                return Err(Error::internal_error());
+            };
+
+            fetch_tx_for_rpc.unwrap().map(|(proposed, tx)| {
+                if proposed {
+                    TransactionWithStatus::with_proposed(tx)
+                } else {
+                    TransactionWithStatus::with_pending(tx)
+                }
+            })
         };
 
         Ok(tx.or_else(|| {

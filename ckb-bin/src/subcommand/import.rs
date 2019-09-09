@@ -1,7 +1,6 @@
 use ckb_app_config::{ExitCode, ImportArgs};
 use ckb_chain::chain::ChainService;
 use ckb_instrument::Import;
-use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
 
 pub fn import(args: ImportArgs) -> Result<(), ExitCode> {
@@ -13,8 +12,7 @@ pub fn import(args: ImportArgs) -> Result<(), ExitCode> {
             ExitCode::Failure
         })?;
 
-    let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), table, notify);
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(Some("ImportChainService"));
 
     Import::new(chain_controller, args.format, args.source)

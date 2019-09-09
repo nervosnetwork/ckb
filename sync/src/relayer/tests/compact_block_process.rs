@@ -7,6 +7,7 @@ use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
+use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -611,9 +612,10 @@ fn test_collision() {
     assert_ne!(missing_tx.hash(), fake_tx.hash());
 
     let parent = {
-        let mut tx_pool = relayer.shared.shared().try_lock_tx_pool();
+        let tx_pool = relayer.shared.shared().tx_pool_controller();
+        let entry = TxEntry::new(missing_tx.clone(), 0, Capacity::shannons(0), 0, vec![]);
         tx_pool
-            .add_tx_to_pool(missing_tx.clone(), 100u16.into())
+            .plug_entry(vec![entry], PlugTarget::Pending)
             .unwrap();
         relayer.shared.snapshot().tip_header().clone()
     };

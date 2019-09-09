@@ -17,7 +17,6 @@ ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-chain-spec = { path = "../spec" }
 ckb-db = { path = "../db" }
-ckb-notify = { path = "../notify" }
 rand = "0.6"
 tempfile = "3.0"
 ckb-traits = { path = "../traits" }
@@ -33,8 +32,8 @@ ckb-crypto = { path = "../util/crypto" }
 faketime = "0.2.0"
 ckb-miner = { path = "../miner" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-verification = { path = "../verification" }
+ckb-tx-pool = { path = "../tx-pool" }
 
 [[bench]]
 name = "bench_main"

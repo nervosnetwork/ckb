@@ -2,7 +2,7 @@ use crate::block_status::BlockStatus;
 use crate::relayer::compact_block_verifier::CompactBlockVerifier;
 use crate::relayer::error::{Error, Ignored, Internal, Misbehavior};
 use crate::relayer::{ReconstructionError, Relayer};
-use ckb_logger::debug_target;
+use ckb_logger::{self, debug_target};
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
@@ -185,12 +185,18 @@ impl<'a> CompactBlockProcess<'a> {
 
             // Request proposal
             let proposals: Vec<_> = compact_block.proposals().into_iter().collect();
-            self.relayer.request_proposal_txs(
+            if let Err(err) = self.relayer.request_proposal_txs(
                 self.nc.as_ref(),
                 self.peer,
                 block_hash.clone(),
                 proposals,
-            );
+            ) {
+                debug_target!(
+                    crate::LOG_TARGET_RELAY,
+                    "[CompactBlockProcess] request_proposal_txs: {}",
+                    err
+                );
+            }
 
             // Reconstruct block
             let ret = self
@@ -225,6 +231,10 @@ impl<'a> CompactBlockProcess<'a> {
                         .collect();
                     collision = true;
                     missing_uncles = vec![];
+                }
+                Err(ReconstructionError::Internal(e)) => {
+                    ckb_logger::error!("reconstruct_block internal error: {}", e);
+                    return Err(Error::Internal(Internal::TxPoolInternalError).into());
                 }
             }
 

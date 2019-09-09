@@ -3,7 +3,6 @@ use ckb_chain::chain::{ChainController, ChainService};
 
 use ckb_dao::DaoCalculator;
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
@@ -26,8 +25,7 @@ pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController) {
         .build()
         .unwrap();
     let chain_controller = {
-        let notify_controller = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify_controller);
+        let chain_service = ChainService::new(shared.clone(), table);
         chain_service.start::<&str>(None)
     };
     generate_blocks(&shared, &chain_controller, tip);

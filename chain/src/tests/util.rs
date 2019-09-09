@@ -3,7 +3,6 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, util::MemStore};
-use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -59,8 +58,7 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
     });
     let (shared, table) = builder.consensus(consensus).build().unwrap();
 
-    let notify = NotifyService::default().start::<&str>(None);
-    let chain_service = ChainService::new(shared.clone(), table, notify);
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
     let parent = shared
         .store()

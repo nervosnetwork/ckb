@@ -1,8 +1,7 @@
 use crate::relayer::block_proposal_process::{BlockProposalProcess, Status};
-use crate::relayer::tests::helper::{build_chain, new_transaction, MockProtocalContext};
+use crate::relayer::tests::helper::{build_chain, new_transaction};
 use ckb_types::packed::{self, ProposalShortId};
 use ckb_types::prelude::*;
-use std::sync::Arc;
 
 #[test]
 fn test_no_unknown() {
@@ -22,14 +21,7 @@ fn test_no_unknown() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let mock_protocal_context = MockProtocalContext::default();
-    let nc = Arc::new(mock_protocal_context);
-
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoUnknown));
 }
@@ -46,14 +38,7 @@ fn test_no_asked() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let mock_protocal_context = MockProtocalContext::default();
-    let nc = Arc::new(mock_protocal_context);
-
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoAsked));
 
@@ -81,14 +66,7 @@ fn test_ok() {
         .transactions(transactions.into_iter().map(|tx| tx.data()).pack())
         .build();
 
-    let mock_protocal_context = MockProtocalContext::default();
-    let nc = Arc::new(mock_protocal_context);
-
-    let process = BlockProposalProcess::new(
-        content.as_reader(),
-        &relayer,
-        Arc::<MockProtocalContext>::clone(&nc),
-    );
+    let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::Ok));
 

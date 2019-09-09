@@ -616,7 +616,6 @@ mod tests {
     use super::*;
     use ckb_chain::chain::{ChainController, ChainService};
     use ckb_chain_spec::consensus::Consensus;
-    use ckb_notify::NotifyService;
     use ckb_resource::CODE_HASH_DAO;
     use ckb_shared::shared::{Shared, SharedBuilder};
     use ckb_traits::chain_provider::ChainProvider;
@@ -638,8 +637,7 @@ mod tests {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let mut config = IndexerConfig::default();
         config.db.path = tmp_dir.as_ref().to_path_buf();
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let chain_service = ChainService::new(shared.clone(), table);
         let chain_controller = chain_service.start::<&str>(None);
         (
             DefaultIndexerStore::new(&config, shared.clone()),

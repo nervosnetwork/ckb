@@ -2,7 +2,6 @@ use crate::cell::{attach_block_cell, detach_block_cell};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::{SignalSender, StopHandler};
@@ -152,19 +151,13 @@ impl GlobalIndex {
 pub struct ChainService {
     shared: Shared,
     proposal_table: ProposalTable,
-    notify: NotifyController,
 }
 
 impl ChainService {
-    pub fn new(
-        shared: Shared,
-        proposal_table: ProposalTable,
-        notify: NotifyController,
-    ) -> ChainService {
+    pub fn new(shared: Shared, proposal_table: ProposalTable) -> ChainService {
         ChainService {
             shared,
             proposal_table,
-            notify,
         }
     }
 
@@ -362,9 +355,6 @@ impl ChainService {
                 .finalize(origin_proposals, tip_header.number());
             fork.detached_proposal_id = detached_proposal_id;
 
-            let mut tx_pool = self.shared.try_lock_tx_pool();
-            let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
-
             let new_snapshot = self.shared.new_snapshot(
                 tip_header,
                 total_difficulty,
@@ -375,16 +365,22 @@ impl ChainService {
 
             self.shared.store_snapshot(Arc::clone(&new_snapshot));
 
-            tx_pool.update_tx_pool_for_reorg(
-                fork.detached_blocks().iter(),
-                fork.attached_blocks().iter(),
-                fork.detached_proposal_id().iter(),
-                &mut txs_verify_cache,
+            if let Err(e) = self.shared.tx_pool_controller().update_tx_pool_for_reorg(
+                fork.detached_blocks().clone(),
+                fork.attached_blocks().clone(),
+                fork.detached_proposal_id().clone(),
                 new_snapshot,
-            );
+            ) {
+                error!("notify update_tx_pool_for_reorg error {}", e);
+            }
             for detached_block in fork.detached_blocks() {
-                self.notify
-                    .notify_new_uncle(Arc::new(detached_block.data().as_uncle()));
+                if let Err(e) = self
+                    .shared
+                    .tx_pool_controller()
+                    .notify_new_uncle(detached_block.as_uncle())
+                {
+                    error!("notify new_uncle error {}", e);
+                }
             }
             if log_enabled!(ckb_logger::Level::Debug) {
                 self.print_chain(10);
@@ -398,8 +394,13 @@ impl ChainService {
                 block.transactions().len()
             );
             let block_ref: &BlockView = &block;
-            self.notify
-                .notify_new_uncle(Arc::new(block_ref.data().as_uncle()));
+            if let Err(e) = self
+                .shared
+                .tx_pool_controller()
+                .notify_new_uncle(block_ref.as_uncle())
+            {
+                error!("notify new_uncle error {}", e);
+            }
         }
 
         Ok(true)
@@ -555,7 +556,7 @@ impl ChainService {
         need_verify: bool,
         cell_set: &mut HamtMap<Byte32, TransactionMeta>,
     ) -> Result<(), Error> {
-        let mut txs_verify_cache = self.shared.lock_txs_verify_cache();
+        let txs_verify_cache = self.shared.txs_verify_cache();
 
         let verified_len = fork.verified_len();
         for b in fork.attached_blocks().iter().take(verified_len) {
@@ -606,7 +607,7 @@ impl ChainService {
                             match contextual_block_verifier.verify(
                                 &resolved,
                                 b,
-                                &mut txs_verify_cache,
+                                txs_verify_cache.clone(),
                             ) {
                                 Ok((cycles, txs_fees)) => {
                                     txn.attach_block(b)?;

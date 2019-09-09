@@ -73,7 +73,7 @@ impl OrphanBlockPool {
 #[cfg(test)]
 mod tests {
     use super::OrphanBlockPool;
-    use ckb_chain_spec::consensus::Consensus;
+    use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_types::core::{BlockBuilder, BlockView, HeaderView};
     use ckb_types::prelude::*;
     use faketime::unix_time_as_millis;
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_remove_blocks_by_parent() {
-        let consensus = Consensus::default();
+        let consensus = ConsensusBuilder::default().build();
         let block_number = 200;
         let mut blocks = Vec::new();
         let mut parent = consensus.genesis_block().header();

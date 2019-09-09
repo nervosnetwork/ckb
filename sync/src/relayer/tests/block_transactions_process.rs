@@ -3,6 +3,7 @@ use crate::relayer::error::{Error, Misbehavior};
 use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
+use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -275,9 +276,10 @@ fn test_collision_and_send_missing_indexes() {
     let compact_block = CompactBlock::build_from_block(&block, &prefilled);
 
     {
-        let mut tx_pool = relayer.shared.shared().try_lock_tx_pool();
+        let tx_pool = relayer.shared.shared().tx_pool_controller();
+        let entry = TxEntry::new(tx3.clone(), 0, Capacity::shannons(0), 0, vec![]);
         tx_pool
-            .add_tx_to_pool(tx3.clone(), 10000u16.into())
+            .plug_entry(vec![entry], PlugTarget::Pending)
             .unwrap();
     }
 

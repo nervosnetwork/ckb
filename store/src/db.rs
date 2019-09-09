@@ -147,7 +147,7 @@ impl ChainDB {
 mod tests {
     use super::super::COLUMNS;
     use super::*;
-    use ckb_chain_spec::consensus::Consensus;
+    use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_db::RocksDB;
 
     fn setup_db(columns: u32) -> RocksDB {
@@ -158,7 +158,7 @@ mod tests {
     fn save_and_get_block() {
         let db = setup_db(COLUMNS);
         let store = ChainDB::new(db, Default::default());
-        let consensus = Consensus::default();
+        let consensus = ConsensusBuilder::default().build();
         let block = consensus.genesis_block();
 
         let hash = block.hash();
@@ -193,7 +193,7 @@ mod tests {
     fn save_and_get_block_ext() {
         let db = setup_db(COLUMNS);
         let store = ChainDB::new(db, Default::default());
-        let consensus = Consensus::default();
+        let consensus = ConsensusBuilder::default().build();
         let block = consensus.genesis_block();
 
         let ext = BlockExt {
@@ -215,7 +215,7 @@ mod tests {
     fn index_store() {
         let db = RocksDB::open_tmp(COLUMNS);
         let store = ChainDB::new(db, Default::default());
-        let consensus = Consensus::default();
+        let consensus = ConsensusBuilder::default().build();
         let block = consensus.genesis_block();
         let hash = block.hash();
         store.init(&consensus).unwrap();

@@ -6,6 +6,7 @@ use ckb_types::{
     prelude::*,
 };
 use failure::Error as FailureError;
+use std::collections::HashMap;
 
 pub struct TransactionHashesProcess<'a> {
     message: packed::RelayTransactionHashesReader<'a>,
@@ -27,7 +28,7 @@ impl<'a> TransactionHashesProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        let mut transit_hashes: Vec<Byte32> = {
+        let hashes: Vec<Byte32> = {
             let tx_filter = self.relayer.shared().tx_filter();
             self.message
                 .tx_hashes()
@@ -37,13 +38,27 @@ impl<'a> TransactionHashesProcess<'a> {
                 .collect()
         };
 
-        {
-            let tx_pool = self.relayer.shared.shared().try_lock_tx_pool();
-
-            transit_hashes.retain(|tx_hash| {
-                !tx_pool.contains_tx(&packed::ProposalShortId::from_tx_hash(&tx_hash))
-            })
-        }
+        let transit_hashes: Vec<Byte32> = {
+            let tx_pool = self.relayer.shared.shared().tx_pool_controller();
+            let mut proposals: HashMap<packed::ProposalShortId, Byte32> = hashes
+                .into_iter()
+                .map(|tx_hash| (packed::ProposalShortId::from_tx_hash(&tx_hash), tx_hash))
+                .collect();
+            let fresh_ids = tx_pool
+                .fresh_proposals_filter(proposals.keys().cloned().collect())
+                .map_err(|e| {
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "[TransactionHashesProcess] request fresh_proposals_filter error {:?}",
+                        e
+                    );
+                    e
+                })?;
+            fresh_ids
+                .into_iter()
+                .filter_map(|id| proposals.remove(&id))
+                .collect()
+        };
 
         if transit_hashes.is_empty() {
             return Ok(());

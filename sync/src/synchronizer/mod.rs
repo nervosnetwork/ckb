@@ -506,7 +506,6 @@ mod tests {
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
         TargetSession,
     };
-    use ckb_notify::{NotifyController, NotifyService};
     use ckb_shared::{
         shared::{Shared, SharedBuilder},
         Snapshot,
@@ -533,10 +532,7 @@ mod tests {
     use std::ops::Deref;
     use std::time::Duration;
 
-    fn start_chain(
-        consensus: Option<Consensus>,
-        notify: Option<NotifyController>,
-    ) -> (ChainController, Shared, NotifyController) {
+    fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared) {
         let mut builder = SharedBuilder::default();
 
         let consensus = consensus.unwrap_or_else(Default::default);
@@ -544,11 +540,10 @@ mod tests {
 
         let (shared, table) = builder.build().unwrap();
 
-        let notify = notify.unwrap_or_else(|| NotifyService::default().start::<&str>(None));
-        let chain_service = ChainService::new(shared.clone(), table, notify.clone());
+        let chain_service = ChainService::new(shared.clone(), table);
         let chain_controller = chain_service.start::<&str>(None);
 
-        (chain_controller, shared, notify)
+        (chain_controller, shared)
     }
 
     fn create_cellbase(
@@ -637,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_locator() {
-        let (chain_controller, shared, _notify) = start_chain(None, None);
+        let (chain_controller, shared) = start_chain(None);
 
         let num = 200;
         let index = [
@@ -668,8 +663,8 @@ mod tests {
     #[test]
     fn test_locate_latest_common_block() {
         let consensus = Consensus::default();
-        let (chain_controller1, shared1, _notify1) = start_chain(Some(consensus.clone()), None);
-        let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
+        let (chain_controller1, shared1) = start_chain(Some(consensus.clone()));
+        let (chain_controller2, shared2) = start_chain(Some(consensus.clone()));
         let num = 200;
 
         for i in 1..num {
@@ -694,7 +689,7 @@ mod tests {
 
         assert_eq!(latest_common, Some(0));
 
-        let (chain_controller3, shared3, _notify3) = start_chain(Some(consensus), None);
+        let (chain_controller3, shared3) = start_chain(Some(consensus));
 
         for i in 1..num {
             let j = if i > 192 { i + 1 } else { i };
@@ -712,8 +707,8 @@ mod tests {
     #[test]
     fn test_locate_latest_common_block2() {
         let consensus = Consensus::default();
-        let (chain_controller1, shared1, _notify1) = start_chain(Some(consensus.clone()), None);
-        let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
+        let (chain_controller1, shared1) = start_chain(Some(consensus.clone()));
+        let (chain_controller2, shared2) = start_chain(Some(consensus.clone()));
         let block_number = 200;
 
         let mut blocks: Vec<BlockView> = Vec::new();
@@ -779,7 +774,7 @@ mod tests {
     #[test]
     fn test_get_ancestor() {
         let consensus = Consensus::default();
-        let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
+        let (chain_controller, shared) = start_chain(Some(consensus));
         let num = 200;
 
         for i in 1..num {
@@ -813,8 +808,8 @@ mod tests {
     #[test]
     fn test_process_new_block() {
         let consensus = Consensus::default();
-        let (chain_controller1, shared1, _notify1) = start_chain(Some(consensus.clone()), None);
-        let (chain_controller2, shared2, _notify2) = start_chain(Some(consensus.clone()), None);
+        let (chain_controller1, shared1) = start_chain(Some(consensus.clone()));
+        let (chain_controller2, shared2) = start_chain(Some(consensus.clone()));
         let block_number = 2000;
         let peer: PeerIndex = 0.into();
 
@@ -850,7 +845,7 @@ mod tests {
     #[test]
     fn test_get_locator_response() {
         let consensus = Consensus::default();
-        let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
+        let (chain_controller, shared) = start_chain(Some(consensus));
         let block_number = 200;
 
         let mut blocks: Vec<BlockView> = Vec::new();
@@ -1009,11 +1004,8 @@ mod tests {
     #[test]
     fn test_sync_process() {
         let consensus = Consensus::default();
-        let notify = NotifyService::default().start::<&str>(None);
-        let (chain_controller1, shared1, _) =
-            start_chain(Some(consensus.clone()), Some(notify.clone()));
-        let (chain_controller2, shared2, _) =
-            start_chain(Some(consensus.clone()), Some(notify.clone()));
+        let (chain_controller1, shared1) = start_chain(Some(consensus.clone()));
+        let (chain_controller2, shared2) = start_chain(Some(consensus.clone()));
         let num = 200;
 
         for i in 1..num {
@@ -1107,7 +1099,7 @@ mod tests {
         let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
         faketime::enable(&faketime_file);
 
-        let (chain_controller, shared, _notify) = start_chain(None, None);
+        let (chain_controller, shared) = start_chain(None);
 
         let synchronizer = gen_synchronizer(chain_controller.clone(), shared.clone());
 
@@ -1163,7 +1155,7 @@ mod tests {
             .build();
         let consensus = ConsensusBuilder::default().genesis_block(block).build();
 
-        let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
+        let (chain_controller, shared) = start_chain(Some(consensus));
 
         assert_eq!(shared.snapshot().total_difficulty(), &U256::from(2u64));
 

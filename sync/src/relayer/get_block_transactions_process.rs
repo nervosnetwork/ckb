@@ -36,17 +36,17 @@ impl<'a> GetBlockTransactionsProcess<'a> {
             block_hash
         );
 
-        let indexes = self
-            .message
-            .indexes()
-            .iter()
-            .map(|i| i.unpack())
-            .collect::<Vec<usize>>();
-
         if let Some(block) = self.relayer.shared.store().get_block(&block_hash) {
-            let transactions = indexes
+            let transactions = self
+                .message
+                .indexes()
                 .iter()
-                .filter_map(|i| block.transactions().get(*i as usize).cloned())
+                .filter_map(|i| {
+                    block
+                        .transactions()
+                        .get(Unpack::<u32>::unpack(&i) as usize)
+                        .cloned()
+                })
                 .collect::<Vec<_>>();
 
             let content = packed::BlockTransactions::new_builder()

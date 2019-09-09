@@ -1,6 +1,6 @@
-use crate::tx_pool::{
+use crate::component::{
+    entry::{TxEntry, TxModifiedEntries},
     proposed::ProposedPool,
-    types::{TxEntry, TxModifiedEntries},
 };
 use ckb_types::{core::Cycle, packed::ProposalShortId};
 use std::cmp::max;

@@ -1,7 +1,6 @@
 use ckb_chain::chain::ChainController;
 use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error};
-use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_sync::NetworkProtocol;
@@ -33,7 +32,6 @@ pub trait MinerRpc {
 pub(crate) struct MinerRpcImpl {
     pub network_controller: NetworkController,
     pub shared: Shared,
-    pub block_assembler: BlockAssemblerController,
     pub chain: ChainController,
 }
 
@@ -54,12 +52,19 @@ impl MinerRpc for MinerRpcImpl {
             None => None,
         };
 
-        self.block_assembler
-            .get_block_template(bytes_limit, proposals_limit, max_version.map(Into::into))
-            .map_err(|err| {
-                error!("get_block_template error {}", err);
-                Error::internal_error()
-            })
+        let tx_pool = self.shared.tx_pool_controller();
+
+        let get_block_template =
+            tx_pool.get_block_template(bytes_limit, proposals_limit, max_version.map(Into::into));
+        if let Err(e) = get_block_template {
+            error!("send get_block_template request error {}", e);
+            return Err(Error::internal_error());
+        };
+
+        get_block_template.unwrap().map_err(|err| {
+            error!("get_block_template result error {}", err);
+            Error::internal_error()
+        })
     }
 
     fn submit_block(&self, work_id: String, data: Block) -> Result<Option<H256>> {
