@@ -1,15 +1,17 @@
 use crate::snapshot::Snapshot;
 use crate::tx_pool::types::{DefectEntry, TxEntry};
-use crate::tx_pool::{PoolError, TxPool};
+use crate::tx_pool::TxPool;
 use ckb_dao::DaoCalculator;
+use ckb_error::{Error, ErrorKind, InternalErrorKind};
 use ckb_logger::{debug_target, error_target, trace_target};
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         cell::{
             get_related_dep_out_points, resolve_transaction, OverlayCellProvider,
-            ResolvedTransaction, UnresolvableError,
+            ResolvedTransaction,
         },
+        error::OutPointError,
         BlockView, Capacity, Cycle, TransactionView,
     },
     packed::{Byte32, OutPoint, ProposalShortId},
@@ -24,20 +26,16 @@ use std::sync::Arc;
 impl TxPool {
     // Add a verified tx into pool
     // this method will handle fork related verifications to make sure we are safe during a fork
-    pub fn add_tx_to_pool(
-        &mut self,
-        tx: TransactionView,
-        cycles: Cycle,
-    ) -> Result<Cycle, PoolError> {
+    pub fn add_tx_to_pool(&mut self, tx: TransactionView, cycles: Cycle) -> Result<Cycle, Error> {
         let tx_size = tx.serialized_size();
         if self.reach_size_limit(tx_size) {
-            return Err(PoolError::LimitReached);
+            Err(InternalErrorKind::TransactionPoolFull)?;
         }
         let short_id = tx.proposal_short_id();
         match self.resolve_tx_from_pending_and_proposed(&tx) {
             Ok(rtx) => self.verify_rtx(&rtx, Some(cycles)).and_then(|cycles| {
                 if self.reach_cycles_limit(cycles) {
-                    return Err(PoolError::LimitReached);
+                    Err(InternalErrorKind::TransactionPoolFull)?;
                 }
                 if self.contains_proposed(&short_id) {
                     if let Err(e) = self.proposed_tx_and_descendants(Some(cycles), tx_size, tx) {
@@ -59,7 +57,7 @@ impl TxPool {
                     return Ok(cycles);
                 }
             }),
-            Err(err) => Err(PoolError::UnresolvableTransaction(err)),
+            Err(err) => Err(err),
         }
     }
 
@@ -70,7 +68,7 @@ impl TxPool {
     pub fn resolve_tx_from_pending_and_proposed<'a>(
         &self,
         tx: &'a TransactionView,
-    ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+    ) -> Result<ResolvedTransaction<'a>, Error> {
         let snapshot = self.snapshot();
         let proposed_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let gap_and_proposed_provider = OverlayCellProvider::new(&self.gap, &proposed_provider);
@@ -88,7 +86,7 @@ impl TxPool {
     pub fn resolve_tx_from_proposed<'a>(
         &self,
         tx: &'a TransactionView,
-    ) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+    ) -> Result<ResolvedTransaction<'a>, Error> {
         let snapshot = self.snapshot();
         let cell_provider = OverlayCellProvider::new(&self.proposed, snapshot);
         let mut seen_inputs = HashSet::new();
@@ -99,7 +97,7 @@ impl TxPool {
         &self,
         rtx: &ResolvedTransaction,
         cycles: Option<Cycle>,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<Cycle, Error> {
         let snapshot = self.snapshot();
         let tip_header = snapshot.tip_header();
         let tip_number = tip_header.number();
@@ -116,8 +114,7 @@ impl TxPool {
                     tip_header.hash(),
                     consensus,
                 )
-                .verify()
-                .map_err(PoolError::InvalidTx)?;
+                .verify()?;
                 Ok(cycles)
             }
             None => {
@@ -132,8 +129,7 @@ impl TxPool {
                     &self.script_config,
                     snapshot,
                 )
-                .verify(max_cycles)
-                .map_err(PoolError::InvalidTx)?;
+                .verify(max_cycles)?;
                 Ok(cycles)
             }
         }
@@ -170,7 +166,7 @@ impl TxPool {
         }
     }
 
-    fn calculate_transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, PoolError> {
+    fn calculate_transaction_fee(&self, rtx: &ResolvedTransaction) -> Result<Capacity, Error> {
         let snapshot = self.snapshot();
         DaoCalculator::new(snapshot.consensus(), snapshot)
             .transaction_fee(&rtx)
@@ -181,7 +177,7 @@ impl TxPool {
                     rtx.transaction.hash(),
                     err
                 );
-                PoolError::TxFee
+                err
             })
     }
 
@@ -191,9 +187,9 @@ impl TxPool {
         cycles: Option<Cycle>,
         size: usize,
         tx: TransactionView,
-        tx_resolved_result: Result<(Cycle, Capacity, Vec<OutPoint>), PoolError>,
+        tx_resolved_result: Result<(Cycle, Capacity, Vec<OutPoint>), Error>,
         add_to_pool: F,
-    ) -> Result<Cycle, PoolError>
+    ) -> Result<Cycle, Error>
     where
         F: FnOnce(
             &mut TxPool,
@@ -202,7 +198,7 @@ impl TxPool {
             usize,
             Vec<OutPoint>,
             TransactionView,
-        ) -> Result<(), PoolError>,
+        ) -> Result<(), Error>,
     {
         let short_id = tx.proposal_short_id();
         let tx_hash = tx.hash();
@@ -212,58 +208,68 @@ impl TxPool {
                 add_to_pool(self, cycles, fee, size, related_dep_out_points, tx)?;
                 Ok(cycles)
             }
-            Err(PoolError::InvalidTx(e)) => {
-                self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
-                debug_target!(
-                    crate::LOG_TARGET_TX_POOL,
-                    "Failed to add tx to {} {}, verify failed, reason: {:?}",
-                    pool_name,
-                    tx_hash,
-                    e
-                );
-                Err(PoolError::InvalidTx(e))
-            }
-            Err(PoolError::UnresolvableTransaction(err)) => {
-                match &err {
-                    UnresolvableError::Dead(_) => {
-                        if self
-                            .conflict
-                            .insert(short_id, DefectEntry::new(tx, 0, cycles, size))
-                            .is_some()
+            Err(err) => {
+                match err.kind() {
+                    ErrorKind::Transaction => {
+                        self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                        debug_target!(
+                            crate::LOG_TARGET_TX_POOL,
+                            "Failed to add tx to {} {}, verify failed, reason: {:?}",
+                            pool_name,
+                            tx_hash,
+                            err,
+                        );
+                    }
+                    ErrorKind::OutPoint => {
+                        match err
+                            .downcast_ref::<OutPointError>()
+                            .expect("error kind checked")
                         {
-                            self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                            OutPointError::Dead(_) => {
+                                if self
+                                    .conflict
+                                    .insert(short_id, DefectEntry::new(tx, 0, cycles, size))
+                                    .is_some()
+                                {
+                                    self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                                }
+                            }
+
+                            OutPointError::Unknown(out_points) => {
+                                if self
+                                    .add_orphan(cycles, size, tx, out_points.to_owned())
+                                    .is_some()
+                                {
+                                    self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                                }
+                            }
+
+                            // The remaining errors represent invalid transactions that should
+                            // just be discarded.
+                            //
+                            // To avoid mis-discarding error types added in the future, please don't
+                            // use placeholder `_` as the match arm.
+                            //
+                            // OutOfOrder should only appear in BlockCellProvider
+                            OutPointError::ImmatureHeader(_)
+                            | OutPointError::InvalidHeader(_)
+                            | OutPointError::InvalidDepGroup(_)
+                            | OutPointError::OutOfOrder(_) => {
+                                self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
+                            }
                         }
                     }
-                    UnresolvableError::Unknown(out_points) => {
-                        if self
-                            .add_orphan(cycles, size, tx, out_points.to_owned())
-                            .is_some()
-                        {
-                            self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
-                        }
-                    }
-                    // The remaining errors are InvalidHeader/InvalidDepGroup.
-                    // They all represent invalid transactions
-                    // that should just be discarded.
-                    // OutOfOrder should only appear in BlockCellProvider
-                    UnresolvableError::InvalidDepGroup(_)
-                    | UnresolvableError::InvalidHeader(_)
-                    | UnresolvableError::ImmatureHeader(_)
-                    | UnresolvableError::OutOfOrder(_) => {
+                    _ => {
+                        debug_target!(
+                            crate::LOG_TARGET_TX_POOL,
+                            "Failed to add tx to {} {}, unknown reason: {:?}",
+                            pool_name,
+                            tx_hash,
+                            err
+                        );
                         self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                     }
                 }
-                Err(PoolError::UnresolvableTransaction(err))
-            }
-            Err(err) => {
-                debug_target!(
-                    crate::LOG_TARGET_TX_POOL,
-                    "Failed to add tx to {} {}, reason: {:?}",
-                    pool_name,
-                    tx_hash,
-                    err
-                );
-                self.update_statics_for_remove_tx(size, cycles.unwrap_or(0));
                 Err(err)
             }
         }
@@ -274,10 +280,9 @@ impl TxPool {
         cycles: Option<Cycle>,
         size: usize,
         tx: TransactionView,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<Cycle, Error> {
         let tx_result = self
             .resolve_tx_from_pending_and_proposed(&tx)
-            .map_err(PoolError::UnresolvableTransaction)
             .and_then(|rtx| {
                 self.verify_rtx(&rtx, cycles).and_then(|cycles| {
                     let fee = self.calculate_transaction_fee(&rtx);
@@ -293,10 +298,13 @@ impl TxPool {
             tx_result,
             |tx_pool, cycles, fee, size, related_dep_out_points, tx| {
                 let entry = TxEntry::new(tx, cycles, fee, size, related_dep_out_points);
+                let tx_hash = entry.transaction.hash();
                 if tx_pool.add_gap(entry) {
                     Ok(())
                 } else {
-                    Err(PoolError::Duplicate)
+                    Err(InternalErrorKind::PoolTransactionDuplicated
+                        .cause(tx_hash)
+                        .into())
                 }
             },
         )
@@ -307,17 +315,14 @@ impl TxPool {
         cycles: Option<Cycle>,
         size: usize,
         tx: TransactionView,
-    ) -> Result<Cycle, PoolError> {
-        let tx_result = self
-            .resolve_tx_from_proposed(&tx)
-            .map_err(PoolError::UnresolvableTransaction)
-            .and_then(|rtx| {
-                self.verify_rtx(&rtx, cycles).and_then(|cycles| {
-                    let fee = self.calculate_transaction_fee(&rtx);
-                    let related_dep_out_points = rtx.related_dep_out_points();
-                    fee.map(|fee| (cycles, fee, related_dep_out_points))
-                })
-            });
+    ) -> Result<Cycle, Error> {
+        let tx_result = self.resolve_tx_from_proposed(&tx).and_then(|rtx| {
+            self.verify_rtx(&rtx, cycles).and_then(|cycles| {
+                let fee = self.calculate_transaction_fee(&rtx);
+                let related_dep_out_points = rtx.related_dep_out_points();
+                fee.map(|fee| (cycles, fee, related_dep_out_points))
+            })
+        });
         self.handle_tx_by_resolved_result(
             "proposed",
             cycles,
@@ -336,10 +341,9 @@ impl TxPool {
         cycles: Option<Cycle>,
         size: usize,
         tx: TransactionView,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<Cycle, Error> {
         let tx_result = self
             .resolve_tx_from_pending_and_proposed(&tx)
-            .map_err(PoolError::UnresolvableTransaction)
             .and_then(|rtx| {
                 self.verify_rtx(&rtx, cycles).and_then(|cycles| {
                     let fee = self.calculate_transaction_fee(&rtx);
@@ -355,10 +359,13 @@ impl TxPool {
             tx_result,
             |tx_pool, cycles, fee, size, related_dep_out_points, tx| {
                 let entry = TxEntry::new(tx, cycles, fee, size, related_dep_out_points);
+                let tx_hash = entry.transaction.hash();
                 if tx_pool.enqueue_tx(entry) {
                     Ok(())
                 } else {
-                    Err(PoolError::Duplicate)
+                    Err(InternalErrorKind::PoolTransactionDuplicated
+                        .cause(tx_hash)
+                        .into())
                 }
             },
         )
@@ -369,7 +376,7 @@ impl TxPool {
         cycles: Option<Cycle>,
         size: usize,
         tx: TransactionView,
-    ) -> Result<Cycle, PoolError> {
+    ) -> Result<Cycle, Error> {
         self.proposed_tx(cycles, size, tx.clone()).map(|cycles| {
             self.try_proposed_orphan_by_ancestor(&tx);
             cycles

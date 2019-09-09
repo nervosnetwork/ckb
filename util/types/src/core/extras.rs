@@ -4,7 +4,7 @@ use crate::{
     prelude::*,
     U256,
 };
-use failure::Error as FailureError;
+use ckb_error::Error;
 
 #[derive(Clone, PartialEq, Default, Debug)]
 pub struct BlockExt {
@@ -159,7 +159,7 @@ impl EpochExt {
         0 == self.number
     }
 
-    pub fn block_reward(&self, number: BlockNumber) -> Result<Capacity, FailureError> {
+    pub fn block_reward(&self, number: BlockNumber) -> Result<Capacity, Error> {
         if number >= self.start_number()
             && number < self.start_number() + self.remainder_reward.as_u64()
         {

@@ -5,8 +5,9 @@ use crate::COLUMN_CELL_SET;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_db::{
     iter::{DBIterator, DBIteratorItem},
-    Col, DBPinnableSlice, Direction, Error, RocksDB,
+    Col, DBPinnableSlice, Direction, RocksDB,
 };
+use ckb_error::Error;
 use ckb_types::{
     core::{BlockExt, TransactionMeta},
     packed,

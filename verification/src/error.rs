@@ -1,91 +1,126 @@
-use ckb_occupied_capacity::Error as CapacityError;
-use ckb_script::ScriptError;
-use ckb_types::{core::BlockNumber, packed::Byte32, U256};
-use std::error::Error as StdError;
-use std::fmt;
+use ckb_error::Error;
+use ckb_types::packed::Byte32;
+use failure::{Backtrace, Context, Fail};
+use std::fmt::{self, Display};
 
-/// Block verification error
+#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+pub enum TransactionError {
+    /// output.occupied_capacity() > output.capacity()
+    InsufficientCellCapacity,
 
-/// Should we use ErrorKind pattern?
-/// Those error kind carry some data that provide additional information,
-/// ErrorKind pattern should only carry stateless data. And, our ErrorKind can not be `Eq`.
-/// If the Rust community has better patterns in the future, then look back here
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    /// PoW proof is corrupt or does not meet the difficulty target.
-    Pow(PowError),
-    /// The field timestamp in block header is invalid.
-    Timestamp(TimestampError),
-    /// The field number in block header is invalid.
-    Number(NumberError),
-    /// The field difficulty in block header is invalid.
-    Epoch(EpochError),
+    /// SUM([o.capacity for o in outputs]) > SUM([i.capacity for i in inputs])
+    OutputsSumOverflow,
+
+    /// inputs.is_empty() || outputs.is_empty()
+    Empty,
+
+    /// Duplicated dep-out-points within the same one transaction
+    DuplicateDeps,
+
+    /// outputs.len() != outputs_data.len()
+    OutputsDataLengthMismatch,
+
+    /// ANY([o.data_hash != d.data_hash() for (o, d) in ZIP(outputs, outputs_data)])
+    OutputDataHashMismatch,
+
+    /// The format of `transaction.since` is invalid
+    InvalidSince,
+
+    /// The transaction is not mature which is required by `transaction.since`
+    Immature,
+
+    /// The transaction is not mature which is required by cellbase maturity rule
+    CellbaseImmaturity,
+
+    /// The transaction version is mismatched with the system can hold
+    MismatchedVersion,
+
+    /// The transaction size is too large
+    ExceededMaximumBlockBytes,
+}
+
+#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+pub enum HeaderErrorKind {
+    InvalidParent,
+    Pow,
+    Timestamp,
+    Number,
+    Epoch,
+}
+
+#[derive(Debug)]
+pub struct HeaderError {
+    kind: Context<HeaderErrorKind>,
+}
+
+#[derive(Debug)]
+pub struct BlockError {
+    kind: Context<BlockErrorKind>,
+}
+
+#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
+pub enum BlockErrorKind {
+    ProposalTransactionDuplicate,
+
+    /// There are duplicate committed transactions.
+    CommitTransactionDuplicate,
+
+    /// The merkle tree hash of proposed transactions does not match the one in header.
+    ProposalTransactionsRoot,
+
+    /// The merkle tree hash of committed transactions does not match the one in header.
+    CommitTransactionsRoot,
+
+    /// The merkle tree witness hash of committed transactions does not match the one in header.
+    WitnessesMerkleRoot,
+
+    /// Invalid data in DAO header field is invalid
+    InvalidDAO,
+
     /// Committed transactions verification error. It contains error for the first transaction that
     /// fails the verification. The errors are stored as a tuple, where the first item is the
     /// transaction index in the block and the second item is the transaction verification error.
-    Transactions((usize, TransactionError)),
-    /// This is a wrapper of error encountered when invoking chain API.
-    Chain(String),
-    /// There are duplicate proposed transactions.
-    ProposalTransactionDuplicate,
-    /// There are duplicate committed transactions.
-    CommitTransactionDuplicate,
-    /// The merkle tree hash of proposed transactions does not match the one in header.
-    ProposalTransactionsRoot,
-    /// The merkle tree hash of committed transactions does not match the one in header.
-    CommitTransactionsRoot,
-    /// The merkle tree witness hash of committed transactions does not match the one in header.
-    WitnessesMerkleRoot,
-    /// The parent of the block is unknown.
-    UnknownParent(Byte32),
-    /// Uncles does not meet the consensus requirements.
-    Uncles(UnclesError),
-    /// Cellbase transaction is invalid.
-    Cellbase(CellbaseError),
+    BlockTransactions,
+
+    UnknownParent,
+
+    Uncles,
+
+    Cellbase,
+
     /// This error is returned when the committed transactions does not meet the 2-phases
     /// propose-then-commit consensus rule.
-    Commit(CommitError),
-    /// Cycles consumed by all scripts in all commit transactions of the block exceed
-    /// the maximum allowed cycles in consensus rules
-    ExceededMaximumCycles,
-    /// Number of proposals exceeded the limit.
+    Commit,
+
     ExceededMaximumProposalsLimit,
-    /// The size of the block exceeded the limit.
+
+    ExceededMaximumCycles,
+
     ExceededMaximumBlockBytes,
-    /// The field version in block header is not allowed.
+
     Version,
-    /// Overflow when do computation for capacity.
-    CapacityOverflow,
-    /// Error fetching block reward,
-    CannotFetchBlockReward,
-    /// Fee calculation error
-    FeeCalculation,
-    /// Error generating DAO field
-    DAOGeneration,
-    /// Invalid data in DAO header field
-    InvalidDAO,
 }
 
-impl StdError for Error {}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::UnknownParent(h) => write!(f, "UnknownParent({})", h),
-            _ => fmt::Debug::fmt(&self, f),
-        }
-    }
+#[derive(Fail, Debug)]
+#[fail(display = "BlockTransactionsError(index: {}, error: {})", index, error)]
+pub struct BlockTransactionsError {
+    pub index: u32,
+    pub error: Error,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
+#[fail(display = "UnknownParentError(parent_hash: {})", parent_hash)]
+pub struct UnknownParentError {
+    pub parent_hash: Byte32,
+}
+
+#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
 pub enum CommitError {
-    /// Ancestor not found, should not happen, we check header first and check ancestor.
     AncestorNotFound,
-    /// Break propose-then-commit consensus rule.
     Invalid,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Fail, Debug, PartialEq, Eq, Clone, Display)]
 pub enum CellbaseError {
     InvalidInput,
     InvalidRewardAmount,
@@ -97,119 +132,192 @@ pub enum CellbaseError {
     InvalidOutputData,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum UnclesError {
-    OverCount {
-        max: u32,
-        actual: u32,
-    },
-    MissMatchCount {
-        expected: u32,
-        actual: u32,
-    },
-    InvalidDepth {
-        max: BlockNumber,
-        min: BlockNumber,
-        actual: BlockNumber,
-    },
-    InvalidHash {
-        expected: Byte32,
-        actual: Byte32,
-    },
+    #[fail(display = "OverCount(max: {}, actual: {})", max, actual)]
+    OverCount { max: u32, actual: u32 },
+
+    #[fail(display = "MissMatchCount(expected: {}, actual: {})", expected, actual)]
+    MissMatchCount { expected: u32, actual: u32 },
+
+    #[fail(
+        display = "InvalidDepth(min: {}, max: {}, actual: {})",
+        min, max, actual
+    )]
+    InvalidDepth { max: u64, min: u64, actual: u64 },
+
+    #[fail(display = "InvalidHash(expected: {}, actual: {})", expected, actual)]
+    InvalidHash { expected: Byte32, actual: Byte32 },
+
+    #[fail(display = "InvalidNumber")]
     InvalidNumber,
-    InvalidDifficulty,
+
+    #[fail(display = "UnmatchedDifficulty")]
+    UnmatchedDifficulty,
+
+    #[fail(display = "InvalidDifficultyEpoch")]
     InvalidDifficultyEpoch,
-    InvalidNonce,
+
+    #[fail(display = "ProposalsHash")]
     ProposalsHash,
+
+    #[fail(display = "ProposalDuplicate")]
     ProposalDuplicate,
+
+    #[fail(display = "Duplicate({})", _0)]
     Duplicate(Byte32),
+
+    #[fail(display = "DoubleInclusion({})", _0)]
     DoubleInclusion(Byte32),
-    InvalidCellbase,
+
+    #[fail(display = "DescendantLimit")]
     DescendantLimit,
+
+    #[fail(display = "ExceededMaximumProposalsLimit")]
     ExceededMaximumProposalsLimit,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
+#[fail(display = "InvalidParentError(parent_hash: {})gg '", parent_hash)]
+pub struct InvalidParentError {
+    pub parent_hash: Byte32,
+}
+
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum PowError {
-    Boundary { expected: U256, actual: U256 },
+    #[fail(display = "Boundary(expected: {}, actual: {})", expected, actual)]
+    Boundary { expected: Byte32, actual: Byte32 },
+
+    #[fail(display = "InvalidNonce")]
     InvalidNonce,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum TimestampError {
-    BlockTimeTooOld { min: u64, found: u64 },
-    BlockTimeTooNew { max: u64, found: u64 },
+    #[fail(display = "BlockTimeTooOld(min: {}, actual: {})", min, actual)]
+    BlockTimeTooOld { min: u64, actual: u64 },
+
+    #[fail(display = "BlockTimeTooNew(max: {}, actual: {})", max, actual)]
+    BlockTimeTooNew { max: u64, actual: u64 },
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
+#[fail(display = "NumberError(expected: {}, actual: {})", expected, actual)]
 pub struct NumberError {
     pub expected: u64,
     pub actual: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Fail, Debug, PartialEq, Eq, Clone)]
 pub enum EpochError {
-    DifficultyMismatch { expected: U256, actual: U256 },
+    #[fail(
+        display = "DifficultyMismatch(expected: {}, actual: {})",
+        expected, actual
+    )]
+    DifficultyMismatch { expected: Byte32, actual: Byte32 },
+
+    #[fail(display = "NumberMismatch(expected: {}, actual: {})", expected, actual)]
     NumberMismatch { expected: u64, actual: u64 },
+
+    #[fail(display = "AncestorNotFound")]
     AncestorNotFound,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub enum TransactionError {
-    /// Occur output's bytes_len exceed capacity
-    CapacityOverflow,
-    /// In a single output cell, the capacity is not enough to hold the cell serialized size
-    InsufficientCellCapacity,
-    DuplicateDeps,
-    Empty,
-    /// Sum of all outputs capacity exceed sum of all inputs in the transaction
-    OutputsSumOverflow,
-    InvalidScript,
-    ScriptFailure(ScriptError),
-    InvalidSignature,
-    Version,
-    /// Tx not satisfied since condition
-    Immature,
-    /// Invalid Since flags
-    InvalidSince,
-    CellbaseImmaturity,
-    ExceededMaximumBlockBytes,
-    OutputsDataLengthMismatch,
-}
-
-impl StdError for TransactionError {}
-
-impl fmt::Display for TransactionError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self, f)
-    }
-}
-
 impl TransactionError {
-    /// Transaction error may be caused by different tip between peers if this method return false,
-    /// Otherwise we consider the Bad Tx is constructed intendedly.
-    pub fn is_bad_tx(self) -> bool {
-        use TransactionError::*;
+    pub fn is_malformed_tx(&self) -> bool {
         match self {
-            CapacityOverflow | DuplicateDeps | Empty | OutputsSumOverflow | InvalidScript
-            | ScriptFailure(_) | InvalidSignature | InvalidSince => true,
-            _ => false,
+            TransactionError::OutputsSumOverflow
+            | TransactionError::DuplicateDeps
+            | TransactionError::Empty
+            | TransactionError::InsufficientCellCapacity
+            | TransactionError::InvalidSince
+            | TransactionError::ExceededMaximumBlockBytes
+            | TransactionError::OutputsDataLengthMismatch
+            | TransactionError::OutputDataHashMismatch => true,
+
+            TransactionError::Immature
+            | TransactionError::CellbaseImmaturity
+            | TransactionError::MismatchedVersion => false,
         }
     }
 }
 
-impl From<CapacityError> for TransactionError {
-    fn from(error: CapacityError) -> Self {
-        match error {
-            CapacityError::Overflow => TransactionError::CapacityOverflow,
+impl fmt::Display for HeaderError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(cause) = self.cause() {
+            write!(f, "{}({})", self.kind(), cause)
+        } else {
+            write!(f, "{}", self.kind())
         }
     }
 }
 
-impl From<CapacityError> for Error {
-    fn from(error: CapacityError) -> Self {
-        match error {
-            CapacityError::Overflow => Error::CapacityOverflow,
+impl fmt::Display for BlockError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(cause) = self.cause() {
+            write!(f, "{}({})", self.kind(), cause)
+        } else {
+            write!(f, "{}", self.kind())
         }
+    }
+}
+
+impl From<Context<HeaderErrorKind>> for HeaderError {
+    fn from(kind: Context<HeaderErrorKind>) -> Self {
+        Self { kind }
+    }
+}
+
+impl Fail for HeaderError {
+    fn cause(&self) -> Option<&Fail> {
+        self.inner().cause()
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner().backtrace()
+    }
+}
+
+impl HeaderError {
+    pub fn kind(&self) -> &HeaderErrorKind {
+        self.kind.get_context()
+    }
+
+    pub fn downcast_ref<T: Fail>(&self) -> Option<&T> {
+        self.cause().and_then(|cause| cause.downcast_ref::<T>())
+    }
+
+    pub fn inner(&self) -> &Context<HeaderErrorKind> {
+        &self.kind
+    }
+}
+
+impl From<Context<BlockErrorKind>> for BlockError {
+    fn from(kind: Context<BlockErrorKind>) -> Self {
+        Self { kind }
+    }
+}
+
+impl Fail for BlockError {
+    fn cause(&self) -> Option<&Fail> {
+        self.inner().cause()
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner().backtrace()
+    }
+}
+
+impl BlockError {
+    pub fn kind(&self) -> &BlockErrorKind {
+        self.kind.get_context()
+    }
+
+    pub fn downcast_ref<T: Fail>(&self) -> Option<&T> {
+        self.cause().and_then(|cause| cause.downcast_ref::<T>())
+    }
+
+    pub fn inner(&self) -> &Context<BlockErrorKind> {
+        &self.kind
     }
 }

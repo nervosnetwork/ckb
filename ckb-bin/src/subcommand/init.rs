@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::helper::prompt;
 use ckb_app_config::{ExitCode, InitArgs};
 use ckb_chain_spec::ChainSpec;
-use ckb_db::{db::RocksDB, DBConfig, Error};
+use ckb_db::{db::RocksDB, DBConfig};
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC,
@@ -22,8 +22,11 @@ fn check_db_compatibility(path: PathBuf) {
             path: path.clone(),
             ..Default::default()
         };
-        if let Some(Error::DBError(err_msg)) = RocksDB::open_with_error(&config, 1).err() {
-            if err_msg.contains("the database version is not matched") {
+        if let Some(err) = RocksDB::open_with_error(&config, 1).err() {
+            if err
+                .to_string()
+                .contains("the database version is not matched")
+            {
                 let input =
                     prompt(format!("Database is not incompatible, remove {:?}? ", path).as_str());
 

@@ -32,17 +32,17 @@ pub enum Misbehavior {
     #[fail(display = "CompactBlockError::InvalidTransactionRoot")]
     InvalidTransactionRoot,
     #[fail(
-        display = "block transactions' length is invalid, expect {}, but got {}",
-        expect, got
+        display = "InvalidBlockTransactionsLength(expected: {}, actual: {})",
+        expected, actual
     )]
-    InvalidBlockTransactionsLength { expect: usize, got: usize },
+    InvalidBlockTransactionsLength { expected: usize, actual: usize },
     #[fail(
-        display = "block transactions' short id is invalid, expect {:#?}, but got {:#?}",
-        expect, got
+        display = "InvalidBlockTransactions(expected: {:#?}, actual: {:#?})",
+        expected, actual
     )]
     InvalidBlockTransactions {
-        expect: ProposalShortId,
-        got: ProposalShortId,
+        expected: ProposalShortId,
+        actual: ProposalShortId,
     },
     #[fail(display = "BlockInvalid")]
     BlockInvalid,

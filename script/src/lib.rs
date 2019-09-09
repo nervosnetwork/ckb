@@ -1,12 +1,13 @@
 mod cost_model;
+mod error;
 mod syscalls;
 mod type_id;
 mod verify;
 
-use ckb_vm::Error as VMInternalError;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
+pub use crate::error::ScriptError;
 pub use crate::verify::{ScriptGroup, ScriptGroupType, TransactionScriptsVerifier};
 
 /// re-export DataLoader
@@ -51,26 +52,4 @@ impl Default for Runner {
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Debug, Default)]
 pub struct ScriptConfig {
     pub runner: Runner,
-}
-
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub enum ScriptError {
-    NoScript,
-    InvalidCodeHash,
-    ArgumentError,
-    ValidationFailure(i8),
-    VMError(VMInternalError),
-    ExceededMaximumCycles,
-    IOError,
-    InvalidDaoDepositHeader,
-    InvalidDaoWithdrawHeader,
-    CapacityOverflow,
-    InterestCalculation,
-    InvalidSince,
-    InvalidInterest,
-    InvalidPubkeyHash,
-    Secp,
-    ArgumentNumber,
-    NoWitness,
-    MultipleMatches,
 }

@@ -4,12 +4,14 @@ use ckb_db::{
     iter::{DBIteratorItem, Direction},
     Col, DBPinnableSlice,
 };
+use ckb_error::Error;
 use ckb_proposal_table::ProposalView;
 use ckb_store::{ChainStore, StoreSnapshot};
 use ckb_traits::BlockMedianTimeContext;
+use ckb_types::core::error::OutPointError;
 use ckb_types::{
     core::{
-        cell::{CellProvider, CellStatus, HeaderChecker, UnresolvableError},
+        cell::{CellProvider, CellStatus, HeaderChecker},
         BlockNumber, EpochExt, HeaderView, TransactionMeta,
     },
     packed::{Byte32, OutPoint},
@@ -153,16 +155,16 @@ impl CellProvider for Snapshot {
 }
 
 impl HeaderChecker for Snapshot {
-    fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError> {
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error> {
         match self.get_block_number(block_hash) {
             Some(block_number) => {
                 if self.tip_number() < block_number + self.consensus.cellbase_maturity() {
-                    Err(UnresolvableError::ImmatureHeader(block_hash.clone()))
+                    Err(OutPointError::ImmatureHeader(block_hash.clone()).into())
                 } else {
                     Ok(())
                 }
             }
-            None => Err(UnresolvableError::InvalidHeader(block_hash.clone())),
+            None => Err(OutPointError::InvalidHeader(block_hash.clone()).into()),
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::db::cf_handle;
-use crate::{Col, Result};
+use crate::{internal_error, Col, Result};
 use rocksdb::ops::{GetCF, GetPinnedCF, Iterate, IterateCF, Read};
 use rocksdb::{
     ffi, ColumnFamily, ConstHandle, DBPinnableSlice, DBRawIterator, DBVector, Error, Handle,
@@ -34,7 +34,7 @@ impl RocksDBSnapshot {
         let cf = cf_handle(&self.db, col)?;
         self.db
             .get_pinned_cf_opt(cf, &key, &self.ro)
-            .map_err(Into::into)
+            .map_err(internal_error)
     }
 }
 

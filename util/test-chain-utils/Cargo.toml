@@ -12,5 +12,6 @@ ckb-store = { path = "../../store" }
 ckb-chain-spec = { path = "../../spec" }
 ckb-dao-utils = { path = "../dao/utils" }
 ckb-traits = { path = "../../traits" }
+ckb-error = { path = "../../error" }
 lazy_static = "1.3.0"
 faketime = "0.2.0"

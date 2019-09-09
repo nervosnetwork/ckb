@@ -11,6 +11,7 @@ ckb-types = { path = "../../util/types" }
 ckb-store = { path = "../../store" }
 ckb-traits = { path = "../../traits" }
 ckb-verification = { path = "../../verification" }
+ckb-error = { path = "../../error" }
 
 [dev-dependencies]
 ckb-chain = { path = "../../chain" }

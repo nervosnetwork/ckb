@@ -1,11 +1,18 @@
+#[macro_use]
+extern crate enum_display_derive;
+
+mod error;
+
 use byteorder::{ByteOrder, LittleEndian};
+use ckb_error::Error;
 use ckb_types::{
     core::{Capacity, TransactionView},
     packed::{Byte32, OutPoint},
     prelude::*,
 };
-use failure::{Error as FailureError, Fail};
 use std::collections::HashSet;
+
+pub use crate::error::DaoError;
 
 // This is multiplied by 10**16 to make sure we have enough precision.
 pub const DEFAULT_ACCUMULATED_RATE: u64 = 10_000_000_000_000_000;
@@ -14,24 +21,12 @@ pub const DAO_VERSION: u8 = 1;
 
 pub const DAO_SIZE: usize = 32;
 
-#[derive(Debug, PartialEq, Clone, Eq, Fail)]
-pub enum Error {
-    #[fail(display = "Unknown")]
-    Unknown,
-    #[fail(display = "InvalidHeader")]
-    InvalidHeader,
-    #[fail(display = "InvalidOutPoint")]
-    InvalidOutPoint,
-    #[fail(display = "Format")]
-    Format,
-}
-
-pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, FailureError> {
+pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
     let dead_cells = txs
         .iter()
         .flat_map(|tx| tx.inputs().into_iter().map(|input| input.previous_output()))
         .collect::<HashSet<_>>();
-    let statistics_outputs = |tx: &TransactionView| -> Result<_, FailureError> {
+    let statistics_outputs = |tx: &TransactionView| -> Result<_, Error> {
         let c = tx
             .data()
             .raw()
@@ -57,7 +52,7 @@ pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, FailureErr
         Ok((c, u))
     };
 
-    let result: Result<_, FailureError> =
+    let result: Result<_, Error> =
         txs.into_iter()
             .try_fold((Capacity::zero(), Capacity::zero()), |(c, u), tx| {
                 let (tx_c, tx_u) = statistics_outputs(tx)?;
@@ -69,10 +64,10 @@ pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, FailureErr
     Ok(pack_dao_data(DEFAULT_ACCUMULATED_RATE, c, u))
 }
 
-pub fn extract_dao_data(dao: Byte32) -> Result<(u64, Capacity, Capacity), FailureError> {
+pub fn extract_dao_data(dao: Byte32) -> Result<(u64, Capacity, Capacity), Error> {
     let data = dao.raw_data();
     if data[0] != DAO_VERSION {
-        return Err(Error::Format.into());
+        return Err(DaoError::InvalidDaoFormat.into());
     }
     let ar = LittleEndian::read_u64(&data[8..16]);
     let c = Capacity::shannons(LittleEndian::read_u64(&data[16..24]));

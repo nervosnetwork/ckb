@@ -1,9 +1,11 @@
 use crate::{
     bytes::Bytes,
+    core::error::OutPointError,
     core::{BlockView, Capacity, DepType, TransactionInfo, TransactionView},
     packed::{Byte32, CellOutput, OutPoint, OutPointVec},
     prelude::*,
 };
+use ckb_error::Error;
 use ckb_occupied_capacity::Result as CapacityResult;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
@@ -204,7 +206,7 @@ pub struct BlockCellProvider<'a> {
 // Transactions are expected to be sorted within a block,
 // Transactions have to appear after any transactions upon which they depend
 impl<'a> BlockCellProvider<'a> {
-    pub fn new(block: &'a BlockView) -> Result<Self, UnresolvableError> {
+    pub fn new(block: &'a BlockView) -> Result<Self, Error> {
         let output_indices: HashMap<Byte32, usize> = block
             .transactions()
             .iter()
@@ -216,14 +218,14 @@ impl<'a> BlockCellProvider<'a> {
             for dep in tx.cell_deps_iter() {
                 if let Some(output_idx) = output_indices.get(&dep.out_point().tx_hash()) {
                     if *output_idx >= idx {
-                        return Err(UnresolvableError::OutOfOrder(dep.out_point().clone()));
+                        Err(OutPointError::OutOfOrder(dep.out_point()))?;
                     }
                 }
             }
             for out_point in tx.input_pts_iter() {
                 if let Some(output_idx) = output_indices.get(&out_point.tx_hash()) {
                     if *output_idx >= idx {
-                        return Err(UnresolvableError::OutOfOrder(out_point.clone()));
+                        Err(OutPointError::OutOfOrder(out_point))?;
                     }
                 }
             }
@@ -302,20 +304,7 @@ impl<'a> CellProvider for TransactionsProvider<'a> {
 
 pub trait HeaderChecker {
     /// Check if header in main chain
-    fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError>;
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum UnresolvableError {
-    /// The header is not in main chain
-    InvalidHeader(Byte32),
-    /// The header is not yet matured
-    ImmatureHeader(Byte32),
-    /// Invalid dep group cell data length
-    InvalidDepGroup(OutPoint),
-    Dead(OutPoint),
-    Unknown(Vec<OutPoint>),
-    OutOfOrder(OutPoint),
+    fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error>;
 }
 
 /// Gather all cell dep out points and resolved dep group out points
@@ -357,12 +346,10 @@ fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
     }
 }
 
-fn resolve_dep_group<
-    F: FnMut(&OutPoint, bool) -> Result<Option<Box<CellMeta>>, UnresolvableError>,
->(
+fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<Option<Box<CellMeta>>, Error>>(
     out_point: &OutPoint,
     mut cell_resolver: F,
-) -> Result<Option<(CellMeta, Vec<CellMeta>)>, UnresolvableError> {
+) -> Result<Option<(CellMeta, Vec<CellMeta>)>, Error> {
     let dep_group_cell = match cell_resolver(out_point, true)? {
         Some(cell_meta) => cell_meta,
         None => return Ok(None),
@@ -374,7 +361,7 @@ fn resolve_dep_group<
         .0;
 
     let sub_out_points = parse_dep_group_data(&data)
-        .map_err(|_| UnresolvableError::InvalidDepGroup(out_point.clone()))?;
+        .map_err(|_| OutPointError::InvalidDepGroup(out_point.clone()))?;
     let mut resolved_deps = Vec::with_capacity(sub_out_points.len());
     for sub_out_point in sub_out_points.into_iter() {
         if let Some(sub_cell_meta) = cell_resolver(&sub_out_point, true)? {
@@ -389,7 +376,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     seen_inputs: &mut HashSet<OutPoint, S>,
     cell_provider: &CP,
     header_checker: &HC,
-) -> Result<ResolvedTransaction<'a>, UnresolvableError> {
+) -> Result<ResolvedTransaction<'a>, Error> {
     let (
         mut unknown_out_points,
         mut resolved_inputs,
@@ -403,29 +390,28 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     );
     let mut current_inputs = HashSet::new();
 
-    let mut resolve_cell = |out_point: &OutPoint,
-                            with_data: bool|
-     -> Result<Option<Box<CellMeta>>, UnresolvableError> {
-        if seen_inputs.contains(out_point) {
-            return Err(UnresolvableError::Dead(out_point.clone()));
-        }
-
-        let cell_status = cell_provider.cell(out_point, with_data);
-        match cell_status {
-            CellStatus::Dead => Err(UnresolvableError::Dead(out_point.clone())),
-            CellStatus::Unknown => {
-                unknown_out_points.push(out_point.clone());
-                Ok(None)
+    let mut resolve_cell =
+        |out_point: &OutPoint, with_data: bool| -> Result<Option<Box<CellMeta>>, Error> {
+            if seen_inputs.contains(out_point) {
+                Err(OutPointError::Dead(out_point.clone()))?;
             }
-            CellStatus::Live(cell_meta) => Ok(Some(cell_meta)),
-        }
-    };
+
+            let cell_status = cell_provider.cell(out_point, with_data);
+            match cell_status {
+                CellStatus::Dead => Err(OutPointError::Dead(out_point.clone()).into()),
+                CellStatus::Unknown => {
+                    unknown_out_points.push(out_point.clone());
+                    Ok(None)
+                }
+                CellStatus::Live(cell_meta) => Ok(Some(cell_meta)),
+            }
+        };
 
     // skip resolve input of cellbase
     if !transaction.is_cellbase() {
         for out_point in transaction.input_pts_iter() {
             if !current_inputs.insert(out_point.to_owned()) {
-                return Err(UnresolvableError::Dead(out_point.to_owned()));
+                Err(OutPointError::Dead(out_point.clone()))?;
             }
             if let Some(cell_meta) = resolve_cell(&out_point, false)? {
                 resolved_inputs.push(*cell_meta);
@@ -451,7 +437,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     }
 
     if !unknown_out_points.is_empty() {
-        Err(UnresolvableError::Unknown(unknown_out_points))
+        Err(OutPointError::Unknown(unknown_out_points).into())
     } else {
         seen_inputs.extend(current_inputs);
         Ok(ResolvedTransaction {
@@ -499,6 +485,7 @@ mod tests {
         packed::{Byte32, CellDep, CellInput},
         H256,
     };
+    use ckb_error::assert_error_eq;
     use std::collections::HashMap;
 
     #[derive(Default)]
@@ -514,13 +501,13 @@ mod tests {
     }
 
     impl HeaderChecker for BlockHeadersChecker {
-        fn check_valid(&self, block_hash: &Byte32) -> Result<(), UnresolvableError> {
+        fn check_valid(&self, block_hash: &Byte32) -> Result<(), Error> {
             if !self.detached_indices.contains(block_hash)
                 && self.attached_indices.contains(block_hash)
             {
                 Ok(())
             } else {
-                Err(UnresolvableError::InvalidHeader(block_hash.clone()))
+                Err(OutPointError::InvalidHeader(block_hash.clone()).into())
             }
         }
     }
@@ -661,10 +648,7 @@ mod tests {
             &cell_provider,
             &header_checker,
         );
-        assert_eq!(
-            result.unwrap_err(),
-            UnresolvableError::InvalidDepGroup(op_dep)
-        );
+        assert_error_eq(result.unwrap_err(), OutPointError::InvalidDepGroup(op_dep));
     }
 
     #[test]
@@ -693,9 +677,9 @@ mod tests {
             &cell_provider,
             &header_checker,
         );
-        assert_eq!(
+        assert_error_eq(
             result.unwrap_err(),
-            UnresolvableError::Unknown(vec![op_unknown])
+            OutPointError::Unknown(vec![op_unknown]),
         );
     }
 
@@ -749,9 +733,9 @@ mod tests {
             &header_checker,
         );
 
-        assert_eq!(
-            result.err(),
-            Some(UnresolvableError::InvalidHeader(invalid_block_hash))
+        assert_error_eq(
+            result.unwrap_err(),
+            OutPointError::InvalidHeader(invalid_block_hash),
         );
     }
 
@@ -792,9 +776,9 @@ mod tests {
             let block = generate_block(vec![tx2.clone(), tx1.clone()]);
             let provider = BlockCellProvider::new(&block);
 
-            assert_eq!(
-                provider.err(),
-                Some(UnresolvableError::OutOfOrder(OutPoint::new(tx1.hash(), 0)))
+            assert_error_eq(
+                provider.err().unwrap(),
+                OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)),
             );
         }
 
@@ -813,9 +797,9 @@ mod tests {
             let block = generate_block(vec![tx3.clone(), tx1.clone()]);
             let provider = BlockCellProvider::new(&block);
 
-            assert_eq!(
-                provider.err(),
-                Some(UnresolvableError::OutOfOrder(OutPoint::new(tx1.hash(), 0)))
+            assert_error_eq(
+                provider.err().unwrap(),
+                OutPointError::OutOfOrder(OutPoint::new(tx1.hash(), 0)),
             );
         }
     }
@@ -896,10 +880,7 @@ mod tests {
             let result2 =
                 resolve_transaction(&tx2, &mut seen_inputs, &cell_provider, &header_checker);
 
-            assert_eq!(
-                result2.err(),
-                Some(UnresolvableError::Dead(out_point.clone()))
-            );
+            assert_error_eq(result2.unwrap_err(), OutPointError::Dead(out_point.clone()));
         }
     }
 }

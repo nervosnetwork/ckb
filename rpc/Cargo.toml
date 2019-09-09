@@ -34,6 +34,7 @@ faketime = "0.2.0"
 sentry = "0.16.0"
 ckb-dao = { path = "../util/dao" }
 futures = "0.1"
+ckb-error = { path = "../error" }
 
 [dev-dependencies]
 ckb-db = { path = "../db" }

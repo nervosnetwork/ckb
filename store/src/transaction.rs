@@ -7,8 +7,9 @@ use crate::{
 };
 use ckb_db::{
     iter::{DBIterator, DBIteratorItem},
-    Col, DBVector, Direction, Error, RocksDBTransaction, RocksDBTransactionSnapshot,
+    Col, DBVector, Direction, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
+use ckb_error::Error;
 use ckb_types::{
     core::{BlockExt, BlockView, EpochExt, HeaderView},
     packed,

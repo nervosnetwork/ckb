@@ -3,6 +3,7 @@
 //! Packed bytes wrappers are not enough for all usage scenarios.
 
 pub mod cell;
+pub mod error;
 pub mod service;
 
 mod advanced_builders;
