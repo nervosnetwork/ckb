@@ -200,7 +200,7 @@ impl NetworkState {
         let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer_opt {
             if let Err(err) = self.peer_store.lock().ban_addr(
-                &peer.address,
+                &peer.connected_addr,
                 duration.as_millis() as u64,
                 reason.into(),
             ) {
@@ -637,7 +637,7 @@ impl ServiceHandle for EventHandler {
                         Ok(Some(evicted_peer)) => {
                             debug!(
                                 "evict peer (disonnect it), {} => {}",
-                                evicted_peer.session_id, evicted_peer.address,
+                                evicted_peer.session_id, evicted_peer.connected_addr,
                             );
                             if let Err(err) = disconnect_with_message(
                                 context.control(),
@@ -1022,7 +1022,7 @@ impl NetworkService {
                 // Recevied stop signal, doing cleanup
                 let _ = receiver.recv();
                 for peer in self.network_state.peer_registry.read().peers().values() {
-                    info!("Disconnect peer {}", peer.address);
+                    info!("Disconnect peer {}", peer.connected_addr);
                     if let Err(err) =
                         disconnect_with_message(&inner_p2p_control, peer.session_id, "shutdown")
                     {

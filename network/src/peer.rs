@@ -11,7 +11,8 @@ pub struct PeerIdentifyInfo {
 
 #[derive(Clone, Debug)]
 pub struct Peer {
-    pub address: Multiaddr,
+    pub connected_addr: Multiaddr,
+    pub listened_addrs: Vec<Multiaddr>,
     pub peer_id: PeerId,
     // Client or Server
     pub identify_info: Option<PeerIdentifyInfo>,
@@ -31,11 +32,12 @@ impl Peer {
         session_id: SessionId,
         session_type: SessionType,
         peer_id: PeerId,
-        address: Multiaddr,
+        connected_addr: Multiaddr,
         is_whitelist: bool,
     ) -> Self {
         Peer {
-            address,
+            connected_addr,
+            listened_addrs: Vec::new(),
             identify_info: None,
             ping: None,
             last_ping_time: None,
@@ -59,7 +61,7 @@ impl Peer {
     }
 
     pub fn network_group(&self) -> Group {
-        self.address.network_group()
+        self.connected_addr.network_group()
     }
 
     pub fn protocol_version(&self, protocol_id: ProtocolId) -> Option<ProtocolVersion> {

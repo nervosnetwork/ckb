@@ -4,6 +4,7 @@ use ckb_network::NetworkController;
 use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
+use std::collections::HashMap;
 
 const MAX_ADDRS: usize = 50;
 const DEFAULT_BAN_DURATION: u64 = 24 * 60 * 60 * 1000; // 1 day
@@ -60,18 +61,39 @@ impl NetworkRpc for NetworkRpcImpl {
         let peers = self.network_controller.connected_peers();
         Ok(peers
             .into_iter()
-            .map(|(peer_id, peer)| Node {
-                is_outbound: Some(peer.is_outbound()),
-                version: peer
-                    .identify_info
-                    .map(|info| info.client_version)
-                    .unwrap_or_else(|| "unknown".to_string()),
-                node_id: peer_id.to_base58(),
-                // TODO how to get correct port and score?
-                addresses: vec![NodeAddress {
-                    address: peer.address.to_string(),
-                    score: std::u64::MAX.into(),
-                }],
+            .map(|(peer_id, peer)| {
+                let mut addresses: HashMap<_, _> = peer
+                    .listened_addrs
+                    .iter()
+                    .map(|addr| {
+                        (
+                            addr,
+                            NodeAddress {
+                                address: addr.to_string(),
+                                score: 1.into(),
+                            },
+                        )
+                    })
+                    .collect();
+                if peer.is_outbound() {
+                    addresses.insert(
+                        &peer.connected_addr,
+                        NodeAddress {
+                            address: peer.connected_addr.to_string(),
+                            score: u64::from(std::u8::MAX).into(),
+                        },
+                    );
+                }
+                let addresses = addresses.values().cloned().collect();
+                Node {
+                    is_outbound: Some(peer.is_outbound()),
+                    version: peer
+                        .identify_info
+                        .map(|info| info.client_version)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    node_id: peer_id.to_base58(),
+                    addresses,
+                }
             })
             .collect())
     }
