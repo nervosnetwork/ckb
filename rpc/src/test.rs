@@ -37,8 +37,9 @@ use jsonrpc_server_utils::cors::AccessControlAllowOrigin;
 use jsonrpc_server_utils::hosts::DomainsValidation;
 use pretty_assertions::assert_eq as pretty_assert_eq;
 use reqwest;
+use serde::ser::Serialize;
 use serde_derive::{Deserialize, Serialize};
-use serde_json::{from_reader, json, to_string, to_string_pretty, Map, Value};
+use serde_json::{from_reader, json, to_string, Map, Value};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fs::File;
@@ -395,35 +396,43 @@ fn params_of(shared: &Shared, method: &str) -> Value {
 }
 
 // Print the expected documentation based the actual results
-fn print_document(shared: &Shared, client: &reqwest::Client, uri: &str) {
+fn print_document(params: Option<&Vec<(String, Value)>>, result: Option<&Vec<(String, Value)>>) {
+    let is_params = params.is_some();
     let document: Vec<_> = load_cases_from_file()
         .iter_mut()
-        .map(|case| {
-            let method = case.get("method").expect("get method").as_str().unwrap();
-            let params = params_of(shared, method);
-            let result = if case.get("skip").unwrap_or(&json!(false)).as_bool().unwrap() {
-                case.get("result").expect("get result").clone()
-            } else {
-                result_of(client, uri, method, params.clone())
-            };
-
+        .enumerate()
+        .map(|(i, case)| {
             let object = case.as_object_mut().unwrap();
-            object.insert("params".to_string(), params);
-            object.insert("result".to_string(), result);
+            if is_params {
+                object.insert(
+                    "params".to_string(),
+                    params.unwrap().get(i).unwrap().clone().1,
+                );
+            } else {
+                object.insert(
+                    "result".to_string(),
+                    result.unwrap().get(i).unwrap().clone().1,
+                );
+            }
             json!(object)
         })
         .collect();
     println!("\n\n###################################");
     println!("Expected RPC Document is written into rpc/json/rpc.expect.json");
     println!("Check full diff using following commands:");
-    println!("    devtools/doc/jsonfmt.py rpc/json/rpc.expect.json");
     println!("    diff rpc/json/rpc.json rpc/json/rpc.expect.json");
     println!("###################################\n\n");
 
     let mut out_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     out_path.push("json");
     out_path.push("rpc.expect.json");
-    std::fs::write(out_path, to_string_pretty(&document).unwrap())
+
+    let buf = Vec::new();
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(buf, formatter);
+    document.serialize(&mut ser).unwrap();
+
+    std::fs::write(out_path, String::from_utf8(ser.into_inner()).unwrap())
         .expect("Write to rpc/json/rpc.expect.json");
 }
 
@@ -455,7 +464,7 @@ fn test_rpc() {
             expected.push((method.clone(), params_of(&shared, &method)));
         });
         if actual != expected {
-            print_document(&shared, &client, &uri);
+            print_document(Some(&expected), None);
             pretty_assert_eq!(actual, expected, "Assert params of jsonrpc",);
         }
     }
@@ -481,7 +490,7 @@ fn test_rpc() {
             actual.push((method.clone(), result));
         });
         if actual != expected {
-            print_document(&shared, &client, &uri);
+            print_document(None, Some(&expected));
             pretty_assert_eq!(actual, expected, "Assert results of jsonrpc",);
         }
     }
