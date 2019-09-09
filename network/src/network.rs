@@ -82,6 +82,7 @@ pub struct NetworkState {
     disconnecting_sessions: RwLock<HashSet<SessionId>>,
     local_private_key: secio::SecioKeyPair,
     local_peer_id: PeerId,
+    bootnodes: Vec<(PeerId, Multiaddr)>,
     pub(crate) config: NetworkConfig,
 }
 
@@ -97,14 +98,11 @@ impl NetworkState {
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
         let peer_store: Mutex<PeerStore> = {
-            let mut peer_store = PeerStore::default();
+            let peer_store = PeerStore::default();
             // PeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
-            let bootnodes = config.bootnodes()?;
-            for (peer_id, addr) in bootnodes {
-                peer_store.add_bootnode(peer_id, addr);
-            }
             Mutex::new(peer_store)
         };
+        let bootnodes = config.bootnodes()?;
 
         let whitelist_peers = config
             .whitelist_peers()?
@@ -121,6 +119,7 @@ impl NetworkState {
         Ok(NetworkState {
             peer_store,
             config,
+            bootnodes,
             peer_registry: RwLock::new(peer_registry),
             dialing_addrs: RwLock::new(HashMap::default()),
             public_addrs: RwLock::new(public_addrs),
@@ -956,9 +955,25 @@ impl NetworkService {
                 .dial_identify(self.p2p_service.control(), &peer_id, addr);
         }
 
+        // get bootnodes
+        // try get addrs from peer_store, if peer_store have no enough addrs then use bootnodes
         let bootnodes = self.network_state.with_peer_store_mut(|peer_store| {
-            peer_store.bootnodes(max((config.max_outbound_peers >> 1) as usize, 1))
+            let count = max((config.max_outbound_peers >> 1) as usize, 1);
+            let mut addrs: Vec<_> = peer_store
+                .get_addrs_to_attempt(count)
+                .into_iter()
+                .map(|paddr| (paddr.peer_id, paddr.addr))
+                .collect();
+            addrs.extend(
+                self.network_state
+                    .bootnodes
+                    .iter()
+                    .take(count.saturating_sub(addrs.len()))
+                    .cloned(),
+            );
+            addrs
         });
+
         // dial half bootnodes
         for (peer_id, addr) in bootnodes {
             debug!("dial bootnode {:?} {:?}", peer_id, addr);

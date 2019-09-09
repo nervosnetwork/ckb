@@ -77,34 +77,15 @@ fn test_attempt_ban() {
 }
 
 #[test]
-fn test_bootnodes() {
-    let mut peer_store: PeerStore = Default::default();
-    assert!(peer_store.bootnodes(1).is_empty());
-    let peer_id = PeerId::random();
-    let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
-    peer_store.add_bootnode(peer_id.clone(), addr.clone());
-    assert_eq!(peer_store.bootnodes(2).len(), 1);
-    let peer_id2 = PeerId::random();
-    peer_store.add_addr(peer_id2.clone(), addr.clone()).unwrap();
-    assert_eq!(
-        peer_store.bootnodes(3),
-        vec![(peer_id2, addr.clone()), (peer_id, addr)]
-    );
-}
-
-#[test]
 fn test_get_addrs_to_attempt() {
     let mut peer_store: PeerStore = Default::default();
     assert!(peer_store.get_addrs_to_attempt(1).is_empty());
-    let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
-    peer_store.add_bootnode(peer_id.clone(), addr.clone());
-    assert!(peer_store.get_addrs_to_attempt(1).is_empty());
-    let peer_id2 = PeerId::random();
-    peer_store.add_addr(peer_id2.clone(), addr.clone()).unwrap();
+    let peer_id = PeerId::random();
+    peer_store.add_addr(peer_id.clone(), addr.clone()).unwrap();
     assert_eq!(peer_store.get_addrs_to_attempt(2).len(), 1);
     peer_store
-        .add_connected_peer(peer_id2, addr, SessionType::Outbound)
+        .add_connected_peer(peer_id, addr, SessionType::Outbound)
         .unwrap();
     assert!(peer_store.get_addrs_to_attempt(1).is_empty());
 }
@@ -133,26 +114,21 @@ fn test_get_addrs_to_attempt_in_last_minutes() {
 fn test_get_addrs_to_feeler() {
     let mut peer_store: PeerStore = Default::default();
     assert!(peer_store.get_addrs_to_feeler(1).is_empty());
-    let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
 
-    // do not includes bootnode
-    peer_store.add_bootnode(peer_id.clone(), addr.clone());
-    assert!(peer_store.get_addrs_to_feeler(1).is_empty());
-
     // add an addr
-    let peer_id2 = PeerId::random();
-    peer_store.add_addr(peer_id2.clone(), addr.clone()).unwrap();
+    let peer_id = PeerId::random();
+    peer_store.add_addr(peer_id.clone(), addr.clone()).unwrap();
     assert_eq!(peer_store.get_addrs_to_feeler(2).len(), 1);
 
     // ignores connected peers' addrs
     peer_store
-        .add_connected_peer(peer_id2.clone(), addr.clone(), SessionType::Outbound)
+        .add_connected_peer(peer_id.clone(), addr.clone(), SessionType::Outbound)
         .unwrap();
     assert!(peer_store.get_addrs_to_feeler(1).is_empty());
 
     // peer does not need feeler if it connected to us recently
-    peer_store.remove_disconnected_peer(&peer_id2);
+    peer_store.remove_disconnected_peer(&peer_id);
     assert!(peer_store.get_addrs_to_feeler(1).is_empty());
 }
 
@@ -160,22 +136,19 @@ fn test_get_addrs_to_feeler() {
 fn test_get_random_addrs() {
     let mut peer_store: PeerStore = Default::default();
     assert!(peer_store.get_random_addrs(1).is_empty());
-    let peer_id = PeerId::random();
     let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
-    peer_store.add_bootnode(peer_id.clone(), addr.clone());
-    assert!(peer_store.get_random_addrs(1).is_empty());
-    let peer_id2 = PeerId::random();
-    peer_store.add_addr(peer_id2.clone(), addr.clone()).unwrap();
+    let peer_id = PeerId::random();
+    peer_store.add_addr(peer_id.clone(), addr.clone()).unwrap();
     // random should not return peer that we have never connected to
     assert!(peer_store.get_random_addrs(1).is_empty());
     // can't get peer addr from inbound
     peer_store
-        .add_connected_peer(peer_id2.clone(), addr.clone(), SessionType::Inbound)
+        .add_connected_peer(peer_id.clone(), addr.clone(), SessionType::Inbound)
         .unwrap();
     assert!(peer_store.get_random_addrs(1).is_empty());
     // get peer addr from outbound
     peer_store
-        .add_connected_peer(peer_id2, addr, SessionType::Outbound)
+        .add_connected_peer(peer_id, addr, SessionType::Outbound)
         .unwrap();
     assert_eq!(peer_store.get_random_addrs(2).len(), 1);
 }

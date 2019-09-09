@@ -20,7 +20,6 @@ pub struct PeerStore {
     ban_list: RefCell<BanList>,
     peers: RefCell<HashMap<PeerId, PeerInfo>>,
     score_config: PeerScoreConfig,
-    bootnodes: Vec<(PeerId, Multiaddr)>,
 }
 
 impl PeerStore {
@@ -109,31 +108,6 @@ impl PeerStore {
         } else {
             Status::Disconnected
         }
-    }
-
-    /// Add bootnode
-    pub fn add_bootnode(&mut self, peer_id: PeerId, addr: Multiaddr) {
-        self.bootnodes.push((peer_id, addr));
-    }
-
-    /// This method randomly return peers, it return bootnodes if no other peers in PeerStore.
-    pub fn bootnodes(&mut self, count: usize) -> Vec<(PeerId, Multiaddr)> {
-        let mut peers = self
-            .get_addrs_to_attempt(count)
-            .into_iter()
-            .map(|paddr| {
-                let AddrInfo { peer_id, addr, .. } = paddr;
-                (peer_id, addr)
-            })
-            .collect::<Vec<_>>();
-        for (peer_id, addr) in self
-            .bootnodes
-            .iter()
-            .take(count.saturating_sub(peers.len()))
-        {
-            peers.push((peer_id.to_owned(), addr.to_owned()));
-        }
-        peers
     }
 
     /// Get peers for outbound connection, this method randomly return non-connected peer addrs
