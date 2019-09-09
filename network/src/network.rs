@@ -8,7 +8,10 @@ use crate::protocols::{
     identify::IdentifyCallback,
     ping::PingService,
 };
-use crate::services::{dns_seeding::DnsSeedingService, outbound_peer::OutboundPeerService};
+use crate::services::{
+    dns_seeding::DnsSeedingService, dump_peer_store::DumpPeerStoreService,
+    outbound_peer::OutboundPeerService,
+};
 use crate::Peer;
 use crate::{
     Behaviour, CKBProtocol, NetworkConfig, ProtocolId, ProtocolVersion, PublicKey, ServiceControl,
@@ -888,9 +891,11 @@ impl NetworkService {
             p2p_service.control().to_owned(),
             ping_receiver,
         );
+        let dump_peer_store_service = DumpPeerStoreService::new(Arc::clone(&network_state));
         let mut bg_services = vec![
             Box::new(ping_service.for_each(|_| Ok(()))) as Box<_>,
             Box::new(disc_service) as Box<_>,
+            Box::new(dump_peer_store_service) as Box<_>,
         ];
         if config.outbound_peer_service_enabled() {
             let outbound_peer_service = OutboundPeerService::new(
