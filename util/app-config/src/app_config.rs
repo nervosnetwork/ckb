@@ -12,6 +12,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use ckb_chain_spec::ChainSpec;
 use ckb_db::DBConfig;
+use ckb_indexer::IndexerConfig;
 use ckb_logger::Config as LogConfig;
 use ckb_miner::BlockAssemblerConfig;
 use ckb_miner::MinerConfig;
@@ -44,7 +45,7 @@ pub struct CKBAppConfig {
     #[serde(default)]
     pub db: DBConfig,
     #[serde(default)]
-    pub indexer_db: DBConfig,
+    pub indexer: IndexerConfig,
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
     pub tx_pool: TxPoolConfig,
@@ -154,7 +155,7 @@ impl CKBAppConfig {
 
         if subcommand_name == cli::CMD_RESET_DATA {
             self.db.path = self.data_dir.join("db");
-            self.indexer_db.path = self.data_dir.join("indexer_db");
+            self.indexer.db.path = self.data_dir.join("indexer_db");
             self.network.path = self.data_dir.join("network");
             self.logger.file = Some(
                 self.data_dir
@@ -172,7 +173,7 @@ impl CKBAppConfig {
             )?);
         }
         self.db.path = mkdir(self.data_dir.join("db"))?;
-        self.indexer_db.path = mkdir(self.data_dir.join("indexer_db"))?;
+        self.indexer.db.path = mkdir(self.data_dir.join("indexer_db"))?;
         self.network.path = mkdir(self.data_dir.join("network"))?;
         self.chain.spec.absolutize(root_dir);
 

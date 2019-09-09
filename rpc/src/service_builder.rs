@@ -5,8 +5,7 @@ use crate::module::{
     NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use ckb_chain::chain::ChainController;
-use ckb_db::DBConfig;
-use ckb_indexer::DefaultIndexerStore;
+use ckb_indexer::{DefaultIndexerStore, IndexerConfig};
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
 use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
@@ -136,9 +135,9 @@ impl<'a> ServiceBuilder<'a> {
         self
     }
 
-    pub fn enable_indexer(mut self, db_config: &DBConfig, shared: Shared) -> Self {
+    pub fn enable_indexer(mut self, indexer_config: &IndexerConfig, shared: Shared) -> Self {
         if self.config.indexer_enable() {
-            let store = DefaultIndexerStore::new(db_config, shared);
+            let store = DefaultIndexerStore::new(indexer_config, shared);
             store.clone().start(Some("IndexerStore"));
 
             self.io_handler

@@ -7,8 +7,7 @@ use ckb_chain::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_db::DBConfig;
-use ckb_indexer::{DefaultIndexerStore, IndexerStore};
+use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -184,11 +183,9 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     let sync_shared_state = Arc::new(SyncSharedState::new(shared.clone()));
     let synchronizer = Synchronizer::new(chain_controller.clone(), Arc::clone(&sync_shared_state));
     let indexer_store = {
-        let db_config = DBConfig {
-            path: dir.join("indexer"),
-            ..Default::default()
-        };
-        let indexer_store = DefaultIndexerStore::new(&db_config, shared.clone());
+        let mut indexer_config = IndexerConfig::default();
+        indexer_config.db.path = dir.join("indexer");
+        let indexer_store = DefaultIndexerStore::new(&indexer_config, shared.clone());
         let (_, _, always_success_script) = always_success_cell();
         indexer_store.insert_lock_hash(&always_success_script.calc_script_hash(), Some(0));
         // use hardcoded TXN_ATTACH_BLOCK_NUMS (100) value here to setup testing data.
