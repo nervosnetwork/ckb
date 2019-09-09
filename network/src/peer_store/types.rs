@@ -25,7 +25,6 @@ pub struct PeerInfo {
     pub peer_id: PeerId,
     pub connected_addr: Multiaddr,
     pub session_type: SessionType,
-    pub ban_time_ms: u64,
     pub last_connected_at_ms: u64,
 }
 
@@ -41,7 +40,6 @@ impl PeerInfo {
             connected_addr,
             session_type,
             last_connected_at_ms,
-            ban_time_ms: 0,
         }
     }
 }
