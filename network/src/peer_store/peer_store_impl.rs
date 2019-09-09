@@ -23,6 +23,15 @@ pub struct PeerStore {
 }
 
 impl PeerStore {
+    pub fn new(addr_manager: AddrManager, ban_list: BanList) -> Self {
+        PeerStore {
+            addr_manager,
+            ban_list: RefCell::new(ban_list),
+            peers: Default::default(),
+            score_config: Default::default(),
+        }
+    }
+
     /// Add a peer and address into peer_store
     /// this method will assume peer is connected, which implies address is "verified".
     pub fn add_connected_peer(
@@ -72,6 +81,10 @@ impl PeerStore {
         Ok(())
     }
 
+    pub fn addr_manager(&self) -> &AddrManager {
+        &self.addr_manager
+    }
+
     pub fn mut_addr_manager(&mut self) -> &mut AddrManager {
         &mut self.addr_manager
     }
@@ -117,7 +130,6 @@ impl PeerStore {
         let peers = self.peers.borrow();
         // get addrs that can attempt.
         self.addr_manager.get_random(count, |peer_addr: &AddrInfo| {
-            dbg!(&peer_addr);
             !ban_list.is_addr_banned(&peer_addr.addr)
                 && !peers.contains_key(&peer_addr.peer_id)
                 && !peer_addr.tried_in_last_minute(now_ms)

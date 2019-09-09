@@ -6,9 +6,15 @@ use crate::{
 };
 use ipnetwork::IpNetwork;
 use p2p::multiaddr::{Multiaddr, Protocol};
+use serde::{
+    de::{self, Deserializer, MapAccess, SeqAccess, Visitor},
+    ser::{SerializeStruct, Serializer},
+    Deserialize, Serialize,
+};
+use std::fmt;
 use std::net::IpAddr;
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IpPort {
     pub ip: IpAddr,
     pub port: u16,
@@ -40,7 +46,7 @@ impl PeerInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct AddrInfo {
     pub peer_id: PeerId,
     pub ip_port: IpPort,
@@ -50,6 +56,184 @@ pub struct AddrInfo {
     pub last_tried_at_ms: u64,
     pub attempts_count: u32,
     pub random_id_pos: usize,
+}
+
+impl Serialize for AddrInfo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("AddrInfo", 7)?;
+        state.serialize_field("peer_id", &self.peer_id.as_bytes())?;
+        state.serialize_field("ip_port", &self.ip_port)?;
+        state.serialize_field("addr", &self.addr)?;
+        state.serialize_field("score", &self.score)?;
+        state.serialize_field("last_connected_at_ms", &self.last_connected_at_ms)?;
+        state.serialize_field("last_tried_at_ms", &self.last_tried_at_ms)?;
+        state.serialize_field("attempts_count", &self.attempts_count)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for AddrInfo {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            PeerId,
+            IpPort,
+            Addr,
+            Score,
+            LastConnectedAtMs,
+            LastTriedAtMs,
+            AttemptsCount,
+        };
+
+        struct AddrInfoVisitor;
+
+        impl<'de> Visitor<'de> for AddrInfoVisitor {
+            type Value = AddrInfo;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct AddrInfo")
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<AddrInfo, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+                let peer_id_bytes = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let peer_id = PeerId::from_bytes(peer_id_bytes)
+                    .map_err(|err| de::Error::custom(format!("invalid peer_id {:?}", err)))?;
+                let ip_port = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let addr = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let score = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(3, &self))?;
+                let last_connected_at_ms = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(4, &self))?;
+                let last_tried_at_ms = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(5, &self))?;
+                let attempts_count = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(6, &self))?;
+                Ok(AddrInfo {
+                    peer_id,
+                    ip_port,
+                    addr,
+                    score,
+                    last_connected_at_ms,
+                    last_tried_at_ms,
+                    attempts_count,
+                    random_id_pos: Default::default(),
+                })
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<AddrInfo, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut peer_id = None;
+                let mut ip_port = None;
+                let mut addr = None;
+                let mut score = None;
+                let mut last_connected_at_ms = None;
+                let mut last_tried_at_ms = None;
+                let mut attempts_count = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::PeerId => {
+                            if peer_id.is_some() {
+                                return Err(de::Error::duplicate_field("peer_id"));
+                            }
+                            peer_id =
+                                Some(PeerId::from_bytes(map.next_value()?).map_err(|err| {
+                                    de::Error::custom(format!("invalid peer_id {:?}", err))
+                                })?);
+                        }
+                        Field::IpPort => {
+                            if ip_port.is_some() {
+                                return Err(de::Error::duplicate_field("ip_port"));
+                            }
+                            ip_port = Some(map.next_value()?);
+                        }
+                        Field::Addr => {
+                            if addr.is_some() {
+                                return Err(de::Error::duplicate_field("addr"));
+                            }
+                            addr = Some(map.next_value()?);
+                        }
+                        Field::Score => {
+                            if score.is_some() {
+                                return Err(de::Error::duplicate_field("score"));
+                            }
+                            score = Some(map.next_value()?);
+                        }
+                        Field::LastConnectedAtMs => {
+                            if last_connected_at_ms.is_some() {
+                                return Err(de::Error::duplicate_field("last_connected_at_ms"));
+                            }
+                            last_connected_at_ms = Some(map.next_value()?);
+                        }
+                        Field::LastTriedAtMs => {
+                            if last_tried_at_ms.is_some() {
+                                return Err(de::Error::duplicate_field("last_tried_at_ms"));
+                            }
+                            last_tried_at_ms = Some(map.next_value()?);
+                        }
+                        Field::AttemptsCount => {
+                            if attempts_count.is_some() {
+                                return Err(de::Error::duplicate_field("attempts_count"));
+                            }
+                            attempts_count = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let peer_id = peer_id.ok_or_else(|| de::Error::missing_field("peer_id"))?;
+                let ip_port = ip_port.ok_or_else(|| de::Error::missing_field("ip_port"))?;
+                let addr = addr.ok_or_else(|| de::Error::missing_field("addr"))?;
+                let score = score.ok_or_else(|| de::Error::missing_field("score"))?;
+                let last_connected_at_ms = last_connected_at_ms
+                    .ok_or_else(|| de::Error::missing_field("last_connected_at_ms"))?;
+                let last_tried_at_ms =
+                    last_tried_at_ms.ok_or_else(|| de::Error::missing_field("last_tried_at_ms"))?;
+                let attempts_count =
+                    attempts_count.ok_or_else(|| de::Error::missing_field("attempts_count"))?;
+                Ok(AddrInfo {
+                    peer_id,
+                    ip_port,
+                    addr,
+                    score,
+                    last_connected_at_ms,
+                    last_tried_at_ms,
+                    attempts_count,
+                    random_id_pos: Default::default(),
+                })
+            }
+        }
+
+        const FIELDS: &[&str] = &[
+            "peer_id",
+            "ip_port",
+            "addr",
+            "score",
+            "last_connected_at_ms",
+            "last_tried_at_ms",
+            "attempts_count",
+        ];
+        deserializer.deserialize_struct("AddrInfo", FIELDS, AddrInfoVisitor)
+    }
 }
 
 impl AddrInfo {
@@ -114,7 +298,7 @@ impl AddrInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct BannedAddr {
     pub address: IpNetwork,
     pub ban_until: u64,

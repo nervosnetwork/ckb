@@ -97,11 +97,8 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
-        let peer_store: Mutex<PeerStore> = {
-            let peer_store = PeerStore::default();
-            // PeerStore::file(config.peer_store_path().to_string_lossy().to_string())?;
-            Mutex::new(peer_store)
-        };
+        let peer_store = Mutex::new(PeerStore::load(config.peer_store_path())?);
+        ;
         let bootnodes = config.bootnodes()?;
 
         let whitelist_peers = config
@@ -1033,6 +1030,15 @@ impl NetworkService {
                 if let Err(err) = inner_p2p_control.shutdown() {
                     warn!("send shutdown message to p2p error: {:?}", err);
                 }
+
+                debug!("Dumping peer store data ...");
+                // Dump peer store
+                let peer_store_path = self.network_state.config.peer_store_path().clone();
+                self.network_state.with_peer_store_mut(|peer_store| {
+                    if let Err(err) = peer_store.dump(peer_store_path) {
+                        error!("Dumping peer store error: {}", err);
+                    }
+                });
 
                 debug!("Waiting tokio runtime to finish ...");
                 runtime.shutdown_on_idle().wait().unwrap();

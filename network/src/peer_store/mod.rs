@@ -1,5 +1,6 @@
-mod addr_manager;
-mod ban_list;
+pub mod addr_manager;
+pub mod ban_list;
+mod peer_store_db;
 mod peer_store_impl;
 pub mod types;
 

@@ -23,6 +23,7 @@ pub enum Error {
 pub enum PeerStoreError {
     /// indicate the peer store is full
     EvictionFailed,
+    Serde(serde_json::Error),
 }
 
 #[derive(Debug)]
