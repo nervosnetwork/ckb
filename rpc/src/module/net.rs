@@ -135,7 +135,7 @@ impl NetworkRpc for NetworkRpcImpl {
                 };
                 if let Err(err) =
                     self.network_controller
-                        .ban(ip_network, ban_until, &reason.unwrap_or_default())
+                        .ban(ip_network, ban_until, reason.unwrap_or_default())
                 {
                     Err(RPCError::custom(
                         RPCError::Invalid,

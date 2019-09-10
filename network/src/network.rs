@@ -1110,11 +1110,11 @@ impl NetworkController {
             .get_banned_addrs()
     }
 
-    pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: &str) -> Result<(), Error> {
+    pub fn ban(&self, address: IpNetwork, ban_until: u64, ban_reason: String) -> Result<(), Error> {
         self.network_state
             .peer_store
             .lock()
-            .ban_network(address, ban_until, ban_reason.into())
+            .ban_network(address, ban_until, ban_reason)
     }
 
     pub fn unban(&self, address: &IpNetwork) {
