@@ -509,7 +509,8 @@ impl Spec for ForksContainSameTransactions {
 
         // Build `chain1`, contain the target `transaction`, with length = 61
         {
-            sleep(Duration::from_secs(2));
+            // `sleep` to make sure that the chain1[2] != chain2[2]
+            sleep(Duration::from_millis(1));
             node1.generate_blocks(30);
             node1.submit_transaction(&transaction);
             node1.generate_blocks(30);
@@ -517,9 +518,19 @@ impl Spec for ForksContainSameTransactions {
 
         // Build `chain2`, all the blocks are empty, with length = 51
         {
-            sleep(Duration::from_secs(2));
+            sleep(Duration::from_millis(1));
             node2.generate_blocks(50);
         }
+
+        let (rpc_client0, rpc_client1, rpc_client2) =
+            (node0.rpc_client(), node1.rpc_client(), node2.rpc_client());
+        let header0 = rpc_client0.get_header_by_number(2).unwrap();
+        let header1 = rpc_client1.get_header_by_number(2).unwrap();
+        let header2 = rpc_client2.get_header_by_number(2).unwrap();
+
+        assert_ne!(header0.hash, header1.hash);
+        assert_ne!(header0.hash, header2.hash);
+        assert_ne!(header1.hash, header2.hash);
 
         // `target_node` holds `chain0` as the main chain
         target_node.connect(node0);
