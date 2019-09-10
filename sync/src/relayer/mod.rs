@@ -130,6 +130,10 @@ impl Relayer {
                 nc.ban_peer(peer, BAD_MESSAGE_BAN_TIME);
                 return;
             }
+            if let Some(&Error::Ignored(ref e)) = err.downcast_ref() {
+                debug_target!(crate::LOG_TARGET_RELAY, "try_process Ignored error {}", e);
+                return;
+            }
         }
     }
 

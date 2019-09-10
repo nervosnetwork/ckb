@@ -1,4 +1,4 @@
-use ckb_types::packed::ProposalShortId;
+use ckb_types::packed::{Byte32, ProposalShortId};
 use failure::Fail;
 
 #[derive(Debug, Fail, Eq, PartialEq)]
@@ -54,10 +54,12 @@ pub enum Misbehavior {
 pub enum Ignored {
     #[fail(display = "Already pending compact block")]
     AlreadyPending,
-    #[fail(display = "Already in-flight compact block")]
-    AlreadyInFlight,
+    #[fail(display = "discard already in-flight compact block {}", _0)]
+    AlreadyInFlight(Byte32),
     #[fail(display = "Already stored")]
     AlreadyStored,
     #[fail(display = "Block is too old")]
     TooOldBlock,
+    #[fail(display = "Block is too high")]
+    TooHighBlock,
 }

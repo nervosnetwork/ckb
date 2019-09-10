@@ -64,15 +64,21 @@ impl<'a> CompactBlockProcess<'a> {
         let header = compact_block.header().into_view();
         let block_hash = header.hash();
 
-        // Only accept blocks with a height greater than tip - N
-        // where N is the current epoch length
         let snapshot: &Snapshot = &self.relayer.shared.snapshot();
         let tip = snapshot.tip_header().clone();
         let epoch_length = snapshot.epoch_ext().length();
         let lowest_number = tip.number().saturating_sub(epoch_length);
 
+        // Only accept blocks with a height greater than tip - N
+        // where N is the current epoch length
         if lowest_number > header.number() {
             return Err(Error::Ignored(Ignored::TooOldBlock).into());
+        }
+
+        // If the CompactBlock height is greater than tip + 2.
+        // In high probability the node is syncing.
+        if header.number() > tip.number() + 2 {
+            return Err(Error::Ignored(Ignored::TooHighBlock).into());
         }
 
         let status = self.relayer.shared().get_block_status(&block_hash);
@@ -114,12 +120,7 @@ impl<'a> CompactBlockProcess<'a> {
             .inflight_state_by_block(&block_hash)
         {
             if flight.peers.contains(&self.peer) {
-                debug_target!(
-                    crate::LOG_TARGET_RELAY,
-                    "discard already in-flight compact block {}",
-                    block_hash,
-                );
-                return Err(Error::Ignored(Ignored::AlreadyInFlight).into());
+                return Err(Error::Ignored(Ignored::AlreadyInFlight(block_hash)).into());
             }
         }
 

@@ -208,7 +208,7 @@ fn test_already_in_flight() {
     let r = compact_block_process.execute();
     assert_eq!(
         r.unwrap_err().downcast::<Error>().unwrap(),
-        Error::Ignored(Ignored::AlreadyInFlight)
+        Error::Ignored(Ignored::AlreadyInFlight(block.header().hash().clone()))
     );
 }
 
@@ -515,6 +515,43 @@ fn test_ignore_a_too_old_block() {
     assert_eq!(
         r.unwrap_err().downcast::<Error>().unwrap(),
         Error::Ignored(Ignored::TooOldBlock)
+    );
+}
+
+#[test]
+fn test_ignore_a_too_high_block() {
+    let (relayer, _) = build_chain(5);
+
+    let too_heigh_number = 10;
+    let too_high_block = BlockBuilder::default()
+        .header(
+            HeaderBuilder::default()
+                .number(too_heigh_number.pack())
+                .build(),
+        )
+        .transaction(TransactionBuilder::default().build())
+        .build();
+
+    let mut prefilled_transactions_indexes = HashSet::new();
+    prefilled_transactions_indexes.insert(0);
+    let compact_block =
+        CompactBlock::build_from_block(&too_high_block, &prefilled_transactions_indexes);
+
+    let mock_protocal_context = MockProtocalContext::default();
+    let nc = Arc::new(mock_protocal_context);
+    let peer_index: PeerIndex = 1.into();
+
+    let compact_block_process = CompactBlockProcess::new(
+        compact_block.as_reader(),
+        &relayer,
+        Arc::<MockProtocalContext>::clone(&nc),
+        peer_index,
+    );
+
+    let r = compact_block_process.execute();
+    assert_eq!(
+        r.unwrap_err().downcast::<Error>().unwrap(),
+        Error::Ignored(Ignored::TooHighBlock)
     );
 }
 
