@@ -312,9 +312,8 @@ impl ChainService {
             current_total_difficulty, cannon_total_difficulty,
         );
 
-        let new_best_block = (cannon_total_difficulty > current_total_difficulty)
-            || ((current_total_difficulty == cannon_total_difficulty)
-                && (block.hash() < current_tip_header.hash()));
+        // is_better_than
+        let new_best_block = cannon_total_difficulty > current_total_difficulty;
 
         if new_best_block {
             debug!(
