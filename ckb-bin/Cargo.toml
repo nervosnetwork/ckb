@@ -35,6 +35,6 @@ ckb-hash = { path = "../util/hash"}
 ckb-build-info = { path = "../util/build-info" }
 ckb-traits = { path = "../traits" }
 ckb-verification = { path = "../verification" }
-faster-hex = "0.3"
+faster-hex = "0.4"
 ckb-script = { path = "../script" }
 ckb-db = { path = "../db" }

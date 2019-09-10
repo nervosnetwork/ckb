@@ -8,4 +8,4 @@ edition = "2018"
 [dependencies]
 failure = "0.1.5"
 serde = "1.0"
-faster-hex = "0.3"
+faster-hex = "0.4"
