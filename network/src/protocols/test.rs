@@ -89,8 +89,12 @@ impl Node {
 
     fn ban_all(&self) {
         for id in self.connected_sessions() {
-            self.network_state
-                .ban_session(&self.control, id, Duration::from_secs(20), "");
+            self.network_state.ban_session(
+                &self.control,
+                id,
+                Duration::from_secs(20),
+                Default::default(),
+            );
         }
     }
 }

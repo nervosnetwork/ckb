@@ -178,7 +178,7 @@ impl NetworkState {
         p2p_control: &ServiceControl,
         session_id: SessionId,
         duration: Duration,
-        reason: &str,
+        reason: String,
     ) {
         if let Some(peer_id) =
             self.with_peer_registry(|reg| reg.get_peer(session_id).map(|peer| peer.peer_id.clone()))
@@ -194,7 +194,7 @@ impl NetworkState {
         p2p_control: &ServiceControl,
         peer_id: &PeerId,
         duration: Duration,
-        reason: &str,
+        reason: String,
     ) {
         info!("ban peer {:?} with {:?}", peer_id, duration);
         let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
@@ -202,7 +202,7 @@ impl NetworkState {
             if let Err(err) = self.peer_store.lock().ban_addr(
                 &peer.connected_addr,
                 duration.as_millis() as u64,
-                reason.into(),
+                reason,
             ) {
                 debug!("Failed to ban peer {:?} {:?}", err, peer);
             }
