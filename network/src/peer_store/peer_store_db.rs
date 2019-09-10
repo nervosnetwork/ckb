@@ -31,7 +31,7 @@ impl AddrManager {
         let file = OpenOptions::new()
             .write(true)
             .create(true)
-            .append(true)
+            .append(false)
             .open(path)?;
         serde_json::to_writer(file, &addrs).map_err(|err| PeerStoreError::Serde(err).into())
     }
@@ -57,7 +57,7 @@ impl BanList {
         let file = OpenOptions::new()
             .write(true)
             .create(true)
-            .append(true)
+            .append(false)
             .open(path)?;
         serde_json::to_writer(file, &banned_addrs).map_err(|err| PeerStoreError::Serde(err).into())
     }
