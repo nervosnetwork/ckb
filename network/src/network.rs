@@ -1035,15 +1035,6 @@ impl NetworkService {
                     warn!("send shutdown message to p2p error: {:?}", err);
                 }
 
-                debug!("Dumping peer store data ...");
-                // Dump peer store
-                let peer_store_path = self.network_state.config.peer_store_path().clone();
-                self.network_state.with_peer_store_mut(|peer_store| {
-                    if let Err(err) = peer_store.dump(peer_store_path) {
-                        error!("Dumping peer store error: {}", err);
-                    }
-                });
-
                 debug!("Waiting tokio runtime to finish ...");
                 runtime.shutdown_on_idle().wait().unwrap();
                 debug!("Shutdown network service finished!");

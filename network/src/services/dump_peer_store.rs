@@ -44,6 +44,7 @@ impl Future for DumpPeerStoreService {
                 }
                 Ok(Async::Ready(None)) => {
                     warn!("ckb dump peer store service stopped");
+                    self.dump_peer_store();
                     return Ok(Async::Ready(()));
                 }
                 Ok(Async::NotReady) => {
