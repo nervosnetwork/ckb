@@ -9,9 +9,9 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
-use crate::consensus::Consensus;
+use crate::consensus::{Consensus, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_LOCK_HASH};
 use ckb_crypto::secp::Privkey;
-use ckb_dao_utils::genesis_dao_data;
+use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
@@ -20,8 +20,8 @@ use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, ScriptHashType,
-        TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, Ratio,
+        ScriptHashType, TransactionBuilder, TransactionView,
     },
     h256, packed,
     prelude::*,
@@ -90,6 +90,8 @@ pub struct Genesis {
     pub system_cells_lock: Script,
     pub bootstrap_lock: Script,
     pub dep_groups: BTreeMap<String, Vec<Resource>>,
+    #[serde(default)]
+    pub satoshi_gift: SatoshiGift,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -109,6 +111,21 @@ pub struct GenesisCell {
 pub struct IssuedCell {
     pub capacity: Capacity,
     pub lock: Script,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct SatoshiGift {
+    pub satoshi_lock_hash: H256,
+    pub satoshi_cell_occupied_ratio: Ratio,
+}
+
+impl Default for SatoshiGift {
+    fn default() -> Self {
+        SatoshiGift {
+            satoshi_lock_hash: SATOSHI_LOCK_HASH,
+            satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -196,7 +213,9 @@ impl ChainSpec {
             .set_cellbase_maturity(self.params.cellbase_maturity)
             .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
             .set_max_block_cycles(self.params.max_block_cycles)
-            .set_pow(self.pow.clone());
+            .set_pow(self.pow.clone())
+            .set_satoshi_lock_hash(self.genesis.satoshi_gift.satoshi_lock_hash.pack())
+            .set_satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio);
 
         Ok(consensus)
     }
@@ -207,8 +226,12 @@ impl Genesis {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
-        let dao = genesis_dao_data(vec![&cellbase_transaction, &dep_group_transaction])
-            .map_err(|e| e.compat())?;;
+        let dao = genesis_dao_data_with_satoshi_gift(
+            vec![&cellbase_transaction, &dep_group_transaction],
+            &self.satoshi_gift.satoshi_lock_hash,
+            self.satoshi_gift.satoshi_cell_occupied_ratio,
+        )
+        .map_err(|e| e.compat())?;;
 
         let block = BlockBuilder::default()
             .version(self.version.pack())
@@ -249,7 +272,10 @@ impl Genesis {
             .transactions()
             .into_iter()
             .flat_map(|tx| tx.outputs().into_iter().map(|output| output.lock()))
-            .filter(|lock_script| lock_script != &genesis_cell_lock)
+            .filter(|lock_script| {
+                lock_script != &genesis_cell_lock
+                    && lock_script.calc_script_hash() != self.satoshi_gift.satoshi_lock_hash.pack()
+            })
         {
             match lock_script.hash_type().unpack() {
                 ScriptHashType::Data => {

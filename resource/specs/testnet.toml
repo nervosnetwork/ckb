@@ -8,7 +8,7 @@ difficulty = "0x11940000000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x4193e67e1a8ff5d3a5ade1e1a1deb1c7308d0221588efd743c69c1be2d01bab1"
+hash = "0x7c69755329171b3f01b4c81000904738d214b22ce85993614822c81e3fec33f7"
 
 [genesis.genesis_cell]
 message = "rylai-v10"
@@ -71,6 +71,13 @@ capacity = 50_000_000_00000000
 lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 lock.hash_type = "type"
+# Satoshi's gift, a cell send to satoshi's lock,
+# 60% capacity of this cell is occupied.
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x88fce31aa68db1bb2d5bde7a731b7e6b2429e7aa6fdf60203f397eb8e2147794"
+lock.args = ["0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"]
+lock.hash_type = "data"
 
 [pow]
 func = "Eaglesong"

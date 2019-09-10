@@ -50,6 +50,10 @@ impl TransactionInfo {
     pub fn is_cellbase(&self) -> bool {
         self.index == 0
     }
+
+    pub fn is_genesis(&self) -> bool {
+        self.block_number == 0
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Default)]

@@ -5,7 +5,11 @@ use ckb_error::Error;
 use ckb_resource::CODE_HASH_DAO;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
-    core::{cell::ResolvedTransaction, BlockNumber, Capacity, EpochExt, HeaderView},
+    core::{
+        cell::{CellMeta, ResolvedTransaction},
+        ckb_occupied_capacity::Result as CapacityResult,
+        BlockNumber, Capacity, EpochExt, HeaderView,
+    },
     packed::{Byte32, CellOutput, OutPoint},
     prelude::*,
 };
@@ -241,7 +245,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
         rtx.resolved_inputs
             .iter()
             .try_fold(Capacity::zero(), |capacities, cell_meta| {
-                let current_capacity = cell_meta.occupied_capacity();
+                let current_capacity = modified_occupied_capacity(&cell_meta, &self.consensus);
                 current_capacity.and_then(|c| capacities.safe_add(c))
             })
             .map_err(Into::into)
@@ -295,6 +299,24 @@ fn calculate_g2(
         g2 = g2.safe_add(Capacity::one())?;
     }
     Ok(g2)
+}
+
+/// return special occupied capacity if cell is satoshi's gift
+/// otherwise return cell occupied capacity
+pub fn modified_occupied_capacity(
+    cell_meta: &CellMeta,
+    consensus: &Consensus,
+) -> CapacityResult<Capacity> {
+    if let Some(tx_info) = &cell_meta.transaction_info {
+        if tx_info.is_genesis()
+            && tx_info.is_cellbase()
+            && cell_meta.cell_output.lock().calc_script_hash() == consensus.satoshi_lock_hash
+        {
+            return Unpack::<Capacity>::unpack(&cell_meta.cell_output.capacity())
+                .safe_mul_ratio(consensus.satoshi_cell_occupied_ratio);
+        }
+    }
+    cell_meta.occupied_capacity()
 }
 
 #[cfg(test)]

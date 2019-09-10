@@ -1,4 +1,4 @@
-use ckb_dao_utils::genesis_dao_data;
+use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
@@ -8,6 +8,7 @@ use ckb_types::{
         capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
         HeaderView, Ratio, TransactionBuilder, Version,
     },
+    h256,
     packed::{Byte32, CellInput, Script},
     prelude::*,
     u256, H256, U256,
@@ -57,6 +58,13 @@ const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
 pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
 const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
+
+// A special lock for satoshi, use satoshi's private key can unlock this.
+pub(crate) const SATOSHI_LOCK_HASH: H256 =
+    h256!("0x1d11151e87cf8f77d2130e7ee8ca66be197b310ed39cc74c40a5df4933ca8a75");
+// Ratio of satoshi cell occupied of capacity,
+// only affects genesis cellbase's satoshi lock cells.
+pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio(6, 10);
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
@@ -121,6 +129,11 @@ pub struct Consensus {
     // block version number supported
     pub max_block_proposals_limit: u64,
     pub genesis_epoch_ext: EpochExt,
+    // A special lock for satoshi, use satoshi's private key can unlock this.
+    pub satoshi_lock_hash: Byte32,
+    // Ratio of satoshi cell occupied of capacity,
+    // only affects genesis cellbase's satoshi lock cells.
+    pub satoshi_cell_occupied_ratio: Ratio,
 }
 
 // genesis difficulty should not be zero
@@ -132,7 +145,12 @@ impl Default for Consensus {
             .input(input)
             .witness(witness)
             .build();
-        let dao = genesis_dao_data(vec![&cellbase]).unwrap();
+        let dao = genesis_dao_data_with_satoshi_gift(
+            vec![&cellbase],
+            &SATOSHI_LOCK_HASH,
+            SATOSHI_CELL_OCCUPIED_RATIO,
+        )
+        .unwrap();
         let genesis_block = BlockBuilder::default()
             .difficulty(U256::one().pack())
             .dao(dao)
@@ -195,6 +213,8 @@ impl Consensus {
             block_version: BLOCK_VERSION,
             proposer_reward_ratio: PROPOSER_REWARD_RATIO,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
+            satoshi_lock_hash: SATOSHI_LOCK_HASH.pack(),
+            satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
         }
     }
 
@@ -257,6 +277,16 @@ impl Consensus {
 
     pub fn set_pow(mut self, pow: Pow) -> Self {
         self.pow = pow;
+        self
+    }
+
+    pub fn set_satoshi_lock_hash(mut self, lock_hash: Byte32) -> Self {
+        self.satoshi_lock_hash = lock_hash;
+        self
+    }
+
+    pub fn set_satoshi_cell_occupied_ratio(mut self, ratio: Ratio) -> Self {
+        self.satoshi_cell_occupied_ratio = ratio;
         self
     }
 
@@ -556,7 +586,15 @@ fn u256_low_u64(u: U256) -> u64 {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use ckb_types::core::{BlockBuilder, TransactionBuilder};
+    use ckb_types::{
+        core::{BlockBuilder, ScriptHashType, TransactionBuilder},
+        h160,
+        packed::{CellOutput, Script},
+        H160,
+    };
+
+    // Satoshi's lock in Bitcoin genesis.
+    const SATOSHI_H160: H160 = h160!("0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18");
 
     #[test]
     fn test_init_epoch_reward() {
@@ -564,5 +602,19 @@ pub mod test {
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let consensus = Consensus::new(genesis, capacity_bytes!(100));
         assert_eq!(capacity_bytes!(100), consensus.epoch_reward);
+    }
+
+    #[test]
+    fn test_satoshi_lock_hash() {
+        let script_code =
+            Resource::bundled("specs/cells/secp256k1_ripemd160_sha256_sighash_all".to_string())
+                .get()
+                .expect("Load secp script data failed");
+        let lock = Script::new_builder()
+            .code_hash(CellOutput::calc_data_hash(&script_code))
+            .hash_type(ScriptHashType::Data.pack())
+            .args(vec![SATOSHI_H160.0.pack()].pack())
+            .build();
+        assert_eq!(lock.calc_script_hash(), SATOSHI_LOCK_HASH.pack());
     }
 }
