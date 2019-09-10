@@ -459,7 +459,6 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-spec"
-<<<<<<< HEAD
 version = "0.21.0-pre"
 dependencies = [
  "ckb-crypto 0.21.0-pre",
@@ -472,19 +471,7 @@ dependencies = [
  "ckb-resource 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
-=======
-version = "0.20.0-pre"
-dependencies = [
- "ckb-crypto 0.20.0-pre",
- "ckb-dao-utils 0.20.0-pre",
- "ckb-hash 0.20.0-pre",
- "ckb-jsonrpc-types 0.20.0-pre",
- "ckb-pow 0.20.0-pre",
- "ckb-rational 0.20.0-pre",
- "ckb-resource 0.20.0-pre",
- "ckb-types 0.20.0-pre",
  "faster-hex 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
->>>>>>> feat: allow genesis block cells virtual occupied
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
  "toml 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",

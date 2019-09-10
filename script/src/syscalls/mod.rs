@@ -179,7 +179,8 @@ mod tests {
     use ckb_types::{
         bytes::Bytes,
         core::{
-            cell::{CellMeta, CellMetaBuilder}, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
+            cell::{CellMeta, CellMetaBuilder},
+            BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
         },
         packed::{Byte32, CellOutput, Script, Witness},
         prelude::*,

@@ -71,7 +71,7 @@ impl CellMetaBuilder {
 
     pub fn from_memory_cell(cell_output: CellOutput, data: Bytes) -> Self {
         let mut builder = CellMetaBuilder::from_cell(cell_output, data.len());
-        let data_hash = CellOutput::calc_data_hash(&data).pack();
+        let data_hash = CellOutput::calc_data_hash(&data);
         builder.mem_cell_data = Some((data, data_hash));
         builder
     }
@@ -96,7 +96,7 @@ impl CellMetaBuilder {
     }
 
     pub fn mem_cell_data(mut self, data: Bytes) -> Self {
-        let data_hash = CellOutput::calc_data_hash(&data).pack();
+        let data_hash = CellOutput::calc_data_hash(&data);
         self.mem_cell_data = Some((data, data_hash));
         self
     }
@@ -296,7 +296,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         CellMetaBuilder::from_memory_cell(output, data)
                             .out_point(out_point.clone())
                             .transaction_info(tx_info)
-                            .build()
+                            .build(),
                     )
                 })
             })
