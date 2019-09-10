@@ -25,7 +25,6 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let (shared, table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus)
         .tx_pool_config(args.config.tx_pool)
-        .script_config(args.config.script)
         .store_config(args.config.store)
         .build()
         .map_err(|err| {

@@ -125,7 +125,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
 }
 
 fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
-    VerifyContext::new(shared.store(), shared.consensus(), shared.script_config())
+    VerifyContext::new(shared.store(), shared.consensus())
 }
 
 fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {

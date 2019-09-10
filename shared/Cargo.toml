@@ -18,7 +18,6 @@ faketime = "0.2"
 ckb-logger = { path = "../util/logger" }
 ckb-traits = { path = "../traits" }
 ckb-verification = { path = "../verification" }
-ckb-script = { path = "../script" }
 ckb-dao = { path = "../util/dao" }
 ckb-reward-calculator = { path = "../util/reward-calculator" }
 ckb-proposal-table = { path = "../util/proposal-table" }

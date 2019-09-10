@@ -2,7 +2,7 @@ use crate::TransactionError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
 use ckb_resource::CODE_HASH_DAO;
-use ckb_script::{ScriptConfig, TransactionScriptsVerifier};
+use ckb_script::TransactionScriptsVerifier;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
@@ -79,7 +79,6 @@ where
         epoch_number: EpochNumber,
         parent_hash: Byte32,
         consensus: &'a Consensus,
-        script_config: &'a ScriptConfig,
         chain_store: &'a CS,
     ) -> Self {
         TransactionVerifier {
@@ -89,7 +88,7 @@ where
             maturity: MaturityVerifier::new(&rtx, block_number, consensus.cellbase_maturity()),
             duplicate_deps: DuplicateDepsVerifier::new(&rtx.transaction),
             outputs_data_verifier: OutputsDataVerifier::new(&rtx.transaction),
-            script: ScriptVerifier::new(rtx, chain_store, script_config),
+            script: ScriptVerifier::new(rtx, chain_store),
             capacity: CapacityVerifier::new(rtx),
             since: SinceVerifier::new(
                 rtx,
@@ -158,30 +157,19 @@ impl<'a> SizeVerifier<'a> {
 pub struct ScriptVerifier<'a, CS> {
     chain_store: &'a CS,
     resolved_transaction: &'a ResolvedTransaction<'a>,
-    script_config: &'a ScriptConfig,
 }
 
 impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
-    pub fn new(
-        resolved_transaction: &'a ResolvedTransaction,
-        chain_store: &'a CS,
-        script_config: &'a ScriptConfig,
-    ) -> Self {
+    pub fn new(resolved_transaction: &'a ResolvedTransaction, chain_store: &'a CS) -> Self {
         ScriptVerifier {
             chain_store,
             resolved_transaction,
-            script_config,
         }
     }
 
     pub fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
         let data_loader = DataLoaderWrapper::new(self.chain_store);
-        TransactionScriptsVerifier::new(
-            &self.resolved_transaction,
-            &data_loader,
-            &self.script_config,
-        )
-        .verify(max_cycles)
+        TransactionScriptsVerifier::new(&self.resolved_transaction, &data_loader).verify(max_cycles)
     }
 }
 

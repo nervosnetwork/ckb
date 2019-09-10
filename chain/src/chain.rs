@@ -556,8 +556,7 @@ impl ChainService {
             attach_block_cell(txn, b, cell_set)?;
         }
 
-        let verify_context =
-            VerifyContext::new(txn, self.shared.consensus(), self.shared.script_config());
+        let verify_context = VerifyContext::new(txn, self.shared.consensus());
 
         let mut found_error = None;
         for (ext, b) in fork

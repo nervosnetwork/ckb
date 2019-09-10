@@ -27,7 +27,6 @@ ckb-shared = { path = "../../shared" }
 ckb-store = { path = "../../store" }
 ckb-network-alert = { path = "../network-alert" }
 ckb-build-info = { path = "../build-info" }
-ckb-script = { path = "../../script" }
 
 [dev-dependencies]
 tempfile = "3.0"

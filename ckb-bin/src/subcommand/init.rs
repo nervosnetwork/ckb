@@ -10,7 +10,6 @@ use ckb_resource::{
     Resource, TemplateContext, AVAILABLE_SPECS, CKB_CONFIG_FILE_NAME, DEFAULT_SPEC,
     MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
-use ckb_script::Runner;
 use ckb_types::{prelude::*, H256};
 
 const DEFAULT_LOCK_SCRIPT_HASH_TYPE: &str = "type";
@@ -91,8 +90,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         }
     }
 
-    let runner = Runner::default().to_string();
-
     // Try to find the default secp256k1 from bundled chain spec.
     let default_code_hash_option =
         ChainSpec::load_from(&Resource::bundled(format!("specs/{}.toml", args.chain)))
@@ -168,7 +165,6 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         p2p_port: &args.p2p_port,
         log_to_file: args.log_to_file,
         log_to_stdout: args.log_to_stdout,
-        runner: &runner,
         block_assembler: &block_assembler,
     };
 

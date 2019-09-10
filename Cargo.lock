@@ -346,7 +346,6 @@ dependencies = [
  "ckb-pow 0.21.0-pre",
  "ckb-resource 0.21.0-pre",
  "ckb-rpc 0.21.0-pre",
- "ckb-script 0.21.0-pre",
  "ckb-shared 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -410,7 +409,6 @@ dependencies = [
  "ckb-notify 0.21.0-pre",
  "ckb-resource 0.21.0-pre",
  "ckb-rpc 0.21.0-pre",
- "ckb-script 0.21.0-pre",
  "ckb-shared 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-sync 0.21.0-pre",
@@ -893,7 +891,7 @@ dependencies = [
  "ckb-store 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
  "ckb-types 0.21.0-pre",
- "ckb-vm 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-vm 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "faster-hex 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "proptest 0.9.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -923,7 +921,6 @@ dependencies = [
  "ckb-notify 0.21.0-pre",
  "ckb-proposal-table 0.21.0-pre",
  "ckb-reward-calculator 0.21.0-pre",
- "ckb-script 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
@@ -1035,7 +1032,6 @@ version = "0.21.0-pre"
 dependencies = [
  "ckb-chain-spec 0.21.0-pre",
  "ckb-error 0.21.0-pre",
- "ckb-script 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-types 0.21.0-pre",
 ]
@@ -1115,21 +1111,21 @@ dependencies = [
 
 [[package]]
 name = "ckb-vm"
-version = "0.15.1"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.38 (registry+https://github.com/rust-lang/crates.io-index)",
- "ckb-vm-definitions 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "goblin 0.0.22 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-vm-definitions 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "goblin 0.0.24 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
  "memmap 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "ckb-vm-definitions"
-version = "0.15.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -1695,7 +1691,7 @@ dependencies = [
 
 [[package]]
 name = "goblin"
-version = "0.0.22"
+version = "0.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -4108,8 +4104,8 @@ dependencies = [
 "checksum cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)" = "11d43355396e872eefb45ce6342e4374ed7bc2b3a502d1b28e36d6e23c05d1f4"
 "checksum chrono 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)" = "27429a03ca54100bf6bdc726c09adc46a74187ac93f9ce96dc7aaa9594ebf707"
 "checksum ckb-system-scripts 0.3.2-alpha.2+refactor-schema (registry+https://github.com/rust-lang/crates.io-index)" = "956a5e5323071dfdd0ea1f9d073c8ebb8fb29ba05d57f0fff217d1ccd7c3c20f"
-"checksum ckb-vm 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f089b008f8fa02e44b409b2c24ee9a9f65216f24cebeccc598162d3a44a675ad"
-"checksum ckb-vm-definitions 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fd297669e4783ddca472fa00e7d2117b2d1dcb67cca814d5dd222852b8dba088"
+"checksum ckb-vm 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)" = "cf38f65a6d172254c98eec58293848fa13d4fab24505090ef5e7920729af86c4"
+"checksum ckb-vm-definitions 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)" = "cdef12b0d1abb7ccc395d90b1e42cbf809dd62f0c229bf47bccb1ea458ea60ab"
 "checksum clang-sys 0.28.1 (registry+https://github.com/rust-lang/crates.io-index)" = "81de550971c976f176130da4b2978d3b524eaa0fd9ac31f3ceb5ae1231fb4853"
 "checksum clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5067f5bb2d80ef5d68b4c87db81601f0b75bca627bc2ef76b141d7b846a3c6d9"
 "checksum clicolors-control 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "73abfd4c73d003a674ce5d2933fca6ce6c42480ea84a5ffe0a2dc39ed56300f9"
@@ -4175,7 +4171,7 @@ dependencies = [
 "checksum glob 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)" = "8be18de09a56b60ed0edf84bc9df007e30040691af7acd1c41874faac5895bfb"
 "checksum glob 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
 "checksum globset 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "4743617a7464bbda3c8aec8558ff2f9429047e025771037df561d383337ff865"
-"checksum goblin 0.0.22 (registry+https://github.com/rust-lang/crates.io-index)" = "7f55d53401eb2fd30afd025c570b1946b6966344acf21b42e31286f3bf89e6a8"
+"checksum goblin 0.0.24 (registry+https://github.com/rust-lang/crates.io-index)" = "e3fa261d919c1ae9d1e4533c4a2f99e10938603c4208d56c05bec7a872b661b0"
 "checksum h2 0.1.17 (registry+https://github.com/rust-lang/crates.io-index)" = "910a5e7be6283a9c91b3982fa5188368c8719cce2a3cf3b86048673bf9d9c36b"
 "checksum heapsize 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "1679e6ea370dee694f91f1dc469bf94cf8f52051d147aec3e1f9497c6fc22461"
 "checksum heck 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "20564e78d53d2bb135c343b3f47714a56af2061f1c928fdb541dc7b9fdd94205"

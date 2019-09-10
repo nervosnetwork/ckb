@@ -4,7 +4,6 @@ use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Script, Transac
 use ckb_logger::error;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::cell::{resolve_transaction, CellProvider, CellStatus, HeaderChecker},
     packed,
@@ -109,9 +108,7 @@ impl<'a> DryRunner<'a> {
             Ok(resolved) => {
                 let consensus = snapshot.consensus();
                 let max_cycles = consensus.max_block_cycles;
-                match ScriptVerifier::new(&resolved, snapshot, self.shared.script_config())
-                    .verify(max_cycles)
-                {
+                match ScriptVerifier::new(&resolved, snapshot).verify(max_cycles) {
                     Ok(cycles) => Ok(DryRunResult {
                         cycles: Cycle(cycles),
                     }),

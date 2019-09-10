@@ -9,5 +9,4 @@ license = "MIT"
 ckb-types = { path = "../util/types" }
 ckb-chain-spec = {path = "../spec"}
 ckb-store = { path = "../store" }
-ckb-script = { path = "../script" }
 ckb-error = { path = "../error" }

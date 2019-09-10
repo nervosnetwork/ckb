@@ -9,7 +9,6 @@ use ckb_dao::DaoCalculator;
 use ckb_error::Error;
 use ckb_logger::error_target;
 use ckb_reward_calculator::RewardCalculator;
-use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
@@ -28,16 +27,11 @@ use std::collections::HashSet;
 pub struct VerifyContext<'a, CS> {
     pub(crate) store: &'a CS,
     pub(crate) consensus: &'a Consensus,
-    pub(crate) script_config: &'a ScriptConfig,
 }
 
 impl<'a, CS: ChainStore<'a>> VerifyContext<'a, CS> {
-    pub fn new(store: &'a CS, consensus: &'a Consensus, script_config: &'a ScriptConfig) -> Self {
-        VerifyContext {
-            store,
-            consensus,
-            script_config,
-        }
+    pub fn new(store: &'a CS, consensus: &'a Consensus) -> Self {
+        VerifyContext { store, consensus }
     }
 
     fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
@@ -370,7 +364,6 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         self.epoch_number,
                         self.parent_hash.clone(),
                         self.context.consensus,
-                        self.context.script_config,
                         self.context.store,
                     )
                     .verify(self.context.consensus.max_block_cycles())
