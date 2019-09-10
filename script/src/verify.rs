@@ -388,8 +388,6 @@ fn internal_error(error: ckb_vm::Error) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(not(all(unix, target_pointer_width = "64")))]
-    use crate::Runner;
     use byteorder::{ByteOrder, LittleEndian};
     use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
     use ckb_db::RocksDB;
