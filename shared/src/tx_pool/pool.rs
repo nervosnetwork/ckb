@@ -5,7 +5,6 @@ use crate::tx_pool::orphan::OrphanPool;
 use crate::tx_pool::pending::PendingQueue;
 use crate::tx_pool::proposed::ProposedPool;
 use ckb_logger::{error_target, trace_target};
-use ckb_script::ScriptConfig;
 use ckb_types::{
     core::{Capacity, Cycle, TransactionView},
     packed::{Byte32, OutPoint, ProposalShortId},
@@ -37,16 +36,10 @@ pub struct TxPool {
     pub(crate) total_tx_cycles: Cycle,
 
     pub snapshot: Arc<Snapshot>,
-
-    pub script_config: ScriptConfig,
 }
 
 impl TxPool {
-    pub fn new(
-        config: TxPoolConfig,
-        snapshot: Arc<Snapshot>,
-        script_config: ScriptConfig,
-    ) -> TxPool {
+    pub fn new(config: TxPoolConfig, snapshot: Arc<Snapshot>) -> TxPool {
         let conflict_cache_size = config.max_conflict_cache_size;
         let committed_txs_hash_cache_size = config.max_committed_txs_hash_cache_size;
         let last_txs_updated_at = 0u64;
@@ -63,7 +56,6 @@ impl TxPool {
             total_tx_size: 0,
             total_tx_cycles: 0,
             snapshot,
-            script_config,
         }
     }
 

@@ -1,6 +1,5 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_error::Error;
-use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockReward, EpochExt, HeaderView},
@@ -11,8 +10,6 @@ pub trait ChainProvider: Sync + Send {
     type Store: ChainStore<'static>;
 
     fn store(&self) -> &Self::Store;
-
-    fn script_config(&self) -> &ScriptConfig;
 
     fn genesis_hash(&self) -> Byte32;
 

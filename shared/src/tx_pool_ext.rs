@@ -126,7 +126,6 @@ impl TxPool {
                     epoch_number,
                     tip_header.hash(),
                     consensus,
-                    &self.script_config,
                     snapshot,
                 )
                 .verify(max_cycles)?;

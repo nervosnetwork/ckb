@@ -94,11 +94,6 @@ max_verify_cache_size = 100_000
 max_conflict_cache_size = 1_000
 max_committed_txs_hash_cache_size = 100_000
 
-[script]
-runner = "Rust" # {{
-# _ => runner = "{runner}"
-# }}
-
 [store]
 header_cache_size          = 4096
 cell_data_cache_size       = 128

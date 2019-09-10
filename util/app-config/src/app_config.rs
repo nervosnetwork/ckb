@@ -21,7 +21,6 @@ use ckb_network_alert::config::{
 };
 use ckb_resource::Resource;
 use ckb_rpc::Config as RpcConfig;
-use ckb_script::ScriptConfig;
 use ckb_shared::tx_pool::TxPoolConfig;
 use ckb_store::StoreConfig;
 
@@ -49,7 +48,6 @@ pub struct CKBAppConfig {
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
     pub tx_pool: TxPoolConfig,
-    pub script: ScriptConfig,
     pub store: StoreConfig,
     pub alert_signature: Option<AlertSignatureConfig>,
     pub alert_notifier: Option<AlertNotifierConfig>,
@@ -260,7 +258,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         {
@@ -307,7 +304,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: false,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         {
@@ -343,7 +339,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         {
@@ -390,7 +385,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Rust",
             block_assembler: "",
         };
         {
@@ -435,7 +429,6 @@ mod tests {
             p2p_port: "8000",
             log_to_file: true,
             log_to_stdout: true,
-            runner: "Assembly",
             block_assembler: "",
         };
         {

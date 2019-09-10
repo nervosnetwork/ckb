@@ -122,7 +122,6 @@ impl TxPoolExecutor {
                     epoch_number,
                     parent_hash.clone(),
                     &consensus,
-                    self.shared.script_config(),
                     snapshot,
                 )
                 .verify(max_block_cycles)

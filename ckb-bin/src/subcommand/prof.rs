@@ -12,7 +12,6 @@ pub fn profile(args: ProfArgs) -> Result<(), ExitCode> {
     let (shared, _table) = SharedBuilder::with_db_config(&args.config.db)
         .consensus(args.consensus.clone())
         .tx_pool_config(args.config.tx_pool)
-        .script_config(args.config.script)
         .build()
         .map_err(|err| {
             eprintln!("Prof error: {:?}", err);

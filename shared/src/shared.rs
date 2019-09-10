@@ -8,7 +8,6 @@ use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info_target;
 use ckb_proposal_table::{ProposalTable, ProposalView};
 use ckb_reward_calculator::RewardCalculator;
-use ckb_script::ScriptConfig;
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
@@ -30,7 +29,6 @@ pub struct Shared {
     pub(crate) tx_pool: Arc<Mutex<TxPool>>,
     pub(crate) txs_verify_cache: Arc<Mutex<LruCache<Byte32, Cycle>>>,
     pub(crate) consensus: Arc<Consensus>,
-    pub(crate) script_config: ScriptConfig,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
 }
 
@@ -39,7 +37,6 @@ impl Shared {
         store: ChainDB,
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
-        script_config: ScriptConfig,
     ) -> Result<(Self, ProposalTable), Error> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
@@ -65,12 +62,11 @@ impl Shared {
             Arc::clone(&consensus),
         ));
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
-        let tx_pool = TxPool::new(tx_pool_config, snapshot, script_config.clone());
+        let tx_pool = TxPool::new(tx_pool_config, snapshot);
 
         let shared = Shared {
             store,
             consensus,
-            script_config,
             txs_verify_cache,
             snapshot_mgr,
             tx_pool: Arc::new(Mutex::new(tx_pool)),
@@ -216,10 +212,6 @@ impl ChainProvider for Shared {
         &self.store
     }
 
-    fn script_config(&self) -> &ScriptConfig {
-        &self.script_config
-    }
-
     fn genesis_hash(&self) -> Byte32 {
         self.consensus.genesis_hash()
     }
@@ -256,7 +248,6 @@ pub struct SharedBuilder {
     db: RocksDB,
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
-    script_config: Option<ScriptConfig>,
     store_config: Option<StoreConfig>,
 }
 
@@ -266,7 +257,6 @@ impl Default for SharedBuilder {
             db: RocksDB::open_tmp(COLUMNS),
             consensus: None,
             tx_pool_config: None,
-            script_config: None,
             store_config: None,
         }
     }
@@ -293,11 +283,6 @@ impl SharedBuilder {
         self
     }
 
-    pub fn script_config(mut self, config: ScriptConfig) -> Self {
-        self.script_config = Some(config);
-        self
-    }
-
     pub fn store_config(mut self, config: StoreConfig) -> Self {
         self.store_config = Some(config);
         self
@@ -309,8 +294,7 @@ impl SharedBuilder {
         }
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        let script_config = self.script_config.unwrap_or_else(Default::default);
         let store = ChainDB::new(self.db);
-        Shared::init(store, consensus, tx_pool_config, script_config)
+        Shared::init(store, consensus, tx_pool_config)
     }
 }
