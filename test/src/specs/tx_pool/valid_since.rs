@@ -115,7 +115,7 @@ impl ValidSince {
         let median_time_block_count = node.consensus().median_time_block_count() as u64;
         node.generate_block();
         let cellbase = node.get_tip_block().transactions()[0].clone();
-        let old_median_time = node.rpc_client().get_blockchain_info().median_time.0;
+        let old_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
         sleep(Duration::from_secs(2));
 
         let n = max(self.cellbase_maturity(), median_time_block_count);
@@ -133,7 +133,7 @@ impl ValidSince {
                     .header
                     .inner
                     .timestamp
-                    .0
+                    .into()
             })
             .collect();
         timestamps.sort();
@@ -180,7 +180,7 @@ impl ValidSince {
                     .header
                     .inner
                     .timestamp
-                    .0
+                    .into()
             })
             .collect();
         timestamps.sort();

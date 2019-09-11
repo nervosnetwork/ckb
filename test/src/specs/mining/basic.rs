@@ -81,7 +81,7 @@ impl MiningBasic {
         let template3 = rpc_client.get_block_template(None, None, None);
         assert_eq!(block1.hash(), template3.parent_hash.pack());
         assert!(
-            template3.current_time.0 > template1.current_time.0,
+            template3.current_time.value() > template1.current_time.value(),
             "New tip block, new template",
         );
     }

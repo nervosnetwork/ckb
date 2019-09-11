@@ -44,12 +44,12 @@ impl From<BlockTemplate> for packed::Block {
             ..
         } = block_template;
         let raw = packed::RawHeader::new_builder()
-            .version(version.0.pack())
+            .version(version.pack())
             .difficulty(difficulty.pack())
             .parent_hash(parent_hash.pack())
-            .timestamp(current_time.0.pack())
-            .number(number.0.pack())
-            .epoch(epoch.0.pack())
+            .timestamp(current_time.pack())
+            .number(number.pack())
+            .epoch(epoch.pack())
             .dao(dao.into())
             .chain_root(chain_root.into())
             .build();

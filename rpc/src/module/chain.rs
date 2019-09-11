@@ -1,7 +1,7 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{
-    BlockNumber, BlockReward, BlockView, Capacity, CellOutputWithOutPoint, CellWithStatus,
-    EpochNumber, EpochView, HeaderView, OutPoint, TransactionWithStatus,
+    BlockNumber, BlockReward, BlockView, CellOutputWithOutPoint, CellWithStatus, EpochNumber,
+    EpochView, HeaderView, OutPoint, TransactionWithStatus,
 };
 use ckb_shared::shared::Shared;
 use ckb_store::ChainStore;
@@ -72,7 +72,7 @@ impl ChainRpc for ChainRpcImpl {
         Ok(self
             .shared
             .store()
-            .get_block_hash(number.0)
+            .get_block_hash(number.into())
             .and_then(|hash| self.shared.store().get_block(&hash).map(Into::into)))
     }
 
@@ -88,7 +88,7 @@ impl ChainRpc for ChainRpcImpl {
         Ok(self
             .shared
             .store()
-            .get_block_hash(number.0)
+            .get_block_hash(number.into())
             .and_then(|hash| self.shared.store().get_block_header(&hash).map(Into::into)))
     }
 
@@ -123,7 +123,7 @@ impl ChainRpc for ChainRpcImpl {
         Ok(self
             .shared
             .store()
-            .get_block_hash(number.0)
+            .get_block_hash(number.into())
             .map(|h| h.unpack()))
     }
 
@@ -149,7 +149,7 @@ impl ChainRpc for ChainRpcImpl {
         Ok(self
             .shared
             .store()
-            .get_epoch_index(number.0)
+            .get_epoch_index(number.into())
             .and_then(|hash| {
                 self.shared
                     .store()
@@ -168,8 +168,8 @@ impl ChainRpc for ChainRpcImpl {
         let lock_hash = lock_hash.pack();
         let mut result = Vec::new();
         let snapshot = self.shared.snapshot();
-        let from = from.0;
-        let to = to.0;
+        let from = from.into();
+        let to = to.into();
         if from > to {
             return Err(RPCError::custom(
                 RPCError::Invalid,
@@ -205,7 +205,7 @@ impl ChainRpc for ChainRpcImpl {
                             result.push(CellOutputWithOutPoint {
                                 out_point: out_point.into(),
                                 block_hash: block_hash.unpack(),
-                                capacity: Capacity(output.capacity().unpack()),
+                                capacity: output.capacity().unpack(),
                                 lock: output.lock().clone().into(),
                             });
                         }

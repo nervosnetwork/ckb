@@ -2,11 +2,7 @@ use crate::candidate_uncles::CandidateUncles;
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{
-    BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
-    EpochNumber as JsonEpochNumber, Timestamp as JsonTimestamp, TransactionTemplate, UncleTemplate,
-    Unsigned, Version as JsonVersion,
-};
+use ckb_jsonrpc_types::{BlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate};
 use ckb_logger::{error, info};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_notify::NotifyController;
@@ -217,7 +213,7 @@ impl BlockAssembler {
     fn transform_cellbase(tx: &TransactionView, cycles: Option<Cycle>) -> CellbaseTemplate {
         CellbaseTemplate {
             hash: tx.hash().unpack(),
-            cycles: cycles.map(JsonCycle),
+            cycles: cycles.map(Into::into),
             data: tx.data().into(),
         }
     }
@@ -230,8 +226,8 @@ impl BlockAssembler {
         TransactionTemplate {
             hash: tx.transaction.hash().unpack(),
             required,
-            cycles: Some(JsonCycle(tx.cycles)),
-            depends: depends.map(|deps| deps.into_iter().map(|x| Unsigned(u64::from(x))).collect()),
+            cycles: Some(tx.cycles.into()),
+            depends: depends.map(|deps| deps.into_iter().map(|x| u64::from(x).into()).collect()),
             data: tx.transaction.data().into(),
         }
     }
@@ -296,14 +292,14 @@ impl BlockAssembler {
             // check template cache outdate time
             if !template_cache.is_outdate(current_time) {
                 let mut template = template_cache.template.clone();
-                template.current_time = JsonTimestamp(current_time);
+                template.current_time = current_time.into();
                 return Ok(template);
             }
             let last_txs_updated_at = self.shared.try_lock_tx_pool().get_last_txs_updated_at();
 
             if !template_cache.is_modified(last_uncles_updated_at, last_txs_updated_at) {
                 let mut template = template_cache.template.clone();
-                template.current_time = JsonTimestamp(current_time);
+                template.current_time = current_time.into();
                 return Ok(template);
             }
         }
@@ -386,15 +382,15 @@ impl BlockAssembler {
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
         let template = BlockTemplate {
-            version: JsonVersion(version),
+            version: version.into(),
             difficulty: current_epoch.difficulty().clone(),
-            current_time: JsonTimestamp(current_time),
-            number: JsonBlockNumber(candidate_number),
-            epoch: JsonEpochNumber(current_epoch.number()),
+            current_time: current_time.into(),
+            number: candidate_number.into(),
+            epoch: current_epoch.number().into(),
             parent_hash: tip_hash.unpack(),
-            cycles_limit: JsonCycle(cycles_limit),
-            bytes_limit: Unsigned(bytes_limit),
-            uncles_count_limit: Unsigned(uncles_count_limit.into()),
+            cycles_limit: cycles_limit.into(),
+            bytes_limit: bytes_limit.into(),
+            uncles_count_limit: u64::from(uncles_count_limit).into(),
             uncles: uncles.into_iter().map(Self::transform_uncle).collect(),
             transactions: entries
                 .iter()
@@ -402,7 +398,7 @@ impl BlockAssembler {
                 .collect(),
             proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
-            work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
+            work_id: (self.work_id.fetch_add(1, Ordering::SeqCst) as u64).into(),
             dao: dao.into(),
             chain_root: chain_root.into(),
         };

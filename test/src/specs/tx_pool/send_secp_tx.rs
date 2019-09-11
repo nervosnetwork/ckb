@@ -203,7 +203,7 @@ impl Spec for CheckTypical2In2OutTx {
             .rpc_client()
             .dry_run_transaction(tx.data().into())
             .cycles
-            .0;
+            .into();
         assert_eq!(
             cycles, TX_2_IN_2_OUT_CYCLES,
             "2 in 2 out tx cycles changed, PLEASE UPDATE consensus"

@@ -28,7 +28,7 @@ impl From<BlockTemplate> for Work {
         let block: Block = block_template.into();
 
         Work {
-            work_id: work_id.0,
+            work_id: work_id.into(),
             block,
         }
     }
