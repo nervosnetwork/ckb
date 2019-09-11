@@ -665,14 +665,15 @@ fn u256_low_u64(u: U256) -> u64 {
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use ckb_resource::CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL;
     use ckb_types::{
         core::{BlockBuilder, ScriptHashType, TransactionBuilder},
         h160,
-        packed::{CellOutput, Script},
+        packed::Script,
         H160,
     };
 
-    // Satoshi's lock in Bitcoin genesis.
+    // Satoshi's pubkey hash in Bitcoin genesis.
     const SATOSHI_H160: H160 = h160!("0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18");
 
     #[test]
@@ -685,12 +686,8 @@ pub mod test {
 
     #[test]
     fn test_satoshi_lock_hash() {
-        let script_code =
-            Resource::bundled("specs/cells/secp256k1_ripemd160_sha256_sighash_all".to_string())
-                .get()
-                .expect("Load secp script data failed");
         let lock = Script::new_builder()
-            .code_hash(CellOutput::calc_data_hash(&script_code))
+            .code_hash(CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL.pack())
             .hash_type(ScriptHashType::Data.pack())
             .args(vec![SATOSHI_H160.0.pack()].pack())
             .build();
