@@ -12,7 +12,6 @@ ckb-indexer = { path = "../indexer" }
 ckb-shared = { path = "../shared" }
 ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-store = { path = "../store" }
-ckb-db = { path = "../db" }
 ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
 ckb-miner = { path = "../miner" }

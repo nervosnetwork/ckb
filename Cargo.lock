@@ -337,6 +337,7 @@ dependencies = [
  "ckb-build-info 0.21.0-pre",
  "ckb-chain-spec 0.21.0-pre",
  "ckb-db 0.21.0-pre",
+ "ckb-indexer 0.21.0-pre",
  "ckb-instrument 0.21.0-pre",
  "ckb-jsonrpc-types 0.21.0-pre",
  "ckb-logger 0.21.0-pre",
@@ -585,6 +586,8 @@ dependencies = [
  "ckb-traits 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "ckb-util 0.21.0-pre",
+ "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

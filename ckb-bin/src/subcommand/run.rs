@@ -181,7 +181,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
             chain_controller.clone(),
         )
         .enable_alert(alert_verifier, alert_notifier, network_controller)
-        .enable_indexer(&args.config.indexer_db, shared.clone());
+        .enable_indexer(&args.config.indexer, shared.clone());
     let io_handler = builder.build();
 
     let rpc_server = RpcServer::new(args.config.rpc, io_handler);
