@@ -9,7 +9,9 @@
 //! we must put nested config struct in the tail to make it serializable,
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
-use crate::consensus::{Consensus, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_LOCK_HASH};
+use crate::consensus::{
+    Consensus, ConsensusBuilder, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_LOCK_HASH,
+};
 use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -208,14 +210,15 @@ impl ChainSpec {
         let genesis_block = self.genesis.build_block()?;
         self.verify_genesis_hash(&genesis_block)?;
 
-        let consensus = Consensus::new(genesis_block, self.params.epoch_reward)
-            .set_id(self.name.clone())
-            .set_cellbase_maturity(self.params.cellbase_maturity)
-            .set_secondary_epoch_reward(self.params.secondary_epoch_reward)
-            .set_max_block_cycles(self.params.max_block_cycles)
-            .set_pow(self.pow.clone())
-            .set_satoshi_lock_hash(self.genesis.satoshi_gift.satoshi_lock_hash.pack())
-            .set_satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio);
+        let consensus = ConsensusBuilder::new(genesis_block, self.params.epoch_reward)
+            .id(self.name.clone())
+            .cellbase_maturity(self.params.cellbase_maturity)
+            .secondary_epoch_reward(self.params.secondary_epoch_reward)
+            .max_block_cycles(self.params.max_block_cycles)
+            .pow(self.pow.clone())
+            .satoshi_lock_hash(self.genesis.satoshi_gift.satoshi_lock_hash.pack())
+            .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
+            .build();
 
         Ok(consensus)
     }

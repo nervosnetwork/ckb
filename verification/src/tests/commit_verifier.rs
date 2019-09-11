@@ -1,7 +1,7 @@
 use super::super::contextual_block_verifier::{CommitVerifier, VerifyContext};
 use crate::CommitError;
 use ckb_chain::chain::{ChainController, ChainService};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_error::assert_error_eq;
 use ckb_notify::NotifyService;
 use ckb_shared::shared::{Shared, SharedBuilder};
@@ -119,7 +119,9 @@ fn setup_env() -> (ChainController, Shared, Byte32, Script, OutPoint) {
         .build();
     let tx_hash = tx.data().calc_tx_hash();
     let genesis_block = BlockBuilder::default().transaction(tx).build();
-    let consensus = Consensus::default().set_genesis_block(genesis_block);
+    let consensus = ConsensusBuilder::default()
+        .genesis_block(genesis_block)
+        .build();
     let (chain_controller, shared) = start_chain(Some(consensus));
     (
         chain_controller,

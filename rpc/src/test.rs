@@ -4,7 +4,7 @@ use crate::module::{
 };
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
@@ -81,10 +81,11 @@ fn always_success_consensus() -> Consensus {
         .dao(dao)
         .transaction(always_success_tx)
         .build();
-    Consensus::default()
-        .set_genesis_block(genesis)
-        .set_epoch_reward(Capacity::shannons(EPOCH_REWARD))
-        .set_cellbase_maturity(CELLBASE_MATURITY)
+    ConsensusBuilder::default()
+        .genesis_block(genesis)
+        .epoch_reward(Capacity::shannons(EPOCH_REWARD))
+        .cellbase_maturity(CELLBASE_MATURITY)
+        .build()
 }
 
 // Construct `Transaction` with an always-success cell

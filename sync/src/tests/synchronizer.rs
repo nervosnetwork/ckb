@@ -5,7 +5,7 @@ use crate::synchronizer::{
 use crate::tests::TestNode;
 use crate::{NetworkProtocol, SyncSharedState, Synchronizer};
 use ckb_chain::chain::ChainService;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
@@ -102,9 +102,10 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
         .transaction(always_success_tx)
         .build();
 
-    let consensus = Consensus::default()
-        .set_genesis_block(block.clone())
-        .set_cellbase_maturity(0);
+    let consensus = ConsensusBuilder::default()
+        .genesis_block(block.clone())
+        .cellbase_maturity(0)
+        .build();
     let (shared, table) = SharedBuilder::default()
         .consensus(consensus)
         .build()

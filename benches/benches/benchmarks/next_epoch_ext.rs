@@ -1,4 +1,4 @@
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_types::{
     core::{capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, HeaderView, TransactionBuilder},
@@ -90,7 +90,8 @@ fn bench(c: &mut Criterion) {
                         .build();
 
                     let mut parent = genesis_block.header().clone();
-                    let consensus = Consensus::new(genesis_block, DEFAULT_EPOCH_REWARD);
+                    let consensus =
+                        ConsensusBuilder::new(genesis_block, DEFAULT_EPOCH_REWARD).build();
                     let genesis_epoch_ext = consensus.genesis_epoch_ext().clone();
 
                     let mut store = FakeStore::default();
