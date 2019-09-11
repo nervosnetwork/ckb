@@ -6,10 +6,11 @@ mod error;
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_error::Error;
 use ckb_types::{
+    bytes::Bytes,
     core::{Capacity, Ratio, TransactionView},
     packed::{Byte32, OutPoint},
     prelude::*,
-    H256,
+    H160,
 };
 use std::collections::HashSet;
 
@@ -23,12 +24,12 @@ pub const DAO_VERSION: u8 = 1;
 pub const DAO_SIZE: usize = 32;
 
 pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
-    genesis_dao_data_with_satoshi_gift(txs, &H256([0u8; 32]), Ratio(1, 1))
+    genesis_dao_data_with_satoshi_gift(txs, &H160([0u8; 20]), Ratio(1, 1))
 }
 
 pub fn genesis_dao_data_with_satoshi_gift(
     txs: Vec<&TransactionView>,
-    satoshi_lock_hash: &H256,
+    satoshi_pubkey_hash: &H160,
     satoshi_cell_occupied_ratio: Ratio,
 ) -> Result<Byte32, Error> {
     let dead_cells = txs
@@ -53,7 +54,10 @@ pub fn genesis_dao_data_with_satoshi_gift(
             .filter(|(index, _)| !dead_cells.contains(&OutPoint::new(tx.hash(), *index as u32)))
             .try_fold(Capacity::zero(), |capacity, (_, (output, data))| {
                 // detect satoshi gift cell
-                if tx_index == 0 && output.lock().calc_script_hash() == satoshi_lock_hash.pack() {
+                if tx_index == 0
+                    && output.lock().args().get(0).map(|arg| arg.unpack())
+                        == Some(Bytes::from(&satoshi_pubkey_hash.0[..]))
+                {
                     Unpack::<Capacity>::unpack(&output.capacity())
                         .safe_mul_ratio(satoshi_cell_occupied_ratio)
                 } else {

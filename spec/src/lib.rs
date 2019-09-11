@@ -10,7 +10,7 @@
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::{
-    Consensus, ConsensusBuilder, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_LOCK_HASH,
+    Consensus, ConsensusBuilder, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
 };
 use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
@@ -27,7 +27,7 @@ use ckb_types::{
     },
     h256, packed,
     prelude::*,
-    H256, U256,
+    H160, H256, U256,
 };
 pub use error::SpecError;
 use failure::Fail;
@@ -117,14 +117,14 @@ pub struct IssuedCell {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SatoshiGift {
-    pub satoshi_lock_hash: H256,
+    pub satoshi_pubkey_hash: H160,
     pub satoshi_cell_occupied_ratio: Ratio,
 }
 
 impl Default for SatoshiGift {
     fn default() -> Self {
         SatoshiGift {
-            satoshi_lock_hash: SATOSHI_LOCK_HASH,
+            satoshi_pubkey_hash: SATOSHI_PUBKEY_HASH,
             satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
         }
     }
@@ -216,7 +216,7 @@ impl ChainSpec {
             .secondary_epoch_reward(self.params.secondary_epoch_reward)
             .max_block_cycles(self.params.max_block_cycles)
             .pow(self.pow.clone())
-            .satoshi_lock_hash(self.genesis.satoshi_gift.satoshi_lock_hash.pack())
+            .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
             .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
             .build();
 
@@ -231,7 +231,7 @@ impl Genesis {
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
         let dao = genesis_dao_data_with_satoshi_gift(
             vec![&cellbase_transaction, &dep_group_transaction],
-            &self.satoshi_gift.satoshi_lock_hash,
+            &self.satoshi_gift.satoshi_pubkey_hash,
             self.satoshi_gift.satoshi_cell_occupied_ratio,
         )
         .map_err(|e| e.compat())?;;
@@ -274,11 +274,8 @@ impl Genesis {
         for lock_script in block
             .transactions()
             .into_iter()
-            .flat_map(|tx| tx.outputs().into_iter().map(|output| output.lock()))
-            .filter(|lock_script| {
-                lock_script != &genesis_cell_lock
-                    && lock_script.calc_script_hash() != self.satoshi_gift.satoshi_lock_hash.pack()
-            })
+            .flat_map(|tx| tx.outputs().into_iter().map(move |output| output.lock()))
+            .filter(|lock_script| lock_script != &genesis_cell_lock)
         {
             match lock_script.hash_type().unpack() {
                 ScriptHashType::Data => {

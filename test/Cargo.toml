@@ -34,7 +34,8 @@ env_logger = "0.6"
 crossbeam-channel = "0.3"
 faketime = "0.2"
 failure = "0.1.5"
-lazy_static = "1.4"
+ripemd160 = "0.8.0"
+sha2 = "0.8.0"
 
 # Prevent this from interfering with workspaces
 [workspace]

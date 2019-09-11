@@ -8,10 +8,10 @@ use ckb_types::{
         capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
         HeaderView, Ratio, TransactionBuilder, Version,
     },
-    h256,
+    h160,
     packed::{Byte32, CellInput, Script},
     prelude::*,
-    u256, H256, U256,
+    u256, H160, H256, U256,
 };
 use std::cmp;
 use std::sync::Arc;
@@ -59,9 +59,8 @@ pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_
 const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
-// A special lock for satoshi, use satoshi's private key can unlock this.
-pub(crate) const SATOSHI_LOCK_HASH: H256 =
-    h256!("0x1d11151e87cf8f77d2130e7ee8ca66be197b310ed39cc74c40a5df4933ca8a75");
+// Satoshi's pubkey hash in Bitcoin genesis.
+pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18");
 // Ratio of satoshi cell occupied of capacity,
 // only affects genesis cellbase's satoshi lock cells.
 pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio(6, 10);
@@ -120,7 +119,7 @@ pub struct ConsensusBuilder {
     block_version: Version,
     max_block_proposals_limit: u64,
     genesis_epoch_ext: EpochExt,
-    satoshi_lock_hash: Byte32,
+    satoshi_pubkey_hash: H160,
     satoshi_cell_occupied_ratio: Ratio,
 }
 
@@ -135,7 +134,7 @@ impl Default for ConsensusBuilder {
             .build();
         let dao = genesis_dao_data_with_satoshi_gift(
             vec![&cellbase],
-            &SATOSHI_LOCK_HASH,
+            &SATOSHI_PUBKEY_HASH,
             SATOSHI_CELL_OCCUPIED_RATIO,
         )
         .unwrap();
@@ -200,7 +199,7 @@ impl ConsensusBuilder {
             block_version: BLOCK_VERSION,
             proposer_reward_ratio: PROPOSER_REWARD_RATIO,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
-            satoshi_lock_hash: SATOSHI_LOCK_HASH.pack(),
+            satoshi_pubkey_hash: SATOSHI_PUBKEY_HASH,
             satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
         }
     }
@@ -225,7 +224,7 @@ impl ConsensusBuilder {
             block_version,
             proposer_reward_ratio,
             max_block_proposals_limit,
-            satoshi_lock_hash,
+            satoshi_pubkey_hash,
             satoshi_cell_occupied_ratio,
         } = self;
         Consensus {
@@ -247,7 +246,7 @@ impl ConsensusBuilder {
             block_version,
             proposer_reward_ratio,
             max_block_proposals_limit,
-            satoshi_lock_hash,
+            satoshi_pubkey_hash,
             satoshi_cell_occupied_ratio,
         }
     }
@@ -314,8 +313,8 @@ impl ConsensusBuilder {
         self
     }
 
-    pub fn satoshi_lock_hash(mut self, lock_hash: Byte32) -> Self {
-        self.satoshi_lock_hash = lock_hash;
+    pub fn satoshi_pubkey_hash(mut self, pubkey_hash: H160) -> Self {
+        self.satoshi_pubkey_hash = pubkey_hash;
         self
     }
 
@@ -353,8 +352,8 @@ pub struct Consensus {
     // block version number supported
     pub max_block_proposals_limit: u64,
     pub genesis_epoch_ext: EpochExt,
-    // A special lock for satoshi, use satoshi's private key can unlock this.
-    pub satoshi_lock_hash: Byte32,
+    // Satoshi's pubkey hash in Bitcoin genesis.
+    pub satoshi_pubkey_hash: H160,
     // Ratio of satoshi cell occupied of capacity,
     // only affects genesis cellbase's satoshi lock cells.
     pub satoshi_cell_occupied_ratio: Ratio,
@@ -665,16 +664,7 @@ fn u256_low_u64(u: U256) -> u64 {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use ckb_resource::CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL;
-    use ckb_types::{
-        core::{BlockBuilder, ScriptHashType, TransactionBuilder},
-        h160,
-        packed::Script,
-        H160,
-    };
-
-    // Satoshi's pubkey hash in Bitcoin genesis.
-    const SATOSHI_H160: H160 = h160!("0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18");
+    use ckb_types::core::{BlockBuilder, TransactionBuilder};
 
     #[test]
     fn test_init_epoch_reward() {
@@ -682,15 +672,5 @@ pub mod test {
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let consensus = ConsensusBuilder::new(genesis, capacity_bytes!(100)).build();
         assert_eq!(capacity_bytes!(100), consensus.epoch_reward);
-    }
-
-    #[test]
-    fn test_satoshi_lock_hash() {
-        let lock = Script::new_builder()
-            .code_hash(CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL.pack())
-            .hash_type(ScriptHashType::Data.pack())
-            .args(vec![SATOSHI_H160.0.pack()].pack())
-            .build();
-        assert_eq!(lock.calc_script_hash(), SATOSHI_LOCK_HASH.pack());
     }
 }

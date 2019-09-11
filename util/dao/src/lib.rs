@@ -5,6 +5,7 @@ use ckb_error::Error;
 use ckb_resource::CODE_HASH_DAO;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
+    bytes::Bytes,
     core::{
         cell::{CellMeta, ResolvedTransaction},
         BlockNumber, Capacity, CapacityResult, EpochExt, HeaderView,
@@ -309,7 +310,13 @@ pub fn modified_occupied_capacity(
     if let Some(tx_info) = &cell_meta.transaction_info {
         if tx_info.is_genesis()
             && tx_info.is_cellbase()
-            && cell_meta.cell_output.lock().calc_script_hash() == consensus.satoshi_lock_hash
+            && cell_meta
+                .cell_output
+                .lock()
+                .args()
+                .get(0)
+                .map(|arg| arg.unpack())
+                == Some(Bytes::from(&consensus.satoshi_pubkey_hash.0[..]))
         {
             return Unpack::<Capacity>::unpack(&cell_meta.cell_output.capacity())
                 .safe_mul_ratio(consensus.satoshi_cell_occupied_ratio);
