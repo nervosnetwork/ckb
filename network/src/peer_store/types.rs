@@ -324,7 +324,6 @@ pub fn ip_to_network(ip: IpAddr) -> IpNetwork {
 
 pub trait MultiaddrExt {
     /// extract IP from multiaddr,
-    /// return None if multiaddr contains no IP phase
     fn extract_ip_addr(&self) -> Result<IpPort, Error>;
 }
 
