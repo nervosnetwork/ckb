@@ -293,10 +293,8 @@ impl Synchronizer {
                 )
             };
             let best_known = self.shared.shared_best_header();
-            if total_difficulty > *best_known.total_difficulty()
-                || (&total_difficulty == best_known.total_difficulty()
-                    && header.hash() < best_known.hash())
-            {
+            // is_better_chain
+            if total_difficulty > *best_known.total_difficulty() {
                 header
             } else {
                 best_known.into_inner()

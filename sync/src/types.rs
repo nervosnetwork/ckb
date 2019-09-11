@@ -418,7 +418,7 @@ impl Peers {
     pub fn new_header_received(&self, peer: PeerIndex, header_view: &HeaderView) {
         if let Some(peer_state) = self.state.write().get_mut(&peer) {
             if let Some(ref hv) = peer_state.best_known_header {
-                if header_view.is_better_than(&hv.total_difficulty(), &hv.hash()) {
+                if header_view.is_better_than(&hv.total_difficulty()) {
                     peer_state.best_known_header = Some(header_view.clone());
                 }
             } else {
@@ -533,9 +533,8 @@ impl HeaderView {
         Some(current.clone()).map(HeaderView::into_inner)
     }
 
-    pub fn is_better_than(&self, total_difficulty: &U256, hash: &Byte32) -> bool {
+    pub fn is_better_than(&self, total_difficulty: &U256) -> bool {
         self.total_difficulty() > total_difficulty
-            || (self.total_difficulty() == total_difficulty && self.hash() < hash.clone())
     }
 }
 
@@ -766,10 +765,7 @@ impl SyncSharedState {
 
         // Update shared_best_header if the arrived header has greater difficulty
         let shared_best_header = self.shared_best_header();
-        if header_view.is_better_than(
-            &shared_best_header.total_difficulty(),
-            &shared_best_header.hash(),
-        ) {
+        if header_view.is_better_than(&shared_best_header.total_difficulty()) {
             self.set_shared_best_header(header_view.clone());
         }
 

@@ -39,7 +39,7 @@ impl BlockFetcher {
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.is_better_than(&self.total_difficulty, &self.tip_header.hash())
+        header.is_better_than(&self.total_difficulty)
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
