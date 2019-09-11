@@ -1,6 +1,6 @@
 use crate::bytes::JsonBytes;
 use crate::{
-    BlockNumber, Byte32, Capacity, EpochNumber, ProposalShortId, Timestamp, Uint64, Version,
+    BlockNumber, Byte32, Capacity, EpochNumber, ProposalShortId, Timestamp, Uint32, Uint64, Version,
 };
 use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
@@ -121,7 +121,7 @@ impl From<CellOutput> for packed::CellOutput {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct OutPoint {
     pub tx_hash: H256,
-    pub index: Uint64,
+    pub index: Uint32,
 }
 
 impl From<packed::OutPoint> for OutPoint {
@@ -129,7 +129,7 @@ impl From<packed::OutPoint> for OutPoint {
         let index: u32 = input.index().unpack();
         OutPoint {
             tx_hash: input.tx_hash().unpack(),
-            index: u64::from(index).into(),
+            index: index.into(),
         }
     }
 }
@@ -410,7 +410,7 @@ pub struct Header {
     pub proposals_hash: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
-    pub uncles_count: Uint64,
+    pub uncles_count: Uint32,
     pub dao: Byte32,
     pub chain_root: Byte32,
     pub nonce: Uint64,
@@ -438,7 +438,7 @@ impl From<packed::Header> for Header {
             proposals_hash: raw.proposals_hash().unpack(),
             difficulty: raw.difficulty().unpack(),
             uncles_hash: raw.uncles_hash().unpack(),
-            uncles_count: u64::from(uncles_count).into(),
+            uncles_count: uncles_count.into(),
             dao: raw.dao().into(),
             chain_root: raw.chain_root().into(),
             nonce: input.nonce().unpack(),
@@ -491,7 +491,7 @@ impl From<Header> for packed::Header {
             .proposals_hash(proposals_hash.pack())
             .difficulty(difficulty.pack())
             .uncles_hash(uncles_hash.pack())
-            .uncles_count((uncles_count.value() as u32).pack())
+            .uncles_count(uncles_count.value().pack())
             .dao(dao.into())
             .chain_root(chain_root.into())
             .build();
