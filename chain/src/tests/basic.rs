@@ -407,7 +407,7 @@ fn test_chain_fork_by_total_difficulty() {
 }
 
 #[test]
-fn test_chain_fork_by_hash() {
+fn test_chain_fork_by_first_received() {
     let (chain_controller, shared, parent) = start_chain(None);
     let final_number = 20;
 
@@ -443,26 +443,17 @@ fn test_chain_fork_by_hash() {
     assert_eq!(chain1.total_difficulty(), chain2.total_difficulty());
     assert_eq!(chain1.total_difficulty(), chain3.total_difficulty());
 
-    let hash1 = chain1.tip_header().hash();
-    let hash2 = chain2.tip_header().hash();
-    let hash3 = chain3.tip_header().hash();
-
-    let tips = vec![hash1.clone(), hash2.clone(), hash3.clone()];
-    let v = tips.iter().min().unwrap();
-
-    let best = match v {
-        hash if hash == &hash1 => chain1,
-        hash if hash == &hash2 => chain2,
-        _ => chain3,
-    };
-
+    // fist received will be the main chain
     assert_eq!(
         shared.store().get_block_hash(8),
-        best.blocks().get(7).map(|b| b.header().hash().to_owned())
+        chain1.blocks().get(7).map(|b| b.header().hash().to_owned())
     );
     assert_eq!(
         shared.store().get_block_hash(19),
-        best.blocks().get(18).map(|b| b.header().hash().to_owned())
+        chain1
+            .blocks()
+            .get(18)
+            .map(|b| b.header().hash().to_owned())
     );
 }
 
