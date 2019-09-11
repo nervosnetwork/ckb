@@ -1,6 +1,6 @@
 use crate::{packed::HeaderDigest, prelude::*, U256};
 use ckb_hash::new_blake2b;
-use ckb_merkle_mountain_range::Merge;
+use ckb_merkle_mountain_range::{Merge, MMR};
 
 pub struct MergeHeaderDigest;
 
@@ -23,3 +23,5 @@ impl Merge for MergeHeaderDigest {
             .build()
     }
 }
+
+pub type ChainRootMMR<S> = MMR<HeaderDigest, MergeHeaderDigest, S>;

@@ -1,6 +1,7 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::shared::Shared;
@@ -18,7 +19,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
-    utilities::MergeHeaderDigest,
+    utilities::ChainRootMMR,
     U256,
 };
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
@@ -672,14 +673,13 @@ impl ChainService {
         attached_blocks: &[&'a BlockView],
         need_verify: bool,
     ) -> Result<(), Error> {
-        use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
         let start_block = match attached_blocks.get(0) {
             Some(b) => b,
             None => return Ok(()),
         };
         // calculate mmr_size and initialize MMR
         let mmr_size = leaf_index_to_mmr_size(start_block.header().number() - 1);
-        let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(mmr_size, txn);
+        let mut mmr = ChainRootMMR::new(mmr_size, txn);
         // check blocks chain_root
         for block in attached_blocks {
             let root = mmr

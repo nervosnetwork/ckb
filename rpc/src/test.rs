@@ -8,7 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -29,7 +29,7 @@ use ckb_types::{
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
-    utilities::MergeHeaderDigest,
+    utilities::ChainRootMMR,
     H256, U256,
 };
 use jsonrpc_core::IoHandler;
@@ -120,7 +120,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         });
     }
 
-    let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+    let chain_root = ChainRootMMR::new(
         leaf_index_to_mmr_size(parent.number()),
         shared.snapshot().as_ref(),
     )

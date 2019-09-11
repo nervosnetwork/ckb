@@ -2,7 +2,7 @@ use crate::SyncSharedState;
 use ckb_chain::chain::{ChainController, ChainService};
 
 use ckb_dao::DaoCalculator;
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -15,7 +15,7 @@ use ckb_types::prelude::*;
 use ckb_types::{
     core::{cell::resolve_transaction, BlockBuilder, BlockNumber, TransactionView},
     packed::Byte32,
-    utilities::MergeHeaderDigest,
+    utilities::ChainRootMMR,
 };
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -63,7 +63,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         let (_, reward) = shared.finalize_block_reward(&parent.header()).unwrap();
         always_success_cellbase(parent_number + 1, reward.total)
     };
-    let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+    let chain_root = ChainRootMMR::new(
         leaf_index_to_mmr_size(parent_number),
         shared.snapshot().as_ref(),
     )

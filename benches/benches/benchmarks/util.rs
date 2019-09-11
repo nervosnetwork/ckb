@@ -3,7 +3,7 @@ use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -24,7 +24,7 @@ use ckb_types::{
     h160, h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId, Script},
     prelude::*,
-    utilities::MergeHeaderDigest,
+    utilities::ChainRootMMR,
     H160, H256, U256,
 };
 use lazy_static::lazy_static;
@@ -170,7 +170,7 @@ pub fn gen_always_success_block(
     let mut txs_to_resolve = vec![cellbase.clone()];
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
-    let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+    let chain_root = ChainRootMMR::new(
         leaf_index_to_mmr_size(p_block.number()),
         shared.snapshot().as_ref(),
     )
@@ -375,7 +375,7 @@ pub fn gen_secp_block(
     let mut txs_to_resolve = vec![cellbase.clone()];
     txs_to_resolve.extend_from_slice(&transactions);
     let dao = dao_data(shared, &p_block.header(), &txs_to_resolve);
-    let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+    let chain_root = ChainRootMMR::new(
         leaf_index_to_mmr_size(p_block.number()),
         shared.snapshot().as_ref(),
     )

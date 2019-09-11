@@ -501,7 +501,7 @@ mod tests {
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_dao::DaoCalculator;
-    use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
+    use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
         TargetSession,
@@ -522,7 +522,7 @@ mod tests {
         packed::{
             Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
         },
-        utilities::MergeHeaderDigest,
+        utilities::ChainRootMMR,
         U256,
     };
     use ckb_util::Mutex;
@@ -583,7 +583,7 @@ mod tests {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(shared, parent_header, number);
-        let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+        let chain_root = ChainRootMMR::new(
             leaf_index_to_mmr_size(parent_header.number()),
             shared.snapshot().as_ref(),
         )

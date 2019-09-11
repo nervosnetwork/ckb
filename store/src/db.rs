@@ -8,12 +8,11 @@ use ckb_db::{
     Col, DBPinnableSlice, Direction, RocksDB,
 };
 use ckb_error::{Error, InternalErrorKind};
-use ckb_merkle_mountain_range::MMR;
 use ckb_types::{
     core::{BlockExt, TransactionMeta},
     packed,
     prelude::*,
-    utilities::MergeHeaderDigest,
+    utilities::ChainRootMMR,
 };
 
 pub struct ChainDB {
@@ -113,7 +112,7 @@ impl ChainDB {
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         // Init MMR
-        let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(0, &db_txn);
+        let mut mmr = ChainRootMMR::new(0, &db_txn);
         mmr.push(genesis.header().into())
             .map_err(|e| InternalErrorKind::MMR.cause(e))?;
         mmr.commit().map_err(|e| InternalErrorKind::MMR.cause(e))?;

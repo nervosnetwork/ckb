@@ -4,7 +4,7 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, MMR};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_shared::shared::Shared;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
@@ -19,7 +19,7 @@ use ckb_types::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
         ScriptBuilder,
     },
-    utilities::MergeHeaderDigest,
+    utilities::ChainRootMMR,
     U256,
 };
 use std::sync::Arc;
@@ -75,7 +75,7 @@ pub(crate) fn gen_block(
     txs.extend_from_slice(&transactions);
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
-    let chain_root = MMR::<_, MergeHeaderDigest, _>::new(
+    let chain_root = ChainRootMMR::new(
         leaf_index_to_mmr_size(parent_header.number()),
         shared.snapshot().as_ref(),
     )

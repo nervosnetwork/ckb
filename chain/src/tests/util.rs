@@ -2,7 +2,7 @@ use crate::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, util::MemStore, MMR};
+use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, util::MemStore};
 use ckb_notify::NotifyService;
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
@@ -19,7 +19,7 @@ use ckb_types::{
         BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
     },
     packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, HeaderDigest, OutPoint},
-    utilities::MergeHeaderDigest,
+    utilities::ChainRootMMR,
     U256,
 };
 use std::collections::HashSet;
@@ -209,7 +209,7 @@ impl<'a> MockChain<'a> {
         mmr_store: MemStore<HeaderDigest>,
     ) -> Self {
         if parent.number() == 0 {
-            let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(0, &mmr_store);
+            let mut mmr = ChainRootMMR::new(0, &mmr_store);
             mmr.push(parent.clone().into()).expect("push block to mmr");
             mmr.commit().expect("commit mmr batch");
         }
@@ -222,7 +222,7 @@ impl<'a> MockChain<'a> {
     }
 
     fn chain_root(&self) -> Byte32 {
-        let mmr = MMR::<_, MergeHeaderDigest, _>::new(
+        let mmr = ChainRootMMR::new(
             leaf_index_to_mmr_size(self.tip_header().number()),
             &self.mmr_store,
         );
@@ -230,7 +230,7 @@ impl<'a> MockChain<'a> {
     }
 
     fn commit_block(&mut self, store: &MockStore, block: BlockView) {
-        let mut mmr = MMR::<_, MergeHeaderDigest, _>::new(
+        let mut mmr = ChainRootMMR::new(
             leaf_index_to_mmr_size(self.tip_header().number()),
             &self.mmr_store,
         );
