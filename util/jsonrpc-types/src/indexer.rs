@@ -1,4 +1,4 @@
-use crate::{BlockNumber, CellOutput, Unsigned};
+use crate::{BlockNumber, CellOutput, Uint64};
 use ckb_types::H256;
 use serde_derive::{Deserialize, Serialize};
 
@@ -20,7 +20,7 @@ pub struct CellTransaction {
 pub struct TransactionPoint {
     pub block_number: BlockNumber,
     pub tx_hash: H256,
-    pub index: Unsigned,
+    pub index: Uint64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

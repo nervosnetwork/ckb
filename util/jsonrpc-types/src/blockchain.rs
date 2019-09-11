@@ -1,6 +1,6 @@
 use crate::bytes::JsonBytes;
 use crate::{
-    BlockNumber, Byte32, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsigned, Version,
+    BlockNumber, Byte32, Capacity, EpochNumber, ProposalShortId, Timestamp, Uint64, Version,
 };
 use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
@@ -121,7 +121,7 @@ impl From<CellOutput> for packed::CellOutput {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct OutPoint {
     pub tx_hash: H256,
-    pub index: Unsigned,
+    pub index: Uint64,
 }
 
 impl From<packed::OutPoint> for OutPoint {
@@ -148,7 +148,7 @@ impl From<OutPoint> for packed::OutPoint {
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 pub struct CellInput {
     pub previous_output: OutPoint,
-    pub since: Unsigned,
+    pub since: Uint64,
 }
 
 impl From<packed::CellInput> for CellInput {
@@ -410,10 +410,10 @@ pub struct Header {
     pub proposals_hash: H256,
     pub difficulty: U256,
     pub uncles_hash: H256,
-    pub uncles_count: Unsigned,
+    pub uncles_count: Uint64,
     pub dao: Byte32,
     pub chain_root: Byte32,
-    pub nonce: Unsigned,
+    pub nonce: Uint64,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]

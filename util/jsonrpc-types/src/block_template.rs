@@ -1,6 +1,6 @@
 use crate::{
     BlockNumber, Byte32, Cycle, EpochNumber, Header, ProposalShortId, Timestamp, Transaction,
-    Unsigned, Version,
+    Uint64, Version,
 };
 use ckb_types::{packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
@@ -15,13 +15,13 @@ pub struct BlockTemplate {
     pub epoch: EpochNumber,
     pub parent_hash: H256,
     pub cycles_limit: Cycle,
-    pub bytes_limit: Unsigned,
-    pub uncles_count_limit: Unsigned,
+    pub bytes_limit: Uint64,
+    pub uncles_count_limit: Uint64,
     pub uncles: Vec<UncleTemplate>,
     pub transactions: Vec<TransactionTemplate>,
     pub proposals: Vec<ProposalShortId>,
     pub cellbase: CellbaseTemplate,
-    pub work_id: Unsigned,
+    pub work_id: Uint64,
     pub dao: Byte32,
     pub chain_root: Byte32,
 }
@@ -119,7 +119,7 @@ pub struct TransactionTemplate {
     pub hash: H256,
     pub required: bool,
     pub cycles: Option<Cycle>,
-    pub depends: Option<Vec<Unsigned>>,
+    pub depends: Option<Vec<Uint64>>,
     pub data: Transaction, // temporary
 }
 

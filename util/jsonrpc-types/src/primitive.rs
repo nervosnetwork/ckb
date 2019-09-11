@@ -6,6 +6,3 @@ pub type Capacity = Uint64;
 pub type Cycle = Uint64;
 pub type Timestamp = Uint64;
 pub type Version = Uint32;
-
-// FIXME bilibili TODO
-pub type Unsigned = Uint64;

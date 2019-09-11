@@ -1,5 +1,5 @@
 use ckb_indexer::IndexerStore;
-use ckb_jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Unsigned};
+use ckb_jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Uint64};
 use ckb_types::{prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -10,8 +10,8 @@ pub trait IndexerRpc {
     fn get_live_cells_by_lock_hash(
         &self,
         _lock_hash: H256,
-        _page: Unsigned,
-        _per_page: Unsigned,
+        _page: Uint64,
+        _per_page: Uint64,
         _reverse_order: Option<bool>,
     ) -> Result<Vec<LiveCell>>;
 
@@ -19,8 +19,8 @@ pub trait IndexerRpc {
     fn get_transactions_by_lock_hash(
         &self,
         _lock_hash: H256,
-        _page: Unsigned,
-        _per_page: Unsigned,
+        _page: Uint64,
+        _per_page: Uint64,
         _reverse_order: Option<bool>,
     ) -> Result<Vec<CellTransaction>>;
 
@@ -46,8 +46,8 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
     fn get_live_cells_by_lock_hash(
         &self,
         lock_hash: H256,
-        page: Unsigned,
-        per_page: Unsigned,
+        page: Uint64,
+        per_page: Uint64,
         reverse_order: Option<bool>,
     ) -> Result<Vec<LiveCell>> {
         let lock_hash = lock_hash.pack();
@@ -68,8 +68,8 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
     fn get_transactions_by_lock_hash(
         &self,
         lock_hash: H256,
-        page: Unsigned,
-        per_page: Unsigned,
+        page: Uint64,
+        per_page: Uint64,
         reverse_order: Option<bool>,
     ) -> Result<Vec<CellTransaction>> {
         let lock_hash = lock_hash.pack();

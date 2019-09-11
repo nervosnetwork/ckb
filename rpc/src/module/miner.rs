@@ -1,5 +1,5 @@
 use ckb_chain::chain::ChainController;
-use ckb_jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error};
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
@@ -20,8 +20,8 @@ pub trait MinerRpc {
     #[rpc(name = "get_block_template")]
     fn get_block_template(
         &self,
-        bytes_limit: Option<Unsigned>,
-        proposals_limit: Option<Unsigned>,
+        bytes_limit: Option<Uint64>,
+        proposals_limit: Option<Uint64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate>;
 
@@ -40,8 +40,8 @@ pub(crate) struct MinerRpcImpl {
 impl MinerRpc for MinerRpcImpl {
     fn get_block_template(
         &self,
-        bytes_limit: Option<Unsigned>,
-        proposals_limit: Option<Unsigned>,
+        bytes_limit: Option<Uint64>,
+        proposals_limit: Option<Uint64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate> {
         let bytes_limit = match bytes_limit {

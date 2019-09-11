@@ -1,15 +1,15 @@
-use crate::{Timestamp, Unsigned};
+use crate::{Timestamp, Uint64};
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PeerState {
     // TODO use peer_id
     // peer session id
-    peer: Unsigned,
+    peer: Uint64,
     // last updated timestamp
     last_updated: Timestamp,
     // blocks count has request but not receive response yet
-    blocks_in_flight: Unsigned,
+    blocks_in_flight: Uint64,
 }
 
 impl PeerState {
