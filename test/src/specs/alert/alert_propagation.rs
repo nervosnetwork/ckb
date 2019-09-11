@@ -111,7 +111,7 @@ impl Spec for AlertPropagation {
                     .get_blockchain_info()
                     .alerts
                     .iter()
-                    .all(|a| Into::<u32>::into(a.id.clone()) != id1)
+                    .all(|a| Into::<u32>::into(a.id) != id1)
             })
         });
         assert!(ret, "alert is relayed");

@@ -4,11 +4,11 @@ use serde::de::{Error, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
-#[derive(Clone, Default, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, Default, PartialEq, Eq, Hash, Debug)]
 pub struct Uint64(u64);
 
 impl Uint64 {
-    pub fn value(&self) -> u64 {
+    pub fn value(self) -> u64 {
         self.0
     }
 }

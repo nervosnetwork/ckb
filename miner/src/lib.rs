@@ -24,7 +24,7 @@ pub struct Work {
 
 impl From<BlockTemplate> for Work {
     fn from(block_template: BlockTemplate) -> Work {
-        let work_id = block_template.work_id.clone();
+        let work_id = block_template.work_id;
         let block: Block = block_template.into();
 
         Work {

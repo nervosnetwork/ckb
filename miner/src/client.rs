@@ -162,8 +162,8 @@ impl Client {
     pub fn try_update_block_template(&mut self) {
         match self.get_block_template().wait() {
             Ok(block_template) => {
-                if self.current_work_id != Some(block_template.work_id.clone().into()) {
-                    self.current_work_id = Some(block_template.work_id.clone().into());
+                if self.current_work_id != Some(block_template.work_id.into()) {
+                    self.current_work_id = Some(block_template.work_id.into());
                     if let Err(e) = self.notify_new_work(block_template) {
                         error!("notify_new_block error: {:?}", e);
                     }

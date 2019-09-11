@@ -89,6 +89,6 @@ impl MiningBasic {
 
 fn is_block_template_equal(template1: &BlockTemplate, template2: &BlockTemplate) -> bool {
     let mut temp = template1.clone();
-    temp.current_time = template2.current_time.clone();
+    temp.current_time = template2.current_time;
     &temp == template2
 }
