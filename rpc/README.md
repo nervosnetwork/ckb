@@ -893,7 +893,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "20010297508"
+    "result": "0x4a8b4e8a4"
 }
 ```
 
@@ -1195,11 +1195,11 @@ http://localhost:8114
         "addresses": [
             {
                 "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-                "score": "255"
+                "score": "0xff"
             },
             {
                 "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-                "score": "1"
+                "score": "0x1"
             }
         ],
         "is_outbound": null,
@@ -1237,7 +1237,7 @@ http://localhost:8114
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.3/tcp/8115",
-                    "score": "1"
+                    "score": "0x1"
                 }
             ],
             "is_outbound": true,
@@ -1248,7 +1248,7 @@ http://localhost:8114
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.4/tcp/8113",
-                    "score": "255"
+                    "score": "0xff"
                 }
             ],
             "is_outbound": false,
@@ -1291,8 +1291,8 @@ http://localhost:8114
         {
             "address": "192.168.0.2/32",
             "ban_reason": "",
-            "ban_until": "1840546800000",
-            "created_at": "1562803123000"
+            "ban_until": "0x1ac89236180",
+            "created_at": "0x16bde533338"
         }
     ]
 }
@@ -1320,7 +1320,7 @@ echo '{
     "params": [
         "192.168.0.2",
         "insert",
-        "1840546800000",
+        "0x1ac89236180",
         true,
         "set_ban example"
     ]
@@ -1520,9 +1520,9 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": [
         {
-            "blocks_in_flight": "86",
-            "last_updated": "1557289448237",
-            "peer": "1"
+            "blocks_in_flight": "0x56",
+            "last_updated": "0x16a95af332d",
+            "peer": "0x1"
         }
     ]
 }

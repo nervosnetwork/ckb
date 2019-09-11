@@ -383,7 +383,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         "set_ban" => vec![
             json!("192.168.0.2"),
             json!("insert"),
-            json!("1840546800000"),
+            json!("0x1ac89236180"),
             json!(true),
             json!("set_ban example"),
         ],
