@@ -41,7 +41,7 @@ ckb-types = { path = "../util/types" }
 ipnetwork = "0.14"
 
 [dev-dependencies]
-criterion = "0.2"
+criterion = "0.3"
 tempfile = "3.0.7"
 
 [[bench]]
