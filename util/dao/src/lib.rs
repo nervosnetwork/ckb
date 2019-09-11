@@ -7,8 +7,7 @@ use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        ckb_occupied_capacity::Result as CapacityResult,
-        BlockNumber, Capacity, EpochExt, HeaderView,
+        BlockNumber, Capacity, CapacityResult, EpochExt, HeaderView,
     },
     packed::{Byte32, CellOutput, OutPoint},
     prelude::*,
