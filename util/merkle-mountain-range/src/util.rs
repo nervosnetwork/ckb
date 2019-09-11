@@ -59,13 +59,11 @@ impl<T: Clone + Debug + PartialEq, M: Merge<Item = T>> MemMMR<T, M> {
     }
 
     pub fn get_root(&self) -> Result<T> {
-        // let mut batch = MMRBatch::new(&self.store);
         let mmr = MMR::<T, M, &MemStore<T>>::new(self.mmr_size, &self.store);
         mmr.get_root()
     }
 
     pub fn push(&mut self, elem: T) -> Result<u64> {
-        // let mut batch = MMRBatch::new(&self.store);
         let mut mmr = MMR::<T, M, &MemStore<T>>::new(self.mmr_size, &self.store);
         let pos = mmr.push(elem)?;
         self.mmr_size = mmr.mmr_size();

@@ -20,7 +20,7 @@ pub fn leaf_index_to_pos(index: u64) -> u64 {
     debug_assert!(leaves == 0 || leaves == 1, "remain leaves incorrect");
     if leaves == 1 {
         // add one pos for remain leaf
-        // is quals to `tree_node_count - 1 + 1`
+        // equals to `tree_node_count - 1 + 1`
         tree_node_count
     } else {
         let pos = tree_node_count - 1;
