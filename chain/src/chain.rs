@@ -1,6 +1,7 @@
 use crate::cell::{attach_block_cell, detach_block_cell};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{self, debug, error, info, log_enabled, trace, warn};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalTable;
 use ckb_shared::shared::Shared;
@@ -18,10 +19,11 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
+    utilities::ChainRootMMR,
     U256,
 };
-use ckb_verification::InvalidParentError;
 use ckb_verification::{BlockVerifier, ContextualBlockVerifier, Verifier, VerifyContext};
+use ckb_verification::{InvalidChainRootError, InvalidParentError};
 use crossbeam_channel::{self, select, Receiver, Sender};
 use faketime::unix_time_as_millis;
 use im::hashmap::HashMap as HamtMap;
@@ -325,6 +327,12 @@ impl ChainService {
             self.find_fork(&mut fork, current_tip_header.number(), &block, ext);
 
             self.rollback(&fork, &db_txn, &mut cell_set)?;
+            // update and verify chain root
+            self.update_chain_root_merkle_tree(
+                &db_txn,
+                &fork.attached_blocks.iter().collect::<Vec<_>>(),
+                need_verify,
+            )?;
             // MUST update index before reconcile_main_chain
             self.reconcile_main_chain(&db_txn, &mut fork, need_verify, &mut cell_set)?;
 
@@ -657,6 +665,40 @@ impl ChainService {
         } else {
             Ok(())
         }
+    }
+
+    pub(crate) fn update_chain_root_merkle_tree<'a>(
+        &'a self,
+        txn: &StoreTransaction,
+        attached_blocks: &[&'a BlockView],
+        need_verify: bool,
+    ) -> Result<(), Error> {
+        let start_block = match attached_blocks.get(0) {
+            Some(b) => b,
+            None => return Ok(()),
+        };
+        // calculate mmr_size and initialize MMR
+        let mmr_size = leaf_index_to_mmr_size(start_block.header().number() - 1);
+        let mut mmr = ChainRootMMR::new(mmr_size, txn);
+        // check blocks chain_root
+        for block in attached_blocks {
+            let root = mmr
+                .get_root()
+                .map_err(|e| InternalErrorKind::MMR.cause(e))?;
+            let root_hash = root.hash();
+
+            if need_verify && root_hash != block.header().chain_root() {
+                Err(InvalidChainRootError {
+                    expected: root_hash,
+                    actual: block.header().chain_root(),
+                })?;
+            }
+            mmr.push(block.header().into())
+                .map_err(|e| InternalErrorKind::MMR.cause(e))?;
+        }
+        // commit mmr changes
+        mmr.commit().map_err(|e| InternalErrorKind::MMR.cause(e))?;
+        Ok(())
     }
 
     // TODO: beatify

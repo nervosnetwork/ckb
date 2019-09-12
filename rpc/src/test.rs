@@ -8,6 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -28,6 +29,7 @@ use ckb_types::{
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
+    utilities::ChainRootMMR,
     H256, U256,
 };
 use jsonrpc_core::IoHandler;
@@ -118,6 +120,14 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         });
     }
 
+    let chain_root = ChainRootMMR::new(
+        leaf_index_to_mmr_size(parent.number()),
+        shared.snapshot().as_ref(),
+    )
+    .get_root()
+    .unwrap()
+    .hash();
+
     let dao = {
         let snapshot: &Snapshot = &shared.snapshot();
         let resolved_cellbase =
@@ -134,6 +144,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         .timestamp((parent.timestamp() + 1).pack())
         .difficulty(epoch.difficulty().pack())
         .dao(dao)
+        .chain_root(chain_root)
         .build()
 }
 
@@ -150,6 +161,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;
+
     for _ in 0..height {
         let block = next_block(&shared, &parent.header());
         chain_controller

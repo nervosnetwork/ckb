@@ -32,8 +32,8 @@ fn test_find_fork_case1() {
 
     let parent = genesis.clone();
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut fork1 = MockChain::new(parent.clone(), shared.consensus());
-    let mut fork2 = MockChain::new(parent.clone(), shared.consensus());
+    let mut fork1 = MockChain::new(parent.clone(), shared.consensus(), Default::default());
+    let mut fork2 = MockChain::new(parent.clone(), shared.consensus(), Default::default());
     for _ in 0..4 {
         fork1.gen_empty_block_with_difficulty(100u64, &mock_store);
     }
@@ -104,13 +104,17 @@ fn test_find_fork_case2() {
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
         .unwrap();
     let mock_store = MockStore::new(&genesis, shared.store());
-    let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
+    let mut fork1 = MockChain::new(genesis.clone(), shared.consensus(), Default::default());
 
     for _ in 0..4 {
         fork1.gen_empty_block_with_difficulty(100u64, &mock_store);
     }
 
-    let mut fork2 = MockChain::new(fork1.blocks()[0].header().to_owned(), shared.consensus());
+    let mut fork2 = MockChain::new(
+        fork1.blocks()[0].header().to_owned(),
+        shared.consensus(),
+        fork1.mmr_store().clone(),
+    );
     for _ in 0..2 {
         fork2.gen_empty_block_with_difficulty(90u64, &mock_store);
     }
@@ -178,8 +182,8 @@ fn test_find_fork_case3() {
         .unwrap();
 
     let mock_store = MockStore::new(&genesis, shared.store());
-    let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
-    let mut fork2 = MockChain::new(genesis.clone(), shared.consensus());
+    let mut fork1 = MockChain::new(genesis.clone(), shared.consensus(), Default::default());
+    let mut fork2 = MockChain::new(genesis.clone(), shared.consensus(), Default::default());
 
     for _ in 0..3 {
         fork1.gen_empty_block_with_difficulty(80u64, &mock_store)
@@ -251,8 +255,8 @@ fn test_find_fork_case4() {
         .unwrap();
 
     let mock_store = MockStore::new(&genesis, shared.store());
-    let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
-    let mut fork2 = MockChain::new(genesis.clone(), shared.consensus());
+    let mut fork1 = MockChain::new(genesis.clone(), shared.consensus(), Default::default());
+    let mut fork2 = MockChain::new(genesis.clone(), shared.consensus(), Default::default());
 
     for _ in 0..5 {
         fork1.gen_empty_block_with_difficulty(40u64, &mock_store);
@@ -321,8 +325,8 @@ fn repeatedly_switch_fork() {
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
         .unwrap();
     let mock_store = MockStore::new(&genesis, shared.store());
-    let mut fork1 = MockChain::new(genesis.clone(), shared.consensus());
-    let mut fork2 = MockChain::new(genesis.clone(), shared.consensus());
+    let mut fork1 = MockChain::new(genesis.clone(), shared.consensus(), Default::default());
+    let mut fork2 = MockChain::new(genesis.clone(), shared.consensus(), Default::default());
 
     let notify = NotifyService::default().start::<&str>(None);
     let (shared, table) = SharedBuilder::default()

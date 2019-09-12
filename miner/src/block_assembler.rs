@@ -8,6 +8,7 @@ use ckb_jsonrpc_types::{
     Unsigned, Version as JsonVersion,
 };
 use ckb_logger::{error, info};
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_notify::NotifyController;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{
@@ -28,6 +29,7 @@ use ckb_types::{
     },
     packed::{self, CellInput, CellOutput, ProposalShortId, Script, Transaction, UncleBlock},
     prelude::*,
+    utilities::ChainRootMMR,
     H256,
 };
 use crossbeam_channel::{self, select, Receiver, Sender};
@@ -376,6 +378,11 @@ impl BlockAssembler {
         let dao =
             DaoCalculator::new(self.shared.consensus(), snapshot).dao_field(&rtxs, &tip_header)?;
 
+        let chain_root = {
+            let mmr = ChainRootMMR::new(leaf_index_to_mmr_size(tip_header.number()), snapshot);
+            mmr.get_root()?.hash()
+        };
+
         // Should recalculate current time after create cellbase (create cellbase may spend a lot of time)
         let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
         let template = BlockTemplate {
@@ -397,6 +404,7 @@ impl BlockAssembler {
             cellbase: Self::transform_cellbase(&cellbase, None),
             work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
             dao: dao.into(),
+            chain_root: chain_root.into(),
         };
 
         self.template_caches.insert(
@@ -524,9 +532,28 @@ mod tests {
         H256,
     };
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
+    use lazy_static::lazy_static;
     use std::sync::Arc;
 
-    const BASIC_BLOCK_SIZE: u64 = 550;
+    lazy_static! {
+        static ref BASIC_BLOCK_SIZE: u64 = {
+            let (_chain_controller, shared, _notify) = start_chain(None, None);
+            let config = BlockAssemblerConfig {
+                code_hash: h256!("0x0"),
+                args: vec![],
+                hash_type: ScriptHashType::Data,
+            };
+            let mut block_assembler = setup_block_assembler(shared.clone(), config);
+            let mut candidate_uncles = CandidateUncles::new();
+
+            let block_template = block_assembler
+                .get_block_template(None, None, None, &mut candidate_uncles)
+                .unwrap();
+
+            let block: Block = block_template.into();
+            block.as_slice().len() as u64
+        };
+    }
 
     fn start_chain(
         consensus: Option<Consensus>,
@@ -807,25 +834,25 @@ mod tests {
 
         // 300 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(300 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(300 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3]);
 
         // 400 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(400 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(400 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3, &tx1]);
 
         // 500 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(500 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(500 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx2_1, &tx2_2, &tx2_3, &tx1, &tx2]);
 
         // 600 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(600 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(600 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(
             &block_template,
@@ -834,7 +861,7 @@ mod tests {
 
         // 700 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(700 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(700 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(
             &block_template,
@@ -843,13 +870,13 @@ mod tests {
 
         // 800 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(800 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(800 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4]);
 
         // none package txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(30 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(30 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![]);
 
@@ -951,31 +978,31 @@ mod tests {
 
         // 250 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(250 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(250 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx1, &tx2, &tx3]);
 
         // 400 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(400 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(400 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx1, &tx2, &tx2_1, &tx2_2]);
 
         // 500 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(500 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(500 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx1, &tx2, &tx2_1, &tx2_2, &tx2_3]);
 
         // 900 size best scored txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(900 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(900 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![&tx1, &tx2, &tx3, &tx4, &tx2_1]);
 
         // none package txs
         let block_template = block_assembler_controller
-            .get_block_template(Some(30 + BASIC_BLOCK_SIZE), None, None)
+            .get_block_template(Some(30 + *BASIC_BLOCK_SIZE), None, None)
             .unwrap();
         check_txs(&block_template, vec![]);
 

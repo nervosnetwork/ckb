@@ -2,6 +2,7 @@ use crate::SyncSharedState;
 use ckb_chain::chain::{ChainController, ChainService};
 
 use ckb_dao::DaoCalculator;
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
@@ -14,6 +15,7 @@ use ckb_types::prelude::*;
 use ckb_types::{
     core::{cell::resolve_transaction, BlockBuilder, BlockNumber, TransactionView},
     packed::Byte32,
+    utilities::ChainRootMMR,
 };
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -41,7 +43,7 @@ pub fn generate_blocks(
     let snapshot = shared.snapshot();
     let parent_number = snapshot.tip_number();
     let mut parent_hash = snapshot.tip_header().hash().clone();
-    for _block_number in parent_number + 1..=target_tip {
+    for _ in parent_number..target_tip {
         let block = inherit_block(shared, &parent_hash).build();
         parent_hash = block.header().hash().to_owned();
         chain_controller
@@ -61,6 +63,13 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         let (_, reward) = shared.finalize_block_reward(&parent.header()).unwrap();
         always_success_cellbase(parent_number + 1, reward.total)
     };
+    let chain_root = ChainRootMMR::new(
+        leaf_index_to_mmr_size(parent_number),
+        shared.snapshot().as_ref(),
+    )
+    .get_root()
+    .unwrap()
+    .hash();
     let dao = {
         let snapshot: &Snapshot = &shared.snapshot();
         let resolved_cellbase =
@@ -77,6 +86,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .epoch(epoch.number().pack())
         .difficulty(epoch.difficulty().pack())
         .dao(dao)
+        .chain_root(chain_root)
         .transaction(inherit_cellbase(shared, parent_number))
 }
 

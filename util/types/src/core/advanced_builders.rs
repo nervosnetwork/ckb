@@ -32,6 +32,7 @@ pub struct HeaderBuilder {
     pub(crate) uncles_count: packed::Uint32,
     pub(crate) epoch: packed::Uint64,
     pub(crate) dao: packed::Byte32,
+    pub(crate) chain_root: packed::Byte32,
     // Nonce
     pub(crate) nonce: packed::Uint64,
 }
@@ -78,6 +79,7 @@ impl ::std::default::Default for HeaderBuilder {
             uncles_count: Default::default(),
             epoch: Default::default(),
             dao: Default::default(),
+            chain_root: Default::default(),
             nonce: Default::default(),
         }
     }
@@ -208,6 +210,7 @@ impl HeaderBuilder {
     def_setter_simple!(uncles_count, Uint32);
     def_setter_simple!(epoch, Uint64);
     def_setter_simple!(dao, Byte32);
+    def_setter_simple!(chain_root, Byte32);
     def_setter_simple!(nonce, Uint64);
 
     pub fn build(self) -> core::HeaderView {
@@ -224,6 +227,7 @@ impl HeaderBuilder {
             uncles_count,
             epoch,
             dao,
+            chain_root,
             nonce,
         } = self;
         debug_assert!(
@@ -243,6 +247,7 @@ impl HeaderBuilder {
             .uncles_count(uncles_count)
             .epoch(epoch)
             .dao(dao)
+            .chain_root(chain_root)
             .build();
         let header = packed::Header::new_builder().raw(raw).nonce(nonce).build();
         let hash = header.calc_header_hash();
@@ -263,6 +268,7 @@ impl BlockBuilder {
     def_setter_simple!(header, uncles_count, Uint32);
     def_setter_simple!(header, epoch, Uint64);
     def_setter_simple!(header, dao, Byte32);
+    def_setter_simple!(header, chain_root, Byte32);
     def_setter_simple!(header, nonce, Uint64);
     def_setter_for_view_vector!(uncles, UncleBlockView, uncle, uncles, set_uncles);
     def_setter_for_view_vector!(
@@ -413,6 +419,7 @@ impl packed::Header {
             .uncles_count(self.raw().uncles_count())
             .epoch(self.raw().epoch())
             .dao(self.raw().dao())
+            .chain_root(self.raw().chain_root())
             .nonce(self.nonce())
     }
 }

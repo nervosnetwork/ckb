@@ -4,6 +4,8 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
+use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
+use ckb_shared::shared::Shared;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
@@ -17,6 +19,7 @@ use ckb_types::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
         ScriptBuilder,
     },
+    utilities::ChainRootMMR,
     U256,
 };
 use std::sync::Arc;
@@ -55,10 +58,11 @@ pub(crate) fn gen_block(
     miner_lock: Script,
     reward_lock: Script,
     reward: Option<Capacity>,
-    consensus: &Consensus,
+    shared: &Shared,
     store: &MockStore,
 ) -> BlockView {
     let number = parent_header.number() + 1;
+    let consensus = shared.consensus();
     let cellbase = create_cellbase(
         parent_header,
         miner_lock,
@@ -71,6 +75,13 @@ pub(crate) fn gen_block(
     txs.extend_from_slice(&transactions);
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
+    let chain_root = ChainRootMMR::new(
+        leaf_index_to_mmr_size(parent_header.number()),
+        shared.snapshot().as_ref(),
+    )
+    .get_root()
+    .unwrap()
+    .hash();
 
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash().to_owned())
@@ -78,6 +89,7 @@ pub(crate) fn gen_block(
         .number(number.pack())
         .difficulty(parent_header.difficulty().pack())
         .dao(dao)
+        .chain_root(chain_root)
         .transactions(txs)
         .uncles(uncles)
         .proposals(proposals)
@@ -203,7 +215,7 @@ fn finalize_reward() {
             miner_lock,
             always_success_script.clone(),
             None,
-            shared.consensus(),
+            &shared,
             &mock_store,
         );
 
@@ -238,7 +250,7 @@ fn finalize_reward() {
         always_success_script.clone(),
         target,
         Some(bob_reward),
-        shared.consensus(),
+        &shared,
         &mock_store,
     );
 
@@ -272,7 +284,7 @@ fn finalize_reward() {
         always_success_script.clone(),
         target,
         Some(alice_reward),
-        shared.consensus(),
+        &shared,
         &mock_store,
     );
 

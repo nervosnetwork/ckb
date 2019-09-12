@@ -501,6 +501,7 @@ mod tests {
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_dao::DaoCalculator;
+    use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
     use ckb_network::{
         Behaviour, CKBProtocolContext, Peer, PeerId, PeerIndex, ProtocolId, SessionType,
         TargetSession,
@@ -521,6 +522,7 @@ mod tests {
         packed::{
             Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
         },
+        utilities::ChainRootMMR,
         U256,
     };
     use ckb_util::Mutex;
@@ -581,6 +583,13 @@ mod tests {
         let now = 1 + parent_header.timestamp();
         let number = parent_header.number() + 1;
         let cellbase = create_cellbase(shared, parent_header, number);
+        let chain_root = ChainRootMMR::new(
+            leaf_index_to_mmr_size(parent_header.number()),
+            shared.snapshot().as_ref(),
+        )
+        .get_root()
+        .unwrap()
+        .hash();
         let dao = {
             let snapshot: &Snapshot = &shared.snapshot();
             let resolved_cellbase =
@@ -599,6 +608,7 @@ mod tests {
             .difficulty(epoch.difficulty().pack())
             .nonce(nonce.pack())
             .dao(dao)
+            .chain_root(chain_root)
             .build()
     }
 
@@ -707,6 +717,7 @@ mod tests {
 
         let mut blocks: Vec<BlockView> = Vec::new();
         let mut parent = consensus.genesis_block().header().to_owned();
+
         for i in 1..block_number {
             let parent_epoch = shared1.store().get_block_epoch(&parent.hash()).unwrap();
             let epoch = shared1

@@ -29,7 +29,7 @@ use std::sync::Arc;
 fn repeat_process_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus(), Default::default());
     chain.gen_empty_block(100u64, &mock_store);
     let block = Arc::new(chain.blocks().last().unwrap().clone());
 
@@ -94,7 +94,7 @@ fn test_genesis_transaction_spend() {
 
     let mock_store = MockStore::new(&parent, shared.store());
 
-    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus(), Default::default());
 
     for i in 1..end {
         let tx = create_transaction(&root_hash, i as u8);
@@ -122,7 +122,7 @@ fn test_genesis_transaction_spend() {
 fn test_transaction_spend_in_same_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus(), Default::default());
     chain.gen_empty_block(100u64, &mock_store);
 
     let last_cell_base = &chain.tip().transactions()[0];
@@ -200,7 +200,7 @@ fn test_transaction_spend_in_same_block() {
 fn test_transaction_conflict_in_same_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus(), Default::default());
     chain.gen_empty_block(100u64, &mock_store);
 
     let last_cell_base = &chain.tip().transactions()[0];
@@ -234,7 +234,7 @@ fn test_transaction_conflict_in_same_block() {
 fn test_transaction_conflict_in_different_blocks() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus(), Default::default());
     chain.gen_empty_block(100u64, &mock_store);
 
     let last_cell_base = &chain.tip().transactions()[0];
@@ -271,7 +271,7 @@ fn test_transaction_conflict_in_different_blocks() {
 fn test_invalid_out_point_index_in_same_block() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus(), Default::default());
     chain.gen_empty_block(100u64, &mock_store);
 
     let last_cell_base = &chain.tip().transactions()[0];
@@ -305,7 +305,7 @@ fn test_invalid_out_point_index_in_same_block() {
 fn test_invalid_out_point_index_in_different_blocks() {
     let (chain_controller, shared, parent) = start_chain(None);
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain = MockChain::new(parent.clone(), shared.consensus(), Default::default());
     chain.gen_empty_block(100u64, &mock_store);
 
     let last_cell_base = &chain.tip().transactions()[0];
@@ -373,8 +373,8 @@ fn test_chain_fork_by_total_difficulty() {
     let final_number = 20;
 
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
-    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain1 = MockChain::new(parent.clone(), shared.consensus(), Default::default());
+    let mut chain2 = MockChain::new(parent.clone(), shared.consensus(), Default::default());
 
     // 100 * 20 = 2000
     for _ in 0..final_number {
@@ -407,14 +407,14 @@ fn test_chain_fork_by_total_difficulty() {
 }
 
 #[test]
-fn test_chain_fork_by_hash() {
+fn test_chain_fork_by_first_received() {
     let (chain_controller, shared, parent) = start_chain(None);
     let final_number = 20;
 
     let mock_store = MockStore::new(&parent, shared.store());
-    let mut chain1 = MockChain::new(parent.clone(), shared.consensus());
-    let mut chain2 = MockChain::new(parent.clone(), shared.consensus());
-    let mut chain3 = MockChain::new(parent.clone(), shared.consensus());
+    let mut chain1 = MockChain::new(parent.clone(), shared.consensus(), Default::default());
+    let mut chain2 = MockChain::new(parent.clone(), shared.consensus(), Default::default());
+    let mut chain3 = MockChain::new(parent.clone(), shared.consensus(), Default::default());
 
     // 100 * 20 = 2000
     for _ in 0..final_number {
@@ -443,26 +443,17 @@ fn test_chain_fork_by_hash() {
     assert_eq!(chain1.total_difficulty(), chain2.total_difficulty());
     assert_eq!(chain1.total_difficulty(), chain3.total_difficulty());
 
-    let hash1 = chain1.tip_header().hash();
-    let hash2 = chain2.tip_header().hash();
-    let hash3 = chain3.tip_header().hash();
-
-    let tips = vec![hash1.clone(), hash2.clone(), hash3.clone()];
-    let v = tips.iter().min().unwrap();
-
-    let best = match v {
-        hash if hash == &hash1 => chain1,
-        hash if hash == &hash2 => chain2,
-        _ => chain3,
-    };
-
+    // fist received will be the main chain
     assert_eq!(
         shared.store().get_block_hash(8),
-        best.blocks().get(7).map(|b| b.header().hash().to_owned())
+        chain1.blocks().get(7).map(|b| b.header().hash().to_owned())
     );
     assert_eq!(
         shared.store().get_block_hash(19),
-        best.blocks().get(18).map(|b| b.header().hash().to_owned())
+        chain1
+            .blocks()
+            .get(18)
+            .map(|b| b.header().hash().to_owned())
     );
 }
 

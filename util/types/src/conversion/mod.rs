@@ -8,6 +8,7 @@
 mod utilities;
 
 mod blockchain;
+mod header_digest;
 mod network;
 mod primitive;
 mod storage;
