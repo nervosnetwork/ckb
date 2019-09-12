@@ -374,7 +374,7 @@ fn test_discovery_behavior() {
             .network_state
             .peer_store
             .lock()
-            .get_addrs_to_attempt(2)
+            .fetch_addrs_to_attempt(2)
             .into_iter()
             .map(|peer| peer.addr.clone())
             .find(|addr| {

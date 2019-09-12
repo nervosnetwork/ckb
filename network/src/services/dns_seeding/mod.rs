@@ -30,7 +30,7 @@ pub(crate) struct DnsSeedingService {
 impl DnsSeedingService {
     pub(crate) fn new(network_state: Arc<NetworkState>, seeds: Vec<String>) -> DnsSeedingService {
         let wait_until = if network_state
-            .with_peer_store_mut(|peer_store| peer_store.get_random_addrs(1).is_empty())
+            .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(1).is_empty())
         {
             info!("No peer in peer store, start seeding...");
             Instant::now()

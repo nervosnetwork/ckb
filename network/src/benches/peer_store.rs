@@ -34,7 +34,7 @@ fn get_random_benchmark(c: &mut Criterion) {
                 peer_store.add_addr(peer_id, addr.clone()).unwrap();
             }
             b.iter(|| {
-                peer_store.get_random_addrs(size);
+                peer_store.fetch_random_addrs(size);
             });
         },
         &[10_000, 20_000],

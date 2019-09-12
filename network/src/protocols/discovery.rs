@@ -218,10 +218,10 @@ impl DiscoveryService {
                 // FIXME:
             }
             DiscoveryEvent::GetRandom { n, result } => {
-                let get_random_addrs = self
+                let fetch_random_addrs = self
                     .network_state
-                    .with_peer_store_mut(|peer_store| peer_store.get_random_addrs(n));
-                let addrs = get_random_addrs
+                    .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(n));
+                let addrs = fetch_random_addrs
                     .into_iter()
                     .filter_map(|paddr| {
                         let AddrInfo {

@@ -32,7 +32,7 @@ impl AddrManager {
     }
 
     /// randomly return addrs that worth to try or connect.
-    pub fn get_random<F>(&mut self, count: usize, filter: F) -> Vec<AddrInfo>
+    pub fn fetch_random<F>(&mut self, count: usize, filter: F) -> Vec<AddrInfo>
     where
         F: Fn(&AddrInfo) -> bool,
     {

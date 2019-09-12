@@ -124,43 +124,47 @@ impl PeerStore {
     }
 
     /// Get peers for outbound connection, this method randomly return non-connected peer addrs
-    pub fn get_addrs_to_attempt(&mut self, count: usize) -> Vec<AddrInfo> {
+    pub fn fetch_addrs_to_attempt(&mut self, count: usize) -> Vec<AddrInfo> {
         let now_ms = faketime::unix_time_as_millis();
         let ban_list = self.ban_list.borrow();
         let peers = self.peers.borrow();
         // get addrs that can attempt.
-        self.addr_manager.get_random(count, |peer_addr: &AddrInfo| {
-            !ban_list.is_addr_banned(&peer_addr.addr)
-                && !peers.contains_key(&peer_addr.peer_id)
-                && !peer_addr.tried_in_last_minute(now_ms)
-        })
+        self.addr_manager
+            .fetch_random(count, |peer_addr: &AddrInfo| {
+                !ban_list.is_addr_banned(&peer_addr.addr)
+                    && !peers.contains_key(&peer_addr.peer_id)
+                    && !peer_addr.tried_in_last_minute(now_ms)
+            })
     }
 
     /// Get peers for feeler connection, this method randomly return peer addrs that we never
     /// connected to.
-    pub fn get_addrs_to_feeler(&mut self, count: usize) -> Vec<AddrInfo> {
+    pub fn fetch_addrs_to_feeler(&mut self, count: usize) -> Vec<AddrInfo> {
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
         // get expired or never successed addrs.
         let ban_list = self.ban_list.borrow();
         let peers = self.peers.borrow();
-        self.addr_manager.get_random(count, |peer_addr: &AddrInfo| {
-            !ban_list.is_addr_banned(&peer_addr.addr)
-                && !peers.contains_key(&peer_addr.peer_id)
-                && !peer_addr.tried_in_last_minute(now_ms)
-                && !peer_addr.had_connected(addr_expired_ms)
-        })
+        self.addr_manager
+            .fetch_random(count, |peer_addr: &AddrInfo| {
+                !ban_list.is_addr_banned(&peer_addr.addr)
+                    && !peers.contains_key(&peer_addr.peer_id)
+                    && !peer_addr.tried_in_last_minute(now_ms)
+                    && !peer_addr.had_connected(addr_expired_ms)
+            })
     }
 
     /// return valid addrs that success connected, used for discovery.
-    pub fn get_random_addrs(&mut self, count: usize) -> Vec<AddrInfo> {
+    pub fn fetch_random_addrs(&mut self, count: usize) -> Vec<AddrInfo> {
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
         let ban_list = self.ban_list.get_mut();
         // get success connected addrs.
-        self.addr_manager.get_random(count, |peer_addr: &AddrInfo| {
-            !ban_list.is_addr_banned(&peer_addr.addr) && peer_addr.had_connected(addr_expired_ms)
-        })
+        self.addr_manager
+            .fetch_random(count, |peer_addr: &AddrInfo| {
+                !ban_list.is_addr_banned(&peer_addr.addr)
+                    && peer_addr.had_connected(addr_expired_ms)
+            })
     }
 
     /// Ban a addr

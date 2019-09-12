@@ -40,9 +40,9 @@ impl OutboundPeerService {
             // in current implementation fetch peers may return less than count
             let extra_count = 5;
             let mut paddrs = if is_feeler {
-                peer_store.get_addrs_to_feeler(count + extra_count)
+                peer_store.fetch_addrs_to_feeler(count + extra_count)
             } else {
-                peer_store.get_addrs_to_attempt(count + extra_count)
+                peer_store.fetch_addrs_to_attempt(count + extra_count)
             };
             paddrs.truncate(count as usize);
             for paddr in &mut paddrs {

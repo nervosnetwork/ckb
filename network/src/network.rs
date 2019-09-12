@@ -961,7 +961,7 @@ impl NetworkService {
         let bootnodes = self.network_state.with_peer_store_mut(|peer_store| {
             let count = max((config.max_outbound_peers >> 1) as usize, 1);
             let mut addrs: Vec<_> = peer_store
-                .get_addrs_to_attempt(count)
+                .fetch_addrs_to_attempt(count)
                 .into_iter()
                 .map(|paddr| (paddr.peer_id, paddr.addr))
                 .collect();
