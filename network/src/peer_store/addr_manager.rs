@@ -75,9 +75,7 @@ impl AddrManager {
     pub fn remove(&mut self, addr: &IpPort) -> Option<AddrInfo> {
         if let Some(id) = self.addr_to_id.remove(&addr) {
             let addr_info = self.id_to_info.remove(&id).expect("exists");
-            let last_pos = self.random_ids.len() - 1;
-            self.random_ids.swap(addr_info.random_id_pos, last_pos);
-            self.random_ids.pop();
+            self.random_ids.swap_remove(addr_info.random_id_pos);
             Some(addr_info)
         } else {
             None

@@ -158,7 +158,7 @@ impl PeerStore {
     pub fn fetch_random_addrs(&mut self, count: usize) -> Vec<AddrInfo> {
         let now_ms = faketime::unix_time_as_millis();
         let addr_expired_ms = now_ms - ADDR_TIMEOUT_MS;
-        let ban_list = self.ban_list.get_mut();
+        let ban_list = self.ban_list.borrow();
         // get success connected addrs.
         self.addr_manager
             .fetch_random(count, |peer_addr: &AddrInfo| {
