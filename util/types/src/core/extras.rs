@@ -282,10 +282,10 @@ impl EpochNumberWithFraction {
     }
 
     pub fn number(&self) -> u64 {
-        (self.0 >> 16) & ((1u64 << 40) - 1)
+        (self.0 >> Self::FRACTION_BITS) & Self::NUMBER_MASK
     }
 
     pub fn fraction(&self) -> u64 {
-        u64::from(self.0 as u16)
+        self.0 & Self::FRACTION_MASK
     }
 }
