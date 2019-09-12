@@ -40,7 +40,7 @@ impl AddrManager {
         let mut addr_infos = Vec::with_capacity(count);
         let mut rng = rand::thread_rng();
         let now_ms = faketime::unix_time_as_millis();
-        for i in 0..self.random_ids.len() {
+        for i in 0..std::cmp::min(count, self.random_ids.len()) {
             // reuse the for loop to shuffle random ids
             // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
             let j = rng.gen_range(i, self.random_ids.len());

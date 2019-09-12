@@ -138,6 +138,8 @@ fn test_get_random_addrs() {
     assert!(peer_store.get_random_addrs(1).is_empty());
     let addr = "/ip4/127.0.0.1/tcp/42".parse::<Multiaddr>().unwrap();
     let peer_id = PeerId::random();
+    let addr2 = "/ip4/127.0.0.2/tcp/42".parse::<Multiaddr>().unwrap();
+    let peer_id2 = PeerId::random();
     peer_store.add_addr(peer_id.clone(), addr.clone()).unwrap();
     // random should not return peer that we have never connected to
     assert!(peer_store.get_random_addrs(1).is_empty());
@@ -151,6 +153,12 @@ fn test_get_random_addrs() {
         .add_connected_peer(peer_id, addr, SessionType::Outbound)
         .unwrap();
     assert_eq!(peer_store.get_random_addrs(2).len(), 1);
+    // get peer addrs by limit
+    peer_store
+        .add_connected_peer(peer_id2, addr2, SessionType::Outbound)
+        .unwrap();
+    assert_eq!(peer_store.get_random_addrs(2).len(), 2);
+    assert_eq!(peer_store.get_random_addrs(1).len(), 1);
 }
 
 #[test]
