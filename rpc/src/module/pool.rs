@@ -1,5 +1,5 @@
 use crate::error::RPCError;
-use ckb_jsonrpc_types::{Timestamp, Transaction, TxPoolInfo, Unsigned};
+use ckb_jsonrpc_types::{Transaction, TxPoolInfo};
 use ckb_network::PeerIndex;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
@@ -63,12 +63,12 @@ impl PoolRpc for PoolRpcImpl {
     fn tx_pool_info(&self) -> Result<TxPoolInfo> {
         let tx_pool = self.shared.try_lock_tx_pool();
         Ok(TxPoolInfo {
-            pending: Unsigned(u64::from(tx_pool.pending_size())),
-            proposed: Unsigned(u64::from(tx_pool.proposed_size())),
-            orphan: Unsigned(u64::from(tx_pool.orphan_size())),
-            total_tx_size: Unsigned(tx_pool.total_tx_size() as u64),
-            total_tx_cycles: Unsigned(tx_pool.total_tx_cycles()),
-            last_txs_updated_at: Timestamp(tx_pool.get_last_txs_updated_at()),
+            pending: u64::from(tx_pool.pending_size()).into(),
+            proposed: u64::from(tx_pool.proposed_size()).into(),
+            orphan: u64::from(tx_pool.orphan_size()).into(),
+            total_tx_size: (tx_pool.total_tx_size() as u64).into(),
+            total_tx_cycles: tx_pool.total_tx_cycles().into(),
+            last_txs_updated_at: tx_pool.get_last_txs_updated_at().into(),
         })
     }
 }

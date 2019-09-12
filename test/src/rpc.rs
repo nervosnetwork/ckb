@@ -2,7 +2,7 @@ use ckb_jsonrpc_types::{
     Alert, BannedAddress, Block, BlockNumber, BlockTemplate, BlockView, Capacity,
     CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, DryRunResult, EpochNumber,
     EpochView, HeaderView, LiveCell, LockHashIndexState, Node, OutPoint, PeerState, Timestamp,
-    Transaction, TransactionWithStatus, TxPoolInfo, Unsigned, Version,
+    Transaction, TransactionWithStatus, TxPoolInfo, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -43,7 +43,7 @@ impl RpcClient {
     pub fn get_block_by_number(&self, number: CoreBlockNumber) -> Option<BlockView> {
         self.inner
             .lock()
-            .get_block_by_number(BlockNumber(number))
+            .get_block_by_number(number.into())
             .call()
             .expect("rpc call get_block_by_number")
     }
@@ -59,7 +59,7 @@ impl RpcClient {
     pub fn get_header_by_number(&self, number: CoreBlockNumber) -> Option<HeaderView> {
         self.inner
             .lock()
-            .get_header_by_number(BlockNumber(number))
+            .get_header_by_number(number.into())
             .call()
             .expect("rpc call get_header_by_number")
     }
@@ -75,7 +75,7 @@ impl RpcClient {
     pub fn get_block_hash(&self, number: CoreBlockNumber) -> Option<Byte32> {
         self.inner
             .lock()
-            .get_block_hash(BlockNumber(number))
+            .get_block_hash(number.into())
             .call()
             .expect("rpc call get_block_hash")
             .map(|x| x.pack())
@@ -97,7 +97,7 @@ impl RpcClient {
     ) -> Vec<CellOutputWithOutPoint> {
         self.inner
             .lock()
-            .get_cells_by_lock_hash(lock_hash.unpack(), BlockNumber(from), BlockNumber(to))
+            .get_cells_by_lock_hash(lock_hash.unpack(), from.into(), to.into())
             .call()
             .expect("rpc call get_cells_by_lock_hash")
     }
@@ -116,7 +116,7 @@ impl RpcClient {
             .get_tip_block_number()
             .call()
             .expect("rpc call get_tip_block_number")
-            .0
+            .into()
     }
 
     pub fn get_current_epoch(&self) -> EpochView {
@@ -130,7 +130,7 @@ impl RpcClient {
     pub fn get_epoch_by_number(&self, number: CoreEpochNumber) -> Option<EpochView> {
         self.inner
             .lock()
-            .get_epoch_by_number(EpochNumber(number))
+            .get_epoch_by_number(number.into())
             .call()
             .expect("rpc call get_epoch_by_number")
     }
@@ -180,9 +180,9 @@ impl RpcClient {
         proposals_limit: Option<u64>,
         max_version: Option<CoreVersion>,
     ) -> BlockTemplate {
-        let bytes_limit = bytes_limit.map(Unsigned);
-        let proposals_limit = proposals_limit.map(Unsigned);
-        let max_version = max_version.map(Version);
+        let bytes_limit = bytes_limit.map(Into::into);
+        let proposals_limit = proposals_limit.map(Into::into);
+        let max_version = max_version.map(Into::into);
         self.inner
             .lock()
             .get_block_template(bytes_limit, proposals_limit, max_version)
@@ -280,8 +280,8 @@ impl RpcClient {
             .lock()
             .get_live_cells_by_lock_hash(
                 lock_hash.unpack(),
-                Unsigned(page),
-                Unsigned(per_page),
+                page.into(),
+                per_page.into(),
                 reverse_order,
             )
             .call()
@@ -299,8 +299,8 @@ impl RpcClient {
             .lock()
             .get_transactions_by_lock_hash(
                 lock_hash.unpack(),
-                Unsigned(page),
-                Unsigned(per_page),
+                page.into(),
+                per_page.into(),
                 reverse_order,
             )
             .call()
@@ -314,7 +314,7 @@ impl RpcClient {
     ) -> LockHashIndexState {
         self.inner()
             .lock()
-            .index_lock_hash(lock_hash.unpack(), index_from.map(BlockNumber))
+            .index_lock_hash(lock_hash.unpack(), index_from.map(Into::into))
             .call()
             .expect("rpc call index_lock_hash")
     }
@@ -345,7 +345,7 @@ impl RpcClient {
             .calculate_dao_maximum_withdraw(out_point, hash.unpack())
             .call()
             .expect("rpc call calculate_dao_maximum_withdraw")
-            .0
+            .into()
     }
 }
 
@@ -382,8 +382,8 @@ jsonrpc_client!(pub struct Inner {
 
     pub fn get_block_template(
         &mut self,
-        bytes_limit: Option<Unsigned>,
-        proposals_limit: Option<Unsigned>,
+        bytes_limit: Option<Uint64>,
+        proposals_limit: Option<Uint64>,
         max_version: Option<Version>
     ) -> RpcRequest<BlockTemplate>;
     pub fn submit_block(&mut self, _work_id: String, _data: Block) -> RpcRequest<Option<H256>>;
@@ -400,8 +400,8 @@ jsonrpc_client!(pub struct Inner {
     pub fn remove_node(&mut self, peer_id: String) -> RpcRequest<()>;
     pub fn process_block_without_verify(&mut self, _data: Block) -> RpcRequest<Option<H256>>;
 
-    pub fn get_live_cells_by_lock_hash(&mut self, lock_hash: H256, page: Unsigned, per_page: Unsigned, reverse_order: Option<bool>) -> RpcRequest<Vec<LiveCell>>;
-    pub fn get_transactions_by_lock_hash(&mut self, lock_hash: H256, page: Unsigned, per_page: Unsigned, reverse_order: Option<bool>) -> RpcRequest<Vec<CellTransaction>>;
+    pub fn get_live_cells_by_lock_hash(&mut self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> RpcRequest<Vec<LiveCell>>;
+    pub fn get_transactions_by_lock_hash(&mut self, lock_hash: H256, page: Uint64, per_page: Uint64, reverse_order: Option<bool>) -> RpcRequest<Vec<CellTransaction>>;
     pub fn index_lock_hash(&mut self, lock_hash: H256, index_from: Option<BlockNumber>) -> RpcRequest<LockHashIndexState>;
     pub fn deindex_lock_hash(&mut self, lock_hash: H256) -> RpcRequest<()>;
     pub fn get_lock_hash_index_states(&mut self) -> RpcRequest<Vec<LockHashIndexState>>;

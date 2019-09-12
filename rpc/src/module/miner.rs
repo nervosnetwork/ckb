@@ -1,5 +1,5 @@
 use ckb_chain::chain::ChainController;
-use ckb_jsonrpc_types::{Block, BlockTemplate, Unsigned, Version};
+use ckb_jsonrpc_types::{Block, BlockTemplate, Uint64, Version};
 use ckb_logger::{debug, error};
 use ckb_miner::BlockAssemblerController;
 use ckb_network::NetworkController;
@@ -20,8 +20,8 @@ pub trait MinerRpc {
     #[rpc(name = "get_block_template")]
     fn get_block_template(
         &self,
-        bytes_limit: Option<Unsigned>,
-        proposals_limit: Option<Unsigned>,
+        bytes_limit: Option<Uint64>,
+        proposals_limit: Option<Uint64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate>;
 
@@ -40,22 +40,22 @@ pub(crate) struct MinerRpcImpl {
 impl MinerRpc for MinerRpcImpl {
     fn get_block_template(
         &self,
-        bytes_limit: Option<Unsigned>,
-        proposals_limit: Option<Unsigned>,
+        bytes_limit: Option<Uint64>,
+        proposals_limit: Option<Uint64>,
         max_version: Option<Version>,
     ) -> Result<BlockTemplate> {
         let bytes_limit = match bytes_limit {
-            Some(b) => Some(b.0),
+            Some(b) => Some(b.into()),
             None => None,
         };
 
         let proposals_limit = match proposals_limit {
-            Some(b) => Some(b.0),
+            Some(b) => Some(b.into()),
             None => None,
         };
 
         self.block_assembler
-            .get_block_template(bytes_limit, proposals_limit, max_version.map(|v| v.0))
+            .get_block_template(bytes_limit, proposals_limit, max_version.map(Into::into))
             .map_err(|err| {
                 error!("get_block_template error {}", err);
                 Error::internal_error()

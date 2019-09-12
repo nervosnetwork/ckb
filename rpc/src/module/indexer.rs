@@ -1,5 +1,5 @@
 use ckb_indexer::IndexerStore;
-use ckb_jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Unsigned};
+use ckb_jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Uint64};
 use ckb_types::{prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
@@ -10,8 +10,8 @@ pub trait IndexerRpc {
     fn get_live_cells_by_lock_hash(
         &self,
         _lock_hash: H256,
-        _page: Unsigned,
-        _per_page: Unsigned,
+        _page: Uint64,
+        _per_page: Uint64,
         _reverse_order: Option<bool>,
     ) -> Result<Vec<LiveCell>>;
 
@@ -19,8 +19,8 @@ pub trait IndexerRpc {
     fn get_transactions_by_lock_hash(
         &self,
         _lock_hash: H256,
-        _page: Unsigned,
-        _per_page: Unsigned,
+        _page: Uint64,
+        _per_page: Uint64,
         _reverse_order: Option<bool>,
     ) -> Result<Vec<CellTransaction>>;
 
@@ -46,17 +46,17 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
     fn get_live_cells_by_lock_hash(
         &self,
         lock_hash: H256,
-        page: Unsigned,
-        per_page: Unsigned,
+        page: Uint64,
+        per_page: Uint64,
         reverse_order: Option<bool>,
     ) -> Result<Vec<LiveCell>> {
         let lock_hash = lock_hash.pack();
-        let per_page = (per_page.0 as usize).min(50);
+        let per_page = (per_page.value() as usize).min(50);
         Ok(self
             .store
             .get_live_cells(
                 &lock_hash,
-                (page.0 as usize).saturating_mul(per_page),
+                (page.value() as usize).saturating_mul(per_page),
                 per_page,
                 reverse_order.unwrap_or_default(),
             )
@@ -68,17 +68,17 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
     fn get_transactions_by_lock_hash(
         &self,
         lock_hash: H256,
-        page: Unsigned,
-        per_page: Unsigned,
+        page: Uint64,
+        per_page: Uint64,
         reverse_order: Option<bool>,
     ) -> Result<Vec<CellTransaction>> {
         let lock_hash = lock_hash.pack();
-        let per_page = (per_page.0 as usize).min(50);
+        let per_page = (per_page.value() as usize).min(50);
         Ok(self
             .store
             .get_transactions(
                 &lock_hash,
-                (page.0 as usize).saturating_mul(per_page),
+                (page.value() as usize).saturating_mul(per_page),
                 per_page,
                 reverse_order.unwrap_or_default(),
             )
@@ -94,10 +94,10 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
     ) -> Result<LockHashIndexState> {
         let state = self
             .store
-            .insert_lock_hash(&lock_hash.pack(), index_from.map(|number| number.0));
+            .insert_lock_hash(&lock_hash.pack(), index_from.map(Into::into));
         Ok(LockHashIndexState {
             lock_hash,
-            block_number: BlockNumber(state.block_number),
+            block_number: state.block_number.into(),
             block_hash: state.block_hash.unpack(),
         })
     }
@@ -114,7 +114,7 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
             .into_iter()
             .map(|(lock_hash, state)| LockHashIndexState {
                 lock_hash: lock_hash.unpack(),
-                block_number: BlockNumber(state.block_number),
+                block_number: state.block_number.into(),
                 block_hash: state.block_hash.unpack(),
             })
             .collect();

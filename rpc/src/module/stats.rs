@@ -1,4 +1,4 @@
-use ckb_jsonrpc_types::{AlertMessage, ChainInfo, EpochNumber, PeerState, Timestamp};
+use ckb_jsonrpc_types::{AlertMessage, ChainInfo, PeerState};
 use ckb_network_alert::notifier::Notifier as AlertNotifier;
 use ckb_shared::shared::Shared;
 use ckb_sync::Synchronizer;
@@ -48,8 +48,8 @@ impl StatsRpc for StatsRpcImpl {
 
         Ok(ChainInfo {
             chain,
-            median_time: Timestamp(median_time),
-            epoch: EpochNumber(epoch),
+            median_time: median_time.into(),
+            epoch: epoch.into(),
             difficulty,
             is_initial_block_download,
             alerts,

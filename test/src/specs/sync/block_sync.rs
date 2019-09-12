@@ -2,7 +2,7 @@ use crate::utils::{
     build_block, build_get_blocks, build_header, new_block_with_template, wait_until,
 };
 use crate::{Net, Node, Spec, TestProtocol};
-use ckb_jsonrpc_types::{ChainInfo, Timestamp};
+use ckb_jsonrpc_types::ChainInfo;
 use ckb_network::PeerIndex;
 use ckb_sync::NetworkProtocol;
 use ckb_types::packed::{Block, Byte32};
@@ -42,7 +42,7 @@ impl Spec for BlockSyncFromOne {
         let ret = wait_until(10, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();
-            header0 == header1 && header0.inner.number.0 == 3
+            header0 == header1 && header0.inner.number.value() == 3
         });
         assert!(
             ret,
@@ -143,7 +143,7 @@ impl Spec for BlockSyncForks {
         );
 
         let tip2 = rpc_client2.get_tip_header();
-        assert_eq!(tip0.inner.number.0 + 1, tip2.inner.number.0);
+        assert_eq!(tip0.inner.number.value() + 1, tip2.inner.number.value());
 
         // Connect node0 and node2, so that they can sync with each other
         node0.connect(node2);
@@ -157,7 +157,7 @@ impl Spec for BlockSyncForks {
             "Node0 and node2 should sync with each other until same tip chain",
         );
 
-        for number in 1u64..tip2.inner.number.0 {
+        for number in 1u64..tip2.inner.number.into() {
             let block0 = rpc_client0.get_block_by_number(number);
             let block2 = rpc_client2.get_block_by_number(number);
             assert_eq!(
@@ -342,7 +342,7 @@ impl Spec for BlockSyncNonAncestorBestBlocks {
         let ret = wait_until(20, || {
             let header0 = rpc_client0.get_tip_header();
             let header1 = rpc_client1.get_tip_header();
-            header0 == header1 && header0.inner.number.0 == 2
+            header0 == header1 && header0.inner.number.value() == 2
         });
         assert!(
             ret,
@@ -427,7 +427,7 @@ fn build_forks(node: &Node, offsets: &[u64]) -> Vec<Block> {
     let mut blocks = Vec::with_capacity(offsets.len());
     for offset in offsets.iter() {
         let mut template = rpc_client.get_block_template(None, None, None);
-        template.current_time = Timestamp(template.current_time.0 + offset);
+        template.current_time = (template.current_time.value() + offset).into();
         let block = new_block_with_template(template);
         node.submit_block(&block);
 

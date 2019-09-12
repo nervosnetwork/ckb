@@ -81,7 +81,7 @@ impl MiningBasic {
         let template3 = rpc_client.get_block_template(None, None, None);
         assert_eq!(block1.hash(), template3.parent_hash.pack());
         assert!(
-            template3.current_time.0 > template1.current_time.0,
+            template3.current_time.value() > template1.current_time.value(),
             "New tip block, new template",
         );
     }
@@ -89,6 +89,6 @@ impl MiningBasic {
 
 fn is_block_template_equal(template1: &BlockTemplate, template2: &BlockTemplate) -> bool {
     let mut temp = template1.clone();
-    temp.current_time = template2.current_time.clone();
+    temp.current_time = template2.current_time;
     &temp == template2
 }

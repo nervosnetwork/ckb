@@ -1,5 +1,5 @@
 use crate::error::RPCError;
-use ckb_jsonrpc_types::{BannedAddress, Node, NodeAddress, Timestamp, Unsigned};
+use ckb_jsonrpc_types::{BannedAddress, Node, NodeAddress, Timestamp};
 use ckb_network::NetworkController;
 use faketime::unix_time_as_millis;
 use jsonrpc_core::Result;
@@ -50,7 +50,7 @@ impl NetworkRpc for NetworkRpcImpl {
                 .into_iter()
                 .map(|(address, score)| NodeAddress {
                     address,
-                    score: Unsigned(u64::from(score)),
+                    score: u64::from(score).into(),
                 })
                 .collect(),
         })
@@ -72,7 +72,7 @@ impl NetworkRpc for NetworkRpcImpl {
                     .into_iter()
                     .map(|(address, score)| NodeAddress {
                         address: address.to_string(),
-                        score: Unsigned(u64::from(score)),
+                        score: u64::from(score).into(),
                     })
                     .collect(),
             })
@@ -86,9 +86,9 @@ impl NetworkRpc for NetworkRpcImpl {
             .into_iter()
             .map(|banned| BannedAddress {
                 address: banned.address.to_string(),
-                ban_until: Timestamp(banned.ban_until),
+                ban_until: banned.ban_until.into(),
                 ban_reason: banned.ban_reason,
-                created_at: Timestamp(banned.created_at),
+                created_at: banned.created_at.into(),
             })
             .collect())
     }
@@ -107,9 +107,12 @@ impl NetworkRpc for NetworkRpcImpl {
         match command.as_ref() {
             "insert" => {
                 let ban_until = if absolute.unwrap_or(false) {
-                    ban_time.unwrap_or_default().0
+                    ban_time.unwrap_or_default().into()
                 } else {
-                    unix_time_as_millis() + ban_time.unwrap_or(Timestamp(DEFAULT_BAN_DURATION)).0
+                    unix_time_as_millis()
+                        + ban_time
+                            .unwrap_or_else(|| DEFAULT_BAN_DURATION.into())
+                            .value()
                 };
                 self.network_controller.insert_ban(
                     ip_network,

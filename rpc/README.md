@@ -63,7 +63,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "1024"
+    "result": "0x400"
 }
 ```
 
@@ -94,17 +94,17 @@ http://localhost:8114
         "chain_root": "0x9f5ebec9c725c99487ec6d07e8ff0963ac5f8a75fcc15d26df1787353e980e4f",
         "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
         "difficulty": "0x7a1200",
-        "epoch": "1",
+        "epoch": "0x1",
         "hash": "0xd629a10a08fb0f43fcb97e948fc2b6eb70ebd28536490fe3864b0e40d08397d1",
-        "nonce": "0",
-        "number": "1024",
+        "nonce": "0x0",
+        "number": "0x400",
         "parent_hash": "0x30a78d902d7c89ae41feaeb4652c79439e2224a3a32bc0f12059f71d86239d03",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "timestamp": "1557311767",
+        "timestamp": "0x5cd2b117",
         "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-        "uncles_count": "0",
+        "uncles_count": "0x0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "version": "0",
+        "version": "0x0",
         "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
     }
 }
@@ -135,9 +135,9 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "difficulty": "0x7a1200",
-        "length": "1800",
-        "number": "1",
-        "start_number": "1000"
+        "length": "0x708",
+        "number": "0x1",
+        "start_number": "0x3e8"
     }
 }
 ```
@@ -158,7 +158,7 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_epoch_by_number",
     "params": [
-        "0"
+        "0x0"
     ]
 }' \
 | tr -d '\n' \
@@ -172,9 +172,9 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "difficulty": "0x3e8",
-        "length": "1000",
-        "number": "0",
-        "start_number": "0"
+        "length": "0x3e8",
+        "number": "0x0",
+        "start_number": "0x0"
     }
 }
 ```
@@ -195,7 +195,7 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_block_hash",
     "params": [
-        "1024"
+        "0x400"
     ]
 }' \
 | tr -d '\n' \
@@ -244,17 +244,17 @@ http://localhost:8114
             "chain_root": "0x9f5ebec9c725c99487ec6d07e8ff0963ac5f8a75fcc15d26df1787353e980e4f",
             "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
             "difficulty": "0x7a1200",
-            "epoch": "1",
+            "epoch": "0x1",
             "hash": "0xd629a10a08fb0f43fcb97e948fc2b6eb70ebd28536490fe3864b0e40d08397d1",
-            "nonce": "0",
-            "number": "1024",
+            "nonce": "0x0",
+            "number": "0x400",
             "parent_hash": "0x30a78d902d7c89ae41feaeb4652c79439e2224a3a32bc0f12059f71d86239d03",
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "timestamp": "1557311767",
+            "timestamp": "0x5cd2b117",
             "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-            "uncles_count": "0",
+            "uncles_count": "0x0",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "version": "0",
+            "version": "0x0",
             "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
         },
         "proposals": [],
@@ -266,15 +266,15 @@ http://localhost:8114
                 "inputs": [
                     {
                         "previous_output": {
-                            "index": "4294967295",
+                            "index": "0xffffffff",
                             "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
                         },
-                        "since": "1024"
+                        "since": "0x400"
                     }
                 ],
                 "outputs": [
                     {
-                        "capacity": "70193197506",
+                        "capacity": "0x1057d731c2",
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -286,7 +286,7 @@ http://localhost:8114
                 "outputs_data": [
                     "0x"
                 ],
-                "version": "0",
+                "version": "0x0",
                 "witnesses": [
                     {
                         "data": [
@@ -330,17 +330,17 @@ http://localhost:8114
         "chain_root": "0x9f5ebec9c725c99487ec6d07e8ff0963ac5f8a75fcc15d26df1787353e980e4f",
         "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
         "difficulty": "0x7a1200",
-        "epoch": "1",
+        "epoch": "0x1",
         "hash": "0xd629a10a08fb0f43fcb97e948fc2b6eb70ebd28536490fe3864b0e40d08397d1",
-        "nonce": "0",
-        "number": "1024",
+        "nonce": "0x0",
+        "number": "0x400",
         "parent_hash": "0x30a78d902d7c89ae41feaeb4652c79439e2224a3a32bc0f12059f71d86239d03",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "timestamp": "1557311767",
+        "timestamp": "0x5cd2b117",
         "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-        "uncles_count": "0",
+        "uncles_count": "0x0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "version": "0",
+        "version": "0x0",
         "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
     }
 }
@@ -359,7 +359,7 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_header_by_number",
     "params": [
-        "1024"
+        "0x400"
     ]
 }' \
 | tr -d '\n' \
@@ -375,17 +375,17 @@ http://localhost:8114
         "chain_root": "0x9f5ebec9c725c99487ec6d07e8ff0963ac5f8a75fcc15d26df1787353e980e4f",
         "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
         "difficulty": "0x7a1200",
-        "epoch": "1",
+        "epoch": "0x1",
         "hash": "0xd629a10a08fb0f43fcb97e948fc2b6eb70ebd28536490fe3864b0e40d08397d1",
-        "nonce": "0",
-        "number": "1024",
+        "nonce": "0x0",
+        "number": "0x400",
         "parent_hash": "0x30a78d902d7c89ae41feaeb4652c79439e2224a3a32bc0f12059f71d86239d03",
         "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "timestamp": "1557311767",
+        "timestamp": "0x5cd2b117",
         "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-        "uncles_count": "0",
+        "uncles_count": "0x0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "version": "0",
+        "version": "0x0",
         "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
     }
 }
@@ -410,8 +410,8 @@ echo '{
     "method": "get_cells_by_lock_hash",
     "params": [
         "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9",
-        "0",
-        "2"
+        "0x0",
+        "0x2"
     ]
 }' \
 | tr -d '\n' \
@@ -426,27 +426,27 @@ http://localhost:8114
     "result": [
         {
             "block_hash": "0xe853f0935dbb7cd7a4da8204a2f6229c65397d5b2f9b35de49ac5116c5c39458",
-            "capacity": "125000000000",
+            "capacity": "0x1d1a94a200",
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                 "hash_type": "data"
             },
             "out_point": {
-                "index": "0",
+                "index": "0x0",
                 "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
             }
         },
         {
             "block_hash": "0x2d1a3d787972f59aef480eeb90c469f2c3414b757ebca15186bb2f520b9ec269",
-            "capacity": "125000000000",
+            "capacity": "0x1d1a94a200",
             "lock": {
                 "args": [],
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                 "hash_type": "data"
             },
             "out_point": {
-                "index": "0",
+                "index": "0x0",
                 "tx_hash": "0x2e32fd60f965075a9a532c670b6d5475a2417e88872b74069e8076e58906b7bf"
             }
         }
@@ -471,7 +471,7 @@ echo '{
     "method": "get_live_cell",
     "params": [
         {
-            "index": "0",
+            "index": "0x0",
             "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
         },
         true
@@ -493,7 +493,7 @@ http://localhost:8114
                 "hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
             },
             "output": {
-                "capacity": "34400000000",
+                "capacity": "0x802665800",
                 "lock": {
                     "args": [],
                     "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -541,7 +541,7 @@ http://localhost:8114
                 {
                     "dep_type": "code",
                     "out_point": {
-                        "index": "0",
+                        "index": "0x0",
                         "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
                     }
                 }
@@ -553,15 +553,15 @@ http://localhost:8114
             "inputs": [
                 {
                     "previous_output": {
-                        "index": "0",
+                        "index": "0x0",
                         "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
                     },
-                    "since": "0"
+                    "since": "0x0"
                 }
             ],
             "outputs": [
                 {
-                    "capacity": "100000000000",
+                    "capacity": "0x174876e800",
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -573,7 +573,7 @@ http://localhost:8114
             "outputs_data": [
                 "0x"
             ],
-            "version": "0",
+            "version": "0x0",
             "witnesses": []
         },
         "tx_status": {
@@ -613,11 +613,11 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "primary": "69444444445",
-        "proposal_reward": "0",
-        "secondary": "748753061",
-        "total": "70193197506",
-        "tx_fee": "0"
+        "primary": "0x102b36211d",
+        "proposal_reward": "0x0",
+        "secondary": "0x2ca110a5",
+        "total": "0x1057d731c2",
+        "tx_fee": "0x0"
     }
 }
 ```
@@ -638,7 +638,7 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_block_by_number",
     "params": [
-        "1024"
+        "0x400"
     ]
 }' \
 | tr -d '\n' \
@@ -655,17 +655,17 @@ http://localhost:8114
             "chain_root": "0x9f5ebec9c725c99487ec6d07e8ff0963ac5f8a75fcc15d26df1787353e980e4f",
             "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
             "difficulty": "0x7a1200",
-            "epoch": "1",
+            "epoch": "0x1",
             "hash": "0xd629a10a08fb0f43fcb97e948fc2b6eb70ebd28536490fe3864b0e40d08397d1",
-            "nonce": "0",
-            "number": "1024",
+            "nonce": "0x0",
+            "number": "0x400",
             "parent_hash": "0x30a78d902d7c89ae41feaeb4652c79439e2224a3a32bc0f12059f71d86239d03",
             "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "timestamp": "1557311767",
+            "timestamp": "0x5cd2b117",
             "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
-            "uncles_count": "0",
+            "uncles_count": "0x0",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "version": "0",
+            "version": "0x0",
             "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
         },
         "proposals": [],
@@ -677,15 +677,15 @@ http://localhost:8114
                 "inputs": [
                     {
                         "previous_output": {
-                            "index": "4294967295",
+                            "index": "0xffffffff",
                             "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
                         },
-                        "since": "1024"
+                        "since": "0x400"
                     }
                 ],
                 "outputs": [
                     {
-                        "capacity": "70193197506",
+                        "capacity": "0x1057d731c2",
                         "lock": {
                             "args": [],
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -697,7 +697,7 @@ http://localhost:8114
                 "outputs_data": [
                     "0x"
                 ],
-                "version": "0",
+                "version": "0x0",
                 "witnesses": [
                     {
                         "data": [
@@ -736,7 +736,7 @@ echo '{
                 {
                     "dep_type": "code",
                     "out_point": {
-                        "index": "0",
+                        "index": "0x0",
                         "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
                     }
                 }
@@ -747,15 +747,15 @@ echo '{
             "inputs": [
                 {
                     "previous_output": {
-                        "index": "0",
+                        "index": "0x0",
                         "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
                     },
-                    "since": "0"
+                    "since": "0x0"
                 }
             ],
             "outputs": [
                 {
-                    "capacity": "100000000000",
+                    "capacity": "0x174876e800",
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -767,7 +767,7 @@ echo '{
             "outputs_data": [
                 "0x"
             ],
-            "version": "0",
+            "version": "0x0",
             "witnesses": []
         }
     ]
@@ -782,7 +782,7 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "cycles": "12"
+        "cycles": "0xc"
     }
 }
 ```
@@ -816,7 +816,7 @@ echo '{
                 {
                     "dep_type": "code",
                     "out_point": {
-                        "index": "0",
+                        "index": "0x0",
                         "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
                     }
                 }
@@ -827,15 +827,15 @@ echo '{
             "inputs": [
                 {
                     "previous_output": {
-                        "index": "0",
+                        "index": "0x0",
                         "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
                     },
-                    "since": "0"
+                    "since": "0x0"
                 }
             ],
             "outputs": [
                 {
-                    "capacity": "100000000000",
+                    "capacity": "0x174876e800",
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -847,7 +847,7 @@ echo '{
             "outputs_data": [
                 "0x"
             ],
-            "version": "0",
+            "version": "0x0",
             "witnesses": []
         }
     ]
@@ -883,7 +883,7 @@ echo '{
     "method": "calculate_dao_maximum_withdraw",
     "params": [
         {
-            "index": "0",
+            "index": "0x0",
             "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
         },
         "0xd629a10a08fb0f43fcb97e948fc2b6eb70ebd28536490fe3864b0e40d08397d1"
@@ -898,7 +898,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "20010297508"
+    "result": "0x4a8b4e8a4"
 }
 ```
 
@@ -962,7 +962,7 @@ echo '{
     "method": "index_lock_hash",
     "params": [
         "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9",
-        "1024"
+        "0x400"
     ]
 }' \
 | tr -d '\n' \
@@ -976,7 +976,7 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": {
         "block_hash": "0xd629a10a08fb0f43fcb97e948fc2b6eb70ebd28536490fe3864b0e40d08397d1",
-        "block_number": "1024",
+        "block_number": "0x400",
         "lock_hash": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
     }
 }
@@ -1008,7 +1008,7 @@ http://localhost:8114
     "result": [
         {
             "block_hash": "0xd629a10a08fb0f43fcb97e948fc2b6eb70ebd28536490fe3864b0e40d08397d1",
-            "block_number": "1024",
+            "block_number": "0x400",
             "lock_hash": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
         }
     ]
@@ -1035,8 +1035,8 @@ echo '{
     "method": "get_live_cells_by_lock_hash",
     "params": [
         "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9",
-        "0",
-        "2"
+        "0x0",
+        "0x2"
     ]
 }' \
 | tr -d '\n' \
@@ -1051,7 +1051,7 @@ http://localhost:8114
     "result": [
         {
             "cell_output": {
-                "capacity": "125000000000",
+                "capacity": "0x1d1a94a200",
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -1060,14 +1060,14 @@ http://localhost:8114
                 "type": null
             },
             "created_by": {
-                "block_number": "1",
-                "index": "0",
+                "block_number": "0x1",
+                "index": "0x0",
                 "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
             }
         },
         {
             "cell_output": {
-                "capacity": "125000000000",
+                "capacity": "0x1d1a94a200",
                 "lock": {
                     "args": [],
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -1076,8 +1076,8 @@ http://localhost:8114
                 "type": null
             },
             "created_by": {
-                "block_number": "2",
-                "index": "0",
+                "block_number": "0x2",
+                "index": "0x0",
                 "tx_hash": "0x2e32fd60f965075a9a532c670b6d5475a2417e88872b74069e8076e58906b7bf"
             }
         }
@@ -1105,8 +1105,8 @@ echo '{
     "method": "get_transactions_by_lock_hash",
     "params": [
         "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9",
-        "0",
-        "2"
+        "0x0",
+        "0x2"
     ]
 }' \
 | tr -d '\n' \
@@ -1122,16 +1122,16 @@ http://localhost:8114
         {
             "consumed_by": null,
             "created_by": {
-                "block_number": "1",
-                "index": "0",
+                "block_number": "0x1",
+                "index": "0x0",
                 "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
             }
         },
         {
             "consumed_by": null,
             "created_by": {
-                "block_number": "2",
-                "index": "0",
+                "block_number": "0x2",
+                "index": "0x0",
                 "tx_hash": "0x2e32fd60f965075a9a532c670b6d5475a2417e88872b74069e8076e58906b7bf"
             }
         }
@@ -1200,11 +1200,11 @@ http://localhost:8114
         "addresses": [
             {
                 "address": "/ip4/192.168.0.2/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-                "score": "255"
+                "score": "0xff"
             },
             {
                 "address": "/ip4/0.0.0.0/tcp/8112/p2p/QmTRHCdrRtgUzYLNCin69zEvPvLYdxUZLLfLYyHVY3DZAS",
-                "score": "1"
+                "score": "0x1"
             }
         ],
         "is_outbound": null,
@@ -1242,7 +1242,7 @@ http://localhost:8114
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.3/tcp/8115",
-                    "score": "1"
+                    "score": "0x1"
                 }
             ],
             "is_outbound": true,
@@ -1253,7 +1253,7 @@ http://localhost:8114
             "addresses": [
                 {
                     "address": "/ip4/192.168.0.4/tcp/8113",
-                    "score": "255"
+                    "score": "0xff"
                 }
             ],
             "is_outbound": false,
@@ -1296,8 +1296,8 @@ http://localhost:8114
         {
             "address": "192.168.0.2/32",
             "ban_reason": "",
-            "ban_until": "1840546800000",
-            "created_at": "1562803123000"
+            "ban_until": "0x1ac89236180",
+            "created_at": "0x16bde533338"
         }
     ]
 }
@@ -1325,7 +1325,7 @@ echo '{
     "params": [
         "192.168.0.2",
         "insert",
-        "1840546800000",
+        "0x1ac89236180",
         true,
         "set_ban example"
     ]
@@ -1374,7 +1374,7 @@ echo '{
                 {
                     "dep_type": "code",
                     "out_point": {
-                        "index": "0",
+                        "index": "0x0",
                         "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
                     }
                 }
@@ -1385,15 +1385,15 @@ echo '{
             "inputs": [
                 {
                     "previous_output": {
-                        "index": "0",
+                        "index": "0x0",
                         "tx_hash": "0x5ba156200c6310bf140fbbd3bfe7e8f03d4d5f82b612c1a8ec2501826eaabc17"
                     },
-                    "since": "0"
+                    "since": "0x0"
                 }
             ],
             "outputs": [
                 {
-                    "capacity": "100000000000",
+                    "capacity": "0x174876e800",
                     "lock": {
                         "args": [],
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -1405,7 +1405,7 @@ echo '{
             "outputs_data": [
                 "0x"
             ],
-            "version": "0",
+            "version": "0x0",
             "witnesses": []
         }
     ]
@@ -1447,12 +1447,12 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
-        "last_txs_updated_at": "0",
-        "orphan": "0",
-        "pending": "1",
-        "proposed": "0",
-        "total_tx_cycles": "12",
-        "total_tx_size": "274"
+        "last_txs_updated_at": "0x0",
+        "orphan": "0x0",
+        "pending": "0x1",
+        "proposed": "0x0",
+        "total_tx_cycles": "0xc",
+        "total_tx_size": "0x112"
     }
 }
 ```
@@ -1485,17 +1485,17 @@ http://localhost:8114
     "result": {
         "alerts": [
             {
-                "id": "42",
+                "id": "0x2a",
                 "message": "An example alert message!",
-                "notice_until": "2524579200000",
-                "priority": "1"
+                "notice_until": "0x24bcca57c00",
+                "priority": "0x1"
             }
         ],
         "chain": "main",
         "difficulty": "0x7a1200",
-        "epoch": "1",
+        "epoch": "0x1",
         "is_initial_block_download": true,
-        "median_time": "1557311749"
+        "median_time": "0x5cd2b105"
     }
 }
 ```
@@ -1525,9 +1525,9 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": [
         {
-            "blocks_in_flight": "86",
-            "last_updated": "1557289448237",
-            "peer": "1"
+            "blocks_in_flight": "0x56",
+            "last_updated": "0x16a95af332d",
+            "peer": "0x1"
         }
     ]
 }

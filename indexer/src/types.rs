@@ -1,7 +1,7 @@
 use ckb_db::DBConfig;
 use ckb_jsonrpc_types::{
-    BlockNumber as JsonBlockNumber, CellTransaction as JsonCellTransaction,
-    LiveCell as JsonLiveCell, TransactionPoint as JsonTransactionPoint, Unsigned,
+    CellTransaction as JsonCellTransaction, LiveCell as JsonLiveCell,
+    TransactionPoint as JsonTransactionPoint,
 };
 use ckb_types::{
     core::BlockNumber,
@@ -223,9 +223,9 @@ impl From<TransactionPoint> for JsonTransactionPoint {
             index,
         } = transaction_point;
         JsonTransactionPoint {
-            block_number: JsonBlockNumber(block_number),
+            block_number: block_number.into(),
             tx_hash: tx_hash.unpack(),
-            index: Unsigned(u64::from(index)),
+            index: u64::from(index).into(),
         }
     }
 }

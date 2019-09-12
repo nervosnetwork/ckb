@@ -454,23 +454,23 @@ impl Node {
 
     pub fn assert_tx_pool_size(&self, pending_size: u64, proposed_size: u64) {
         let tx_pool_info = self.rpc_client().tx_pool_info();
-        assert_eq!(tx_pool_info.pending.0, pending_size);
-        assert_eq!(tx_pool_info.proposed.0, proposed_size);
+        assert_eq!(tx_pool_info.pending.value(), pending_size);
+        assert_eq!(tx_pool_info.proposed.value(), proposed_size);
     }
 
     pub fn assert_tx_pool_statics(&self, total_tx_size: u64, total_tx_cycles: u64) {
         let tx_pool_info = self.rpc_client().tx_pool_info();
-        assert_eq!(tx_pool_info.total_tx_size.0, total_tx_size);
-        assert_eq!(tx_pool_info.total_tx_cycles.0, total_tx_cycles);
+        assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
+        assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
     }
 
     pub fn assert_tx_pool_cycles(&self, total_tx_cycles: u64) {
         let tx_pool_info = self.rpc_client().tx_pool_info();
-        assert_eq!(tx_pool_info.total_tx_cycles.0, total_tx_cycles);
+        assert_eq!(tx_pool_info.total_tx_cycles.value(), total_tx_cycles);
     }
 
     pub fn assert_tx_pool_serialized_size(&self, total_tx_size: u64) {
         let tx_pool_info = self.rpc_client().tx_pool_info();
-        assert_eq!(tx_pool_info.total_tx_size.0, total_tx_size);
+        assert_eq!(tx_pool_info.total_tx_size.value(), total_tx_size);
     }
 }

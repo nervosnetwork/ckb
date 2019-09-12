@@ -8,6 +8,7 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
+use ckb_jsonrpc_types::Uint64;
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
@@ -336,7 +337,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         let snapshot = shared.snapshot();
         snapshot.tip_header().to_owned()
     };
-    let tip_number = json!(tip.number().to_string());
+    let tip_number: Uint64 = tip.number().into();
     let tip_hash = json!(format!("{:#x}", Unpack::<H256>::unpack(&tip.hash())));
     let (_, _, always_success_script) = always_success_cell();
     let always_success_script_hash = {
@@ -368,19 +369,21 @@ fn params_of(shared: &Shared, method: &str) -> Value {
         | "tx_pool_info"
         | "get_peers_state"
         | "get_lock_hash_index_states" => vec![],
-        "get_epoch_by_number" => vec![json!("0")],
-        "get_block_hash" | "get_block_by_number" | "get_header_by_number" => vec![tip_number],
+        "get_epoch_by_number" => vec![json!("0x0")],
+        "get_block_hash" | "get_block_by_number" | "get_header_by_number" => {
+            vec![json!(tip_number)]
+        }
         "get_block" | "get_header" | "get_cellbase_output_capacity_details" => vec![tip_hash],
         "get_cells_by_lock_hash"
         | "get_live_cells_by_lock_hash"
         | "get_transactions_by_lock_hash" => {
-            vec![always_success_script_hash, json!("0"), json!("2")]
+            vec![always_success_script_hash, json!("0x0"), json!("0x2")]
         }
         "get_live_cell" => vec![always_success_out_point, json!(true)],
         "set_ban" => vec![
             json!("192.168.0.2"),
             json!("insert"),
-            json!("1840546800000"),
+            json!("0x1ac89236180"),
             json!(true),
             json!("set_ban example"),
         ],
@@ -388,7 +391,7 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             vec![transaction]
         }
         "get_transaction" => vec![transaction_hash],
-        "index_lock_hash" => vec![json!(always_success_script_hash), json!("1024")],
+        "index_lock_hash" => vec![json!(always_success_script_hash), json!("0x400")],
         "deindex_lock_hash" => vec![json!(always_success_script_hash)],
         "_compute_code_hash" => vec![json!("0x123456")],
         "_compute_script_hash" => {

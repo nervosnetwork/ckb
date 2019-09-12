@@ -1,6 +1,6 @@
 use crate::error::RPCError;
 use ckb_dao::DaoCalculator;
-use ckb_jsonrpc_types::{Capacity, Cycle, DryRunResult, OutPoint, Script, Transaction};
+use ckb_jsonrpc_types::{Capacity, DryRunResult, OutPoint, Script, Transaction};
 use ckb_logger::error;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_store::ChainStore;
@@ -58,7 +58,7 @@ impl ExperimentRpc for ExperimentRpcImpl {
         let consensus = snapshot.consensus();
         let calculator = DaoCalculator::new(consensus, snapshot);
         match calculator.maximum_withdraw(&out_point.into(), &hash.pack()) {
-            Ok(capacity) => Ok(Capacity(capacity)),
+            Ok(capacity) => Ok(capacity.into()),
             Err(err) => {
                 error!("calculate_dao_maximum_withdraw error {:?}", err);
                 Err(Error::internal_error())
@@ -110,7 +110,7 @@ impl<'a> DryRunner<'a> {
                 let max_cycles = consensus.max_block_cycles;
                 match ScriptVerifier::new(&resolved, snapshot).verify(max_cycles) {
                     Ok(cycles) => Ok(DryRunResult {
-                        cycles: Cycle(cycles),
+                        cycles: cycles.into(),
                     }),
                     Err(err) => Err(RPCError::custom(RPCError::Invalid, format!("{:?}", err))),
                 }
