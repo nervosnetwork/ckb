@@ -315,7 +315,6 @@ fn test_find_fork_case4() {
 // this case is create for issuse from https://github.com/nervosnetwork/ckb/pull/1470
 #[test]
 fn repeatedly_switch_fork() {
-    ckb_store::set_cache_enable(false);
     let (shared, _) = SharedBuilder::default()
         .consensus(Consensus::default())
         .build()

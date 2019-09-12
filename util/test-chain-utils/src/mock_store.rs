@@ -17,7 +17,7 @@ pub struct MockStore(pub Arc<ChainDB>);
 impl Default for MockStore {
     fn default() -> Self {
         let db = RocksDB::open_tmp(COLUMNS);
-        MockStore(Arc::new(ChainDB::new(db)))
+        MockStore(Arc::new(ChainDB::new(db, Default::default())))
     }
 }
 

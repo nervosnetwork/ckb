@@ -575,7 +575,6 @@ fn test_uncle_with_uncle_descendant() {
     consensus.max_block_proposals_limit = 3;
     consensus.genesis_epoch_ext.set_length(10);
     let (controller, shared) = start_chain(Some(consensus));
-    ckb_store::set_cache_enable(false);
 
     for block in &chain2 {
         controller

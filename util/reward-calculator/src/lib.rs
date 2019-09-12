@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn get_proposal_ids_by_hash() {
         let db = RocksDB::open_tmp(COLUMNS);
-        let store = ChainDB::new(db);
+        let store = ChainDB::new(db, Default::default());
 
         let proposal1 = ProposalShortId::new([1; 10]);
         let proposal2 = ProposalShortId::new([2; 10]);
@@ -295,7 +295,7 @@ mod tests {
     #[test]
     fn test_txs_fees() {
         let db = RocksDB::open_tmp(COLUMNS);
-        let store = ChainDB::new(db);
+        let store = ChainDB::new(db, Default::default());
 
         // Default PROPOSER_REWARD_RATIO is Ratio(4, 10)
         let consensus = Consensus::default();
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn test_proposal_reward() {
         let db = RocksDB::open_tmp(COLUMNS);
-        let store = ChainDB::new(db);
+        let store = ChainDB::new(db, Default::default());
 
         let consensus = Consensus::default().set_tx_proposal_window(ProposalWindow(2, 5));
 

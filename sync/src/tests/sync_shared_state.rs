@@ -59,7 +59,6 @@ fn test_insert_invalid_block() {
 
 #[test]
 fn test_insert_parent_unknown_block() {
-    ckb_store::set_cache_enable(false);
     let (shared1, _) = build_chain(2);
     let (shared, chain) = {
         let (shared, table) = SharedBuilder::default()

@@ -36,7 +36,6 @@ const DEFAULT_CHANNEL: usize = 128;
 
 #[test]
 fn basic_sync() {
-    ckb_store::set_cache_enable(false);
     let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
     faketime::enable(&faketime_file);
     let thread_name = format!("FAKETIME={}", faketime_file.display());
