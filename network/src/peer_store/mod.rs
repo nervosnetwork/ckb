@@ -1,5 +1,6 @@
 pub mod addr_manager;
 pub mod ban_list;
+mod peer_id_serde;
 mod peer_store_db;
 mod peer_store_impl;
 pub mod types;
