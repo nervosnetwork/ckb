@@ -140,7 +140,9 @@ impl HeaderResolver for FakeHeaderResolver {
 #[test]
 fn test_epoch_number() {
     let header = HeaderBuilder::default().epoch(2u64.pack()).build();
-    let fake_header_resolver = FakeHeaderResolver::new(header, EpochExt::default());
+    let mut epoch = EpochExt::default();
+    epoch.set_length(1);
+    let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
     assert_error_eq(
         EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
@@ -158,6 +160,7 @@ fn test_epoch_difficulty() {
         .build();
     let mut epoch = EpochExt::default();
     epoch.set_difficulty(U256::from(1u64));
+    epoch.set_length(1);
     let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
     assert_error_eq(

@@ -599,7 +599,7 @@ mod tests {
             .transaction(cellbase)
             .parent_hash(parent_header.hash().to_owned())
             .timestamp(now.pack())
-            .epoch(epoch.number().pack())
+            .epoch(epoch.number_with_fraction(number).pack())
             .number(number.pack())
             .difficulty(epoch.difficulty().pack())
             .nonce(nonce.pack())

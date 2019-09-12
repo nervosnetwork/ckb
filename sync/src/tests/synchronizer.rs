@@ -160,7 +160,7 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .transaction(cellbase)
             .parent_hash(block.header().hash().to_owned())
             .number(number.pack())
-            .epoch(epoch.number().pack())
+            .epoch(epoch.number_with_fraction(number).pack())
             .timestamp(timestamp.pack())
             .difficulty(epoch.difficulty().pack())
             .dao(dao)

@@ -419,6 +419,12 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
                     .parent_hash(parent.hash())
                     .dao(dao)
                     .chain_root(chain_root)
+                    .epoch(
+                        consensus
+                            .genesis_epoch_ext()
+                            .number_with_fraction(parent.header().number() + 1)
+                            .pack(),
+                    )
                     .build(),
             )
             .build();

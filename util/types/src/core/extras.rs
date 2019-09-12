@@ -5,6 +5,9 @@ use crate::{
     U256,
 };
 use ckb_error::Error;
+use std::fmt;
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 #[derive(Clone, PartialEq, Default, Debug)]
 pub struct BlockExt {
@@ -174,6 +177,16 @@ impl EpochExt {
             Ok(self.base_block_reward)
         }
     }
+
+    pub fn number_with_fraction(&self, number: BlockNumber) -> EpochNumberWithFraction {
+        debug_assert!(
+            number >= self.start_number() && number < self.start_number() + self.length()
+        );
+        let fraction = EpochNumberWithFraction::FRACTION_MAXIMUM_VALUE
+            * (number - self.start_number())
+            / self.length();
+        EpochNumberWithFraction::new(self.number(), fraction)
+    }
 }
 
 impl EpochExtBuilder {
@@ -233,5 +246,46 @@ impl EpochExtBuilder {
 
     pub fn build(self) -> EpochExt {
         self.0
+    }
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
+pub struct EpochNumberWithFraction(pub u64);
+
+impl fmt::Display for EpochNumberWithFraction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for EpochNumberWithFraction {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let v = u64::from_str(s)?;
+        Ok(EpochNumberWithFraction(v))
+    }
+}
+
+impl EpochNumberWithFraction {
+    pub const NUMBER_BITS: usize = 40;
+    pub const NUMBER_MAXIMUM_VALUE: u64 = (1u64 << Self::NUMBER_BITS);
+    pub const NUMBER_MASK: u64 = (Self::NUMBER_MAXIMUM_VALUE - 1);
+    pub const FRACTION_BITS: usize = 16;
+    pub const FRACTION_MAXIMUM_VALUE: u64 = (1u64 << Self::FRACTION_BITS);
+    pub const FRACTION_MASK: u64 = (Self::FRACTION_MAXIMUM_VALUE - 1);
+
+    pub fn new(number: u64, fraction: u64) -> EpochNumberWithFraction {
+        debug_assert!(number < Self::NUMBER_MAXIMUM_VALUE);
+        debug_assert!(fraction < Self::FRACTION_MAXIMUM_VALUE);
+        EpochNumberWithFraction((number << Self::FRACTION_BITS) | fraction)
+    }
+
+    pub fn number(&self) -> u64 {
+        (self.0 >> 16) & ((1u64 << 40) - 1)
+    }
+
+    pub fn fraction(&self) -> u64 {
+        u64::from(self.0 as u16)
     }
 }

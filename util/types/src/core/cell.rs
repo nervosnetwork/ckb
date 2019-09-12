@@ -258,7 +258,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         out_point: out_point.clone(),
                         transaction_info: Some(TransactionInfo {
                             block_number: header.number(),
-                            block_epoch: header.epoch(),
+                            block_epoch: header.epoch().number(),
                             block_hash: self.block.hash(),
                             index: *i,
                         }),

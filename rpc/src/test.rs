@@ -141,7 +141,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         .transaction(cellbase)
         .parent_hash(parent.hash().to_owned())
         .number((parent.number() + 1).pack())
-        .epoch(epoch.number().pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .timestamp((parent.timestamp() + 1).pack())
         .difficulty(epoch.difficulty().pack())
         .dao(dao)

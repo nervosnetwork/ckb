@@ -142,11 +142,14 @@ pub struct EpochVerifier<T> {
 impl<T: HeaderResolver> EpochVerifier<T> {
     pub fn verify(target: &T) -> Result<(), Error> {
         let epoch = target.epoch().ok_or_else(|| EpochError::AncestorNotFound)?;
-        let actual_epoch_number = target.header().epoch();
-        if actual_epoch_number != epoch.number() {
+        let header = target.header();
+        let actual_epoch_with_fraction = header.epoch();
+        let block_number = header.number();
+        let epoch_with_fraction = epoch.number_with_fraction(block_number);
+        if actual_epoch_with_fraction != epoch_with_fraction {
             Err(EpochError::NumberMismatch {
-                expected: epoch.number(),
-                actual: actual_epoch_number,
+                expected: epoch_with_fraction.0,
+                actual: actual_epoch_with_fraction.0,
             })?;
         }
         let actual_difficulty = target.header().difficulty();

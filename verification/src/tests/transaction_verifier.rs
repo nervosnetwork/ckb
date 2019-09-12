@@ -13,8 +13,8 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
-        BlockNumber, Capacity, ScriptHashType, TransactionBuilder, TransactionInfo,
-        TransactionView, Version,
+        BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, ScriptHashType,
+        TransactionBuilder, TransactionInfo, TransactionView, Version,
     },
     h256,
     packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
@@ -286,7 +286,7 @@ fn verify_since<'a, M>(
     rtx: &'a ResolvedTransaction,
     block_median_time_context: &'a M,
     block_number: BlockNumber,
-    epoch_number: BlockNumber,
+    epoch_number: EpochNumber,
 ) -> Result<(), Error>
 where
     M: BlockMedianTimeContext,
@@ -296,7 +296,7 @@ where
         rtx,
         block_median_time_context,
         block_number,
-        epoch_number,
+        EpochNumberWithFraction::new(epoch_number, 0),
         parent_hash.as_ref().to_owned(),
     )
     .verify()
@@ -391,7 +391,7 @@ pub fn test_absolute_block_number_lock() {
 #[test]
 pub fn test_absolute_epoch_number_lock() {
     // absolute lock until epoch number 0xa
-    let tx = create_tx_with_lock(0x2000_0000_0000_000a);
+    let tx = create_tx_with_lock(0x2000_0000_000a_0000);
     let rtx =
         create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 0, 1));
 
@@ -427,7 +427,7 @@ pub fn test_relative_timestamp_lock() {
 #[test]
 pub fn test_relative_epoch() {
     // next epoch
-    let tx = create_tx_with_lock(0xa000_0000_0000_0001);
+    let tx = create_tx_with_lock(0xa000_0000_0001_0000);
     let rtx =
         create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 1, 1));
 
