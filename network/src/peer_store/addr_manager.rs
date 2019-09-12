@@ -40,14 +40,15 @@ impl AddrManager {
         let mut addr_infos = Vec::with_capacity(count);
         let mut rng = rand::thread_rng();
         let now_ms = faketime::unix_time_as_millis();
-        for i in 0..std::cmp::min(count, self.random_ids.len()) {
+        for i in 0..self.random_ids.len() {
             // reuse the for loop to shuffle random ids
             // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
             let j = rng.gen_range(i, self.random_ids.len());
             self.random_ids.swap(j, i);
             let addr_info: AddrInfo = self.id_to_info[&self.random_ids[i]].to_owned();
             let is_duplicate_ip = duplicate_ips.insert(addr_info.ip_port.ip);
-            //  A trick to make our tests work
+            // A trick to make our tests work
+            // TODO remove this after fix the network tests.
             let is_test_ip =
                 addr_info.ip_port.ip.is_unspecified() || addr_info.ip_port.ip.is_loopback();
             if (is_test_ip || !is_duplicate_ip)
@@ -55,6 +56,9 @@ impl AddrManager {
                 && filter(&addr_info)
             {
                 addr_infos.push(addr_info);
+            }
+            if addr_infos.len() == count {
+                break;
             }
         }
         addr_infos
