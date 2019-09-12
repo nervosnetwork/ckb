@@ -13,6 +13,12 @@ impl Uint32 {
     }
 }
 
+impl fmt::Display for Uint32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{:x}", self.value())
+    }
+}
+
 impl From<u32> for Uint32 {
     fn from(value: u32) -> Self {
         Uint32(value)
@@ -42,7 +48,7 @@ impl Serialize for Uint32 {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&format!("0x{:x}", self.0))
+        serializer.collect_str(self)
     }
 }
 
@@ -61,7 +67,7 @@ impl<'a> Visitor<'a> for Uint32Visitor {
     type Value = Uint32;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "a hex-encoded or decimal uint32")
+        write!(formatter, "a hex-encoded, 0x-prefixed uint32")
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -75,9 +81,18 @@ impl<'a> Visitor<'a> for Uint32Visitor {
             )));
         }
 
-        u32::from_str_radix(&value[2..], 16)
+        let number = u32::from_str_radix(&value[2..], 16)
             .map(Uint32)
-            .map_err(|e| Error::custom(format!("Invalid uint32 {}: {}", value, e)))
+            .map_err(|e| Error::custom(format!("Invalid uint32 {}: {}", value, e)))?;
+        if number.to_string() != value {
+            return Err(Error::custom(format!(
+                "Invalid uint32 {}: with redundant leading zeros, expected: {}",
+                value,
+                number.to_string(),
+            )));
+        }
+
+        Ok(number)
     }
 
     fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
@@ -113,7 +128,22 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_overflow() {
+    fn deserialize_with_redundant_leading_zeros() {
+        let cases = vec![r#""0x01""#, r#""0x00""#];
+        for s in cases {
+            let ret: Result<Uint32, _> = serde_json::from_str(s);
+            assert!(ret.is_err(), ret);
+
+            let err = ret.unwrap_err();
+            assert!(
+                err.to_string().contains("with redundant leading zeros"),
+                err,
+            );
+        }
+    }
+
+    #[test]
+    fn deserialize_too_large() {
         let s = format!(r#""0x{:x}""#, u128::from(u32::max_value()) + 1);
         let ret: Result<Uint32, _> = serde_json::from_str(&s);
         assert!(ret.is_err(), ret);
