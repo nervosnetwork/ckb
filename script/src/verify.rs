@@ -8,6 +8,7 @@ use crate::{
     DataLoader, ScriptError,
 };
 use ckb_error::{Error, InternalErrorKind};
+#[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
 use ckb_types::{
     bytes::Bytes,
@@ -19,9 +20,15 @@ use ckb_types::{
     packed::{Byte32, Byte32Vec, CellInputVec, CellOutput, OutPoint, Script, WitnessVec},
     prelude::*,
 };
+#[cfg(has_asm)]
 use ckb_vm::{
     machine::asm::{AsmCoreMachine, AsmMachine},
     DefaultMachineBuilder, SupportMachine,
+};
+#[cfg(not(has_asm))]
+use ckb_vm::{
+    DefaultCoreMachine, DefaultMachineBuilder, SparseMemory, SupportMachine, TraceMachine,
+    WXorXMemory,
 };
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -268,6 +275,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         // Now run each script group
         for group in self.lock_groups.values().chain(self.type_groups.values()) {
             let cycle = self.verify_script_group(group, max_cycles).map_err(|e| {
+                #[cfg(feature = "logging")]
                 info!(
                     "Error validating script group {} of transaction {}: {:?}",
                     group.script.calc_script_hash(),
@@ -328,11 +336,13 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         max_cycles: Cycle,
     ) -> Result<Cycle, Error> {
         let current_script_hash = script_group.script.calc_script_hash();
+        #[cfg(feature = "logging")]
         let prefix = format!("script group: {}", current_script_hash);
         let debug_printer = |message: &str| {
             if let Some(ref printer) = self.debug_printer {
                 printer(&current_script_hash, message);
             } else {
+                #[cfg(feature = "logging")]
                 debug!("{} DEBUG OUTPUT: {}", prefix, message);
             };
         };
@@ -344,8 +354,20 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 .into_iter()
                 .map(|arg| arg.raw_data()),
         );
-        let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
-        let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
+        #[cfg(has_asm)]
+        let machine_builder = {
+            let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
+            DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(core_machine)
+        };
+        #[cfg(not(has_asm))]
+        let machine_builder = {
+            let core_machine =
+                DefaultCoreMachine::<u64, WXorXMemory<u64, SparseMemory<u64>>>::new_with_max_cycles(
+                    max_cycles,
+                );
+            DefaultMachineBuilder::<DefaultCoreMachine<u64, WXorXMemory<u64, SparseMemory<u64>>>>::new(core_machine)
+        };
+        let default_machine = machine_builder
             .instruction_cycle_func(Box::new(instruction_cycles))
             .syscall(Box::new(
                 self.build_load_script_hash(current_script_hash.clone()),
@@ -368,7 +390,10 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             )))
             .syscall(Box::new(Debugger::new(&debug_printer)))
             .build();
-        let mut machine = AsmMachine::new(machine, None);
+        #[cfg(has_asm)]
+        let mut machine = AsmMachine::new(default_machine, None);
+        #[cfg(not(has_asm))]
+        let mut machine = TraceMachine::new(default_machine);
         machine
             .load_program(&program, &args)
             .map_err(internal_error)?;
