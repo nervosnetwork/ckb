@@ -23,7 +23,7 @@ impl DumpPeerStoreService {
     fn dump_peer_store(&self) {
         let path = self.network_state.config.peer_store_path().clone();
         self.network_state.with_peer_store_mut(|peer_store| {
-            if let Err(err) = peer_store.dump(&path) {
+            if let Err(err) = peer_store.dump_to_dir(&path) {
                 warn!("Dump peer store error, path: {:?} error: {}", path, err);
             } else {
                 debug!("Dump peer store to {:?}", path);

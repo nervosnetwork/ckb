@@ -100,7 +100,7 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .map(|addr| (addr.to_owned(), std::u8::MAX))
             .collect();
-        let peer_store = Mutex::new(PeerStore::load(config.peer_store_path())?);
+        let peer_store = Mutex::new(PeerStore::load_from_dir(config.peer_store_path())?);
         let bootnodes = config.bootnodes()?;
 
         let whitelist_peers = config
