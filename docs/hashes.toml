@@ -45,7 +45,7 @@ index = 1
 
 # Spec: ckb_testnet
 [ckb_testnet]
-genesis = "0xa807c73c77eb4a146aafb28931aa8fe0feaabe76a565e2d6d8312be25b3f339a"
+genesis = "0x4193e67e1a8ff5d3a5ade1e1a1deb1c7308d0221588efd743c69c1be2d01bab1"
 cellbase = "0x1fdee4adfa5eaa89efc08f16cb792187bf689a5d69f1f59ddfb2fd02e01dc9bb"
 
 [[ckb_testnet.system_cells]]

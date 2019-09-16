@@ -1,4 +1,33 @@
-# [v0.19.0](https://github.com/nervosnetwork/ckb/compare/v0.18.2...v0.19.9) (2019-08-24)
+# [v0.20.0](https://github.com/nervosnetwork/ckb/compare/v0.19.2...v0.20.0) (2019-09-07)
+
+### Features
+
+* #1464: Use secp256k1 referenced by hash type "type" as the default lock. (@doitian)
+* #1505: Refactor serialization schema for performance. (@doitian)
+* #1508: Add `load_header_by_field` syscall for fetching epoch data (@xxuejie)
+* #1469: Change `Header#dao` to Byte32 (@quake)
+
+### Bug Fixes
+
+* #1393: Use path-clean (@zjhmale)
+* #1463: Change default lock script (@TheWaWaR)
+* #1413: Use remote peer observed address (@jjyr)
+
+    Observe address is a feature to leverage remote peers to report external IPs for a node.
+
+* #1487: Fix dao statistics in genesis block (@TheWaWaR)
+* #1519: Indexer store should lock the state when syncing data (@quake)
+* #1548: Consensus constructor should init epoch reward from parameter. (@doitian)
+* #1555: Fix orphan block race storage (@keroro520)
+* #1562: Block serialized size should not include uncles proposals serialized size (@yangby-cryptape)
+
+### Improvements
+
+* #1352: Conduct GCD before rational ops (@u2)
+* #1486: Use Byte32 to replace the majority of H256 (@yangby-cryptape)
+* #1520: Resolve indexer store performance issue (@quake)
+
+# [v0.19.2](https://github.com/nervosnetwork/ckb/compare/v0.18.2...v0.19.2) (2019-08-24)
 
 ### Features
 
