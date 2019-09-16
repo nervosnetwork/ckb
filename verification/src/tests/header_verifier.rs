@@ -147,7 +147,7 @@ fn test_epoch_number() {
     assert_error_eq(
         EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
         EpochError::NumberMismatch {
-            expected: 0,
+            expected: 281_474_976_710_656,
             actual: 2,
         },
     )
@@ -155,12 +155,15 @@ fn test_epoch_number() {
 
 #[test]
 fn test_epoch_difficulty() {
-    let header = HeaderBuilder::default()
-        .difficulty(U256::from(2u64).pack())
-        .build();
     let mut epoch = EpochExt::default();
     epoch.set_difficulty(U256::from(1u64));
     epoch.set_length(1);
+
+    let header = HeaderBuilder::default()
+        .epoch(epoch.number_with_fraction(0).pack())
+        .difficulty(U256::from(2u64).pack())
+        .build();
+
     let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
     assert_error_eq(

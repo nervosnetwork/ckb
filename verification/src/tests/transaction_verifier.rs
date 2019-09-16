@@ -13,7 +13,7 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
-        BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, ScriptHashType,
+        BlockNumber, Capacity, DetailedEpochNumber, EpochNumber, ScriptHashType,
         TransactionBuilder, TransactionInfo, TransactionView, Version,
     },
     h256,
@@ -296,7 +296,7 @@ where
         rtx,
         block_median_time_context,
         block_number,
-        EpochNumberWithFraction::new(epoch_number, 0),
+        DetailedEpochNumber::new(epoch_number, 0, 10),
         parent_hash.as_ref().to_owned(),
     )
     .verify()
@@ -370,6 +370,37 @@ fn test_invalid_since_verify() {
         verify_since(&rtx, &median_time_context, 5, 1).unwrap_err(),
         TransactionError::InvalidSince,
     );
+}
+
+#[test]
+fn test_fraction_epoch_since_verify() {
+    // use remain flags
+    let tx = create_tx_with_lock(0x2000_0000_0010_0100);
+    let rtx =
+        create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 0, 1));
+    let median_time_context = MockMedianTime::new(vec![0; 11]);
+    let block_number = 1000;
+    let parent_hash = Arc::new(MockMedianTime::get_block_hash(block_number - 1));
+
+    let result = SinceVerifier::new(
+        &rtx,
+        &median_time_context,
+        block_number,
+        DetailedEpochNumber::new(16, 200, 10),
+        parent_hash.as_ref().to_owned(),
+    )
+    .verify();
+    assert_error_eq(result.unwrap_err(), TransactionError::Immature);
+
+    let result = SinceVerifier::new(
+        &rtx,
+        &median_time_context,
+        block_number,
+        DetailedEpochNumber::new(16, 256, 10),
+        parent_hash.as_ref().to_owned(),
+    )
+    .verify();
+    assert!(result.is_ok());
 }
 
 #[test]

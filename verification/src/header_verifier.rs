@@ -148,8 +148,8 @@ impl<T: HeaderResolver> EpochVerifier<T> {
         let epoch_with_fraction = epoch.number_with_fraction(block_number);
         if actual_epoch_with_fraction != epoch_with_fraction {
             Err(EpochError::NumberMismatch {
-                expected: epoch_with_fraction.0,
-                actual: actual_epoch_with_fraction.0,
+                expected: epoch_with_fraction.full_value(),
+                actual: actual_epoch_with_fraction.full_value(),
             })?;
         }
         let actual_difficulty = target.header().difficulty();

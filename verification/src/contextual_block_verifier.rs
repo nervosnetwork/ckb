@@ -16,7 +16,7 @@ use ckb_types::{
     core::error::OutPointError,
     core::{
         cell::{HeaderChecker, ResolvedTransaction},
-        BlockNumber, BlockReward, BlockView, Capacity, Cycle, EpochExt, EpochNumberWithFraction,
+        BlockNumber, BlockReward, BlockView, Capacity, Cycle, DetailedEpochNumber, EpochExt,
         HeaderView, TransactionView,
     },
     packed::{Byte32, Script},
@@ -311,7 +311,7 @@ impl<'a, 'b, 'c, CS: ChainStore<'a>> DaoHeaderVerifier<'a, 'b, 'c, CS> {
 struct BlockTxsVerifier<'a, CS> {
     context: &'a VerifyContext<'a, CS>,
     block_number: BlockNumber,
-    epoch_number_with_fraction: EpochNumberWithFraction,
+    detailed_epoch_number: DetailedEpochNumber,
     parent_hash: Byte32,
     resolved: &'a [ResolvedTransaction],
 }
@@ -321,14 +321,14 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
     pub fn new(
         context: &'a VerifyContext<'a, CS>,
         block_number: BlockNumber,
-        epoch_number_with_fraction: EpochNumberWithFraction,
+        detailed_epoch_number: DetailedEpochNumber,
         parent_hash: Byte32,
         resolved: &'a [ResolvedTransaction],
     ) -> Self {
         BlockTxsVerifier {
             context,
             block_number,
-            epoch_number_with_fraction,
+            detailed_epoch_number,
             parent_hash,
             resolved,
         }
@@ -375,7 +375,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         &tx,
                         self.context,
                         self.block_number,
-                        self.epoch_number_with_fraction.clone(),
+                        self.detailed_epoch_number.clone(),
                         self.parent_hash.clone(),
                         self.context.consensus,
                     )
@@ -393,7 +393,7 @@ impl<'a, CS: ChainStore<'a>> BlockTxsVerifier<'a, CS> {
                         &tx,
                         self.context,
                         self.block_number,
-                        self.epoch_number_with_fraction.clone(),
+                        self.detailed_epoch_number.clone(),
                         self.parent_hash.clone(),
                         self.context.consensus,
                         self.context.store,

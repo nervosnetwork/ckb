@@ -178,14 +178,13 @@ impl EpochExt {
         }
     }
 
-    pub fn number_with_fraction(&self, number: BlockNumber) -> EpochNumberWithFraction {
+    pub fn number_with_fraction(&self, number: BlockNumber) -> DetailedEpochNumber {
         debug_assert!(
             number >= self.start_number() && number < self.start_number() + self.length()
         );
-        let fraction = EpochNumberWithFraction::FRACTION_MAXIMUM_VALUE
-            * (number - self.start_number())
+        let fraction = DetailedEpochNumber::FRACTION_MAXIMUM_VALUE * (number - self.start_number())
             / self.length();
-        EpochNumberWithFraction::new(self.number(), fraction)
+        DetailedEpochNumber::new(self.number(), fraction, self.length())
     }
 }
 
@@ -250,35 +249,46 @@ impl EpochExtBuilder {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
-pub struct EpochNumberWithFraction(pub u64);
+pub struct DetailedEpochNumber(u64);
 
-impl fmt::Display for EpochNumberWithFraction {
+impl fmt::Display for DetailedEpochNumber {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl FromStr for EpochNumberWithFraction {
+impl FromStr for DetailedEpochNumber {
     type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let v = u64::from_str(s)?;
-        Ok(EpochNumberWithFraction(v))
+        Ok(DetailedEpochNumber(v))
     }
 }
 
-impl EpochNumberWithFraction {
-    pub const NUMBER_BITS: usize = 40;
+impl DetailedEpochNumber {
+    pub const NUMBER_BITS: usize = 32;
     pub const NUMBER_MAXIMUM_VALUE: u64 = (1u64 << Self::NUMBER_BITS);
     pub const NUMBER_MASK: u64 = (Self::NUMBER_MAXIMUM_VALUE - 1);
     pub const FRACTION_BITS: usize = 16;
     pub const FRACTION_MAXIMUM_VALUE: u64 = (1u64 << Self::FRACTION_BITS);
     pub const FRACTION_MASK: u64 = (Self::FRACTION_MAXIMUM_VALUE - 1);
+    pub const NUMBER_WITH_FRACTION_BITS: usize = Self::NUMBER_BITS + Self::FRACTION_BITS;
+    pub const NUMBER_WITH_FRACTION_MAXIMUM_VALUE: u64 = (1u64 << Self::NUMBER_WITH_FRACTION_BITS);
+    pub const NUMBER_WITH_FRACTION_MASK: u64 = (Self::NUMBER_WITH_FRACTION_MAXIMUM_VALUE - 1);
+    pub const LENGTH_BITS: usize = 16;
+    pub const LENGTH_MAXIMUM_VALUE: u64 = (1u64 << Self::LENGTH_BITS);
+    pub const LENGTH_MASK: u64 = (Self::LENGTH_MAXIMUM_VALUE - 1);
 
-    pub fn new(number: u64, fraction: u64) -> EpochNumberWithFraction {
+    pub fn new(number: u64, fraction: u64, length: u64) -> DetailedEpochNumber {
         debug_assert!(number < Self::NUMBER_MAXIMUM_VALUE);
         debug_assert!(fraction < Self::FRACTION_MAXIMUM_VALUE);
-        EpochNumberWithFraction((number << Self::FRACTION_BITS) | fraction)
+        debug_assert!(length < Self::LENGTH_MAXIMUM_VALUE);
+        DetailedEpochNumber(
+            (length << Self::NUMBER_WITH_FRACTION_BITS)
+                | (number << Self::FRACTION_BITS)
+                | fraction,
+        )
     }
 
     pub fn number(&self) -> u64 {
@@ -287,5 +297,21 @@ impl EpochNumberWithFraction {
 
     pub fn fraction(&self) -> u64 {
         self.0 & Self::FRACTION_MASK
+    }
+
+    pub fn length(&self) -> u64 {
+        (self.0 >> Self::NUMBER_WITH_FRACTION_BITS) & Self::LENGTH_MASK
+    }
+
+    pub fn number_with_fraction(&self) -> u64 {
+        self.0 & Self::NUMBER_WITH_FRACTION_MASK
+    }
+
+    pub fn full_value(&self) -> u64 {
+        self.0
+    }
+
+    pub fn from_full_value(value: u64) -> Self {
+        Self(value)
     }
 }
