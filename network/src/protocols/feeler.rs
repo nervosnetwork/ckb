@@ -34,7 +34,14 @@ impl ServiceProtocol for Feeler {
             .map(PublicKey::peer_id)
             .expect("Secio must enabled");
         self.network_state.with_peer_store_mut(|peer_store| {
-            peer_store.add_connected_peer(&peer_id, session.address.clone(), session.ty);
+            if let Err(err) =
+                peer_store.add_connected_peer(peer_id.clone(), session.address.clone(), session.ty)
+            {
+                debug!(
+                    "Failed to add connected peer to peer_store {:?} {:?} {:?}",
+                    err, peer_id, session
+                );
+            }
         });
         info!("peer={} FeelerProtocol.connected", session.address);
         if let Err(err) =

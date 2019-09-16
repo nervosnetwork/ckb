@@ -1,5 +1,5 @@
 // use crate::peer_store::Behaviour;
-use crate::peer_store::types::PeerAddr;
+use crate::peer_store::types::AddrInfo;
 use crate::NetworkState;
 use ckb_logger::{debug, error, trace, warn};
 use futures::{sync::mpsc, sync::oneshot, Async, Future, Stream};
@@ -199,7 +199,12 @@ impl DiscoveryService {
                         trace!("Add discovered address:{:?}", addr);
                         if let Some(peer_id) = extract_peer_id(&addr) {
                             self.network_state.with_peer_store_mut(|peer_store| {
-                                peer_store.add_discovered_addr(&peer_id, addr);
+                                if let Err(err) = peer_store.add_addr(peer_id.clone(), addr) {
+                                    debug!(
+                                        "Failed to add discoved address to peer_store {:?} {:?}",
+                                        err, peer_id
+                                    );
+                                }
                             });
                         }
                     }
@@ -213,13 +218,13 @@ impl DiscoveryService {
                 // FIXME:
             }
             DiscoveryEvent::GetRandom { n, result } => {
-                let random_peers = self
+                let fetch_random_addrs = self
                     .network_state
-                    .with_peer_store(|peer_store| peer_store.random_peers(n as u32));
-                let addrs = random_peers
+                    .with_peer_store_mut(|peer_store| peer_store.fetch_random_addrs(n));
+                let addrs = fetch_random_addrs
                     .into_iter()
                     .filter_map(|paddr| {
-                        let PeerAddr {
+                        let AddrInfo {
                             mut addr, peer_id, ..
                         } = paddr;
                         if !self.is_valid_addr(&addr) {
