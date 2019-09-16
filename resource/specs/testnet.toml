@@ -8,7 +8,7 @@ difficulty = "0x11940000000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x4193e67e1a8ff5d3a5ade1e1a1deb1c7308d0221588efd743c69c1be2d01bab1"
+hash = "0x7feb7839f6dc69867e7afd143aec916165b13bc4b2b9d614d075a5e0086861c2"
 
 [genesis.genesis_cell]
 message = "rylai-v10"
@@ -70,6 +70,13 @@ lock.hash_type = "type"
 capacity = 50_000_000_00000000
 lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
+lock.hash_type = "type"
+# Satoshi's gift, a cell send to satoshi's lock,
+# 60% capacity of this cell is occupied.
+[[genesis.issued_cells]]
+capacity = 50_000_000_00000000
+lock.code_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
+lock.args = ["0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"]
 lock.hash_type = "type"
 
 [pow]

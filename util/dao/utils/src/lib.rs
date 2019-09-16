@@ -6,9 +6,11 @@ mod error;
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_error::Error;
 use ckb_types::{
-    core::{Capacity, TransactionView},
+    bytes::Bytes,
+    core::{Capacity, Ratio, TransactionView},
     packed::{Byte32, OutPoint},
     prelude::*,
+    H160,
 };
 use std::collections::HashSet;
 
@@ -22,11 +24,19 @@ pub const DAO_VERSION: u8 = 1;
 pub const DAO_SIZE: usize = 32;
 
 pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
+    genesis_dao_data_with_satoshi_gift(txs, &H160([0u8; 20]), Ratio(1, 1))
+}
+
+pub fn genesis_dao_data_with_satoshi_gift(
+    txs: Vec<&TransactionView>,
+    satoshi_pubkey_hash: &H160,
+    satoshi_cell_occupied_ratio: Ratio,
+) -> Result<Byte32, Error> {
     let dead_cells = txs
         .iter()
         .flat_map(|tx| tx.inputs().into_iter().map(|input| input.previous_output()))
         .collect::<HashSet<_>>();
-    let statistics_outputs = |tx: &TransactionView| -> Result<_, Error> {
+    let statistics_outputs = |tx_index, tx: &TransactionView| -> Result<_, Error> {
         let c = tx
             .data()
             .raw()
@@ -43,23 +53,33 @@ pub fn genesis_dao_data(txs: Vec<&TransactionView>) -> Result<Byte32, Error> {
             .enumerate()
             .filter(|(index, _)| !dead_cells.contains(&OutPoint::new(tx.hash(), *index as u32)))
             .try_fold(Capacity::zero(), |capacity, (_, (output, data))| {
-                Capacity::bytes(data.len()).and_then(|data_capacity| {
-                    output
-                        .occupied_capacity(data_capacity)
-                        .and_then(|c| capacity.safe_add(c))
-                })
+                // detect satoshi gift cell
+                if tx_index == 0
+                    && output.lock().args().get(0).map(|arg| arg.unpack())
+                        == Some(Bytes::from(&satoshi_pubkey_hash.0[..]))
+                {
+                    Unpack::<Capacity>::unpack(&output.capacity())
+                        .safe_mul_ratio(satoshi_cell_occupied_ratio)
+                } else {
+                    Capacity::bytes(data.len()).and_then(|data_capacity| {
+                        output
+                            .occupied_capacity(data_capacity)
+                            .and_then(|c| capacity.safe_add(c))
+                    })
+                }
             })?;
         Ok((c, u))
     };
 
-    let result: Result<_, Error> =
-        txs.into_iter()
-            .try_fold((Capacity::zero(), Capacity::zero()), |(c, u), tx| {
-                let (tx_c, tx_u) = statistics_outputs(tx)?;
-                let c = c.safe_add(tx_c)?;
-                let u = u.safe_add(tx_u)?;
-                Ok((c, u))
-            });
+    let result: Result<_, Error> = txs.into_iter().enumerate().try_fold(
+        (Capacity::zero(), Capacity::zero()),
+        |(c, u), (tx_index, tx)| {
+            let (tx_c, tx_u) = statistics_outputs(tx_index, tx)?;
+            let c = c.safe_add(tx_c)?;
+            let u = u.safe_add(tx_u)?;
+            Ok((c, u))
+        },
+    );
     let (c, u) = result?;
     Ok(pack_dao_data(DEFAULT_ACCUMULATED_RATE, c, u))
 }

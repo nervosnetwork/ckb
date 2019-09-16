@@ -499,7 +499,7 @@ mod tests {
     use super::*;
     use crate::{types::HeaderView, types::PeerState, SyncSharedState, MAX_TIP_AGE};
     use ckb_chain::chain::ChainService;
-    use ckb_chain_spec::consensus::Consensus;
+    use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
     use ckb_dao::DaoCalculator;
     use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
     use ckb_network::{
@@ -1160,7 +1160,7 @@ mod tests {
             .difficulty(U256::from(2u64).pack())
             .transaction(consensus.genesis_block().transactions()[0].clone())
             .build();
-        let consensus = consensus.set_genesis_block(block);
+        let consensus = ConsensusBuilder::default().genesis_block(block).build();
 
         let (chain_controller, shared, _notify) = start_chain(Some(consensus), None);
 

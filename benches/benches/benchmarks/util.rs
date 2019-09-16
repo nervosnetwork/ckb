@@ -1,5 +1,5 @@
 use ckb_chain::chain::{ChainController, ChainService};
-use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
+use ckb_chain_spec::consensus::{ConsensusBuilder, ProposalWindow};
 use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
@@ -69,9 +69,10 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
         .transactions(transactions)
         .build();
 
-    let mut consensus = Consensus::default()
-        .set_cellbase_maturity(0)
-        .set_genesis_block(genesis_block);
+    let mut consensus = ConsensusBuilder::default()
+        .cellbase_maturity(0)
+        .genesis_block(genesis_block)
+        .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
 
     let mut chains = Chains::default();
@@ -281,9 +282,10 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
         .transactions(transactions)
         .build();
 
-    let mut consensus = Consensus::default()
-        .set_cellbase_maturity(0)
-        .set_genesis_block(genesis_block);
+    let mut consensus = ConsensusBuilder::default()
+        .cellbase_maturity(0)
+        .genesis_block(genesis_block)
+        .build();
     consensus.tx_proposal_window = ProposalWindow(1, 10);
 
     let mut chains = Chains::default();

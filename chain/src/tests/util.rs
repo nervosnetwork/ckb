@@ -1,5 +1,5 @@
 use crate::chain::{ChainController, ChainService};
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, util::MemStore};
@@ -52,9 +52,10 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
             .difficulty(U256::one().pack())
             .transaction(tx)
             .build();
-        Consensus::default()
-            .set_cellbase_maturity(0)
-            .set_genesis_block(genesis_block)
+        ConsensusBuilder::default()
+            .cellbase_maturity(0)
+            .genesis_block(genesis_block)
+            .build()
     });
     let (shared, table) = builder.consensus(consensus).build().unwrap();
 

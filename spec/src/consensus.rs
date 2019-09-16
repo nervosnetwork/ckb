@@ -1,4 +1,4 @@
-use ckb_dao_utils::genesis_dao_data;
+use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_pow::{Pow, PowEngine};
 use ckb_rational::RationalU256;
 use ckb_resource::Resource;
@@ -8,9 +8,10 @@ use ckb_types::{
         capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt,
         HeaderView, Ratio, TransactionBuilder, Version,
     },
+    h160,
     packed::{Byte32, CellInput, Script},
     prelude::*,
-    u256, H256, U256,
+    u256, H160, H256, U256,
 };
 use std::cmp;
 use std::sync::Arc;
@@ -58,6 +59,12 @@ pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_
 const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
 const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
+// Satoshi's pubkey hash in Bitcoin genesis.
+pub(crate) const SATOSHI_PUBKEY_HASH: H160 = h160!("0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18");
+// Ratio of satoshi cell occupied of capacity,
+// only affects genesis cellbase's satoshi lock cells.
+pub(crate) const SATOSHI_CELL_OCCUPIED_RATIO: Ratio = Ratio(6, 10);
+
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
 
@@ -93,38 +100,31 @@ impl ProposalWindow {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Consensus {
-    pub id: String,
-    pub genesis_block: BlockView,
-    pub genesis_hash: Byte32,
-    pub epoch_reward: Capacity,
-    pub secondary_epoch_reward: Capacity,
-    pub max_uncles_num: usize,
-    pub orphan_rate_target: RationalU256,
-    pub epoch_duration_target: u64,
-    pub tx_proposal_window: ProposalWindow,
-    pub proposer_reward_ratio: Ratio,
-    pub pow: Pow,
-    // For each input, if the referenced output transaction is cellbase,
-    // it must have at least `cellbase_maturity` confirmations;
-    // else reject this transaction.
-    pub cellbase_maturity: BlockNumber,
-    // This parameter indicates the count of past blocks used in the median time calculation
-    pub median_time_block_count: usize,
-    // Maximum cycles that all the scripts in all the commit transactions can take
-    pub max_block_cycles: Cycle,
-    // Maximum number of bytes to use for the entire block
-    pub max_block_bytes: u64,
-    // block version number supported
-    pub block_version: Version,
-    // block version number supported
-    pub max_block_proposals_limit: u64,
-    pub genesis_epoch_ext: EpochExt,
+pub struct ConsensusBuilder {
+    id: String,
+    genesis_block: BlockView,
+    genesis_hash: Byte32,
+    epoch_reward: Capacity,
+    secondary_epoch_reward: Capacity,
+    max_uncles_num: usize,
+    orphan_rate_target: RationalU256,
+    epoch_duration_target: u64,
+    tx_proposal_window: ProposalWindow,
+    proposer_reward_ratio: Ratio,
+    pow: Pow,
+    cellbase_maturity: BlockNumber,
+    median_time_block_count: usize,
+    max_block_cycles: Cycle,
+    max_block_bytes: u64,
+    block_version: Version,
+    max_block_proposals_limit: u64,
+    genesis_epoch_ext: EpochExt,
+    satoshi_pubkey_hash: H160,
+    satoshi_cell_occupied_ratio: Ratio,
 }
 
 // genesis difficulty should not be zero
-impl Default for Consensus {
+impl Default for ConsensusBuilder {
     fn default() -> Self {
         let input = CellInput::new_cellbase_input(0);
         let witness = Script::default().into_witness();
@@ -132,20 +132,24 @@ impl Default for Consensus {
             .input(input)
             .witness(witness)
             .build();
-        let dao = genesis_dao_data(vec![&cellbase]).unwrap();
+        let dao = genesis_dao_data_with_satoshi_gift(
+            vec![&cellbase],
+            &SATOSHI_PUBKEY_HASH,
+            SATOSHI_CELL_OCCUPIED_RATIO,
+        )
+        .unwrap();
         let genesis_block = BlockBuilder::default()
             .difficulty(U256::one().pack())
             .dao(dao)
             .transaction(cellbase)
             .build();
 
-        Consensus::new(genesis_block, DEFAULT_EPOCH_REWARD)
+        ConsensusBuilder::new(genesis_block, DEFAULT_EPOCH_REWARD)
     }
 }
 
-#[allow(clippy::op_ref)]
-impl Consensus {
-    pub fn new(genesis_block: BlockView, epoch_reward: Capacity) -> Consensus {
+impl ConsensusBuilder {
+    pub fn new(genesis_block: BlockView, epoch_reward: Capacity) -> Self {
         debug_assert!(
             genesis_block.difficulty() > U256::zero(),
             "genesis difficulty should greater than zero"
@@ -176,7 +180,7 @@ impl Consensus {
             .difficulty(genesis_header.difficulty())
             .build();
 
-        Consensus {
+        ConsensusBuilder {
             genesis_hash: genesis_header.hash(),
             genesis_block,
             id: "main".to_owned(),
@@ -195,15 +199,64 @@ impl Consensus {
             block_version: BLOCK_VERSION,
             proposer_reward_ratio: PROPOSER_REWARD_RATIO,
             max_block_proposals_limit: MAX_BLOCK_PROPOSALS_LIMIT,
+            satoshi_pubkey_hash: SATOSHI_PUBKEY_HASH,
+            satoshi_cell_occupied_ratio: SATOSHI_CELL_OCCUPIED_RATIO,
         }
     }
 
-    pub fn set_id(mut self, id: String) -> Self {
+    pub fn build(self) -> Consensus {
+        let ConsensusBuilder {
+            genesis_hash,
+            genesis_block,
+            id,
+            max_uncles_num,
+            epoch_reward,
+            orphan_rate_target,
+            epoch_duration_target,
+            secondary_epoch_reward,
+            tx_proposal_window,
+            pow,
+            cellbase_maturity,
+            median_time_block_count,
+            max_block_cycles,
+            max_block_bytes,
+            genesis_epoch_ext,
+            block_version,
+            proposer_reward_ratio,
+            max_block_proposals_limit,
+            satoshi_pubkey_hash,
+            satoshi_cell_occupied_ratio,
+        } = self;
+        Consensus {
+            genesis_hash,
+            genesis_block,
+            id,
+            max_uncles_num,
+            epoch_reward,
+            orphan_rate_target,
+            epoch_duration_target,
+            secondary_epoch_reward,
+            tx_proposal_window,
+            pow,
+            cellbase_maturity,
+            median_time_block_count,
+            max_block_cycles,
+            max_block_bytes,
+            genesis_epoch_ext,
+            block_version,
+            proposer_reward_ratio,
+            max_block_proposals_limit,
+            satoshi_pubkey_hash,
+            satoshi_cell_occupied_ratio,
+        }
+    }
+
+    pub fn id(mut self, id: String) -> Self {
         self.id = id;
         self
     }
 
-    pub fn set_genesis_block(mut self, genesis_block: BlockView) -> Self {
+    pub fn genesis_block(mut self, genesis_block: BlockView) -> Self {
         debug_assert!(
             !genesis_block.data().transactions().is_empty()
                 && !genesis_block
@@ -222,44 +275,99 @@ impl Consensus {
         self
     }
 
-    pub fn set_genesis_epoch_ext(mut self, genesis_epoch_ext: EpochExt) -> Self {
+    pub fn genesis_epoch_ext(mut self, genesis_epoch_ext: EpochExt) -> Self {
         self.genesis_epoch_ext = genesis_epoch_ext;
         self
     }
 
-    pub fn set_epoch_reward(mut self, epoch_reward: Capacity) -> Self {
+    pub fn epoch_reward(mut self, epoch_reward: Capacity) -> Self {
         self.epoch_reward = epoch_reward;
         self
     }
 
     #[must_use]
-    pub fn set_secondary_epoch_reward(mut self, secondary_epoch_reward: Capacity) -> Self {
+    pub fn secondary_epoch_reward(mut self, secondary_epoch_reward: Capacity) -> Self {
         self.secondary_epoch_reward = secondary_epoch_reward;
         self
     }
 
     #[must_use]
-    pub fn set_max_block_cycles(mut self, max_block_cycles: Cycle) -> Self {
+    pub fn max_block_cycles(mut self, max_block_cycles: Cycle) -> Self {
         self.max_block_cycles = max_block_cycles;
         self
     }
 
     #[must_use]
-    pub fn set_cellbase_maturity(mut self, cellbase_maturity: BlockNumber) -> Self {
+    pub fn cellbase_maturity(mut self, cellbase_maturity: BlockNumber) -> Self {
         self.cellbase_maturity = cellbase_maturity;
         self
     }
 
-    pub fn set_tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
+    pub fn tx_proposal_window(mut self, proposal_window: ProposalWindow) -> Self {
         self.tx_proposal_window = proposal_window;
         self
     }
 
-    pub fn set_pow(mut self, pow: Pow) -> Self {
+    pub fn pow(mut self, pow: Pow) -> Self {
         self.pow = pow;
         self
     }
 
+    pub fn satoshi_pubkey_hash(mut self, pubkey_hash: H160) -> Self {
+        self.satoshi_pubkey_hash = pubkey_hash;
+        self
+    }
+
+    pub fn satoshi_cell_occupied_ratio(mut self, ratio: Ratio) -> Self {
+        self.satoshi_cell_occupied_ratio = ratio;
+        self
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Consensus {
+    pub id: String,
+    pub genesis_block: BlockView,
+    pub genesis_hash: Byte32,
+    pub epoch_reward: Capacity,
+    pub secondary_epoch_reward: Capacity,
+    pub max_uncles_num: usize,
+    pub orphan_rate_target: RationalU256,
+    pub epoch_duration_target: u64,
+    pub tx_proposal_window: ProposalWindow,
+    pub proposer_reward_ratio: Ratio,
+    pub pow: Pow,
+    // For each input, if the referenced output transaction is cellbase,
+    // it must have at least `cellbase_maturity` confirmations;
+    // else reject this transaction.
+    pub cellbase_maturity: BlockNumber,
+    // This parameter indicates the count of past blocks used in the median time calculation
+    pub median_time_block_count: usize,
+    // Maximum cycles that all the scripts in all the commit transactions can take
+    pub max_block_cycles: Cycle,
+    // Maximum number of bytes to use for the entire block
+    pub max_block_bytes: u64,
+    // block version number supported
+    pub block_version: Version,
+    // block version number supported
+    pub max_block_proposals_limit: u64,
+    pub genesis_epoch_ext: EpochExt,
+    // Satoshi's pubkey hash in Bitcoin genesis.
+    pub satoshi_pubkey_hash: H160,
+    // Ratio of satoshi cell occupied of capacity,
+    // only affects genesis cellbase's satoshi lock cells.
+    pub satoshi_cell_occupied_ratio: Ratio,
+}
+
+// genesis difficulty should not be zero
+impl Default for Consensus {
+    fn default() -> Self {
+        ConsensusBuilder::default().build()
+    }
+}
+
+#[allow(clippy::op_ref)]
+impl Consensus {
     pub fn genesis_block(&self) -> &BlockView {
         &self.genesis_block
     }
@@ -562,7 +670,7 @@ pub mod test {
     fn test_init_epoch_reward() {
         let cellbase = TransactionBuilder::default().witness(vec![].pack()).build();
         let genesis = BlockBuilder::default().transaction(cellbase).build();
-        let consensus = Consensus::new(genesis, capacity_bytes!(100));
+        let consensus = ConsensusBuilder::new(genesis, capacity_bytes!(100)).build();
         assert_eq!(capacity_bytes!(100), consensus.epoch_reward);
     }
 }

@@ -1,6 +1,6 @@
 use crate::{Relayer, SyncSharedState};
 use ckb_chain::chain::ChainService;
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::{
     Behaviour, CKBProtocolContext, Error, Peer, PeerIndex, ProtocolId, TargetSession,
 };
@@ -109,9 +109,10 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
             .difficulty(U256::from(1000u64).pack())
             .transaction(always_success_tx)
             .build();
-        let consensus = Consensus::default()
-            .set_genesis_block(genesis)
-            .set_cellbase_maturity(0);
+        let consensus = ConsensusBuilder::default()
+            .genesis_block(genesis)
+            .cellbase_maturity(0)
+            .build();
         SharedBuilder::default()
             .consensus(consensus)
             .build()

@@ -2,7 +2,7 @@ use crate::tests::util::{
     calculate_reward, create_always_success_out_point, create_always_success_tx, dao_data,
     start_chain, MockStore,
 };
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_shared::shared::Shared;
@@ -152,9 +152,10 @@ fn finalize_reward() {
         .dao(dao)
         .build();
 
-    let consensus = Consensus::default()
-        .set_cellbase_maturity(0)
-        .set_genesis_block(genesis_block);
+    let consensus = ConsensusBuilder::default()
+        .cellbase_maturity(0)
+        .genesis_block(genesis_block)
+        .build();
 
     let (chain_controller, shared, mut parent) = start_chain(Some(consensus));
 

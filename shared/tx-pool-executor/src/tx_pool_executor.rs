@@ -181,7 +181,7 @@ impl TxPoolExecutor {
 mod tests {
     use super::*;
     use ckb_chain::chain::ChainService;
-    use ckb_chain_spec::consensus::Consensus;
+    use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_error::{assert_error_eq, InternalErrorKind};
     use ckb_notify::NotifyService;
     use ckb_shared::shared::{Shared, SharedBuilder};
@@ -215,9 +215,10 @@ mod tests {
             .difficulty(U256::from(1000u64).pack())
             .transaction(always_success_tx)
             .build();
-        let consensus = Consensus::default()
-            .set_genesis_block(block.clone())
-            .set_cellbase_maturity(0);
+        let consensus = ConsensusBuilder::default()
+            .genesis_block(block.clone())
+            .cellbase_maturity(0)
+            .build();
 
         let (shared, table) = SharedBuilder::default()
             .consensus(consensus)

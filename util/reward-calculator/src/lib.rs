@@ -236,7 +236,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
 #[cfg(test)]
 mod tests {
     use super::RewardCalculator;
-    use ckb_chain_spec::consensus::{Consensus, ProposalWindow};
+    use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder, ProposalWindow};
     use ckb_db::RocksDB;
     use ckb_occupied_capacity::AsCapacity;
     use ckb_store::{ChainDB, ChainStore, COLUMNS};
@@ -355,7 +355,9 @@ mod tests {
         let db = RocksDB::open_tmp(COLUMNS);
         let store = ChainDB::new(db);
 
-        let consensus = Consensus::default().set_tx_proposal_window(ProposalWindow(2, 5));
+        let consensus = ConsensusBuilder::default()
+            .tx_proposal_window(ProposalWindow(2, 5))
+            .build();
 
         let tx1 = TransactionBuilder::default().version(100u32.pack()).build();
         let tx2 = TransactionBuilder::default().version(200u32.pack()).build();

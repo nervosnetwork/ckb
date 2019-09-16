@@ -29,6 +29,7 @@ pub struct Node {
     always_success_code_hash: Byte32,
     guard: Option<ProcessGuard>,
     consensus: Option<Consensus>,
+    spec: Option<ChainSpec>,
 }
 
 struct ProcessGuard(pub Child);
@@ -58,6 +59,7 @@ impl Node {
             dep_group_tx_hash: Default::default(),
             always_success_code_hash: Default::default(),
             consensus: None,
+            spec: None,
         }
     }
 
@@ -67,6 +69,10 @@ impl Node {
 
     pub fn consensus(&self) -> &Consensus {
         self.consensus.as_ref().expect("uninitialized consensus")
+    }
+
+    pub fn spec(&self) -> &ChainSpec {
+        self.spec.as_ref().expect("uninitialized spec")
     }
 
     pub fn p2p_port(&self) -> u16 {
@@ -384,6 +390,7 @@ impl Node {
         );
 
         self.consensus = Some(consensus);
+        self.spec = Some(spec.clone());
 
         // write to dir
         fs::write(

@@ -4,7 +4,7 @@ use crate::tests::util::{
     create_transaction, create_transaction_with_out_point, dao_data, start_chain, MockChain,
     MockStore,
 };
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_error::assert_error_eq;
 use ckb_shared::shared::Shared;
@@ -87,7 +87,9 @@ fn test_genesis_transaction_spend() {
         .dao(dao)
         .build();
 
-    let consensus = Consensus::default().set_genesis_block(genesis_block);
+    let consensus = ConsensusBuilder::default()
+        .genesis_block(genesis_block)
+        .build();
     let (chain_controller, shared, parent) = start_chain(Some(consensus));
 
     let end = 21;
@@ -359,7 +361,9 @@ fn test_genesis_transaction_fetch() {
         .difficulty(U256::from(1000u64).pack())
         .build();
 
-    let consensus = Consensus::default().set_genesis_block(genesis_block);
+    let consensus = ConsensusBuilder::default()
+        .genesis_block(genesis_block)
+        .build();
     let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
 
     let out_point = OutPoint::new(root_hash, 0);
@@ -564,7 +568,9 @@ fn test_epoch_hash_rate_dampening() {
     // last_uncles_count 25
     // last_epoch_length 400
     // last_duration 7980
-    let mut consensus = Consensus::default().set_genesis_block(genesis_block.clone());
+    let mut consensus = ConsensusBuilder::default()
+        .genesis_block(genesis_block.clone())
+        .build();
     consensus.genesis_epoch_ext.set_length(400);
     consensus
         .genesis_epoch_ext
@@ -598,7 +604,9 @@ fn test_epoch_hash_rate_dampening() {
         );
     }
 
-    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+    let mut consensus = ConsensusBuilder::default()
+        .genesis_block(genesis_block)
+        .build();
     consensus.genesis_epoch_ext.set_length(400);
     consensus
         .genesis_epoch_ext
@@ -647,7 +655,9 @@ fn test_orphan_rate_estimation_overflow() {
         .dao(dao)
         .build();
 
-    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+    let mut consensus = ConsensusBuilder::default()
+        .genesis_block(genesis_block)
+        .build();
     consensus.genesis_epoch_ext.set_length(400);
 
     // last_difficulty 1000
@@ -699,7 +709,9 @@ fn test_next_epoch_ext() {
         .dao(dao)
         .build();
 
-    let mut consensus = Consensus::default().set_genesis_block(genesis_block);
+    let mut consensus = ConsensusBuilder::default()
+        .genesis_block(genesis_block)
+        .build();
     consensus.genesis_epoch_ext.set_length(400);
 
     // last_difficulty 1000

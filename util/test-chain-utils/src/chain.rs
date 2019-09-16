@@ -1,4 +1,4 @@
-use ckb_chain_spec::consensus::Consensus;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_types::{
     bytes::Bytes,
@@ -58,9 +58,10 @@ pub fn always_success_consensus() -> Consensus {
         .dao(dao)
         .transaction(always_success_tx)
         .build();
-    Consensus::default()
-        .set_genesis_block(genesis)
-        .set_cellbase_maturity(0)
+    ConsensusBuilder::default()
+        .genesis_block(genesis)
+        .cellbase_maturity(0)
+        .build()
 }
 
 pub fn always_success_cellbase(block_number: BlockNumber, reward: Capacity) -> TransactionView {

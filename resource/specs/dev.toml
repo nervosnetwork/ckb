@@ -52,9 +52,9 @@ code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
 hash_type = "type"
 
-# issue 5M cell for random generated private key: d00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc
+# issue 10M cell for random generated private key: d00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc
 [[genesis.issued_cells]]
-capacity = 5_000_000_00000000
+capacity = 10_000_000_00000000
 lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0xc8328aabcd9b9e8e64fbc566c4385c3bdeb219d7"]
 lock.hash_type = "type"
@@ -64,6 +64,14 @@ lock.hash_type = "type"
 capacity = 5_000_000_00000000
 lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x470dcdc5e44064909650113a274b3b36aecb6dc7"]
+lock.hash_type = "type"
+
+# Satoshi's gift, a cell send to satoshi's lock,
+# 60% capacity of this cell is occupied.
+[[genesis.issued_cells]]
+capacity = 5_000_000_00000000
+lock.code_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
+lock.args = ["0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"]
 lock.hash_type = "type"
 
 [params]
