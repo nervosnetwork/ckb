@@ -54,19 +54,16 @@ pub fn genesis_dao_data_with_satoshi_gift(
             .filter(|(index, _)| !dead_cells.contains(&OutPoint::new(tx.hash(), *index as u32)))
             .try_fold(Capacity::zero(), |capacity, (_, (output, data))| {
                 // detect satoshi gift cell
-                if tx_index == 0
+                let occupied_capacity = if tx_index == 0
                     && output.lock().args().get(0).map(|arg| arg.unpack())
                         == Some(Bytes::from(&satoshi_pubkey_hash.0[..]))
                 {
                     Unpack::<Capacity>::unpack(&output.capacity())
                         .safe_mul_ratio(satoshi_cell_occupied_ratio)
                 } else {
-                    Capacity::bytes(data.len()).and_then(|data_capacity| {
-                        output
-                            .occupied_capacity(data_capacity)
-                            .and_then(|c| capacity.safe_add(c))
-                    })
-                }
+                    Capacity::bytes(data.len()).and_then(|c| output.occupied_capacity(c))
+                };
+                occupied_capacity.and_then(|c| capacity.safe_add(c))
             })?;
         Ok((c, u))
     };
