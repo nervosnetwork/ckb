@@ -37,5 +37,7 @@ pub use self::sync::PeerState;
 pub use self::uint32::Uint32;
 pub use self::uint64::Uint64;
 pub use jsonrpc_core::types::{error, id, params, request, response, version};
-pub use primitive::{BlockNumber, Capacity, Cycle, EpochNumber, Timestamp, Version};
+pub use primitive::{
+    BlockNumber, Capacity, Cycle, EpochNumber, EpochNumberWithFraction, Timestamp, Version,
+};
 pub use serde_derive::{Deserialize, Serialize};

@@ -1,6 +1,7 @@
 use crate::bytes::JsonBytes;
 use crate::{
-    BlockNumber, Byte32, Capacity, EpochNumber, EpochNumberWithFraction, ProposalShortId, Timestamp, Uint32, Uint64, Version,
+    BlockNumber, Byte32, Capacity, EpochNumber, EpochNumberWithFraction, ProposalShortId,
+    Timestamp, Uint32, Uint64, Version,
 };
 use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};

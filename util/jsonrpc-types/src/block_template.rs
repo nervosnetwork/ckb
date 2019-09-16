@@ -1,6 +1,6 @@
 use crate::{
-    BlockNumber, Byte32, Cycle, EpochNumber, EpochNumberWithFraction, Header, ProposalShortId, Timestamp, Transaction,
-    Uint64, Version,
+    BlockNumber, Byte32, Cycle, EpochNumberWithFraction, Header, ProposalShortId, Timestamp,
+    Transaction, Uint64, Version,
 };
 use ckb_types::{packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
