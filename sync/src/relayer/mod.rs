@@ -113,6 +113,7 @@ impl Relayer {
             packed::RelayMessageUnionReader::BlockProposal(reader) => {
                 BlockProposalProcess::new(reader, self, nc).execute()?;
             }
+            packed::RelayMessageUnionReader::NotSet => Err(err_msg("invalid data"))?,
         }
         Ok(())
     }
@@ -159,7 +160,7 @@ impl Relayer {
             .collect();
         if !to_ask_proposals.is_empty() {
             let content = packed::GetBlockProposal::new_builder()
-                .block_hash(block.calc_header_hash().pack())
+                .block_hash(block.calc_header_hash())
                 .proposals(to_ask_proposals.clone().pack())
                 .build();
             let message = packed::RelayMessage::new_builder().set(content).build();
@@ -235,7 +236,7 @@ impl Relayer {
         let block_txs_len = transactions.len();
         debug_target!(
             crate::LOG_TARGET_RELAY,
-            "start block reconstruction, block hash: {:#x}, transactions len: {}",
+            "start block reconstruction, block hash: {}, transactions len: {}",
             compact_block.calc_header_hash(),
             block_txs_len,
         );
@@ -304,13 +305,11 @@ impl Relayer {
 
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "finish block reconstruction, block hash: {:#x}",
+                "finish block reconstruction, block hash: {}",
                 compact_block.calc_header_hash(),
             );
 
-            if compact_block.header().raw().transactions_root()
-                != block.header().transactions_root().pack()
-            {
+            if compact_block.header().raw().transactions_root() != block.transactions_root() {
                 if compact_block.short_ids().is_empty()
                     || compact_block.short_ids().len() == block_txs_len
                 {
@@ -330,7 +329,7 @@ impl Relayer {
 
             debug_target!(
                 crate::LOG_TARGET_RELAY,
-                "block reconstruction failed, block hash: {:#x}, missing: {}, total: {}",
+                "block reconstruction failed, block hash: {}, missing: {}, total: {}",
                 compact_block.calc_header_hash(),
                 missing_indexes.len(),
                 compact_block.short_ids().len(),
@@ -491,6 +490,13 @@ impl CKBProtocolHandler for Relayer {
             msg.item_name(),
             peer_index
         );
+        let sentry_hub = sentry::Hub::current();
+        let _scope_guard = sentry_hub.push_scope();
+        sentry_hub.configure_scope(|scope| {
+            scope.set_tag("p2p.protocol", "relayer");
+            scope.set_tag("p2p.message", msg.item_name());
+        });
+
         let start_time = Instant::now();
         self.process(nc, peer_index, msg.as_reader());
         debug_target!(

@@ -7,7 +7,7 @@ impl packed::Script {
         Capacity::bytes(
             self.args()
                 .into_iter()
-                .map(|arg| arg.as_reader().as_unpack_slice().len())
+                .map(|arg| arg.as_reader().raw_data().len())
                 .sum::<usize>()
                 + 32
                 + 1,

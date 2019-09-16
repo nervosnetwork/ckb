@@ -58,8 +58,6 @@ impl OutboundPeerService {
             attempt_peers,
             is_feeler
         );
-        // keep whitelist peer on connected
-        self.try_dial_whitelist();
 
         for paddr in attempt_peers {
             let PeerAddr { peer_id, addr, .. } = paddr;
@@ -87,6 +85,11 @@ impl OutboundPeerService {
             }
         }
     }
+
+    fn try_dial_observed(&self) {
+        self.network_state
+            .try_dial_observed_addrs(&self.p2p_control);
+    }
 }
 
 impl Future for OutboundPeerService {
@@ -106,15 +109,19 @@ impl Future for OutboundPeerService {
                         let new_outbound = status
                             .max_outbound
                             .saturating_sub(status.non_whitelist_outbound);
-                        if self.network_state.config.whitelist_only {
-                            self.try_dial_whitelist()
-                        } else if new_outbound > 0 {
-                            // dial peers
-                            self.dial_peers(false, new_outbound as u32);
-                        } else {
-                            // feeler peers
-                            self.dial_peers(true, FEELER_CONNECTION_COUNT);
+                        if !self.network_state.config.whitelist_only {
+                            if new_outbound > 0 {
+                                // dial peers
+                                self.dial_peers(false, new_outbound as u32);
+                            } else {
+                                // feeler peers
+                                self.dial_peers(true, FEELER_CONNECTION_COUNT);
+                            }
                         }
+                        // keep whitelist peer on connected
+                        self.try_dial_whitelist();
+                        // try dial observed addrs
+                        self.try_dial_observed();
                         self.last_connect = Some(Instant::now());
                     }
                 }

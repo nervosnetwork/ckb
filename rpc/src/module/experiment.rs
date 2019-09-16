@@ -41,12 +41,12 @@ pub(crate) struct ExperimentRpcImpl {
 impl ExperimentRpc for ExperimentRpcImpl {
     fn compute_transaction_hash(&self, tx: Transaction) -> Result<H256> {
         let tx: packed::Transaction = tx.into();
-        Ok(tx.calc_tx_hash())
+        Ok(tx.calc_tx_hash().unpack())
     }
 
     fn compute_script_hash(&self, script: Script) -> Result<H256> {
         let script: packed::Script = script.into();
-        Ok(script.calc_script_hash())
+        Ok(script.calc_script_hash().unpack())
     }
 
     fn dry_run_transaction(&self, tx: Transaction) -> Result<DryRunResult> {

@@ -3,7 +3,6 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_types::{
     core::{BlockNumber, BlockView, EpochExt, HeaderView},
     packed::Byte32,
-    prelude::*,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -106,13 +105,11 @@ where
             }
 
             if included.contains_key(&uncle.hash()) {
-                return Err(Error::Uncles(UnclesError::Duplicate(uncle.hash().unpack())));
+                return Err(Error::Uncles(UnclesError::Duplicate(uncle.hash())));
             }
 
             if self.provider.double_inclusion(&uncle.hash()) {
-                return Err(Error::Uncles(UnclesError::DoubleInclusion(
-                    uncle.hash().unpack(),
-                )));
+                return Err(Error::Uncles(UnclesError::DoubleInclusion(uncle.hash())));
             }
 
             if uncle.data().proposals().len()

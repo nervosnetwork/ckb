@@ -5,7 +5,6 @@ use crate::tx_pool::get_transaction_virtual_bytes;
 use ckb_types::{
     core::{cell::UnresolvableError, Capacity, Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},
-    prelude::Unpack,
 };
 use ckb_verification::TransactionError;
 use failure::Fail;
@@ -393,13 +392,13 @@ impl TxEntriesPool {
         );
         for input in entry.transaction.inputs() {
             let parent_hash = &input.previous_output().tx_hash();
-            let id = ProposalShortId::from_tx_hash(&(parent_hash.unpack()));
+            let id = ProposalShortId::from_tx_hash(&(parent_hash));
             if self.links.contains_key(&id) {
                 parents.insert(id);
             }
         }
         for cell_dep in entry.transaction.cell_deps() {
-            let id = ProposalShortId::from_tx_hash(&(cell_dep.out_point().tx_hash().unpack()));
+            let id = ProposalShortId::from_tx_hash(&(cell_dep.out_point().tx_hash()));
             if self.links.contains_key(&id) {
                 parents.insert(id);
             }

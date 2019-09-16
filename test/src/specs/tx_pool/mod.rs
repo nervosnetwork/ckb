@@ -18,5 +18,5 @@ pub use different_txs_with_same_input::DifferentTxsWithSameInput;
 pub use limit::{CyclesLimit, SizeLimit};
 pub use pool_reconcile::PoolReconcile;
 pub use pool_resurrect::PoolResurrect;
-pub use send_secp_tx::SendSecpTxUseDepGroup;
+pub use send_secp_tx::{CheckTypical2In2OutTx, SendSecpTxUseDepGroup};
 pub use valid_since::ValidSince;

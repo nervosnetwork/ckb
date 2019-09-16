@@ -84,9 +84,7 @@ impl StoreTransaction {
             .get_for_update(COLUMN_META, META_TIP_HEADER_KEY, snapshot)
             .expect("db operation should be ok")
             .map(|slice| {
-                packed::Byte32Reader::from_slice(&slice.as_ref()[..])
-                    .should_be_ok()
-                    .to_entity()
+                packed::Byte32Reader::from_slice_should_be_ok(&slice.as_ref()[..]).to_entity()
             })
     }
 
@@ -146,8 +144,12 @@ impl StoreTransaction {
         }
         let block_number: packed::Uint64 = block.number().pack();
         self.insert_raw(COLUMN_INDEX, block_number.as_slice(), block_hash.as_slice())?;
-        for uncle_hash in block.uncle_hashes().into_iter() {
-            self.insert_raw(COLUMN_UNCLES, &uncle_hash.as_slice(), &[])?;
+        for uncle in block.uncles().into_iter() {
+            self.insert_raw(
+                COLUMN_UNCLES,
+                &uncle.hash().as_slice(),
+                &uncle.header().pack().as_slice(),
+            )?;
         }
         self.insert_raw(COLUMN_INDEX, block_hash.as_slice(), block_number.as_slice())
     }
@@ -156,8 +158,8 @@ impl StoreTransaction {
         for tx_hash in block.tx_hashes().iter() {
             self.delete(COLUMN_TRANSACTION_INFO, tx_hash.as_slice())?;
         }
-        for uncle_hash in block.uncle_hashes().into_iter() {
-            self.delete(COLUMN_UNCLES, uncle_hash.as_slice())?;
+        for uncle in block.uncles().into_iter() {
+            self.delete(COLUMN_UNCLES, uncle.hash().as_slice())?;
         }
         let block_number = block.data().header().raw().number();
         self.delete(COLUMN_INDEX, block_number.as_slice())?;

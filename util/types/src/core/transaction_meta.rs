@@ -1,11 +1,12 @@
-use crate::H256;
 use bit_vec::BitVec;
+
+use crate::packed::Byte32;
 
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct TransactionMeta {
     pub(crate) block_number: u64,
     pub(crate) epoch_number: u64,
-    pub(crate) block_hash: H256,
+    pub(crate) block_hash: Byte32,
     pub(crate) cellbase: bool,
     /// each bits indicate if transaction has dead cells
     pub(crate) dead_cell: BitVec,
@@ -15,7 +16,7 @@ impl TransactionMeta {
     pub fn new(
         block_number: u64,
         epoch_number: u64,
-        block_hash: H256,
+        block_hash: Byte32,
         outputs_count: usize,
         all_dead: bool,
     ) -> TransactionMeta {
@@ -32,7 +33,7 @@ impl TransactionMeta {
     pub fn new_cellbase(
         block_number: u64,
         epoch_number: u64,
-        block_hash: H256,
+        block_hash: Byte32,
         outputs_count: usize,
         all_dead: bool,
     ) -> Self {
@@ -65,8 +66,8 @@ impl TransactionMeta {
         self.epoch_number
     }
 
-    pub fn block_hash(&self) -> &H256 {
-        &self.block_hash
+    pub fn block_hash(&self) -> Byte32 {
+        self.block_hash.clone()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -98,7 +99,7 @@ impl TransactionMeta {
 pub struct TransactionMetaBuilder {
     block_number: u64,
     epoch_number: u64,
-    block_hash: H256,
+    block_hash: Byte32,
     cellbase: bool,
     bits: Vec<u8>,
     len: usize,
@@ -115,7 +116,7 @@ impl TransactionMetaBuilder {
         self
     }
 
-    pub fn block_hash(mut self, block_hash: H256) -> Self {
+    pub fn block_hash(mut self, block_hash: Byte32) -> Self {
         self.block_hash = block_hash;
         self
     }
@@ -162,7 +163,7 @@ mod tests {
 
     #[test]
     fn set_unset_dead_out_of_bounds() {
-        let mut meta = TransactionMeta::new(0, 0, H256::zero(), 4, false);
+        let mut meta = TransactionMeta::new(0, 0, Byte32::zero(), 4, false);
         meta.set_dead(3);
         assert!(meta.is_dead(3) == Some(true));
         meta.unset_dead(3);

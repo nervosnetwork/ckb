@@ -101,7 +101,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (Relayer, OutPoint) {
         .output_data(always_success_cell_data.pack())
         .witness(always_success_script.clone().into_witness())
         .build();
-    let always_success_out_point = OutPoint::new(always_success_tx.hash().unpack(), 0);
+    let always_success_out_point = OutPoint::new(always_success_tx.hash(), 0);
 
     let (shared, table) = {
         let genesis = BlockBuilder::default()

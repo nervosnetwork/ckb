@@ -1,14 +1,12 @@
 //! Advanced builders for Transaction(View), Header(View) and Block(View).
 
-use ckb_merkle_tree::merkle_root;
-
-use crate::{constants, core, packed, prelude::*, H256, U256};
+use crate::{constants, core, packed, prelude::*, utilities::merkle_root, U256};
 
 /*
  * Definitions
  */
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TransactionBuilder {
     pub(crate) version: packed::Uint32,
     pub(crate) cell_deps: Vec<packed::CellDep>,
@@ -19,7 +17,7 @@ pub struct TransactionBuilder {
     pub(crate) outputs_data: Vec<packed::Bytes>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HeaderBuilder {
     // RawHeader
     pub(crate) version: packed::Uint32,
@@ -33,12 +31,12 @@ pub struct HeaderBuilder {
     pub(crate) uncles_hash: packed::Byte32,
     pub(crate) uncles_count: packed::Uint32,
     pub(crate) epoch: packed::Uint64,
-    pub(crate) dao: packed::Bytes,
+    pub(crate) dao: packed::Byte32,
     // Nonce
     pub(crate) nonce: packed::Uint64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BlockBuilder {
     pub(crate) header: HeaderBuilder,
     // Others
@@ -187,8 +185,8 @@ impl TransactionBuilder {
             .raw(raw)
             .witnesses(witnesses.pack())
             .build();
-        let hash = tx.calc_tx_hash().pack();
-        let witness_hash = tx.calc_witness_hash().pack();
+        let hash = tx.calc_tx_hash();
+        let witness_hash = tx.calc_witness_hash();
         core::TransactionView {
             data: tx,
             hash,
@@ -209,7 +207,7 @@ impl HeaderBuilder {
     def_setter_simple!(uncles_hash, Byte32);
     def_setter_simple!(uncles_count, Uint32);
     def_setter_simple!(epoch, Uint64);
-    def_setter_simple!(dao, Bytes);
+    def_setter_simple!(dao, Byte32);
     def_setter_simple!(nonce, Uint64);
 
     pub fn build(self) -> core::HeaderView {
@@ -247,7 +245,7 @@ impl HeaderBuilder {
             .dao(dao)
             .build();
         let header = packed::Header::new_builder().raw(raw).nonce(nonce).build();
-        let hash = header.calc_header_hash().pack();
+        let hash = header.calc_header_hash();
         core::HeaderView { data: header, hash }
     }
 }
@@ -264,7 +262,7 @@ impl BlockBuilder {
     def_setter_simple!(header, uncles_hash, Byte32);
     def_setter_simple!(header, uncles_count, Uint32);
     def_setter_simple!(header, epoch, Uint64);
-    def_setter_simple!(header, dao, Bytes);
+    def_setter_simple!(header, dao, Byte32);
     def_setter_simple!(header, nonce, Uint64);
     def_setter_for_view_vector!(uncles, UncleBlockView, uncle, uncles, set_uncles);
     def_setter_for_view_vector!(
@@ -343,21 +341,16 @@ impl BlockBuilder {
         let uncles = uncles.pack();
 
         let core::HeaderView { data, hash } = if reset_header {
-            let tx_hashes = tx_hashes.iter().map(|h| h.unpack()).collect::<Vec<H256>>();
-            let tx_witness_hashes = tx_witness_hashes
-                .iter()
-                .map(|h| h.unpack())
-                .collect::<Vec<H256>>();
             let transactions_root = merkle_root(&tx_hashes[..]);
             let witnesses_root = merkle_root(&tx_witness_hashes[..]);
             let proposals_hash = proposals.calc_proposals_hash();
             let uncles_hash = uncles.calc_uncles_hash();
             let uncles_count = uncles.len() as u32;
             header
-                .transactions_root(transactions_root.pack())
-                .witnesses_root(witnesses_root.pack())
-                .proposals_hash(proposals_hash.pack())
-                .uncles_hash(uncles_hash.pack())
+                .transactions_root(transactions_root)
+                .witnesses_root(witnesses_root)
+                .proposals_hash(proposals_hash)
+                .uncles_hash(uncles_hash)
                 .uncles_count(uncles_count.pack())
                 .build()
         } else {

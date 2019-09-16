@@ -1,5 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
-use ckb_types::{packed::Header, H256};
+use ckb_types::{
+    packed::{Byte32, Header},
+    prelude::*,
+};
 use serde_derive::{Deserialize, Serialize};
 use std::any::Any;
 use std::fmt;
@@ -36,9 +39,9 @@ impl Pow {
     }
 }
 
-pub fn pow_message(pow_hash: &H256, nonce: u64) -> [u8; 40] {
+pub fn pow_message(pow_hash: &Byte32, nonce: u64) -> [u8; 40] {
     let mut message = [0; 40];
-    message[8..40].copy_from_slice(&pow_hash[..]);
+    message[8..40].copy_from_slice(pow_hash.as_slice());
     LittleEndian::write_u64(&mut message, nonce);
     message
 }
@@ -63,7 +66,7 @@ mod test {
     use ckb_hash::blake2b_256;
     #[test]
     fn test_pow_message() {
-        let zero_hash: H256 = blake2b_256(&[]).into();
+        let zero_hash = blake2b_256(&[]).pack();
         let nonce = u64::max_value();
         let message = pow_message(&zero_hash, nonce);
         assert_eq!(

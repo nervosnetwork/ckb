@@ -12,7 +12,6 @@ use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, Capacity, HeaderBuilder, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, CompactBlock, OutPoint, ProposalShortId},
-    H256,
 };
 use faketime::unix_time_as_millis;
 use std::cell::RefCell;
@@ -119,7 +118,7 @@ fn test_unknow_parent() {
 
     let content = packed::GetHeaders::new_builder()
         .block_locator_hashes(locator_hash.pack())
-        .hash_stop(H256::zero().pack())
+        .hash_stop(packed::Byte32::zero())
         .build();
     let message = packed::SyncMessage::new_builder().set(content).build();
     let data = message.as_slice().into();
@@ -573,10 +572,7 @@ fn test_collision() {
                 .capacity(Capacity::bytes(1000).unwrap().pack())
                 .build(),
         )
-        .input(CellInput::new(
-            OutPoint::new(last_cellbase.hash().unpack(), 0),
-            0,
-        ))
+        .input(CellInput::new(OutPoint::new(last_cellbase.hash(), 0), 0))
         .output_data(Bytes::new().pack())
         .build();
 

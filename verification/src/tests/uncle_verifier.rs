@@ -12,9 +12,9 @@ use ckb_types::{
         BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderView, TransactionBuilder,
         TransactionView, UncleBlockView,
     },
-    packed::{CellInput, ProposalShortId, Script, UncleBlockVec},
+    packed::{Byte32, CellInput, ProposalShortId, Script, UncleBlockVec},
     prelude::*,
-    H256, U256,
+    U256,
 };
 use faketime;
 use rand::random;
@@ -81,7 +81,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
 
     let mut parent = genesis.clone();
     for _ in 1..number {
-        let parent_epoch = shared.get_block_epoch(&parent.hash().unpack()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
@@ -97,7 +97,7 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
 
     // if block_number < 11 { chain1 == chain2 } else { chain1 != chain2 }
     for i in 1..number {
-        let parent_epoch = shared.get_block_epoch(&parent.hash().unpack()).unwrap();
+        let parent_epoch = shared.get_block_epoch(&parent.hash()).unwrap();
         let epoch = shared
             .next_epoch_ext(&parent_epoch, &parent)
             .unwrap_or(parent_epoch);
@@ -114,8 +114,8 @@ fn prepare() -> (Shared, Vec<BlockView>, Vec<BlockView>) {
     }
 
     // the second chain must have smaller hash
-    let hash1: H256 = chain1.last().unwrap().hash().unpack();
-    let hash2: H256 = chain2.last().unwrap().hash().unpack();
+    let hash1 = chain1.last().unwrap().hash();
+    let hash2 = chain2.last().unwrap().hash();
     if hash1 < hash2 {
         (shared, chain2, chain1)
     } else {
@@ -128,9 +128,7 @@ fn dummy_context(shared: &Shared) -> VerifyContext<'_, ChainDB> {
 }
 
 fn epoch(shared: &Shared, chain: &[BlockView], index: usize) -> EpochExt {
-    let parent_epoch = shared
-        .get_block_epoch(&chain[index].hash().unpack())
-        .unwrap();
+    let parent_epoch = shared.get_block_epoch(&chain[index].hash()).unwrap();
     shared
         .next_epoch_ext(&parent_epoch, &chain[index].header())
         .unwrap_or(parent_epoch)
@@ -168,7 +166,7 @@ fn test_invalid_uncle_hash_case1() {
     let (shared, chain1, chain2) = prepare();
     let dummy_context = dummy_context(&shared);
 
-    // header has uncle_count is 1 but uncles_hash is not H256::one()
+    // header has uncle_count is 1 but uncles_hash is not Byte32::one()
     // body has 1 uncles
     let block = chain1
         .last()
@@ -186,7 +184,7 @@ fn test_invalid_uncle_hash_case1() {
     assert_eq!(
         verifier.verify(),
         Err(Error::Uncles(UnclesError::InvalidHash {
-            expected: H256::zero(),
+            expected: Byte32::zero(),
             actual: block.calc_uncles_hash()
         }))
     );
@@ -206,7 +204,7 @@ fn test_invalid_uncle_hash_case2() {
         .unwrap()
         .as_advanced_builder()
         .uncles_count(0u32.pack())
-        .uncles_hash(uncles_hash.clone().pack())
+        .uncles_hash(uncles_hash.clone())
         .build_unchecked();
 
     let epoch = epoch(&shared, &chain1, chain1.len() - 2);
@@ -217,7 +215,7 @@ fn test_invalid_uncle_hash_case2() {
         verifier.verify(),
         Err(Error::Uncles(UnclesError::InvalidHash {
             expected: uncles_hash,
-            actual: H256::zero(),
+            actual: Byte32::zero(),
         }))
     );
 }
@@ -244,7 +242,7 @@ fn test_double_inclusion() {
     assert_eq!(
         verifier.verify(),
         Err(Error::Uncles(UnclesError::DoubleInclusion(
-            block.uncles().get(0).unwrap().hash().unpack()
+            block.uncles().get(0).unwrap().hash()
         )))
     );
 }
@@ -409,7 +407,7 @@ fn test_duplicated_uncles() {
     assert_eq!(
         verifier.verify(),
         Err(Error::Uncles(UnclesError::Duplicate(
-            block.uncles().get(1).unwrap().hash().unpack()
+            block.uncles().get(1).unwrap().hash()
         )))
     );
 }
@@ -590,52 +588,46 @@ fn test_ok() {
     }
 }
 
-// #[test]
-// fn test_uncle_verifier_with_fork_context() {
-//     let (shared, chain1, chain2) = prepare();
-//     let epoch = epoch(&shared, &chain2, chain2.len() - 1);
-//     let chain2_tip_header = chain2.last().unwrap().header();
-//     let new_block = gen_block(chain2_tip_header, 1019, &epoch);
+#[test]
+fn test_uncle_with_uncle_descendant() {
+    let (_, chain1, chain2) = prepare();
 
-//     let context = ForkContext {
-//         attached_blocks: chain2[10..18].iter().collect(),
-//         detached_blocks: chain1[10..19].iter().collect(),
-//         provider: shared.clone(),
-//     };
-//     let context = VerifyContext::new(shared.store(), shared.consensus(), shared.script_config())
+    let mut consensus = Consensus::default();
+    consensus.max_block_proposals_limit = 3;
+    consensus.genesis_epoch_ext.set_length(10);
+    let (controller, shared) = start_chain(Some(consensus));
+    ckb_store::set_cache_enable(false);
 
-//     {
-//         let uncle = BlockBuilder::from_block(chain2[17].clone())
-//             .header_builder(HeaderBuilder::from_header(chain2[17].header().to_owned()))
-//             .build();
-//         let block = BlockBuilder::from_block(new_block.clone())
-//             .uncle(uncle)
-//             .header_builder(HeaderBuilder::from_header(new_block.header().to_owned()))
-//             .build();
-//         let uncle_verifier_context = UncleVerifierContext::new(&context, &epoch, &block);
-//         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-//         assert_eq!(
-//             verifier.verify(),
-//             Err(Error::Uncles(UnclesError::DoubleInclusion(
-//                 block.uncles()[0].header().hash().to_owned()
-//             )))
-//         );
-//     }
+    for block in &chain2 {
+        controller
+            .process_block(Arc::new(block.clone()), false)
+            .expect("process block ok");
+    }
 
-//     {
-//         let uncle = BlockBuilder::from_block(chain1[17].clone())
-//             .header_builder(
-//                 HeaderBuilder::from_header(chain1[17].header().to_owned())
-//                     .parent_hash(chain2[16].header().hash().to_owned()),
-//             )
-//             .build();
-//         let block = BlockBuilder::from_block(new_block.clone())
-//             .uncle(uncle)
-//             .header_builder(HeaderBuilder::from_header(new_block.header().to_owned()))
-//             .build();
+    let uncle10 = chain1[10].clone().as_uncle();
+    let parent = chain2.last().cloned().unwrap().header();
+    let epoch18 = epoch(&shared, &chain2, 18); // last index 18
+    let block = gen_block(&parent, random(), &epoch18)
+        .as_advanced_builder()
+        .uncle(uncle10)
+        .build();
 
-//         let uncle_verifier_context = UncleVerifierContext::new(&context, &epoch, &block);
-//         let verifier = UnclesVerifier::new(uncle_verifier_context, &block);
-//         assert_eq!(verifier.verify(), Ok(()));
-//     }
-// }
+    controller
+        .process_block(Arc::new(block.clone()), false)
+        .expect("process block ok");
+
+    {
+        let parent = block.header();
+        let uncle11 = chain1[11].clone().as_uncle();
+        let epoch18 = epoch(&shared, &chain2, 18);
+        let new_block = gen_block(&parent, random(), &epoch18)
+            .as_advanced_builder()
+            .uncle(uncle11)
+            .build();
+
+        let dummy_context = dummy_context(&shared);
+        let uncle_verifier_context = UncleVerifierContext::new(&dummy_context, &epoch18);
+        let verifier = UnclesVerifier::new(uncle_verifier_context, &new_block);
+        assert_eq!(verifier.verify(), Ok(()));
+    }
+}

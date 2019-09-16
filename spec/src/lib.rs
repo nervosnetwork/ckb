@@ -44,6 +44,7 @@ const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
 pub struct ChainSpec {
     pub name: String,
     pub genesis: Genesis,
+    #[serde(default)]
     pub params: Params,
     pub pow: Pow,
 }
@@ -54,6 +55,21 @@ pub struct Params {
     pub secondary_epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: BlockNumber,
+}
+
+impl Default for Params {
+    fn default() -> Self {
+        use crate::consensus::{
+            CELLBASE_MATURITY, DEFAULT_EPOCH_REWARD, DEFAULT_SECONDARY_EPOCH_REWARD,
+            MAX_BLOCK_CYCLES,
+        };
+        Params {
+            epoch_reward: DEFAULT_EPOCH_REWARD,
+            secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
+            max_block_cycles: MAX_BLOCK_CYCLES,
+            cellbase_maturity: CELLBASE_MATURITY,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -186,8 +202,9 @@ impl ChainSpec {
 impl Genesis {
     fn build_block(&self) -> Result<BlockView, Box<dyn Error>> {
         let cellbase_transaction = self.build_cellbase_transaction()?;
-        let dao = genesis_dao_data(&cellbase_transaction)?;
+        // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
+        let dao = genesis_dao_data(vec![&cellbase_transaction, &dep_group_transaction])?;
 
         let block = BlockBuilder::default()
             .version(self.version.pack())
@@ -195,7 +212,7 @@ impl Genesis {
             .timestamp(self.timestamp.pack())
             .difficulty(self.difficulty.pack())
             .uncles_hash(self.uncles_hash.pack())
-            .dao(dao.pack())
+            .dao(dao)
             .nonce(self.nonce.pack())
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
@@ -275,15 +292,15 @@ impl Genesis {
     ) -> Result<TransactionView, Box<dyn Error>> {
         fn find_out_point_by_data_hash(
             tx: &TransactionView,
-            data_hash: &H256,
+            data_hash: &packed::Byte32,
         ) -> Option<packed::OutPoint> {
             tx.outputs_data()
                 .into_iter()
                 .position(|data| {
-                    let hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data());
+                    let hash = packed::CellOutput::calc_data_hash(&data.raw_data());
                     &hash == data_hash
                 })
-                .map(|index| packed::OutPoint::new(tx.hash().clone().unpack(), index as u32))
+                .map(|index| packed::OutPoint::new(tx.hash(), index as u32))
         }
 
         let (outputs, outputs_data): (Vec<_>, Vec<_>) = self
@@ -294,7 +311,7 @@ impl Genesis {
                     .iter()
                     .map(|res| {
                         let data: Bytes = res.get()?.into_owned().into();
-                        let data_hash: H256 = packed::CellOutput::calc_data_hash(&data);
+                        let data_hash = packed::CellOutput::calc_data_hash(&data);
                         let out_point = find_out_point_by_data_hash(cellbase_tx, &data_hash)
                             .ok_or_else(|| {
                                 format!("Can not find {} in genesis cellbase transaction", res)
@@ -327,16 +344,18 @@ impl Genesis {
                     .as_ref()
                     == Some(&lock_arg)
             })
-            .map(|index| packed::OutPoint::new(cellbase_tx.hash().clone().unpack(), index as u32))
+            .map(|index| packed::OutPoint::new(cellbase_tx.hash(), index as u32))
             .expect("Get special issued input failed");
         let input = packed::CellInput::new(input_out_point, 0);
 
         let secp_data_out_point =
-            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_DATA)
+            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_DATA.pack())
                 .ok_or_else(|| String::from("Get secp data out point failed"))?;
-        let secp_blake160_out_point =
-            find_out_point_by_data_hash(cellbase_tx, &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL)
-                .ok_or_else(|| String::from("Get secp blake160 out point failed"))?;
+        let secp_blake160_out_point = find_out_point_by_data_hash(
+            cellbase_tx,
+            &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.pack(),
+        )
+        .ok_or_else(|| String::from("Get secp blake160 out point failed"))?;
         let cell_deps = vec![
             packed::CellDep::new_builder()
                 .out_point(secp_data_out_point.clone())
@@ -438,10 +457,18 @@ pub mod test {
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct DepGroups {
+        pub included_cells: Vec<String>,
+        pub tx_hash: H256,
+        pub index: usize,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     struct SpecHashes {
         pub genesis: H256,
         pub cellbase: H256,
         pub system_cells: Vec<SystemCell>,
+        pub dep_groups: Vec<DepGroups>,
     }
 
     fn load_spec_by_name(name: &str) -> ChainSpec {
@@ -480,6 +507,7 @@ pub mod test {
 
             assert_eq!(spec_hashes.cellbase, cellbase_hash);
 
+            let mut system_cells = HashMap::new();
             for (index_minus_one, (cell, (output, data))) in spec_hashes
                 .system_cells
                 .iter()
@@ -492,14 +520,61 @@ pub mod test {
                 )
                 .enumerate()
             {
-                let data_hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data());
+                let data_hash: H256 = packed::CellOutput::calc_data_hash(&data.raw_data()).unpack();
                 let type_hash: Option<H256> = output
                     .type_()
                     .to_opt()
-                    .map(|script| script.calc_script_hash());
+                    .map(|script| script.calc_script_hash().unpack());
                 assert_eq!(index_minus_one + 1, cell.index, "{}", bundled_spec_err);
                 assert_eq!(cell.data_hash, data_hash, "{}", bundled_spec_err);
                 assert_eq!(cell.type_hash, type_hash, "{}", bundled_spec_err);
+                system_cells.insert(cell.index, cell.path.as_str());
+            }
+
+            // dep group tx should be the first tx except cellbase
+            let dep_group_tx = block.transaction(1).unwrap();
+
+            // all dep groups should be in the spec file
+            assert_eq!(
+                dep_group_tx.outputs_data().len(),
+                spec_hashes.dep_groups.len(),
+                "{}",
+                bundled_spec_err
+            );
+
+            for (i, output_data) in dep_group_tx.outputs_data().into_iter().enumerate() {
+                let dep_group = &spec_hashes.dep_groups[i];
+
+                // check the tx hashes of dep groups in spec file
+                let tx_hash = dep_group.tx_hash.pack();
+                assert_eq!(tx_hash, dep_group_tx.hash(), "{}", bundled_spec_err);
+
+                let out_point_vec =
+                    packed::OutPointVec::from_slice(&output_data.raw_data()).unwrap();
+
+                // all cells included by a dep group should be list in the spec file
+                assert_eq!(
+                    out_point_vec.len(),
+                    dep_group.included_cells.len(),
+                    "{}",
+                    bundled_spec_err
+                );
+
+                for (j, out_point) in out_point_vec.into_iter().enumerate() {
+                    let dep_path = &dep_group.included_cells[j];
+
+                    // dep groups out_point should point to cellbase
+                    assert_eq!(cellbase.hash(), out_point.tx_hash(), "{}", bundled_spec_err);
+
+                    let index_in_cellbase: usize = out_point.index().unpack();
+
+                    // check index for included cells in dep groups
+                    assert_eq!(
+                        system_cells[&index_in_cellbase], dep_path,
+                        "{}",
+                        bundled_spec_err
+                    );
+                }
             }
         }
     }

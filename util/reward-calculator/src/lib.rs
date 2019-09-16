@@ -7,7 +7,6 @@ use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockNumber, BlockReward, Capacity, HeaderView},
     packed::{Byte32, ProposalShortId, Script},
-    prelude::*,
 };
 use failure::{Error as FailureError, Fail};
 use std::cmp;
@@ -155,7 +154,7 @@ impl<'a, CS: ChainStore<'a>> RewardCalculator<'a, CS> {
                 .get_block_txs_hashes(hash)
                 .into_iter()
                 .skip(1)
-                .map(|tx_hash| ProposalShortId::from_tx_hash(&tx_hash.unpack()))
+                .map(|tx_hash| ProposalShortId::from_tx_hash(&tx_hash))
                 .collect()
         };
 

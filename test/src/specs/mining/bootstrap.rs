@@ -34,7 +34,7 @@ impl Spec for BootstrapCellbase {
             .hash_type(ScriptHashType::Data.pack())
             .build();
 
-        let is_bootstrap_cellbase = |blk_hash: &H256| {
+        let is_bootstrap_cellbase = |blk_hash: &packed::Byte32| {
             let blk: BlockView = node
                 .rpc_client()
                 .get_block(blk_hash.clone())

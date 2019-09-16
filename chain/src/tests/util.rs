@@ -37,16 +37,16 @@ pub(crate) fn create_always_success_tx() -> TransactionView {
 // NOTE: this is quite a waste of resource but the alternative is to modify 100+
 // invocations, let's stick to this way till this becomes a real problem
 pub(crate) fn create_always_success_out_point() -> OutPoint {
-    OutPoint::new(create_always_success_tx().hash().unpack(), 0)
+    OutPoint::new(create_always_success_tx().hash(), 0)
 }
 
 pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Shared, HeaderView) {
     let builder = SharedBuilder::default();
     let consensus = consensus.unwrap_or_else(|| {
         let tx = create_always_success_tx();
-        let dao = genesis_dao_data(&tx).unwrap();
+        let dao = genesis_dao_data(vec![&tx]).unwrap();
         let genesis_block = BlockBuilder::default()
-            .dao(dao.pack())
+            .dao(dao)
             .difficulty(U256::one().pack())
             .transaction(tx)
             .build();
@@ -163,7 +163,7 @@ pub(crate) fn create_multi_outputs_transaction(
 }
 
 pub(crate) fn create_transaction(parent: &Byte32, unique_data: u8) -> TransactionView {
-    create_transaction_with_out_point(OutPoint::new(parent.unpack(), 0), unique_data)
+    create_transaction_with_out_point(OutPoint::new(parent.clone(), 0), unique_data)
 }
 
 pub(crate) fn create_transaction_with_out_point(
@@ -216,7 +216,7 @@ impl<'a> MockChain<'a> {
             .parent_hash(parent.hash().to_owned())
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(100u64)).pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .proposals(txs.iter().map(TransactionView::proposal_short_id))
             .build();
@@ -234,7 +234,26 @@ impl<'a> MockChain<'a> {
             .parent_hash(parent.hash().to_owned())
             .number((parent.number() + 1).pack())
             .difficulty(U256::from(difficulty).pack())
-            .dao(dao.pack())
+            .dao(dao)
+            .transaction(cellbase)
+            .build();
+
+        store.insert_block(&new_block, self.consensus.genesis_epoch_ext());
+        self.blocks.push(new_block);
+    }
+
+    pub fn gen_empty_block_with_nonce(&mut self, nonce: u64, store: &MockStore) {
+        let difficulty = self.difficulty();
+        let parent = self.tip_header();
+        let cellbase = create_cellbase(store, self.consensus, &parent);
+        let dao = dao_data(&self.consensus, &parent, &[cellbase.clone()], store, false);
+
+        let new_block = BlockBuilder::default()
+            .parent_hash(parent.hash().to_owned())
+            .number((parent.number() + 1).pack())
+            .difficulty(difficulty.pack())
+            .nonce(nonce.pack())
+            .dao(dao)
             .transaction(cellbase)
             .build();
 
@@ -252,7 +271,7 @@ impl<'a> MockChain<'a> {
             .parent_hash(parent.hash().to_owned())
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(diff)).pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .build();
 
@@ -283,7 +302,7 @@ impl<'a> MockChain<'a> {
             .parent_hash(parent.hash().to_owned())
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(100u64)).pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .transactions(txs)
             .build();
@@ -323,7 +342,7 @@ pub fn dao_data(
     txs: &[TransactionView],
     store: &MockStore,
     ignore_resolve_error: bool,
-) -> Bytes {
+) -> Byte32 {
     let mut seen_inputs = HashSet::new();
     // In case of resolving errors, we just output a dummp DAO field,
     // since those should be the cases where we are testing invalid

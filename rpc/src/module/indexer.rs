@@ -1,6 +1,6 @@
 use ckb_indexer::IndexerStore;
 use ckb_jsonrpc_types::{BlockNumber, CellTransaction, LiveCell, LockHashIndexState, Unsigned};
-use ckb_types::H256;
+use ckb_types::{prelude::*, H256};
 use jsonrpc_core::Result;
 use jsonrpc_derive::rpc;
 
@@ -50,6 +50,7 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
         per_page: Unsigned,
         reverse_order: Option<bool>,
     ) -> Result<Vec<LiveCell>> {
+        let lock_hash = lock_hash.pack();
         let per_page = (per_page.0 as usize).min(50);
         Ok(self
             .store
@@ -71,6 +72,7 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
         per_page: Unsigned,
         reverse_order: Option<bool>,
     ) -> Result<Vec<CellTransaction>> {
+        let lock_hash = lock_hash.pack();
         let per_page = (per_page.0 as usize).min(50);
         Ok(self
             .store
@@ -92,16 +94,16 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
     ) -> Result<LockHashIndexState> {
         let state = self
             .store
-            .insert_lock_hash(&lock_hash, index_from.map(|number| number.0));
+            .insert_lock_hash(&lock_hash.pack(), index_from.map(|number| number.0));
         Ok(LockHashIndexState {
             lock_hash,
             block_number: BlockNumber(state.block_number),
-            block_hash: state.block_hash,
+            block_hash: state.block_hash.unpack(),
         })
     }
 
     fn deindex_lock_hash(&self, lock_hash: H256) -> Result<()> {
-        self.store.remove_lock_hash(&lock_hash);
+        self.store.remove_lock_hash(&lock_hash.pack());
         Ok(())
     }
 
@@ -111,9 +113,9 @@ impl<WS: IndexerStore + 'static> IndexerRpc for IndexerRpcImpl<WS> {
             .get_lock_hash_index_states()
             .into_iter()
             .map(|(lock_hash, state)| LockHashIndexState {
-                lock_hash,
+                lock_hash: lock_hash.unpack(),
                 block_number: BlockNumber(state.block_number),
-                block_hash: state.block_hash,
+                block_hash: state.block_hash.unpack(),
             })
             .collect();
         Ok(states)

@@ -3,15 +3,15 @@ name = "ckb_testnet"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1566626400882
-difficulty = "0x10000"
+timestamp = 1567836000183
+difficulty = "0x11940000000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 # run `cargo run cli hashes -b` to get the genesis hash
-hash = "0x82b930c957d4f98f8e8214d567a964e3e2814e67868ebe3e4a09243eedfe727f"
+hash = "0x010b345d81d1107c100839abdc4bd015a4e6c10fbac466dbc076d4326cf61e57"
 
 [genesis.genesis_cell]
-message = "rylai-v8 54d710d5 feat: difficulty adjustment rfc version <zhangsoledad 2019-07-25 21:01:35 +0800>"
+message = "rylai-v9 d97c5409 test: bench next_epoch_ext <u2 2019-08-31 11:50:16 +0800>"
 
 [genesis.genesis_cell.lock]
 code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
@@ -50,7 +50,7 @@ secp256k1_ripemd160_sha256_sighash_all = [
 ]
 
 [genesis.bootstrap_lock]
-code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
+code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 # Lock for developers to run tests
 args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
 hash_type = "type"
@@ -58,28 +58,19 @@ hash_type = "type"
 # Locks for developers to run tests
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
+lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
 lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
+lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
 lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
+lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 lock.hash_type = "type"
-
-[params]
-epoch_reward = 1_250_000_00000000
-secondary_epoch_reward = 600_000_00000000
-max_block_cycles = 10_000_000_000
-# Cellbase outputs are "locked" and require 4 * MAX_EPOCH_LENGTH(1800) confirmations(approximately 16 hours)
-# before they mature sufficiently to be spendable,
-# This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
-cellbase_maturity = 7_200
 
 [pow]
 func = "Eaglesong"

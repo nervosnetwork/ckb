@@ -12,6 +12,8 @@ pub enum Error {
     Io(IoError),
     P2P(P2PError),
     DB(DBError),
+    Addr(String),
+    Dial(String),
     Shutdown,
 }
 

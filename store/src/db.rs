@@ -11,7 +11,6 @@ use ckb_types::{
     core::{BlockExt, TransactionMeta},
     packed,
     prelude::*,
-    H256,
 };
 
 pub struct ChainDB {
@@ -50,11 +49,8 @@ impl ChainDB {
     {
         self.db
             .traverse(COLUMN_CELL_SET, |hash_slice, tx_meta_bytes| {
-                let tx_hash = packed::Byte32Reader::from_slice(hash_slice)
-                    .should_be_ok()
-                    .to_entity();
-                let tx_meta = packed::TransactionMetaReader::from_slice(tx_meta_bytes)
-                    .should_be_ok()
+                let tx_hash = packed::Byte32Reader::from_slice_should_be_ok(hash_slice).to_entity();
+                let tx_meta = packed::TransactionMetaReader::from_slice_should_be_ok(tx_meta_bytes)
                     .to_entity();
                 callback(tx_hash, tx_meta)
             })
@@ -87,7 +83,7 @@ impl ChainDB {
 
         let block_number = genesis.number();
         let epoch_number = genesis.epoch();
-        let block_hash: H256 = genesis.hash().unpack();
+        let block_hash = genesis.hash();
 
         for tx in genesis.transactions().iter() {
             let outputs_len = tx.outputs().len();
@@ -111,7 +107,7 @@ impl ChainDB {
             db_txn.update_cell_set(&tx.hash(), &tx_meta.pack())?;
         }
 
-        let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch().pack();
+        let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         db_txn.insert_block(genesis)?;
         db_txn.insert_block_ext(&genesis_hash, &ext)?;

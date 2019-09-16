@@ -1,12 +1,16 @@
-use crate::{Net, Spec};
+use crate::utils::is_committed;
+use crate::{Net, Node, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_types::{
     core::{capacity_bytes, BlockView, Capacity, TransactionView},
     h256,
+    packed::Byte32,
     prelude::*,
     H256,
 };
+use failure::_core::time::Duration;
 use log::info;
+use std::thread::sleep;
 
 pub struct ChainFork1;
 
@@ -278,11 +282,18 @@ impl Spec for ChainFork5 {
         info!("Generate 1 blocks (D) on node1");
         node1.generate_blocks(1);
         info!("Generate 1 blocks (E) with transaction on node1");
-        let block = node1
-            .new_block(None, None, None)
-            .as_advanced_builder()
-            .transaction(transaction.clone())
-            .build();
+        let block = {
+            let block = node1.new_block(None, None, None);
+            // transaction may be broadcasted to node1 already
+            if block.transactions().contains(&transaction) {
+                block
+            } else {
+                block
+                    .as_advanced_builder()
+                    .transaction(transaction.clone())
+                    .build()
+            }
+        };
         node1.submit_block(&block.data());
         assert_eq!(4, node1.rpc_client().get_tip_block_number());
         info!("Generate 1 blocks (F) with spent transaction on node1");
@@ -342,7 +353,7 @@ impl Spec for ChainFork6 {
         node1.generate_blocks(2);
         info!("Generate 1 block (F) with spending non-existent transaction on node1");
         let block = node1.new_block(None, None, None);
-        let invalid_transaction = node1.new_transaction(h256!("0x1"));
+        let invalid_transaction = node1.new_transaction(h256!("0x1").pack());
         let invalid_block = block
             .as_advanced_builder()
             .transaction(invalid_transaction)
@@ -468,6 +479,68 @@ impl Spec for LongForks {
     }
 }
 
+pub struct ForksContainSameTransactions;
+
+impl Spec for ForksContainSameTransactions {
+    crate::name!("forks_contain_same_transactions");
+
+    crate::setup!(num_nodes: 4, connect_all: false);
+
+    // Case:
+    //   1. 3 forks `chain0`, `chain1` and `chain2`
+    //   2. `chain0` and `chain1` both contain transaction `tx`, but `chain2` not
+    //   3. Initialize node holds `chain0` as the main chain, then switch to `chain2`, finally to
+    //      `chain1`. We expect `get_transaction(tx)` returns successfully.
+    fn run(&self, net: Net) {
+        net.exit_ibd_mode();
+        let node0 = &net.nodes[0];
+        let node1 = &net.nodes[1];
+        let node2 = &net.nodes[2];
+        let target_node = &net.nodes[3];
+
+        let transaction = node0.new_transaction_spend_tip_cellbase();
+
+        // Build `chain0`, contain the target `transaction`, with length = 41
+        {
+            node0.generate_blocks(20);
+            node0.submit_transaction(&transaction);
+            node0.generate_blocks(20);
+        }
+
+        // Build `chain1`, contain the target `transaction`, with length = 61
+        {
+            sleep(Duration::from_secs(2));
+            node1.generate_blocks(30);
+            node1.submit_transaction(&transaction);
+            node1.generate_blocks(30);
+        }
+
+        // Build `chain2`, all the blocks are empty, with length = 51
+        {
+            sleep(Duration::from_secs(2));
+            node2.generate_blocks(50);
+        }
+
+        // `target_node` holds `chain0` as the main chain
+        target_node.connect(node0);
+        target_node.waiting_for_sync(node0, 41);
+        target_node.disconnect(node0);
+        is_transaction_existed(target_node, transaction.hash());
+
+        // `target_node` switch to `chain2` as the main chain
+        target_node.connect(node2);
+        target_node.waiting_for_sync(node2, 51);
+        target_node.disconnect(node2);
+        is_transaction_existed(target_node, transaction.hash());
+
+        // `target_node` switch to `chain1` as the main chain
+        target_node.connect(node1);
+        target_node.waiting_for_sync(node1, 61);
+        target_node.disconnect(node1);
+        is_transaction_existed(target_node, transaction.hash());
+    }
+}
+
 fn modify_block_transaction<F>(
     block: BlockView,
     transaction_index: usize,
@@ -480,6 +553,14 @@ where
     transactions[transaction_index] = modify_transaction(transactions[transaction_index].clone());
     block
         .as_advanced_builder()
-        .transactions(transactions)
+        .set_transactions(transactions)
         .build()
+}
+
+fn is_transaction_existed(node: &Node, tx_hash: Byte32) {
+    let tx_status = node
+        .rpc_client()
+        .get_transaction(tx_hash)
+        .expect("node should contains transaction");
+    is_committed(&tx_status);
 }

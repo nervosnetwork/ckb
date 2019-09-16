@@ -11,6 +11,7 @@ use ckb_resource::{
     MINER_CONFIG_FILE_NAME, SPEC_DEV_FILE_NAME,
 };
 use ckb_script::Runner;
+use ckb_types::{prelude::*, H256};
 
 const DEFAULT_LOCK_SCRIPT_HASH_TYPE: &str = "type";
 const SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN: usize = 20 * 2 + 2; // 42 = 20 x 2 + prefix 0x
@@ -97,12 +98,12 @@ pub fn init(args: InitArgs) -> Result<(), ExitCode> {
         ChainSpec::load_from(&Resource::bundled(format!("specs/{}.toml", args.chain)))
             .ok()
             .map(|spec| {
-                format!(
-                    "{:#x}",
-                    spec.build_consensus()
-                        .expect("Build consensus failed")
-                        .get_secp_type_script_hash()
-                )
+                let hash: H256 = spec
+                    .build_consensus()
+                    .expect("Build consensus failed")
+                    .get_secp_type_script_hash()
+                    .unpack();
+                format!("{:#x}", hash)
             });
 
     let block_assembler_code_hash = args.block_assembler_code_hash.as_ref().or_else(|| {

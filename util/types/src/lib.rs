@@ -5,8 +5,8 @@
 pub mod prelude;
 
 pub use bytes;
+pub use ckb_fixed_hash::{h160, h256, H160, H256};
 pub use molecule::error;
-pub use numext_fixed_hash::{h160, h256, H160, H256};
 pub use numext_fixed_uint::{u256, U256};
 
 #[doc(hidden)]

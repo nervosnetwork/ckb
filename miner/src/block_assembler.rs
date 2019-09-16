@@ -1,11 +1,11 @@
 use crate::candidate_uncles::CandidateUncles;
 use crate::config::BlockAssemblerConfig;
 use crate::error::Error;
-use ckb_dao::{DaoCalculator, DAO_SIZE};
+use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::{
     BlockNumber as JsonBlockNumber, BlockTemplate, CellbaseTemplate, Cycle as JsonCycle,
-    EpochNumber as JsonEpochNumber, JsonBytes, Timestamp as JsonTimestamp, TransactionTemplate,
-    UncleTemplate, Unsigned, Version as JsonVersion,
+    EpochNumber as JsonEpochNumber, Timestamp as JsonTimestamp, TransactionTemplate, UncleTemplate,
+    Unsigned, Version as JsonVersion,
 };
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
@@ -206,7 +206,7 @@ impl BlockAssembler {
 
     fn transform_uncle(uncle: UncleBlock) -> UncleTemplate {
         UncleTemplate {
-            hash: uncle.calc_header_hash(),
+            hash: uncle.calc_header_hash().unpack(),
             required: false,
             proposals: uncle.proposals().into_iter().map(Into::into).collect(),
             header: uncle.header().into(),
@@ -242,10 +242,8 @@ impl BlockAssembler {
         uncles: &[UncleBlock],
         proposals: &HashSet<ProposalShortId>,
     ) -> Result<usize, FailureError> {
-        let empty_dao = vec![0u8; DAO_SIZE];
-        let raw_header = packed::RawHeader::new_builder()
-            .dao(empty_dao.pack())
-            .build();
+        let empty_dao = packed::Byte32::default();
+        let raw_header = packed::RawHeader::new_builder().dao(empty_dao).build();
         let header = packed::Header::new_builder().raw(raw_header).build();
         let block = packed::Block::new_builder()
             .header(header)
@@ -260,6 +258,8 @@ impl BlockAssembler {
             )
             .build();
         let occupied = block.as_slice().len();
+        // Uncomment this line to get the correct BASIC_BLOCK_SIZE in block_assember tests.
+        // dbg!(occupied);
         let bytes_limit = bytes_limit as usize;
         bytes_limit
             .checked_sub(occupied)
@@ -397,7 +397,7 @@ impl BlockAssembler {
             proposals: proposals.into_iter().map(Into::into).collect(),
             cellbase: Self::transform_cellbase(&cellbase, None),
             work_id: Unsigned(self.work_id.fetch_add(1, Ordering::SeqCst) as u64),
-            dao: JsonBytes::from_bytes(dao),
+            dao: dao.into(),
         };
 
         self.template_caches.insert(
@@ -510,9 +510,7 @@ impl BlockAssembler {
                 || uncle.epoch() != epoch_number
                 || snapshot.get_block_number(&uncle.hash()).is_some()
                 || snapshot.is_uncle(&uncle.hash())
-                || !(uncles
-                    .iter()
-                    .any(|u| u.calc_header_hash().pack() == parent_hash)
+                || !(uncles.iter().any(|u| u.calc_header_hash() == parent_hash)
                     || snapshot.get_block_number(&parent_hash).is_some()
                     || snapshot.is_uncle(&parent_hash))
                 || uncle.number() >= candidate_number
@@ -538,7 +536,7 @@ mod tests {
     use ckb_chain::chain::ChainService;
     use ckb_chain_spec::consensus::Consensus;
     use ckb_dao_utils::genesis_dao_data;
-    use ckb_jsonrpc_types::ScriptHashType;
+    use ckb_jsonrpc_types::{JsonBytes, ScriptHashType};
     use ckb_notify::{NotifyController, NotifyService};
     use ckb_pow::Pow;
     use ckb_shared::shared::Shared;
@@ -550,13 +548,14 @@ mod tests {
             BlockBuilder, BlockNumber, BlockView, EpochExt, HeaderBuilder, HeaderView,
             TransactionBuilder, TransactionView,
         },
+        h256,
         packed::{Block, CellInput, CellOutput, CellOutputBuilder, OutPoint},
         H256,
     };
     use ckb_verification::{BlockVerifier, HeaderResolverWrapper, HeaderVerifier, Verifier};
     use std::sync::Arc;
 
-    const BASIC_BLOCK_SIZE: u64 = 646;
+    const BASIC_BLOCK_SIZE: u64 = 550;
 
     fn start_chain(
         consensus: Option<Consensus>,
@@ -582,7 +581,7 @@ mod tests {
     fn test_get_block_template() {
         let (_chain_controller, shared, _notify) = start_chain(None, None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
@@ -616,7 +615,7 @@ mod tests {
         // This just make sure we can generate a valid block template,
         // the actual DAO validation logic will be ensured in other
         // tests
-        let dao = genesis_dao_data(&cellbase).unwrap();
+        let dao = genesis_dao_data(vec![&cellbase]).unwrap();
         let header = HeaderBuilder::default()
             .parent_hash(parent_header.hash())
             .timestamp((parent_header.timestamp() + 10).pack())
@@ -624,7 +623,7 @@ mod tests {
             .epoch(epoch.number().pack())
             .difficulty(epoch.difficulty().clone().pack())
             .nonce(nonce.pack())
-            .dao(dao.pack())
+            .dao(dao)
             .build();
 
         BlockBuilder::default()
@@ -654,7 +653,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
@@ -743,12 +742,11 @@ mod tests {
         let per_output_capacity =
             Capacity::shannons(parent_tx.outputs_capacity().unwrap().as_u64() / outputs_len as u64);
         TransactionBuilder::default()
-            .inputs(inputs.iter().map(|index| {
-                CellInput::new(
-                    OutPoint::new(parent_tx.hash().to_owned().unpack(), *index),
-                    0,
-                )
-            }))
+            .inputs(
+                inputs.iter().map(|index| {
+                    CellInput::new(OutPoint::new(parent_tx.hash().to_owned(), *index), 0)
+                }),
+            )
             .outputs(
                 (0..outputs_len)
                     .map(|_| {
@@ -770,7 +768,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
@@ -905,7 +903,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,
@@ -1034,7 +1032,7 @@ mod tests {
 
         let (chain_controller, shared, notify) = start_chain(Some(consensus), None);
         let config = BlockAssemblerConfig {
-            code_hash: H256::zero(),
+            code_hash: h256!("0x0"),
             args: vec![],
             data: JsonBytes::default(),
             hash_type: ScriptHashType::Data,

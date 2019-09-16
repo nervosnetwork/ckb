@@ -23,7 +23,7 @@ use crate::{
 use ckb_chain::chain::ChainController;
 use ckb_logger::{debug, info, trace};
 use ckb_network::{CKBProtocolContext, CKBProtocolHandler, PeerIndex};
-use ckb_types::{core, packed, prelude::*, H256};
+use ckb_types::{core, packed, prelude::*};
 use failure::err_msg;
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -121,8 +121,8 @@ impl Synchronizer {
     ) -> Result<bool, FailureError> {
         let block_hash = block.hash();
         let status = self.shared().get_block_status(&block_hash);
-        if status.contains(BlockStatus::BLOCK_RECEIVED) {
-            debug!("block {} already received", block_hash);
+        if status.contains(BlockStatus::BLOCK_STORED) {
+            debug!("block {} already stored", block_hash);
             Ok(false)
         } else if status.contains(BlockStatus::HEADER_VALID) {
             self.shared()
@@ -291,10 +291,9 @@ impl Synchronizer {
                 )
             };
             let best_known = self.shared.shared_best_header();
-            let header_hash: H256 = header.hash().unpack();
             if total_difficulty > *best_known.total_difficulty()
                 || (&total_difficulty == best_known.total_difficulty()
-                    && header_hash < best_known.hash().unpack())
+                    && header.hash() < best_known.hash())
             {
                 header
             } else {
@@ -399,6 +398,12 @@ impl CKBProtocolHandler for Synchronizer {
         };
 
         debug!("received msg {} from {}", msg.item_name(), peer_index);
+        let sentry_hub = sentry::Hub::current();
+        let _scope_guard = sentry_hub.push_scope();
+        sentry_hub.configure_scope(|scope| {
+            scope.set_tag("p2p.protocol", "synchronizer");
+            scope.set_tag("p2p.message", msg.item_name());
+        });
 
         let start_time = Instant::now();
         self.process(nc.as_ref(), peer_index, msg.as_reader());
@@ -513,7 +518,9 @@ mod tests {
             cell::resolve_transaction, BlockBuilder, BlockNumber, BlockView, EpochExt,
             HeaderBuilder, HeaderView as CoreHeaderView, TransactionBuilder, TransactionView,
         },
-        packed::{CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder},
+        packed::{
+            Byte32, CellInput, CellOutputBuilder, Script, SendBlockBuilder, SendHeadersBuilder,
+        },
         U256,
     };
     use ckb_util::Mutex;
@@ -591,7 +598,7 @@ mod tests {
             .number(number.pack())
             .difficulty(epoch.difficulty().pack())
             .nonce(nonce.pack())
-            .dao(dao.pack())
+            .dao(dao)
             .build()
     }
 
@@ -642,7 +649,7 @@ mod tests {
             expect.push(shared.store().get_block_hash(*i).unwrap());
         }
         //genesis_hash must be the last one
-        expect.push(shared.genesis_hash().pack());
+        expect.push(shared.genesis_hash());
 
         assert_eq!(expect, locator);
     }
@@ -672,7 +679,7 @@ mod tests {
 
         let latest_common = synchronizer2
             .shared
-            .locate_latest_common_block(&H256::zero().pack(), &locator1[..]);
+            .locate_latest_common_block(&Byte32::zero(), &locator1[..]);
 
         assert_eq!(latest_common, Some(0));
 
@@ -687,7 +694,7 @@ mod tests {
 
         let latest_common3 = synchronizer3
             .shared
-            .locate_latest_common_block(&H256::zero().pack(), &locator1[..]);
+            .locate_latest_common_block(&Byte32::zero(), &locator1[..]);
         assert_eq!(latest_common3, Some(192));
     }
 
@@ -740,7 +747,7 @@ mod tests {
 
         let latest_common = synchronizer2
             .shared
-            .locate_latest_common_block(&H256::zero().pack(), &locator1[..])
+            .locate_latest_common_block(&Byte32::zero(), &locator1[..])
             .unwrap();
 
         assert_eq!(
@@ -857,7 +864,7 @@ mod tests {
 
         let headers = synchronizer
             .shared
-            .get_locator_response(180, &H256::zero().pack());
+            .get_locator_response(180, &Byte32::zero());
 
         assert_eq!(headers.first().unwrap(), &blocks[180].header());
         assert_eq!(headers.last().unwrap(), &blocks[199].header());
@@ -1015,12 +1022,12 @@ mod tests {
         let synchronizer2 = gen_synchronizer(chain_controller2.clone(), shared2.clone());
         let latest_common = synchronizer2
             .shared
-            .locate_latest_common_block(&H256::zero().pack(), &locator1[..]);
+            .locate_latest_common_block(&Byte32::zero(), &locator1[..]);
         assert_eq!(latest_common, Some(192));
 
         let headers = synchronizer2
             .shared
-            .get_locator_response(192, &H256::zero().pack());
+            .get_locator_response(192, &Byte32::zero());
 
         assert_eq!(
             headers.first().unwrap().hash(),

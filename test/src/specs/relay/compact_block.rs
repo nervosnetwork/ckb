@@ -104,12 +104,7 @@ impl Spec for CompactBlockPrefilled {
         let (peer_id, _, _) = net.receive();
 
         // Proposal a tx, and grow up into proposal window
-        let new_tx = node.new_transaction(
-            node.get_tip_block().transactions()[0]
-                .hash()
-                .clone()
-                .unpack(),
-        );
+        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -153,12 +148,7 @@ impl Spec for CompactBlockMissingFreshTxs {
         net.connect(node);
         let (peer_id, _, _) = net.receive();
 
-        let new_tx = node.new_transaction(
-            node.get_tip_block().transactions()[0]
-                .hash()
-                .clone()
-                .unpack(),
-        );
+        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -216,12 +206,7 @@ impl Spec for CompactBlockMissingNotFreshTxs {
         let (peer_id, _, _) = net.receive();
 
         // Build the target transaction
-        let new_tx = node.new_transaction(
-            node.get_tip_block().transactions()[0]
-                .hash()
-                .clone()
-                .unpack(),
-        );
+        let new_tx = node.new_transaction(node.get_tip_block().transactions()[0].hash().clone());
         node.submit_block(
             &node
                 .new_block_builder(None, None, None)
@@ -272,12 +257,7 @@ impl Spec for CompactBlockLoseGetBlockTransactions {
         net.connect(node1);
         let _ = net.receive();
 
-        let new_tx = node0.new_transaction(
-            node0.get_tip_block().transactions()[0]
-                .hash()
-                .clone()
-                .unpack(),
-        );
+        let new_tx = node0.new_transaction(node0.get_tip_block().transactions()[0].hash().clone());
         node0.submit_block(
             &node0
                 .new_block_builder(None, None, None)
@@ -353,7 +333,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         );
         node.generate_blocks(6);
 
-        let consensus = node.consensus.as_ref().unwrap();
+        let consensus = node.consensus();
         let mock_store = MockStore::default();
         for i in 0..=node.get_tip_block_number() {
             mock_store.insert_block(&node.get_block_by_number(i), consensus.genesis_epoch_ext());
@@ -377,7 +357,7 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .header()
             .to_owned()
             .as_advanced_builder()
-            .dao(dao.pack())
+            .dao(dao)
             .build();
         let parent = parent.as_advanced_builder().header(header).build();
         mock_store.insert_block(&parent, consensus.genesis_epoch_ext());
@@ -427,8 +407,8 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
                     .as_advanced_builder()
                     .number((parent.header().number() + 1).pack())
                     .timestamp((parent.header().timestamp() + 1).pack())
-                    .parent_hash(parent.header().hash().to_owned())
-                    .dao(dao.pack())
+                    .parent_hash(parent.hash())
+                    .dao(dao)
                     .build(),
             )
             .build();

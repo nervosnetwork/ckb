@@ -77,7 +77,7 @@ pub(crate) fn gen_block(
         .timestamp((parent_header.timestamp() + 20_000).pack())
         .number(number.pack())
         .difficulty(parent_header.difficulty().pack())
-        .dao(dao.pack())
+        .dao(dao)
         .transactions(txs)
         .uncles(uncles)
         .proposals(proposals)
@@ -107,10 +107,7 @@ pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> Transa
                 .build(),
         )
         .output_data(Bytes::new().pack())
-        .input(CellInput::new(
-            OutPoint::new(parent.hash().unpack(), index),
-            0,
-        ))
+        .input(CellInput::new(OutPoint::new(parent.hash(), index), 0))
         .cell_dep(
             CellDep::new_builder()
                 .out_point(always_success_out_point)
@@ -122,6 +119,7 @@ pub(crate) fn create_transaction(parent: &TransactionView, index: u32) -> Transa
 #[test]
 fn finalize_reward() {
     let (_, _, always_success_script) = always_success_cell();
+    let always_success_tx = create_always_success_tx();
     let tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
         .output(
@@ -133,13 +131,13 @@ fn finalize_reward() {
         .output_data(Bytes::new().pack())
         .build();
 
-    let dao = genesis_dao_data(&tx).unwrap();
+    let dao = genesis_dao_data(vec![&always_success_tx, &tx]).unwrap();
 
     let genesis_block = BlockBuilder::default()
-        .transaction(create_always_success_tx())
+        .transaction(always_success_tx)
         .transaction(tx.clone())
         .difficulty(U256::one().pack())
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     let consensus = Consensus::default()

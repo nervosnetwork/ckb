@@ -15,7 +15,6 @@ use ckb_types::{
         TransactionView,
     },
     packed::{Byte32, Script},
-    prelude::*,
 };
 use lru_cache::LruCache;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -101,19 +100,15 @@ impl<'a, 'b, CS: ChainStore<'a>> UncleProvider for UncleVerifierContext<'a, 'b, 
         let uncle_number = uncle.number();
         let store = self.context.store;
 
-        let number_continuity = |parent_hash| {
-            store
+        if store.get_block_number(&parent_hash).is_some() {
+            return store
                 .get_block_header(&parent_hash)
                 .map(|parent| (parent.number() + 1) == uncle_number)
-                .unwrap_or(false)
-        };
-
-        if store.get_block_number(&parent_hash).is_some() {
-            return number_continuity(parent_hash);
+                .unwrap_or(false);
         }
 
-        if store.is_uncle(&parent_hash) {
-            return number_continuity(parent_hash);
+        if let Some(uncle_parent) = store.get_uncle_header(&parent_hash) {
+            return (uncle_parent.number() + 1) == uncle_number;
         }
 
         false
@@ -388,7 +383,7 @@ fn prepare_epoch_ext<'a, CS: ChainStore<'a>>(
     let parent_ext = context
         .store
         .get_block_epoch(&parent.hash())
-        .ok_or_else(|| Error::UnknownParent(parent.hash().unpack()))?;
+        .ok_or_else(|| Error::UnknownParent(parent.hash()))?;
     Ok(context
         .next_epoch_ext(&parent_ext, parent)
         .unwrap_or(parent_ext))
@@ -414,7 +409,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             .context
             .store
             .get_block_header(&parent_hash)
-            .ok_or_else(|| Error::UnknownParent(parent_hash.unpack()))?;
+            .ok_or_else(|| Error::UnknownParent(parent_hash.clone()))?;
 
         let epoch_ext = if block.is_genesis() {
             self.context.consensus.genesis_epoch_ext().to_owned()
@@ -433,7 +428,7 @@ impl<'a, CS: ChainStore<'a>> ContextualBlockVerifier<'a, CS> {
             &self.context,
             block.number(),
             block.epoch(),
-            block.data().header().raw().parent_hash(),
+            parent_hash,
             resolved,
         )
         .verify(txs_verify_cache)?;

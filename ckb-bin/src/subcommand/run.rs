@@ -13,6 +13,7 @@ use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
 use ckb_traits::chain_provider::ChainProvider;
+use ckb_types::prelude::*;
 use ckb_verification::{BlockVerifier, Verifier};
 use std::sync::Arc;
 
@@ -40,7 +41,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
     let chain_controller = chain_service.start(Some("ChainService"));
     info_target!(
         crate::LOG_TARGET_MAIN,
-        "chain genesis hash: {:#x}",
+        "chain genesis hash: {}",
         shared.genesis_hash()
     );
 
@@ -77,7 +78,7 @@ pub fn run(args: RunArgs, version: Version) -> Result<(), ExitCode> {
                     || (block_assembler.hash_type == ScriptHashType::Type
                         && block_assembler.args.len() == 1
                         && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
-                        && check_lock_code_hash(&block_assembler.code_hash)?)
+                        && check_lock_code_hash(&block_assembler.code_hash.pack())?)
                 {
                     Some(
                         BlockAssembler::new(shared.clone(), block_assembler)

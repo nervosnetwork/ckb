@@ -212,7 +212,7 @@ mod tests {
             .output(always_success_cell.clone())
             .output_data(always_success_cell_data.pack())
             .build();
-        let always_success_out_point = OutPoint::new(always_success_tx.hash().unpack(), 0);
+        let always_success_out_point = OutPoint::new(always_success_tx.hash(), 0);
 
         let mut block = BlockBuilder::default()
             .timestamp(unix_time_as_millis().pack())
@@ -237,7 +237,7 @@ mod tests {
             let number = block.header().number() + 1;
             let timestamp = block.header().timestamp() + 1;
 
-            let last_epoch = shared.get_block_epoch(&block.hash().unpack()).unwrap();
+            let last_epoch = shared.get_block_epoch(&block.hash()).unwrap();
             let epoch = shared
                 .next_epoch_ext(&last_epoch, &block.header())
                 .unwrap_or(last_epoch);
@@ -259,10 +259,7 @@ mod tests {
 
             let txs = (10..20).map(|i| {
                 TransactionBuilder::default()
-                    .input(CellInput::new(
-                        OutPoint::new(cellbase.hash().unpack(), i),
-                        0,
-                    ))
+                    .input(CellInput::new(OutPoint::new(cellbase.hash(), i), 0))
                     .output(
                         CellOutput::new_builder()
                             .capacity(capacity_bytes!(50).pack())
@@ -312,7 +309,7 @@ mod tests {
                 let data = Bytes::from(vec![i]);
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new(last_cellbase.hash().unpack(), u32::from(i)),
+                        OutPoint::new(last_cellbase.hash(), u32::from(i)),
                         0,
                     ))
                     .output(
@@ -382,7 +379,7 @@ mod tests {
                 let since = number;
                 TransactionBuilder::default()
                     .input(CellInput::new(
-                        OutPoint::new(last_cellbase.hash().unpack(), 0),
+                        OutPoint::new(last_cellbase.hash(), 0),
                         since,
                     ))
                     .output(

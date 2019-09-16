@@ -3,8 +3,7 @@ use ckb_script::ScriptConfig;
 use ckb_store::ChainStore;
 use ckb_types::{
     core::{BlockReward, EpochExt, HeaderView},
-    packed::Script,
-    H256,
+    packed::{Byte32, Script},
 };
 use failure::Error as FailureError;
 
@@ -15,9 +14,9 @@ pub trait ChainProvider: Sync + Send {
 
     fn script_config(&self) -> &ScriptConfig;
 
-    fn genesis_hash(&self) -> &H256;
+    fn genesis_hash(&self) -> Byte32;
 
-    fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt>;
+    fn get_block_epoch(&self, hash: &Byte32) -> Option<EpochExt>;
 
     fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt>;
 

@@ -20,7 +20,7 @@ use ckb_types::{
         TransactionInfo,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
-    H256, U256,
+    U256,
 };
 use std::sync::Arc;
 
@@ -71,18 +71,19 @@ fn test_genesis_transaction_spend() {
         ])
         .outputs_data(vec![Bytes::new(); 100].pack())
         .build();
+    let always_success_tx = create_always_success_tx();
 
     let mut root_hash = tx.hash().to_owned();
 
     let genesis_tx_hash = root_hash.clone();
 
-    let dao = genesis_dao_data(&tx).unwrap();
+    let dao = genesis_dao_data(vec![&tx, &always_success_tx]).unwrap();
 
     let genesis_block = BlockBuilder::default()
         .transaction(tx)
-        .transaction(create_always_success_tx())
+        .transaction(always_success_tx)
         .difficulty(U256::from(1000u64).pack())
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     let consensus = Consensus::default().set_genesis_block(genesis_block);
@@ -111,7 +112,7 @@ fn test_genesis_transaction_spend() {
     assert_eq!(
         shared
             .snapshot()
-            .cell(&OutPoint::new(genesis_tx_hash.unpack(), 0), false),
+            .cell(&OutPoint::new(genesis_tx_hash, 0), false),
         CellStatus::Dead
     );
 }
@@ -142,7 +143,7 @@ fn test_transaction_spend_in_same_block() {
         assert_eq!(
             shared
                 .snapshot()
-                .cell(&OutPoint::new(hash.unpack(), 0), false),
+                .cell(&OutPoint::new(hash.to_owned().to_owned(), 0), false),
             CellStatus::Unknown
         );
     }
@@ -171,31 +172,24 @@ fn test_transaction_spend_in_same_block() {
     assert_eq!(
         shared
             .snapshot()
-            .cell(&OutPoint::new(last_cell_base_hash.unpack(), 0), false),
+            .cell(&OutPoint::new(last_cell_base_hash, 0), false),
         CellStatus::Unknown
     );
 
     assert_eq!(
-        shared
-            .snapshot()
-            .cell(&OutPoint::new(tx1_hash.unpack(), 0), false),
+        shared.snapshot().cell(&OutPoint::new(tx1_hash, 0), false),
         CellStatus::Dead
     );
 
     assert_eq!(
         shared
             .snapshot()
-            .cell(&OutPoint::new(tx2_hash.unpack(), 0), false),
+            .cell(&OutPoint::new(tx2_hash.clone(), 0), false),
         CellStatus::live_cell(CellMeta {
             cell_output: tx2_output,
             data_bytes: tx2_output_data.len() as u64,
-            out_point: OutPoint::new(tx2_hash.unpack(), 0),
-            transaction_info: Some(TransactionInfo::new(
-                parent_number4,
-                0,
-                parent_hash4.unpack(),
-                2
-            )),
+            out_point: OutPoint::new(tx2_hash.clone(), 0),
+            transaction_info: Some(TransactionInfo::new(parent_number4, 0, parent_hash4, 2)),
             mem_cell_data: None,
         })
     );
@@ -228,10 +222,7 @@ fn test_transaction_conflict_in_same_block() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(
-            tx1_hash.unpack(),
-            0
-        ))),
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(tx1_hash, 0))),
         chain_controller
             .process_block(Arc::new(chain.blocks()[3].clone()), true)
             .unwrap_err()
@@ -270,10 +261,7 @@ fn test_transaction_conflict_in_different_blocks() {
             .expect("process block ok");
     }
     assert_eq!(
-        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(
-            tx1_hash.unpack(),
-            0
-        ))),
+        SharedError::UnresolvableTransaction(UnresolvableError::Dead(OutPoint::new(tx1_hash, 0))),
         chain_controller
             .process_block(Arc::new(chain.blocks()[4].clone()), true)
             .unwrap_err()
@@ -294,7 +282,7 @@ fn test_invalid_out_point_index_in_same_block() {
     let tx1_hash = tx1.hash().to_owned();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.unpack(), 1), 3);
+    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
     let txs = vec![tx1, tx2, tx3];
     // proposal txs
     chain.gen_block_with_proposal_txs(txs.clone(), &mock_store);
@@ -310,8 +298,7 @@ fn test_invalid_out_point_index_in_same_block() {
     }
     assert_eq!(
         SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
-            tx1_hash.unpack(),
-            1,
+            tx1_hash, 1,
         )])),
         chain_controller
             .process_block(Arc::new(chain.blocks()[3].clone()), true)
@@ -333,7 +320,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
     let tx1_hash = tx1.hash();
     let tx2 = create_transaction(&tx1_hash, 2);
     // create an invalid OutPoint index
-    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.unpack(), 1), 3);
+    let tx3 = create_transaction_with_out_point(OutPoint::new(tx1_hash.clone(), 1), 3);
     // proposal txs
     chain.gen_block_with_proposal_txs(vec![tx1.clone(), tx2.clone(), tx3.clone()], &mock_store);
     // empty N+1 block
@@ -351,8 +338,7 @@ fn test_invalid_out_point_index_in_different_blocks() {
 
     assert_eq!(
         SharedError::UnresolvableTransaction(UnresolvableError::Unknown(vec![OutPoint::new(
-            tx1_hash.unpack(),
-            1,
+            tx1_hash, 1,
         )])),
         chain_controller
             .process_block(Arc::new(chain.blocks()[4].clone()), true)
@@ -387,7 +373,7 @@ fn test_genesis_transaction_fetch() {
     let consensus = Consensus::default().set_genesis_block(genesis_block);
     let (_chain_controller, shared, _parent) = start_chain(Some(consensus));
 
-    let out_point = OutPoint::new(root_hash.unpack(), 0);
+    let out_point = OutPoint::new(root_hash, 0);
     let state = shared.snapshot().cell(&out_point, false);
     assert!(state.is_live());
 }
@@ -468,9 +454,9 @@ fn test_chain_fork_by_hash() {
     assert_eq!(chain1.total_difficulty(), chain2.total_difficulty());
     assert_eq!(chain1.total_difficulty(), chain3.total_difficulty());
 
-    let hash1: H256 = chain1.tip_header().hash().unpack();
-    let hash2: H256 = chain2.tip_header().hash().unpack();
-    let hash3: H256 = chain3.tip_header().hash().unpack();
+    let hash1 = chain1.tip_header().hash();
+    let hash2 = chain2.tip_header().hash();
+    let hash3 = chain3.tip_header().hash();
 
     let tips = vec![hash1.clone(), hash2.clone(), hash3.clone()];
     let v = tips.iter().min().unwrap();
@@ -576,7 +562,7 @@ fn prepare_context_chain(
             .timestamp((parent.timestamp() + timestep).pack())
             .difficulty(epoch.difficulty().pack())
             .transactions(transactions)
-            .dao(dao.pack())
+            .dao(dao)
             .build();
 
         chain_controller
@@ -615,7 +601,7 @@ fn prepare_context_chain(
             .timestamp((parent.timestamp() + timestep).pack())
             .difficulty(epoch.difficulty().pack())
             .transactions(transactions)
-            .dao(dao.pack())
+            .dao(dao)
             .build();
 
         chain_controller
@@ -635,11 +621,11 @@ fn test_epoch_hash_rate_dampening() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
-    let dao = genesis_dao_data(&cellbase).unwrap();
+    let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
         .transaction(cellbase)
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     // last_difficulty 1000
@@ -721,12 +707,12 @@ fn test_orphan_rate_estimation_overflow() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
-    let dao = genesis_dao_data(&cellbase).unwrap();
+    let dao = genesis_dao_data(vec![&cellbase]).unwrap();
 
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
         .transaction(cellbase)
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);
@@ -774,11 +760,11 @@ fn test_next_epoch_ext() {
         .witness(Script::default().into_witness())
         .input(CellInput::new(OutPoint::null(), 0))
         .build();
-    let dao = genesis_dao_data(&cellbase).unwrap();
+    let dao = genesis_dao_data(vec![&cellbase]).unwrap();
     let genesis_block = BlockBuilder::default()
         .difficulty(U256::from(1000u64).pack())
         .transaction(cellbase)
-        .dao(dao.pack())
+        .dao(dao)
         .build();
 
     let mut consensus = Consensus::default().set_genesis_block(genesis_block);

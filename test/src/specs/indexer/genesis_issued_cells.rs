@@ -25,7 +25,7 @@ impl Spec for GenesisIssuedCells {
             .hash_type(ScriptHashType::Data.pack())
             .build()
             .calc_script_hash();
-        info!("{:x}", lock_hash);
+        info!("{}", lock_hash);
         let rpc_client = node0.rpc_client();
 
         info!("Should return live cells and cell transactions of genesis issued cells");

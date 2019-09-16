@@ -15,7 +15,7 @@ use ckb_types::{
     core::{BlockReward, Cycle, EpochExt, HeaderView, TransactionMeta},
     packed::{Byte32, Script},
     prelude::*,
-    H256, U256,
+    U256,
 };
 use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use failure::Error as FailureError;
@@ -147,12 +147,11 @@ impl Shared {
             Some((tip_header, epoch)) => {
                 if let Some(genesis_hash) = store.get_block_hash(0) {
                     let expect_genesis_hash = consensus.genesis_hash();
-                    let genesis_hash: H256 = genesis_hash.unpack();
-                    if &genesis_hash == expect_genesis_hash {
+                    if genesis_hash == expect_genesis_hash {
                         Ok((tip_header, epoch))
                     } else {
                         Err(SharedError::InvalidData(format!(
-                            "mismatch genesis hash, expect {:#x} but {:#x} in database",
+                            "mismatch genesis hash, expect {} but {} in database",
                             expect_genesis_hash, genesis_hash
                         )))
                     }
@@ -223,13 +222,13 @@ impl ChainProvider for Shared {
         &self.script_config
     }
 
-    fn genesis_hash(&self) -> &H256 {
+    fn genesis_hash(&self) -> Byte32 {
         self.consensus.genesis_hash()
     }
 
-    fn get_block_epoch(&self, hash: &H256) -> Option<EpochExt> {
+    fn get_block_epoch(&self, hash: &Byte32) -> Option<EpochExt> {
         self.store()
-            .get_block_epoch_index(&hash.pack())
+            .get_block_epoch_index(hash)
             .and_then(|index| self.store().get_epoch_ext(&index))
     }
 

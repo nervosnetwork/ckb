@@ -1,16 +1,16 @@
 use crate::syscalls::{
-    utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
-    LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
+    utils::{store_data, store_u64},
+    HeaderField, Source, SourceEntry, INDEX_OUT_OF_BOUND, ITEM_MISSING,
+    LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER, LOAD_HEADER_SYSCALL_NUMBER, SUCCESS,
 };
 use crate::DataLoader;
 use ckb_types::{
     core::{cell::CellMeta, HeaderView},
     packed::Byte32Vec,
     prelude::*,
-    H256,
 };
 use ckb_vm::{
-    registers::{A0, A3, A4, A7},
+    registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
 };
 
@@ -51,9 +51,9 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
             .header_deps
             .clone()
             .into_iter()
-            .any(|hash| &Unpack::<H256>::unpack(&hash) == block_hash)
+            .any(|hash| &hash == block_hash)
         {
-            self.data_loader.get_header(&block_hash.pack())
+            self.data_loader.get_header(&block_hash)
         } else {
             None
         }
@@ -94,6 +94,38 @@ impl<'a, DL: DataLoader + 'a> LoadHeader<'a, DL> {
             Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
         }
     }
+
+    fn load_full<Mac: SupportMachine>(
+        &self,
+        machine: &mut Mac,
+        header: &HeaderView,
+    ) -> Result<(u8, u64), VMError> {
+        let data = header.data().as_bytes();
+        store_data(machine, &data)?;
+        Ok((SUCCESS, data.len() as u64))
+    }
+
+    fn load_by_field<Mac: SupportMachine>(
+        &self,
+        machine: &mut Mac,
+        header: &HeaderView,
+    ) -> Result<(u8, u64), VMError> {
+        let field = HeaderField::parse_from_u64(machine.registers()[A5].to_u64())?;
+        let epoch = match self.data_loader.get_block_epoch(&header.hash()) {
+            Some(epoch) => epoch,
+            None => return Ok((ITEM_MISSING, 0)),
+        };
+
+        let result = match field {
+            HeaderField::EpochNumber => (SUCCESS, store_u64(machine, epoch.number())?),
+            HeaderField::EpochStartBlockNumber => {
+                (SUCCESS, store_u64(machine, epoch.start_number())?)
+            }
+            HeaderField::EpochLength => (SUCCESS, store_u64(machine, epoch.length())?),
+        };
+
+        Ok(result)
+    }
 }
 
 impl<'a, DL: DataLoader + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<'a, DL> {
@@ -102,9 +134,11 @@ impl<'a, DL: DataLoader + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<
     }
 
     fn ecall(&mut self, machine: &mut Mac) -> Result<bool, VMError> {
-        if machine.registers()[A7].to_u64() != LOAD_HEADER_SYSCALL_NUMBER {
-            return Ok(false);
-        }
+        let load_by_field = match machine.registers()[A7].to_u64() {
+            LOAD_HEADER_SYSCALL_NUMBER => false,
+            LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER => true,
+            _ => return Ok(false),
+        };
 
         let index = machine.registers()[A3].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
@@ -114,12 +148,15 @@ impl<'a, DL: DataLoader + 'a, Mac: SupportMachine> Syscalls<Mac> for LoadHeader<
             machine.set_register(A0, Mac::REG::from_u8(header.unwrap_err()));
             return Ok(true);
         }
-        let header = header.unwrap().data();
-        let data = header.as_slice();
+        let header = header.unwrap();
+        let (return_code, len) = if load_by_field {
+            self.load_by_field(machine, &header)?
+        } else {
+            self.load_full(machine, &header)?
+        };
 
-        store_data(machine, &data)?;
-        machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
-        machine.add_cycles(data.len() as u64 * 10)?;
+        machine.add_cycles(len * 10)?;
+        machine.set_register(A0, Mac::REG::from_u8(return_code));
         Ok(true)
     }
 }

@@ -1,19 +1,36 @@
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
-use ckb_merkle_tree::merkle_root;
-
 use crate::{
     core::{self, BlockNumber, ScriptHashType},
     packed,
     prelude::*,
+    utilities::merkle_root,
     H256,
 };
 
+impl packed::Byte32 {
+    pub fn zero() -> Self {
+        Self::default()
+    }
+
+    pub fn max_value() -> Self {
+        [u8::max_value(); 32].pack()
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.as_slice().iter().all(|x| *x == 0)
+    }
+
+    pub fn new(v: [u8; 32]) -> Self {
+        v.pack()
+    }
+}
+
 impl packed::ProposalShortId {
-    pub fn from_tx_hash(h: &H256) -> Self {
+    pub fn from_tx_hash(h: &packed::Byte32) -> Self {
         let mut inner = [0u8; 10];
-        inner.copy_from_slice(&h.as_bytes()[..10]);
+        inner.copy_from_slice(&h.as_slice()[..10]);
         inner.pack()
     }
 
@@ -27,9 +44,9 @@ impl packed::ProposalShortId {
 }
 
 impl packed::OutPoint {
-    pub fn new(tx_hash: H256, index: u32) -> Self {
+    pub fn new(tx_hash: packed::Byte32, index: u32) -> Self {
         packed::OutPoint::new_builder()
-            .tx_hash(tx_hash.pack())
+            .tx_hash(tx_hash)
             .index(index.pack())
             .build()
     }
@@ -41,8 +58,7 @@ impl packed::OutPoint {
     }
 
     pub fn is_null(&self) -> bool {
-        Unpack::<H256>::unpack(&self.tx_hash()).is_zero()
-            && Unpack::<u32>::unpack(&self.index()) == u32::max_value()
+        self.tx_hash().is_zero() && Unpack::<u32>::unpack(&self.index()) == u32::max_value()
     }
 }
 
@@ -132,8 +148,8 @@ impl packed::Block {
 
     pub(crate) fn reset_header_with_hashes(
         self,
-        tx_hashes: &[H256],
-        tx_witness_hashes: &[H256],
+        tx_hashes: &[packed::Byte32],
+        tx_witness_hashes: &[packed::Byte32],
     ) -> packed::Block {
         let transactions_root = merkle_root(tx_hashes);
         let witnesses_root = merkle_root(tx_witness_hashes);
@@ -144,10 +160,10 @@ impl packed::Block {
             .header()
             .raw()
             .as_builder()
-            .transactions_root(transactions_root.pack())
-            .witnesses_root(witnesses_root.pack())
-            .proposals_hash(proposals_hash.pack())
-            .uncles_hash(uncles_hash.pack())
+            .transactions_root(transactions_root)
+            .witnesses_root(witnesses_root)
+            .proposals_hash(proposals_hash)
+            .uncles_hash(uncles_hash)
             .uncles_count(uncles_count.pack())
             .build();
         let header = self.header().as_builder().raw(raw_header).build();

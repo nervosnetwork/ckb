@@ -29,7 +29,7 @@ where
             trace!(
                 "recover sig {:x?} with message {:x?}",
                 &sig.serialize()[..],
-                &message[..]
+                message.as_ref()
             );
             match sig.recover(&message) {
                 Ok(pubkey) => Some(pubkey),

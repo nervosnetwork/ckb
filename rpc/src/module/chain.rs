@@ -93,6 +93,7 @@ impl ChainRpc for ChainRpcImpl {
     }
 
     fn get_transaction(&self, hash: H256) -> Result<Option<TransactionWithStatus>> {
+        let hash = hash.pack();
         let id = packed::ProposalShortId::from_tx_hash(&hash);
 
         let tx = {
@@ -111,7 +112,7 @@ impl ChainRpc for ChainRpcImpl {
         Ok(tx.or_else(|| {
             self.shared
                 .store()
-                .get_transaction(&hash.pack())
+                .get_transaction(&hash)
                 .map(|(tx, block_hash)| {
                     TransactionWithStatus::with_committed(tx, block_hash.unpack())
                 })
@@ -164,6 +165,7 @@ impl ChainRpc for ChainRpcImpl {
         from: BlockNumber,
         to: BlockNumber,
     ) -> Result<Vec<CellOutputWithOutPoint>> {
+        let lock_hash = lock_hash.pack();
         let mut result = Vec::new();
         let snapshot = self.shared.snapshot();
         let from = from.0;

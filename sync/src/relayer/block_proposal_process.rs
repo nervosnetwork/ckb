@@ -47,7 +47,7 @@ impl<'a> BlockProposalProcess<'a> {
 
         let proposals: Vec<packed::ProposalShortId> = unknown_txs
             .iter()
-            .map(|tx| packed::ProposalShortId::from_tx_hash(&tx.hash().unpack()))
+            .map(|tx| packed::ProposalShortId::from_tx_hash(&tx.hash()))
             .collect();
         let removes = self.relayer.shared().remove_inflight_proposals(&proposals);
         let mut asked_txs = Vec::new();

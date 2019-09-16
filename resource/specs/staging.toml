@@ -4,7 +4,7 @@ name = "ckb_staging"
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 timestamp = 1564207200792
-difficulty = "0x10000"
+difficulty = "0xc00000"
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = 0
 
@@ -48,7 +48,7 @@ secp256k1_ripemd160_sha256_sighash_all = [
 ]
 
 [genesis.bootstrap_lock]
-code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
+code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 # Lock for developers to run tests
 args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
 hash_type = "type"
@@ -56,17 +56,17 @@ hash_type = "type"
 # Locks for developers to run tests
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
+lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
 lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
+lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
 lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x68d5438ac952d2f584abf879527946a537e82c7f3c1cbf6d8ebf9767437d8e88"
+lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
 lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
 lock.hash_type = "type"
 

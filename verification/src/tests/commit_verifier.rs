@@ -13,9 +13,9 @@ use ckb_types::{
         capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, HeaderBuilder, HeaderView,
         TransactionBuilder, TransactionView, UncleBlockView,
     },
-    packed::{CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
+    packed::{Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script},
     prelude::*,
-    H256, U256,
+    U256,
 };
 use std::sync::Arc;
 
@@ -48,7 +48,7 @@ fn gen_block(
 }
 
 fn create_transaction(
-    parent: &H256,
+    parent: &Byte32,
     always_success_script: &Script,
     always_success_out_point: &OutPoint,
 ) -> TransactionView {
@@ -98,7 +98,7 @@ fn create_cellbase(number: BlockNumber) -> TransactionView {
         .build()
 }
 
-fn setup_env() -> (ChainController, Shared, H256, Script, OutPoint) {
+fn setup_env() -> (ChainController, Shared, Byte32, Script, OutPoint) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let tx = TransactionBuilder::default()

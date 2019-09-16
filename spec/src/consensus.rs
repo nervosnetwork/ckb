@@ -18,38 +18,45 @@ use std::sync::Arc;
 // TODO: add secondary reward for miner
 pub(crate) const DEFAULT_SECONDARY_EPOCH_REWARD: Capacity = capacity_bytes!(600_000);
 pub(crate) const DEFAULT_EPOCH_REWARD: Capacity = capacity_bytes!(1_250_000);
-pub(crate) const MAX_UNCLE_NUM: usize = 2;
-pub(crate) const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
+const MAX_UNCLE_NUM: usize = 2;
+const TX_PROPOSAL_WINDOW: ProposalWindow = ProposalWindow(2, 10);
 // Cellbase outputs are "locked" and require 4 * MAX_EPOCH_LENGTH(1800) confirmations(approximately 16 hours)
 // before they mature sufficiently to be spendable,
 // This is to reduce the risk of later txs being reversed if a chain reorganization occurs.
 pub(crate) const CELLBASE_MATURITY: BlockNumber = 4 * MAX_EPOCH_LENGTH;
 // TODO: should adjust this value based on CKB average block time
-pub(crate) const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
+const MEDIAN_TIME_BLOCK_COUNT: usize = 11;
 
 // dampening factor
-pub(crate) const TAU: u64 = 2;
+const TAU: u64 = 2;
 
 // o_ideal = 1/20 = 5%
-pub(crate) const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("20"));
-pub(crate) const GENESIS_ORPHAN_COUNT: u64 = GENESIS_EPOCH_LENGTH / 20;
+const ORPHAN_RATE_TARGET: RationalU256 = RationalU256::new_raw(U256::one(), u256!("20"));
+const GENESIS_ORPHAN_COUNT: u64 = GENESIS_EPOCH_LENGTH / 20;
 
 const MAX_BLOCK_INTERVAL: u64 = 30; // 30s
 const MIN_BLOCK_INTERVAL: u64 = 8; // 8s
-const TWO_IN_TWO_OUT_CYCLES: Cycle = 2_580_000;
-pub(crate) const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
-pub(crate) const MILLISECONDS_IN_A_SECOND: u64 = 1000;
-pub(crate) const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
-pub(crate) const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
+
+// cycles of a typical two-in-two-out tx
+const TWO_IN_TWO_OUT_CYCLES: Cycle = 13_335_200;
+// bytes of a typical two-in-two-out tx
+const TWO_IN_TWO_OUT_BYTES: u64 = 589;
+// count of two-in-two-out txs a block should capable to package
+// approximately equal to 50_000_000_000 / TWO_IN_TWO_OUT_CYCLES
+const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
+const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
+const MILLISECONDS_IN_A_SECOND: u64 = 1000;
+const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
+const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
 
 // We choose 1_000 because it is largest number between MIN_EPOCH_LENGTH and MAX_EPOCH_LENGTH that
 // can divide DEFAULT_EPOCH_REWARD and can be divided by ORPHAN_RATE_TARGET_RECIP.
-pub(crate) const GENESIS_EPOCH_LENGTH: u64 = 1_000;
+const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 
-pub(crate) const MAX_BLOCK_BYTES: u64 = 2_000_000; // 2mb
-pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * 200 * 8;
-pub(crate) const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
-pub(crate) const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
+const MAX_BLOCK_BYTES: u64 = TWO_IN_TWO_OUT_BYTES * TWO_IN_TWO_OUT_COUNT;
+pub(crate) const MAX_BLOCK_CYCLES: u64 = TWO_IN_TWO_OUT_CYCLES * TWO_IN_TWO_OUT_COUNT;
+const MAX_BLOCK_PROPOSALS_LIMIT: u64 = 3_000;
+const PROPOSER_REWARD_RATIO: Ratio = Ratio(4, 10);
 
 #[derive(Clone, PartialEq, Debug, Eq, Copy)]
 pub struct ProposalWindow(pub BlockNumber, pub BlockNumber);
@@ -90,7 +97,7 @@ impl ProposalWindow {
 pub struct Consensus {
     pub id: String,
     pub genesis_block: BlockView,
-    pub genesis_hash: H256,
+    pub genesis_hash: Byte32,
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_uncles_num: usize,
@@ -125,10 +132,10 @@ impl Default for Consensus {
             .input(input)
             .witness(witness)
             .build();
-        let dao = genesis_dao_data(&cellbase).unwrap();
+        let dao = genesis_dao_data(vec![&cellbase]).unwrap();
         let genesis_block = BlockBuilder::default()
             .difficulty(U256::one().pack())
-            .dao(dao.pack())
+            .dao(dao)
             .transaction(cellbase)
             .build();
 
@@ -159,22 +166,22 @@ impl Consensus {
             / EPOCH_DURATION_TARGET;
 
         let genesis_epoch_ext = EpochExt::new(
-            0, // number
+            0,                // number
             block_reward,     // block_reward
             remainder_reward, // remainder_reward
             genesis_hash_rate,
-            H256::zero(),
-            0, // start
-            GENESIS_EPOCH_LENGTH, // length
-            genesis_header.difficulty() // difficulty,
+            Byte32::zero(),
+            0,                           // start
+            GENESIS_EPOCH_LENGTH,        // length
+            genesis_header.difficulty(), // difficulty,
         );
 
         Consensus {
-            genesis_hash: genesis_header.hash().unpack(),
+            genesis_hash: genesis_header.hash(),
             genesis_block,
             id: "main".to_owned(),
             max_uncles_num: MAX_UNCLE_NUM,
-            epoch_reward: DEFAULT_EPOCH_REWARD,
+            epoch_reward,
             orphan_rate_target: ORPHAN_RATE_TARGET,
             epoch_duration_target: EPOCH_DURATION_TARGET,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
@@ -210,7 +217,7 @@ impl Consensus {
         );
         self.genesis_epoch_ext
             .set_difficulty(genesis_block.difficulty());
-        self.genesis_hash = genesis_block.hash().unpack();
+        self.genesis_hash = genesis_block.hash();
         self.genesis_block = genesis_block;
         self
     }
@@ -274,8 +281,8 @@ impl Consensus {
         }
     }
 
-    pub fn genesis_hash(&self) -> &H256 {
-        &self.genesis_hash
+    pub fn genesis_hash(&self) -> Byte32 {
+        self.genesis_hash.clone()
     }
 
     pub fn max_uncles_num(&self) -> usize {
@@ -403,7 +410,7 @@ impl Consensus {
         let last_block_header_in_previous_epoch = if last_epoch.is_genesis() {
             self.genesis_block().header()
         } else {
-            get_block_header(&last_epoch.last_block_hash_in_previous_epoch().pack())?
+            get_block_header(&last_epoch.last_block_hash_in_previous_epoch())?
         };
 
         // (1) Computing the Adjusted Hash Rate Estimation
@@ -506,21 +513,21 @@ impl Consensus {
             block_reward,
             remainder_reward, // remainder_reward
             adjusted_last_epoch_hash_rate,
-            header.hash().unpack(), // last_block_hash_in_previous_epoch
-            header_number + 1,      // start
-            next_epoch_length,      // length
-            next_epoch_diff,        // difficulty,
+            header.hash(),     // last_block_hash_in_previous_epoch
+            header_number + 1, // start
+            next_epoch_length, // length
+            next_epoch_diff,   // difficulty,
         );
 
         Some(epoch_ext)
     }
 
     pub fn identify_name(&self) -> String {
-        let genesis_hash = format!("{:x}", &self.genesis_hash);
+        let genesis_hash = format!("{:x}", Unpack::<H256>::unpack(&self.genesis_hash));
         format!("/{}/{}", self.id, &genesis_hash[..8])
     }
 
-    pub fn get_secp_type_script_hash(&self) -> H256 {
+    pub fn get_secp_type_script_hash(&self) -> Byte32 {
         let secp_cell_data =
             Resource::bundled("specs/cells/secp256k1_blake160_sighash_all".to_string())
                 .get()
@@ -544,4 +551,18 @@ impl Consensus {
 // most simple and efficient way for now
 fn u256_low_u64(u: U256) -> u64 {
     u.0[0]
+}
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use ckb_types::core::{BlockBuilder, TransactionBuilder};
+
+    #[test]
+    fn test_init_epoch_reward() {
+        let cellbase = TransactionBuilder::default().witness(vec![].pack()).build();
+        let genesis = BlockBuilder::default().transaction(cellbase).build();
+        let consensus = Consensus::new(genesis, capacity_bytes!(100));
+        assert_eq!(capacity_bytes!(100), consensus.epoch_reward);
+    }
 }

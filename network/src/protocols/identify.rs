@@ -10,7 +10,6 @@ use p2p::{
     utils::{is_reachable, multiaddr_to_socketaddr},
 };
 use p2p_identify::{Callback, MisbehaveResult, Misbehavior};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 const MAX_RETURN_LISTEN_ADDRS: usize = 10;
@@ -19,8 +18,6 @@ const MAX_RETURN_LISTEN_ADDRS: usize = 10;
 pub(crate) struct IdentifyCallback {
     network_state: Arc<NetworkState>,
     identify: Identify,
-    // local listen addresses for scoring and for rpc output
-    remote_listen_addrs: HashMap<PeerId, Vec<Multiaddr>>,
 }
 
 impl IdentifyCallback {
@@ -34,14 +31,11 @@ impl IdentifyCallback {
         IdentifyCallback {
             network_state,
             identify: Identify::new(name, flags, client_version),
-            remote_listen_addrs: HashMap::default(),
         }
     }
 
     fn listen_addrs(&self) -> Vec<Multiaddr> {
-        let mut addrs = self
-            .network_state
-            .listened_addresses(MAX_RETURN_LISTEN_ADDRS * 2);
+        let mut addrs = self.network_state.public_addrs(MAX_RETURN_LISTEN_ADDRS * 2);
         addrs.sort_by(|a, b| a.1.cmp(&b.1));
         addrs
             .into_iter()
@@ -108,8 +102,6 @@ impl Callback for IdentifyCallback {
             peer_id,
             addrs,
         );
-        self.remote_listen_addrs
-            .insert(peer_id.clone(), addrs.clone());
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
                 peer_store.add_discovered_addr(&peer_id, addr);
@@ -133,29 +125,28 @@ impl Callback for IdentifyCallback {
             return MisbehaveResult::Continue;
         }
 
-        for transformed_addr in self
+        // observed addr is not a reachable ip
+        if !multiaddr_to_socketaddr(&addr)
+            .map(|socket_addr| is_reachable(socket_addr.ip()))
+            .unwrap_or(false)
+        {
+            return MisbehaveResult::Continue;
+        }
+
+        let observed_addrs_iter = self
             .listen_addrs()
             .into_iter()
             .filter_map(|listen_addr| multiaddr_to_socketaddr(&listen_addr))
-            .filter(|socket_addr| is_reachable(socket_addr.ip()))
-            .map(|socket_addr| socket_addr.port())
-            .map(|listen_port| {
+            .map(|socket_addr| {
                 addr.iter()
                     .filter_map(|proto| match proto {
-                        // Replace only it's an outbound connnection
                         Protocol::P2p(_) => None,
-                        Protocol::Tcp(_) => Some(Protocol::Tcp(listen_port)),
+                        Protocol::Tcp(_) => Some(Protocol::Tcp(socket_addr.port())),
                         value => Some(value),
                     })
                     .collect::<Multiaddr>()
-            })
-        {
-            debug!("identify add transformed addr: {:?}", transformed_addr);
-            let local_peer_id = self.network_state.local_peer_id();
-            self.network_state.with_peer_store_mut(|peer_store| {
-                peer_store.add_discovered_addr(local_peer_id, transformed_addr);
             });
-        }
+        self.network_state.add_observed_addrs(observed_addrs_iter);
         // NOTE: for future usage
         MisbehaveResult::Continue
     }

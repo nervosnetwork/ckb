@@ -1,5 +1,7 @@
 use crate::bytes::JsonBytes;
-use crate::{BlockNumber, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsigned, Version};
+use crate::{
+    BlockNumber, Byte32, Capacity, EpochNumber, ProposalShortId, Timestamp, Unsigned, Version,
+};
 use ckb_types::{core, packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -408,7 +410,7 @@ pub struct Header {
     pub difficulty: U256,
     pub uncles_hash: H256,
     pub uncles_count: Unsigned,
-    pub dao: JsonBytes,
+    pub dao: Byte32,
     pub nonce: Unsigned,
 }
 
@@ -699,12 +701,12 @@ impl From<core::BlockReward> for BlockReward {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ckb_types::{bytes::Bytes, core::TransactionBuilder};
+    use ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::Byte32};
     use proptest::{collection::size_range, prelude::*};
 
     fn mock_script(arg: Bytes) -> packed::Script {
         packed::ScriptBuilder::default()
-            .code_hash(H256::zero().pack())
+            .code_hash(Byte32::zero())
             .args(vec![arg].pack())
             .hash_type(core::ScriptHashType::Data.pack())
             .build()

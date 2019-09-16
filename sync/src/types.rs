@@ -16,7 +16,7 @@ use ckb_types::{
     core::{self, BlockNumber, Cycle, EpochExt},
     packed::{self, Byte32},
     prelude::*,
-    H256, U256,
+    U256,
 };
 use ckb_util::{Mutex, MutexGuard};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -534,10 +534,8 @@ impl HeaderView {
     }
 
     pub fn is_better_than(&self, total_difficulty: &U256, hash: &Byte32) -> bool {
-        let self_hash: H256 = self.hash().unpack();
-        let input_hash: H256 = hash.unpack();
         self.total_difficulty() > total_difficulty
-            || (self.total_difficulty() == total_difficulty && self_hash < input_hash)
+            || (self.total_difficulty() == total_difficulty && self.hash() < hash.clone())
     }
 }
 
@@ -815,16 +813,13 @@ impl SyncSharedState {
             .read()
             .get_epoch_ext(hash)
             .cloned()
-            .or_else(|| self.shared.get_block_epoch(&hash.unpack()))
+            .or_else(|| self.shared.get_block_epoch(&hash))
     }
 
     pub fn insert_epoch(&self, header: &core::HeaderView, epoch: EpochExt) {
         let mut epoch_map = self.epoch_map.write();
-        epoch_map.insert_index(
-            header.hash(),
-            epoch.last_block_hash_in_previous_epoch().pack(),
-        );
-        epoch_map.insert_epoch(epoch.last_block_hash_in_previous_epoch().pack(), epoch);
+        epoch_map.insert_index(header.hash(), epoch.last_block_hash_in_previous_epoch());
+        epoch_map.insert_epoch(epoch.last_block_hash_in_previous_epoch(), epoch);
     }
 
     pub fn next_epoch_ext(
@@ -867,7 +862,7 @@ impl SyncSharedState {
             if index < step {
                 // always include genesis hash
                 if index != 0 {
-                    locator.push(self.shared.genesis_hash().pack());
+                    locator.push(self.shared.genesis_hash());
                 }
                 break;
             }
@@ -912,8 +907,8 @@ impl SyncSharedState {
             return None;
         }
 
-        let locator_hash: H256 = locator.last().expect("empty checked").unpack();
-        if &locator_hash != self.shared.genesis_hash() {
+        let locator_hash = locator.last().expect("empty checked");
+        if locator_hash != &self.shared.genesis_hash() {
             return None;
         }
 
@@ -1004,7 +999,7 @@ impl SyncSharedState {
         let locator_hash = self.get_locator(header);
         let content = packed::GetHeaders::new_builder()
             .block_locator_hashes(locator_hash.pack())
-            .hash_stop(H256::zero().pack())
+            .hash_stop(packed::Byte32::zero())
             .build();
         let message = packed::SyncMessage::new_builder().set(content).build();
         let data = message.as_slice().into();
