@@ -44,7 +44,7 @@ impl<'a> BlockProcess<'a> {
                 .is_err()
         {
             info!(
-                "Ban peer {:?} for {} seconds because send us a invalid block",
+                "Ban peer {:?} for {} seconds, reason: it sent us an invalid block",
                 self.peer,
                 BAD_MESSAGE_BAN_TIME.as_secs()
             );
