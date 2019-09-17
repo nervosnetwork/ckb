@@ -47,6 +47,7 @@ impl fmt::Display for ScriptHashType {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Script {
     pub args: Vec<JsonBytes>,
     pub code_hash: H256,
@@ -80,6 +81,7 @@ impl From<packed::Script> for Script {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct CellOutput {
     pub capacity: Capacity,
     pub lock: Script,
@@ -119,6 +121,7 @@ impl From<CellOutput> for packed::CellOutput {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct OutPoint {
     pub tx_hash: H256,
     pub index: Uint32,
@@ -146,6 +149,7 @@ impl From<OutPoint> for packed::OutPoint {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct CellInput {
     pub previous_output: OutPoint,
     pub since: Uint64,
@@ -174,6 +178,7 @@ impl From<CellInput> for packed::CellInput {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Witness {
     data: Vec<JsonBytes>,
 }
@@ -224,6 +229,7 @@ impl From<core::DepType> for DepType {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct CellDep {
     out_point: OutPoint,
     dep_type: DepType,
@@ -253,6 +259,7 @@ impl From<CellDep> for packed::CellDep {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Transaction {
     pub version: Version,
     pub cell_deps: Vec<CellDep>,
@@ -399,6 +406,7 @@ impl TxStatus {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Header {
     pub version: Version,
     pub parent_hash: H256,
@@ -503,6 +511,7 @@ impl From<Header> for packed::Header {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct UncleBlock {
     pub header: Header,
     pub proposals: Vec<ProposalShortId>,
@@ -552,6 +561,7 @@ impl From<UncleBlock> for packed::UncleBlock {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Block {
     pub header: Header,
     pub uncles: Vec<UncleBlock>,
