@@ -4,7 +4,6 @@ use ckb_logger::{debug, error};
 use ckb_network::NetworkController;
 use ckb_shared::{shared::Shared, Snapshot};
 use ckb_sync::NetworkProtocol;
-use ckb_traits::ChainProvider;
 use ckb_types::{core, packed, prelude::*, H256};
 use ckb_verification::{HeaderResolverWrapper, HeaderVerifier, Verifier};
 use faketime::unix_time_as_millis;
@@ -78,10 +77,9 @@ impl MinerRpc for MinerRpcImpl {
         let block: packed::Block = data.into();
         let block: Arc<core::BlockView> = Arc::new(block.into_view());
         let header = block.header();
-        let resolver =
-            HeaderResolverWrapper::new(&header, self.shared.store(), self.shared.consensus());
+        let snapshot: &Snapshot = &self.shared.snapshot();
+        let resolver = HeaderResolverWrapper::new(&header, snapshot, self.shared.consensus());
         let header_verify_ret = {
-            let snapshot: &Snapshot = &self.shared.snapshot();
             let header_verifier =
                 HeaderVerifier::new(snapshot, Arc::clone(&self.shared.consensus().pow_engine()));
             header_verifier.verify(&resolver)

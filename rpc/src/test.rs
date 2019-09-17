@@ -18,9 +18,9 @@ use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
 };
+use ckb_store::ChainStore;
 use ckb_sync::{SyncSharedState, Synchronizer};
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     core::{
         capacity_bytes, cell::resolve_transaction, BlockBuilder, BlockView, Capacity, HeaderView,
@@ -103,15 +103,16 @@ fn always_success_transaction() -> TransactionView {
 
 // Construct the next block based the given `parent`
 fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
+    let snapshot: &Snapshot = &shared.snapshot();
     let epoch = {
-        let last_epoch = shared
+        let last_epoch = snapshot
             .get_block_epoch(&parent.hash())
             .expect("current epoch exists");
-        shared
-            .next_epoch_ext(&last_epoch, parent)
+        snapshot
+            .next_epoch_ext(shared.consensus(), &last_epoch, parent)
             .unwrap_or(last_epoch)
     };
-    let (_, reward) = shared.finalize_block_reward(parent).unwrap();
+    let (_, reward) = snapshot.finalize_block_reward(parent).unwrap();
     let cellbase = always_success_cellbase(parent.number() + 1, reward.total);
 
     // We store a cellbase for constructing a new transaction later
@@ -130,7 +131,6 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     .hash();
 
     let dao = {
-        let snapshot: &Snapshot = &shared.snapshot();
         let resolved_cellbase =
             resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
         DaoCalculator::new(shared.consensus(), shared.store())

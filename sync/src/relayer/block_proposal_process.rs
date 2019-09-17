@@ -21,12 +21,13 @@ impl<'a> BlockProposalProcess<'a> {
     }
 
     pub fn execute(self) -> Result<Status, FailureError> {
+        let snapshot = self.relayer.shared().snapshot();
         let unknown_txs: Vec<core::TransactionView> = self
             .message
             .transactions()
             .iter()
             .map(|x| x.to_entity().into_view())
-            .filter(|tx| !self.relayer.shared().already_known_tx(&tx.hash()))
+            .filter(|tx| !snapshot.state().already_known_tx(&tx.hash()))
             .collect();
 
         if unknown_txs.is_empty() {
@@ -37,11 +38,11 @@ impl<'a> BlockProposalProcess<'a> {
             .iter()
             .map(|tx| packed::ProposalShortId::from_tx_hash(&tx.hash()))
             .collect();
-        let removes = self.relayer.shared().remove_inflight_proposals(&proposals);
+        let removes = snapshot.state().remove_inflight_proposals(&proposals);
         let mut asked_txs = Vec::new();
         for (previously_in, tx) in removes.into_iter().zip(unknown_txs) {
             if previously_in {
-                self.relayer.shared().mark_as_known_tx(tx.hash());
+                snapshot.state().mark_as_known_tx(tx.hash());
                 asked_txs.push(tx);
             }
         }

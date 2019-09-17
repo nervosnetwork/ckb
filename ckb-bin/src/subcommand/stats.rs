@@ -1,7 +1,6 @@
 use ckb_app_config::{ExitCode, StatsArgs};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::core::BlockNumber;
 
 pub fn stats(args: StatsArgs) -> Result<(), ExitCode> {
@@ -26,13 +25,10 @@ impl Statics {
                 ExitCode::Failure
             })?;
 
-        let tip = shared
-            .store()
-            .get_tip_header()
-            .ok_or_else(|| ExitCode::IO)?;
+        let tip_number = shared.snapshot().tip_number();
 
         let from = args.from.unwrap_or(0);
-        let to = args.to.unwrap_or_else(|| tip.number());
+        let to = args.to.unwrap_or_else(|| tip_number);
 
         if from >= to {
             return Err(ExitCode::Cli);

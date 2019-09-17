@@ -1,45 +1,37 @@
 use crate::block_status::BlockStatus;
 use crate::synchronizer::Synchronizer;
-use crate::types::HeaderView;
+use crate::types::{HeaderView, SyncSnapshot};
 use crate::{MAX_BLOCKS_IN_TRANSIT_PER_PEER, PER_FETCH_BLOCK_LIMIT};
 use ckb_logger::{debug, trace};
 use ckb_network::PeerIndex;
 use ckb_store::ChainStore;
-use ckb_types::{core, packed, U256};
+use ckb_types::{core, packed};
 use std::cmp::min;
 
 pub struct BlockFetcher {
     synchronizer: Synchronizer,
     peer: PeerIndex,
-    tip_header: core::HeaderView,
-    total_difficulty: U256,
+    snapshot: SyncSnapshot,
 }
 
 impl BlockFetcher {
     pub fn new(synchronizer: Synchronizer, peer: PeerIndex) -> Self {
-        let (tip_header, total_difficulty) = {
-            let snapshot = synchronizer.shared.snapshot();
-            (
-                snapshot.tip_header().to_owned(),
-                snapshot.total_difficulty().to_owned(),
-            )
-        };
+        let snapshot = synchronizer.shared.snapshot();
         BlockFetcher {
             peer,
             synchronizer,
-            tip_header,
-            total_difficulty,
+            snapshot,
         }
     }
     pub fn reached_inflight_limit(&self) -> bool {
-        let inflight = self.synchronizer.shared().read_inflight_blocks();
+        let inflight = self.synchronizer.shared().state().read_inflight_blocks();
 
         // Can't download any more from this peer
         inflight.peer_inflight_count(self.peer) >= MAX_BLOCKS_IN_TRANSIT_PER_PEER
     }
 
     pub fn is_better_chain(&self, header: &HeaderView) -> bool {
-        header.is_better_than(&self.total_difficulty)
+        header.is_better_than(&self.snapshot.total_difficulty())
     }
 
     pub fn peer_best_known_header(&self) -> Option<HeaderView> {
@@ -50,24 +42,16 @@ impl BlockFetcher {
         let last_common_header = {
             if let Some(header) = self.synchronizer.peers().get_last_common_header(self.peer) {
                 Some(header)
-            } else if best.number() < self.tip_header.number() {
-                let last_common_hash = self
-                    .synchronizer
-                    .shared
-                    .store()
-                    .get_block_hash(best.number())?;
-                self.synchronizer
-                    .shared
-                    .store()
-                    .get_block_header(&last_common_hash)
+            } else if best.number() < self.snapshot.tip_header().number() {
+                let last_common_hash = self.snapshot.store().get_block_hash(best.number())?;
+                self.snapshot.store().get_block_header(&last_common_hash)
             } else {
-                Some(self.tip_header.clone())
+                Some(self.snapshot.tip_header())
             }
         }?;
 
         let fixed_last_common_header = self
-            .synchronizer
-            .shared
+            .snapshot
             .last_common_ancestor(&last_common_header, &best.inner())?;
 
         if fixed_last_common_header != last_common_header {
@@ -106,7 +90,7 @@ impl BlockFetcher {
             trace!(
                 "[block downloader] best_known_header {} chain {}",
                 best_known_header.total_difficulty(),
-                self.total_difficulty
+                self.snapshot.total_difficulty()
             );
             return None;
         }
@@ -134,7 +118,7 @@ impl BlockFetcher {
         let mut fetch = Vec::with_capacity(PER_FETCH_BLOCK_LIMIT);
 
         {
-            let mut inflight = self.synchronizer.shared().write_inflight_blocks();
+            let mut inflight = self.synchronizer.shared().state().write_inflight_blocks();
             let count = min(
                 MAX_BLOCKS_IN_TRANSIT_PER_PEER
                     .saturating_sub(inflight.peer_inflight_count(self.peer)),
@@ -148,12 +132,9 @@ impl BlockFetcher {
                 }
 
                 let to_fetch = self
-                    .synchronizer
-                    .shared
+                    .snapshot
                     .get_ancestor(&best_known_header.hash(), index_height)?;
-                if self
-                    .synchronizer
-                    .shared()
+                if self.snapshot
                     // NOTE: Filtering `BLOCK_STORED` but not `BLOCK_RECEIVED`, is for avoiding
                     // stopping synchronization even when orphan_pool maintains dirty items by bugs.
                     .contains_block_status(&to_fetch.hash(), BlockStatus::BLOCK_STORED)

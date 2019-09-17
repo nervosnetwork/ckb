@@ -1,8 +1,9 @@
 use crate::db::cf_handle;
 use crate::{internal_error, Col, Result};
-use rocksdb::ops::{GetCF, GetPinnedCF, Iterate, IterateCF, Read};
+use libc::{self, c_char, size_t};
+use rocksdb::ops::{GetPinnedCF, Iterate, IterateCF, Read};
 use rocksdb::{
-    ffi, ColumnFamily, ConstHandle, DBPinnableSlice, DBRawIterator, DBVector, Error, Handle,
+    ffi, ffi_util, ColumnFamily, ConstHandle, DBPinnableSlice, DBRawIterator, Error, Handle,
     OptimisticTransactionDB, ReadOptions,
 };
 use std::sync::Arc;
@@ -10,7 +11,6 @@ use std::sync::Arc;
 pub struct RocksDBSnapshot {
     pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: *const ffi::rocksdb_snapshot_t,
-    ro: ReadOptions,
 }
 
 unsafe impl Sync for RocksDBSnapshot {}
@@ -21,11 +21,8 @@ impl RocksDBSnapshot {
         db: &Arc<OptimisticTransactionDB>,
         ptr: *const ffi::rocksdb_snapshot_t,
     ) -> RocksDBSnapshot {
-        let ro = ReadOptions::default();
-        ffi::rocksdb_readoptions_set_snapshot(ro.handle(), ptr);
         RocksDBSnapshot {
             db: Arc::clone(db),
-            ro,
             inner: ptr,
         }
     }
@@ -33,7 +30,7 @@ impl RocksDBSnapshot {
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
         let cf = cf_handle(&self.db, col)?;
         self.db
-            .get_pinned_cf_opt(cf, &key, &self.ro)
+            .get_pinned_cf_full(Some(cf), &key, None)
             .map_err(internal_error)
     }
 }
@@ -46,17 +43,53 @@ impl ConstHandle<ffi::rocksdb_snapshot_t> for RocksDBSnapshot {
     }
 }
 
-impl GetCF<ReadOptions> for RocksDBSnapshot {
-    fn get_cf_full<K: AsRef<[u8]>>(
-        &self,
-        cf: Option<&ColumnFamily>,
+impl<'a> GetPinnedCF<'a> for RocksDBSnapshot {
+    type ColumnFamily = &'a ColumnFamily;
+    type ReadOptions = &'a ReadOptions;
+
+    fn get_pinned_cf_full<K: AsRef<[u8]>>(
+        &'a self,
+        cf: Option<Self::ColumnFamily>,
         key: K,
-        readopts: Option<&ReadOptions>,
-    ) -> ::std::result::Result<Option<DBVector>, Error> {
+        readopts: Option<Self::ReadOptions>,
+    ) -> ::std::result::Result<Option<DBPinnableSlice<'a>>, Error> {
         let mut ro = readopts.cloned().unwrap_or_default();
         ro.set_snapshot(self);
 
-        self.db.get_cf_full(cf, key, Some(&ro))
+        let key = key.as_ref();
+        let key_ptr = key.as_ptr() as *const c_char;
+        let key_len = key.len() as size_t;
+
+        unsafe {
+            let mut err: *mut ::libc::c_char = ::std::ptr::null_mut();
+            let val = match cf {
+                Some(cf) => ffi::rocksdb_get_pinned_cf(
+                    self.db.handle(),
+                    ro.handle(),
+                    cf.handle(),
+                    key_ptr,
+                    key_len,
+                    &mut err,
+                ),
+                None => ffi::rocksdb_get_pinned(
+                    self.db.handle(),
+                    ro.handle(),
+                    key_ptr,
+                    key_len,
+                    &mut err,
+                ),
+            };
+
+            if !err.is_null() {
+                return Err(Error::new(ffi_util::error_message(err)));
+            }
+
+            if val.is_null() {
+                Ok(None)
+            } else {
+                Ok(Some(DBPinnableSlice::from_c(val)))
+            }
+        }
     }
 }
 

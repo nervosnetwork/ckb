@@ -24,7 +24,13 @@ fn test_missing_txs() {
         let transactions: Vec<TransactionView> = prepare.iter().skip(1).cloned().collect();
         let compact = compact_block_builder.short_ids(short_ids.pack()).build();
         assert_eq!(
-            relayer.reconstruct_block(&compact, transactions, &[], &[]),
+            relayer.reconstruct_block(
+                &relayer.shared().snapshot(),
+                &compact,
+                transactions,
+                &[],
+                &[]
+            ),
             Err(ReconstructionError::MissingIndexes(vec![0], vec![])),
         );
     }
@@ -43,7 +49,13 @@ fn test_missing_txs() {
             .collect();
         let compact = compact_block_builder.short_ids(short_ids.pack()).build();
         assert_eq!(
-            relayer.reconstruct_block(&compact, transactions, &[], &[]),
+            relayer.reconstruct_block(
+                &relayer.shared().snapshot(),
+                &compact,
+                transactions,
+                &[],
+                &[]
+            ),
             Err(ReconstructionError::MissingIndexes(missing, vec![])),
         );
     }
@@ -100,7 +112,7 @@ fn test_reconstruct_transactions_and_uncles() {
 
     {
         let uncle_view = uncle.into_view();
-        let db_txn = relayer.shared().store().begin_transaction();
+        let db_txn = relayer.shared().shared().store().begin_transaction();
         db_txn.insert_block(&uncle_view).unwrap();
         db_txn.attach_block(&uncle_view).unwrap();
         db_txn.insert_block_ext(&hash, &ext.unpack()).unwrap();
@@ -108,7 +120,13 @@ fn test_reconstruct_transactions_and_uncles() {
     }
 
     assert!(relayer
-        .reconstruct_block(&compact, short_transactions.clone(), &[], &[])
+        .reconstruct_block(
+            &relayer.shared().snapshot(),
+            &compact,
+            short_transactions.clone(),
+            &[],
+            &[]
+        )
         .is_ok());
 }
 
@@ -132,7 +150,7 @@ fn test_reconstruct_invalid_uncles() {
 
     {
         let uncle_view = uncle.into_view();
-        let db_txn = relayer.shared().store().begin_transaction();
+        let db_txn = relayer.shared().shared().store().begin_transaction();
         db_txn.insert_block(&uncle_view).unwrap();
         db_txn.attach_block(&uncle_view).unwrap();
         db_txn.insert_block_ext(&hash, &ext.unpack()).unwrap();
@@ -140,7 +158,7 @@ fn test_reconstruct_invalid_uncles() {
     }
 
     assert_eq!(
-        relayer.reconstruct_block(&compact, vec![], &[], &[]),
+        relayer.reconstruct_block(&relayer.shared().snapshot(), &compact, vec![], &[], &[]),
         Err(ReconstructionError::InvalidUncle)
     );
 }

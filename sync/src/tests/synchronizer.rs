@@ -9,13 +9,9 @@ use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_shared::{
-    shared::{Shared, SharedBuilder},
-    Snapshot,
-};
+use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
-use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -116,15 +112,13 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
         let number = block.header().number() + 1;
         let timestamp = block.header().timestamp() + 1;
 
-        let last_epoch = shared
-            .store()
-            .get_block_epoch(&block.header().hash())
-            .unwrap();
-        let epoch = shared
-            .next_epoch_ext(&last_epoch, &block.header())
+        let snapshot = shared.snapshot();
+        let last_epoch = snapshot.get_block_epoch(&block.header().hash()).unwrap();
+        let epoch = snapshot
+            .next_epoch_ext(snapshot.consensus(), &last_epoch, &block.header())
             .unwrap_or(last_epoch);
 
-        let (_, reward) = shared.finalize_block_reward(&block.header()).unwrap();
+        let (_, reward) = snapshot.finalize_block_reward(&block.header()).unwrap();
 
         let cellbase = TransactionBuilder::default()
             .input(CellInput::new_cellbase_input(number))
@@ -139,22 +133,22 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .build();
 
         let dao = {
-            let snapshot: &Snapshot = &shared.snapshot();
-            let resolved_cellbase =
-                resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
-                    .unwrap();
-            DaoCalculator::new(shared.consensus(), shared.store())
+            let resolved_cellbase = resolve_transaction(
+                cellbase.clone(),
+                &mut HashSet::new(),
+                snapshot.as_ref(),
+                snapshot.as_ref(),
+            )
+            .unwrap();
+            DaoCalculator::new(shared.consensus(), snapshot.as_ref())
                 .dao_field(&[resolved_cellbase], &block.header())
                 .unwrap()
         };
 
-        let chain_root = ChainRootMMR::new(
-            leaf_index_to_mmr_size(number - 1),
-            shared.snapshot().as_ref(),
-        )
-        .get_root()
-        .unwrap()
-        .hash();
+        let chain_root = ChainRootMMR::new(leaf_index_to_mmr_size(number - 1), snapshot.as_ref())
+            .get_root()
+            .unwrap()
+            .hash();
 
         block = BlockBuilder::default()
             .transaction(cellbase)

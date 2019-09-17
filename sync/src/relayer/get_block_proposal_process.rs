@@ -51,6 +51,7 @@ impl<'a> GetBlockProposalProcess<'a> {
 
         self.relayer
             .shared()
+            .state()
             .insert_get_block_proposals(self.peer, fresh_proposals);
 
         let content = packed::BlockProposal::new_builder()

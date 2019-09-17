@@ -1,7 +1,6 @@
 use crate::relayer::Relayer;
 use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_store::ChainStore;
 use ckb_types::{packed, prelude::*};
 use failure::Error as FailureError;
 use std::sync::Arc;
@@ -29,6 +28,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
+        let snapshot = self.relayer.shared.snapshot();
         let block_hash = self.message.block_hash().to_entity();
         debug_target!(
             crate::LOG_TARGET_RELAY,
@@ -36,7 +36,7 @@ impl<'a> GetBlockTransactionsProcess<'a> {
             block_hash
         );
 
-        if let Some(block) = self.relayer.shared.store().get_block(&block_hash) {
+        if let Some(block) = snapshot.get_block(&block_hash) {
             let transactions = self
                 .message
                 .indexes()

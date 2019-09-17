@@ -20,3 +20,4 @@ ckb-proposal-table = { path = "../proposal-table" }
 im = "~12.3"
 arc-swap = "0.4"
 ckb-merkle-mountain-range = { path = "../merkle-mountain-range" }
+ckb-reward-calculator = { path = "../reward-calculator" }

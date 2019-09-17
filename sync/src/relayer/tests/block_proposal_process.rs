@@ -15,6 +15,7 @@ fn test_no_unknown() {
     {
         relayer
             .shared
+            .state()
             .mark_as_known_tx(transaction.hash().to_owned());
     }
     let content = packed::BlockProposal::new_builder()
@@ -42,7 +43,7 @@ fn test_no_asked() {
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::NoAsked));
 
-    let known = relayer.shared.already_known_tx(&transaction.hash());
+    let known = relayer.shared.state().already_known_tx(&transaction.hash());
     assert_eq!(known, false);
 }
 
@@ -59,7 +60,7 @@ fn test_ok() {
 
     // Before asked proposals
     {
-        relayer.shared.insert_inflight_proposals(proposals);
+        relayer.shared.state().insert_inflight_proposals(proposals);
     }
 
     let content = packed::BlockProposal::new_builder()
@@ -70,6 +71,6 @@ fn test_ok() {
     let r = process.execute();
     assert_eq!(r.ok(), Some(Status::Ok));
 
-    let known = relayer.shared.already_known_tx(&transaction.hash());
+    let known = relayer.shared.state().already_known_tx(&transaction.hash());
     assert_eq!(known, true);
 }

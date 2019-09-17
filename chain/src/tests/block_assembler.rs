@@ -9,7 +9,6 @@ use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_shared::Snapshot;
 use ckb_store::ChainStore;
-use ckb_traits::ChainProvider;
 use ckb_tx_pool::{BlockAssemblerConfig, PlugTarget, TxEntry};
 use ckb_types::{
     bytes::Bytes,
@@ -148,7 +147,8 @@ fn test_prepare_uncles() {
 
     let last_epoch = epoch.clone();
     let epoch = shared
-        .next_epoch_ext(&last_epoch, &block0_1.header())
+        .snapshot()
+        .next_epoch_ext(shared.consensus(), &last_epoch, &block0_1.header())
         .unwrap_or(last_epoch);
 
     let block1_1 = gen_block(&block0_1.header(), 10, &epoch);
@@ -174,7 +174,8 @@ fn test_prepare_uncles() {
 
     let last_epoch = epoch.clone();
     let epoch = shared
-        .next_epoch_ext(&last_epoch, &block1_1.header())
+        .snapshot()
+        .next_epoch_ext(shared.consensus(), &last_epoch, &block1_1.header())
         .unwrap_or(last_epoch);
 
     let block2_1 = gen_block(&block1_1.header(), 10, &epoch);
@@ -191,7 +192,8 @@ fn test_prepare_uncles() {
 
     let last_epoch = epoch.clone();
     let epoch = shared
-        .next_epoch_ext(&last_epoch, &block2_1.header())
+        .snapshot()
+        .next_epoch_ext(shared.consensus(), &last_epoch, &block2_1.header())
         .unwrap_or(last_epoch);
 
     let block3_1 = gen_block(&block2_1.header(), 10, &epoch);

@@ -6,7 +6,6 @@ use crate::types::InflightBlocks;
 use crate::NetworkProtocol;
 use crate::MAX_PEERS_PER_BLOCK;
 use ckb_network::PeerIndex;
-use ckb_store::ChainStore;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -49,6 +48,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
+            .state()
             .insert_block_status(block.header().hash().to_owned(), BlockStatus::BLOCK_INVALID);
     }
 
@@ -69,6 +69,7 @@ fn test_in_block_status_map() {
     {
         relayer
             .shared
+            .state()
             .insert_block_status(block.header().hash().clone(), BlockStatus::BLOCK_STORED);
     }
 
@@ -115,7 +116,7 @@ fn test_unknow_parent() {
 
     let snapshot = relayer.shared.snapshot();
     let header = snapshot.tip_header();
-    let locator_hash = relayer.shared.get_locator(header);
+    let locator_hash = snapshot.get_locator(&header);
 
     let content = packed::GetHeaders::new_builder()
         .block_locator_hashes(locator_hash.pack())
@@ -197,7 +198,7 @@ fn test_already_in_flight() {
     // Already in flight
     let mut in_flight_blocks = InflightBlocks::default();
     in_flight_blocks.insert(peer_index, block.header().hash().clone());
-    *relayer.shared.write_inflight_blocks() = in_flight_blocks;
+    *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
 
     let compact_block_process = CompactBlockProcess::new(
         compact_block.as_reader(),
@@ -239,7 +240,7 @@ fn test_already_pending() {
 
     // Already in pending
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             compact_block.header().into_view().hash().clone(),
             (
@@ -303,7 +304,10 @@ fn test_header_invalid() {
     );
     // Assert block_status_map update
     assert_eq!(
-        relayer.shared().get_block_status(&block.header().hash()),
+        relayer
+            .shared()
+            .snapshot()
+            .get_block_status(&block.header().hash()),
         BlockStatus::BLOCK_INVALID
     );
 }
@@ -348,7 +352,7 @@ fn test_inflight_blocks_reach_limit() {
         for i in 0..=MAX_PEERS_PER_BLOCK {
             in_flight_blocks.insert(i.into(), block.header().hash().clone());
         }
-        *relayer.shared.write_inflight_blocks() = in_flight_blocks;
+        *relayer.shared.state().write_inflight_blocks() = in_flight_blocks;
     }
 
     let compact_block_process = CompactBlockProcess::new(
@@ -412,7 +416,11 @@ fn test_send_missing_indexes() {
         peer_index,
     );
 
-    assert!(!relayer.shared.inflight_proposals().contains(&proposal_id));
+    assert!(!relayer
+        .shared
+        .state()
+        .inflight_proposals()
+        .contains(&proposal_id));
 
     let r = compact_block_process.execute();
     assert_eq!(r.ok(), Some(Status::SendMissingIndexes));
@@ -433,7 +441,11 @@ fn test_send_missing_indexes() {
         .contains(&(peer_index, data)));
 
     // insert inflight proposal
-    assert!(relayer.shared.inflight_proposals().contains(&proposal_id));
+    assert!(relayer
+        .shared
+        .state()
+        .inflight_proposals()
+        .contains(&proposal_id));
 
     let content = packed::GetBlockProposal::new_builder()
         .block_hash(block.header().hash())
@@ -474,7 +486,7 @@ fn test_accept_block() {
     let uncle_hash = uncle.calc_header_hash();
     {
         let uncle_view = uncle.into_view();
-        let db_txn = relayer.shared().store().begin_transaction();
+        let db_txn = relayer.shared().shared().store().begin_transaction();
         db_txn.insert_block(&uncle_view).unwrap();
         db_txn.attach_block(&uncle_view).unwrap();
         db_txn.insert_block_ext(&uncle_hash, &ext.unpack()).unwrap();
@@ -503,11 +515,10 @@ fn test_accept_block() {
 #[test]
 fn test_ignore_a_too_old_block() {
     let (relayer, _) = build_chain(1804);
-    let parent = {
-        let snapshot = relayer.shared.snapshot();
-        snapshot.tip_header().clone()
-    };
-    let parent = relayer.shared.get_ancestor(&parent.hash(), 2).unwrap();
+
+    let snapshot = relayer.shared.snapshot();
+    let parent = snapshot.tip_header().clone();
+    let parent = snapshot.get_ancestor(&parent.hash(), 2).unwrap();
 
     let too_old_block = new_header_builder(relayer.shared.shared(), &parent).build();
 
@@ -581,7 +592,7 @@ fn test_collision() {
 
     let last_block = relayer
         .shared
-        .store()
+        .snapshot()
         .get_block(&relayer.shared.snapshot().tip_hash())
         .unwrap();
     let last_cellbase = last_block.transactions().first().cloned().unwrap();
@@ -646,7 +657,11 @@ fn test_collision() {
         peer_index,
     );
 
-    assert!(!relayer.shared.inflight_proposals().contains(&proposal_id));
+    assert!(!relayer
+        .shared
+        .state()
+        .inflight_proposals()
+        .contains(&proposal_id));
 
     let r = compact_block_process.execute();
     assert_eq!(r.ok(), Some(Status::CollisionAndSendMissingIndexes));

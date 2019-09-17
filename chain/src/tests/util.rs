@@ -8,7 +8,6 @@ use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
 pub use ckb_test_chain_utils::MockStore;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     bytes::Bytes,
@@ -60,10 +59,13 @@ pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainController, Sha
 
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
-    let parent = shared
-        .store()
-        .get_block_header(&shared.store().get_block_hash(0).unwrap())
-        .unwrap();
+    let parent = {
+        let snapshot = shared.snapshot();
+        snapshot
+            .get_block_hash(0)
+            .and_then(|hash| snapshot.get_block_header(&hash))
+            .unwrap()
+    };
 
     (chain_controller, shared, parent)
 }
