@@ -147,8 +147,8 @@ fn test_epoch_number() {
     assert_error_eq(
         EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
         EpochError::NumberMismatch {
-            expected: 281_474_976_710_656,
-            actual: 2,
+            expected: 1_099_511_627_776,
+            actual: 1_099_511_627_778,
         },
     )
 }

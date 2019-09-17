@@ -13,7 +13,7 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMetaBuilder, ResolvedTransaction},
-        BlockNumber, Capacity, DetailedEpochNumber, EpochNumber, ScriptHashType,
+        BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, ScriptHashType,
         TransactionBuilder, TransactionInfo, TransactionView, Version,
     },
     h256,
@@ -141,7 +141,11 @@ pub fn test_inputs_cellbase_maturity() {
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(30, 0, 0))
+                .transaction_info(MockMedianTime::get_transaction_info(
+                    30,
+                    EpochNumberWithFraction::new(0, 0, 10),
+                    0,
+                ))
                 .build(),
         ],
     };
@@ -173,7 +177,11 @@ fn test_ignore_genesis_cellbase_maturity() {
         resolved_dep_groups: Vec::new(),
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(0, 0, 0))
+                .transaction_info(MockMedianTime::get_transaction_info(
+                    0,
+                    EpochNumberWithFraction::new(0, 0, 10),
+                    0,
+                ))
                 .build(),
         ],
     };
@@ -196,10 +204,18 @@ pub fn test_deps_cellbase_maturity() {
         transaction,
         resolved_cell_deps: vec![
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(30, 0, 0))
+                .transaction_info(MockMedianTime::get_transaction_info(
+                    30,
+                    EpochNumberWithFraction::new(0, 0, 10),
+                    0,
+                ))
                 .build(),
             CellMetaBuilder::from_cell_output(output.clone(), Bytes::new())
-                .transaction_info(MockMedianTime::get_transaction_info(40, 0, 1))
+                .transaction_info(MockMedianTime::get_transaction_info(
+                    40,
+                    EpochNumberWithFraction::new(0, 0, 10),
+                    1,
+                ))
                 .build(),
         ],
         resolved_inputs: Vec::new(),
@@ -296,7 +312,7 @@ where
         rtx,
         block_median_time_context,
         block_number,
-        DetailedEpochNumber::new(epoch_number, 0, 10),
+        EpochNumberWithFraction::new(epoch_number, 0, 10),
         parent_hash.as_ref().to_owned(),
     )
     .verify()
@@ -362,8 +378,10 @@ fn create_resolve_tx_with_transaction_info(
 fn test_invalid_since_verify() {
     // use remain flags
     let tx = create_tx_with_lock(0x0100_0000_0000_0001);
-    let rtx =
-        create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 0, 1));
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
 
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq(
@@ -373,11 +391,25 @@ fn test_invalid_since_verify() {
 }
 
 #[test]
-fn test_fraction_epoch_since_verify() {
+fn test_invalid_zero_length_since() {
     // use remain flags
-    let tx = create_tx_with_lock(0x2000_0000_0010_0100);
-    let rtx =
-        create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 0, 1));
+    let tx = create_tx_with_lock(0xa000_0000_0000_0000);
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
+
+    let median_time_context = MockMedianTime::new(vec![0; 11]);
+    assert!(verify_since(&rtx, &median_time_context, 5, 1).is_ok(),);
+}
+
+#[test]
+fn test_fraction_epoch_since_verify() {
+    let tx = create_tx_with_lock(0x2000_0a00_0500_0010);
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     let block_number = 1000;
     let parent_hash = Arc::new(MockMedianTime::get_block_hash(block_number - 1));
@@ -386,7 +418,7 @@ fn test_fraction_epoch_since_verify() {
         &rtx,
         &median_time_context,
         block_number,
-        DetailedEpochNumber::new(16, 200, 10),
+        EpochNumberWithFraction::new(16, 1, 10),
         parent_hash.as_ref().to_owned(),
     )
     .verify();
@@ -396,7 +428,7 @@ fn test_fraction_epoch_since_verify() {
         &rtx,
         &median_time_context,
         block_number,
-        DetailedEpochNumber::new(16, 256, 10),
+        EpochNumberWithFraction::new(16, 5, 10),
         parent_hash.as_ref().to_owned(),
     )
     .verify();
@@ -407,8 +439,10 @@ fn test_fraction_epoch_since_verify() {
 pub fn test_absolute_block_number_lock() {
     // absolute lock until block number 0xa
     let tx = create_tx_with_lock(0x0000_0000_0000_000a);
-    let rtx =
-        create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 0, 1));
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
     let median_time_context = MockMedianTime::new(vec![0; 11]);
 
     assert_error_eq(
@@ -422,9 +456,11 @@ pub fn test_absolute_block_number_lock() {
 #[test]
 pub fn test_absolute_epoch_number_lock() {
     // absolute lock until epoch number 0xa
-    let tx = create_tx_with_lock(0x2000_0000_000a_0000);
-    let rtx =
-        create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 0, 1));
+    let tx = create_tx_with_lock(0x2000_0100_0000_000a);
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
 
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq(
@@ -439,8 +475,10 @@ pub fn test_absolute_epoch_number_lock() {
 pub fn test_relative_timestamp_lock() {
     // relative lock timestamp lock
     let tx = create_tx_with_lock(0xc000_0000_0000_0002);
-    let rtx =
-        create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 0, 1));
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
 
     let median_time_context = MockMedianTime::new(vec![0; 11]);
     assert_error_eq(
@@ -458,9 +496,11 @@ pub fn test_relative_timestamp_lock() {
 #[test]
 pub fn test_relative_epoch() {
     // next epoch
-    let tx = create_tx_with_lock(0xa000_0000_0001_0000);
-    let rtx =
-        create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 1, 1));
+    let tx = create_tx_with_lock(0xa000_1000_0000_0002);
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
 
     let median_time_context = MockMedianTime::new(vec![0; 11]);
 
@@ -484,8 +524,10 @@ pub fn test_since_both() {
         ])
         .build();
 
-    let rtx =
-        create_resolve_tx_with_transaction_info(&tx, MockMedianTime::get_transaction_info(1, 0, 1));
+    let rtx = create_resolve_tx_with_transaction_info(
+        &tx,
+        MockMedianTime::get_transaction_info(1, EpochNumberWithFraction::new(0, 0, 10), 1),
+    );
     // spent after 1024 seconds and 4 blocks (less than 10 blocks)
     // fake median time: 1124
     let median_time_context =

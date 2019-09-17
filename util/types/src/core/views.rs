@@ -6,7 +6,7 @@ use ckb_occupied_capacity::Result as CapacityResult;
 
 use crate::{
     bytes::Bytes,
-    core::{BlockNumber, Capacity, DetailedEpochNumber, Version},
+    core::{BlockNumber, Capacity, EpochNumberWithFraction, Version},
     packed,
     prelude::*,
     utilities::merkle_root,
@@ -265,7 +265,7 @@ impl HeaderView {
     define_header_unpacked_inner_getter!(difficulty, U256);
     define_header_unpacked_inner_getter!(timestamp, u64);
     define_header_unpacked_inner_getter!(uncles_count, u32);
-    define_header_unpacked_inner_getter!(epoch, DetailedEpochNumber);
+    define_header_unpacked_inner_getter!(epoch, EpochNumberWithFraction);
 
     define_header_packed_inner_getter!(parent_hash, Byte32);
     define_header_packed_inner_getter!(transactions_root, Byte32);
@@ -317,7 +317,7 @@ impl UncleBlockView {
     define_uncle_unpacked_inner_getter!(difficulty, U256);
     define_uncle_unpacked_inner_getter!(timestamp, u64);
     define_uncle_unpacked_inner_getter!(uncles_count, u32);
-    define_uncle_unpacked_inner_getter!(epoch, DetailedEpochNumber);
+    define_uncle_unpacked_inner_getter!(epoch, EpochNumberWithFraction);
 
     define_uncle_packed_inner_getter!(parent_hash, Byte32);
     define_uncle_packed_inner_getter!(transactions_root, Byte32);
@@ -430,7 +430,7 @@ impl BlockView {
     define_block_unpacked_inner_getter!(difficulty, U256);
     define_block_unpacked_inner_getter!(timestamp, u64);
     define_block_unpacked_inner_getter!(uncles_count, u32);
-    define_block_unpacked_inner_getter!(epoch, DetailedEpochNumber);
+    define_block_unpacked_inner_getter!(epoch, EpochNumberWithFraction);
 
     define_block_packed_inner_getter!(parent_hash, Byte32);
     define_block_packed_inner_getter!(transactions_root, Byte32);

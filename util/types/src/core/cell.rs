@@ -258,7 +258,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
                         out_point: out_point.clone(),
                         transaction_info: Some(TransactionInfo {
                             block_number: header.number(),
-                            block_epoch: header.epoch().number(),
+                            block_epoch: header.epoch(),
                             block_hash: self.block.hash(),
                             index: *i,
                         }),
@@ -485,7 +485,10 @@ impl ResolvedTransaction {
 mod tests {
     use super::*;
     use crate::{
-        core::{capacity_bytes, BlockBuilder, BlockView, Capacity, TransactionBuilder},
+        core::{
+            capacity_bytes, BlockBuilder, BlockView, Capacity, EpochNumberWithFraction,
+            TransactionBuilder,
+        },
         h256,
         packed::{Byte32, CellDep, CellInput},
         H256,
@@ -539,7 +542,7 @@ mod tests {
         CellMeta {
             transaction_info: Some(TransactionInfo {
                 block_number: 1,
-                block_epoch: 1,
+                block_epoch: EpochNumberWithFraction::new(1, 1, 10),
                 block_hash: Byte32::zero(),
                 index: 1,
             }),

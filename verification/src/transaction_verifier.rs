@@ -9,7 +9,7 @@ use ckb_types::{
     constants::TX_VERSION,
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        BlockNumber, Capacity, Cycle, DetailedEpochNumber, TransactionView,
+        BlockNumber, Capacity, Cycle, EpochNumberWithFraction, TransactionView,
     },
     packed::Byte32,
     prelude::*,
@@ -31,7 +31,7 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         block_number: BlockNumber,
-        detailed_epoch_number: DetailedEpochNumber,
+        epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
         consensus: &'a Consensus,
     ) -> Self {
@@ -41,7 +41,7 @@ where
                 rtx,
                 median_time_context,
                 block_number,
-                detailed_epoch_number,
+                epoch_number_with_fraction,
                 parent_hash,
             ),
         }
@@ -76,7 +76,7 @@ where
         rtx: &'a ResolvedTransaction,
         median_time_context: &'a M,
         block_number: BlockNumber,
-        detailed_epoch_number: DetailedEpochNumber,
+        epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
         consensus: &'a Consensus,
         chain_store: &'a CS,
@@ -94,7 +94,7 @@ where
                 rtx,
                 median_time_context,
                 block_number,
-                detailed_epoch_number,
+                epoch_number_with_fraction,
                 parent_hash,
             ),
         }
@@ -331,7 +331,7 @@ const REMAIN_FLAGS_BITS: u64 = 0x1f00_0000_0000_0000;
 
 enum SinceMetric {
     BlockNumber(u64),
-    DetailedEpochNumber(u64),
+    EpochNumberWithFraction(EpochNumberWithFraction),
     Timestamp(u64),
 }
 
@@ -360,8 +360,8 @@ impl Since {
             //0b0000_0000
             0x0000_0000_0000_0000 => Some(SinceMetric::BlockNumber(value)),
             //0b0010_0000
-            0x2000_0000_0000_0000 => Some(SinceMetric::DetailedEpochNumber(
-                value & DetailedEpochNumber::NUMBER_WITH_FRACTION_MASK,
+            0x2000_0000_0000_0000 => Some(SinceMetric::EpochNumberWithFraction(
+                EpochNumberWithFraction::from_full_value(value),
             )),
             //0b0100_0000
             0x4000_0000_0000_0000 => Some(SinceMetric::Timestamp(value * 1000)),
@@ -375,7 +375,7 @@ pub struct SinceVerifier<'a, M> {
     rtx: &'a ResolvedTransaction,
     block_median_time_context: &'a M,
     block_number: BlockNumber,
-    detailed_epoch_number: DetailedEpochNumber,
+    epoch_number_with_fraction: EpochNumberWithFraction,
     parent_hash: Byte32,
     median_timestamps_cache: RefCell<LruCache<Byte32, u64>>,
 }
@@ -388,7 +388,7 @@ where
         rtx: &'a ResolvedTransaction,
         block_median_time_context: &'a M,
         block_number: BlockNumber,
-        detailed_epoch_number: DetailedEpochNumber,
+        epoch_number_with_fraction: EpochNumberWithFraction,
         parent_hash: Byte32,
     ) -> Self {
         let median_timestamps_cache = RefCell::new(LruCache::new(rtx.resolved_inputs.len()));
@@ -396,7 +396,7 @@ where
             rtx,
             block_median_time_context,
             block_number,
-            detailed_epoch_number,
+            epoch_number_with_fraction,
             parent_hash,
             median_timestamps_cache,
         }
@@ -429,8 +429,8 @@ where
                         Err(TransactionError::Immature)?;
                     }
                 }
-                Some(SinceMetric::DetailedEpochNumber(detailed_epoch_number)) => {
-                    if self.detailed_epoch_number.number_with_fraction() < detailed_epoch_number {
+                Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
+                    if self.epoch_number_with_fraction < epoch_number_with_fraction {
                         Err(TransactionError::Immature)?;
                     }
                 }
@@ -460,10 +460,11 @@ where
                         Err(TransactionError::Immature)?;
                     }
                 }
-                Some(SinceMetric::DetailedEpochNumber(detailed_epoch_number)) => {
-                    if self.detailed_epoch_number.number_with_fraction()
-                        < info.block_epoch + detailed_epoch_number
-                    {
+                Some(SinceMetric::EpochNumberWithFraction(epoch_number_with_fraction)) => {
+                    let a = self.epoch_number_with_fraction.to_rational();
+                    let b =
+                        info.block_epoch.to_rational() + epoch_number_with_fraction.to_rational();
+                    if a < b {
                         Err(TransactionError::Immature)?;
                     }
                 }

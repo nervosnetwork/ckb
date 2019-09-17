@@ -25,8 +25,8 @@ impl From<core::Capacity> for Uint64 {
     }
 }
 
-impl From<core::DetailedEpochNumber> for Uint64 {
-    fn from(value: core::DetailedEpochNumber) -> Self {
+impl From<core::EpochNumberWithFraction> for Uint64 {
+    fn from(value: core::EpochNumberWithFraction) -> Self {
         Uint64(value.full_value())
     }
 }
