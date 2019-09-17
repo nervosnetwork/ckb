@@ -133,9 +133,9 @@ impl<'a> TransactionsProcess<'a> {
                                         || {
                                             capture_message(
                                                 &format!(
-                                                    "ban peer {} {:?}, reason: \
+                                                    "Ban peer {} for {} seconds, reason: \
                                                     relay invalid tx: {:?}, error: {:?}",
-                                                    peer_index, DEFAULT_BAN_TIME, tx, err
+                                                    peer_index, DEFAULT_BAN_TIME.as_secs(), tx, err
                                                 ),
                                                 Level::Info,
                                             )
