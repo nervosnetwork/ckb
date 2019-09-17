@@ -1,3 +1,4 @@
+use crate::cache::StoreCache;
 use crate::store::ChainStore;
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
@@ -16,13 +17,19 @@ use ckb_types::{
     packed::{self, HeaderDigest},
     prelude::*,
 };
+use std::sync::Arc;
 
 pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
+    pub(crate) cache: Arc<StoreCache>,
 }
 
 impl<'a> ChainStore<'a> for StoreTransaction {
     type Vector = DBVector;
+
+    fn cache(&'a self) -> Option<&'a StoreCache> {
+        Some(&self.cache)
+    }
 
     fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
         self.inner.get(col, key).expect("db operation should be ok")
@@ -40,11 +47,20 @@ impl<'a> ChainStore<'a> for StoreTransaction {
     }
 }
 
-impl<'a> ChainStore<'a> for RocksDBTransactionSnapshot<'a> {
+pub struct StoreTransactionSnapshot<'a> {
+    pub(crate) inner: RocksDBTransactionSnapshot<'a>,
+    pub(crate) cache: Arc<StoreCache>,
+}
+
+impl<'a> ChainStore<'a> for StoreTransactionSnapshot<'a> {
     type Vector = DBVector;
 
+    fn cache(&'a self) -> Option<&'a StoreCache> {
+        Some(&self.cache)
+    }
+
     fn get(&self, col: Col, key: &[u8]) -> Option<Self::Vector> {
-        self.get(col, key).expect("db operation should be ok")
+        self.inner.get(col, key).expect("db operation should be ok")
     }
 
     fn get_iter<'i>(
@@ -53,7 +69,8 @@ impl<'a> ChainStore<'a> for RocksDBTransactionSnapshot<'a> {
         from_key: &'i [u8],
         direction: Direction,
     ) -> Box<Iterator<Item = DBIteratorItem> + 'i> {
-        self.iter(col, from_key, direction)
+        self.inner
+            .iter(col, from_key, direction)
             .expect("db operation should be ok")
     }
 }
@@ -71,16 +88,19 @@ impl StoreTransaction {
         self.inner.commit()
     }
 
-    pub fn get_snapshot(&self) -> RocksDBTransactionSnapshot<'_> {
-        self.inner.get_snapshot()
+    pub fn get_snapshot(&self) -> StoreTransactionSnapshot<'_> {
+        StoreTransactionSnapshot {
+            inner: self.inner.get_snapshot(),
+            cache: Arc::clone(&self.cache),
+        }
     }
 
     pub fn get_update_for_tip_hash(
         &self,
-        snapshot: &RocksDBTransactionSnapshot<'_>,
+        snapshot: &StoreTransactionSnapshot<'_>,
     ) -> Option<packed::Byte32> {
         self.inner
-            .get_for_update(COLUMN_META, META_TIP_HEADER_KEY, snapshot)
+            .get_for_update(COLUMN_META, META_TIP_HEADER_KEY, &snapshot.inner)
             .expect("db operation should be ok")
             .map(|slice| {
                 packed::Byte32Reader::from_slice_should_be_ok(&slice.as_ref()[..]).to_entity()

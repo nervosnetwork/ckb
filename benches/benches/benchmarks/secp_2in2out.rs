@@ -11,7 +11,6 @@ const SIZES: &[usize] = &[100usize, 200, 500, 1000];
 const SIZES: &[usize] = &[2usize];
 
 fn bench(c: &mut Criterion) {
-    ckb_store::set_cache_enable(false);
     // benchmark processing 20 blocks on main branch
     c.bench_function_over_inputs(
         "secp main_branch",

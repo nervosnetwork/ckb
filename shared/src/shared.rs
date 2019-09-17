@@ -289,12 +289,10 @@ impl SharedBuilder {
     }
 
     pub fn build(self) -> Result<(Shared, ProposalTable), Error> {
-        if let Some(config) = self.store_config {
-            config.apply()
-        }
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
-        let store = ChainDB::new(self.db);
+        let store_config = self.store_config.unwrap_or_else(Default::default);
+        let store = ChainDB::new(self.db, store_config);
         Shared::init(store, consensus, tx_pool_config)
     }
 }

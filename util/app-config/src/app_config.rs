@@ -49,6 +49,7 @@ pub struct CKBAppConfig {
     pub network: NetworkConfig,
     pub rpc: RpcConfig,
     pub tx_pool: TxPoolConfig,
+    #[serde(default)]
     pub store: StoreConfig,
     pub alert_signature: Option<AlertSignatureConfig>,
     pub alert_notifier: Option<AlertNotifierConfig>,

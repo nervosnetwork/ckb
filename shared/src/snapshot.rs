@@ -7,7 +7,7 @@ use ckb_db::{
 use ckb_error::Error;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_proposal_table::ProposalView;
-use ckb_store::{ChainStore, StoreSnapshot};
+use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::core::error::OutPointError;
 use ckb_types::{
@@ -108,6 +108,10 @@ impl Snapshot {
 
 impl<'a> ChainStore<'a> for Snapshot {
     type Vector = DBPinnableSlice<'a>;
+
+    fn cache(&'a self) -> Option<&'a StoreCache> {
+        self.store.cache()
+    }
 
     fn get(&'a self, col: Col, key: &[u8]) -> Option<Self::Vector> {
         self.store.get(col, key)
