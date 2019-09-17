@@ -196,7 +196,12 @@ impl NetworkState {
         duration: Duration,
         reason: String,
     ) {
-        info!("ban peer {:?} with {:?}", peer_id, duration);
+        info!(
+            "Ban peer {:?} for {} seconds, reason: {}",
+            peer_id,
+            duration.as_secs(),
+            reason
+        );
         let peer_opt = self.with_peer_registry_mut(|reg| reg.remove_peer_by_peer_id(peer_id));
         if let Some(peer) = peer_opt {
             if let Err(err) = self.peer_store.lock().ban_addr(
