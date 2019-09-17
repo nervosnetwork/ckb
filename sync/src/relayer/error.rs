@@ -1,4 +1,4 @@
-use ckb_types::packed::ProposalShortId;
+use ckb_types::packed::{Byte32, ProposalShortId};
 use failure::Fail;
 
 #[derive(Debug, Fail, Eq, PartialEq)]
@@ -44,10 +44,22 @@ pub enum Misbehavior {
         expected: ProposalShortId,
         actual: ProposalShortId,
     },
+    #[fail(
+        display = "block uncles' length is invalid, expect {}, but got {}",
+        expect, got
+    )]
+    InvalidBlockUnclesLength { expect: usize, got: usize },
+    #[fail(
+        display = "block unlces' hash is invalid, expect {:#?}, but got {:#?}",
+        expect, got
+    )]
+    InvalidBlockUncles { expect: Byte32, got: Byte32 },
     #[fail(display = "BlockInvalid")]
     BlockInvalid,
     #[fail(display = "HeaderInvalid")]
     HeaderInvalid,
+    #[fail(display = "UncleInvalid")]
+    InvalidUncle,
 }
 
 #[derive(Debug, Fail, Eq, PartialEq)]

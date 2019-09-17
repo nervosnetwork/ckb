@@ -204,7 +204,7 @@ impl packed::CompactBlock {
             .header(block.data().header())
             .short_ids(short_ids.pack())
             .prefilled_transactions(prefilled_transactions.pack())
-            .uncles(block.data().uncles())
+            .uncles(block.uncle_hashes.clone())
             .proposals(block.data().proposals())
             .build()
     }

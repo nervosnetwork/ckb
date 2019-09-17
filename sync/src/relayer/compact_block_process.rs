@@ -124,7 +124,8 @@ impl<'a> CompactBlockProcess<'a> {
         }
 
         // The new arrived has greater difficulty than local best known chain
-        let missing_indexes: Vec<u32>;
+        let missing_transactions: Vec<u32>;
+        let missing_uncles: Vec<u32>;
         let mut collision = false;
         {
             // Verify compact block
@@ -182,12 +183,19 @@ impl<'a> CompactBlockProcess<'a> {
                     .insert_valid_header(self.peer, &header, epoch);
             }
 
+            // Request proposal
+            let proposals: Vec<_> = compact_block.proposals().into_iter().collect();
+            self.relayer.request_proposal_txs(
+                self.nc.as_ref(),
+                self.peer,
+                block_hash.clone(),
+                proposals,
+            );
+
             // Reconstruct block
-            let ret = {
-                self.relayer
-                    .request_proposal_txs(self.nc.as_ref(), self.peer, &compact_block);
-                self.relayer.reconstruct_block(&compact_block, Vec::new())
-            };
+            let ret = self
+                .relayer
+                .reconstruct_block(&compact_block, vec![], &[], &[]);
 
             // Accept block
             // `relayer.accept_block` will make sure the validity of block before persisting
@@ -202,26 +210,34 @@ impl<'a> CompactBlockProcess<'a> {
                 Err(ReconstructionError::InvalidTransactionRoot) => {
                     return Err(Error::Misbehavior(Misbehavior::InvalidTransactionRoot).into());
                 }
-                Err(ReconstructionError::MissingIndexes(missing)) => {
-                    missing_indexes = missing.into_iter().map(|i| i as u32).collect();
+                Err(ReconstructionError::InvalidUncle) => {
+                    return Err(Error::Misbehavior(Misbehavior::InvalidUncle).into());
+                }
+                Err(ReconstructionError::MissingIndexes(transactions, uncles)) => {
+                    missing_transactions = transactions.into_iter().map(|i| i as u32).collect();
+                    missing_uncles = uncles.into_iter().map(|i| i as u32).collect();
                 }
                 Err(ReconstructionError::Collision) => {
-                    missing_indexes = compact_block
+                    missing_transactions = compact_block
                         .short_id_indexes()
                         .into_iter()
                         .map(|i| i as u32)
                         .collect();
                     collision = true;
+                    missing_uncles = vec![];
                 }
             }
 
-            assert!(!missing_indexes.is_empty());
+            assert!(!missing_transactions.is_empty() || !missing_uncles.is_empty());
 
             pending_compact_blocks
                 .entry(block_hash.clone())
                 .or_insert_with(|| (compact_block, HashMap::default()))
                 .1
-                .insert(self.peer, missing_indexes.clone());
+                .insert(
+                    self.peer,
+                    (missing_transactions.clone(), missing_uncles.clone()),
+                );
         }
 
         if !self
@@ -241,7 +257,8 @@ impl<'a> CompactBlockProcess<'a> {
 
         let content = packed::GetBlockTransactions::new_builder()
             .block_hash(block_hash)
-            .indexes(missing_indexes.pack())
+            .indexes(missing_transactions.pack())
+            .uncle_indexes(missing_uncles.pack())
             .build();
         let message = packed::RelayMessage::new_builder().set(content).build();
         let data = message.as_slice().into();

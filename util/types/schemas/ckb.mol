@@ -222,7 +222,7 @@ table CompactBlock {
     header:                     Header,
     short_ids:                  ProposalShortIdVec,
     prefilled_transactions:     IndexTransactionVec,
-    uncles:                     UncleBlockVec,
+    uncles:                     Byte32Vec,
     proposals:                  ProposalShortIdVec,
 }
 
@@ -247,11 +247,13 @@ table GetRelayTransactions {
 table GetBlockTransactions {
     block_hash:                 Byte32,
     indexes:                    Uint32Vec,
+    uncle_indexes:              Uint32Vec,
 }
 
 table BlockTransactions {
     block_hash:                 Byte32,
     transactions:               TransactionVec,
+    uncles:                     UncleBlockVec,
 }
 
 table GetBlockProposal {
