@@ -27,7 +27,7 @@ pub struct HeaderBuilder {
     pub(crate) transactions_root: packed::Byte32,
     pub(crate) witnesses_root: packed::Byte32,
     pub(crate) proposals_hash: packed::Byte32,
-    pub(crate) difficulty: packed::Byte32,
+    pub(crate) difficulty: packed::Uint256,
     pub(crate) uncles_hash: packed::Byte32,
     pub(crate) uncles_count: packed::Uint32,
     pub(crate) epoch: packed::Uint64,
@@ -205,7 +205,7 @@ impl HeaderBuilder {
     def_setter_simple!(transactions_root, Byte32);
     def_setter_simple!(witnesses_root, Byte32);
     def_setter_simple!(proposals_hash, Byte32);
-    def_setter_simple!(difficulty, Byte32);
+    def_setter_simple!(difficulty, Uint256);
     def_setter_simple!(uncles_hash, Byte32);
     def_setter_simple!(uncles_count, Uint32);
     def_setter_simple!(epoch, Uint64);
@@ -263,7 +263,7 @@ impl BlockBuilder {
     def_setter_simple!(header, transactions_root, Byte32);
     def_setter_simple!(header, witnesses_root, Byte32);
     def_setter_simple!(header, proposals_hash, Byte32);
-    def_setter_simple!(header, difficulty, Byte32);
+    def_setter_simple!(header, difficulty, Uint256);
     def_setter_simple!(header, uncles_hash, Byte32);
     def_setter_simple!(header, uncles_count, Uint32);
     def_setter_simple!(header, epoch, Uint64);

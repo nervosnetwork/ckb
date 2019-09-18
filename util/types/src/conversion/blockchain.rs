@@ -19,18 +19,18 @@ impl<'r> Unpack<core::Capacity> for packed::Uint64Reader<'r> {
 }
 impl_conversion_for_entity_unpack!(Capacity, Uint64);
 
-impl Pack<packed::Byte32> for U256 {
-    fn pack(&self) -> packed::Byte32 {
-        packed::Byte32::from_slice(&self.to_le_bytes()[..]).expect("impossible: fail to pack U256")
+impl Pack<packed::Uint256> for U256 {
+    fn pack(&self) -> packed::Uint256 {
+        packed::Uint256::from_slice(&self.to_le_bytes()[..]).expect("impossible: fail to pack U256")
     }
 }
 
-impl<'r> Unpack<U256> for packed::Byte32Reader<'r> {
+impl<'r> Unpack<U256> for packed::Uint256Reader<'r> {
     fn unpack(&self) -> U256 {
         U256::from_little_endian(self.as_slice()).expect("internal error: fail to unpack U256")
     }
 }
-impl_conversion_for_entity_unpack!(U256, Byte32);
+impl_conversion_for_entity_unpack!(U256, Uint256);
 
 impl Pack<packed::Byte32> for H256 {
     fn pack(&self) -> packed::Byte32 {
