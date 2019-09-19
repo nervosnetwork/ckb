@@ -12,9 +12,8 @@ use ckb_types::{
         BlockBuilder, HeaderBuilder, HeaderView, TransactionBuilder,
     },
     h256,
-    packed::{self, CellInput, GetHeaders, HeaderDigest, RelayMessage, SyncMessage},
+    packed::{self, CellInput, GetHeaders, RelayMessage, SyncMessage},
     prelude::*,
-    utilities::MergeHeaderDigest,
     H256,
 };
 use std::collections::HashSet;
@@ -318,7 +317,6 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
     // 2. Relay A to node0. Node0 will handle A, and by the way process B, which is in
     // orphan_block_pool now
     fn run(&self, net: Net) {
-        use ckb_merkle_mountain_range::util::MemMMR;
         let node = &net.nodes[0];
         net.exit_ibd_mode();
         net.connect(node);
@@ -337,11 +335,9 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
 
         let consensus = node.consensus();
         let mock_store = MockStore::default();
-        let mut mmr = MemMMR::<HeaderDigest, MergeHeaderDigest>::default();
         for i in 0..=node.get_tip_block_number() {
             let block = node.get_block_by_number(i);
             mock_store.insert_block(&block, consensus.genesis_epoch_ext());
-            mmr.push(block.header().into()).expect("push block to mmr");
         }
 
         let parent = node
@@ -366,7 +362,6 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
             .build();
         let parent = parent.as_advanced_builder().header(header).build();
         mock_store.insert_block(&parent, consensus.genesis_epoch_ext());
-        mmr.push(parent.header().into()).expect("push block to mmr");
 
         let fakebase = node.new_block(None, None, None).transactions()[0].clone();
         let output = fakebase
@@ -406,7 +401,6 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
         let dao = DaoCalculator::new(&consensus, mock_store.store())
             .dao_field(&rtxs, &parent.header())
             .unwrap();
-        let chain_root = mmr.get_root().expect("get root").hash();
         let block = BlockBuilder::default()
             .transaction(cellbase)
             .header(
@@ -418,7 +412,6 @@ impl Spec for CompactBlockRelayParentOfOrphanBlock {
                     .timestamp((parent.header().timestamp() + 1).pack())
                     .parent_hash(parent.hash())
                     .dao(dao)
-                    .chain_root(chain_root)
                     .epoch(
                         consensus
                             .genesis_epoch_ext()

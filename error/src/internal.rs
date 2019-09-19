@@ -31,9 +31,6 @@ pub enum InternalErrorKind {
 
     /// Unknown system error
     System,
-
-    /// Merkle mountain range internal error
-    MMR,
 }
 
 impl fmt::Display for InternalError {

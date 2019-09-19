@@ -2,19 +2,18 @@ use crate::cache::StoreCache;
 use crate::store::ChainStore;
 use crate::{
     COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
-    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_CHAIN_ROOT_MMR,
-    COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES,
-    META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL_SET, COLUMN_EPOCH, COLUMN_INDEX,
+    COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, META_CURRENT_EPOCH_KEY,
+    META_TIP_HEADER_KEY,
 };
 use ckb_db::{
     iter::{DBIterator, DBIteratorItem},
     Col, DBVector, Direction, RocksDBTransaction, RocksDBTransactionSnapshot,
 };
 use ckb_error::Error;
-use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
     core::{BlockExt, BlockView, EpochExt, HeaderView},
-    packed::{self, HeaderDigest},
+    packed,
     prelude::*,
 };
 use std::sync::Arc;
@@ -217,31 +216,5 @@ impl StoreTransaction {
 
     pub fn delete_cell_set(&self, tx_hash: &packed::Byte32) -> Result<(), Error> {
         self.delete(COLUMN_CELL_SET, tx_hash.as_slice())
-    }
-}
-
-impl MMRStore<HeaderDigest> for &StoreTransaction {
-    fn get_elem(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
-        Ok(self
-            .get(COLUMN_CHAIN_ROOT_MMR, &pos.to_le_bytes()[..])
-            .map(|slice| {
-                let reader = packed::HeaderDigestReader::from_slice(&slice.as_ref()).should_be_ok();
-                reader.to_entity()
-            }))
-    }
-
-    fn append(&mut self, pos: u64, elems: Vec<HeaderDigest>) -> MMRResult<()> {
-        for (offset, elem) in elems.iter().enumerate() {
-            let pos: u64 = pos + (offset as u64);
-            self.insert_raw(
-                COLUMN_CHAIN_ROOT_MMR,
-                &pos.to_le_bytes()[..],
-                &elem.as_slice(),
-            )
-            .map_err(|err| {
-                MMRError::StoreError(format!("Failed to append to MMR, DB error {}", err))
-            })?;
-        }
-        Ok(())
     }
 }
