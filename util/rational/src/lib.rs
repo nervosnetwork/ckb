@@ -2,10 +2,11 @@
 mod tests;
 
 use numext_fixed_uint::U256;
+use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RationalU256 {
     /// Numerator.
     numer: U256,
@@ -397,5 +398,20 @@ impl Sub<U256> for &RationalU256 {
     #[inline]
     fn sub(self, rhs: U256) -> RationalU256 {
         self.sub(&rhs)
+    }
+}
+
+impl PartialOrd for RationalU256 {
+    fn partial_cmp(&self, other: &RationalU256) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RationalU256 {
+    fn cmp(&self, other: &RationalU256) -> Ordering {
+        let gcd = self.denom.gcd(&other.denom);
+        let lhs = &self.numer * (&other.denom / &gcd);
+        let rhs = &other.numer * (&self.denom / &gcd);
+        lhs.cmp(&rhs)
     }
 }

@@ -52,7 +52,7 @@ pub(crate) fn new_header_builder(shared: &Shared, parent: &HeaderView) -> Header
         .parent_hash(parent_hash.to_owned())
         .number((parent.number() + 1).pack())
         .timestamp((parent.timestamp() + 1).pack())
-        .epoch(epoch.number().pack())
+        .epoch(epoch.number_with_fraction(parent.number() + 1).pack())
         .difficulty(epoch.difficulty().pack())
 }
 

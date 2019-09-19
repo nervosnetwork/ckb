@@ -292,7 +292,10 @@ impl Future for BlockTemplateBuilder {
                 difficulty: self.current_epoch.difficulty().clone(),
                 current_time: current_time.into(),
                 number: candidate_number.into(),
-                epoch: self.current_epoch.number().into(),
+                epoch: self
+                    .current_epoch
+                    .number_with_fraction(candidate_number)
+                    .into(),
                 parent_hash: tip_hash.unpack(),
                 cycles_limit: cycles_limit.into(),
                 bytes_limit: bytes_limit.into(),

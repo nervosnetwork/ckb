@@ -208,7 +208,7 @@ impl BlockAssembler {
             }
             let parent_hash = uncle.header().parent_hash();
             if &uncle.difficulty() != current_epoch_ext.difficulty()
-                || uncle.epoch() != epoch_number
+                || uncle.epoch().number() != epoch_number
                 || snapshot.get_block_number(&uncle.hash()).is_some()
                 || snapshot.is_uncle(&uncle.hash())
                 || !(uncles.iter().any(|u| u.hash() == parent_hash)

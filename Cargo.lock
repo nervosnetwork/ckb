@@ -1076,6 +1076,7 @@ dependencies = [
  "ckb-hash 0.21.0-pre",
  "ckb-merkle-mountain-range 0.21.0-pre",
  "ckb-occupied-capacity 0.21.0-pre",
+ "ckb-rational 0.21.0-pre",
  "crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "merkle-cbt 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",

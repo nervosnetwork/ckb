@@ -16,8 +16,8 @@ use ckb_types::{
     core::{
         capacity_bytes,
         cell::{CellMeta, CellProvider, CellStatus},
-        BlockBuilder, BlockView, Capacity, EpochExt, HeaderView, TransactionBuilder,
-        TransactionInfo,
+        BlockBuilder, BlockView, Capacity, EpochExt, EpochNumberWithFraction, HeaderView,
+        TransactionBuilder, TransactionInfo,
     },
     packed::{CellInput, CellOutputBuilder, OutPoint, Script},
     U256,
@@ -191,7 +191,12 @@ fn test_transaction_spend_in_same_block() {
             cell_output: tx2_output,
             data_bytes: tx2_output_data.len() as u64,
             out_point: OutPoint::new(tx2_hash.clone(), 0),
-            transaction_info: Some(TransactionInfo::new(parent_number4, 0, parent_hash4, 2)),
+            transaction_info: Some(TransactionInfo::new(
+                parent_number4,
+                EpochNumberWithFraction::from_full_value(0),
+                parent_hash4,
+                2
+            )),
             mem_cell_data: None,
         })
     );

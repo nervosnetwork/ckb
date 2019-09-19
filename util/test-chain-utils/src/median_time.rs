@@ -1,6 +1,6 @@
 use ckb_traits::BlockMedianTimeContext;
 use ckb_types::{
-    core::{BlockNumber, EpochNumber, TransactionInfo},
+    core::{BlockNumber, EpochNumberWithFraction, TransactionInfo},
     packed::Byte32,
     prelude::*,
 };
@@ -44,13 +44,13 @@ impl MockMedianTime {
 
     pub fn get_transaction_info(
         block_number: BlockNumber,
-        epoch_number: EpochNumber,
+        block_epoch: EpochNumberWithFraction,
         index: usize,
     ) -> TransactionInfo {
         let block_hash = Self::get_block_hash(block_number);
         TransactionInfo {
             block_number,
-            block_epoch: epoch_number,
+            block_epoch,
             block_hash,
             index,
         }

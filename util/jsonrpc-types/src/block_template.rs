@@ -1,6 +1,6 @@
 use crate::{
-    BlockNumber, Byte32, Cycle, EpochNumber, Header, ProposalShortId, Timestamp, Transaction,
-    Uint64, Version,
+    BlockNumber, Byte32, Cycle, EpochNumberWithFraction, Header, ProposalShortId, Timestamp,
+    Transaction, Uint64, Version,
 };
 use ckb_types::{packed, prelude::*, H256, U256};
 use serde_derive::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ pub struct BlockTemplate {
     pub difficulty: U256,
     pub current_time: Timestamp,
     pub number: BlockNumber,
-    pub epoch: EpochNumber,
+    pub epoch: EpochNumberWithFraction,
     pub parent_hash: H256,
     pub cycles_limit: Cycle,
     pub bytes_limit: Uint64,

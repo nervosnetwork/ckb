@@ -28,7 +28,7 @@ fn gen_block(parent_header: &HeaderView, nonce: u64, epoch: &EpochExt) -> BlockV
         .proposal(ProposalShortId::from_slice(&[1; 10]).unwrap())
         .parent_hash(parent_header.hash())
         .timestamp(now.pack())
-        .epoch(epoch.number().pack())
+        .epoch(epoch.number_with_fraction(number).pack())
         .number(number.pack())
         .difficulty(epoch.difficulty().pack())
         .nonce(nonce.pack())

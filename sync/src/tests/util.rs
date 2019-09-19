@@ -82,7 +82,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .parent_hash(parent_hash.to_owned())
         .number((parent.header().number() + 1).pack())
         .timestamp((parent.header().timestamp() + 1).pack())
-        .epoch(epoch.number().pack())
+        .epoch(epoch.number_with_fraction(parent_number + 1).pack())
         .difficulty(epoch.difficulty().pack())
         .dao(dao)
         .chain_root(chain_root)

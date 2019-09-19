@@ -140,24 +140,30 @@ impl HeaderResolver for FakeHeaderResolver {
 #[test]
 fn test_epoch_number() {
     let header = HeaderBuilder::default().epoch(2u64.pack()).build();
-    let fake_header_resolver = FakeHeaderResolver::new(header, EpochExt::default());
+    let mut epoch = EpochExt::default();
+    epoch.set_length(1);
+    let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
     assert_error_eq(
         EpochVerifier::verify(&fake_header_resolver).unwrap_err(),
         EpochError::NumberMismatch {
-            expected: 0,
-            actual: 2,
+            expected: 1_099_511_627_776,
+            actual: 1_099_511_627_778,
         },
     )
 }
 
 #[test]
 fn test_epoch_difficulty() {
-    let header = HeaderBuilder::default()
-        .difficulty(U256::from(2u64).pack())
-        .build();
     let mut epoch = EpochExt::default();
     epoch.set_difficulty(U256::from(1u64));
+    epoch.set_length(1);
+
+    let header = HeaderBuilder::default()
+        .epoch(epoch.number_with_fraction(0).pack())
+        .difficulty(U256::from(2u64).pack())
+        .build();
+
     let fake_header_resolver = FakeHeaderResolver::new(header, epoch);
 
     assert_error_eq(

@@ -18,3 +18,4 @@ crossbeam-channel = "0.3"
 bit-vec = "0.5.1"
 failure = "0.1.5"
 ckb-error = { path = "../../error" }
+ckb-rational = { path = "../rational" }

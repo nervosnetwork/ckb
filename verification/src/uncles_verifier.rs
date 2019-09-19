@@ -88,7 +88,7 @@ where
                 Err(UnclesError::UnmatchedDifficulty)?;
             }
 
-            if self.provider.epoch().number() != uncle.epoch() {
+            if self.provider.epoch().number() != uncle.epoch().number() {
                 Err(UnclesError::InvalidDifficultyEpoch)?;
             }
 
