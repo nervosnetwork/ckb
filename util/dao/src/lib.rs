@@ -2,15 +2,14 @@ use byteorder::{ByteOrder, LittleEndian};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::{extract_dao_data, pack_dao_data, DaoError};
 use ckb_error::Error;
-use ckb_resource::CODE_HASH_DAO;
 use ckb_store::{data_loader_wrapper::DataLoaderWrapper, ChainStore};
 use ckb_types::{
     bytes::Bytes,
     core::{
         cell::{CellMeta, ResolvedTransaction},
-        BlockNumber, Capacity, CapacityResult, EpochExt, HeaderView,
+        BlockNumber, Capacity, CapacityResult, EpochExt, HeaderView, ScriptHashType,
     },
-    packed::{Byte32, CellOutput, OutPoint},
+    packed::{Byte32, CellOutput, OutPoint, Script},
     prelude::*,
 };
 use std::cmp::max;
@@ -189,10 +188,14 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .try_fold(Capacity::zero(), |capacities, (i, cell_meta)| {
                 let capacity: Result<Capacity, Error> = {
                     let output = &cell_meta.cell_output;
+                    let is_dao_type_script = |type_script: Script| {
+                        type_script.hash_type().unpack() == ScriptHashType::Type
+                            && type_script.code_hash() == self.consensus.dao_type_hash()
+                    };
                     if output
                         .type_()
                         .to_opt()
-                        .map(|t| t.code_hash() == CODE_HASH_DAO.pack())
+                        .map(is_dao_type_script)
                         .unwrap_or(false)
                     {
                         let deposit_header_hash = cell_meta

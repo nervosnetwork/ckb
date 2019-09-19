@@ -1,14 +1,14 @@
 use crate::utils::is_committed;
 use crate::{Net, Spec};
 use ckb_app_config::CKBAppConfig;
+use ckb_chain_spec::{build_genesis_type_id_script, OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL};
 use ckb_crypto::secp::{Generator, Privkey};
-use ckb_hash::{blake2b_256, new_blake2b};
+use ckb_hash::blake2b_256;
 use ckb_jsonrpc_types::JsonBytes;
 use ckb_resource::CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL;
 use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
-    constants::TYPE_ID_CODE_HASH,
     core::{capacity_bytes, Capacity, Cycle, DepType, ScriptHashType, TransactionBuilder},
     packed::{CellDep, CellInput, CellOutput, OutPoint, Script, Witness},
     prelude::*,
@@ -235,20 +235,7 @@ impl Spec for CheckTypical2In2OutTx {
 }
 
 fn type_lock_script_code_hash() -> H256 {
-    let input = CellInput::new_cellbase_input(0);
-    // 0 => genesis cell, which contains a message and can never be spent.
-    let output_index: u64 = 1;
-    let mut blake2b = new_blake2b();
-    blake2b.update(input.as_slice());
-    blake2b.update(&output_index.to_le_bytes());
-    let mut ret = [0; 32];
-    blake2b.finalize(&mut ret);
-    let script_arg = Bytes::from(&ret[..]).pack();
-    Script::new_builder()
-        .code_hash(TYPE_ID_CODE_HASH.pack())
-        .hash_type(ScriptHashType::Type.pack())
-        .args(vec![script_arg].pack())
-        .build()
+    build_genesis_type_id_script(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL)
         .calc_script_hash()
         .unpack()
 }

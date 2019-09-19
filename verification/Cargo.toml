@@ -17,7 +17,6 @@ ckb-traits = { path = "../traits" }
 ckb-chain-spec = { path = "../spec" }
 ckb-dao = { path = "../util/dao" }
 ckb-logger = {path = "../util/logger"}
-ckb-resource = { path = "../resource" }
 ckb-reward-calculator= { path = "../util/reward-calculator" }
 failure = "0.1.5"
 ckb-error = { path = "../error" }

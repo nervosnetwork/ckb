@@ -10,7 +10,6 @@ pub use satoshi_dao_occupied::{DAOWithSatoshiCellOccupied, SpendSatoshiCell};
 
 use crate::utils::is_committed;
 use crate::Node;
-use ckb_resource::CODE_HASH_DAO;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
@@ -89,21 +88,21 @@ fn withdraw_dao_deps(node: &Node, withdraw_header_hash: Byte32) -> (Vec<CellDep>
     (cell_deps, header_deps)
 }
 
-fn deposit_dao_script() -> Script {
+fn deposit_dao_script(dao_type_hash: Byte32) -> Script {
     Script::new_builder()
-        .code_hash(CODE_HASH_DAO.pack())
-        .hash_type(ScriptHashType::Data.pack())
+        .code_hash(dao_type_hash)
+        .hash_type(ScriptHashType::Type.pack())
         .build()
 }
 
 // Deposit `capacity` into DAO. The target output's type script == dao-script
-fn deposit_dao_output(capacity: Capacity) -> (CellOutput, Bytes) {
+fn deposit_dao_output(capacity: Capacity, dao_type_hash: Byte32) -> (CellOutput, Bytes) {
     let always_success_script = always_success_cell().2.clone();
     let data = Bytes::from(vec![1; 10]);
     let cell_output = CellOutput::new_builder()
         .capacity(capacity.pack())
         .lock(always_success_script)
-        .type_(Some(deposit_dao_script()).pack())
+        .type_(Some(deposit_dao_script(dao_type_hash)).pack())
         .build();
     (cell_output, data)
 }
@@ -126,8 +125,9 @@ fn absolute_minimal_since(node: &Node) -> BlockNumber {
 // Construct a deposit dao transaction, which consumes the tip-cellbase as the input,
 // generates the output with always-success-script as lock script, dao-script as type script
 fn deposit_dao_transaction(node: &Node) -> TransactionView {
+    let dao_type_hash = node.consensus().dao_type_hash();
     let (input, block_hash, input_capacity) = tip_cellbase_input(node);
-    let (output, output_data) = deposit_dao_output(input_capacity);
+    let (output, output_data) = deposit_dao_output(input_capacity, dao_type_hash);
     let (cell_deps, mut header_deps) = deposit_dao_deps(node);
     header_deps.push(block_hash);
     TransactionBuilder::default()
