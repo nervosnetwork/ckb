@@ -23,7 +23,6 @@ pub struct BlockTemplate {
     pub cellbase: CellbaseTemplate,
     pub work_id: Uint64,
     pub dao: Byte32,
-    pub chain_root: Byte32,
 }
 
 impl From<BlockTemplate> for packed::Block {
@@ -40,7 +39,6 @@ impl From<BlockTemplate> for packed::Block {
             proposals,
             cellbase,
             dao,
-            chain_root,
             ..
         } = block_template;
         let raw = packed::RawHeader::new_builder()
@@ -51,7 +49,6 @@ impl From<BlockTemplate> for packed::Block {
             .number(number.pack())
             .epoch(epoch.pack())
             .dao(dao.into())
-            .chain_root(chain_root.into())
             .build();
         let header = packed::Header::new_builder().raw(raw).build();
         let txs = packed::TransactionVec::new_builder()
