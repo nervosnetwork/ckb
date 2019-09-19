@@ -293,7 +293,7 @@ fn verify_rtxs(
                     &tx,
                     snapshot,
                     tip_number + 1,
-                    epoch_number,
+                    epoch_number.clone(),
                     tip_header.hash(),
                     consensus,
                 )
@@ -304,7 +304,7 @@ fn verify_rtxs(
                     &tx,
                     snapshot,
                     tip_number + 1,
-                    epoch_number,
+                    epoch_number.clone(),
                     tip_header.hash(),
                     consensus,
                     snapshot,
