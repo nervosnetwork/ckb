@@ -46,7 +46,6 @@ pub enum HeaderErrorKind {
     Timestamp,
     Number,
     Epoch,
-    ChainRoot,
 }
 
 #[derive(Debug)]
@@ -222,16 +221,6 @@ pub enum EpochError {
 
     #[fail(display = "AncestorNotFound")]
     AncestorNotFound,
-}
-
-#[derive(Fail, Debug, PartialEq, Eq, Clone)]
-#[fail(
-    display = "InvalidChainRootError(expected: {}, actual: {})",
-    expected, actual
-)]
-pub struct InvalidChainRootError {
-    pub expected: Byte32,
-    pub actual: Byte32,
 }
 
 impl TransactionError {

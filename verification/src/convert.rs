@@ -1,7 +1,7 @@
 use crate::error::{
     BlockError, BlockErrorKind, BlockTransactionsError, CellbaseError, CommitError, EpochError,
-    HeaderError, HeaderErrorKind, InvalidChainRootError, InvalidParentError, NumberError, PowError,
-    TimestampError, TransactionError, UnclesError, UnknownParentError,
+    HeaderError, HeaderErrorKind, InvalidParentError, NumberError, PowError, TimestampError,
+    TransactionError, UnclesError, UnknownParentError,
 };
 use ckb_error::{
     impl_error_conversion_with_adaptor, impl_error_conversion_with_kind, Error, ErrorKind,
@@ -27,11 +27,6 @@ impl_error_conversion_with_kind!(PowError, HeaderErrorKind::Pow, HeaderError);
 impl_error_conversion_with_kind!(TimestampError, HeaderErrorKind::Timestamp, HeaderError);
 impl_error_conversion_with_kind!(NumberError, HeaderErrorKind::Number, HeaderError);
 impl_error_conversion_with_kind!(EpochError, HeaderErrorKind::Epoch, HeaderError);
-impl_error_conversion_with_kind!(
-    InvalidChainRootError,
-    HeaderErrorKind::ChainRoot,
-    HeaderError
-);
 
 impl_error_conversion_with_kind!(
     BlockTransactionsError,
@@ -52,7 +47,6 @@ impl_error_conversion_with_adaptor!(PowError, HeaderError, Error);
 impl_error_conversion_with_adaptor!(TimestampError, HeaderError, Error);
 impl_error_conversion_with_adaptor!(NumberError, HeaderError, Error);
 impl_error_conversion_with_adaptor!(EpochError, HeaderError, Error);
-impl_error_conversion_with_adaptor!(InvalidChainRootError, HeaderError, Error);
 
 impl_error_conversion_with_adaptor!(BlockErrorKind, BlockError, Error);
 impl_error_conversion_with_adaptor!(BlockTransactionsError, BlockError, Error);

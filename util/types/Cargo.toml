@@ -12,7 +12,6 @@ numext-fixed-uint = { version = "0.1", features = ["support_rand", "support_heap
 bytes = { version="0.4.12", features = ["serde"] }
 merkle-cbt = "0.2"
 ckb-occupied-capacity = { path = "../occupied-capacity" }
-ckb-merkle-mountain-range = { path = "../merkle-mountain-range" }
 ckb-hash = { path = "../hash" }
 crossbeam-channel = "0.3"
 bit-vec = "0.5.1"

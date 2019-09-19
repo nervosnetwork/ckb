@@ -4,7 +4,6 @@ use crate::tests::util::{
 };
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
-use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_shared::shared::Shared;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::prelude::*;
@@ -18,7 +17,6 @@ use ckb_types::{
         self, CellDep, CellInput, CellOutputBuilder, OutPoint, ProposalShortId, Script,
         ScriptBuilder,
     },
-    utilities::ChainRootMMR,
     U256,
 };
 use std::sync::Arc;
@@ -74,13 +72,6 @@ pub(crate) fn gen_block(
     txs.extend_from_slice(&transactions);
 
     let dao = dao_data(consensus, parent_header, &txs, store, false);
-    let chain_root = ChainRootMMR::new(
-        leaf_index_to_mmr_size(parent_header.number()),
-        shared.snapshot().as_ref(),
-    )
-    .get_root()
-    .unwrap()
-    .hash();
 
     let block = BlockBuilder::default()
         .parent_hash(parent_header.hash().to_owned())
@@ -88,7 +79,6 @@ pub(crate) fn gen_block(
         .number(number.pack())
         .difficulty(parent_header.difficulty().pack())
         .dao(dao)
-        .chain_root(chain_root)
         .transactions(txs)
         .uncles(uncles)
         .proposals(proposals)

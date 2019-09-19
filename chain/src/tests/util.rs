@@ -2,7 +2,6 @@ use crate::chain::{ChainController, ChainService};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_merkle_mountain_range::{leaf_index_to_mmr_size, util::MemStore};
 use ckb_shared::shared::Shared;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -16,8 +15,7 @@ use ckb_types::{
         cell::{resolve_transaction, OverlayCellProvider, TransactionsProvider},
         BlockBuilder, BlockView, Capacity, HeaderView, TransactionBuilder, TransactionView,
     },
-    packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, HeaderDigest, OutPoint},
-    utilities::ChainRootMMR,
+    packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
     U256,
 };
 use std::collections::HashSet;
@@ -200,49 +198,20 @@ pub struct MockChain<'a> {
     blocks: Vec<BlockView>,
     parent: HeaderView,
     consensus: &'a Consensus,
-    mmr_store: MemStore<HeaderDigest>,
 }
 
 impl<'a> MockChain<'a> {
-    pub fn new(
-        parent: HeaderView,
-        consensus: &'a Consensus,
-        mmr_store: MemStore<HeaderDigest>,
-    ) -> Self {
-        if parent.number() == 0 {
-            let mut mmr = ChainRootMMR::new(0, &mmr_store);
-            mmr.push(parent.clone().into()).expect("push block to mmr");
-            mmr.commit().expect("commit mmr batch");
-        }
+    pub fn new(parent: HeaderView, consensus: &'a Consensus) -> Self {
         Self {
             blocks: vec![],
             parent,
             consensus,
-            mmr_store,
         }
     }
 
-    fn chain_root(&self) -> Byte32 {
-        let mmr = ChainRootMMR::new(
-            leaf_index_to_mmr_size(self.tip_header().number()),
-            &self.mmr_store,
-        );
-        mmr.get_root().expect("get root").hash()
-    }
-
     fn commit_block(&mut self, store: &MockStore, block: BlockView) {
-        let mut mmr = ChainRootMMR::new(
-            leaf_index_to_mmr_size(self.tip_header().number()),
-            &self.mmr_store,
-        );
-        mmr.push(block.header().into()).expect("push block to mmr");
-        mmr.commit().expect("commit mmr batch");
         store.insert_block(&block, self.consensus.genesis_epoch_ext());
         self.blocks.push(block);
-    }
-
-    pub fn mmr_store(&self) -> &MemStore<HeaderDigest> {
-        &self.mmr_store
     }
 
     pub fn gen_block_with_proposal_txs(&mut self, txs: Vec<TransactionView>, store: &MockStore) {
@@ -255,7 +224,6 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(100u64)).pack())
             .dao(dao)
-            .chain_root(self.chain_root())
             .transaction(cellbase)
             .proposals(txs.iter().map(TransactionView::proposal_short_id))
             .build();
@@ -273,7 +241,6 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty(U256::from(difficulty).pack())
             .dao(dao)
-            .chain_root(self.chain_root())
             .transaction(cellbase)
             .build();
 
@@ -292,7 +259,6 @@ impl<'a> MockChain<'a> {
             .difficulty(difficulty.pack())
             .nonce(nonce.pack())
             .dao(dao)
-            .chain_root(self.chain_root())
             .transaction(cellbase)
             .build();
 
@@ -310,7 +276,6 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(diff)).pack())
             .dao(dao)
-            .chain_root(self.chain_root())
             .transaction(cellbase)
             .build();
 
@@ -341,7 +306,6 @@ impl<'a> MockChain<'a> {
             .number((parent.number() + 1).pack())
             .difficulty((difficulty + U256::from(100u64)).pack())
             .dao(dao)
-            .chain_root(self.chain_root())
             .transaction(cellbase)
             .transactions(txs)
             .build();

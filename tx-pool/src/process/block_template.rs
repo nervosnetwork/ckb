@@ -9,7 +9,6 @@ use crate::pool::TxPool;
 use ckb_dao::DaoCalculator;
 use ckb_jsonrpc_types::BlockTemplate;
 use ckb_logger::info;
-use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -19,7 +18,6 @@ use ckb_types::{
     },
     packed::{self, ProposalShortId, Script},
     prelude::*,
-    utilities::ChainRootMMR,
 };
 use failure::Error as FailureError;
 use faketime::unix_time_as_millis;
@@ -271,14 +269,6 @@ impl Future for BlockTemplateBuilder {
         let dao =
             DaoCalculator::new(consensus, self.snapshot.as_ref()).dao_field(&rtxs, tip_header)?;
 
-        let chain_root = {
-            let mmr = ChainRootMMR::new(
-                leaf_index_to_mmr_size(tip_header.number()),
-                self.snapshot.as_ref(),
-            );
-            mmr.get_root()?.hash()
-        };
-
         let candidate_number = tip_header.number() + 1;
         let (bytes_limit, _, version) = self.args;
         let cycles_limit = consensus.max_block_cycles();
@@ -311,7 +301,6 @@ impl Future for BlockTemplateBuilder {
                 cellbase: BlockAssembler::transform_cellbase(&self.cellbase, None),
                 work_id: (self.work_id.fetch_add(1, Ordering::SeqCst) as u64).into(),
                 dao: dao.into(),
-                chain_root: chain_root.into(),
             },
             self.uncles_updated_at,
             self.txs_updated_at,
