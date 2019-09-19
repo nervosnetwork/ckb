@@ -355,18 +355,11 @@ impl Node {
         since: u64,
         capacity: Capacity,
     ) -> TransactionView {
-        let always_success_out_point = OutPoint::new(
-            self.genesis_cellbase_hash.clone(),
-            SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
-        );
+        let always_success_cell_dep = self.always_success_cell_dep();
         let always_success_script = self.always_success_script();
 
         core::TransactionBuilder::default()
-            .cell_dep(
-                CellDep::new_builder()
-                    .out_point(always_success_out_point)
-                    .build(),
-            )
+            .cell_dep(always_success_cell_dep)
             .output(
                 CellOutputBuilder::default()
                     .capacity(capacity.pack())
@@ -382,6 +375,15 @@ impl Node {
         Script::new_builder()
             .code_hash(self.always_success_code_hash.clone())
             .hash_type(ScriptHashType::Data.pack())
+            .build()
+    }
+
+    pub fn always_success_cell_dep(&self) -> CellDep {
+        CellDep::new_builder()
+            .out_point(OutPoint::new(
+                self.genesis_cellbase_hash.clone(),
+                SYSTEM_CELL_ALWAYS_SUCCESS_INDEX,
+            ))
             .build()
     }
 

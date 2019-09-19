@@ -1,5 +1,5 @@
 use ckb_jsonrpc_types::{
-    Alert, BannedAddr, Block, BlockNumber, BlockTemplate, BlockView, Capacity,
+    Alert, BannedAddr, Block, BlockNumber, BlockReward, BlockTemplate, BlockView, Capacity,
     CellOutputWithOutPoint, CellTransaction, CellWithStatus, ChainInfo, DryRunResult, EpochNumber,
     EpochView, HeaderView, LiveCell, LockHashIndexState, Node, OutPoint, PeerState, Timestamp,
     Transaction, TransactionWithStatus, TxPoolInfo, Uint64, Version,
@@ -346,6 +346,15 @@ impl RpcClient {
             .expect("rpc call calculate_dao_maximum_withdraw")
             .into()
     }
+
+    pub fn get_cellbase_output_capacity_details(&self, hash: Byte32) -> BlockReward {
+        self.inner()
+            .lock()
+            .get_cellbase_output_capacity_details(hash.unpack())
+            .call()
+            .expect("rpc call get_cellbase_output_capacity_details")
+            .expect("get_cellbase_output_capacity_details return none")
+    }
 }
 
 jsonrpc_client!(pub struct Inner {
@@ -405,4 +414,5 @@ jsonrpc_client!(pub struct Inner {
     pub fn deindex_lock_hash(&mut self, lock_hash: H256) -> RpcRequest<()>;
     pub fn get_lock_hash_index_states(&mut self) -> RpcRequest<Vec<LockHashIndexState>>;
     pub fn calculate_dao_maximum_withdraw(&mut self, _out_point: OutPoint, _hash: H256) -> RpcRequest<Capacity>;
+    pub fn get_cellbase_output_capacity_details(&mut self, _hash: H256) -> RpcRequest<Option<BlockReward>>;
 });
