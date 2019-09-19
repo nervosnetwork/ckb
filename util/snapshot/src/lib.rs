@@ -5,7 +5,6 @@ use ckb_db::{
     Col, DBPinnableSlice,
 };
 use ckb_error::Error;
-use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_proposal_table::ProposalView;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::{ChainStore, StoreCache, StoreSnapshot};
@@ -16,7 +15,7 @@ use ckb_types::{
         cell::{CellProvider, CellStatus, HeaderChecker},
         BlockNumber, BlockReward, EpochExt, HeaderView, TransactionMeta,
     },
-    packed::{Byte32, HeaderDigest, OutPoint, Script},
+    packed::{Byte32, OutPoint, Script},
     prelude::*,
     U256,
 };
@@ -140,17 +139,6 @@ impl<'a> ChainStore<'a> for Snapshot {
 
     fn get_current_epoch_ext(&'a self) -> Option<EpochExt> {
         Some(self.epoch_ext.clone())
-    }
-}
-
-impl MMRStore<HeaderDigest> for &Snapshot {
-    fn get_elem(&self, pos: u64) -> MMRResult<Option<HeaderDigest>> {
-        self.store.get_elem(pos)
-    }
-    fn append(&mut self, _pos: u64, _elems: Vec<HeaderDigest>) -> MMRResult<()> {
-        Err(MMRError::StoreError(
-            "Failed to append to MMR, snapshot MMR is readonly".into(),
-        ))
     }
 }
 

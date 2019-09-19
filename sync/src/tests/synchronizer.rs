@@ -8,7 +8,6 @@ use ckb_chain::chain::ChainService;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
-use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::always_success_cell;
@@ -17,7 +16,6 @@ use ckb_types::{
     bytes::Bytes,
     core::{cell::resolve_transaction, BlockBuilder, TransactionBuilder},
     packed::{self, CellInput, CellOutputBuilder, OutPoint},
-    utilities::ChainRootMMR,
     U256,
 };
 use ckb_util::RwLock;
@@ -145,11 +143,6 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
                 .unwrap()
         };
 
-        let chain_root = ChainRootMMR::new(leaf_index_to_mmr_size(number - 1), snapshot.as_ref())
-            .get_root()
-            .unwrap()
-            .hash();
-
         block = BlockBuilder::default()
             .transaction(cellbase)
             .parent_hash(block.header().hash().to_owned())
@@ -158,7 +151,6 @@ fn setup_node(height: u64) -> (TestNode, Shared) {
             .timestamp(timestamp.pack())
             .difficulty(epoch.difficulty().pack())
             .dao(dao)
-            .chain_root(chain_root)
             .build();
 
         chain_controller

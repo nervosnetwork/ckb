@@ -94,7 +94,6 @@ struct RawHeader {
     difficulty:             Uint256,
     uncles_hash:            Byte32,
     dao:                    Byte32,
-    chain_root:             Byte32,
 }
 
 struct Header {
@@ -112,13 +111,6 @@ table Block {
     uncles:                 UncleBlockVec,
     transactions:           TransactionVec,
     proposals:              ProposalShortIdVec,
-}
-
-/* Types for Chain root MMR */
-
-struct HeaderDigest {
-    hash:               Byte32,
-    total_difficulty:   Uint256,
 }
 
 /* Types for Storage */

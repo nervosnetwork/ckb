@@ -27,5 +27,4 @@ ckb-snapshot = { path = "../util/snapshot" }
 ckb-error = { path = "../error" }
 futures = "0.1"
 tokio = "0.1"
-ckb-merkle-mountain-range = { path = "../util/merkle-mountain-range" }
 crossbeam-channel = "0.3"

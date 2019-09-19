@@ -9,7 +9,6 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
 use ckb_jsonrpc_types::Uint64;
-use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -29,7 +28,6 @@ use ckb_types::{
     h256,
     packed::{AlertBuilder, CellDep, CellInput, CellOutputBuilder, OutPoint, RawAlertBuilder},
     prelude::*,
-    utilities::ChainRootMMR,
     H256, U256,
 };
 use jsonrpc_core::IoHandler;
@@ -122,14 +120,6 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         });
     }
 
-    let chain_root = ChainRootMMR::new(
-        leaf_index_to_mmr_size(parent.number()),
-        shared.snapshot().as_ref(),
-    )
-    .get_root()
-    .unwrap()
-    .hash();
-
     let dao = {
         let resolved_cellbase =
             resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
@@ -145,7 +135,6 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
         .timestamp((parent.timestamp() + 1).pack())
         .difficulty(epoch.difficulty().pack())
         .dao(dao)
-        .chain_root(chain_root)
         .build()
 }
 
