@@ -10,7 +10,6 @@ use ckb_resource::Resource;
 use ckb_rpc::{RpcServer, ServiceBuilder};
 use ckb_shared::shared::{Shared, SharedBuilder};
 use ckb_sync::{NetTimeProtocol, NetworkProtocol, Relayer, SyncSharedState, Synchronizer};
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_verification::{BlockVerifier, Verifier};
 use std::sync::Arc;

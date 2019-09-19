@@ -2,7 +2,6 @@ use crate::relayer::block_transactions_process::{BlockTransactionsProcess, Statu
 use crate::relayer::error::{Error, Misbehavior};
 use crate::relayer::tests::helper::{build_chain, MockProtocalContext};
 use ckb_network::PeerIndex;
-use ckb_store::ChainStore;
 use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
@@ -55,7 +54,7 @@ fn test_accept_block() {
     let hash = compact_block.header().calc_header_hash();
 
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             hash.clone(),
             (
@@ -86,13 +85,14 @@ fn test_accept_block() {
 
     let r = process.execute();
 
-    let pending_compact_blocks = relayer.shared.pending_compact_blocks();
+    let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
 
     assert!(pending_compact_blocks.get(&hash).is_none());
     assert_eq!(r.ok(), Some(Status::Accept));
 
     assert!(relayer
         .shared
+        .state()
         .inflight_proposals()
         .contains(&tx3.proposal_short_id()));
 }
@@ -122,7 +122,7 @@ fn test_unknown_request() {
 
     let foo_peer_index: PeerIndex = 998.into();
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             compact_block.header().calc_header_hash(),
             (
@@ -188,7 +188,7 @@ fn test_invalid_transaction_root() {
     let block_hash = compact_block.header().calc_header_hash();
 
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             block_hash.clone(),
             (
@@ -224,11 +224,8 @@ fn test_invalid_transaction_root() {
 fn test_collision_and_send_missing_indexes() {
     let (relayer, _) = build_chain(5);
 
-    let last_block = relayer
-        .shared
-        .store()
-        .get_block(&relayer.shared.snapshot().tip_hash())
-        .unwrap();
+    let snapshot = relayer.shared.snapshot();
+    let last_block = snapshot.get_block(&snapshot.tip_hash()).unwrap();
     let last_cellbase = last_block.transactions().first().cloned().unwrap();
 
     let peer_index: PeerIndex = 100.into();
@@ -285,7 +282,7 @@ fn test_collision_and_send_missing_indexes() {
 
     let hash = compact_block.header().calc_header_hash();
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             hash.clone(),
             (
@@ -329,7 +326,7 @@ fn test_collision_and_send_missing_indexes() {
 
     // update cached missing_index
     {
-        let pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         assert_eq!(
             pending_compact_blocks
                 .get(&hash)
@@ -398,7 +395,7 @@ fn test_missing() {
     // tx3 should be in tx_pool already, but it's not.
     // so the reconstruct block will fail
     {
-        let mut pending_compact_blocks = relayer.shared.pending_compact_blocks();
+        let mut pending_compact_blocks = relayer.shared.state().pending_compact_blocks();
         pending_compact_blocks.insert(
             compact_block.header().calc_header_hash(),
             (

@@ -32,7 +32,6 @@ ckb-crypto = { path = "../util/crypto"}
 ckb-instrument = { path = "../util/instrument", features = ["progress_bar"] }
 ckb-hash = { path = "../util/hash"}
 ckb-build-info = { path = "../util/build-info" }
-ckb-traits = { path = "../traits" }
 ckb-verification = { path = "../verification" }
 faster-hex = "0.4"
 ckb-db = { path = "../db" }

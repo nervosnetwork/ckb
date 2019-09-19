@@ -12,10 +12,11 @@ ckb-logger = { path = "../util/logger" }
 semver = "0.9"
 tempfile = "3.0"
 ckb-error = { path = "../error" }
+libc = "0.2"
 
 [dependencies.rocksdb]
 git = "https://github.com/nervosnetwork/rust-rocksdb"
-rev = "14d2991"
+rev = "a45fb07"
 
 [dev-dependencies]
 tempfile = "3.0"

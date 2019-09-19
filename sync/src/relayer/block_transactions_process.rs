@@ -59,6 +59,7 @@ impl<'a> BlockTransactionsProcess<'a> {
     }
 
     pub fn execute(self) -> Result<Status, FailureError> {
+        let snapshot = self.relayer.shared().snapshot();
         let block_transactions = self.message.to_entity();
         let block_hash = block_transactions.block_hash();
         let received_transactions: Vec<core::TransactionView> = block_transactions
@@ -76,9 +77,8 @@ impl<'a> BlockTransactionsProcess<'a> {
         let missing_uncles: Vec<u32>;
         let mut collision = false;
 
-        if let Entry::Occupied(mut pending) = self
-            .relayer
-            .shared()
+        if let Entry::Occupied(mut pending) = snapshot
+            .state()
             .pending_compact_blocks()
             .entry(block_hash.clone())
         {
@@ -103,6 +103,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                 )?;
 
                 let ret = self.relayer.reconstruct_block(
+                    &snapshot,
                     compact_block,
                     received_transactions,
                     &expected_uncle_indexes,
@@ -132,7 +133,7 @@ impl<'a> BlockTransactionsProcess<'a> {
                     Ok(block) => {
                         pending.remove();
                         self.relayer
-                            .accept_block(self.nc.as_ref(), self.peer, block);
+                            .accept_block(&snapshot, self.nc.as_ref(), self.peer, block);
                         return Ok(Status::Accept);
                     }
                     Err(ReconstructionError::InvalidTransactionRoot) => {

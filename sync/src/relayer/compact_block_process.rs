@@ -60,13 +60,14 @@ impl<'a> CompactBlockProcess<'a> {
     }
 
     pub fn execute(self) -> Result<Status, FailureError> {
+        let snapshot = self.relayer.shared.snapshot();
         let compact_block = self.message.to_entity();
         let header = compact_block.header().into_view();
         let block_hash = header.hash();
 
         // Only accept blocks with a height greater than tip - N
         // where N is the current epoch length
-        let snapshot: &Snapshot = &self.relayer.shared.snapshot();
+
         let tip = snapshot.tip_header().clone();
         let epoch_length = snapshot.epoch_ext().length();
         let lowest_number = tip.number().saturating_sub(epoch_length);
@@ -75,7 +76,7 @@ impl<'a> CompactBlockProcess<'a> {
             return Err(Error::Ignored(Ignored::TooOldBlock).into());
         }
 
-        let status = self.relayer.shared().get_block_status(&block_hash);
+        let status = snapshot.get_block_status(&block_hash);
         if status.contains(BlockStatus::BLOCK_STORED) {
             return Err(Error::Ignored(Ignored::AlreadyStored).into());
         } else if status.contains(BlockStatus::BLOCK_INVALID) {
@@ -88,10 +89,7 @@ impl<'a> CompactBlockProcess<'a> {
             return Err(Error::Misbehavior(Misbehavior::BlockInvalid).into());
         }
 
-        let parent = self
-            .relayer
-            .shared
-            .get_header_view(&header.data().raw().parent_hash());
+        let parent = snapshot.get_header_view(&header.data().raw().parent_hash());
         if parent.is_none() {
             debug_target!(
                 crate::LOG_TARGET_RELAY,
@@ -99,17 +97,14 @@ impl<'a> CompactBlockProcess<'a> {
                 block_hash,
                 self.peer
             );
-            self.relayer
-                .shared
-                .send_getheaders_to_peer(self.nc.as_ref(), self.peer, &tip);
+            snapshot.send_getheaders_to_peer(self.nc.as_ref(), self.peer, &tip);
             return Ok(Status::UnknownParent);
         }
 
         let parent = parent.unwrap();
 
-        if let Some(flight) = self
-            .relayer
-            .shared()
+        if let Some(flight) = snapshot
+            .state()
             .read_inflight_blocks()
             .inflight_state_by_block(&block_hash)
         {
@@ -129,7 +124,7 @@ impl<'a> CompactBlockProcess<'a> {
         let mut collision = false;
         {
             // Verify compact block
-            let mut pending_compact_blocks = self.relayer.shared().pending_compact_blocks();
+            let mut pending_compact_blocks = snapshot.state().pending_compact_blocks();
             if pending_compact_blocks
                 .get(&block_hash)
                 .map(|(_, peers_map)| peers_map.contains_key(&self.peer))
@@ -148,29 +143,25 @@ impl<'a> CompactBlockProcess<'a> {
                             .get(&block_hash)
                             .map(|(compact_block, _)| compact_block.header().into_view())
                             .or_else(|| {
-                                self.relayer
-                                    .shared
+                                snapshot
                                     .get_header_view(&block_hash)
                                     .map(|header_view| header_view.into_inner())
                             })
                     }
                 };
-                let resolver = self
-                    .relayer
-                    .shared
-                    .new_header_resolver(&header, parent.into_inner());
+                let resolver = snapshot.new_header_resolver(&header, parent.into_inner());
                 let median_time_context = CompactBlockMedianTimeView {
                     fn_get_pending_header: Box::new(fn_get_pending_header),
-                    snapshot,
+                    snapshot: snapshot.store(),
                 };
                 let header_verifier = HeaderVerifier::new(
                     &median_time_context,
-                    Arc::clone(&self.relayer.shared.consensus().pow_engine()),
+                    Arc::clone(&snapshot.consensus().pow_engine()),
                 );
                 if let Err(err) = header_verifier.verify(&resolver) {
                     debug_target!(crate::LOG_TARGET_RELAY, "invalid header: {}", err);
-                    self.relayer
-                        .shared()
+                    snapshot
+                        .state()
                         .insert_block_status(block_hash, BlockStatus::BLOCK_INVALID);
                     return Err(Error::Misbehavior(Misbehavior::HeaderInvalid).into());
                 }
@@ -178,9 +169,7 @@ impl<'a> CompactBlockProcess<'a> {
 
                 // Header has been verified ok, update state
                 let epoch = resolver.epoch().expect("epoch verified").clone();
-                self.relayer
-                    .shared()
-                    .insert_valid_header(self.peer, &header, epoch);
+                snapshot.insert_valid_header(self.peer, &header, epoch);
             }
 
             // Request proposal
@@ -201,7 +190,7 @@ impl<'a> CompactBlockProcess<'a> {
             // Reconstruct block
             let ret = self
                 .relayer
-                .reconstruct_block(&compact_block, vec![], &[], &[]);
+                .reconstruct_block(&snapshot, &compact_block, vec![], &[], &[]);
 
             // Accept block
             // `relayer.accept_block` will make sure the validity of block before persisting
@@ -210,7 +199,7 @@ impl<'a> CompactBlockProcess<'a> {
                 Ok(block) => {
                     pending_compact_blocks.remove(&block_hash);
                     self.relayer
-                        .accept_block(self.nc.as_ref(), self.peer, block);
+                        .accept_block(&snapshot, self.nc.as_ref(), self.peer, block);
                     return Ok(Status::AcceptBlock);
                 }
                 Err(ReconstructionError::InvalidTransactionRoot) => {
@@ -250,9 +239,8 @@ impl<'a> CompactBlockProcess<'a> {
                 );
         }
 
-        if !self
-            .relayer
-            .shared()
+        if !snapshot
+            .state()
             .write_inflight_blocks()
             .insert(self.peer, block_hash.clone())
         {

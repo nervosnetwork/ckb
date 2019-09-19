@@ -11,7 +11,6 @@ use ckb_shared::{
 use ckb_store::ChainStore;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::always_success_cell;
-use ckb_traits::chain_provider::ChainProvider;
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -130,10 +129,11 @@ pub fn gen_always_success_block(
     );
     let cellbase = create_always_success_cellbase(shared, &p_block.header());
 
+    let snapshot = shared.snapshot();
+
     // spent n-2 block's tx and proposal n-1 block's tx
     let transactions: Vec<TransactionView> = if blocks.len() > 1 {
-        let pp_block = shared
-            .store()
+        let pp_block = snapshot
             .get_block(&p_block.data().header().raw().parent_hash())
             .expect("gen_block get pp_block");
         pp_block
@@ -338,11 +338,11 @@ pub fn gen_secp_block(
         p_block.header().difficulty() + U256::from(1u64),
     );
     let cellbase = create_secp_cellbase(shared, &p_block.header());
+    let snapshot = shared.snapshot();
 
     // spent n-2 block's tx and proposal n-1 block's tx
     let transactions: Vec<TransactionView> = if blocks.len() > 1 {
-        let pp_block = shared
-            .store()
+        let pp_block = snapshot
             .get_block(&p_block.data().header().raw().parent_hash())
             .expect("gen_block get pp_block");
         pp_block
@@ -474,7 +474,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
         }
     });
     let rtxs = rtxs.expect("dao_data resolve_transaction");
-    let calculator = DaoCalculator::new(shared.consensus(), shared.store());
+    let calculator = DaoCalculator::new(shared.consensus(), snapshot);
     calculator
         .dao_field(&rtxs, &parent)
         .expect("calculator dao_field")
@@ -482,10 +482,11 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
 
 pub(crate) fn calculate_reward(shared: &Shared, parent: &HeaderView) -> Capacity {
     let number = parent.number() + 1;
+    let snapshot = shared.snapshot();
     let target_number = shared.consensus().finalize_target(number).unwrap();
-    let target_hash = shared.store().get_block_hash(target_number).unwrap();
-    let target = shared.store().get_block_header(&target_hash).unwrap();
-    let calculator = DaoCalculator::new(shared.consensus(), shared.store());
+    let target_hash = snapshot.get_block_hash(target_number).unwrap();
+    let target = snapshot.get_block_header(&target_hash).unwrap();
+    let calculator = DaoCalculator::new(shared.consensus(), snapshot.as_ref());
     calculator
         .primary_block_reward(&target)
         .expect("calculate_reward primary_block_reward")

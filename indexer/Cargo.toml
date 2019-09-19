@@ -12,7 +12,6 @@ ckb-types = { path = "../util/types" }
 ckb-db = { path = "../db" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
-ckb-traits = { path = "../traits" }
 ckb-jsonrpc-types = { path = "../util/jsonrpc-types" }
 ckb-logger = { path = "../util/logger" }
 ckb-util = { path = "../util" }

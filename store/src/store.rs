@@ -366,6 +366,11 @@ pub trait ChainStore<'a>: Send + Sync {
     }
 
     fn block_exists(&'a self, hash: &packed::Byte32) -> bool {
+        if let Some(cache) = self.cache() {
+            if cache.headers.lock().get_refresh(hash).is_some() {
+                return true;
+            }
+        };
         self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).is_some()
     }
 

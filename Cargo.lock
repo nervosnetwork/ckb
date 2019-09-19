@@ -410,7 +410,6 @@ dependencies = [
  "ckb-shared 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-sync 0.21.0-pre",
- "ckb-traits 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "ckb-util 0.21.0-pre",
  "ckb-verification 0.21.0-pre",
@@ -445,7 +444,6 @@ dependencies = [
  "ckb-stop-handler 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
- "ckb-traits 0.21.0-pre",
  "ckb-tx-pool 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "ckb-verification 0.21.0-pre",
@@ -519,7 +517,8 @@ version = "0.21.0-pre"
 dependencies = [
  "ckb-error 0.21.0-pre",
  "ckb-logger 0.21.0-pre",
- "rocksdb 0.12.2 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=14d2991)",
+ "libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rocksdb 0.12.2 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=a45fb07)",
  "semver 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.93 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -583,7 +582,6 @@ dependencies = [
  "ckb-resource 0.21.0-pre",
  "ckb-shared 0.21.0-pre",
  "ckb-store 0.21.0-pre",
- "ckb-traits 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "ckb-util 0.21.0-pre",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -599,7 +597,6 @@ dependencies = [
  "ckb-jsonrpc-types 0.21.0-pre",
  "ckb-shared 0.21.0-pre",
  "ckb-store 0.21.0-pre",
- "ckb-traits 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "indicatif 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -850,6 +847,7 @@ dependencies = [
  "ckb-merkle-mountain-range 0.21.0-pre",
  "ckb-network 0.21.0-pre",
  "ckb-network-alert 0.21.0-pre",
+ "ckb-reward-calculator 0.21.0-pre",
  "ckb-shared 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-sync 0.21.0-pre",
@@ -915,11 +913,9 @@ dependencies = [
  "ckb-error 0.21.0-pre",
  "ckb-logger 0.21.0-pre",
  "ckb-proposal-table 0.21.0-pre",
- "ckb-reward-calculator 0.21.0-pre",
  "ckb-snapshot 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-test-chain-utils 0.21.0-pre",
- "ckb-traits 0.21.0-pre",
  "ckb-tx-pool 0.21.0-pre",
  "ckb-types 0.21.0-pre",
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -940,6 +936,7 @@ dependencies = [
  "ckb-error 0.21.0-pre",
  "ckb-merkle-mountain-range 0.21.0-pre",
  "ckb-proposal-table 0.21.0-pre",
+ "ckb-reward-calculator 0.21.0-pre",
  "ckb-store 0.21.0-pre",
  "ckb-traits 0.21.0-pre",
  "ckb-types 0.21.0-pre",
@@ -977,7 +974,6 @@ dependencies = [
 name = "ckb-sync"
 version = "0.21.0-pre"
 dependencies = [
- "arc-swap 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitflags 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "ckb-chain 0.21.0-pre",
@@ -1038,9 +1034,6 @@ dependencies = [
 name = "ckb-traits"
 version = "0.21.0-pre"
 dependencies = [
- "ckb-chain-spec 0.21.0-pre",
- "ckb-error 0.21.0-pre",
- "ckb-store 0.21.0-pre",
  "ckb-types 0.21.0-pre",
 ]
 
@@ -2017,7 +2010,7 @@ dependencies = [
 [[package]]
 name = "librocksdb-sys"
 version = "5.18.3"
-source = "git+https://github.com/nervosnetwork/rust-rocksdb?rev=14d2991#14d2991fbfc5675a357542a44433738e9ebb9ea8"
+source = "git+https://github.com/nervosnetwork/rust-rocksdb?rev=a45fb07#a45fb0729360576c3d48b070b60f046f7cb07286"
 dependencies = [
  "bindgen 0.50.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.38 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2917,10 +2910,10 @@ dependencies = [
 [[package]]
 name = "rocksdb"
 version = "0.12.2"
-source = "git+https://github.com/nervosnetwork/rust-rocksdb?rev=14d2991#14d2991fbfc5675a357542a44433738e9ebb9ea8"
+source = "git+https://github.com/nervosnetwork/rust-rocksdb?rev=a45fb07#a45fb0729360576c3d48b070b60f046f7cb07286"
 dependencies = [
  "libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)",
- "librocksdb-sys 5.18.3 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=14d2991)",
+ "librocksdb-sys 5.18.3 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=a45fb07)",
 ]
 
 [[package]]
@@ -4135,7 +4128,7 @@ dependencies = [
 "checksum lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 "checksum libc 0.2.58 (registry+https://github.com/rust-lang/crates.io-index)" = "6281b86796ba5e4366000be6e9e18bf35580adf9e63fbe2294aadb587613a319"
 "checksum libloading 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9c3ad660d7cb8c5822cd83d10897b0f1f1526792737a179e73896152f85b88c2"
-"checksum librocksdb-sys 5.18.3 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=14d2991)" = "<none>"
+"checksum librocksdb-sys 5.18.3 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=a45fb07)" = "<none>"
 "checksum linked-hash-map 0.5.1 (git+https://github.com/nervosnetwork/linked-hash-map?rev=df27f21)" = "<none>"
 "checksum linked-hash-map 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "ae91b68aebc4ddb91978b11a1b02ddd8602a05ec19002801c5666000e05e0f83"
 "checksum lock_api 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "62ebf1391f6acad60e5c8b43706dde4582df75c06698ab44511d15016bc2442c"
@@ -4231,7 +4224,7 @@ dependencies = [
 "checksum reqwest 0.9.19 (registry+https://github.com/rust-lang/crates.io-index)" = "1d0777154c2c3eb54f5c480db01de845652d941e47191277cc673634c3853939"
 "checksum resolve 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "19526b305899bea65f26edda78a64f5313958494321ee0ab66bd94b32958614a"
 "checksum ring 0.16.5 (registry+https://github.com/rust-lang/crates.io-index)" = "8cb66ed257d923d56a0c1327332543d887be3c8e8288d0e6187a5d90f9a9533c"
-"checksum rocksdb 0.12.2 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=14d2991)" = "<none>"
+"checksum rocksdb 0.12.2 (git+https://github.com/nervosnetwork/rust-rocksdb?rev=a45fb07)" = "<none>"
 "checksum rustc-demangle 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "adacaae16d02b6ec37fdc7acfcddf365978de76d1983d3ee22afc260e1ca9619"
 "checksum rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 "checksum rusty-fork 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "9591f190d2852720b679c21f66ad929f9f1d7bb09d1193c26167586029d8489c"

@@ -36,11 +36,16 @@ impl<'a> BlockProcess<'a> {
             block.number(),
             block.hash(),
         );
+        let snapshot = self.synchronizer.shared().snapshot();
 
-        if self.synchronizer.shared().new_block_received(&block)
+        if self
+            .synchronizer
+            .shared()
+            .state()
+            .new_block_received(&block)
             && self
                 .synchronizer
-                .process_new_block(self.peer, block.clone())
+                .process_new_block(&snapshot, self.peer, block.clone())
                 .is_err()
         {
             info!(
@@ -50,6 +55,7 @@ impl<'a> BlockProcess<'a> {
             );
             self.synchronizer
                 .shared()
+                .state()
                 .insert_block_status(block.hash(), BlockStatus::BLOCK_INVALID);
             self.nc.ban_peer(self.peer, BAD_MESSAGE_BAN_TIME);
         }

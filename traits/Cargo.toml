@@ -7,6 +7,3 @@ license = "MIT"
 
 [dependencies]
 ckb-types = { path = "../util/types" }
-ckb-chain-spec = {path = "../spec"}
-ckb-store = { path = "../store" }
-ckb-error = { path = "../error" }

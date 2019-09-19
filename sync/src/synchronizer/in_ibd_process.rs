@@ -24,14 +24,7 @@ impl<'a> InIBDProcess<'a> {
 
     pub fn execute(self) -> Result<(), FailureError> {
         info!("getheader with ibd peer {:?}", self.peer);
-        if let Some(state) = self
-            .synchronizer
-            .shared
-            .peers()
-            .state
-            .write()
-            .get_mut(&self.peer)
-        {
+        if let Some(state) = self.synchronizer.peers().state.write().get_mut(&self.peer) {
             // Don't assume that the peer is sync_started.
             // It is possible that a not-sync-started peer sends us `InIBD` messages:
             //   - Malicious behavior
@@ -46,12 +39,12 @@ impl<'a> InIBDProcess<'a> {
             // If inbound is a ibd node, just mark the node does not pass header sync authentication.
             if state.peer_flags.is_outbound {
                 if state.peer_flags.is_whitelist || state.peer_flags.is_protect {
-                    self.synchronizer.shared().suspend_sync(state);
+                    self.synchronizer.shared().state().suspend_sync(state);
                 } else if let Err(err) = self.nc.disconnect(self.peer, "outbound in ibd") {
                     debug!("synchronizer disconnect error: {:?}", err);
                 }
             } else {
-                self.synchronizer.shared().suspend_sync(state);
+                self.synchronizer.shared().state().suspend_sync(state);
             }
         }
         Ok(())

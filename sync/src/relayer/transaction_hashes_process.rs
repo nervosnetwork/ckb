@@ -28,8 +28,9 @@ impl<'a> TransactionHashesProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
+        let state = self.relayer.shared().state();
         let hashes: Vec<Byte32> = {
-            let tx_filter = self.relayer.shared().tx_filter();
+            let tx_filter = state.tx_filter();
             self.message
                 .tx_hashes()
                 .iter()
@@ -64,15 +65,8 @@ impl<'a> TransactionHashesProcess<'a> {
             return Ok(());
         }
 
-        if let Some(peer_state) = self
-            .relayer
-            .shared()
-            .peers()
-            .state
-            .write()
-            .get_mut(&self.peer)
-        {
-            let mut inflight_transactions = self.relayer.shared().inflight_transactions();
+        if let Some(peer_state) = state.peers().state.write().get_mut(&self.peer) {
+            let mut inflight_transactions = state.inflight_transactions();
 
             debug_target!(
                 crate::LOG_TARGET_RELAY,

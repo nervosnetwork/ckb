@@ -6,16 +6,14 @@ use ckb_db::{DBConfig, RocksDB};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info_target;
 use ckb_proposal_table::{ProposalTable, ProposalView};
-use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
-use ckb_traits::ChainProvider;
 use ckb_tx_pool::{
     BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuiler,
 };
 use ckb_types::{
-    core::{BlockReward, Cycle, EpochExt, HeaderView, TransactionMeta},
-    packed::{Byte32, Script},
+    core::{Cycle, EpochExt, HeaderView, TransactionMeta},
+    packed::Byte32,
     prelude::*,
     U256,
 };
@@ -212,44 +210,17 @@ impl Shared {
             Arc::clone(&self.consensus),
         ))
     }
-}
 
-impl ChainProvider for Shared {
-    type Store = ChainDB;
-
-    fn store(&self) -> &Self::Store {
-        &self.store
+    pub fn consensus(&self) -> &Consensus {
+        &self.consensus
     }
 
-    fn genesis_hash(&self) -> Byte32 {
+    pub fn genesis_hash(&self) -> Byte32 {
         self.consensus.genesis_hash()
     }
 
-    fn get_block_epoch(&self, hash: &Byte32) -> Option<EpochExt> {
-        self.store()
-            .get_block_epoch_index(hash)
-            .and_then(|index| self.store().get_epoch_ext(&index))
-    }
-
-    fn next_epoch_ext(&self, last_epoch: &EpochExt, header: &HeaderView) -> Option<EpochExt> {
-        self.consensus.next_epoch_ext(
-            last_epoch,
-            header,
-            |hash| self.store.get_block_header(hash),
-            |hash| {
-                self.store
-                    .get_block_ext(hash)
-                    .map(|ext| ext.total_uncles_count)
-            },
-        )
-    }
-
-    fn finalize_block_reward(&self, parent: &HeaderView) -> Result<(Script, BlockReward), Error> {
-        RewardCalculator::new(self.consensus(), self.store()).block_reward(parent)
-    }
-
-    fn consensus(&self) -> &Consensus {
-        &*self.consensus
+    pub fn store(&self) -> &ChainDB {
+        &self.store
     }
 }
 

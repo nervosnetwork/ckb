@@ -9,7 +9,6 @@ use ckb_shared::{
 };
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
-use ckb_traits::ChainProvider;
 use ckb_types::prelude::*;
 use ckb_types::{
     core::{cell::resolve_transaction, BlockBuilder, BlockNumber, TransactionView},
@@ -51,28 +50,30 @@ pub fn generate_blocks(
 }
 
 pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
-    let parent = shared.store().get_block(parent_hash).unwrap();
-    let parent_epoch = shared.store().get_block_epoch(parent_hash).unwrap();
+    let snapshot = shared.snapshot();
+    let parent = snapshot.get_block(parent_hash).unwrap();
+    let parent_epoch = snapshot.get_block_epoch(parent_hash).unwrap();
     let parent_number = parent.header().number();
-    let epoch = shared
-        .next_epoch_ext(&parent_epoch, &parent.header())
+    let epoch = snapshot
+        .next_epoch_ext(snapshot.consensus(), &parent_epoch, &parent.header())
         .unwrap_or(parent_epoch);
     let cellbase = {
-        let (_, reward) = shared.finalize_block_reward(&parent.header()).unwrap();
+        let (_, reward) = snapshot.finalize_block_reward(&parent.header()).unwrap();
         always_success_cellbase(parent_number + 1, reward.total)
     };
-    let chain_root = ChainRootMMR::new(
-        leaf_index_to_mmr_size(parent_number),
-        shared.snapshot().as_ref(),
-    )
-    .get_root()
-    .unwrap()
-    .hash();
+    let chain_root = ChainRootMMR::new(leaf_index_to_mmr_size(parent_number), snapshot.as_ref())
+        .get_root()
+        .unwrap()
+        .hash();
     let dao = {
-        let snapshot: &Snapshot = &shared.snapshot();
-        let resolved_cellbase =
-            resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
-        DaoCalculator::new(shared.consensus(), shared.store())
+        let resolved_cellbase = resolve_transaction(
+            cellbase.clone(),
+            &mut HashSet::new(),
+            snapshot.as_ref(),
+            snapshot.as_ref(),
+        )
+        .unwrap();
+        DaoCalculator::new(shared.consensus(), snapshot.as_ref())
             .dao_field(&[resolved_cellbase], &parent.header())
             .unwrap()
     };
@@ -85,12 +86,11 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
         .difficulty(epoch.difficulty().pack())
         .dao(dao)
         .chain_root(chain_root)
-        .transaction(inherit_cellbase(shared, parent_number))
+        .transaction(inherit_cellbase(&snapshot, parent_number))
 }
 
-pub fn inherit_cellbase(shared: &Shared, parent_number: BlockNumber) -> TransactionView {
+pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> TransactionView {
     let parent_header = {
-        let snapshot = shared.snapshot();
         let parent_hash = snapshot
             .get_block_hash(parent_number)
             .expect("parent exist");
@@ -98,6 +98,6 @@ pub fn inherit_cellbase(shared: &Shared, parent_number: BlockNumber) -> Transact
             .get_block_header(&parent_hash)
             .expect("parent exist")
     };
-    let (_, reward) = shared.finalize_block_reward(&parent_header).unwrap();
+    let (_, reward) = snapshot.finalize_block_reward(&parent_header).unwrap();
     always_success_cellbase(parent_number + 1, reward.total)
 }

@@ -164,10 +164,7 @@ impl IndexerStore for DefaultIndexerStore {
     ) -> LockHashIndexState {
         let index_state = {
             let snapshot = self.shared.snapshot();
-            let tip_number = snapshot
-                .get_tip_header()
-                .expect("tip header exists")
-                .number();
+            let tip_number = snapshot.tip_header().number();
             let block_number = index_from.unwrap_or_else(|| tip_number).min(tip_number);
             LockHashIndexState {
                 block_number,
@@ -320,10 +317,7 @@ impl DefaultIndexerStore {
             min_block_number + 1
         };
 
-        let tip_number = snapshot
-            .get_tip_header()
-            .expect("tip header exists")
-            .number();
+        let tip_number = snapshot.tip_header().number();
         self.commit_txn(|txn| {
             (start_number..=tip_number)
                 .take(self.batch_size)
@@ -618,7 +612,6 @@ mod tests {
     use ckb_chain_spec::consensus::Consensus;
     use ckb_resource::CODE_HASH_DAO;
     use ckb_shared::shared::{Shared, SharedBuilder};
-    use ckb_traits::chain_provider::ChainProvider;
     use ckb_types::{
         core::{
             capacity_bytes, BlockBuilder, Capacity, HeaderBuilder, ScriptHashType,

@@ -53,6 +53,7 @@ impl PoolRpc for PoolRpcImpl {
                 let peer_index = PeerIndex::new(usize::max_value());
                 let hash = tx.hash().to_owned();
                 self.sync_shared_state
+                    .state()
                     .tx_hashes()
                     .entry(peer_index)
                     .or_default()

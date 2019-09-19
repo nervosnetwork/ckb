@@ -68,7 +68,7 @@ impl Future for BlockTemplateCacheProcess {
         match self.template_caches.poll_lock() {
             Async::Ready(guard) => {
                 let (bytes_limit, proposals_limit, version) = self.args;
-                let tip_header = self.snapshot.get_tip_header().expect("get tip header");
+                let tip_header = self.snapshot.tip_header();
                 let tip_hash = tip_header.hash();
                 let current_time = cmp::max(unix_time_as_millis(), tip_header.timestamp() + 1);
 
@@ -113,7 +113,7 @@ impl Future for BuildCellbaseProcess {
     type Error = FailureError;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let tip_header = self.snapshot.get_tip_header().expect("get tip header");
+        let tip_header = self.snapshot.tip_header();
         let cellbase_lock_args = self
             .config
             .args
@@ -129,7 +129,7 @@ impl Future for BuildCellbaseProcess {
             .hash_type(hash_type.pack())
             .build();
 
-        let cellbase = BlockAssembler::build_cellbase(&self.snapshot, &tip_header, cellbase_lock)?;
+        let cellbase = BlockAssembler::build_cellbase(&self.snapshot, tip_header, cellbase_lock)?;
 
         Ok(Async::Ready(cellbase))
     }
@@ -149,14 +149,14 @@ impl Future for PrepareUnclesProcess {
         match self.candidate_uncles.poll_lock() {
             Async::Ready(mut guard) => {
                 let consensus = self.snapshot.consensus();
-                let tip_header = self.snapshot.get_tip_header().expect("get tip header");
+                let tip_header = self.snapshot.tip_header();
                 let last_epoch = self
                     .snapshot
                     .get_current_epoch_ext()
                     .expect("current epoch ext");
                 let next_epoch_ext =
                     self.snapshot
-                        .next_epoch_ext(consensus, &last_epoch, &tip_header);
+                        .next_epoch_ext(consensus, &last_epoch, tip_header);
                 let current_epoch = next_epoch_ext.unwrap_or(last_epoch);
                 let candidate_number = tip_header.number() + 1;
                 let uncles = BlockAssembler::prepare_uncles(
@@ -243,14 +243,14 @@ impl Future for BlockTemplateBuilder {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         let consensus = self.snapshot.consensus();
-        let tip_header = self.snapshot.get_tip_header().expect("get tip header");
-        let snapshot: &Snapshot = &self.snapshot;
+        let tip_header = self.snapshot.tip_header();
         let tip_hash = tip_header.hash();
         let mut txs =
             iter::once(&self.cellbase).chain(self.entries.iter().map(|entry| &entry.transaction));
         let mut seen_inputs = HashSet::new();
         let transactions_provider = TransactionsProvider::new(txs.clone());
-        let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
+        let overlay_cell_provider =
+            OverlayCellProvider::new(&transactions_provider, self.snapshot.as_ref());
 
         let rtxs = txs
             .try_fold(vec![], |mut rtxs, tx| {
@@ -258,7 +258,7 @@ impl Future for BlockTemplateBuilder {
                     tx.clone(),
                     &mut seen_inputs,
                     &overlay_cell_provider,
-                    snapshot,
+                    self.snapshot.as_ref(),
                 )
                 .map(|rtx| {
                     rtxs.push(rtx);
@@ -268,10 +268,14 @@ impl Future for BlockTemplateBuilder {
             .map_err(|_| BlockAssemblerError::InvalidInput)?;
 
         // Generate DAO fields here
-        let dao = DaoCalculator::new(consensus, snapshot).dao_field(&rtxs, &tip_header)?;
+        let dao =
+            DaoCalculator::new(consensus, self.snapshot.as_ref()).dao_field(&rtxs, tip_header)?;
 
         let chain_root = {
-            let mmr = ChainRootMMR::new(leaf_index_to_mmr_size(tip_header.number()), snapshot);
+            let mmr = ChainRootMMR::new(
+                leaf_index_to_mmr_size(tip_header.number()),
+                self.snapshot.as_ref(),
+            );
             mmr.get_root()?.hash()
         };
 

@@ -2,7 +2,6 @@ use crate::format::Format;
 use crate::iter::ChainIterator;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_shared::shared::Shared;
-use ckb_traits::ChainProvider;
 #[cfg(feature = "progress_bar")]
 use indicatif::{ProgressBar, ProgressStyle};
 use serde_json;

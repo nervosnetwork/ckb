@@ -32,7 +32,8 @@ impl<'a> GetHeadersProcess<'a> {
     }
 
     pub fn execute(self) -> Result<(), FailureError> {
-        if self.synchronizer.shared.is_initial_block_download() {
+        let snapshot = self.synchronizer.shared.snapshot();
+        if snapshot.is_initial_block_download() {
             info!(
                 "Ignoring getheaders from peer={} because node is in initial block download",
                 self.peer
@@ -59,22 +60,18 @@ impl<'a> GetHeadersProcess<'a> {
             ))?;
         }
 
-        if let Some(block_number) = self
-            .synchronizer
-            .shared
-            .locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
+        if let Some(block_number) =
+            snapshot.locate_latest_common_block(&hash_stop, &block_locator_hashes[..])
         {
             debug!(
                 "headers latest_common={} tip={} begin",
                 block_number,
-                self.synchronizer.shared.tip_header().number(),
+                snapshot.tip_header().number(),
             );
 
             self.synchronizer.peers().getheaders_received(self.peer);
-            let headers: Vec<core::HeaderView> = self
-                .synchronizer
-                .shared
-                .get_locator_response(block_number, &hash_stop);
+            let headers: Vec<core::HeaderView> =
+                snapshot.get_locator_response(block_number, &hash_stop);
             // response headers
 
             debug!("headers len={}", headers.len());

@@ -15,7 +15,6 @@ ckb-verification = { path = "../verification" }
 faketime = "0.2.0"
 crossbeam-channel = "0.3"
 ckb-stop-handler = { path = "../util/stop-handler" }
-ckb-traits = { path = "../traits" }
 ckb-dao = { path = "../util/dao" }
 ckb-proposal-table = { path = "../util/proposal-table" }
 ckb-merkle-mountain-range = { path = "../util/merkle-mountain-range" }
