@@ -1,4 +1,4 @@
-use crate::{Net, Node};
+use crate::{Net, Node, TXOSet};
 use ckb_jsonrpc_types::{BlockTemplate, TransactionWithStatus, TxStatus};
 use ckb_types::{
     bytes::Bytes,
@@ -204,4 +204,42 @@ pub fn temp_path() -> String {
     let path = tempdir.path().to_str().unwrap().to_owned();
     tempdir.close().expect("close tempdir failed");
     path
+}
+
+/// Generate new blocks and explode these cellbases into `n` live cells
+pub fn generate_utxo_set(node: &Node, n: usize) -> TXOSet {
+    // Ensure all the cellbases will be used later are already mature.
+    let cellbase_maturity = node.consensus().cellbase_maturity();
+    node.generate_blocks(cellbase_maturity as usize);
+
+    // Explode these mature cellbases into multiple cells
+    let mut n_outputs = 0;
+    let mut txs = Vec::new();
+    while n > n_outputs {
+        node.generate_block();
+        let mature_number = node.get_tip_block_number() - cellbase_maturity;
+        let mature_block = node.get_block_by_number(mature_number);
+        let mature_cellbase = mature_block.transaction(0).unwrap();
+        let mature_utxos: TXOSet = TXOSet::from(&mature_cellbase);
+        let tx = mature_utxos.boom(vec![node.always_success_cell_dep()]);
+        n_outputs += tx.outputs().len();
+        txs.push(tx);
+    }
+
+    // Ensure all the transactions were committed
+    txs.iter().for_each(|tx| {
+        node.submit_transaction(tx);
+    });
+    while txs
+        .iter()
+        .any(|tx| !is_committed(&node.rpc_client().get_transaction(tx.hash()).unwrap()))
+    {
+        node.generate_blocks(node.consensus().finalization_delay_length() as usize);
+    }
+
+    let mut utxos = TXOSet::default();
+    txs.iter()
+        .for_each(|tx| utxos.extend(Into::<TXOSet>::into(tx)));
+    utxos.truncate(n);
+    utxos
 }
