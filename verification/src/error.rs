@@ -1,5 +1,5 @@
 use ckb_error::Error;
-use ckb_types::packed::Byte32;
+use ckb_types::packed::{Byte32, Uint256};
 use failure::{Backtrace, Context, Fail};
 use std::fmt::{self, Display};
 
@@ -215,7 +215,7 @@ pub enum EpochError {
         display = "DifficultyMismatch(expected: {}, actual: {})",
         expected, actual
     )]
-    DifficultyMismatch { expected: Byte32, actual: Byte32 },
+    DifficultyMismatch { expected: Uint256, actual: Uint256 },
 
     #[fail(display = "NumberMismatch(expected: {}, actual: {})", expected, actual)]
     NumberMismatch { expected: u64, actual: u64 },

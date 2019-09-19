@@ -1995,6 +1995,510 @@ impl Byte32Builder {
     }
 }
 #[derive(Clone)]
+pub struct Uint256(molecule::bytes::Bytes);
+#[derive(Clone, Copy)]
+pub struct Uint256Reader<'r>(&'r [u8]);
+impl ::std::fmt::Debug for Uint256 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(self.as_slice()).unwrap()
+        )
+    }
+}
+impl<'r> ::std::fmt::Debug for Uint256Reader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(self.as_slice()).unwrap()
+        )
+    }
+}
+impl ::std::fmt::Display for Uint256 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(&self.raw_data()).unwrap()
+        )
+    }
+}
+impl<'r> ::std::fmt::Display for Uint256Reader<'r> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(
+            f,
+            "{}(0x{})",
+            Self::NAME,
+            hex_string(&self.raw_data()).unwrap()
+        )
+    }
+}
+pub struct Uint256Builder(pub(crate) [u8; 32]);
+impl ::std::fmt::Debug for Uint256Builder {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}({:?})", Self::NAME, &self.0[..])
+    }
+}
+impl ::std::default::Default for Uint256Builder {
+    fn default() -> Self {
+        Uint256Builder([0; 32])
+    }
+}
+impl molecule::prelude::Entity for Uint256 {
+    type Builder = Uint256Builder;
+    fn new_unchecked(data: molecule::bytes::Bytes) -> Self {
+        Uint256(data)
+    }
+    fn as_bytes(&self) -> molecule::bytes::Bytes {
+        self.0.clone()
+    }
+    fn as_slice(&self) -> &[u8] {
+        &self.0[..]
+    }
+    fn from_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        Uint256Reader::from_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn from_compatible_slice(slice: &[u8]) -> molecule::error::VerificationResult<Self> {
+        Uint256Reader::from_compatible_slice(slice).map(|reader| reader.to_entity())
+    }
+    fn new_builder() -> Self::Builder {
+        ::std::default::Default::default()
+    }
+    fn as_builder(self) -> Self::Builder {
+        Self::new_builder().set([
+            self.nth0(),
+            self.nth1(),
+            self.nth2(),
+            self.nth3(),
+            self.nth4(),
+            self.nth5(),
+            self.nth6(),
+            self.nth7(),
+            self.nth8(),
+            self.nth9(),
+            self.nth10(),
+            self.nth11(),
+            self.nth12(),
+            self.nth13(),
+            self.nth14(),
+            self.nth15(),
+            self.nth16(),
+            self.nth17(),
+            self.nth18(),
+            self.nth19(),
+            self.nth20(),
+            self.nth21(),
+            self.nth22(),
+            self.nth23(),
+            self.nth24(),
+            self.nth25(),
+            self.nth26(),
+            self.nth27(),
+            self.nth28(),
+            self.nth29(),
+            self.nth30(),
+            self.nth31(),
+        ])
+    }
+}
+impl ::std::default::Default for Uint256 {
+    fn default() -> Self {
+        let v: Vec<u8> = vec![
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
+        ];
+        Uint256::new_unchecked(v.into())
+    }
+}
+impl Uint256 {
+    pub const NAME: &'static str = "Uint256";
+    pub fn as_reader<'r>(&'r self) -> Uint256Reader<'r> {
+        Uint256Reader::new_unchecked(self.as_slice())
+    }
+    pub const TOTAL_SIZE: usize = 32;
+    pub const ITEM_SIZE: usize = 1;
+    pub const ITEM_COUNT: usize = 32;
+    pub fn raw_data(&self) -> molecule::bytes::Bytes {
+        self.as_bytes()
+    }
+    pub fn nth0(&self) -> u8 {
+        self.0[0]
+    }
+    pub fn nth1(&self) -> u8 {
+        self.0[1]
+    }
+    pub fn nth2(&self) -> u8 {
+        self.0[2]
+    }
+    pub fn nth3(&self) -> u8 {
+        self.0[3]
+    }
+    pub fn nth4(&self) -> u8 {
+        self.0[4]
+    }
+    pub fn nth5(&self) -> u8 {
+        self.0[5]
+    }
+    pub fn nth6(&self) -> u8 {
+        self.0[6]
+    }
+    pub fn nth7(&self) -> u8 {
+        self.0[7]
+    }
+    pub fn nth8(&self) -> u8 {
+        self.0[8]
+    }
+    pub fn nth9(&self) -> u8 {
+        self.0[9]
+    }
+    pub fn nth10(&self) -> u8 {
+        self.0[10]
+    }
+    pub fn nth11(&self) -> u8 {
+        self.0[11]
+    }
+    pub fn nth12(&self) -> u8 {
+        self.0[12]
+    }
+    pub fn nth13(&self) -> u8 {
+        self.0[13]
+    }
+    pub fn nth14(&self) -> u8 {
+        self.0[14]
+    }
+    pub fn nth15(&self) -> u8 {
+        self.0[15]
+    }
+    pub fn nth16(&self) -> u8 {
+        self.0[16]
+    }
+    pub fn nth17(&self) -> u8 {
+        self.0[17]
+    }
+    pub fn nth18(&self) -> u8 {
+        self.0[18]
+    }
+    pub fn nth19(&self) -> u8 {
+        self.0[19]
+    }
+    pub fn nth20(&self) -> u8 {
+        self.0[20]
+    }
+    pub fn nth21(&self) -> u8 {
+        self.0[21]
+    }
+    pub fn nth22(&self) -> u8 {
+        self.0[22]
+    }
+    pub fn nth23(&self) -> u8 {
+        self.0[23]
+    }
+    pub fn nth24(&self) -> u8 {
+        self.0[24]
+    }
+    pub fn nth25(&self) -> u8 {
+        self.0[25]
+    }
+    pub fn nth26(&self) -> u8 {
+        self.0[26]
+    }
+    pub fn nth27(&self) -> u8 {
+        self.0[27]
+    }
+    pub fn nth28(&self) -> u8 {
+        self.0[28]
+    }
+    pub fn nth29(&self) -> u8 {
+        self.0[29]
+    }
+    pub fn nth30(&self) -> u8 {
+        self.0[30]
+    }
+    pub fn nth31(&self) -> u8 {
+        self.0[31]
+    }
+}
+impl<'r> molecule::prelude::Reader<'r> for Uint256Reader<'r> {
+    type Entity = Uint256;
+    fn to_entity(&self) -> Self::Entity {
+        Uint256::new_unchecked(self.as_slice().into())
+    }
+    fn new_unchecked(slice: &'r [u8]) -> Self {
+        Uint256Reader(slice)
+    }
+    fn as_slice(&self) -> &'r [u8] {
+        self.0
+    }
+    fn verify(slice: &[u8], _compatible: bool) -> molecule::error::VerificationResult<()> {
+        use molecule::error::VerificationError;
+        if slice.len() != 32 {
+            let err = VerificationError::TotalSizeNotMatch(Self::NAME.to_owned(), 32, slice.len());
+            Err(err)?;
+        }
+        Ok(())
+    }
+}
+impl<'r> Uint256Reader<'r> {
+    pub const NAME: &'r str = "Uint256Reader";
+    pub const TOTAL_SIZE: usize = 32;
+    pub const ITEM_SIZE: usize = 1;
+    pub const ITEM_COUNT: usize = 32;
+    pub fn raw_data(&self) -> &'r [u8] {
+        self.as_slice()
+    }
+    pub fn nth0(&self) -> u8 {
+        self.0[0]
+    }
+    pub fn nth1(&self) -> u8 {
+        self.0[1]
+    }
+    pub fn nth2(&self) -> u8 {
+        self.0[2]
+    }
+    pub fn nth3(&self) -> u8 {
+        self.0[3]
+    }
+    pub fn nth4(&self) -> u8 {
+        self.0[4]
+    }
+    pub fn nth5(&self) -> u8 {
+        self.0[5]
+    }
+    pub fn nth6(&self) -> u8 {
+        self.0[6]
+    }
+    pub fn nth7(&self) -> u8 {
+        self.0[7]
+    }
+    pub fn nth8(&self) -> u8 {
+        self.0[8]
+    }
+    pub fn nth9(&self) -> u8 {
+        self.0[9]
+    }
+    pub fn nth10(&self) -> u8 {
+        self.0[10]
+    }
+    pub fn nth11(&self) -> u8 {
+        self.0[11]
+    }
+    pub fn nth12(&self) -> u8 {
+        self.0[12]
+    }
+    pub fn nth13(&self) -> u8 {
+        self.0[13]
+    }
+    pub fn nth14(&self) -> u8 {
+        self.0[14]
+    }
+    pub fn nth15(&self) -> u8 {
+        self.0[15]
+    }
+    pub fn nth16(&self) -> u8 {
+        self.0[16]
+    }
+    pub fn nth17(&self) -> u8 {
+        self.0[17]
+    }
+    pub fn nth18(&self) -> u8 {
+        self.0[18]
+    }
+    pub fn nth19(&self) -> u8 {
+        self.0[19]
+    }
+    pub fn nth20(&self) -> u8 {
+        self.0[20]
+    }
+    pub fn nth21(&self) -> u8 {
+        self.0[21]
+    }
+    pub fn nth22(&self) -> u8 {
+        self.0[22]
+    }
+    pub fn nth23(&self) -> u8 {
+        self.0[23]
+    }
+    pub fn nth24(&self) -> u8 {
+        self.0[24]
+    }
+    pub fn nth25(&self) -> u8 {
+        self.0[25]
+    }
+    pub fn nth26(&self) -> u8 {
+        self.0[26]
+    }
+    pub fn nth27(&self) -> u8 {
+        self.0[27]
+    }
+    pub fn nth28(&self) -> u8 {
+        self.0[28]
+    }
+    pub fn nth29(&self) -> u8 {
+        self.0[29]
+    }
+    pub fn nth30(&self) -> u8 {
+        self.0[30]
+    }
+    pub fn nth31(&self) -> u8 {
+        self.0[31]
+    }
+}
+impl molecule::prelude::Builder for Uint256Builder {
+    type Entity = Uint256;
+    fn expected_length(&self) -> usize {
+        32
+    }
+    fn write<W: ::std::io::Write>(&self, writer: &mut W) -> ::std::io::Result<()> {
+        writer.write_all(&self.0)?;
+        Ok(())
+    }
+    fn build(&self) -> Self::Entity {
+        let mut inner = Vec::with_capacity(self.expected_length());
+        self.write(&mut inner).expect("write vector should be ok");
+        Uint256::new_unchecked(inner.into())
+    }
+}
+impl Uint256Builder {
+    pub const NAME: &'static str = "Uint256Builder";
+    pub fn set(mut self, v: [u8; 32]) -> Self {
+        self.0 = v;
+        self
+    }
+    pub fn nth0(mut self, v: u8) -> Self {
+        self.0[0] = v;
+        self
+    }
+    pub fn nth1(mut self, v: u8) -> Self {
+        self.0[1] = v;
+        self
+    }
+    pub fn nth2(mut self, v: u8) -> Self {
+        self.0[2] = v;
+        self
+    }
+    pub fn nth3(mut self, v: u8) -> Self {
+        self.0[3] = v;
+        self
+    }
+    pub fn nth4(mut self, v: u8) -> Self {
+        self.0[4] = v;
+        self
+    }
+    pub fn nth5(mut self, v: u8) -> Self {
+        self.0[5] = v;
+        self
+    }
+    pub fn nth6(mut self, v: u8) -> Self {
+        self.0[6] = v;
+        self
+    }
+    pub fn nth7(mut self, v: u8) -> Self {
+        self.0[7] = v;
+        self
+    }
+    pub fn nth8(mut self, v: u8) -> Self {
+        self.0[8] = v;
+        self
+    }
+    pub fn nth9(mut self, v: u8) -> Self {
+        self.0[9] = v;
+        self
+    }
+    pub fn nth10(mut self, v: u8) -> Self {
+        self.0[10] = v;
+        self
+    }
+    pub fn nth11(mut self, v: u8) -> Self {
+        self.0[11] = v;
+        self
+    }
+    pub fn nth12(mut self, v: u8) -> Self {
+        self.0[12] = v;
+        self
+    }
+    pub fn nth13(mut self, v: u8) -> Self {
+        self.0[13] = v;
+        self
+    }
+    pub fn nth14(mut self, v: u8) -> Self {
+        self.0[14] = v;
+        self
+    }
+    pub fn nth15(mut self, v: u8) -> Self {
+        self.0[15] = v;
+        self
+    }
+    pub fn nth16(mut self, v: u8) -> Self {
+        self.0[16] = v;
+        self
+    }
+    pub fn nth17(mut self, v: u8) -> Self {
+        self.0[17] = v;
+        self
+    }
+    pub fn nth18(mut self, v: u8) -> Self {
+        self.0[18] = v;
+        self
+    }
+    pub fn nth19(mut self, v: u8) -> Self {
+        self.0[19] = v;
+        self
+    }
+    pub fn nth20(mut self, v: u8) -> Self {
+        self.0[20] = v;
+        self
+    }
+    pub fn nth21(mut self, v: u8) -> Self {
+        self.0[21] = v;
+        self
+    }
+    pub fn nth22(mut self, v: u8) -> Self {
+        self.0[22] = v;
+        self
+    }
+    pub fn nth23(mut self, v: u8) -> Self {
+        self.0[23] = v;
+        self
+    }
+    pub fn nth24(mut self, v: u8) -> Self {
+        self.0[24] = v;
+        self
+    }
+    pub fn nth25(mut self, v: u8) -> Self {
+        self.0[25] = v;
+        self
+    }
+    pub fn nth26(mut self, v: u8) -> Self {
+        self.0[26] = v;
+        self
+    }
+    pub fn nth27(mut self, v: u8) -> Self {
+        self.0[27] = v;
+        self
+    }
+    pub fn nth28(mut self, v: u8) -> Self {
+        self.0[28] = v;
+        self
+    }
+    pub fn nth29(mut self, v: u8) -> Self {
+        self.0[29] = v;
+        self
+    }
+    pub fn nth30(mut self, v: u8) -> Self {
+        self.0[30] = v;
+        self
+    }
+    pub fn nth31(mut self, v: u8) -> Self {
+        self.0[31] = v;
+        self
+    }
+}
+#[derive(Clone)]
 pub struct Bytes(molecule::bytes::Bytes);
 #[derive(Clone, Copy)]
 pub struct BytesReader<'r>(&'r [u8]);
@@ -8863,7 +9367,7 @@ pub struct RawHeaderBuilder {
     pub(crate) transactions_root: Byte32,
     pub(crate) witnesses_root: Byte32,
     pub(crate) proposals_hash: Byte32,
-    pub(crate) difficulty: Byte32,
+    pub(crate) difficulty: Uint256,
     pub(crate) uncles_hash: Byte32,
     pub(crate) dao: Byte32,
     pub(crate) chain_root: Byte32,
@@ -8957,8 +9461,8 @@ impl RawHeader {
     pub fn proposals_hash(&self) -> Byte32 {
         Byte32::new_unchecked(self.0.slice(128, 160))
     }
-    pub fn difficulty(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(160, 192))
+    pub fn difficulty(&self) -> Uint256 {
+        Uint256::new_unchecked(self.0.slice(160, 192))
     }
     pub fn uncles_hash(&self) -> Byte32 {
         Byte32::new_unchecked(self.0.slice(192, 224))
@@ -8996,7 +9500,7 @@ impl<'r> molecule::prelude::Reader<'r> for RawHeaderReader<'r> {
         Byte32Reader::verify(&slice[64..96], _compatible)?;
         Byte32Reader::verify(&slice[96..128], _compatible)?;
         Byte32Reader::verify(&slice[128..160], _compatible)?;
-        Byte32Reader::verify(&slice[160..192], _compatible)?;
+        Uint256Reader::verify(&slice[160..192], _compatible)?;
         Byte32Reader::verify(&slice[192..224], _compatible)?;
         Byte32Reader::verify(&slice[224..256], _compatible)?;
         Byte32Reader::verify(&slice[256..288], _compatible)?;
@@ -9035,8 +9539,8 @@ impl<'r> RawHeaderReader<'r> {
     pub fn proposals_hash(&self) -> Byte32Reader<'r> {
         Byte32Reader::new_unchecked(&self.as_slice()[128..160])
     }
-    pub fn difficulty(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[160..192])
+    pub fn difficulty(&self) -> Uint256Reader<'r> {
+        Uint256Reader::new_unchecked(&self.as_slice()[160..192])
     }
     pub fn uncles_hash(&self) -> Byte32Reader<'r> {
         Byte32Reader::new_unchecked(&self.as_slice()[192..224])
@@ -9113,7 +9617,7 @@ impl RawHeaderBuilder {
         self.proposals_hash = v;
         self
     }
-    pub fn difficulty(mut self, v: Byte32) -> Self {
+    pub fn difficulty(mut self, v: Uint256) -> Self {
         self.difficulty = v;
         self
     }
@@ -9969,7 +10473,7 @@ impl<'r> ::std::fmt::Display for HeaderDigestReader<'r> {
 #[derive(Debug, Default)]
 pub struct HeaderDigestBuilder {
     pub(crate) hash: Byte32,
-    pub(crate) total_difficulty: Byte32,
+    pub(crate) total_difficulty: Uint256,
 }
 impl molecule::prelude::Entity for HeaderDigest {
     type Builder = HeaderDigestBuilder;
@@ -10018,8 +10522,8 @@ impl HeaderDigest {
     pub fn hash(&self) -> Byte32 {
         Byte32::new_unchecked(self.0.slice(0, 32))
     }
-    pub fn total_difficulty(&self) -> Byte32 {
-        Byte32::new_unchecked(self.0.slice(32, 64))
+    pub fn total_difficulty(&self) -> Uint256 {
+        Uint256::new_unchecked(self.0.slice(32, 64))
     }
 }
 impl<'r> molecule::prelude::Reader<'r> for HeaderDigestReader<'r> {
@@ -10040,7 +10544,7 @@ impl<'r> molecule::prelude::Reader<'r> for HeaderDigestReader<'r> {
             Err(err)?;
         }
         Byte32Reader::verify(&slice[0..32], _compatible)?;
-        Byte32Reader::verify(&slice[32..64], _compatible)?;
+        Uint256Reader::verify(&slice[32..64], _compatible)?;
         Ok(())
     }
 }
@@ -10052,8 +10556,8 @@ impl<'r> HeaderDigestReader<'r> {
     pub fn hash(&self) -> Byte32Reader<'r> {
         Byte32Reader::new_unchecked(&self.as_slice()[0..32])
     }
-    pub fn total_difficulty(&self) -> Byte32Reader<'r> {
-        Byte32Reader::new_unchecked(&self.as_slice()[32..64])
+    pub fn total_difficulty(&self) -> Uint256Reader<'r> {
+        Uint256Reader::new_unchecked(&self.as_slice()[32..64])
     }
 }
 impl molecule::prelude::Builder for HeaderDigestBuilder {
@@ -10078,7 +10582,7 @@ impl HeaderDigestBuilder {
         self.hash = v;
         self
     }
-    pub fn total_difficulty(mut self, v: Byte32) -> Self {
+    pub fn total_difficulty(mut self, v: Uint256) -> Self {
         self.total_difficulty = v;
         self
     }
@@ -11022,7 +11526,7 @@ impl<'r> ::std::fmt::Display for BlockExtReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct BlockExtBuilder {
-    pub(crate) total_difficulty: Byte32,
+    pub(crate) total_difficulty: Uint256,
     pub(crate) total_uncles_count: Uint64,
     pub(crate) received_at: Uint64,
     pub(crate) txs_fees: Uint64Vec,
@@ -11084,11 +11588,11 @@ impl BlockExt {
         let (_, real_fields_count, _) = Self::field_offsets(self);
         Self::FIELD_COUNT == real_fields_count
     }
-    pub fn total_difficulty(&self) -> Byte32 {
+    pub fn total_difficulty(&self) -> Uint256 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
+        Uint256::new_unchecked(self.0.slice(start, end))
     }
     pub fn total_uncles_count(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
@@ -11197,7 +11701,7 @@ impl<'r> molecule::prelude::Reader<'r> for BlockExtReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        Uint256Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Uint64Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
         Uint64Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Uint64VecReader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
@@ -11219,11 +11723,11 @@ impl<'r> BlockExtReader<'r> {
         let (_, real_fields_count, _) = Self::field_offsets(self);
         Self::FIELD_COUNT == real_fields_count
     }
-    pub fn total_difficulty(&self) -> Byte32Reader<'r> {
+    pub fn total_difficulty(&self) -> Uint256Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint256Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn total_uncles_count(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
@@ -11310,7 +11814,7 @@ impl molecule::prelude::Builder for BlockExtBuilder {
 }
 impl BlockExtBuilder {
     pub const NAME: &'static str = "BlockExtBuilder";
-    pub fn total_difficulty(mut self, v: Byte32) -> Self {
+    pub fn total_difficulty(mut self, v: Uint256) -> Self {
         self.total_difficulty = v;
         self
     }
@@ -11413,9 +11917,9 @@ impl<'r> ::std::fmt::Display for EpochExtReader<'r> {
 }
 #[derive(Debug, Default)]
 pub struct EpochExtBuilder {
-    pub(crate) previous_epoch_hash_rate: Byte32,
+    pub(crate) previous_epoch_hash_rate: Uint256,
     pub(crate) last_block_hash_in_previous_epoch: Byte32,
-    pub(crate) difficulty: Byte32,
+    pub(crate) difficulty: Uint256,
     pub(crate) number: Uint64,
     pub(crate) base_block_reward: Uint64,
     pub(crate) remainder_reward: Uint64,
@@ -11485,11 +11989,11 @@ impl EpochExt {
         let (_, real_fields_count, _) = Self::field_offsets(self);
         Self::FIELD_COUNT == real_fields_count
     }
-    pub fn previous_epoch_hash_rate(&self) -> Byte32 {
+    pub fn previous_epoch_hash_rate(&self) -> Uint256 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
+        Uint256::new_unchecked(self.0.slice(start, end))
     }
     pub fn last_block_hash_in_previous_epoch(&self) -> Byte32 {
         let (_, _, offsets) = Self::field_offsets(self);
@@ -11497,11 +12001,11 @@ impl EpochExt {
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Byte32::new_unchecked(self.0.slice(start, end))
     }
-    pub fn difficulty(&self) -> Byte32 {
+    pub fn difficulty(&self) -> Uint256 {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         let end = u32::from_le(offsets[2 + 1]) as usize;
-        Byte32::new_unchecked(self.0.slice(start, end))
+        Uint256::new_unchecked(self.0.slice(start, end))
     }
     pub fn number(&self) -> Uint64 {
         let (_, _, offsets) = Self::field_offsets(self);
@@ -11616,9 +12120,9 @@ impl<'r> molecule::prelude::Reader<'r> for EpochExtReader<'r> {
             let err = VerificationError::OffsetsNotMatch(Self::NAME.to_owned());
             Err(err)?;
         }
-        Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
+        Uint256Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         Byte32Reader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        Byte32Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        Uint256Reader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Uint64Reader::verify(&slice[offsets[3]..offsets[4]], compatible)?;
         Uint64Reader::verify(&slice[offsets[4]..offsets[5]], compatible)?;
         Uint64Reader::verify(&slice[offsets[5]..offsets[6]], compatible)?;
@@ -11641,11 +12145,11 @@ impl<'r> EpochExtReader<'r> {
         let (_, real_fields_count, _) = Self::field_offsets(self);
         Self::FIELD_COUNT == real_fields_count
     }
-    pub fn previous_epoch_hash_rate(&self) -> Byte32Reader<'r> {
+    pub fn previous_epoch_hash_rate(&self) -> Uint256Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[0]) as usize;
         let end = u32::from_le(offsets[0 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint256Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn last_block_hash_in_previous_epoch(&self) -> Byte32Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
@@ -11653,11 +12157,11 @@ impl<'r> EpochExtReader<'r> {
         let end = u32::from_le(offsets[1 + 1]) as usize;
         Byte32Reader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn difficulty(&self) -> Byte32Reader<'r> {
+    pub fn difficulty(&self) -> Uint256Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         let end = u32::from_le(offsets[2 + 1]) as usize;
-        Byte32Reader::new_unchecked(&self.as_slice()[start..end])
+        Uint256Reader::new_unchecked(&self.as_slice()[start..end])
     }
     pub fn number(&self) -> Uint64Reader<'r> {
         let (_, _, offsets) = Self::field_offsets(self);
@@ -11771,7 +12275,7 @@ impl molecule::prelude::Builder for EpochExtBuilder {
 }
 impl EpochExtBuilder {
     pub const NAME: &'static str = "EpochExtBuilder";
-    pub fn previous_epoch_hash_rate(mut self, v: Byte32) -> Self {
+    pub fn previous_epoch_hash_rate(mut self, v: Uint256) -> Self {
         self.previous_epoch_hash_rate = v;
         self
     }
@@ -11779,7 +12283,7 @@ impl EpochExtBuilder {
         self.last_block_hash_in_previous_epoch = v;
         self
     }
-    pub fn difficulty(mut self, v: Byte32) -> Self {
+    pub fn difficulty(mut self, v: Uint256) -> Self {
         self.difficulty = v;
         self
     }
