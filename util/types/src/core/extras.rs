@@ -186,6 +186,21 @@ impl EpochExt {
         );
         EpochNumberWithFraction::new(self.number(), number - self.start_number(), self.length())
     }
+
+    // We name this issurance since it covers multiple parts: block reward,
+    // NervosDAO issurance as well as treasury part.
+    pub fn secondary_block_issurance(
+        &self,
+        block_number: BlockNumber,
+        secondary_epoch_issurance: Capacity,
+    ) -> Result<Capacity, Error> {
+        let mut g2 = Capacity::shannons(secondary_epoch_issurance.as_u64() / self.length());
+        let remainder = secondary_epoch_issurance.as_u64() % self.length();
+        if block_number >= self.start_number() && block_number < self.start_number() + remainder {
+            g2 = g2.safe_add(Capacity::one())?;
+        }
+        Ok(g2)
+    }
 }
 
 impl EpochExtBuilder {

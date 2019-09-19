@@ -7,6 +7,8 @@ pub enum DaoError {
     InvalidHeader,
     InvalidOutPoint,
     InvalidDaoFormat,
+    Overflow,
+    ZeroC,
 }
 
 impl From<DaoError> for Error {

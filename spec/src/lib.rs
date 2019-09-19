@@ -10,10 +10,10 @@
 //! details https://docs.rs/toml/0.5.0/toml/ser/index.html
 
 use crate::consensus::{
-    Consensus, ConsensusBuilder, SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH,
+    build_genesis_dao_data, build_genesis_epoch_ext, Consensus, ConsensusBuilder,
+    SATOSHI_CELL_OCCUPIED_RATIO, SATOSHI_PUBKEY_HASH, TX_PROPOSAL_WINDOW,
 };
 use ckb_crypto::secp::Privkey;
-use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
@@ -25,7 +25,7 @@ use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
     core::{
-        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, Ratio,
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochExt, Ratio,
         ScriptHashType, TransactionBuilder, TransactionView,
     },
     h256, packed,
@@ -33,7 +33,6 @@ use ckb_types::{
     H160, H256, U256,
 };
 pub use error::SpecError;
-use failure::Fail;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
@@ -215,43 +214,46 @@ impl ChainSpec {
     }
 
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
-        let genesis_block = self.genesis.build_block()?;
+        let genesis_epoch_ext =
+            build_genesis_epoch_ext(self.params.epoch_reward, &self.genesis.difficulty);
+        let genesis_block = self.build_block(&genesis_epoch_ext)?;
         self.verify_genesis_hash(&genesis_block)?;
 
-        let consensus = ConsensusBuilder::new(genesis_block, self.params.epoch_reward)
-            .id(self.name.clone())
-            .cellbase_maturity(self.params.cellbase_maturity)
-            .secondary_epoch_reward(self.params.secondary_epoch_reward)
-            .max_block_cycles(self.params.max_block_cycles)
-            .pow(self.pow.clone())
-            .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
-            .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
-            .build();
+        let consensus =
+            ConsensusBuilder::new(genesis_block, self.params.epoch_reward, genesis_epoch_ext)
+                .id(self.name.clone())
+                .cellbase_maturity(self.params.cellbase_maturity)
+                .secondary_epoch_reward(self.params.secondary_epoch_reward)
+                .max_block_cycles(self.params.max_block_cycles)
+                .pow(self.pow.clone())
+                .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
+                .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
+                .build();
 
         Ok(consensus)
     }
-}
 
-impl Genesis {
-    fn build_block(&self) -> Result<BlockView, Box<dyn Error>> {
+    fn build_block(&self, genesis_epoch_ext: &EpochExt) -> Result<BlockView, Box<dyn Error>> {
         let cellbase_transaction = self.build_cellbase_transaction()?;
         // build transaction other than cellbase should return inputs for dao statistics
         let dep_group_transaction = self.build_dep_group_transaction(&cellbase_transaction)?;
-        let dao = genesis_dao_data_with_satoshi_gift(
+        let dao = build_genesis_dao_data(
             vec![&cellbase_transaction, &dep_group_transaction],
-            &self.satoshi_gift.satoshi_pubkey_hash,
-            self.satoshi_gift.satoshi_cell_occupied_ratio,
-        )
-        .map_err(|e| e.compat())?;;
+            &self.genesis.satoshi_gift.satoshi_pubkey_hash,
+            self.genesis.satoshi_gift.satoshi_cell_occupied_ratio,
+            genesis_epoch_ext,
+            TX_PROPOSAL_WINDOW,
+            self.params.secondary_epoch_reward,
+        );
 
         let block = BlockBuilder::default()
-            .version(self.version.pack())
-            .parent_hash(self.parent_hash.pack())
-            .timestamp(self.timestamp.pack())
-            .difficulty(self.difficulty.pack())
-            .uncles_hash(self.uncles_hash.pack())
+            .version(self.genesis.version.pack())
+            .parent_hash(self.genesis.parent_hash.pack())
+            .timestamp(self.genesis.timestamp.pack())
+            .difficulty(self.genesis.difficulty.pack())
+            .uncles_hash(self.genesis.uncles_hash.pack())
             .dao(dao)
-            .nonce(self.nonce.pack())
+            .nonce(self.genesis.nonce.pack())
             .transaction(cellbase_transaction)
             .transaction(dep_group_transaction)
             .build();
@@ -263,7 +265,7 @@ impl Genesis {
     fn check_block(&self, block: &BlockView) -> Result<(), Box<dyn Error>> {
         let mut data_hashes: HashMap<packed::Byte32, (usize, usize)> = HashMap::default();
         let mut type_hashes: HashMap<packed::Byte32, (usize, usize)> = HashMap::default();
-        let genesis_cell_lock: packed::Script = self.genesis_cell.lock.clone().into();
+        let genesis_cell_lock: packed::Script = self.genesis.genesis_cell.lock.clone().into();
         for (tx_index, tx) in block.transactions().into_iter().enumerate() {
             data_hashes.extend(
                 tx.outputs_data()
@@ -356,7 +358,7 @@ impl Genesis {
     fn build_cellbase_transaction(&self) -> Result<TransactionView, Box<dyn Error>> {
         let input = packed::CellInput::new_cellbase_input(0);
         let mut outputs = Vec::<packed::CellOutput>::with_capacity(
-            1 + self.system_cells.len() + self.issued_cells.len(),
+            1 + self.genesis.system_cells.len() + self.genesis.issued_cells.len(),
         );
         let mut outputs_data = Vec::with_capacity(outputs.capacity());
 
@@ -365,13 +367,14 @@ impl Genesis {
         // - system cells, which stores the built-in code blocks.
         // - special issued cell, for dep group cell in next transaction
         // - issued cells
-        let (output, data) = self.genesis_cell.build_output()?;
+        let (output, data) = self.genesis.genesis_cell.build_output()?;
         outputs.push(output);
         outputs_data.push(data);
 
         // The first output cell is genesis cell
         let system_cells_output_index_start = 1;
         let (system_cells_outputs, system_cells_data): (Vec<_>, Vec<_>) = self
+            .genesis
             .system_cells
             .iter()
             .enumerate()
@@ -379,7 +382,7 @@ impl Genesis {
                 system_cell.build_output(
                     &input,
                     system_cells_output_index_start + index as u64,
-                    &self.system_cells_lock,
+                    &self.genesis.system_cells_lock,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -400,10 +403,15 @@ impl Genesis {
         outputs.push(special_issued_cell);
         outputs_data.push(Bytes::new());
 
-        outputs.extend(self.issued_cells.iter().map(IssuedCell::build_output));
-        outputs_data.extend(self.issued_cells.iter().map(|_| Bytes::new()));
+        outputs.extend(
+            self.genesis
+                .issued_cells
+                .iter()
+                .map(IssuedCell::build_output),
+        );
+        outputs_data.extend(self.genesis.issued_cells.iter().map(|_| Bytes::new()));
 
-        let script: packed::Script = self.bootstrap_lock.clone().into();
+        let script: packed::Script = self.genesis.bootstrap_lock.clone().into();
 
         let tx = TransactionBuilder::default()
             .input(input)
@@ -437,6 +445,7 @@ impl Genesis {
         }
 
         let (outputs, outputs_data): (Vec<_>, Vec<_>) = self
+            .genesis
             .dep_groups
             .values()
             .map(|files| {
@@ -455,7 +464,7 @@ impl Genesis {
 
                 let data = Bytes::from(out_points.pack().as_slice());
                 let cell = packed::CellOutput::new_builder()
-                    .lock(self.system_cells_lock.clone().into())
+                    .lock(self.genesis.system_cells_lock.clone().into())
                     .build_exact_capacity(Capacity::bytes(data.len())?)?;
                 Ok((cell, data.pack()))
             })
