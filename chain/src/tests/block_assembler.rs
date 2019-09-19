@@ -123,6 +123,43 @@ fn create_cellbase(number: BlockNumber, epoch: &EpochExt) -> TransactionView {
         .build()
 }
 
+#[cfg(not(disable_faketime))]
+#[test]
+fn test_block_template_timestamp() {
+    let faketime_file = faketime::millis_tempfile(0).expect("create faketime file");
+    ::std::env::set_var("FAKETIME", faketime_file.as_os_str());
+
+    let consensus = Consensus::default();
+    let epoch = consensus.genesis_epoch_ext().clone();
+    let (chain_controller, shared) = start_chain(Some(consensus));
+
+    let genesis = shared
+        .store()
+        .get_block_header(&shared.store().get_block_hash(0).unwrap())
+        .unwrap();
+    let block = gen_block(&genesis, 0, &epoch);
+
+    chain_controller
+        .process_block(Arc::new(block.clone()), false)
+        .unwrap();
+    let tx_pool = shared.tx_pool_controller();
+
+    let mut block_template = tx_pool
+        .get_block_template(None, None, None)
+        .unwrap()
+        .unwrap();
+    while (Into::<u64>::into(block_template.number)) != 2 {
+        block_template = tx_pool
+            .get_block_template(None, None, None)
+            .unwrap()
+            .unwrap()
+    }
+    assert_eq!(
+        Into::<u64>::into(block_template.current_time),
+        block.header().timestamp() + 1
+    );
+}
+
 #[test]
 fn test_prepare_uncles() {
     let mut consensus = Consensus::default();
@@ -138,13 +175,6 @@ fn test_prepare_uncles() {
 
     let block0_0 = gen_block(&genesis, 11, &epoch);
     let block0_1 = gen_block(&genesis, 10, &epoch);
-    let hash0_0: H256 = block0_0.hash().unpack();
-    let hash0_1: H256 = block0_1.hash().unpack();
-    let (block0_0, block0_1) = if hash0_0 < hash0_1 {
-        (block0_1, block0_0)
-    } else {
-        (block0_0, block0_1)
-    };
 
     let last_epoch = epoch.clone();
     let epoch = shared
