@@ -5,6 +5,9 @@ use log::info;
 
 pub struct SizeLimit;
 
+const MAX_CYCLES_FOR_SIZE_LIMIT: u64 = 200_000_000_000;
+const MAX_MEM_SIZE_FOR_SIZE_LIMIT: usize = 2000;
+
 impl Spec for SizeLimit {
     crate::name!("size_limit");
 
@@ -14,24 +17,37 @@ impl Spec for SizeLimit {
         info!("Generate 1 block on node");
         node.generate_block();
 
-        info!("Generate 5 txs on node");
+        info!("Generate 1 tx on node");
         let mut txs_hash = Vec::new();
-        let mut hash = node.generate_transaction();
+        let tx = node.new_transaction_spend_tip_cellbase();
+        let mut hash = node.submit_transaction(&tx);
         txs_hash.push(hash.clone());
 
-        (0..4).for_each(|_| {
+        let tx_pool_info = node.rpc_client().tx_pool_info();
+        let one_tx_size = tx_pool_info.total_tx_size.value();
+        let one_tx_cycles = tx_pool_info.total_tx_cycles.value();
+
+        info!(
+            "one_tx_cycles: {}, one_tx_size: {}",
+            one_tx_cycles, one_tx_size
+        );
+
+        let max_tx_num = (MAX_MEM_SIZE_FOR_SIZE_LIMIT as u64) / one_tx_size;
+
+        assert!(one_tx_cycles * max_tx_num < MAX_CYCLES_FOR_SIZE_LIMIT);
+
+        info!("Generate as much as possible txs on node");
+        (0..(max_tx_num - 1)).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
-            info!("tx.size: {}", tx.serialized_size());
             hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
-        info!("No.6 tx reach size limit");
+        info!("The next tx reach size limit");
         let tx = node.new_transaction(hash.clone());
         assert_send_transaction_fail(node, &tx, "TransactionPoolFull");
 
-        // 242 * 5
-        node.assert_tx_pool_serialized_size(242 * 5);
+        node.assert_tx_pool_serialized_size(max_tx_num * one_tx_size);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
@@ -41,13 +57,16 @@ impl Spec for SizeLimit {
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         Box::new(|config| {
-            config.tx_pool.max_mem_size = 242 * 5;
-            config.tx_pool.max_cycles = 200_000_000_000;
+            config.tx_pool.max_mem_size = MAX_MEM_SIZE_FOR_SIZE_LIMIT;
+            config.tx_pool.max_cycles = MAX_CYCLES_FOR_SIZE_LIMIT;
         })
     }
 }
 
 pub struct CyclesLimit;
+
+const MAX_CYCLES_FOR_CYCLE_LIMIT: u64 = 100;
+const MAX_MEM_SIZE_FOR_CYCLE_LIMIT: usize = 20_000_000;
 
 impl Spec for CyclesLimit {
     crate::name!("cycles_limit");
@@ -58,24 +77,37 @@ impl Spec for CyclesLimit {
         info!("Generate 1 block on node");
         node.generate_block();
 
-        info!("Generate 5 txs on node");
+        info!("Generate 1 tx on node");
         let mut txs_hash = Vec::new();
-        let mut hash = node.generate_transaction();
+        let tx = node.new_transaction_spend_tip_cellbase();
+        let mut hash = node.submit_transaction(&tx);
         txs_hash.push(hash.clone());
 
-        (0..4).for_each(|_| {
+        let tx_pool_info = node.rpc_client().tx_pool_info();
+        let one_tx_cycles = tx_pool_info.total_tx_cycles.value();
+        let one_tx_size = tx.serialized_size();
+
+        info!(
+            "one_tx_cycles: {}, one_tx_size: {}",
+            one_tx_cycles, one_tx_size
+        );
+
+        let max_tx_num = MAX_CYCLES_FOR_CYCLE_LIMIT / one_tx_cycles;
+
+        assert!(one_tx_size * (max_tx_num as usize) < MAX_MEM_SIZE_FOR_CYCLE_LIMIT);
+
+        info!("Generate as much as possible txs on node");
+        (0..(max_tx_num - 1)).for_each(|_| {
             let tx = node.new_transaction(hash.clone());
-            info!("tx.size: {}", tx.serialized_size());
             hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
         });
 
-        info!("No.6 tx reach cycles limit");
+        info!("The next tx reach cycles limit");
         let tx = node.new_transaction(hash.clone());
         assert_send_transaction_fail(node, &tx, "TransactionPoolFull");
 
-        // 12 * 5
-        node.assert_tx_pool_cycles(60);
+        node.assert_tx_pool_cycles(max_tx_num * one_tx_cycles);
         (0..DEFAULT_TX_PROPOSAL_WINDOW.0).for_each(|_| {
             node.generate_block();
         });
@@ -85,8 +117,8 @@ impl Spec for CyclesLimit {
 
     fn modify_ckb_config(&self) -> Box<dyn Fn(&mut CKBAppConfig) -> ()> {
         Box::new(|config| {
-            config.tx_pool.max_mem_size = 20_000_000;
-            config.tx_pool.max_cycles = 60;
+            config.tx_pool.max_mem_size = MAX_MEM_SIZE_FOR_CYCLE_LIMIT;
+            config.tx_pool.max_cycles = MAX_CYCLES_FOR_CYCLE_LIMIT;
         })
     }
 }
