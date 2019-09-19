@@ -176,7 +176,7 @@ impl Spec for SpendSatoshiCell {
 
 fn issue_satoshi_cell(satoshi_pubkey_hash: H160) -> IssuedCell {
     let lock = Script::new_builder()
-        .args(vec![Bytes::from(&satoshi_pubkey_hash.0[..]).pack()].pack())
+        .args(Bytes::from(&satoshi_pubkey_hash.0[..]).pack())
         .code_hash(type_lock_script_code_hash().pack())
         .hash_type(ScriptHashType::Type.pack())
         .build();

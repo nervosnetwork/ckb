@@ -6,7 +6,6 @@ mod error;
 use byteorder::{ByteOrder, LittleEndian};
 use ckb_error::Error;
 use ckb_types::{
-    bytes::Bytes,
     core::{capacity_bytes, Capacity, Ratio, TransactionView},
     packed::{Byte32, OutPoint},
     prelude::*,
@@ -59,8 +58,7 @@ pub fn genesis_dao_data_with_satoshi_gift(
             .try_fold(Capacity::zero(), |capacity, (_, (output, data))| {
                 // detect satoshi gift cell
                 let occupied_capacity = if tx_index == 0
-                    && output.lock().args().get(0).map(|arg| arg.unpack())
-                        == Some(Bytes::from(&satoshi_pubkey_hash.0[..]))
+                    && output.lock().args().raw_data() == satoshi_pubkey_hash.0[..]
                 {
                     Unpack::<Capacity>::unpack(&output.capacity())
                         .safe_mul_ratio(satoshi_cell_occupied_ratio)

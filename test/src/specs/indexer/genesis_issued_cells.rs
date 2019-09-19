@@ -20,7 +20,7 @@ impl Spec for GenesisIssuedCells {
         let node0 = &net.nodes[0];
 
         let lock_hash = Script::new_builder()
-            .args(vec![Bytes::from(vec![1]).pack(), Bytes::from(vec![2]).pack()].pack())
+            .args(Bytes::from(vec![1, 2]).pack())
             .code_hash(
                 // The second output's type_id script hash
                 h256!("0xa20df8e80518e9b2eabc1a0efb0ebe1de83f8df9c867edf99d0c5895654fcde1").pack(),
@@ -49,7 +49,7 @@ impl Spec for GenesisIssuedCells {
             spec_config.genesis.issued_cells = vec![IssuedCell {
                 capacity: capacity_bytes!(5_000),
                 lock: Script::new_builder()
-                    .args(vec![Bytes::from(vec![1]).pack(), Bytes::from(vec![2]).pack()].pack())
+                    .args(Bytes::from(vec![1, 2]).pack())
                     .code_hash(
                         // The second output's type_id script hash
                         h256!("0xa20df8e80518e9b2eabc1a0efb0ebe1de83f8df9c867edf99d0c5895654fcde1")

@@ -34,8 +34,7 @@ impl<'a> TypeIdSystemScript<'a> {
         // TYPE_ID script should only accept one argument,
         // which is the hash of all inputs when creating
         // the cell.
-        if self.script_group.script.args().len() != 1
-            || self.script_group.script.args().get(0).unwrap().len() != 32
+        if self.script_group.script.args().len() != 1 || self.script_group.script.args().len() != 32
         {
             Err(ScriptError::ValidationFailure(ERROR_ARGS))?;
         }
@@ -73,7 +72,7 @@ impl<'a> TypeIdSystemScript<'a> {
             let mut ret = [0; 32];
             blake2b.finalize(&mut ret);
 
-            if ret[..] != self.script_group.script.args().get(0).unwrap().raw_data()[..] {
+            if ret[..] != self.script_group.script.args().raw_data()[..] {
                 Err(ScriptError::ValidationFailure(ERROR_INVALID_INPUT_HASH))?;
             }
         }

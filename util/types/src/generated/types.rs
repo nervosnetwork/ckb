@@ -7269,13 +7269,13 @@ impl<'r> ::std::fmt::Display for ScriptReader<'r> {
 pub struct ScriptBuilder {
     pub(crate) code_hash: Byte32,
     pub(crate) hash_type: ScriptHashType,
-    pub(crate) args: BytesVec,
+    pub(crate) args: Bytes,
 }
 impl ::std::default::Default for Script {
     fn default() -> Self {
         let v: Vec<u8> = vec![
             53, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         Script::new_unchecked(v.into())
     }
@@ -7336,14 +7336,14 @@ impl Script {
         let end = u32::from_le(offsets[1 + 1]) as usize;
         ScriptHashType::new_unchecked(self.0.slice(start, end))
     }
-    pub fn args(&self) -> BytesVec {
+    pub fn args(&self) -> Bytes {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         if count == 3 {
-            BytesVec::new_unchecked(self.0.slice_from(start))
+            Bytes::new_unchecked(self.0.slice_from(start))
         } else {
             let end = u32::from_le(offsets[2 + 1]) as usize;
-            BytesVec::new_unchecked(self.0.slice(start, end))
+            Bytes::new_unchecked(self.0.slice(start, end))
         }
     }
 }
@@ -7427,7 +7427,7 @@ impl<'r> molecule::prelude::Reader<'r> for ScriptReader<'r> {
         }
         Byte32Reader::verify(&slice[offsets[0]..offsets[1]], compatible)?;
         ScriptHashTypeReader::verify(&slice[offsets[1]..offsets[2]], compatible)?;
-        BytesVecReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
+        BytesReader::verify(&slice[offsets[2]..offsets[3]], compatible)?;
         Ok(())
     }
 }
@@ -7457,14 +7457,14 @@ impl<'r> ScriptReader<'r> {
         let end = u32::from_le(offsets[1 + 1]) as usize;
         ScriptHashTypeReader::new_unchecked(&self.as_slice()[start..end])
     }
-    pub fn args(&self) -> BytesVecReader<'r> {
+    pub fn args(&self) -> BytesReader<'r> {
         let (_, count, offsets) = Self::field_offsets(self);
         let start = u32::from_le(offsets[2]) as usize;
         if count == 3 {
-            BytesVecReader::new_unchecked(&self.as_slice()[start..])
+            BytesReader::new_unchecked(&self.as_slice()[start..])
         } else {
             let end = u32::from_le(offsets[2 + 1]) as usize;
-            BytesVecReader::new_unchecked(&self.as_slice()[start..end])
+            BytesReader::new_unchecked(&self.as_slice()[start..end])
         }
     }
 }
@@ -7518,7 +7518,7 @@ impl ScriptBuilder {
         self.hash_type = v;
         self
     }
-    pub fn args(mut self, v: BytesVec) -> Self {
+    pub fn args(mut self, v: Bytes) -> Self {
         self.args = v;
         self
     }
@@ -7896,7 +7896,7 @@ impl ::std::default::Default for CellOutput {
         let v: Vec<u8> = vec![
             77, 0, 0, 0, 16, 0, 0, 0, 24, 0, 0, 0, 77, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 53, 0, 0,
             0, 16, 0, 0, 0, 48, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         CellOutput::new_unchecked(v.into())
     }

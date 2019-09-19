@@ -41,7 +41,7 @@ vector WitnessVec <Witness>;
 table Script {
     code_hash:      Byte32,
     hash_type:      ScriptHashType,
-    args:           BytesVec,
+    args:           Bytes,
 }
 
 struct OutPoint {

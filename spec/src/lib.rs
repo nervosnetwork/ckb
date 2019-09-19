@@ -392,7 +392,7 @@ impl ChainSpec {
         outputs_data.extend(system_cells_data);
 
         let special_issued_lock = packed::Script::new_builder()
-            .args(vec![secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone()))].pack())
+            .args(secp_lock_arg(&Privkey::from(SPECIAL_CELL_PRIVKEY.clone())).pack())
             .code_hash(CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL.clone().pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -477,15 +477,7 @@ impl ChainSpec {
         let input_out_point = cellbase_tx
             .outputs()
             .into_iter()
-            .position(|output| {
-                output
-                    .lock()
-                    .args()
-                    .get(0)
-                    .map(|arg| arg.clone().unpack())
-                    .as_ref()
-                    == Some(&lock_arg)
-            })
+            .position(|output| Unpack::<Bytes>::unpack(&output.lock().args()) == lock_arg)
             .map(|index| packed::OutPoint::new(cellbase_tx.hash(), index as u32))
             .expect("Get special issued input failed");
         let input = packed::CellInput::new(input_out_point, 0);

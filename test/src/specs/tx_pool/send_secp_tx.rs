@@ -160,7 +160,7 @@ impl Spec for CheckTypical2In2OutTx {
             CellInput::new(OutPoint::new(cellbase_hash, 0), 0)
         };
         let lock = Script::new_builder()
-            .args(vec![self.lock_arg.clone()].pack())
+            .args(self.lock_arg.pack())
             .code_hash(type_lock_script_code_hash().pack())
             .hash_type(hash_type.pack())
             .build();
@@ -249,6 +249,6 @@ fn new_block_assembler_config(lock_arg: Bytes, hash_type: ScriptHashType) -> Blo
     BlockAssemblerConfig {
         code_hash,
         hash_type: hash_type.into(),
-        args: vec![JsonBytes::from_bytes(lock_arg.clone())],
+        args: JsonBytes::from_bytes(lock_arg),
     }
 }

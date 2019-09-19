@@ -81,7 +81,7 @@ impl packed::Script {
         code_hash_and_hash_type.push(hash_type as u8);
         packed::Witness::new_builder()
             .push((&code_hash_and_hash_type[..]).pack())
-            .extend(self.args().into_iter())
+            .push(self.args())
             .build()
     }
 
@@ -94,7 +94,9 @@ impl packed::Script {
                 let code_hash = H256::from_slice(&first.raw_data()[..(len - 1)])
                     .expect("impossible: fail to create H256 from slice");
                 if let Ok(hash_type) = ScriptHashType::try_from(first.raw_data()[len - 1]) {
-                    let args = packed::BytesVec::new_builder().extend(args).build();
+                    let args = packed::Bytes::new_builder()
+                        .extend(args.next().should_be_ok())
+                        .build();
                     let script = packed::Script::new_builder()
                         .code_hash(code_hash.pack())
                         .args(args)

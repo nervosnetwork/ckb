@@ -181,8 +181,7 @@ fn sanitize_block_assembler_config(
             };
             if args.block_assembler_advanced
                 || (block_assembler.hash_type == ScriptHashType::Type
-                    && block_assembler.args.len() == 1
-                    && block_assembler.args[0].len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
+                    && block_assembler.args.len() == SECP256K1_BLAKE160_SIGHASH_ALL_ARG_LEN
                     && check_lock_code_hash(&block_assembler.code_hash.pack())?)
             {
                 Some(block_assembler)

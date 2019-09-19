@@ -279,7 +279,7 @@ http://localhost:8114
                     {
                         "capacity": "0x104ca73381",
                         "lock": {
-                            "args": [],
+                            "args": "0x",
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                             "hash_type": "data"
                         },
@@ -429,7 +429,7 @@ http://localhost:8114
             "block_hash": "0x490af0885bc480bf38235526ad4573cd02cf77ebbe0655570e851cd72c2e6a6a",
             "capacity": "0x2ca7071b9e",
             "lock": {
-                "args": [],
+                "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                 "hash_type": "data"
             },
@@ -442,7 +442,7 @@ http://localhost:8114
             "block_hash": "0x10b4df711a951142982a74c329fa57b63387cd73cff76372ad5927df9ecdc602",
             "capacity": "0x2ca7071b9e",
             "lock": {
-                "args": [],
+                "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                 "hash_type": "data"
             },
@@ -497,7 +497,7 @@ http://localhost:8114
             "output": {
                 "capacity": "0x802665800",
                 "lock": {
-                    "args": [],
+                    "args": "0x",
                     "code_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
                     "hash_type": "data"
                 },
@@ -565,7 +565,7 @@ http://localhost:8114
                 {
                     "capacity": "0x174876e800",
                     "lock": {
-                        "args": [],
+                        "args": "0x",
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                         "hash_type": "data"
                     },
@@ -688,7 +688,7 @@ http://localhost:8114
                     {
                         "capacity": "0x104ca73381",
                         "lock": {
-                            "args": [],
+                            "args": "0x",
                             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                             "hash_type": "data"
                         },
@@ -758,7 +758,7 @@ echo '{
                 {
                     "capacity": "0x174876e800",
                     "lock": {
-                        "args": [],
+                        "args": "0x",
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                         "hash_type": "data"
                     },
@@ -838,7 +838,7 @@ echo '{
                 {
                     "capacity": "0x174876e800",
                     "lock": {
-                        "args": [],
+                        "args": "0x",
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                         "hash_type": "data"
                     },
@@ -924,7 +924,7 @@ echo '{
     "method": "_compute_script_hash",
     "params": [
         {
-            "args": [],
+            "args": "0x",
             "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
             "hash_type": "data"
         }
@@ -1054,7 +1054,7 @@ http://localhost:8114
             "cell_output": {
                 "capacity": "0x2ca7071b9e",
                 "lock": {
-                    "args": [],
+                    "args": "0x",
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                     "hash_type": "data"
                 },
@@ -1070,7 +1070,7 @@ http://localhost:8114
             "cell_output": {
                 "capacity": "0x2ca7071b9e",
                 "lock": {
-                    "args": [],
+                    "args": "0x",
                     "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                     "hash_type": "data"
                 },
@@ -1319,7 +1319,7 @@ echo '{
                         {
                             "capacity": "0x104ca73381",
                             "lock": {
-                                "args": [],
+                                "args": "0x",
                                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                                 "hash_type": "data"
                             },
@@ -1580,7 +1580,7 @@ echo '{
                 {
                     "capacity": "0x174876e800",
                     "lock": {
-                        "args": [],
+                        "args": "0x",
                         "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
                         "hash_type": "data"
                     },

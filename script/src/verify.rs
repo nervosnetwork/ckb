@@ -347,13 +347,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             };
         };
         let mut args = vec!["verify".into()];
-        args.extend(
-            script_group
-                .script
-                .args()
-                .into_iter()
-                .map(|arg| arg.raw_data()),
-        );
+        args.push(script_group.script.args().raw_data());
         #[cfg(has_asm)]
         let machine_builder = {
             let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
@@ -436,7 +430,7 @@ mod tests {
     use ckb_test_chain_utils::always_success_cell;
     use ckb_vm::Error as VMInternalError;
     use std::fs::File;
-    use std::io::{Read, Write};
+    use std::io::Read;
     use std::path::Path;
 
     fn sha3_256<T: AsRef<[u8]>>(s: T) -> [u8; 32] {
@@ -469,14 +463,9 @@ mod tests {
         hex_signature
     }
 
-    fn sign_args(args: &[Bytes], privkey: &Privkey) -> Signature {
-        let mut bytes = vec![];
-        for argument in args.iter() {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        privkey.sign_recoverable(&hash2.into()).unwrap()
+    fn sign_args(args: &[u8], privkey: &Privkey) -> Signature {
+        let hash = sha3_256(sha3_256(args));
+        privkey.sign_recoverable(&hash.into()).unwrap()
     }
 
     fn default_transaction_info() -> TransactionInfo {
@@ -536,11 +525,11 @@ mod tests {
         file.read_to_end(&mut buffer).unwrap();
 
         let (privkey, pubkey) = random_keypair();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut args = b"foobar".to_vec();
 
         let signature = sign_args(&args, &privkey);
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
+        args.extend(&to_hex_pubkey(&pubkey));
+        args.extend(&to_hex_signature(&signature));
 
         let code_hash = blake2b_256(&buffer);
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
@@ -557,7 +546,7 @@ mod tests {
             .build();
 
         let script = Script::new_builder()
-            .args(args.pack())
+            .args(Bytes::from(args).pack())
             .code_hash(code_hash.pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -603,11 +592,11 @@ mod tests {
         file.read_to_end(&mut buffer).unwrap();
 
         let (privkey, pubkey) = random_keypair();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut args = b"foobar".to_vec();
 
         let signature = sign_args(&args, &privkey);
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
+        args.extend(&to_hex_pubkey(&pubkey));
+        args.extend(&to_hex_signature(&signature));
 
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
@@ -633,7 +622,7 @@ mod tests {
             .build();
 
         let script = Script::new_builder()
-            .args(args.pack())
+            .args(Bytes::from(args).pack())
             .code_hash(type_hash)
             .hash_type(ScriptHashType::Type.pack())
             .build();
@@ -674,11 +663,11 @@ mod tests {
         let data = Bytes::from(buffer);
 
         let (privkey, pubkey) = random_keypair();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut args = b"foobar".to_vec();
 
         let signature = sign_args(&args, &privkey);
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
+        args.extend(&to_hex_pubkey(&pubkey));
+        args.extend(&to_hex_signature(&signature));
 
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
@@ -724,7 +713,7 @@ mod tests {
             .build();
 
         let script = Script::new_builder()
-            .args(args.pack())
+            .args(Bytes::from(args).pack())
             .code_hash(type_hash)
             .hash_type(ScriptHashType::Type.pack())
             .build();
@@ -762,96 +751,20 @@ mod tests {
     }
 
     #[test]
-    fn check_signature_with_not_enough_cycles() {
-        let mut file = open_cell_verify();
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).unwrap();
-
-        let privkey = Generator::random_privkey();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
-
-        let mut bytes = vec![];
-        for argument in &args {
-            bytes.write_all(argument).unwrap();
-        }
-        let hash1 = sha3_256(&bytes);
-        let hash2 = sha3_256(hash1);
-        let signature = privkey.sign_recoverable(&hash2.into()).unwrap();
-
-        let pubkey = privkey.pubkey().unwrap().serialize();
-        let mut hex_pubkey = vec![0; pubkey.len() * 2];
-        hex_encode(&pubkey, &mut hex_pubkey).expect("hex pubkey");
-        args.push(Bytes::from(hex_pubkey));
-
-        let signature_der = signature.serialize_der();
-        let mut hex_signature = vec![0; signature_der.len() * 2];
-        hex_encode(&signature_der, &mut hex_signature).expect("hex signature");
-        args.push(Bytes::from(hex_signature));
-
-        let code_hash = blake2b_256(&buffer);
-        let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
-        let cell_dep = CellDep::new_builder()
-            .out_point(dep_out_point.clone())
-            .build();
-        let data = Bytes::from(buffer);
-        let output = CellOutputBuilder::default()
-            .capacity(Capacity::bytes(data.len()).unwrap().pack())
-            .build();
-        let dep_cell = CellMetaBuilder::from_cell_output(output.to_owned(), data)
-            .transaction_info(default_transaction_info())
-            .out_point(dep_out_point.clone())
-            .build();
-
-        let script = Script::new_builder()
-            .args(args.pack())
-            .code_hash(code_hash.pack())
-            .hash_type(ScriptHashType::Data.pack())
-            .build();
-        let input = CellInput::new(OutPoint::null(), 0);
-
-        let transaction = TransactionBuilder::default()
-            .input(input.clone())
-            .cell_dep(cell_dep)
-            .build();
-
-        let output = CellOutputBuilder::default()
-            .capacity(capacity_bytes!(100).pack())
-            .lock(script)
-            .build();
-        let dummy_cell = CellMetaBuilder::from_cell_output(output.to_owned(), Bytes::new())
-            .transaction_info(default_transaction_info())
-            .build();
-
-        let rtx = ResolvedTransaction {
-            transaction,
-            resolved_cell_deps: vec![dep_cell],
-            resolved_inputs: vec![dummy_cell],
-            resolved_dep_groups: vec![],
-        };
-
-        let store = new_store();
-        let data_loader = DataLoaderWrapper::new(&store);
-
-        let verifier = TransactionScriptsVerifier::new(&rtx, &data_loader);
-
-        assert!(verifier.verify(100).is_err());
-    }
-
-    #[test]
     fn check_invalid_signature() {
         let mut file = open_cell_verify();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
         let (privkey, pubkey) = random_keypair();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut args = b"foobar".to_vec();
 
         let signature = sign_args(&args, &privkey);
 
         // This line makes the verification invalid
-        args.push(Bytes::from(b"extrastring".to_vec()));
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
+        args.extend(&b"extrastring".to_vec());
+        args.extend(&to_hex_pubkey(&pubkey));
+        args.extend(&to_hex_signature(&signature));
 
         let code_hash = blake2b_256(&buffer);
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
@@ -867,7 +780,7 @@ mod tests {
             .build();
 
         let script = Script::new_builder()
-            .args(args.pack())
+            .args(Bytes::from(args).pack())
             .code_hash(code_hash.pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -910,10 +823,10 @@ mod tests {
         file.read_to_end(&mut buffer).unwrap();
 
         let (privkey, pubkey) = random_keypair();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut args = b"foobar".to_vec();
         let signature = sign_args(&args, &privkey);
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
+        args.extend(&to_hex_pubkey(&pubkey));
+        args.extend(&to_hex_signature(&signature));
 
         let dep_out_point = OutPoint::new(h256!("0x123").pack(), 8);
         let cell_dep = CellDep::new_builder()
@@ -921,7 +834,7 @@ mod tests {
             .build();
 
         let script = Script::new_builder()
-            .args(args.pack())
+            .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -964,10 +877,10 @@ mod tests {
         file.read_to_end(&mut buffer).unwrap();
 
         let (privkey, pubkey) = random_keypair();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut args = b"foobar".to_vec();
         let signature = sign_args(&args, &privkey);
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
+        args.extend(&to_hex_pubkey(&pubkey));
+        args.extend(&to_hex_signature(&signature));
 
         let input = CellInput::new(OutPoint::null(), 0);
         let (always_success_cell, always_success_cell_data, always_success_script) =
@@ -987,7 +900,7 @@ mod tests {
         .build();
 
         let script = Script::new_builder()
-            .args(args.pack())
+            .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -1044,13 +957,13 @@ mod tests {
         file.read_to_end(&mut buffer).unwrap();
 
         let (privkey, pubkey) = random_keypair();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut args = b"foobar".to_vec();
 
         let signature = sign_args(&args, &privkey);
         // This line makes the verification invalid
-        args.push(Bytes::from(b"extrastring".to_vec()));
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
+        args.extend(&b"extrastring".to_vec());
+        args.extend(&to_hex_pubkey(&pubkey));
+        args.extend(&to_hex_signature(&signature));
 
         let input = CellInput::new(OutPoint::null(), 0);
         let (always_success_cell, always_success_cell_data, always_success_script) =
@@ -1070,7 +983,7 @@ mod tests {
         .build();
 
         let script = Script::new_builder()
-            .args(args.pack())
+            .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -1125,14 +1038,14 @@ mod tests {
 
         let privkey = Privkey::from_slice(&[1; 32][..]);
         let pubkey = privkey.pubkey().unwrap();
-        let mut args = vec![Bytes::from(b"foo".to_vec()), Bytes::from(b"bar".to_vec())];
+        let mut args = b"foobar".to_vec();
 
         let signature = sign_args(&args, &privkey);
-        args.push(Bytes::from(to_hex_pubkey(&pubkey)));
-        args.push(Bytes::from(to_hex_signature(&signature)));
+        args.extend(&to_hex_pubkey(&pubkey));
+        args.extend(&to_hex_signature(&signature));
 
         let script = Script::new_builder()
-            .args(args.pack())
+            .args(Bytes::from(args).pack())
             .code_hash(blake2b_256(&buffer).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
@@ -1186,7 +1099,7 @@ mod tests {
         let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
         let type_id_script = Script::new_builder()
-            .args(vec![Bytes::from(h256!("0x1111").as_ref())].pack())
+            .args(Bytes::from(h256!("0x1111").as_ref()).pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
@@ -1246,7 +1159,7 @@ mod tests {
         let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
         let type_id_script = Script::new_builder()
-            .args(vec![Bytes::from(h256!("0x1111").as_ref())].pack())
+            .args(Bytes::from(h256!("0x1111").as_ref()).pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
@@ -1324,7 +1237,7 @@ mod tests {
         };
 
         let type_id_script = Script::new_builder()
-            .args(vec![input_hash].pack())
+            .args(input_hash.pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
@@ -1377,7 +1290,7 @@ mod tests {
         let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
         let type_id_script = Script::new_builder()
-            .args(vec![Bytes::from(h256!("0x1111").as_ref())].pack())
+            .args(Bytes::from(h256!("0x1111").as_ref()).pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
@@ -1457,7 +1370,7 @@ mod tests {
         };
 
         let type_id_script = Script::new_builder()
-            .args(vec![input_hash].pack())
+            .args(input_hash.pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
@@ -1537,7 +1450,7 @@ mod tests {
         };
 
         let type_id_script = Script::new_builder()
-            .args(vec![input_hash].pack())
+            .args(input_hash.pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();
@@ -1593,7 +1506,7 @@ mod tests {
         let always_success_out_point = OutPoint::new(h256!("0x11").pack(), 0);
 
         let type_id_script = Script::new_builder()
-            .args(vec![Bytes::from(h256!("0x1111").as_ref())].pack())
+            .args(Bytes::from(h256!("0x1111").as_ref()).pack())
             .code_hash(TYPE_ID_CODE_HASH.pack())
             .hash_type(ScriptHashType::Type.pack())
             .build();

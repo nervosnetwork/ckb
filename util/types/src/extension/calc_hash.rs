@@ -235,9 +235,7 @@ mod tests {
 
     #[test]
     fn one_arg_script_hash() {
-        let script = packed::Script::new_builder()
-            .args(vec![vec![1].pack()].pack())
-            .build();
+        let script = packed::Script::new_builder().args(vec![1].pack()).build();
         let expect = h256!("0x5a2b913dfb1b79136fc72a575fd8e93ae080b504463c0066fea086482bfc3a94");
         assert_eq!(script.calc_script_hash(), expect.pack());
     }

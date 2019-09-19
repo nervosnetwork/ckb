@@ -15,7 +15,7 @@ message = "rylai-v10"
 
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-args = []
+args = "0x"
 hash_type = "data"
 
 # An array list paths to system cell files, which is absolute or relative to
@@ -35,7 +35,7 @@ create_type_id = true
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-args = []
+args = "0x"
 hash_type = "data"
 
 # Dep group cells
@@ -52,31 +52,31 @@ secp256k1_ripemd160_sha256_sighash_all = [
 # For first 11 block
 [genesis.bootstrap_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-args = []
+args = "0x"
 hash_type = "type"
 
 # Locks for developers to run tests
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-lock.args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x64257f00b6b63e987609fa9be2d0c86d351020fb"
 lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-lock.args = ["0x3f1573b44218d4c12a91919a58a863be415a2bc3"]
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x3f1573b44218d4c12a91919a58a863be415a2bc3"
 lock.hash_type = "type"
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-lock.args = ["0x57ccb07be6875f61d93636b0ee11b675494627d2"]
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x57ccb07be6875f61d93636b0ee11b675494627d2"
 lock.hash_type = "type"
 # Satoshi's gift, a cell send to satoshi's lock,
 # 60% capacity of this cell is occupied.
 [[genesis.issued_cells]]
 capacity = 50_000_000_00000000
-lock.code_hash = "0x9cc3121726ed40c0ece7b43f7f28af712c7f13101f78699c5668341a52ddf280"
-lock.args = ["0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"]
+lock.code_hash = "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8"
+lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
 lock.hash_type = "type"
 
 [pow]

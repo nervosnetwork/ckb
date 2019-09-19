@@ -764,7 +764,7 @@ mod tests {
         machine.set_register(A7, LOAD_SCRIPT_HASH_SYSCALL_NUMBER); // syscall number
 
         let script = Script::new_builder()
-            .args(vec![Bytes::from(data)].pack())
+            .args(Bytes::from(data).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let hash = script.calc_script_hash();
@@ -819,7 +819,7 @@ mod tests {
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER); // syscall number
 
         let script = Script::new_builder()
-            .args(vec![Bytes::from(data)].pack())
+            .args(Bytes::from(data).pack())
             .hash_type(ScriptHashType::Data.pack())
             .build();
         let h = script.calc_script_hash();
