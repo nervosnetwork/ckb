@@ -7,7 +7,8 @@ use rand::{seq::SliceRandom, thread_rng};
 use std::any::Any;
 use std::collections::HashMap;
 use std::env;
-use std::fs::read_to_string;
+use std::fs::{read_to_string, File};
+use std::io::{BufRead, BufReader};
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -30,28 +31,22 @@ fn main() {
         None
     };
 
-    let all_specs = all_specs();
-
     if matches.is_present("list-specs") {
-        let mut names: Vec<_> = all_specs.keys().collect();
-        names.sort();
-        for spec_name in names {
-            println!("{}", spec_name);
-        }
+        list_specs();
         return;
     }
-
-    let specs = filter_specs(all_specs, spec_names_to_run);
 
     info!("binary: {}", binary);
     info!("start port: {}", start_port);
     info!("max time: {:?}", max_time);
 
+    let specs = filter_specs(all_specs(), spec_names_to_run);
     let total = specs.len();
     let start_time = Instant::now();
     let mut specs_iter = specs.into_iter().enumerate();
     let mut rerun_specs = vec![];
-    let mut panic_error: Option<Box<dyn Any + Send>> = None;
+    let mut spec_error: Option<Box<dyn Any + Send>> = None;
+    let mut panicked_error = false;
 
     for (index, (spec_name, spec)) in &mut specs_iter {
         info!(
@@ -84,9 +79,13 @@ fn main() {
             now.elapsed().as_secs()
         );
 
-        // Tail nodes' logs when fails
-        panic_error = result.err();
-        if panic_error.is_some() || nodes_panicked(&node_dirs) {
+        spec_error = result.err();
+        panicked_error = nodes_panicked(&node_dirs);
+        if panicked_error {
+            print_panicked_logs(&node_dirs);
+            rerun_specs.push(spec_name);
+            break;
+        } else if spec_error.is_some() {
             tail_node_logs(node_dirs);
             rerun_specs.push(spec_name);
             break;
@@ -109,7 +108,7 @@ fn main() {
         return;
     }
 
-    if panic_error.is_some() {
+    if spec_error.is_some() || panicked_error {
         error!("ckb-failed on spec {}", rerun_specs[0]);
         info!("You can rerun remaining specs using following command:");
     } else {
@@ -124,7 +123,7 @@ fn main() {
         rerun_specs.join(" "),
     );
 
-    if let Some(err) = panic_error {
+    if let Some(err) = spec_error {
         panic::resume_unwind(err);
     }
 }
@@ -263,6 +262,15 @@ fn all_specs() -> SpecMap {
     specs.into_iter().map(|spec| (spec.name(), spec)).collect()
 }
 
+fn list_specs() {
+    let all_specs = all_specs();
+    let mut names: Vec<_> = all_specs.keys().collect();
+    names.sort();
+    for spec_name in names {
+        println!("{}", spec_name);
+    }
+}
+
 // grep "panicked at" $node_log_path
 fn nodes_panicked(node_dirs: &[String]) -> bool {
     node_dirs.iter().any(|node_dir| {
@@ -270,6 +278,43 @@ fn nodes_panicked(node_dirs: &[String]) -> bool {
             .expect("failed to read node's log")
             .contains("panicked at")
     })
+}
+
+// sed -n ${{panic_ln-300}},${{panic_ln+300}}p $node_log_path
+fn print_panicked_logs(node_dirs: &[String]) {
+    for (i, node_dir) in node_dirs.iter().enumerate() {
+        let node_log = node_log(&node_dir);
+        let log_reader =
+            BufReader::new(File::open(&node_log).expect("failed to read node's log")).lines();
+        let panic_ln = log_reader.enumerate().find(|(_ln, line)| {
+            line.as_ref()
+                .map(|line| line.contains("panicked at"))
+                .unwrap_or(false)
+        });
+        if panic_ln.is_none() {
+            return;
+        }
+
+        let panic_ln = panic_ln.unwrap().0;
+        let print_lns = 600;
+        let from_ln = panic_ln.saturating_sub(print_lns / 2) + 1;
+        println!(
+            "\n************** (Node.{}) sed -n {},{}p {}",
+            i,
+            from_ln,
+            from_ln + print_lns,
+            node_log.display(),
+        );
+        BufReader::new(File::open(&node_log).expect("failed to read node's log"))
+            .lines()
+            .skip(from_ln)
+            .take(print_lns)
+            .for_each(|line| {
+                if let Ok(line) = line {
+                    println!("{}", line);
+                }
+            });
+    }
 }
 
 // tail -n 2000 $node_log_path
