@@ -17,7 +17,7 @@ use ckb_types::{
 use log::info;
 
 const TX_2_IN_2_OUT_SIZE: usize = 589;
-const TX_2_IN_2_OUT_CYCLES: Cycle = 13_335_200;
+const TX_2_IN_2_OUT_CYCLES: Cycle = 13_363_760;
 
 pub struct SendSecpTxUseDepGroup {
     // secp lock script's hash type
@@ -237,8 +237,7 @@ impl Spec for CheckTypical2In2OutTx {
 fn type_lock_script_code_hash() -> H256 {
     let input = CellInput::new_cellbase_input(0);
     // 0 => genesis cell, which contains a message and can never be spent.
-    // 1 => always success cell, define in integration.toml spec file
-    let output_index: u64 = 2;
+    let output_index: u64 = 1;
     let mut blake2b = new_blake2b();
     blake2b.update(input.as_slice());
     blake2b.update(&output_index.to_le_bytes());

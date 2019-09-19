@@ -330,7 +330,7 @@ impl Node {
         since: u64,
         capacity: Capacity,
     ) -> TransactionView {
-        let always_success_out_point = OutPoint::new(self.genesis_cellbase_hash.clone(), 1);
+        let always_success_out_point = OutPoint::new(self.genesis_cellbase_hash.clone(), 5);
         let always_success_script = self.always_success_script();
 
         core::TransactionBuilder::default()
@@ -384,7 +384,7 @@ impl Node {
         self.always_success_code_hash = CellOutput::calc_data_hash(
             &consensus.genesis_block().transactions()[0]
                 .outputs_data()
-                .get(1)
+                .get(5)
                 .unwrap()
                 .raw_data(),
         );
