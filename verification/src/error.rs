@@ -124,6 +124,7 @@ pub enum CellbaseError {
     InvalidRewardTarget,
     InvalidWitness,
     InvalidTypeScript,
+    InvalidOutputQuantity,
     InvalidQuantity,
     InvalidPosition,
     InvalidOutputData,

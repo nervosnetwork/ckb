@@ -65,18 +65,20 @@ impl CellbaseVerifier {
             return Err((CellbaseError::InvalidPosition).into());
         }
 
-        // cellbase outputs/outputs_data len must eq 1
-        if cellbase_transaction.outputs().len() != 1
-            || cellbase_transaction.outputs_data().len() != 1
+        // cellbase outputs/outputs_data len must le 1
+        if cellbase_transaction.outputs().len() > 1
+            || cellbase_transaction.outputs_data().len() > 1
+            || cellbase_transaction.outputs().len() != cellbase_transaction.outputs_data().len()
         {
-            return Err((CellbaseError::InvalidQuantity).into());
+            return Err((CellbaseError::InvalidOutputQuantity).into());
         }
 
         // cellbase output data must empty
         if !cellbase_transaction
             .outputs_data()
-            .get_unchecked(0)
-            .is_empty()
+            .get(0)
+            .map(|data| data.is_empty())
+            .unwrap_or(true)
         {
             return Err((CellbaseError::InvalidOutputData).into());
         }

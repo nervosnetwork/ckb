@@ -20,7 +20,8 @@ use ckb_types::{
         BlockNumber, BlockReward, BlockView, Capacity, Cycle, EpochExt, EpochNumberWithFraction,
         HeaderView, TransactionView,
     },
-    packed::{Byte32, Script},
+    packed::{Byte32, CellOutput, Script},
+    prelude::*,
 };
 use futures::future::{self, Future};
 use lru_cache::LruCache;
@@ -251,19 +252,29 @@ impl<'a, 'b, CS: ChainStore<'a>> RewardVerifier<'a, 'b, CS> {
     pub fn verify(&self) -> Result<Vec<Capacity>, Error> {
         let cellbase = &self.resolved[0];
         let (target_lock, block_reward) = self.context.finalize_block_reward(self.parent)?;
-        if cellbase.transaction.outputs_capacity()? != block_reward.total {
-            return Err((CellbaseError::InvalidRewardAmount).into());
+
+        let output = CellOutput::new_builder()
+            .capacity(block_reward.total.pack())
+            .lock(target_lock.clone())
+            .build();
+        let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;
+
+        if !insufficient_reward_to_create_cell {
+            if cellbase.transaction.outputs_capacity()? != block_reward.total {
+                return Err((CellbaseError::InvalidRewardAmount).into());
+            }
+            if cellbase
+                .transaction
+                .outputs()
+                .get(0)
+                .expect("cellbase should have output")
+                .lock()
+                != target_lock
+            {
+                return Err((CellbaseError::InvalidRewardTarget).into());
+            }
         }
-        if cellbase
-            .transaction
-            .outputs()
-            .get(0)
-            .expect("cellbase should have output")
-            .lock()
-            != target_lock
-        {
-            return Err((CellbaseError::InvalidRewardTarget).into());
-        }
+
         let txs_fees = self
             .resolved
             .iter()

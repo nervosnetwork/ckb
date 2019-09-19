@@ -12,7 +12,7 @@ use ckb_store::ChainStore;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        BlockNumber, Cycle, EpochExt, HeaderView, TransactionBuilder, TransactionView,
+        BlockNumber, Capacity, Cycle, EpochExt, HeaderView, TransactionBuilder, TransactionView,
         UncleBlockView, Version,
     },
     packed::{self, Byte32, CellInput, CellOutput, ProposalShortId, Script, Transaction},
@@ -175,12 +175,16 @@ impl BlockAssembler {
                 .lock(target_lock)
                 .build();
 
-            TransactionBuilder::default()
-                .input(input)
-                .output(output)
-                .output_data(Bytes::default().pack())
-                .witness(witness)
-                .build()
+            let tx_builder = TransactionBuilder::default().input(input).witness(witness);
+            let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;
+            if insufficient_reward_to_create_cell {
+                tx_builder.build()
+            } else {
+                tx_builder
+                    .output(output)
+                    .output_data(Bytes::default().pack())
+                    .build()
+            }
         };
 
         Ok(tx)

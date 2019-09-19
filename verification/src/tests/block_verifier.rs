@@ -186,6 +186,51 @@ pub fn test_cellbase_with_non_empty_output_data() {
 }
 
 #[test]
+pub fn test_cellbase_without_output() {
+    // without_output
+    let cellbase_without_output = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(2u64))
+        .witness(Script::default().into_witness())
+        .build();
+    let block = BlockBuilder::default()
+        .header(HeaderBuilder::default().number(2u64.pack()).build())
+        .transaction(cellbase_without_output)
+        .build();
+    let result = CellbaseVerifier::new().verify(&block);
+    assert!(result.is_ok(), "Unexpected error {:?}", result);
+
+    // only output_data
+    let cellbase_without_output = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(2u64))
+        .witness(Script::default().into_witness())
+        .output_data(Bytes::new().pack())
+        .build();
+    let block = BlockBuilder::default()
+        .header(HeaderBuilder::default().number(2u64.pack()).build())
+        .transaction(cellbase_without_output)
+        .build();
+    let result = CellbaseVerifier::new().verify(&block);
+    assert_error_eq(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
+
+    // only output
+    let cellbase_without_output = TransactionBuilder::default()
+        .input(CellInput::new_cellbase_input(2u64))
+        .witness(Script::default().into_witness())
+        .output(
+            CellOutputBuilder::default()
+                .capacity(capacity_bytes!(100).pack())
+                .build(),
+        )
+        .build();
+    let block = BlockBuilder::default()
+        .header(HeaderBuilder::default().number(2u64.pack()).build())
+        .transaction(cellbase_without_output)
+        .build();
+    let result = CellbaseVerifier::new().verify(&block);
+    assert_error_eq(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
+}
+
+#[test]
 pub fn test_cellbase_with_two_output() {
     let block = BlockBuilder::default()
         .header(HeaderBuilder::default().number(2u64.pack()).build())
@@ -194,7 +239,7 @@ pub fn test_cellbase_with_two_output() {
     let verifier = CellbaseVerifier::new();
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
-        CellbaseError::InvalidQuantity,
+        CellbaseError::InvalidOutputQuantity,
     )
 }
 
@@ -207,7 +252,7 @@ pub fn test_cellbase_with_two_output_data() {
     let verifier = CellbaseVerifier::new();
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
-        CellbaseError::InvalidQuantity,
+        CellbaseError::InvalidOutputQuantity,
     )
 }
 
