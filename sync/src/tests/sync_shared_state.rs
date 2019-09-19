@@ -4,7 +4,6 @@ use crate::SyncSharedState;
 use ckb_chain::chain::ChainService;
 use ckb_merkle_mountain_range::util::MemMMR;
 use ckb_network::PeerIndex;
-use ckb_notify::NotifyService;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
@@ -66,8 +65,7 @@ fn test_insert_parent_unknown_block() {
             .build()
             .unwrap();
         let chain_controller = {
-            let notify_controller = NotifyService::default().start::<&str>(None);
-            let chain_service = ChainService::new(shared.clone(), table, notify_controller);
+            let chain_service = ChainService::new(shared.clone(), table);
             chain_service.start::<&str>(None)
         };
         (SyncSharedState::new(shared), chain_controller)

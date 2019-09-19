@@ -1,6 +1,5 @@
-use ckb_types::{core::BlockNumber, packed::UncleBlock, prelude::*};
+use ckb_types::{core::BlockNumber, core::UncleBlockView};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
-use std::sync::Arc;
 
 #[cfg(not(test))]
 const MAX_CANDIDATE_UNCLES: usize = 128;
@@ -13,7 +12,7 @@ const MAX_PER_HEIGHT: usize = 10;
 const MAX_PER_HEIGHT: usize = 2;
 
 pub struct CandidateUncles {
-    pub(in crate::candidate_uncles) map: BTreeMap<BlockNumber, HashSet<Arc<UncleBlock>>>,
+    pub(crate) map: BTreeMap<BlockNumber, HashSet<UncleBlockView>>,
     count: usize,
 }
 
@@ -25,8 +24,8 @@ impl CandidateUncles {
         }
     }
 
-    pub fn insert(&mut self, uncle: Arc<UncleBlock>) -> bool {
-        let number: BlockNumber = uncle.header().raw().number().unpack();
+    pub fn insert(&mut self, uncle: UncleBlockView) -> bool {
+        let number: BlockNumber = uncle.header().number();
         if self.count >= MAX_CANDIDATE_UNCLES {
             let first_key = *self.map.keys().next().expect("length checked");
             if number > first_key {
@@ -55,12 +54,18 @@ impl CandidateUncles {
         self.count
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &Arc<UncleBlock>> {
+    #[cfg(test)]
+    pub fn clear(&mut self) {
+        self.map.clear();
+        self.count = 0;
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &UncleBlockView> {
         self.map.values().flat_map(HashSet::iter)
     }
 
-    pub fn remove(&mut self, uncle: &Arc<UncleBlock>) -> bool {
-        let number: BlockNumber = uncle.header().raw().number().unpack();
+    pub fn remove(&mut self, uncle: &UncleBlockView) -> bool {
+        let number: BlockNumber = uncle.header().number();
 
         if let Entry::Occupied(mut entry) = self.map.entry(number) {
             let set = entry.get_mut();
@@ -74,30 +79,25 @@ impl CandidateUncles {
         }
         false
     }
-
-    #[cfg(test)]
-    pub fn clear(&mut self) {
-        self.map.clear();
-        self.count = 0;
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ckb_types::core::BlockBuilder;
+    use ckb_types::prelude::*;
 
     #[test]
     fn test_candidate_uncles_basic() {
         let mut candidate_uncles = CandidateUncles::new();
         let block = &BlockBuilder::default().build().as_uncle();
-        assert!(candidate_uncles.insert(Arc::new(block.data())));
+        assert!(candidate_uncles.insert(block.clone()));
         assert_eq!(candidate_uncles.len(), 1);
         // insert duplicate
-        assert!(!candidate_uncles.insert(Arc::new(block.data())));
+        assert!(!candidate_uncles.insert(block.clone()));
         assert_eq!(candidate_uncles.len(), 1);
 
-        assert!(candidate_uncles.remove(&Arc::new(block.data())));
+        assert!(candidate_uncles.remove(&block));
         assert_eq!(candidate_uncles.len(), 0);
         assert_eq!(candidate_uncles.map.len(), 0);
     }
@@ -116,7 +116,7 @@ mod tests {
         }
 
         for block in &blocks {
-            candidate_uncles.insert(Arc::new(block.data()));
+            candidate_uncles.insert(block.clone());
         }
         let first_key = *candidate_uncles.map.keys().next().unwrap();
         assert_eq!(candidate_uncles.len(), MAX_CANDIDATE_UNCLES);
@@ -124,7 +124,7 @@ mod tests {
 
         candidate_uncles.clear();
         for block in blocks.iter().rev() {
-            candidate_uncles.insert(Arc::new(block.data()));
+            candidate_uncles.insert(block.clone());
         }
         let first_key = *candidate_uncles.map.keys().next().unwrap();
         assert_eq!(candidate_uncles.len(), MAX_CANDIDATE_UNCLES);
@@ -145,7 +145,7 @@ mod tests {
         }
 
         for block in &blocks {
-            candidate_uncles.insert(Arc::new(block.data()));
+            candidate_uncles.insert(block.clone());
         }
         assert_eq!(candidate_uncles.map.len(), 1);
         assert_eq!(candidate_uncles.len(), MAX_PER_HEIGHT);

@@ -156,7 +156,7 @@ impl<'a> SizeVerifier<'a> {
 
 pub struct ScriptVerifier<'a, CS> {
     chain_store: &'a CS,
-    resolved_transaction: &'a ResolvedTransaction<'a>,
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
 impl<'a, CS: ChainStore<'a>> ScriptVerifier<'a, CS> {
@@ -192,7 +192,7 @@ impl<'a> EmptyVerifier<'a> {
 }
 
 pub struct MaturityVerifier<'a> {
-    transaction: &'a ResolvedTransaction<'a>,
+    transaction: &'a ResolvedTransaction,
     block_number: BlockNumber,
     cellbase_maturity: BlockNumber,
 }
@@ -272,7 +272,7 @@ impl<'a> DuplicateDepsVerifier<'a> {
 }
 
 pub struct CapacityVerifier<'a> {
-    resolved_transaction: &'a ResolvedTransaction<'a>,
+    resolved_transaction: &'a ResolvedTransaction,
 }
 
 impl<'a> CapacityVerifier<'a> {
@@ -370,7 +370,7 @@ impl Since {
 
 /// https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0017-tx-valid-since/0017-tx-valid-since.md#detailed-specification
 pub struct SinceVerifier<'a, M> {
-    rtx: &'a ResolvedTransaction<'a>,
+    rtx: &'a ResolvedTransaction,
     block_median_time_context: &'a M,
     block_number: BlockNumber,
     epoch_number: EpochNumber,

@@ -15,6 +15,8 @@ pub enum Error {
 pub enum Internal {
     #[fail(display = "InflightBlocksReachLimit")]
     InflightBlocksReachLimit,
+    #[fail(display = "TxPoolInternalError")]
+    TxPoolInternalError,
 }
 
 #[derive(Debug, Fail, Eq, PartialEq)]

@@ -10,7 +10,6 @@ serde = "1.0"
 serde_derive = "1.0"
 ckb-types = { path = "../util/types" }
 ckb-db = { path = "../db" }
-ckb-notify = { path = "../notify" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-traits = { path = "../traits" }

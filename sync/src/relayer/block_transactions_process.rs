@@ -1,7 +1,8 @@
 use crate::relayer::block_transactions_verifier::BlockTransactionsVerifier;
 use crate::relayer::block_uncles_verifier::BlockUnclesVerifier;
-use crate::relayer::error::{Error, Misbehavior};
+use crate::relayer::error::{Error, Internal, Misbehavior};
 use crate::relayer::{ReconstructionError, Relayer};
+use ckb_logger::debug_target;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{core, packed, prelude::*};
 use failure::Error as FailureError;
@@ -114,12 +115,18 @@ impl<'a> BlockTransactionsProcess<'a> {
                     .into_iter()
                     .flat_map(|u| u.data().proposals().into_iter())
                     .collect();
-                self.relayer.request_proposal_txs(
+                if let Err(err) = self.relayer.request_proposal_txs(
                     self.nc.as_ref(),
                     self.peer,
                     block_hash.clone(),
                     proposals,
-                );
+                ) {
+                    debug_target!(
+                        crate::LOG_TARGET_RELAY,
+                        "[BlockTransactionsProcess] request_proposal_txs: {}",
+                        err
+                    );
+                };
 
                 match ret {
                     Ok(block) => {
@@ -146,6 +153,10 @@ impl<'a> BlockTransactionsProcess<'a> {
                             .collect();
                         collision = true;
                         missing_uncles = vec![];
+                    }
+                    Err(ReconstructionError::Internal(e)) => {
+                        ckb_logger::error!("reconstruct_block internal error: {}", e);
+                        return Err(Error::Internal(Internal::TxPoolInternalError).into());
                     }
                 }
 

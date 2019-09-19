@@ -4,7 +4,6 @@ use ckb_crypto::secp::Privkey;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
@@ -82,8 +81,7 @@ pub fn new_always_success_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let chain_service = ChainService::new(shared.clone(), table);
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -295,8 +293,7 @@ pub fn new_secp_chain(txs_size: usize, chains_num: usize) -> Chains {
             .consensus(consensus.clone())
             .build()
             .unwrap();
-        let notify = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify);
+        let chain_service = ChainService::new(shared.clone(), table);
 
         chains.push((chain_service.start::<&str>(None), shared));
     }
@@ -466,7 +463,7 @@ pub fn dao_data(shared: &Shared, parent: &HeaderView, txs: &[TransactionView]) -
     let transactions_provider = TransactionsProvider::new(txs.iter());
     let snapshot: &Snapshot = &shared.snapshot();
     let overlay_cell_provider = OverlayCellProvider::new(&transactions_provider, snapshot);
-    let rtxs = txs.iter().try_fold(vec![], |mut rtxs, tx| {
+    let rtxs = txs.iter().cloned().try_fold(vec![], |mut rtxs, tx| {
         let rtx = resolve_transaction(tx, &mut seen_inputs, &overlay_cell_provider, snapshot);
         match rtx {
             Ok(rtx) => {

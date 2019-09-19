@@ -9,7 +9,6 @@ use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
@@ -40,8 +39,8 @@ fn basic_sync() {
     faketime::enable(&faketime_file);
     let thread_name = format!("FAKETIME={}", faketime_file.display());
 
-    let (mut node1, shared1) = setup_node(&thread_name, 1);
-    let (mut node2, shared2) = setup_node(&thread_name, 3);
+    let (mut node1, shared1) = setup_node(1);
+    let (mut node2, shared2) = setup_node(3);
 
     node1.connect(&mut node2, NetworkProtocol::SYNC.into());
 
@@ -82,7 +81,7 @@ fn basic_sync() {
     );
 }
 
-fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
+fn setup_node(height: u64) -> (TestNode, Shared) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let always_success_tx = TransactionBuilder::default()
@@ -109,9 +108,8 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
         .consensus(consensus)
         .build()
         .unwrap();
-    let notify = NotifyService::default().start(Some(thread_name));
 
-    let chain_service = ChainService::new(shared.clone(), table, notify);
+    let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(None);
 
     for _i in 0..height {
@@ -143,7 +141,8 @@ fn setup_node(thread_name: &str, height: u64) -> (TestNode, Shared) {
         let dao = {
             let snapshot: &Snapshot = &shared.snapshot();
             let resolved_cellbase =
-                resolve_transaction(&cellbase, &mut HashSet::new(), snapshot, snapshot).unwrap();
+                resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot)
+                    .unwrap();
             DaoCalculator::new(shared.consensus(), shared.store())
                 .dao_field(&[resolved_cellbase], &block.header())
                 .unwrap()

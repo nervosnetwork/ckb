@@ -1,8 +1,9 @@
 use super::helper::{build_chain, new_transaction};
 use crate::relayer::ReconstructionError;
+use ckb_tx_pool::{PlugTarget, TxEntry};
 use ckb_types::prelude::*;
 use ckb_types::{
-    core::TransactionView,
+    core::{Capacity, TransactionView},
     packed,
     packed::{BlockBuilder, CompactBlockBuilder},
 };
@@ -85,13 +86,17 @@ fn test_reconstruct_transactions_and_uncles() {
     // Should reconstruct block successfully with pool txs
     let (pool_transactions, short_transactions) = short_transactions.split_at(2);
     let short_transactions: Vec<TransactionView> = short_transactions.to_vec();
-    pool_transactions.iter().for_each(|tx| {
-        // `tx` is added into pool but not be proposed, since `tx` has not been proposal yet
-        relayer
-            .tx_pool_executor
-            .verify_and_add_tx_to_pool(tx.clone())
-            .expect("adding transaction into pool");
-    });
+    let entries = pool_transactions
+        .iter()
+        .cloned()
+        .map(|tx| TxEntry::new(tx.clone(), 0, Capacity::shannons(0), 0, vec![]))
+        .collect();
+    relayer
+        .shared
+        .shared()
+        .tx_pool_controller()
+        .plug_entry(entries, PlugTarget::Pending)
+        .unwrap();
 
     {
         let uncle_view = uncle.into_view();

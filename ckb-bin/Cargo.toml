@@ -21,7 +21,6 @@ ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
 ckb-store = { path = "../store" }
 ckb-chain-spec = {path = "../spec"}
-ckb-notify = { path = "../notify"}
 ckb-miner = { path = "../miner" }
 ckb-network = { path = "../network"}
 ckb-rpc = { path = "../rpc"}

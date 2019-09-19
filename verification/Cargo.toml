@@ -22,10 +22,12 @@ ckb-reward-calculator= { path = "../util/reward-calculator" }
 failure = "0.1.5"
 ckb-error = { path = "../error" }
 enum-display-derive = "0.1.0"
+tokio = "0.1"
+futures = "0.1"
+crossbeam-channel = "0.3"
 
 [dev-dependencies]
 ckb-db = { path = "../db" }
-ckb-notify = { path = "../notify" }
 ckb-chain = { path = "../chain" }
 ckb-hash = {path = "../util/hash"}
 ckb-shared = { path = "../shared" }

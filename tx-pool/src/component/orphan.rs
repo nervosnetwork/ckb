@@ -1,4 +1,4 @@
-use crate::tx_pool::types::DefectEntry;
+use crate::component::entry::DefectEntry;
 use ckb_types::{
     core::{Cycle, TransactionView},
     packed::{OutPoint, ProposalShortId},

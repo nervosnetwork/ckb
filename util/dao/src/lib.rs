@@ -571,7 +571,7 @@ mod tests {
             .output_data(output_cell_data.pack())
             .build();
         let rtx = ResolvedTransaction {
-            transaction: &tx,
+            transaction: tx,
             resolved_cell_deps: vec![],
             resolved_inputs: vec![
                 CellMetaBuilder::from_cell_output(input_cell, input_cell_data).build(),

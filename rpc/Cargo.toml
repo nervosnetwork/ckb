@@ -10,11 +10,9 @@ ckb-types = { path = "../util/types" }
 ckb-network = { path = "../network" }
 ckb-indexer = { path = "../indexer" }
 ckb-shared = { path = "../shared" }
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-store = { path = "../store" }
 ckb-sync = { path = "../sync" }
 ckb-chain = { path = "../chain" }
-ckb-miner = { path = "../miner" }
 ckb-logger = { path = "../util/logger"}
 ckb-network-alert = { path = "../util/network-alert" }
 jsonrpc-core = "10.1"
@@ -38,7 +36,6 @@ ckb-error = { path = "../error" }
 [dev-dependencies]
 ckb-db = { path = "../db" }
 ckb-chain-spec = { path = "../spec" }
-ckb-notify = { path = "../notify" }
 reqwest = "0.9.16"
 ckb-test-chain-utils = { path = "../util/test-chain-utils" }
 tempfile = "3.0"

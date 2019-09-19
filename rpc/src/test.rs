@@ -14,7 +14,6 @@ use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
 };
-use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
@@ -133,7 +132,7 @@ fn next_block(shared: &Shared, parent: &HeaderView) -> BlockView {
     let dao = {
         let snapshot: &Snapshot = &shared.snapshot();
         let resolved_cellbase =
-            resolve_transaction(&cellbase, &mut HashSet::new(), snapshot, snapshot).unwrap();
+            resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
         DaoCalculator::new(shared.consensus(), shared.store())
             .dao_field(&[resolved_cellbase], parent)
             .unwrap()
@@ -156,10 +155,7 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .consensus(always_success_consensus())
         .build()
         .unwrap();
-    let chain_controller = {
-        let notify = NotifyService::default().start::<&str>(None);
-        ChainService::new(shared.clone(), table, notify).start::<&str>(None)
-    };
+    let chain_controller = ChainService::new(shared.clone(), table).start::<&str>(None);
 
     // Build chain, insert [1, height) blocks
     let mut parent = always_success_consensus().genesis_block;

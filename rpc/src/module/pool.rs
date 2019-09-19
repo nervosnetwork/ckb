@@ -1,11 +1,11 @@
 use crate::error::RPCError;
 use ckb_jsonrpc_types::{Transaction, TxPoolInfo};
+use ckb_logger::error;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncSharedState;
-use ckb_tx_pool_executor::TxPoolExecutor;
 use ckb_types::{core, packed, prelude::*, H256};
-use jsonrpc_core::Result;
+use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
 use std::sync::Arc;
 
@@ -23,16 +23,13 @@ pub trait PoolRpc {
 pub(crate) struct PoolRpcImpl {
     sync_shared_state: Arc<SyncSharedState>,
     shared: Shared,
-    tx_pool_executor: Arc<TxPoolExecutor>,
 }
 
 impl PoolRpcImpl {
     pub fn new(shared: Shared, sync_shared_state: Arc<SyncSharedState>) -> PoolRpcImpl {
-        let tx_pool_executor = Arc::new(TxPoolExecutor::new(shared.clone()));
         PoolRpcImpl {
             sync_shared_state,
             shared,
-            tx_pool_executor,
         }
     }
 }
@@ -42,9 +39,15 @@ impl PoolRpc for PoolRpcImpl {
         let tx: packed::Transaction = tx.into();
         let tx: core::TransactionView = tx.into_view();
 
-        let result = self.tx_pool_executor.verify_and_add_tx_to_pool(tx.clone());
+        let tx_pool = self.shared.tx_pool_controller();
+        let submit_txs = tx_pool.submit_txs(vec![tx.clone()]);
 
-        match result {
+        if let Err(e) = submit_txs {
+            error!("send submit_txs request error {}", e);
+            return Err(Error::internal_error());
+        };
+
+        match submit_txs.unwrap() {
             Ok(_) => {
                 // workaround: we are using `PeerIndex(usize::max)` to indicate that tx hash source is itself.
                 let peer_index = PeerIndex::new(usize::max_value());
@@ -61,14 +64,22 @@ impl PoolRpc for PoolRpcImpl {
     }
 
     fn tx_pool_info(&self) -> Result<TxPoolInfo> {
-        let tx_pool = self.shared.try_lock_tx_pool();
+        let tx_pool = self.shared.tx_pool_controller();
+        let get_tx_pool_info = tx_pool.get_tx_pool_info();
+        if let Err(e) = get_tx_pool_info {
+            error!("send get_tx_pool_info request error {}", e);
+            return Err(Error::internal_error());
+        };
+
+        let tx_pool_info = get_tx_pool_info.unwrap();
+
         Ok(TxPoolInfo {
-            pending: u64::from(tx_pool.pending_size()).into(),
-            proposed: u64::from(tx_pool.proposed_size()).into(),
-            orphan: u64::from(tx_pool.orphan_size()).into(),
-            total_tx_size: (tx_pool.total_tx_size() as u64).into(),
-            total_tx_cycles: tx_pool.total_tx_cycles().into(),
-            last_txs_updated_at: tx_pool.get_last_txs_updated_at().into(),
+            pending: (tx_pool_info.pending_size as u64).into(),
+            proposed: (tx_pool_info.proposed_size as u64).into(),
+            orphan: (tx_pool_info.orphan_size as u64).into(),
+            total_tx_size: (tx_pool_info.total_tx_size as u64).into(),
+            total_tx_cycles: tx_pool_info.total_tx_cycles.into(),
+            last_txs_updated_at: tx_pool_info.last_txs_updated_at.into(),
         })
     }
 }

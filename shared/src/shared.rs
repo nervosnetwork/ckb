@@ -1,4 +1,3 @@
-use crate::tx_pool::{TxPool, TxPoolConfig};
 use crate::{Snapshot, SnapshotMgr};
 use arc_swap::Guard;
 use ckb_chain_spec::consensus::Consensus;
@@ -11,13 +10,15 @@ use ckb_reward_calculator::RewardCalculator;
 use ckb_store::ChainDB;
 use ckb_store::{ChainStore, StoreConfig, COLUMNS};
 use ckb_traits::ChainProvider;
+use ckb_tx_pool::{
+    BlockAssemblerConfig, PollLock, TxPoolConfig, TxPoolController, TxPoolServiceBuiler,
+};
 use ckb_types::{
     core::{BlockReward, Cycle, EpochExt, HeaderView, TransactionMeta},
     packed::{Byte32, Script},
     prelude::*,
     U256,
 };
-use ckb_util::{lock_or_panic, Mutex, MutexGuard};
 use im::hashmap::HashMap as HamtMap;
 use lru_cache::LruCache;
 use std::collections::HashSet;
@@ -26,8 +27,8 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct Shared {
     pub(crate) store: Arc<ChainDB>,
-    pub(crate) tx_pool: Arc<Mutex<TxPool>>,
-    pub(crate) txs_verify_cache: Arc<Mutex<LruCache<Byte32, Cycle>>>,
+    pub(crate) tx_pool_controller: TxPoolController,
+    pub(crate) txs_verify_cache: PollLock<LruCache<Byte32, Cycle>>,
     pub(crate) consensus: Arc<Consensus>,
     pub(crate) snapshot_mgr: Arc<SnapshotMgr>,
 }
@@ -37,6 +38,7 @@ impl Shared {
         store: ChainDB,
         consensus: Consensus,
         tx_pool_config: TxPoolConfig,
+        block_assembler_config: Option<BlockAssemblerConfig>,
     ) -> Result<(Self, ProposalTable), Error> {
         let (tip_header, epoch) = Self::init_store(&store, &consensus)?;
         let total_difficulty = store
@@ -48,10 +50,8 @@ impl Shared {
 
         let store = Arc::new(store);
         let consensus = Arc::new(consensus);
-        let txs_verify_cache = Arc::new(Mutex::new(LruCache::new(
-            tx_pool_config.max_verify_cache_size,
-        )));
 
+        let txs_verify_cache = PollLock::new(LruCache::new(tx_pool_config.max_verify_cache_size));
         let snapshot = Arc::new(Snapshot::new(
             tip_header,
             total_difficulty,
@@ -62,14 +62,23 @@ impl Shared {
             Arc::clone(&consensus),
         ));
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
-        let tx_pool = TxPool::new(tx_pool_config, snapshot);
+
+        let tx_pool_builer = TxPoolServiceBuiler::new(
+            tx_pool_config,
+            Arc::clone(&snapshot),
+            block_assembler_config,
+            txs_verify_cache.clone(),
+            Arc::clone(&snapshot_mgr),
+        );
+
+        let tx_pool_controller = tx_pool_builer.start();
 
         let shared = Shared {
             store,
             consensus,
             txs_verify_cache,
             snapshot_mgr,
-            tx_pool: Arc::new(Mutex::new(tx_pool)),
+            tx_pool_controller,
         };
 
         Ok((shared, proposal_table))
@@ -169,12 +178,12 @@ impl Shared {
         }
     }
 
-    pub fn lock_txs_verify_cache(&self) -> MutexGuard<LruCache<Byte32, Cycle>> {
-        lock_or_panic(&self.txs_verify_cache)
+    pub fn tx_pool_controller(&self) -> &TxPoolController {
+        &self.tx_pool_controller
     }
 
-    pub fn try_lock_tx_pool(&self) -> MutexGuard<TxPool> {
-        lock_or_panic(&self.tx_pool)
+    pub fn txs_verify_cache(&self) -> PollLock<LruCache<Byte32, Cycle>> {
+        self.txs_verify_cache.clone()
     }
 
     pub fn snapshot(&self) -> Guard<Arc<Snapshot>> {
@@ -249,6 +258,7 @@ pub struct SharedBuilder {
     consensus: Option<Consensus>,
     tx_pool_config: Option<TxPoolConfig>,
     store_config: Option<StoreConfig>,
+    block_assembler_config: Option<BlockAssemblerConfig>,
 }
 
 impl Default for SharedBuilder {
@@ -258,6 +268,7 @@ impl Default for SharedBuilder {
             consensus: None,
             tx_pool_config: None,
             store_config: None,
+            block_assembler_config: None,
         }
     }
 }
@@ -288,11 +299,21 @@ impl SharedBuilder {
         self
     }
 
+    pub fn block_assembler_config(mut self, config: Option<BlockAssemblerConfig>) -> Self {
+        self.block_assembler_config = config;
+        self
+    }
+
     pub fn build(self) -> Result<(Shared, ProposalTable), Error> {
         let consensus = self.consensus.unwrap_or_else(Consensus::default);
         let tx_pool_config = self.tx_pool_config.unwrap_or_else(Default::default);
         let store_config = self.store_config.unwrap_or_else(Default::default);
         let store = ChainDB::new(self.db, store_config);
-        Shared::init(store, consensus, tx_pool_config)
+        Shared::init(
+            store,
+            consensus,
+            tx_pool_config,
+            self.block_assembler_config,
+        )
     }
 }

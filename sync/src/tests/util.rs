@@ -3,7 +3,6 @@ use ckb_chain::chain::{ChainController, ChainService};
 
 use ckb_dao::DaoCalculator;
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
-use ckb_notify::NotifyService;
 use ckb_shared::{
     shared::{Shared, SharedBuilder},
     Snapshot,
@@ -26,8 +25,7 @@ pub fn build_chain(tip: BlockNumber) -> (SyncSharedState, ChainController) {
         .build()
         .unwrap();
     let chain_controller = {
-        let notify_controller = NotifyService::default().start::<&str>(None);
-        let chain_service = ChainService::new(shared.clone(), table, notify_controller);
+        let chain_service = ChainService::new(shared.clone(), table);
         chain_service.start::<&str>(None)
     };
     generate_blocks(&shared, &chain_controller, tip);
@@ -73,7 +71,7 @@ pub fn inherit_block(shared: &Shared, parent_hash: &Byte32) -> BlockBuilder {
     let dao = {
         let snapshot: &Snapshot = &shared.snapshot();
         let resolved_cellbase =
-            resolve_transaction(&cellbase, &mut HashSet::new(), snapshot, snapshot).unwrap();
+            resolve_transaction(cellbase.clone(), &mut HashSet::new(), snapshot, snapshot).unwrap();
         DaoCalculator::new(shared.consensus(), shared.store())
             .dao_field(&[resolved_cellbase], &parent.header())
             .unwrap()

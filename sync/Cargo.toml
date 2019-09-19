@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 ckb-chain = { path = "../chain" }
 ckb-shared = { path = "../shared" }
-ckb-tx-pool-executor = { path = "../shared/tx-pool-executor" }
 ckb-store = { path = "../store" }
 ckb-types = {path = "../util/types"}
 ckb-network = { path = "../network" }
@@ -26,9 +25,9 @@ sentry = "0.16.0"
 futures = "0.1"
 arc-swap = "0.4"
 ckb-error = {path = "../error"}
+ckb-tx-pool = { path = "../tx-pool" }
 
 [dev-dependencies]
-ckb-notify = { path = "../notify" }
 ckb-db = { path = "../db" }
 env_logger = "0.6"
 crossbeam-channel = "0.3"

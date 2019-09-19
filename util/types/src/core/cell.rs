@@ -155,8 +155,8 @@ impl CellStatus {
 
 /// Transaction with resolved input cells.
 #[derive(Debug)]
-pub struct ResolvedTransaction<'a> {
-    pub transaction: &'a TransactionView,
+pub struct ResolvedTransaction {
+    pub transaction: TransactionView,
     pub resolved_cell_deps: Vec<CellMeta>,
     pub resolved_inputs: Vec<CellMeta>,
     pub resolved_dep_groups: Vec<CellMeta>,
@@ -271,6 +271,7 @@ impl<'a> CellProvider for BlockCellProvider<'a> {
     }
 }
 
+#[derive(Default)]
 pub struct TransactionsProvider<'a> {
     transactions: HashMap<Byte32, &'a TransactionView>,
 }
@@ -279,6 +280,10 @@ impl<'a> TransactionsProvider<'a> {
     pub fn new(transactions: impl Iterator<Item = &'a TransactionView>) -> Self {
         let transactions = transactions.map(|tx| (tx.hash(), tx)).collect();
         Self { transactions }
+    }
+
+    pub fn insert(&mut self, transaction: &'a TransactionView) {
+        self.transactions.insert(transaction.hash(), transaction);
     }
 }
 
@@ -371,12 +376,12 @@ fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<Option<Box<CellMeta>>, 
     Ok(Some((*dep_group_cell, resolved_deps)))
 }
 
-pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
-    transaction: &'a TransactionView,
+pub fn resolve_transaction<CP: CellProvider, HC: HeaderChecker, S: BuildHasher>(
+    transaction: TransactionView,
     seen_inputs: &mut HashSet<OutPoint, S>,
     cell_provider: &CP,
     header_checker: &HC,
-) -> Result<ResolvedTransaction<'a>, Error> {
+) -> Result<ResolvedTransaction, Error> {
     let (
         mut unknown_out_points,
         mut resolved_inputs,
@@ -449,7 +454,7 @@ pub fn resolve_transaction<'a, CP: CellProvider, HC: HeaderChecker, S: BuildHash
     }
 }
 
-impl<'a> ResolvedTransaction<'a> {
+impl ResolvedTransaction {
     // cellbase will be resolved with empty input cells, we can use low cost check here:
     pub fn is_cellbase(&self) -> bool {
         self.resolved_inputs.is_empty()
@@ -610,7 +615,7 @@ mod tests {
         let transaction = TransactionBuilder::default().cell_dep(dep).build();
         let mut seen_inputs = HashSet::new();
         let result = resolve_transaction(
-            &transaction,
+            transaction,
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
@@ -643,7 +648,7 @@ mod tests {
         let transaction = TransactionBuilder::default().cell_dep(dep).build();
         let mut seen_inputs = HashSet::new();
         let result = resolve_transaction(
-            &transaction,
+            transaction,
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
@@ -672,7 +677,7 @@ mod tests {
         let transaction = TransactionBuilder::default().cell_dep(dep).build();
         let mut seen_inputs = HashSet::new();
         let result = resolve_transaction(
-            &transaction,
+            transaction,
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
@@ -701,7 +706,7 @@ mod tests {
 
         let mut seen_inputs = HashSet::new();
         let result = resolve_transaction(
-            &transaction,
+            transaction,
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
@@ -727,7 +732,7 @@ mod tests {
 
         let mut seen_inputs = HashSet::new();
         let result = resolve_transaction(
-            &transaction,
+            transaction,
             &mut seen_inputs,
             &cell_provider,
             &header_checker,
@@ -824,7 +829,7 @@ mod tests {
 
         let mut seen_inputs = HashSet::new();
         let rtx =
-            resolve_transaction(&tx, &mut seen_inputs, &cell_provider, &header_checker).unwrap();
+            resolve_transaction(tx, &mut seen_inputs, &cell_provider, &header_checker).unwrap();
 
         assert_eq!(rtx.resolved_cell_deps[0], dummy_cell_meta,);
     }
@@ -852,11 +857,11 @@ mod tests {
 
             let mut seen_inputs = HashSet::new();
             let result1 =
-                resolve_transaction(&tx1, &mut seen_inputs, &cell_provider, &header_checker);
+                resolve_transaction(tx1, &mut seen_inputs, &cell_provider, &header_checker);
             assert!(result1.is_ok());
 
             let result2 =
-                resolve_transaction(&tx2, &mut seen_inputs, &cell_provider, &header_checker);
+                resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
             assert!(result2.is_ok());
         }
 
@@ -873,12 +878,12 @@ mod tests {
 
             let mut seen_inputs = HashSet::new();
             let result1 =
-                resolve_transaction(&tx1, &mut seen_inputs, &cell_provider, &header_checker);
+                resolve_transaction(tx1, &mut seen_inputs, &cell_provider, &header_checker);
 
             assert!(result1.is_ok());
 
             let result2 =
-                resolve_transaction(&tx2, &mut seen_inputs, &cell_provider, &header_checker);
+                resolve_transaction(tx2, &mut seen_inputs, &cell_provider, &header_checker);
 
             assert_error_eq(result2.unwrap_err(), OutPointError::Dead(out_point.clone()));
         }

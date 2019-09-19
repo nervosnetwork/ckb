@@ -68,7 +68,7 @@ pub struct TransactionScriptsVerifier<'a, DL> {
     debug_printer: Option<Box<dyn Fn(&Byte32, &str)>>,
 
     outputs: Vec<CellMeta>,
-    rtx: &'a ResolvedTransaction<'a>,
+    rtx: &'a ResolvedTransaction,
 
     binaries_by_data_hash: HashMap<Byte32, Bytes>,
     binaries_by_type_hash: HashMap<Byte32, (Bytes, bool)>,
@@ -516,7 +516,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![always_success_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -577,7 +577,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -653,7 +653,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -745,7 +745,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell, dep_cell2],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -823,7 +823,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -887,7 +887,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -941,7 +941,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -1024,7 +1024,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell, always_success_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -1100,7 +1100,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell, always_success_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -1166,7 +1166,7 @@ mod tests {
             .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![dep_cell],
             resolved_inputs: vec![dummy_cell],
             resolved_dep_groups: vec![],
@@ -1225,7 +1225,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1285,7 +1285,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1356,7 +1356,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1415,7 +1415,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1489,7 +1489,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1569,7 +1569,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
@@ -1638,7 +1638,7 @@ mod tests {
         .build();
 
         let rtx = ResolvedTransaction {
-            transaction: &transaction,
+            transaction,
             resolved_cell_deps: vec![resolved_always_success_cell],
             resolved_inputs: vec![resolved_input_cell],
             resolved_dep_groups: vec![],
