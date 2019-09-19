@@ -12,7 +12,7 @@ nonce = 0
 message = "ckb_staging"
 
 [genesis.genesis_cell.lock]
-code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = []
 hash_type = "data"
 
@@ -32,7 +32,7 @@ file = { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" }
 create_type_id = true
 
 [genesis.system_cells_lock]
-code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = []
 hash_type = "data"
 
@@ -47,10 +47,10 @@ secp256k1_ripemd160_sha256_sighash_all = [
   { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
 ]
 
+# For first 11 block
 [genesis.bootstrap_lock]
-code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-# Lock for developers to run tests
-args = ["0x64257f00b6b63e987609fa9be2d0c86d351020fb"]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = []
 hash_type = "type"
 
 # Locks for developers to run tests

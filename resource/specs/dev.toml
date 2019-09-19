@@ -12,7 +12,7 @@ nonce = 0
 message = "ckb_dev"
 
 [genesis.genesis_cell.lock]
-code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = []
 hash_type = "data"
 
@@ -32,7 +32,7 @@ file = { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" }
 create_type_id = true
 
 [genesis.system_cells_lock]
-code_hash = "0xb35557e7e9854206f7bc13e3c3a7fa4cf8892c84a09237fb0aab40aab3771eee"
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = []
 hash_type = "data"
 
@@ -47,9 +47,10 @@ secp256k1_ripemd160_sha256_sighash_all = [
   { bundled = "specs/cells/secp256k1_ripemd160_sha256_sighash_all" },
 ]
 
+# For first 11 block
 [genesis.bootstrap_lock]
-code_hash = "0x1892ea40d82b53c678ff88312450bbb17e164d7a3e0a90941aa58839f56f8df2"
-args = ["0xb2e61ff569acf041b3c2c17724e2379c581eeac3"]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = []
 hash_type = "type"
 
 # issue 10M cell for random generated private key: d00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc
