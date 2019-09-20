@@ -231,7 +231,23 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_block",
     "params": [
+<<<<<<< HEAD
         "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+        "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451"
+=======
+<<<<<<< HEAD
+        "0xc73a331428dd9ef69b8073c248bfae9dc7c27942bb1cb70581e880bd3020d7da"
+=======
+        "0x4530dab1fbeca428c900201ae1a925ffe2437d227bfca52e12635c274aa579ee"
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+=======
+        "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
     ]
 }' \
 | tr -d '\n' \
@@ -248,7 +264,12 @@ http://localhost:8114
             "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
             "difficulty": "0x7a1200",
             "epoch": "0x7080018000001",
+<<<<<<< HEAD
             "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
+=======
+<<<<<<< HEAD
+            "hash": "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451",
+>>>>>>> chore: rebase with develop branch
             "nonce": "0x0",
             "number": "0x400",
             "parent_hash": "0xa1c400509437ba0d9a0a747c547e6b69f23398a6854e36ea144816ba4172bd74",
@@ -258,13 +279,38 @@ http://localhost:8114
             "uncles_count": "0x0",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "version": "0x0",
+<<<<<<< HEAD
             "witnesses_root": "0x45c5fe626dedcc5de6a6c30b7bd9efaa4e7f201f18f4cebb5603470264fa19d9"
+=======
+            "witnesses_root": "0xa202ae700692d18d5b9944faa1021edf6c2551fd5e46df6d427d7a1a1018e438"
+=======
+            "hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
+            "nonce": "0x0",
+            "number": "0x400",
+            "parent_hash": "0x6087b0e6983e0c1278d9224a0cf0b1dd0ed68ea74ecf5c4a92fd22811b248a43",
+            "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "timestamp": "0x5cd2b117",
+            "transactions_root": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
+            "uncles_count": "0x0",
+            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "version": "0x0",
+            "witnesses_root": "0xa1c70211d16c4a013723bc37fedb1e9786d62ccd9bf193705a747ca4b3689b6d"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
         },
         "proposals": [],
         "transactions": [
             {
                 "cell_deps": [],
+<<<<<<< HEAD
                 "hash": "0x389a19076c2dea3a81c7a93df5e0750e569b91a5e62930b0c3d1e58b1f292032",
+=======
+<<<<<<< HEAD
+                "hash": "0x1fff3c593627641d06e83cc20a9abfd78a8dbd9e8c02d50a2e8b3e395f883cfe",
+=======
+                "hash": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
                 "header_deps": [],
                 "inputs": [
                     {
@@ -291,11 +337,7 @@ http://localhost:8114
                 ],
                 "version": "0x0",
                 "witnesses": [
-                    {
-                        "data": [
-                            "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a500"
-                        ]
-                    }
+                    "0x3500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a50000000000"
                 ]
             }
         ],
@@ -317,7 +359,23 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_header",
     "params": [
+<<<<<<< HEAD
         "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+        "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451"
+=======
+<<<<<<< HEAD
+        "0xc73a331428dd9ef69b8073c248bfae9dc7c27942bb1cb70581e880bd3020d7da"
+=======
+        "0x4530dab1fbeca428c900201ae1a925ffe2437d227bfca52e12635c274aa579ee"
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+=======
+        "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
     ]
 }' \
 | tr -d '\n' \
@@ -333,7 +391,12 @@ http://localhost:8114
         "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
         "difficulty": "0x7a1200",
         "epoch": "0x7080018000001",
+<<<<<<< HEAD
         "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
+=======
+<<<<<<< HEAD
+        "hash": "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451",
+>>>>>>> chore: rebase with develop branch
         "nonce": "0x0",
         "number": "0x400",
         "parent_hash": "0xa1c400509437ba0d9a0a747c547e6b69f23398a6854e36ea144816ba4172bd74",
@@ -343,7 +406,24 @@ http://localhost:8114
         "uncles_count": "0x0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "version": "0x0",
+<<<<<<< HEAD
         "witnesses_root": "0x45c5fe626dedcc5de6a6c30b7bd9efaa4e7f201f18f4cebb5603470264fa19d9"
+=======
+        "witnesses_root": "0xa202ae700692d18d5b9944faa1021edf6c2551fd5e46df6d427d7a1a1018e438"
+=======
+        "hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
+        "nonce": "0x0",
+        "number": "0x400",
+        "parent_hash": "0x6087b0e6983e0c1278d9224a0cf0b1dd0ed68ea74ecf5c4a92fd22811b248a43",
+        "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": "0x5cd2b117",
+        "transactions_root": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
+        "uncles_count": "0x0",
+        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "0x0",
+        "witnesses_root": "0xa1c70211d16c4a013723bc37fedb1e9786d62ccd9bf193705a747ca4b3689b6d"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
     }
 }
 ```
@@ -377,7 +457,12 @@ http://localhost:8114
         "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
         "difficulty": "0x7a1200",
         "epoch": "0x7080018000001",
+<<<<<<< HEAD
         "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
+=======
+<<<<<<< HEAD
+        "hash": "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451",
+>>>>>>> chore: rebase with develop branch
         "nonce": "0x0",
         "number": "0x400",
         "parent_hash": "0xa1c400509437ba0d9a0a747c547e6b69f23398a6854e36ea144816ba4172bd74",
@@ -387,7 +472,24 @@ http://localhost:8114
         "uncles_count": "0x0",
         "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
         "version": "0x0",
+<<<<<<< HEAD
         "witnesses_root": "0x45c5fe626dedcc5de6a6c30b7bd9efaa4e7f201f18f4cebb5603470264fa19d9"
+=======
+        "witnesses_root": "0xa202ae700692d18d5b9944faa1021edf6c2551fd5e46df6d427d7a1a1018e438"
+=======
+        "hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
+        "nonce": "0x0",
+        "number": "0x400",
+        "parent_hash": "0x6087b0e6983e0c1278d9224a0cf0b1dd0ed68ea74ecf5c4a92fd22811b248a43",
+        "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": "0x5cd2b117",
+        "transactions_root": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
+        "uncles_count": "0x0",
+        "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "version": "0x0",
+        "witnesses_root": "0xa1c70211d16c4a013723bc37fedb1e9786d62ccd9bf193705a747ca4b3689b6d"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
     }
 }
 ```
@@ -426,8 +528,17 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": [
         {
+<<<<<<< HEAD
             "block_hash": "0x490af0885bc480bf38235526ad4573cd02cf77ebbe0655570e851cd72c2e6a6a",
             "capacity": "0x2ca7071b9e",
+=======
+<<<<<<< HEAD
+            "block_hash": "0xcc22c9d0bcfeeaff1253dbb98ba35457c4ce736df53cc9ca19aa5735d6b6f0e4",
+=======
+            "block_hash": "0x9fbe76384d0d112a932ff24b5d5ab63a34c526f08be0d415adfb0fe014f67842",
+>>>>>>> chore: rebase with develop branch
+            "capacity": "0x1d1a94a200",
+>>>>>>> chore: rebase with develop branch
             "lock": {
                 "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -435,12 +546,25 @@ http://localhost:8114
             },
             "out_point": {
                 "index": "0x0",
+<<<<<<< HEAD
                 "tx_hash": "0x6926a77905699715aea5a2ddbf03cb86b1b4d7939b2be3a555db7949452a0aa3"
             }
         },
         {
             "block_hash": "0x10b4df711a951142982a74c329fa57b63387cd73cff76372ad5927df9ecdc602",
             "capacity": "0x2ca7071b9e",
+=======
+                "tx_hash": "0xf5aaface17d42b00d932615921c63ee1bb12a5ae72cba45a9c28bdf7db88e24f"
+            }
+        },
+        {
+<<<<<<< HEAD
+            "block_hash": "0x0678df4ff71385b8ac2965f4653de69a6c475351d6e6423f93e7ec5122f28c01",
+=======
+            "block_hash": "0x877c30d8413d21d72c6b175bcb391a793dbd9e496bbb3106457dbca342f7fd62",
+>>>>>>> chore: rebase with develop branch
+            "capacity": "0x1d1a94a200",
+>>>>>>> chore: rebase with develop branch
             "lock": {
                 "args": "0x",
                 "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
@@ -448,7 +572,11 @@ http://localhost:8114
             },
             "out_point": {
                 "index": "0x0",
+<<<<<<< HEAD
                 "tx_hash": "0x3f0aa88e203ff3f13a06b9153946dfc5b163aad14cc9847a2bee8e5e08acb46b"
+=======
+                "tx_hash": "0xf1aa3608559b616693d64f14584bd4cc392da36f1e8f001fe9c6a1ad215ce6a6"
+>>>>>>> chore: rebase with develop branch
             }
         }
     ]
@@ -525,7 +653,23 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_transaction",
     "params": [
+<<<<<<< HEAD
         "0xbdd5df6248d5cca6f4652953d4f85b3ca65219d966a9d0a761d9ff764df92e83"
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+        "0xd7572fb4c1bf2acd069b6c574cc3d69464151e97fbd746aa1b62942ae6fd7c84"
+=======
+<<<<<<< HEAD
+        "0xba86cc2cb21832bf4a84c032eb6e8dc422385cc8f8efb84eb0bc5fe0b0b9aece"
+=======
+        "0xdb9835667dfd0ed61eb6d84d5dd2da71d32b5e0eee2b236f82f93ee2ebfbc6a4"
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+=======
+        "0xe6d0aa043922568e3e6c0972252d5e30d0f2c36d61178317e090cb735b6d2a52"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
     ]
 }' \
 | tr -d '\n' \
@@ -544,19 +688,33 @@ http://localhost:8114
                     "dep_type": "code",
                     "out_point": {
                         "index": "0x0",
-                        "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
+                        "tx_hash": "0xa4037a893eb48e18ed4ef61034ce26eba9c585f15c9cee102ae58505565eccc3"
                     }
                 }
             ],
+<<<<<<< HEAD
             "hash": "0xbdd5df6248d5cca6f4652953d4f85b3ca65219d966a9d0a761d9ff764df92e83",
+=======
+<<<<<<< HEAD
+            "hash": "0xd7572fb4c1bf2acd069b6c574cc3d69464151e97fbd746aa1b62942ae6fd7c84",
+>>>>>>> chore: rebase with develop branch
             "header_deps": [
                 "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
+=======
+            "hash": "0xe6d0aa043922568e3e6c0972252d5e30d0f2c36d61178317e090cb735b6d2a52",
+            "header_deps": [
+                "0xc5307f1ca86b12221ba9cafd783261d9562e8c5369acb2f1873e457c966ed279"
+>>>>>>> chore: rebase with develop branch
             ],
             "inputs": [
                 {
                     "previous_output": {
                         "index": "0x0",
+<<<<<<< HEAD
                         "tx_hash": "0x6926a77905699715aea5a2ddbf03cb86b1b4d7939b2be3a555db7949452a0aa3"
+=======
+                        "tx_hash": "0xf5aaface17d42b00d932615921c63ee1bb12a5ae72cba45a9c28bdf7db88e24f"
+>>>>>>> chore: rebase with develop branch
                     },
                     "since": "0x0"
                 }
@@ -602,7 +760,23 @@ echo '{
     "jsonrpc": "2.0",
     "method": "get_cellbase_output_capacity_details",
     "params": [
+<<<<<<< HEAD
         "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+        "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451"
+=======
+<<<<<<< HEAD
+        "0xc73a331428dd9ef69b8073c248bfae9dc7c27942bb1cb70581e880bd3020d7da"
+=======
+        "0x4530dab1fbeca428c900201ae1a925ffe2437d227bfca52e12635c274aa579ee"
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+=======
+        "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
     ]
 }' \
 | tr -d '\n' \
@@ -657,7 +831,12 @@ http://localhost:8114
             "dao": "0xd040e08b93e8000039585fc1261dd700f6e18bdea63700000061eb7ada030000",
             "difficulty": "0x7a1200",
             "epoch": "0x7080018000001",
+<<<<<<< HEAD
             "hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
+=======
+<<<<<<< HEAD
+            "hash": "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451",
+>>>>>>> chore: rebase with develop branch
             "nonce": "0x0",
             "number": "0x400",
             "parent_hash": "0xa1c400509437ba0d9a0a747c547e6b69f23398a6854e36ea144816ba4172bd74",
@@ -667,13 +846,38 @@ http://localhost:8114
             "uncles_count": "0x0",
             "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "version": "0x0",
+<<<<<<< HEAD
             "witnesses_root": "0x45c5fe626dedcc5de6a6c30b7bd9efaa4e7f201f18f4cebb5603470264fa19d9"
+=======
+            "witnesses_root": "0xa202ae700692d18d5b9944faa1021edf6c2551fd5e46df6d427d7a1a1018e438"
+=======
+            "hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
+            "nonce": "0x0",
+            "number": "0x400",
+            "parent_hash": "0x6087b0e6983e0c1278d9224a0cf0b1dd0ed68ea74ecf5c4a92fd22811b248a43",
+            "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "timestamp": "0x5cd2b117",
+            "transactions_root": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
+            "uncles_count": "0x0",
+            "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "version": "0x0",
+            "witnesses_root": "0xa1c70211d16c4a013723bc37fedb1e9786d62ccd9bf193705a747ca4b3689b6d"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
         },
         "proposals": [],
         "transactions": [
             {
                 "cell_deps": [],
+<<<<<<< HEAD
                 "hash": "0x389a19076c2dea3a81c7a93df5e0750e569b91a5e62930b0c3d1e58b1f292032",
+=======
+<<<<<<< HEAD
+                "hash": "0x1fff3c593627641d06e83cc20a9abfd78a8dbd9e8c02d50a2e8b3e395f883cfe",
+=======
+                "hash": "0x546c99494650bdf50e18690a1d2b874c58f9f8fa3725e10414c5cae7931e3dcd",
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
                 "header_deps": [],
                 "inputs": [
                     {
@@ -700,11 +904,7 @@ http://localhost:8114
                 ],
                 "version": "0x0",
                 "witnesses": [
-                    {
-                        "data": [
-                            "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a500"
-                        ]
-                    }
+                    "0x3500000010000000300000003100000028e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a50000000000"
                 ]
             }
         ],
@@ -743,7 +943,23 @@ echo '{
                 }
             ],
             "header_deps": [
+<<<<<<< HEAD
                 "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+                "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
+=======
+<<<<<<< HEAD
+                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+=======
+                "0x62b92fe2550cfa6b8c40e44c632d40229d7d5a4659c33b15829159279dfb73e3"
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+=======
+                "0xc5307f1ca86b12221ba9cafd783261d9562e8c5369acb2f1873e457c966ed279"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
             ],
             "inputs": [
                 {
@@ -823,7 +1039,23 @@ echo '{
                 }
             ],
             "header_deps": [
+<<<<<<< HEAD
                 "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+                "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
+=======
+<<<<<<< HEAD
+                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+=======
+                "0x62b92fe2550cfa6b8c40e44c632d40229d7d5a4659c33b15829159279dfb73e3"
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+=======
+                "0xc5307f1ca86b12221ba9cafd783261d9562e8c5369acb2f1873e457c966ed279"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
             ],
             "inputs": [
                 {
@@ -862,7 +1094,15 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
+<<<<<<< HEAD
     "result": "0xbdd5df6248d5cca6f4652953d4f85b3ca65219d966a9d0a761d9ff764df92e83"
+=======
+<<<<<<< HEAD
+    "result": "0xd7572fb4c1bf2acd069b6c574cc3d69464151e97fbd746aa1b62942ae6fd7c84"
+=======
+    "result": "0xe6d0aa043922568e3e6c0972252d5e30d0f2c36d61178317e090cb735b6d2a52"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
 }
 ```
 
@@ -887,7 +1127,23 @@ echo '{
             "index": "0x0",
             "tx_hash": "0x29f94532fb6c7a17f13bcde5adb6e2921776ee6f357adf645e5393bd13442141"
         },
+<<<<<<< HEAD
         "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c"
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+        "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451"
+=======
+<<<<<<< HEAD
+        "0xc73a331428dd9ef69b8073c248bfae9dc7c27942bb1cb70581e880bd3020d7da"
+=======
+        "0x4530dab1fbeca428c900201ae1a925ffe2437d227bfca52e12635c274aa579ee"
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+=======
+        "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
     ]
 }' \
 | tr -d '\n' \
@@ -939,7 +1195,7 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
+    "result": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
 }
 ```
 
@@ -976,9 +1232,17 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": {
+<<<<<<< HEAD
         "block_hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
+=======
+<<<<<<< HEAD
+        "block_hash": "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451",
+=======
+        "block_hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
         "block_number": "0x400",
-        "lock_hash": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
+        "lock_hash": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
     }
 }
 ```
@@ -1008,9 +1272,17 @@ http://localhost:8114
     "jsonrpc": "2.0",
     "result": [
         {
+<<<<<<< HEAD
             "block_hash": "0x51c79aa53ac2326f6eb1c41690ac26a8505f770f95f93127b7ae4cadc12e598c",
+=======
+<<<<<<< HEAD
+            "block_hash": "0x575122d7ef96d62af241ec96af1ea20f4f3a542d8995cf510aac5c5adddba451",
+=======
+            "block_hash": "0x7275b6d941cb0cb99e5d39b560b6f6ad9e1bb945fe493f226dae3ab18ba3a034",
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
             "block_number": "0x400",
-            "lock_hash": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
+            "lock_hash": "0x4ceaa32f692948413e213ce6f3a83337145bde6e11fd8cb94377ce2637dcc412"
         }
     ]
 }
@@ -1063,7 +1335,11 @@ http://localhost:8114
             "created_by": {
                 "block_number": "0x1",
                 "index": "0x0",
+<<<<<<< HEAD
                 "tx_hash": "0x6926a77905699715aea5a2ddbf03cb86b1b4d7939b2be3a555db7949452a0aa3"
+=======
+                "tx_hash": "0xf5aaface17d42b00d932615921c63ee1bb12a5ae72cba45a9c28bdf7db88e24f"
+>>>>>>> chore: rebase with develop branch
             }
         },
         {
@@ -1079,7 +1355,11 @@ http://localhost:8114
             "created_by": {
                 "block_number": "0x2",
                 "index": "0x0",
+<<<<<<< HEAD
                 "tx_hash": "0x3f0aa88e203ff3f13a06b9153946dfc5b163aad14cc9847a2bee8e5e08acb46b"
+=======
+                "tx_hash": "0xf1aa3608559b616693d64f14584bd4cc392da36f1e8f001fe9c6a1ad215ce6a6"
+>>>>>>> chore: rebase with develop branch
             }
         }
     ]
@@ -1125,7 +1405,11 @@ http://localhost:8114
             "created_by": {
                 "block_number": "0x1",
                 "index": "0x0",
+<<<<<<< HEAD
                 "tx_hash": "0x6926a77905699715aea5a2ddbf03cb86b1b4d7939b2be3a555db7949452a0aa3"
+=======
+                "tx_hash": "0xf5aaface17d42b00d932615921c63ee1bb12a5ae72cba45a9c28bdf7db88e24f"
+>>>>>>> chore: rebase with develop branch
             }
         },
         {
@@ -1133,7 +1417,11 @@ http://localhost:8114
             "created_by": {
                 "block_number": "0x2",
                 "index": "0x0",
+<<<<<<< HEAD
                 "tx_hash": "0x3f0aa88e203ff3f13a06b9153946dfc5b163aad14cc9847a2bee8e5e08acb46b"
+=======
+                "tx_hash": "0xf1aa3608559b616693d64f14584bd4cc392da36f1e8f001fe9c6a1ad215ce6a6"
+>>>>>>> chore: rebase with develop branch
             }
         }
     ]
@@ -1565,7 +1853,23 @@ echo '{
                 }
             ],
             "header_deps": [
+<<<<<<< HEAD
                 "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+                "0xb7d114888ba196ee445728950b6d26a4e0fbad4c9c86e6558e595b7a4489fa37"
+=======
+<<<<<<< HEAD
+                "0x8033e126475d197f2366bbc2f30b907d15af85c9d9533253c6f0787dcbbb509e"
+=======
+                "0x62b92fe2550cfa6b8c40e44c632d40229d7d5a4659c33b15829159279dfb73e3"
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+>>>>>>> refactor: change args from `Vec<Bytes>` to `Bytes`
+=======
+                "0xc5307f1ca86b12221ba9cafd783261d9562e8c5369acb2f1873e457c966ed279"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
             ],
             "inputs": [
                 {
@@ -1604,7 +1908,15 @@ http://localhost:8114
 {
     "id": 2,
     "jsonrpc": "2.0",
+<<<<<<< HEAD
     "result": "0xbdd5df6248d5cca6f4652953d4f85b3ca65219d966a9d0a761d9ff764df92e83"
+=======
+<<<<<<< HEAD
+    "result": "0xd7572fb4c1bf2acd069b6c574cc3d69464151e97fbd746aa1b62942ae6fd7c84"
+=======
+    "result": "0xe6d0aa043922568e3e6c0972252d5e30d0f2c36d61178317e090cb735b6d2a52"
+>>>>>>> chore: rebase with develop branch
+>>>>>>> chore: rebase with develop branch
 }
 ```
 

@@ -2,10 +2,7 @@ use crate::syscalls::{
     utils::store_data, Source, SourceEntry, INDEX_OUT_OF_BOUND, LOAD_WITNESS_SYSCALL_NUMBER,
     SUCCESS,
 };
-use ckb_types::{
-    packed::{Bytes, BytesVec},
-    prelude::*,
-};
+use ckb_types::packed::{Bytes, BytesVec};
 use ckb_vm::{
     registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -56,9 +53,9 @@ impl<'a, Mac: SupportMachine> Syscalls<Mac> for LoadWitness<'a> {
             return Ok(true);
         }
         let witness = witness.unwrap();
-        let data = witness.as_slice();
+        let data = witness.raw_data();
 
-        store_data(machine, data)?;
+        store_data(machine, &data)?;
         machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
         machine.add_cycles(data.len() as u64 * 10)?;
         Ok(true)
