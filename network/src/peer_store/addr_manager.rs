@@ -44,7 +44,7 @@ impl AddrManager {
             // reuse the for loop to shuffle random ids
             // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
             let j = rng.gen_range(i, self.random_ids.len());
-            self.random_ids.swap(j, i);
+            self.swap_random_id(j, i);
             let addr_info: AddrInfo = self.id_to_info[&self.random_ids[i]].to_owned();
             let is_duplicate_ip = duplicate_ips.insert(addr_info.ip_port.ip);
             // A trick to make our tests work
@@ -74,9 +74,11 @@ impl AddrManager {
 
     pub fn remove(&mut self, addr: &IpPort) -> Option<AddrInfo> {
         if let Some(id) = self.addr_to_id.remove(&addr) {
-            let addr_info = self.id_to_info.remove(&id).expect("exists");
-            self.random_ids.swap_remove(addr_info.random_id_pos);
-            Some(addr_info)
+            let random_id_pos = self.id_to_info.get(&id).expect("exists").random_id_pos;
+            // swap with last index, then remove the last index
+            self.swap_random_id(random_id_pos, self.random_ids.len() - 1);
+            self.random_ids.pop();
+            self.id_to_info.remove(&id)
         } else {
             None
         }
@@ -94,5 +96,22 @@ impl AddrManager {
         } else {
             None
         }
+    }
+
+    /// swap random_id i and j,
+    /// this function keep random_id_pos in consistency
+    fn swap_random_id(&mut self, i: usize, j: usize) {
+        if i == j {
+            return;
+        }
+        self.id_to_info
+            .get_mut(&self.random_ids[i])
+            .expect("exists")
+            .random_id_pos = j;
+        self.id_to_info
+            .get_mut(&self.random_ids[j])
+            .expect("exists")
+            .random_id_pos = i;
+        self.random_ids.swap(i, j);
     }
 }
