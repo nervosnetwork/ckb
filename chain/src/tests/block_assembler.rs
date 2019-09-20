@@ -56,7 +56,7 @@ lazy_static! {
             .unwrap();
 
         let block: Block = block_template.into();
-        block.as_slice().len() as u64
+        block.serialized_size_without_uncle_proposals() as u64
     };
 }
 
