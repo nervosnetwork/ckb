@@ -26,6 +26,9 @@
     *   [`get_live_cells_by_lock_hash`](#get_live_cells_by_lock_hash)
     *   [`get_transactions_by_lock_hash`](#get_transactions_by_lock_hash)
     *   [`deindex_lock_hash`](#deindex_lock_hash)
+*   [`Miner`](#miner)
+    *   [`get_block_template`](#get_block_template)
+    *   [`submit_block`](#submit_block)
 *   [`Net`](#net)
     *   [`local_node_info`](#local_node_info)
     *   [`get_peers`](#get_peers)
@@ -1163,6 +1166,133 @@ http://localhost:8114
     "id": 2,
     "jsonrpc": "2.0",
     "result": null
+}
+```
+
+## Miner
+
+### `get_block_template`
+
+Returns data needed to construct a block to work on
+
+#### Parameters
+
+    bytes_limit - optional number, specify the max bytes of block
+    proposals_limit - optional number, specify the max proposals of block
+    max_version - optional number, specify the max block version
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "get_block_template",
+    "params": [
+        null,
+        null,
+        null
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0xd8753dd87c7dd293d9b64d4ca20d77bb8e5f2d92bf08234b026e2d8b1b00e7e9"
+}
+```
+
+### `submit_block`
+
+Submit new block to network
+
+#### Parameters
+
+    work_id - the identifier to proof-of-work
+    block - new block
+
+#### Examples
+
+```bash
+echo '{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "submit_block",
+    "params": [
+        "example",
+        {
+            "header": {
+                "dao": "0x0100000000000000005827f2ba13b000d77fa3d595aa00000061eb7ada030000",
+                "difficulty": "0x7a1200",
+                "epoch": "0x7080018000001",
+                "nonce": "0x0",
+                "number": "0x400",
+                "parent_hash": "0x956315644ef52193db540709d3a34c7149cfb173e4eedcc64ee10aa366795439",
+                "proposals_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "timestamp": "0x5cd2b117",
+                "transactions_root": "0x8ad0468383d0085e26d9c3b9b648623e4194efc53a03b7cd1a79e92700687f1e",
+                "uncles_count": "0x0",
+                "uncles_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "version": "0x0",
+                "witnesses_root": "0x90445a0795a2d7d4af033ec0282a8a1f68f11ffb1cd091b95c2c5515a8336e9c"
+            },
+            "proposals": [],
+            "transactions": [
+                {
+                    "cell_deps": [],
+                    "header_deps": [],
+                    "inputs": [
+                        {
+                            "previous_output": {
+                                "index": "0xffffffff",
+                                "tx_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                            },
+                            "since": "0x400"
+                        }
+                    ],
+                    "outputs": [
+                        {
+                            "capacity": "0x1057d731c2",
+                            "lock": {
+                                "args": [],
+                                "code_hash": "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5",
+                                "hash_type": "data"
+                            },
+                            "type": null
+                        }
+                    ],
+                    "outputs_data": [
+                        "0x"
+                    ],
+                    "version": "0x0",
+                    "witnesses": [
+                        {
+                            "data": [
+                                "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a500"
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "uncles": []
+        }
+    ]
+}' \
+| tr -d '\n' \
+| curl -H 'content-type: application/json' -d @- \
+http://localhost:8114
+```
+
+```json
+{
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": "0xc73a331428dd9ef69b8073c248bfae9dc7c27942bb1cb70581e880bd3020d7da"
 }
 ```
 

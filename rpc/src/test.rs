@@ -1,6 +1,6 @@
 use crate::module::{
-    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl,
-    NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
+    ChainRpc, ChainRpcImpl, ExperimentRpc, ExperimentRpcImpl, IndexerRpc, IndexerRpcImpl, MinerRpc,
+    MinerRpcImpl, NetworkRpc, NetworkRpcImpl, PoolRpc, PoolRpcImpl, StatsRpc, StatsRpcImpl,
 };
 use crate::RpcServer;
 use ckb_chain::chain::{ChainController, ChainService};
@@ -8,7 +8,7 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_indexer::{DefaultIndexerStore, IndexerConfig, IndexerStore};
-use ckb_jsonrpc_types::Uint64;
+use ckb_jsonrpc_types::{Block as JsonBlock, Uint64};
 use ckb_network::{NetworkConfig, NetworkService, NetworkState};
 use ckb_network_alert::{
     alert_relayer::AlertRelayer, config::SignatureConfig as AlertSignatureConfig,
@@ -225,7 +225,12 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
         .to_delegate(),
     );
     io.extend_with(PoolRpcImpl::new(shared.clone(), sync_shared_state).to_delegate());
-    io.extend_with(NetworkRpcImpl { network_controller }.to_delegate());
+    io.extend_with(
+        NetworkRpcImpl {
+            network_controller: network_controller.clone(),
+        }
+        .to_delegate(),
+    );
     io.extend_with(
         StatsRpcImpl {
             shared: shared.clone(),
@@ -243,6 +248,14 @@ fn setup_node(height: u64) -> (Shared, ChainController, RpcServer) {
     io.extend_with(
         ExperimentRpcImpl {
             shared: shared.clone(),
+        }
+        .to_delegate(),
+    );
+    io.extend_with(
+        MinerRpcImpl {
+            shared: shared.clone(),
+            chain: chain_controller.clone(),
+            network_controller: network_controller.clone(),
         }
         .to_delegate(),
     );
@@ -321,7 +334,8 @@ fn result_of(client: &reqwest::Client, uri: &str, method: &str, params: Value) -
 fn params_of(shared: &Shared, method: &str) -> Value {
     let tip = {
         let snapshot = shared.snapshot();
-        snapshot.tip_header().to_owned()
+        let tip_header = snapshot.tip_header();
+        snapshot.get_block(&tip_header.hash()).unwrap()
     };
     let tip_number: Uint64 = tip.number().into();
     let tip_hash = json!(format!("{:#x}", Unpack::<H256>::unpack(&tip.hash())));
@@ -386,6 +400,11 @@ fn params_of(shared: &Shared, method: &str) -> Value {
             vec![json!(json_script)]
         }
         "calculate_dao_maximum_withdraw" => vec![json!(always_success_out_point), json!(tip_hash)],
+        "get_block_template" => vec![json!(null), json!(null), json!(null)],
+        "submit_block" => {
+            let json_block: JsonBlock = tip.data().into();
+            vec![json!("example"), json!(json_block)]
+        }
         method => {
             panic!("Unknown method: {}", method);
         }
