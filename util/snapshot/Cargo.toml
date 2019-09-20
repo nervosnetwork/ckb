@@ -19,5 +19,4 @@ ckb-proposal-table = { path = "../proposal-table" }
 # https://github.com/rust-lang/rust-clippy/issues/4121
 im = "~12.3"
 arc-swap = "0.4"
-ckb-merkle-mountain-range = { path = "../merkle-mountain-range" }
 ckb-reward-calculator = { path = "../reward-calculator" }

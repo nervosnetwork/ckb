@@ -2,17 +2,12 @@ use crate::block_status::BlockStatus;
 use crate::tests::util::{build_chain, inherit_block};
 use crate::SyncSharedState;
 use ckb_chain::chain::ChainService;
-use ckb_merkle_mountain_range::util::MemMMR;
 use ckb_network::PeerIndex;
 use ckb_shared::shared::SharedBuilder;
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
+use ckb_types::core::{BlockBuilder, BlockView, Capacity, TransactionBuilder};
 use ckb_types::prelude::*;
-use ckb_types::{
-    core::{BlockBuilder, BlockView, Capacity, TransactionBuilder},
-    packed::Byte32,
-    utilities::MergeHeaderDigest,
-};
 use std::sync::Arc;
 
 #[test]
@@ -215,12 +210,8 @@ fn test_switch_invalid_fork() {
 #[test]
 fn test_switch_valid_fork() {
     let (shared, chain) = build_chain(4);
-    let make_valid_block = |shared, parent_hash, chain_root: Byte32| -> BlockView {
-        let header = inherit_block(shared, &parent_hash)
-            .chain_root(chain_root.clone())
-            .build()
-            .header()
-            .clone();
+    let make_valid_block = |shared, parent_hash| -> BlockView {
+        let header = inherit_block(shared, &parent_hash).build().header().clone();
         let timestamp = header.timestamp() + 3;
         let cellbase = inherit_block(shared, &parent_hash).build().transactions()[0].clone();
         BlockBuilder::default()
@@ -238,16 +229,13 @@ fn test_switch_valid_fork() {
         .store()
         .get_block_hash(block_number)
         .unwrap();
-    let mut mmr = MemMMR::<_, MergeHeaderDigest>::default();
     for number in 0..=block_number {
         let block_hash = shared.snapshot().store().get_block_hash(number).unwrap();
-        let block = shared.snapshot().store().get_block(&block_hash).unwrap();
-        mmr.push(block.header().into()).unwrap();
+        shared.snapshot().store().get_block(&block_hash).unwrap();
     }
     let mut valid_fork = Vec::new();
     for _ in 2..shared.snapshot().tip_number() {
-        let chain_root = mmr.get_root().unwrap().hash();
-        let block = make_valid_block(shared.shared(), parent_hash.clone(), chain_root);
+        let block = make_valid_block(shared.shared(), parent_hash.clone());
         assert_eq!(
             shared
                 .snapshot()
@@ -255,7 +243,6 @@ fn test_switch_valid_fork() {
                 .expect("insert fork"),
             true,
         );
-        mmr.push(block.header().into()).unwrap();
 
         parent_hash = block.header().hash().to_owned();
         valid_fork.push(block);
@@ -270,10 +257,7 @@ fn test_switch_valid_fork() {
     let tip_number = shared.snapshot().tip_number();
     // Make the fork switch as the main chain.
     for _ in tip_number..tip_number + 2 {
-        let chain_root = mmr.get_root().unwrap().hash();
-        let block = inherit_block(shared.shared(), &parent_hash.clone())
-            .chain_root(chain_root)
-            .build();
+        let block = inherit_block(shared.shared(), &parent_hash.clone()).build();
         assert_eq!(
             shared
                 .snapshot()
@@ -281,7 +265,6 @@ fn test_switch_valid_fork() {
                 .expect("insert fork"),
             true,
         );
-        mmr.push(block.header().into()).unwrap();
 
         parent_hash = block.header().hash().to_owned();
         valid_fork.push(block);

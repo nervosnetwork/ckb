@@ -32,7 +32,6 @@ impl_std_cmp_eq_and_hash!(CellOutput);
 impl_std_cmp_eq_and_hash!(Alert);
 impl_std_cmp_eq_and_hash!(UncleBlock);
 impl_std_cmp_eq_and_hash!(Block);
-impl_std_cmp_eq_and_hash!(HeaderDigest);
 
 impl ::std::cmp::Ord for packed::Byte32 {
     #[inline]

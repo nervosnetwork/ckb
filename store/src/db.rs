@@ -9,12 +9,11 @@ use ckb_db::{
     iter::{DBIterator, DBIteratorItem},
     Col, DBPinnableSlice, Direction, RocksDB,
 };
-use ckb_error::{Error, InternalErrorKind};
+use ckb_error::Error;
 use ckb_types::{
     core::{BlockExt, TransactionMeta},
     packed,
     prelude::*,
-    utilities::ChainRootMMR,
 };
 use std::sync::Arc;
 
@@ -124,12 +123,6 @@ impl ChainDB {
         }
 
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
-
-        // Init MMR
-        let mut mmr = ChainRootMMR::new(0, &db_txn);
-        mmr.push(genesis.header().into())
-            .map_err(|e| InternalErrorKind::MMR.cause(e))?;
-        mmr.commit().map_err(|e| InternalErrorKind::MMR.cause(e))?;
 
         db_txn.insert_block(genesis)?;
         db_txn.insert_block_ext(&genesis_hash, &ext)?;
