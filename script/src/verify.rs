@@ -17,7 +17,7 @@ use ckb_types::{
         cell::{CellMeta, ResolvedTransaction},
         Cycle, ScriptHashType,
     },
-    packed::{Byte32, Byte32Vec, CellInputVec, CellOutput, OutPoint, Script, WitnessVec},
+    packed::{Byte32, Byte32Vec, BytesVec, CellInputVec, CellOutput, OutPoint, Script},
     prelude::*,
 };
 #[cfg(has_asm)]
@@ -180,7 +180,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
     }
 
     #[inline]
-    fn witnesses(&self) -> WitnessVec {
+    fn witnesses(&self) -> BytesVec {
         self.rtx.transaction.witnesses()
     }
 

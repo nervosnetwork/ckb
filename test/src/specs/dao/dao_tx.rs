@@ -200,7 +200,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
         // Withdraw DAO with not-enough witnesses. Return DAO script ERROR_WRONG_NUMBER_OF_ARGUMENTS
         {
             let withdraw_header_index: Bytes = 0u64.to_le_bytes().to_vec().into();
-            let witness: packed::Witness = vec![withdraw_header_index.pack()].pack();
+            let witness: packed::Bytes = withdraw_header_index.pack();
             let transaction =
                 withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
                     .as_advanced_builder()
@@ -212,8 +212,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
 
         // Withdraw DAO with witness has bad format. Return DAO script ERROR_ENCODING.
         {
-            let witness: packed::Witness =
-                vec![Bytes::new().pack(), Bytes::from(vec![0]).pack()].pack();
+            let witness: packed::Bytes = Bytes::new().pack();
             let transaction =
                 withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
                     .as_advanced_builder()
@@ -226,8 +225,7 @@ impl Spec for WithdrawDAOWithInvalidWitness {
         // Withdraw DAO with witness point to out-of-index dependency. DAO script `ckb_load_header` failed
         {
             let withdraw_header_index: Bytes = 9u64.to_le_bytes().to_vec().into();
-            let witness: packed::Witness =
-                vec![Default::default(), withdraw_header_index.pack()].pack();
+            let witness: packed::Bytes = withdraw_header_index.pack();
             let transaction =
                 withdraw_dao_transaction(node0, deposited.0.clone(), deposited.1.clone())
                     .as_advanced_builder()

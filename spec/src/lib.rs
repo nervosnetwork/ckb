@@ -508,7 +508,7 @@ impl ChainSpec {
         let tx_hash: H256 = tx.hash().unpack();
         let message = H256::from(blake2b_256(&tx_hash));
         let sig = privkey.sign_recoverable(&message).expect("sign");
-        let witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
 
         Ok(TransactionBuilder::default()
             .cell_deps(cell_deps)

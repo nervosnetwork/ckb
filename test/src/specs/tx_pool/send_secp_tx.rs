@@ -10,7 +10,7 @@ use ckb_tx_pool::BlockAssemblerConfig;
 use ckb_types::{
     bytes::Bytes,
     core::{capacity_bytes, Capacity, Cycle, DepType, ScriptHashType, TransactionBuilder},
-    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, Witness},
+    packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
     H256,
 };
@@ -71,7 +71,7 @@ impl Spec for SendSecpTxUseDepGroup {
         let tx_hash = tx.hash();
         let message = H256::from(blake2b_256(tx_hash.as_slice()));
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
-        let witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
         let tx = TransactionBuilder::default()
             .cell_dep(cell_dep)
             .input(input)
@@ -185,7 +185,7 @@ impl Spec for CheckTypical2In2OutTx {
         let tx_hash: H256 = tx.hash().unpack();
         let message = H256::from(blake2b_256(&tx_hash));
         let sig = self.privkey.sign_recoverable(&message).expect("sign");
-        let witness: Witness = vec![Bytes::from(sig.serialize()).pack()].pack();
+        let witness = Bytes::from(sig.serialize()).pack();
         let tx = tx
             .as_advanced_builder()
             .witness(witness.clone())

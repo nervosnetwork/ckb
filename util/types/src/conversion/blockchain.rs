@@ -151,8 +151,6 @@ impl_conversion_for_packed_optional_pack!(CellOutput, CellOutputOpt);
 impl_conversion_for_packed_optional_pack!(Script, ScriptOpt);
 impl_conversion_for_packed_iterator_pack!(ProposalShortId, ProposalShortIdVec);
 impl_conversion_for_packed_iterator_pack!(Bytes, BytesVec);
-impl_conversion_for_packed_iterator_pack!(Bytes, Witness);
-impl_conversion_for_packed_iterator_pack!(Witness, WitnessVec);
 impl_conversion_for_packed_iterator_pack!(Transaction, TransactionVec);
 impl_conversion_for_packed_iterator_pack!(OutPoint, OutPointVec);
 impl_conversion_for_packed_iterator_pack!(CellDep, CellDepVec);

@@ -432,8 +432,8 @@ pub fn create_2out_transaction(
         .into();
 
     raw.as_advanced_builder()
-        .witness(vec![witness.pack()].pack())
-        .witness(vec![witness.pack()].pack())
+        .witness(witness.pack())
+        .witness(witness.pack())
         .build()
 }
 

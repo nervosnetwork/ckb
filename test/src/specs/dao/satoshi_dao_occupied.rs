@@ -125,12 +125,12 @@ impl Spec for SpendSatoshiCell {
             .privkey
             .sign_recoverable(&tx_hash.unpack())
             .expect("sign");
-        let witness = vec![
-            Bytes::from(sig.serialize()).pack(),
-            Bytes::from(self.pubkey.serialize()).pack(),
-        ]
-        .pack();
-        let transaction = transaction.as_advanced_builder().witness(witness).build();
+        let mut witness = Bytes::from(sig.serialize());
+        witness.extend_from_slice(&self.pubkey.serialize());
+        let transaction = transaction
+            .as_advanced_builder()
+            .witness(witness.pack())
+            .build();
 
         node0.generate_blocks(1);
         let tx_hash = node0

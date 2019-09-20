@@ -257,7 +257,8 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
                             .transaction
                             .witnesses()
                             .get(i)
-                            .and_then(|witness| witness.get(1))
+                            // TODO FIXME Q why get 1 ?
+                            // .and_then(|witness| witness.get(1))
                             .ok_or(DaoError::InvalidOutPoint)
                             .and_then(|witness_data| {
                                 if witness_data.raw_data().len() != 8 {

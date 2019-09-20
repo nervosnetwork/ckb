@@ -745,11 +745,18 @@ fn u256_low_u64(u: U256) -> u64 {
 #[cfg(test)]
 pub mod test {
     use super::*;
+<<<<<<< HEAD
     use ckb_types::core::{capacity_bytes, BlockBuilder, TransactionBuilder};
+=======
+    use ckb_types::core::{BlockBuilder, TransactionBuilder};
+    use ckb_types::packed::Bytes;
+>>>>>>> refactor: change witness from `Vec<Bytes>` to `Bytes`
 
     #[test]
     fn test_init_epoch_reward() {
-        let cellbase = TransactionBuilder::default().witness(vec![].pack()).build();
+        let cellbase = TransactionBuilder::default()
+            .witness(Bytes::default())
+            .build();
         let genesis = BlockBuilder::default().transaction(cellbase).build();
         let epoch_ext = build_genesis_epoch_ext(capacity_bytes!(100), &U256::one());
         let consensus = ConsensusBuilder::new(genesis, capacity_bytes!(100), epoch_ext).build();

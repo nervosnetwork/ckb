@@ -36,7 +36,6 @@ vector OutPointVec <OutPoint>;
 vector CellDepVec <CellDep>;
 vector CellInputVec <CellInput>;
 vector CellOutputVec <CellOutput>;
-vector WitnessVec <Witness>;
 
 table Script {
     code_hash:      Byte32,
@@ -65,8 +64,6 @@ struct CellDep {
     dep_type:       DepType,
 }
 
-vector Witness <Bytes>;
-
 table RawTransaction {
     version:        Uint32,
     cell_deps:      CellDepVec,
@@ -78,7 +75,7 @@ table RawTransaction {
 
 table Transaction {
     raw:            RawTransaction,
-    witnesses:      WitnessVec,
+    witnesses:      BytesVec,
 }
 
 struct RawHeader {

@@ -3,7 +3,7 @@ use crate::syscalls::{
     SUCCESS,
 };
 use ckb_types::{
-    packed::{Witness, WitnessVec},
+    packed::{Bytes, BytesVec},
     prelude::*,
 };
 use ckb_vm::{
@@ -13,19 +13,19 @@ use ckb_vm::{
 
 #[derive(Debug)]
 pub struct LoadWitness<'a> {
-    witnesses: WitnessVec,
+    witnesses: BytesVec,
     group_inputs: &'a [usize],
 }
 
 impl<'a> LoadWitness<'a> {
-    pub fn new(witnesses: WitnessVec, group_inputs: &'a [usize]) -> LoadWitness<'a> {
+    pub fn new(witnesses: BytesVec, group_inputs: &'a [usize]) -> LoadWitness<'a> {
         LoadWitness {
             witnesses,
             group_inputs,
         }
     }
 
-    fn fetch_witness(&self, source: Source, index: usize) -> Option<Witness> {
+    fn fetch_witness(&self, source: Source, index: usize) -> Option<Bytes> {
         match source {
             Source::Group(SourceEntry::Input) => self
                 .group_inputs

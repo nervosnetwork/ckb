@@ -181,7 +181,7 @@ mod tests {
         core::{
             cell::CellMeta, BlockExt, Capacity, EpochExt, HeaderBuilder, HeaderView, ScriptHashType,
         },
-        packed::{Byte32, CellOutput, OutPoint, Script, Witness},
+        packed::{Byte32, CellOutput, OutPoint, Script},
         prelude::*,
         H256, U256,
     };
@@ -881,7 +881,7 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Transaction(SourceEntry::Input))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-        let witness: Witness = vec![Bytes::from(data).pack()].pack();
+        let witness = Bytes::from(data).pack();
 
         let witness_correct_data = witness.as_slice();
 
@@ -930,12 +930,12 @@ mod tests {
         machine.set_register(A4, u64::from(Source::Group(SourceEntry::Input))); //source
         machine.set_register(A7, LOAD_WITNESS_SYSCALL_NUMBER); // syscall number
 
-        let witness: Witness = vec![Bytes::from(data).pack()].pack();
+        let witness = Bytes::from(data).pack();
 
         let witness_correct_data = witness.as_slice();
 
-        let dummy_witness = vec![];
-        let witnesses = vec![dummy_witness.pack(), witness.clone()];
+        let dummy_witness = Bytes::default().pack();
+        let witnesses = vec![dummy_witness, witness.clone()];
         let group_inputs = vec![1];
         let mut load_witness = LoadWitness::new(witnesses.pack(), &group_inputs);
 

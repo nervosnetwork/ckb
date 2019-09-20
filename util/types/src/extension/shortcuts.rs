@@ -1,12 +1,10 @@
 use std::collections::HashSet;
-use std::convert::TryFrom;
 
 use crate::{
-    core::{self, BlockNumber, ScriptHashType},
+    core::{self, BlockNumber},
     packed,
     prelude::*,
     utilities::merkle_root,
-    H256,
 };
 
 impl packed::Byte32 {
@@ -75,43 +73,12 @@ impl packed::CellInput {
 }
 
 impl packed::Script {
-    pub fn into_witness(self) -> packed::Witness {
-        let mut code_hash_and_hash_type = self.code_hash().as_slice().to_vec();
-        let hash_type: ScriptHashType = self.hash_type().unpack();
-        code_hash_and_hash_type.push(hash_type as u8);
-        packed::Witness::new_builder()
-            .push((&code_hash_and_hash_type[..]).pack())
-            .push(self.args())
-            .build()
+    pub fn into_witness(self) -> packed::Bytes {
+        self.as_bytes().pack()
     }
 
-    pub fn from_witness(witness: packed::Witness) -> Option<Self> {
-        if !witness.is_empty() {
-            let mut args = witness.into_iter();
-            let first = args.next().should_be_ok();
-            let len = first.raw_data().len();
-            if len == 33 {
-                let code_hash = H256::from_slice(&first.raw_data()[..(len - 1)])
-                    .expect("impossible: fail to create H256 from slice");
-                if let Ok(hash_type) = ScriptHashType::try_from(first.raw_data()[len - 1]) {
-                    let args = packed::Bytes::new_builder()
-                        .extend(args.next().should_be_ok())
-                        .build();
-                    let script = packed::Script::new_builder()
-                        .code_hash(code_hash.pack())
-                        .args(args)
-                        .hash_type(hash_type.pack())
-                        .build();
-                    Some(script)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    pub fn from_witness(witness: packed::Bytes) -> Option<Self> {
+        Self::from_slice(&witness.raw_data()).ok()
     }
 }
 

@@ -178,26 +178,6 @@ impl From<CellInput> for packed::CellInput {
     }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct Witness {
-    data: Vec<JsonBytes>,
-}
-
-impl From<packed::Witness> for Witness {
-    fn from(input: packed::Witness) -> Witness {
-        Witness {
-            data: input.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl From<Witness> for packed::Witness {
-    fn from(json: Witness) -> Self {
-        json.data.into_iter().map(Into::into).pack()
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum DepType {
@@ -267,7 +247,7 @@ pub struct Transaction {
     pub header_deps: Vec<H256>,
     pub inputs: Vec<CellInput>,
     pub outputs: Vec<CellOutput>,
-    pub witnesses: Vec<Witness>,
+    pub witnesses: Vec<JsonBytes>,
     pub outputs_data: Vec<JsonBytes>,
 }
 
@@ -741,7 +721,7 @@ mod tests {
             .inputs(vec![mock_cell_input()])
             .outputs(vec![mock_cell_output(arg.clone())])
             .outputs_data(vec![data.pack()])
-            .witness(vec![arg.pack()].pack())
+            .witness(arg.pack())
             .build()
     }
 
