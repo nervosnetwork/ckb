@@ -68,13 +68,15 @@ pub struct Params {
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: u64,
     pub primary_epoch_reward_halving_interval: EpochNumber,
+    pub epoch_duration_target: u64,
 }
 
 impl Default for Params {
     fn default() -> Self {
         use crate::consensus::{
-            CELLBASE_MATURITY, DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
-            DEFAULT_SECONDARY_EPOCH_REWARD, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_CYCLES,
+            CELLBASE_MATURITY, DEFAULT_EPOCH_DURATION_TARGET,
+            DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL, DEFAULT_SECONDARY_EPOCH_REWARD,
+            INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_CYCLES,
         };
         Params {
             initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
@@ -82,6 +84,7 @@ impl Default for Params {
             max_block_cycles: MAX_BLOCK_CYCLES,
             cellbase_maturity: CELLBASE_MATURITY.full_value(),
             primary_epoch_reward_halving_interval: DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
+            epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
         }
     }
 }
@@ -235,6 +238,7 @@ impl ChainSpec {
                 .primary_epoch_reward_halving_interval(
                     self.params.primary_epoch_reward_halving_interval,
                 )
+                .epoch_duration_target(self.params.epoch_duration_target)
                 .build();
 
         Ok(consensus)

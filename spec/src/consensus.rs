@@ -54,12 +54,12 @@ const TWO_IN_TWO_OUT_BYTES: u64 = 557;
 // count of two-in-two-out txs a block should capable to package
 // approximately equal to 50_000_000_000 / TWO_IN_TWO_OUT_CYCLES
 const TWO_IN_TWO_OUT_COUNT: u64 = 3875;
-const EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
+pub(crate) const DEFAULT_EPOCH_DURATION_TARGET: u64 = 4 * 60 * 60; // 4 hours, unit: second
 const MILLISECONDS_IN_A_SECOND: u64 = 1000;
-const MAX_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
-const MIN_EPOCH_LENGTH: u64 = EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
+const MAX_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MIN_BLOCK_INTERVAL; // 1800
+const MIN_EPOCH_LENGTH: u64 = DEFAULT_EPOCH_DURATION_TARGET / MAX_BLOCK_INTERVAL; // 480
 pub(crate) const DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL: EpochNumber =
-    4 * 365 * 24 * 60 * 60 / EPOCH_DURATION_TARGET; // every 4 years
+    4 * 365 * 24 * 60 * 60 / DEFAULT_EPOCH_DURATION_TARGET; // every 4 years
 
 const GENESIS_EPOCH_LENGTH: u64 = 1_000;
 
@@ -218,7 +218,7 @@ impl ConsensusBuilder {
 
         let genesis_hash_rate = genesis_block.header().difficulty()
             * (GENESIS_EPOCH_LENGTH + GENESIS_ORPHAN_COUNT)
-            / EPOCH_DURATION_TARGET;
+            / DEFAULT_EPOCH_DURATION_TARGET;
 
         let genesis_epoch_ext = EpochExt::new_builder()
             .number(0)
@@ -239,7 +239,7 @@ impl ConsensusBuilder {
                 max_uncles_num: MAX_UNCLE_NUM,
                 initial_primary_epoch_reward,
                 orphan_rate_target: ORPHAN_RATE_TARGET,
-                epoch_duration_target: EPOCH_DURATION_TARGET,
+                epoch_duration_target: DEFAULT_EPOCH_DURATION_TARGET,
                 secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
                 tx_proposal_window: TX_PROPOSAL_WINDOW,
                 pow: Pow::Dummy,
@@ -356,6 +356,12 @@ impl ConsensusBuilder {
     #[must_use]
     pub fn primary_epoch_reward_halving_interval(mut self, halving_interval: u64) -> Self {
         self.inner.primary_epoch_reward_halving_interval = halving_interval;
+        self
+    }
+
+    #[must_use]
+    pub fn epoch_duration_target(mut self, target: u64) -> Self {
+        self.inner.epoch_duration_target = target;
         self
     }
 }
