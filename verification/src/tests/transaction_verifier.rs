@@ -391,7 +391,7 @@ fn test_invalid_since_verify() {
 }
 
 #[test]
-fn test_invalid_zero_length_since() {
+fn test_valid_zero_length_since() {
     // use remain flags
     let tx = create_tx_with_lock(0xa000_0000_0000_0000);
     let rtx = create_resolve_tx_with_transaction_info(

@@ -188,11 +188,10 @@ fn issue_satoshi_cell(satoshi_pubkey_hash: H160) -> IssuedCell {
 fn type_lock_script_code_hash() -> H256 {
     let input = CellInput::new_cellbase_input(0);
     // 0 => genesis cell, which contains a message and can never be spent.
-    // 1 => always success cell
     // ....
-    // 5 => secp256k1_ripemd160_sha256_sighash_all cell
+    // 4 => secp256k1_ripemd160_sha256_sighash_all cell
     // define in integration.toml spec file
-    let output_index: u64 = 5;
+    let output_index: u64 = 4;
     let mut blake2b = new_blake2b();
     blake2b.update(input.as_slice());
     blake2b.update(&output_index.to_le_bytes());

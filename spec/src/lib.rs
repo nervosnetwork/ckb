@@ -17,7 +17,10 @@ use ckb_dao_utils::genesis_dao_data_with_satoshi_gift;
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_jsonrpc_types::Script;
 use ckb_pow::{Pow, PowEngine};
-use ckb_resource::{Resource, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA};
+use ckb_resource::{
+    Resource, CODE_HASH_DAO, CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL, CODE_HASH_SECP256K1_DATA,
+    CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+};
 use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
@@ -32,7 +35,7 @@ use ckb_types::{
 pub use error::SpecError;
 use failure::Fail;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
@@ -44,6 +47,11 @@ mod error;
 const SPECIAL_CELL_PRIVKEY: H256 =
     h256!("0xd0c5c1e2d5af8b6ced3c0800937f996c1fa38c29186cade0cd8b5a73c97aaca3");
 const SPECIAL_CELL_CAPACITY: Capacity = capacity_bytes!(500);
+
+pub const OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL: u64 = 1;
+pub const OUTPUT_INDEX_DAO: u64 = 2;
+pub const OUTPUT_INDEX_SECP256K1_DATA: u64 = 3;
+pub const OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL: u64 = 4;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ChainSpec {
@@ -248,29 +256,44 @@ impl Genesis {
             .transaction(dep_group_transaction)
             .build();
 
-        self.check_lock_scripts(&block)?;
+        self.check_block(&block)?;
         Ok(block)
     }
 
-    fn check_lock_scripts(&self, block: &BlockView) -> Result<(), Box<dyn Error>> {
-        let mut data_hashes: HashSet<packed::Byte32> = HashSet::default();
-        let mut type_hashes: HashSet<packed::Byte32> = HashSet::default();
+    fn check_block(&self, block: &BlockView) -> Result<(), Box<dyn Error>> {
+        let mut data_hashes: HashMap<packed::Byte32, (usize, usize)> = HashMap::default();
+        let mut type_hashes: HashMap<packed::Byte32, (usize, usize)> = HashMap::default();
         let genesis_cell_lock: packed::Script = self.genesis_cell.lock.clone().into();
-        for tx in block.transactions() {
+        for (tx_index, tx) in block.transactions().into_iter().enumerate() {
             data_hashes.extend(
                 tx.outputs_data()
                     .into_iter()
                     .map(|data| data.raw_data())
-                    .filter(|raw_data| !raw_data.is_empty())
-                    .map(|raw_data| packed::CellOutput::calc_data_hash(&raw_data)),
+                    .enumerate()
+                    .filter(|(_, raw_data)| !raw_data.is_empty())
+                    .map(|(output_index, raw_data)| {
+                        (
+                            packed::CellOutput::calc_data_hash(&raw_data),
+                            (tx_index, output_index),
+                        )
+                    }),
             );
             type_hashes.extend(
                 tx.outputs()
                     .into_iter()
-                    .filter_map(|output| output.type_().to_opt())
-                    .map(|type_script| type_script.calc_script_hash()),
+                    .enumerate()
+                    .filter_map(|(output_index, output)| {
+                        output
+                            .type_()
+                            .to_opt()
+                            .map(|type_script| (output_index, type_script))
+                    })
+                    .map(|(output_index, type_script)| {
+                        (type_script.calc_script_hash(), (tx_index, output_index))
+                    }),
             );
         }
+        // Check lock scripts
         for lock_script in block
             .transactions()
             .into_iter()
@@ -279,7 +302,7 @@ impl Genesis {
         {
             match lock_script.hash_type().unpack() {
                 ScriptHashType::Data => {
-                    if !data_hashes.contains(&lock_script.code_hash()) {
+                    if !data_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
                             "Invalid lock script: code_hash={}, hash_type=data",
                             lock_script.code_hash(),
@@ -288,7 +311,7 @@ impl Genesis {
                     }
                 }
                 ScriptHashType::Type => {
-                    if !type_hashes.contains(&lock_script.code_hash()) {
+                    if !type_hashes.contains_key(&lock_script.code_hash()) {
                         return Err(format!(
                             "Invalid lock script: code_hash={}, hash_type=type",
                             lock_script.code_hash(),
@@ -298,6 +321,35 @@ impl Genesis {
                 }
             }
         }
+
+        // Check system cells data hash
+        let check_cells_data_hash = |tx_index, output_index, hash: &H256| {
+            if data_hashes.get(&hash.pack()) != Some(&(tx_index, output_index)) {
+                return Err(format!(
+                    "Invalid output data for tx-index: {}, output-index: {}, expected data hash: {:x}",
+                    tx_index, output_index,
+                    hash,
+                ));
+            }
+            Ok(())
+        };
+        check_cells_data_hash(
+            0,
+            OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL as usize,
+            &CODE_HASH_SECP256K1_BLAKE160_SIGHASH_ALL,
+        )?;
+        check_cells_data_hash(0, OUTPUT_INDEX_DAO as usize, &CODE_HASH_DAO)?;
+        check_cells_data_hash(
+            0,
+            OUTPUT_INDEX_SECP256K1_DATA as usize,
+            &CODE_HASH_SECP256K1_DATA,
+        )?;
+        check_cells_data_hash(
+            0,
+            OUTPUT_INDEX_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL as usize,
+            &CODE_HASH_SECP256K1_RIPEMD160_SHA256_SIGHASH_ALL,
+        )?;
+
         Ok(())
     }
 
@@ -467,11 +519,6 @@ impl Genesis {
     }
 }
 
-fn secp_lock_arg(privkey: &Privkey) -> Bytes {
-    let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
-    Bytes::from(&blake2b_256(&pubkey_data)[0..20])
-}
-
 impl GenesisCell {
     fn build_output(&self) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
         let data: Bytes = self.message.as_bytes().into();
@@ -500,18 +547,7 @@ impl SystemCell {
     ) -> Result<(packed::CellOutput, Bytes), Box<dyn Error>> {
         let data: Bytes = self.file.get()?.into_owned().into();
         let type_script = if self.create_type_id {
-            let mut blake2b = new_blake2b();
-            blake2b.update(input.as_slice());
-            blake2b.update(&output_index.to_le_bytes());
-            let mut ret = [0; 32];
-            blake2b.finalize(&mut ret);
-            let script_arg = Bytes::from(&ret[..]).pack();
-            let script = packed::Script::new_builder()
-                .code_hash(TYPE_ID_CODE_HASH.pack())
-                .hash_type(ScriptHashType::Type.pack())
-                .args(vec![script_arg].pack())
-                .build();
-            Some(script)
+            Some(build_type_id_script(input, output_index))
         } else {
             None
         };
@@ -521,6 +557,29 @@ impl SystemCell {
             .build_exact_capacity(Capacity::bytes(data.len())?)?;
         Ok((cell, data))
     }
+}
+
+fn secp_lock_arg(privkey: &Privkey) -> Bytes {
+    let pubkey_data = privkey.pubkey().expect("Get pubkey failed").serialize();
+    Bytes::from(&blake2b_256(&pubkey_data)[0..20])
+}
+
+pub fn build_genesis_type_id_script(output_index: u64) -> packed::Script {
+    build_type_id_script(&packed::CellInput::new_cellbase_input(0), output_index)
+}
+
+pub fn build_type_id_script(input: &packed::CellInput, output_index: u64) -> packed::Script {
+    let mut blake2b = new_blake2b();
+    blake2b.update(&input.as_slice());
+    blake2b.update(&output_index.to_le_bytes());
+    let mut ret = [0; 32];
+    blake2b.finalize(&mut ret);
+    let script_arg = Bytes::from(&ret[..]).pack();
+    packed::Script::new_builder()
+        .code_hash(TYPE_ID_CODE_HASH.pack())
+        .hash_type(ScriptHashType::Type.pack())
+        .args(vec![script_arg].pack())
+        .build()
 }
 
 #[cfg(test)]
