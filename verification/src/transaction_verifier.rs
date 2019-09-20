@@ -272,11 +272,15 @@ impl<'a> DuplicateDepsVerifier<'a> {
 
 pub struct CapacityVerifier<'a> {
     resolved_transaction: &'a ResolvedTransaction,
-    dao_type_hash: Byte32,
+    // It's Option because special genesis block do not have dao system cell
+    dao_type_hash: Option<Byte32>,
 }
 
 impl<'a> CapacityVerifier<'a> {
-    pub fn new(resolved_transaction: &'a ResolvedTransaction, dao_type_hash: Byte32) -> Self {
+    pub fn new(
+        resolved_transaction: &'a ResolvedTransaction,
+        dao_type_hash: Option<Byte32>,
+    ) -> Self {
         CapacityVerifier {
             resolved_transaction,
             dao_type_hash,
@@ -321,7 +325,8 @@ impl<'a> CapacityVerifier<'a> {
                     .to_opt()
                     .map(|t| {
                         t.hash_type().unpack() == ScriptHashType::Type
-                            && t.code_hash() == self.dao_type_hash
+                            && &t.code_hash()
+                                == self.dao_type_hash.as_ref().expect("No dao system cell")
                     })
                     .unwrap_or(false)
             })

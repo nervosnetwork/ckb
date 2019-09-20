@@ -124,7 +124,10 @@ fn absolute_minimal_since(node: &Node) -> BlockNumber {
 // Construct a deposit dao transaction, which consumes the tip-cellbase as the input,
 // generates the output with always-success-script as lock script, dao-script as type script
 fn deposit_dao_transaction(node: &Node) -> TransactionView {
-    let dao_type_hash = node.consensus().dao_type_hash();
+    let dao_type_hash = node
+        .consensus()
+        .dao_type_hash()
+        .expect("No dao system cell");
     let (input, block_hash, input_capacity) = tip_cellbase_input(node);
     let (output, output_data) = deposit_dao_output(input_capacity, dao_type_hash);
     let (cell_deps, mut header_deps) = deposit_dao_deps(node);

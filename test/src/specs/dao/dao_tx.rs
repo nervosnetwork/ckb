@@ -72,7 +72,10 @@ impl Spec for WithdrawAndDepositDAOWithinSameTx {
             let transaction = deposit_dao_transaction(node0);
             ensure_committed(node0, &transaction)
         };
-        let dao_type_hash = node0.consensus().dao_type_hash();
+        let dao_type_hash = node0
+            .consensus()
+            .dao_type_hash()
+            .expect("No dao system cell");
         for _ in 0..5 {
             let transaction = {
                 let transaction =

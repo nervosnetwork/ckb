@@ -232,15 +232,13 @@ impl ConsensusBuilder {
             satoshi_cell_occupied_ratio,
         } = self;
 
-        let genesis_cellbase = genesis_block
-            .transaction(0)
-            .expect("Genesis must have cellbase");
         let get_type_hash = |output_index: u64| {
-            genesis_cellbase
+            genesis_block
+                .transaction(0)
+                .expect("Genesis must have cellbase")
                 .output(output_index as usize)
                 .and_then(|output| output.type_().to_opt())
                 .map(|type_script| type_script.calc_script_hash())
-                .unwrap_or_default()
         };
         let dao_type_hash = get_type_hash(OUTPUT_INDEX_DAO);
         let secp_blake160_type_hash = get_type_hash(OUTPUT_INDEX_SECP256K1_BLAKE160_SIGHASH_ALL);
@@ -352,12 +350,9 @@ pub struct Consensus {
     pub id: String,
     pub genesis_block: BlockView,
     pub genesis_hash: Byte32,
-    // If we do not have dao cell this hash is zero
-    pub dao_type_hash: Byte32,
-    // If we do not have secp blake160 cell this hash is zero
-    pub secp_blake160_type_hash: Byte32,
-    // If we do not have secp ripemd160 cell this hash is zero
-    pub secp_ripemd160_type_hash: Byte32,
+    pub dao_type_hash: Option<Byte32>,
+    pub secp_blake160_type_hash: Option<Byte32>,
+    pub secp_ripemd160_type_hash: Option<Byte32>,
     pub epoch_reward: Capacity,
     pub secondary_epoch_reward: Capacity,
     pub max_uncles_num: usize,
@@ -422,13 +417,13 @@ impl Consensus {
         self.genesis_hash.clone()
     }
 
-    pub fn dao_type_hash(&self) -> Byte32 {
+    pub fn dao_type_hash(&self) -> Option<Byte32> {
         self.dao_type_hash.clone()
     }
-    pub fn secp_blake160_type_hash(&self) -> Byte32 {
+    pub fn secp_blake160_type_hash(&self) -> Option<Byte32> {
         self.secp_blake160_type_hash.clone()
     }
-    pub fn secp_ripemd160_type_hash(&self) -> Byte32 {
+    pub fn secp_ripemd160_type_hash(&self) -> Option<Byte32> {
         self.secp_ripemd160_type_hash.clone()
     }
 
