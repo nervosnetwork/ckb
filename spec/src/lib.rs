@@ -25,8 +25,8 @@ use ckb_types::{
     bytes::Bytes,
     constants::TYPE_ID_CODE_HASH,
     core::{
-        capacity_bytes, BlockBuilder, BlockView, Capacity, Cycle, EpochExt,
-        EpochNumberWithFraction, Ratio, ScriptHashType, TransactionBuilder, TransactionView,
+        capacity_bytes, BlockBuilder, BlockNumber, BlockView, Capacity, Cycle, EpochNumber, Ratio,
+        ScriptHashType, TransactionBuilder, TransactionView,
     },
     h256, packed,
     prelude::*,
@@ -67,19 +67,21 @@ pub struct Params {
     pub secondary_epoch_reward: Capacity,
     pub max_block_cycles: Cycle,
     pub cellbase_maturity: u64,
+    pub primary_epoch_reward_halving_interval: EpochNumber,
 }
 
 impl Default for Params {
     fn default() -> Self {
         use crate::consensus::{
-            CELLBASE_MATURITY, DEFAULT_SECONDARY_EPOCH_REWARD, INITIAL_PRIMARY_EPOCH_REWARD,
-            MAX_BLOCK_CYCLES,
+            CELLBASE_MATURITY, DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
+            DEFAULT_SECONDARY_EPOCH_REWARD, INITIAL_PRIMARY_EPOCH_REWARD, MAX_BLOCK_CYCLES,
         };
         Params {
             initial_primary_epoch_reward: INITIAL_PRIMARY_EPOCH_REWARD,
             secondary_epoch_reward: DEFAULT_SECONDARY_EPOCH_REWARD,
             max_block_cycles: MAX_BLOCK_CYCLES,
             cellbase_maturity: CELLBASE_MATURITY.full_value(),
+            primary_epoch_reward_halving_interval: DEFAULT_PRIMARY_EPOCH_REWARD_HALVING_INTERVAL,
         }
     }
 }
@@ -230,6 +232,9 @@ impl ChainSpec {
                 .pow(self.pow.clone())
                 .satoshi_pubkey_hash(self.genesis.satoshi_gift.satoshi_pubkey_hash.clone())
                 .satoshi_cell_occupied_ratio(self.genesis.satoshi_gift.satoshi_cell_occupied_ratio)
+                .primary_epoch_reward_halving_interval(
+                    self.params.primary_epoch_reward_halving_interval,
+                )
                 .build();
 
         Ok(consensus)
