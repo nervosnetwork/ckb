@@ -629,33 +629,45 @@ impl Spec for ForkedTransaction {
         let fixed_point = node0.get_tip_block_number();
         let tx = node1.new_transaction_spend_tip_cellbase();
 
-        // node0 doesn't have `tx`      => TxStatus: None
-        // node1 have `tx` on main-fork => TxStatus: Some(Committed)
+        // `node0` doesn't have `tx`      => TxStatus: None
         {
             node0.generate_blocks(1 + 2 * finalization_delay_length as usize);
-            node1.submit_transaction(&tx);
-            node1.generate_blocks(2 * finalization_delay_length as usize);
-
             let tx_status = node0.rpc_client().get_transaction(tx.hash());
             assert!(tx_status.is_none(), "node0 maintains tx in unverified fork");
+        }
+
+        // `node1` have `tx` on main-fork => TxStatus: Some(Committed)
+        {
+            node1.submit_transaction(&tx);
+            node1.generate_blocks(2 * finalization_delay_length as usize);
             let tx_status = node1.rpc_client().get_transaction(tx.hash()).unwrap();
             is_committed(&tx_status);
         }
 
-        // node0 have `tx` on unverified-fork => TxStatus: None
-        // node1 have `tx` on verified-fork   => TxStatus: Some(Pending)
+        // `node0` have `tx` on unverified-fork only => TxStatus: None
+        //
+        // We submit the main-fork of `node1` to `node0`, that will be persisted as an
+        // unverified-fork inside `node0`.
         {
             (fixed_point..=node1.get_tip_block_number()).for_each(|number| {
                 let block = node1.get_block_by_number(number);
                 node0.submit_block(&block.data());
             });
+            let tx_status = node0.rpc_client().get_transaction(tx.hash());
+            assert!(tx_status.is_none(), "node0 maintains tx in unverified fork");
+        }
+
+        // node1 have `tx` on verified-fork   => TxStatus: Some(Pending)
+        //
+        // We submit the main-fork of `node0` to `node1`, that will trigger switching forks. Then
+        // the original main-fork of `node0` will become side verified-fork. And `tx` will be moved
+        // to gap-transactions-pool during switching forks
+        {
             (fixed_point..=node0.get_tip_block_number()).for_each(|number| {
                 let block = node0.get_block_by_number(number);
                 node1.submit_block(&block.data());
             });
 
-            let tx_status = node0.rpc_client().get_transaction(tx.hash());
-            assert!(tx_status.is_none(), "node0 maintains tx in unverified fork");
             let is_pending = |tx_status: &TransactionWithStatus| {
                 let pending_status = TxStatus::pending();
                 tx_status.tx_status.status == pending_status.status
@@ -663,7 +675,7 @@ impl Spec for ForkedTransaction {
             let tx_status = node1.rpc_client().get_transaction(tx.hash()).unwrap();
             assert!(
                 is_pending(&tx_status),
-                "node1 maintains tx in verified fork"
+                "node1 maintains tx in verified fork."
             );
         }
     }

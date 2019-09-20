@@ -1,6 +1,6 @@
 use crate::utils::generate_utxo_set;
 use crate::{Net, Node, Spec};
-use ckb_types::core::{BlockNumber, BlockView, Capacity, TransactionView};
+use ckb_types::core::{BlockView, Capacity, TransactionView};
 use ckb_types::packed::{Byte32, OutPoint};
 use ckb_types::prelude::Entity;
 use ckb_types::prelude::*;
@@ -32,9 +32,11 @@ impl Spec for FeeOfTransaction {
         let number_to_propose = number_to_submit + 1;
         let number_to_commit = number_to_propose + closest;
         node.generate_blocks(2 * finalization_delay_length as usize);
-        assert_block(node, number_to_propose, &txs, &[]);
-        assert_block(node, number_to_commit, &[], &txs);
-        assert_chain(node, &txs);
+        assert_proposals(&node.get_block_by_number(number_to_propose), &txs);
+        assert_committed(&node.get_block_by_number(number_to_commit), &txs);
+
+        assert_transactions_committed(node, &txs);
+        assert_chain_rewards(node);
     }
 }
 
@@ -61,8 +63,10 @@ impl Spec for FeeOfMaxBlockProposalsLimit {
         let number_to_submit = node.get_tip_block_number();
         let number_to_propose = number_to_submit + 1;
         node.generate_blocks(2 * finalization_delay_length as usize);
-        assert_block(node, number_to_propose, &txs, &[]);
-        assert_chain(node, &txs);
+        assert_proposals(&node.get_block_by_number(number_to_propose), &txs);
+
+        assert_transactions_committed(node, &txs);
+        assert_chain_rewards(node);
     }
 }
 
@@ -98,7 +102,8 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
         });
 
         node.generate_blocks(2 * finalization_delay_length as usize);
-        assert_chain(node, &txs);
+        assert_transactions_committed(node, &txs);
+        assert_chain_rewards(node);
     }
 }
 
@@ -114,7 +119,10 @@ impl Spec for ProposeButNotCommit {
         let target_node = &net.nodes[0];
         let feed_node = &net.nodes[1];
 
-        // Construct a chain which proposed the target transaction in the tip block
+        // We use `feed_node` to construct a chain proposed `txs` in the tip block.
+        //
+        // The returned `feed_blocks`, which represents the main fork of
+        // `feed_node`, only proposes `txs` in the last block and never commit
         let feed_blocks: Vec<_> = {
             let txs = generate_utxo_set(feed_node, 1)
                 .bang_random_fee(vec![feed_node.always_success_cell_dep()]);
@@ -126,14 +134,17 @@ impl Spec for ProposeButNotCommit {
                 .collect()
         };
 
+        // `target_node` propose `tx`
         feed_blocks.iter().for_each(|block| {
             target_node.submit_block(&block.data());
         });
 
+        // `target_node` keeps growing, but it will never commit `tx` since its transactions_pool
+        // have not `tx`.
         let finalization_delay_length = feed_node.consensus().finalization_delay_length();
         target_node.generate_blocks(2 * finalization_delay_length as usize);
-        assert_block(target_node, target_node.get_tip_block_number(), &[], &[]);
-        assert_chain(target_node, &[]);
+
+        assert_chain_rewards(target_node);
     }
 }
 
@@ -178,7 +189,9 @@ impl Spec for ProposeDuplicated {
 
         let finalization_delay_length = node.consensus().finalization_delay_length();
         node.generate_blocks(2 * finalization_delay_length as usize);
-        assert_chain(node, &txs);
+
+        assert_transactions_committed(node, &txs);
+        assert_chain_rewards(node);
     }
 }
 
@@ -231,22 +244,6 @@ fn assert_chain_rewards(node: &Node) {
         assert_proposed_reward(node, block_hash.clone(), proposed_fee);
         assert_committed_reward(node, block_hash, committed_fee);
     }
-}
-
-fn assert_chain(node: &Node, transactions: &[TransactionView]) {
-    assert_transactions_committed(node, transactions);
-    assert_chain_rewards(node);
-}
-
-fn assert_block(
-    node: &Node,
-    block_number: BlockNumber,
-    proposals: &[TransactionView],
-    committed: &[TransactionView],
-) {
-    let block = node.get_block_by_number(block_number);
-    assert_proposals(&block, proposals);
-    assert_committed(&block, committed);
 }
 
 fn assert_proposals(block: &BlockView, expected: &[TransactionView]) {
