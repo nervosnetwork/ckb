@@ -9,7 +9,8 @@ pub use dao_tx::{
 pub use satoshi_dao_occupied::{DAOWithSatoshiCellOccupied, SpendSatoshiCell};
 
 use crate::utils::is_committed;
-use crate::Node;
+use crate::{Node, SYSTEM_CELL_ALWAYS_SUCCESS_INDEX};
+use ckb_chain_spec::OUTPUT_INDEX_DAO;
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
     bytes::Bytes,
@@ -18,8 +19,6 @@ use ckb_types::{
     prelude::*,
 };
 
-const SYSTEM_CELL_ALWAYS_SUCCESS_INDEX: u32 = 5;
-const SYSTEM_CELL_DAO_INDEX: u32 = 2;
 const WITHDRAW_WINDOW_LEFT: u64 = 10;
 // The second witness
 const WITHDRAW_HEADER_INDEX: u64 = 1;
@@ -74,7 +73,7 @@ fn deposit_dao_deps(node: &Node) -> (Vec<CellDep>, Vec<Byte32>) {
         .build();
     // Reference to DAO type_script
     let dao_dep = CellDep::new_builder()
-        .out_point(OutPoint::new(genesis_tx.hash(), SYSTEM_CELL_DAO_INDEX))
+        .out_point(OutPoint::new(genesis_tx.hash(), OUTPUT_INDEX_DAO as u32))
         .build();
 
     (vec![always_dep, dao_dep], vec![genesis_block.hash()])
