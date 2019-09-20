@@ -81,6 +81,7 @@ secondary_epoch_reward = 613_698_63013698
 max_block_cycles = 10_000_000_000
 cellbase_maturity = 0
 primary_epoch_reward_halving_interval = 8760
+epoch_duration_target = 14400
 
 [pow]
 func = "Dummy"
