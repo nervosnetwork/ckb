@@ -15,7 +15,7 @@ pub fn import(args: ImportArgs) -> Result<(), ExitCode> {
     let chain_service = ChainService::new(shared.clone(), table);
     let chain_controller = chain_service.start::<&str>(Some("ImportChainService"));
 
-    Import::new(chain_controller, args.format, args.source)
+    Import::new(chain_controller, args.source)
         .execute()
         .map_err(|err| {
             eprintln!("Import error: {:?}", err);

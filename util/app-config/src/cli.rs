@@ -182,20 +182,9 @@ fn prof() -> App<'static, 'static> {
         )
 }
 
-fn arg_format() -> Arg<'static, 'static> {
-    Arg::with_name(ARG_FORMAT)
-        .short("f")
-        .long(ARG_FORMAT)
-        .possible_values(&["bin", "json"])
-        .required(true)
-        .takes_value(true)
-        .help("Specifies the format.")
-}
-
 fn export() -> App<'static, 'static> {
     SubCommand::with_name(CMD_EXPORT)
         .about("Exports ckb data")
-        .arg(arg_format())
         .arg(
             Arg::with_name(ARG_TARGET)
                 .short("t")
@@ -210,7 +199,6 @@ fn export() -> App<'static, 'static> {
 fn import() -> App<'static, 'static> {
     SubCommand::with_name(CMD_IMPORT)
         .about("Imports ckb data")
-        .arg(arg_format())
         .arg(
             Arg::with_name(ARG_SOURCE)
                 .short("s")
