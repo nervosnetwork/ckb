@@ -1,4 +1,3 @@
-use crate::format::Format;
 use crate::iter::ChainIterator;
 use ckb_jsonrpc_types::BlockView as JsonBlock;
 use ckb_shared::shared::Shared;
@@ -16,17 +15,11 @@ pub struct Export {
     /// export target path
     pub target: PathBuf,
     pub shared: Shared,
-    /// which format be used to export
-    pub format: Format,
 }
 
 impl Export {
-    pub fn new(shared: Shared, format: Format, target: PathBuf) -> Self {
-        Export {
-            shared,
-            format,
-            target,
-        }
+    pub fn new(shared: Shared, target: PathBuf) -> Self {
+        Export { shared, target }
     }
 
     /// Returning ChainIterator dealing with blocks iterate.
@@ -36,15 +29,12 @@ impl Export {
 
     /// export file name
     fn file_name(&self) -> String {
-        format!("{}.{}", self.shared.consensus().id, self.format)
+        format!("{}.{}", self.shared.consensus().id, "json")
     }
 
     pub fn execute(self) -> Result<(), Box<dyn Error>> {
         fs::create_dir_all(&self.target)?;
-        match self.format {
-            Format::Json => self.write_to_json(),
-            _ => Ok(()),
-        }
+        self.write_to_json()
     }
 
     #[cfg(not(feature = "progress_bar"))]
