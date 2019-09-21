@@ -184,29 +184,29 @@ pub fn build_genesis_dao_data(
     tx_proposal_window: ProposalWindow,
     secondary_epoch_reward: Capacity,
 ) -> Byte32 {
-    // Genesis block has special issurance rule, hence we only add up
-    // issurance from block 1 up to the length of proposal window here.
-    let initial_primary_issurance = genesis_epoch_ext
+    // Genesis block has special issuance rule, hence we only add up
+    // issuance from block 1 up to the length of proposal window here.
+    let initial_primary_issuance = genesis_epoch_ext
         .block_reward(0)
         .and_then(|c| {
             c.safe_mul(tx_proposal_window.farthest())
                 .map_err(Into::into)
         })
-        .expect("initial primary issurance calculation overflow!");
-    let initial_secondary_issurance = genesis_epoch_ext
-        .secondary_block_issurance(0, secondary_epoch_reward)
+        .expect("initial primary issuance calculation overflow!");
+    let initial_secondary_issuance = genesis_epoch_ext
+        .secondary_block_issuance(0, secondary_epoch_reward)
         .and_then(|c| {
             c.safe_mul(tx_proposal_window.farthest())
                 .map_err(Into::into)
         })
-        .expect("initial primary issurance calculation overflow!");
+        .expect("initial primary issuance calculation overflow!");
 
     genesis_dao_data_with_satoshi_gift(
         txs,
         satoshi_pubkey_hash,
         satoshi_cell_occupied_ratio,
-        initial_primary_issurance,
-        initial_secondary_issurance,
+        initial_primary_issuance,
+        initial_secondary_issuance,
     )
     .expect("genesis dao data calculation error!")
 }

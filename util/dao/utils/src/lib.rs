@@ -33,8 +33,8 @@ pub fn genesis_dao_data_with_satoshi_gift(
     txs: Vec<&TransactionView>,
     satoshi_pubkey_hash: &H160,
     satoshi_cell_occupied_ratio: Ratio,
-    initial_primary_issurance: Capacity,
-    initial_secondary_issurance: Capacity,
+    initial_primary_issuance: Capacity,
+    initial_secondary_issuance: Capacity,
 ) -> Result<Byte32, Error> {
     let dead_cells = txs
         .iter()
@@ -72,9 +72,9 @@ pub fn genesis_dao_data_with_satoshi_gift(
         Ok((c, u))
     };
 
-    let initial_issurance = initial_primary_issurance.safe_add(initial_secondary_issurance)?;
+    let initial_issuance = initial_primary_issuance.safe_add(initial_secondary_issuance)?;
     let result: Result<_, Error> = txs.into_iter().enumerate().try_fold(
-        (initial_issurance, Capacity::zero()),
+        (initial_issuance, Capacity::zero()),
         |(c, u), (tx_index, tx)| {
             let (tx_c, tx_u) = statistics_outputs(tx_index, tx)?;
             let c = c.safe_add(tx_c)?;
@@ -91,7 +91,7 @@ pub fn genesis_dao_data_with_satoshi_gift(
     Ok(pack_dao_data(
         DEFAULT_ACCUMULATED_RATE,
         c,
-        initial_secondary_issurance,
+        initial_secondary_issuance,
         u,
     ))
 }

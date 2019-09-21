@@ -57,7 +57,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .ok_or(DaoError::InvalidHeader)?;
 
         let target_g2 = target_epoch
-            .secondary_block_issurance(target.number(), self.consensus.secondary_epoch_reward())?;
+            .secondary_block_issuance(target.number(), self.consensus.secondary_epoch_reward())?;
         let (_, target_parent_c, _, target_parent_u) = extract_dao_data(target_parent.dao())?;
         let reward128 = u128::from(target_g2.as_u64()) * u128::from(target_parent_u.as_u64())
             / u128::from(target_parent_c.as_u64());
@@ -102,9 +102,9 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
 
         // g contains both primary issuance and secondary issuance,
         // g2 is the secondary issuance for the block, which consists of
-        // issurance for the miner, NervosDAO and treasury.
-        // When calculating issurance in NervosDAO, we use the real
-        // issurance for each block(which will only be issued on chain
+        // issuance for the miner, NervosDAO and treasury.
+        // When calculating issuance in NervosDAO, we use the real
+        // issuance for each block(which will only be issued on chain
         // after the finalization delay), not the capacities generated
         // in the cellbase of current block.
         let parent_block_epoch = self
@@ -117,7 +117,7 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .next_epoch_ext(&self.consensus, &parent_block_epoch, &parent)
             .unwrap_or(parent_block_epoch);
         let current_block_number = parent.number() + 1;
-        let current_g2 = current_block_epoch.secondary_block_issurance(
+        let current_g2 = current_block_epoch.secondary_block_issuance(
             current_block_number,
             self.consensus.secondary_epoch_reward(),
         )?;
@@ -125,19 +125,19 @@ impl<'a, CS: ChainStore<'a>> DaoCalculator<'a, CS, DataLoaderWrapper<'a, CS>> {
             .block_reward(current_block_number)
             .and_then(|c| c.safe_add(current_g2).map_err(Into::into))?;
 
-        let miner_issurance128 = u128::from(current_g2.as_u64()) * u128::from(parent_u.as_u64())
+        let miner_issuance128 = u128::from(current_g2.as_u64()) * u128::from(parent_u.as_u64())
             / u128::from(parent_c.as_u64());
-        let miner_issurance =
-            Capacity::shannons(u64::try_from(miner_issurance128).map_err(|_| DaoError::Overflow)?);
-        let nervosdao_issurance = current_g2.safe_sub(miner_issurance)?;
+        let miner_issuance =
+            Capacity::shannons(u64::try_from(miner_issuance128).map_err(|_| DaoError::Overflow)?);
+        let nervosdao_issuance = current_g2.safe_sub(miner_issuance)?;
 
         let current_c = parent_c.safe_add(current_g)?;
         let current_u = parent_u
             .safe_add(added_occupied_capacities)
             .and_then(|u| u.safe_sub(freed_occupied_capacities))?;
         let current_s = parent_s
-            .safe_sub(withdrawed_interests)
-            .and_then(|s| s.safe_add(nervosdao_issurance))?;
+            .safe_add(nervosdao_issuance)
+            .and_then(|s| s.safe_sub(withdrawed_interests))?;
 
         let ar_increase128 =
             u128::from(parent_ar) * u128::from(current_g2.as_u64()) / u128::from(parent_c.as_u64());
