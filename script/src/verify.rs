@@ -1,8 +1,8 @@
 use crate::{
     cost_model::instruction_cycles,
     syscalls::{
-        Debugger, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScriptHash, LoadTxHash,
-        LoadWitness,
+        Debugger, LoadArgs, LoadCell, LoadCellData, LoadHeader, LoadInput, LoadScriptHash,
+        LoadTxHash, LoadWitness,
     },
     type_id::TypeIdSystemScript,
     DataLoader, ScriptError,
@@ -17,7 +17,7 @@ use ckb_types::{
         cell::{CellMeta, ResolvedTransaction},
         Cycle, ScriptHashType,
     },
-    packed::{Byte32, Byte32Vec, BytesVec, CellInputVec, CellOutput, OutPoint, Script},
+    packed::{self, Byte32, Byte32Vec, BytesVec, CellInputVec, CellOutput, OutPoint, Script},
     prelude::*,
 };
 #[cfg(has_asm)]
@@ -244,6 +244,10 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         LoadWitness::new(self.witnesses(), group_inputs)
     }
 
+    fn build_load_args(&self, args: packed::Bytes) -> LoadArgs {
+        LoadArgs::new(args)
+    }
+
     // Extracts actual script binary either in dep cells.
     fn extract_script(&self, script: &'a Script) -> Result<Bytes, Error> {
         match script.hash_type().unpack() {
@@ -346,8 +350,6 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
                 debug!("{} DEBUG OUTPUT: {}", prefix, message);
             };
         };
-        let mut args = vec!["verify".into()];
-        args.push(script_group.script.args().raw_data());
         #[cfg(has_asm)]
         let machine_builder = {
             let core_machine = AsmCoreMachine::new_with_max_cycles(max_cycles);
@@ -378,6 +380,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
             .syscall(Box::new(
                 self.build_load_witness(&script_group.input_indices),
             ))
+            .syscall(Box::new(self.build_load_args(script_group.script.args())))
             .syscall(Box::new(self.build_load_cell_data(
                 &script_group.input_indices,
                 &script_group.output_indices,
@@ -389,7 +392,7 @@ impl<'a, DL: DataLoader> TransactionScriptsVerifier<'a, DL> {
         #[cfg(not(has_asm))]
         let mut machine = TraceMachine::new(default_machine);
         machine
-            .load_program(&program, &args)
+            .load_program(&program, &[])
             .map_err(internal_error)?;
         let code = machine.run().map_err(internal_error)?;
         if code == 0 {
