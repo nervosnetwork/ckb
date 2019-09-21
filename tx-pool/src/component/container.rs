@@ -20,8 +20,8 @@ impl AncestorsScoreSortKey {
     /// compare tx fee rate with ancestors fee rate and return the min one
     fn min_fee_and_vbytes(&self) -> (Capacity, u64) {
         // avoid division a_fee/a_vbytes > b_fee/b_vbytes
-        let tx_weight = self.fee.as_u64() * self.ancestors_vbytes;
-        let ancestors_weight = self.ancestors_fee.as_u64() * self.vbytes;
+        let tx_weight = u128::from(self.fee.as_u64()) * u128::from(self.ancestors_vbytes);
+        let ancestors_weight = u128::from(self.ancestors_fee.as_u64()) * u128::from(self.vbytes);
 
         if tx_weight < ancestors_weight {
             (self.fee, self.vbytes)
@@ -42,8 +42,8 @@ impl Ord for AncestorsScoreSortKey {
         // avoid division a_fee/a_vbytes > b_fee/b_vbytes
         let (fee, vbytes) = self.min_fee_and_vbytes();
         let (other_fee, other_vbytes) = other.min_fee_and_vbytes();
-        let self_weight = fee.as_u64() * other_vbytes;
-        let other_weight = other_fee.as_u64() * vbytes;
+        let self_weight = u128::from(fee.as_u64()) * u128::from(other_vbytes);
+        let other_weight = u128::from(other_fee.as_u64()) * u128::from(vbytes);
         if self_weight == other_weight {
             // if fee rate weight is same, then compare with ancestor vbytes
             if self.ancestors_vbytes == other.ancestors_vbytes {
@@ -277,5 +277,92 @@ impl SortedTxMap {
     /// return sorted keys
     pub fn sorted_keys(&self) -> impl Iterator<Item = &AncestorsScoreSortKey> {
         self.sorted_index.iter().rev()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+
+    #[test]
+    fn test_min_fee_and_vbytes() {
+        let result = vec![
+            (0, 0, 0, 0),
+            (1, 0, 1, 0),
+            (500, 10, 1000, 30),
+            (10, 500, 30, 1000),
+            (500, 10, 1000, 20),
+            (std::u64::MAX, 0, std::u64::MAX, 0),
+            (std::u64::MAX, 100, std::u64::MAX, 2000),
+            (std::u64::MAX, std::u64::MAX, std::u64::MAX, std::u64::MAX),
+        ]
+        .into_iter()
+        .map(|(fee, vbytes, ancestors_fee, ancestors_vbytes)| {
+            let key = AncestorsScoreSortKey {
+                fee: Capacity::shannons(fee),
+                vbytes,
+                id: ProposalShortId::new([0u8; 10]),
+                ancestors_fee: Capacity::shannons(ancestors_fee),
+                ancestors_vbytes,
+            };
+            key.min_fee_and_vbytes()
+        })
+        .collect::<Vec<_>>();
+        assert_eq!(
+            result,
+            vec![
+                (Capacity::shannons(0), 0),
+                (Capacity::shannons(1), 0),
+                (Capacity::shannons(1000), 30),
+                (Capacity::shannons(10), 500),
+                (Capacity::shannons(1000), 20),
+                (Capacity::shannons(std::u64::MAX), 0),
+                (Capacity::shannons(std::u64::MAX), 2000),
+                (Capacity::shannons(std::u64::MAX), std::u64::MAX),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_ancestors_sorted_key_order() {
+        let mut keys = vec![
+            (0, 0, 0, 0),
+            (1, 0, 1, 0),
+            (500, 10, 1000, 30),
+            (10, 500, 30, 1000),
+            (500, 10, 1000, 30),
+            (10, 500, 30, 1000),
+            (500, 10, 1000, 20),
+            (std::u64::MAX, 0, std::u64::MAX, 0),
+            (std::u64::MAX, 100, std::u64::MAX, 2000),
+            (std::u64::MAX, std::u64::MAX, std::u64::MAX, std::u64::MAX),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (fee, vbytes, ancestors_fee, ancestors_vbytes))| {
+            let mut id = [0u8; 10];
+            id[..size_of::<u32>()].copy_from_slice(&(i as u32).to_be_bytes());
+            AncestorsScoreSortKey {
+                fee: Capacity::shannons(fee),
+                vbytes,
+                id: ProposalShortId::new(id),
+                ancestors_fee: Capacity::shannons(ancestors_fee),
+                ancestors_vbytes,
+            }
+        })
+        .collect::<Vec<_>>();
+        keys.sort();
+        assert_eq!(
+            keys.into_iter().map(|k| k.id).collect::<Vec<_>>(),
+            [0, 3, 5, 9, 2, 4, 6, 8, 1, 7]
+                .iter()
+                .map(|&i| {
+                    let mut id = [0u8; 10];
+                    id[..size_of::<u32>()].copy_from_slice(&(i as u32).to_be_bytes());
+                    ProposalShortId::new(id)
+                })
+                .collect::<Vec<_>>()
+        );
     }
 }
